@@ -15,10 +15,6 @@ def supabase_client() -> Client:
     return _supabase
 
 def upload_png(file_storage, folder: str) -> str | None:
-    """
-    Sube un PNG al bucket y devuelve su URL pública.
-    - file_storage: werkzeug.datastructures.FileStorage
-    """
     if not file_storage or not getattr(file_storage, "filename", ""):
         return None
 
@@ -29,21 +25,20 @@ def upload_png(file_storage, folder: str) -> str | None:
     key = f"{folder}/{uuid4().hex}.png"
     client = supabase_client()
 
-    # Lee bytes y vuelve a poner el puntero al inicio por si se reusa
     data = file_storage.read()
     file_storage.stream.seek(0)
 
-    # OJO: file_options en supabase-py usa claves con guion y valores STRING.
-    # Si pasas bool en 'upsert', httpx intentará .encode() y falla.
+    # file_options: usar strings y 'content-type' (con guion)
     resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
         path=key,
         file=data,
         file_options={"content-type": "image/png", "cache-control": "3600", "upsert": "false"}
     )
 
-    # Algunas versiones devuelven dict con possible 'error'
+    # Algunas versiones devuelven dict con 'error'
     if isinstance(resp, dict) and resp.get("error"):
-        raise RuntimeError(resp["error"].get("message", "Error subiendo a Storage"))
+        msg = resp["error"].get("message", "Error subiendo a Storage")
+        raise RuntimeError(msg)
 
     public_url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
     return public_url

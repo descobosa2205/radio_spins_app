@@ -1,0 +1,95 @@
+{% extends "layout.html" %}
+{% block content %}
+<h4 class="mb-3">Canciones</h4>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Nombre de la canción</label>
+        <input required name="title" class="form-control" />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Artista(s)</label>
+        <select name="artist_ids[]" class="form-select select-artists" multiple required>
+          {% for a in artists %}
+          <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
+          {% endfor %}
+        </select>
+        <small class="text-muted">Puedes seleccionar más de uno.</small>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Artista colaborador (opcional)</label>
+        <input name="collaborator" class="form-control" placeholder="Si se deja en blanco, no se mostrará" />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Portada (PNG)</label>
+        <input type="file" name="cover" accept="image/png" class="form-control" />
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Fecha de lanzamiento</label>
+        <input type="date" name="release_date" class="form-control" required />
+      </div>
+      <div class="col-md-4">
+        <button class="btn btn-primary w-100 mt-4">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row row-cols-1 g-3">
+  {% for s in songs %}
+  <div class="col">
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex align-items-start">
+          <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square me-3" alt="">
+          <div class="flex-grow-1">
+            <form method="post" action="{{ url_for('song_update', song_id=s.id) }}" enctype="multipart/form-data">
+              <div class="row g-2">
+                <div class="col-md-3">
+                  <label class="form-label">Nombre</label>
+                  <input name="title" class="form-control" value="{{ s.title }}">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Artista(s)</label>
+                  <select name="artist_ids[]" class="form-select select-artists" multiple>
+                    {% for a in artists %}
+                      <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" {% if a in s.artists %}selected{% endif %}>{{ a.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Colaborador</label>
+                  <input name="collaborator" class="form-control" value="{{ s.collaborator or '' }}" placeholder="opcional">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Lanzamiento</label>
+                  <input type="date" name="release_date" class="form-control"
+                         value="{{ s.release_date.isoformat() if s.release_date else '' }}">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Portada (PNG)</label>
+                  <input type="file" name="cover" accept="image/png" class="form-control">
+                </div>
+                <div class="col-md-6 d-flex align-items-end justify-content-end gap-2">
+                  <button class="btn btn-outline-primary">Guardar</button>
+                </div>
+              </div>
+            </form>
+
+            <form method="post" action="{{ url_for('song_delete', song_id=s.id) }}" class="mt-2 text-end">
+              <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+            </form>
+
+            <div class="mt-2">
+              <small class="text-muted">Artistas: {{ s.artists | map(attribute='name') | join(', ') }}</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

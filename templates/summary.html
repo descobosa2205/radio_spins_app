@@ -1,0 +1,116 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <ul class="nav nav-tabs">
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('summary_view', week=prev_w.isoformat()) }}">Semana anterior</a></li>
+    <li class="nav-item"><a class="nav-link active" href="{{ url_for('summary_view', week=base_week.isoformat()) }}">{{ week_label }}</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('summary_view', week=next_w.isoformat()) }}">Semana siguiente</a></li>
+  </ul>
+  <div>
+    {% if base_week == latest_with_data %}
+      <span class="badge bg-info text-dark">Última semana con datos</span>
+    {% endif %}
+  </div>
+</div>
+
+<h5 class="mb-3">Tocadas — Semana {{ week_label }}</h5>
+
+{% for a in artists %}
+  {# Canciones de este artista con tocadas esta semana #}
+  {% set songs_for_artist = [] %}
+  {% for s in songs %}
+    {% if a in s.artists %}
+      {% set _ = songs_for_artist.append(s) %}
+    {% endif %}
+  {% endfor %}
+
+  {% if songs_for_artist %}
+  <div class="mb-4">
+    <div class="d-flex align-items-center mb-2">
+      <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
+      <h5 class="m-0">{{ a.name }}</h5>
+    </div>
+
+    {% for s in songs_for_artist %}
+    {% set total = totals.get(s.id, 0) %}
+    {% set prev = totals_prev.get(s.id, 0) %}
+    {% set delta = total - prev %}
+    {% set is_new = (s.release_date >= base_week and s.release_date <= week_end) %}
+
+    <div class="card mb-2">
+      <div class="card-body">
+        <div class="d-flex align-items-start">
+          <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square me-3" alt="">
+          <div class="flex-grow-1">
+            <div class="d-flex justify-content-between flex-wrap gap-2">
+              <div>
+                <div class="fw-semibold">{{ s.title }}</div>
+                {% if s.collaborator %}<div class="text-muted"><small>con {{ s.collaborator }}</small></div>{% endif %}
+                <div class="text-muted"><small>Lanzamiento: {{ s.release_date.strftime('%d/%m/%Y') }}</small></div>
+              </div>
+              <div class="text-end">
+                <div class="fs-5">
+                  {{ total }} tocadas
+                  {% if delta > 0 %}
+                    <span class="text-success ms-1"><i class="fa fa-arrow-up"></i> {{ delta }}</span>
+                  {% elif delta < 0 %}
+                    <span class="text-danger ms-1"><i class="fa fa-arrow-down"></i> {{ (delta * -1) }}</span>
+                  {% endif %}
+                  {% if is_new %}
+                    <span class="badge bg-warning text-dark ms-2">Novedad</span>
+                  {% endif %}
+                  <button class="btn btn-sm btn-outline-primary ms-2" onclick="openChart('{{ s.id }}', null)" title="Ver evolución total">
+                    <i class="fa fa-chart-line"></i>
+                  </button>
+                </div>
+                {% if ranks.get(s.id) %}
+                  <div><small>Ranking nacional: #{{ ranks.get(s.id) }}</small></div>
+                {% endif %}
+              </div>
+            </div>
+
+            <div class="d-flex flex-wrap gap-3 mt-3">
+              {% for st_id, pair in by_station.get(s.id, {}).items() %}
+                {% set st = stations_map[st_id] %}
+                {% set cur_spins = pair[0] %}
+                {% set cur_pos   = pair[1] %}
+                {% set prev_pair = by_station_prev.get(s.id, {}).get(st_id) %}
+                {% set prev_spins = prev_pair[0] if prev_pair else 0 %}
+                {% set prev_pos   = prev_pair[1] if prev_pair else None %}
+                {% set diff = cur_spins - prev_spins %}
+                {% set pos_diff = (prev_pos - cur_pos) if (cur_pos and prev_pos) else None %}
+                <div class="d-flex align-items-center border rounded p-2">
+                  <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo me-2" alt="" title="{{ st.name }}">
+                  <div>
+                    <div>
+                      {{ cur_spins }}
+                      {% if diff > 0 %}<span class="text-success"><i class="fa fa-arrow-up"></i></span>
+                      {% elif diff < 0 %}<span class="text-danger"><i class="fa fa-arrow-down"></i></span>
+                      {% endif %}
+                      <button class="btn btn-sm btn-outline-secondary ms-2" onclick="openChart('{{ s.id }}', '{{ st_id }}')" title="Evolución en {{ st.name }}"><i class="fa fa-chart-area"></i></button>
+                    </div>
+                    {% if cur_pos %}
+                      <div><small>Pos: #{{ cur_pos }}
+                        {% if pos_diff %}
+                          {% if pos_diff > 0 %}
+                            <span class="badge bg-success ms-1">+{{ pos_diff }}</span>
+                          {% elif pos_diff < 0 %}
+                            <span class="badge bg-danger ms-1">{{ pos_diff }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </small></div>
+                    {% endif %}
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+{% endfor %}
+{% endblock %}

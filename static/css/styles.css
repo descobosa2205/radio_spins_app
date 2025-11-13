@@ -1,0 +1,26 @@
+body { background: #fafafa; }
+.navbar .nav-link { color: #444; }
+.navbar .nav-link.active, .nav-link:hover { color: var(--brand-primary); }
+
+.artist-avatar {
+  width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
+  border: 2px solid #eee;
+}
+.cover-square {
+  width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid #eee;
+}
+.station-logo {
+  width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #eee;
+}
+
+/* Select2: plantilla con miniaturas */
+.select2-container .select2-selection--multiple .select2-selection__choice__display img,
+.select2-results__option .thumb {
+  width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-right: 8px; border: 1px solid #eee;
+}
+.select2-container--default .select2-results__option--highlighted[aria-selected] {
+  background-color: var(--brand-primary);
+}
+.btn-primary, .bg-primary { background-color: var(--brand-primary); border-color: var(--brand-primary); }
+.btn-outline-primary { color: var(--brand-primary); border-color: var(--brand-primary); }
+.btn-outline-primary:hover { background-color: var(--brand-primary); border-color: var(--brand-primary); }

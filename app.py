@@ -5,7 +5,7 @@ from config import settings
 from models import (init_db, SessionLocal, Artist, Song, SongArtist, RadioStation,
                     Week, Play, SongWeekInfo)
 from supabase_utils import upload_png
-from sqlalchemy import func
+from sqlalchemy import func, text
 
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
@@ -17,8 +17,16 @@ def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 def ensure_week(session, week_start: date):
-    if not session.get(Week, week_start):
-        session.add(Week(week_start=week_start))
+    """
+    Garantiza que exista la semana en la tabla weeks usando un upsert idempotente.
+    """
+    # INSERT ... ON CONFLICT DO NOTHING
+    session.execute(
+        text("insert into weeks (week_start) values (:w) on conflict (week_start) do nothing"),
+        {"w": week_start}
+    )
+    # Empuja el INSERT a DB inmediatamente para satisfacer FK de 'plays'
+    session.flush()
 
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
@@ -251,14 +259,20 @@ def plays_view():
     session = db()
     today = date.today()
     current_week = monday_of(today)
+
+    # Semana seleccionada en la URL (o actual)
     week_start = request.args.get("week")
     if week_start:
-        week_start = parse_date(week_start)
-        week_start = monday_of(week_start)
+        week_start = monday_of(parse_date(week_start))
     else:
         week_start = current_week
 
+    # Asegura que existan las 3 pestañas (prev/actual/next) en la tabla weeks
     prev_w, base_w, next_w = week_tabs(week_start)
+    ensure_week(session, prev_w)
+    ensure_week(session, base_w)
+    ensure_week(session, next_w)
+    session.commit()  # persistimos para que ya aparezcan en el desplegable
 
     # para el botón "Semanas anteriores"
     weeks_list = [w[0] for w in session.query(Week.week_start).order_by(Week.week_start.desc()).all()]

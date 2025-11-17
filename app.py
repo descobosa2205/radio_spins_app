@@ -531,71 +531,110 @@ def public_summary():
 # ---------- RESUMEN POR EMISORA ----------
 @app.route("/resumen/cadena/<station_id>")
 def station_summary(station_id):
-    session_db = db()
-    stid = to_uuid(station_id)
-    station = session_db.get(RadioStation, stid)
-    if not station:
-        session_db.close()
-        flash("Emisora no encontrada.", "warning")
+    """
+    Resumen de una emisora: canciones ordenadas por artista con las tocadas de ESA cadena,
+    navegable por semanas. Robusto ante IDs inválidos y falta de datos.
+    """
+    # 1) Validar/converter el parámetro
+    try:
+        stid = to_uuid(station_id)
+    except Exception:
+        flash("Identificador de emisora inválido.", "danger")
         return redirect(url_for("summary_view"))
 
-    requested = request.args.get("week")
-    base_week = monday_of(parse_date(requested)) if requested else week_with_latest_data(session_db, stid)
+    session_db = db()
+    try:
+        # 2) Obtener la emisora
+        station = session_db.get(RadioStation, stid)
+        if not station:
+            flash("Emisora no encontrada.", "warning")
+            return redirect(url_for("summary_view"))
 
-    prev_w, base_w, next_w = week_tabs(base_week)
-    ensure_week(session_db, prev_w)
-    ensure_week(session_db, base_w)
-    ensure_week(session_db, next_w)
-    session_db.commit()
+        # 3) Determinar semana base (si no hay datos de esta emisora,
+        #    usamos la semana actual-7 como fallback coherente)
+        requested = request.args.get("week")
+        if requested:
+            base_week = monday_of(parse_date(requested))
+        else:
+            latest_for_station = week_with_latest_data(session_db, stid)
+            # Si no hay datos en esa emisora, toma semana anterior a la actual (coherente con Tocadas)
+            if latest_for_station is None or latest_for_station == monday_of(date.today()):
+                base_week = monday_of(date.today()) - timedelta(days=7)
+            else:
+                base_week = latest_for_station
 
-    # canciones con tocadas > 0 en esta emisora esta semana
-    plays = (session_db.query(Play)
-             .filter(Play.week_start == base_week, Play.station_id == stid, Play.spins > 0)
-             .all())
-    song_ids = {p.song_id for p in plays}
+        # 4) Asegurar semanas prev/actual/next en tabla weeks
+        prev_w, base_w, next_w = week_tabs(base_week)
+        ensure_week(session_db, prev_w)
+        ensure_week(session_db, base_w)
+        ensure_week(session_db, next_w)
+        session_db.commit()
 
-    songs = []
-    if song_ids:
-        songs = (session_db.query(Song)
-                 .filter(Song.id.in_(song_ids))
-                 .order_by(Song.release_date.desc())
+        # 5) Cargar plays de ESA emisora en la semana base (>0 para no mostrar vacíos)
+        plays = (session_db.query(Play)
+                 .filter(Play.week_start == base_week,
+                         Play.station_id == stid,
+                         Play.spins > 0)
                  .all())
-        for s in songs: _ = s.artists
 
-    # mapa de tocadas/posiciones actual y previa solo para esta emisora
-    by_song = {p.song_id: (p.spins, p.position) for p in plays}
-    prev_week = base_week - timedelta(days=7)
-    prev_plays = (session_db.query(Play)
-                  .filter(Play.week_start == prev_week, Play.station_id == stid)
-                  .all())
-    by_song_prev = {p.song_id: (p.spins, p.position) for p in prev_plays}
+        # 6) Canciones involucradas y sus artistas (orden por lanzamiento desc)
+        song_ids = {p.song_id for p in plays}
+        songs = []
+        if song_ids:
+            songs = (session_db.query(Song)
+                     .filter(Song.id.in_(song_ids))
+                     .order_by(Song.release_date.desc())
+                     .all())
+            # carga ansiosa de artistas para agrupar por bloque
+            for s in songs:
+                _ = s.artists
 
-    # agrupación por artista
-    artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-    artist_blocks = []
-    for a in artists:
-        ss = [s for s in songs if a in s.artists]
-        if ss:
-            artist_blocks.append((a, ss))
+        # 7) Mapas actual y previo para diffs
+        by_song = {p.song_id: (p.spins, p.position) for p in plays}
+        prev_week = base_week - timedelta(days=7)
+        prev_plays = (session_db.query(Play)
+                      .filter(Play.week_start == prev_week, Play.station_id == stid)
+                      .all())
+        by_song_prev = {p.song_id: (p.spins, p.position) for p in prev_plays}
 
-    week_end = base_week + timedelta(days=6)
-    week_label = f"{base_week.strftime('%d/%m/%Y')} - {week_end.strftime('%d/%m/%Y')}"
+        # 8) Agrupar por artista (solo artistas con canciones en la lista)
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        artist_blocks = []
+        if songs:
+            for a in artists:
+                ss = [s for s in songs if a in s.artists]
+                if ss:
+                    artist_blocks.append((a, ss))
 
-    # para desplegable de semanas anteriores
-    weeks_list = [w[0] for w in session_db.query(Week.week_start).order_by(Week.week_start.desc()).all()]
+        # 9) Utilidades de navegación
+        weeks_list = [w[0] for w in session_db.query(Week.week_start)
+                      .order_by(Week.week_start.desc()).all()]
+        week_end = base_week + timedelta(days=6)
+        week_label = f"{base_week.strftime('%d/%m/%Y')} - {week_end.strftime('%d/%m/%Y')}"
 
-    session_db.close()
-    return render_template(
-        "station_summary.html",
-        station=station,
-        base_week=base_week,
-        prev_w=prev_w, next_w=next_w,
-        week_label=week_label,
-        artist_blocks=artist_blocks,
-        by_song=by_song, by_song_prev=by_song_prev,
-        weeks_list=weeks_list,
-        PUBLIC_MODE=not bool(session.get("user_id"))  # si no hay sesión admin, modo público
-    )
+        # 10) Pasar el id como string para evitar problemas en url_for/Jinja
+        station_id_str = str(stid)
+
+        return render_template(
+            "station_summary.html",
+            station=station,
+            station_id_str=station_id_str,
+            base_week=base_week,
+            prev_w=prev_w, next_w=next_w,
+            week_label=week_label,
+            artist_blocks=artist_blocks,
+            by_song=by_song, by_song_prev=by_song_prev,
+            weeks_list=weeks_list,
+            PUBLIC_MODE=not bool(session.get("user_id"))
+        )
+
+    except Exception as e:
+        session_db.rollback()
+        # Mostramos un mensaje en la UI en vez del 500 en blanco.
+        flash(f"Error al mostrar el resumen de la emisora: {e}", "danger")
+        return redirect(url_for("summary_view"))
+    finally:
+        session_db.close()
 
 # ---------- API ----------
 @app.get("/api/plays_json")

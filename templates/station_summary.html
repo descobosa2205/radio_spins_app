@@ -8,9 +8,9 @@
   </div>
 
   <ul class="nav nav-tabs">
-    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station.id, week=prev_w.isoformat()) }}">Semana anterior</a></li>
-    <li class="nav-item"><a class="nav-link active" href="{{ url_for('station_summary', station_id=station.id, week=base_week.isoformat()) }}">{{ week_label }}</a></li>
-    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station.id, week=next_w.isoformat()) }}">Semana siguiente</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station_id_str, week=prev_w.isoformat()) }}">Semana anterior</a></li>
+    <li class="nav-item"><a class="nav-link active" href="{{ url_for('station_summary', station_id=station_id_str, week=base_week.isoformat()) }}">{{ week_label }}</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station_id_str, week=next_w.isoformat()) }}">Semana siguiente</a></li>
   </ul>
 </div>
 
@@ -19,7 +19,7 @@
     <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Semanas anteriores</button>
     <ul class="dropdown-menu">
       {% for w in weeks_list %}
-        <li><a class="dropdown-item" href="{{ url_for('station_summary', station_id=station.id, week=w.isoformat()) }}">{{ w.strftime('%d/%m/%Y') }}</a></li>
+        <li><a class="dropdown-item" href="{{ url_for('station_summary', station_id=station_id_str, week=w.isoformat()) }}">{{ w.strftime('%d/%m/%Y') }}</a></li>
       {% endfor %}
     </ul>
   </div>
@@ -72,7 +72,7 @@
                         <span class="text-danger ms-1"><i class="fa fa-arrow-down"></i> {{ (diff * -1) }}</span>
                       {% endif %}
                       <button class="btn btn-sm btn-outline-primary ms-2"
-                              onclick="openChart('{{ s.id }}', '{{ station.id }}')"
+                              onclick="openChart('{{ s.id }}', '{{ station_id_str }}')"
                               title="Evolución en {{ station.name }}">
                         <i class="fa fa-chart-area"></i>
                       </button>
@@ -99,5 +99,7 @@
       </div>
     </div>
   </div>
+{% else %}
+  <div class="alert alert-light">No hay datos para esta emisora en la semana seleccionada.</div>
 {% endfor %}
 {% endblock %}

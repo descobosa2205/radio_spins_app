@@ -1,11 +1,11 @@
 from datetime import date, timedelta, datetime
 from uuid import uuid4
 from flask import Flask, render_template, request, redirect, url_for, flash
+from sqlalchemy import func, text
 from config import settings
 from models import (init_db, SessionLocal, Artist, Song, SongArtist, RadioStation,
                     Week, Play, SongWeekInfo)
 from supabase_utils import upload_png
-from sqlalchemy import func, text
 
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
@@ -17,15 +17,11 @@ def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 def ensure_week(session, week_start: date):
-    """
-    Garantiza que exista la semana en la tabla weeks usando un upsert idempotente.
-    """
-    # INSERT ... ON CONFLICT DO NOTHING
+    """Asegura que exista la semana (upsert idempotente) y flushea para satisfacer FKs."""
     session.execute(
         text("insert into weeks (week_start) values (:w) on conflict (week_start) do nothing"),
         {"w": week_start}
     )
-    # Empuja el INSERT a DB inmediatamente para satisfacer FK de 'plays'
     session.flush()
 
 def parse_date(value: str) -> date:
@@ -166,6 +162,7 @@ def station_delete(station_id):
 def songs_view():
     session = db()
     artists = session.query(Artist).order_by(Artist.name.asc()).all()
+
     if request.method == "POST":
         title = request.form.get("title", "").strip()
         collaborator = request.form.get("collaborator", "").strip() or None
@@ -187,13 +184,22 @@ def songs_view():
         finally:
             session.close()
         return redirect(url_for("songs_view"))
-    songs = session.query(Song).order_by(Song.release_date.desc()).all()
-    # precargar artistas por canción
-    songs_by_id = {s.id: s for s in songs}
-    for s in songs:
-        _ = s.artists  # lazy load
+
+    # Bloques de artistas -> canciones (ordenadas por lanzamiento desc)
+    artist_blocks = []
+    for a in artists:
+        songs = (session.query(Song)
+                 .join(SongArtist, Song.id == SongArtist.song_id)
+                 .filter(SongArtist.artist_id == a.id)
+                 .order_by(Song.release_date.desc())
+                 .all())
+        # fuerza carga de relaciones para el selector
+        for s in songs:
+            _ = s.artists
+        artist_blocks.append((a, songs))
+
     session.close()
-    return render_template("songs.html", songs=songs, artists=artists)
+    return render_template("songs.html", artists=artists, artist_blocks=artist_blocks)
 
 @app.post("/canciones/<song_id>/update")
 def song_update(song_id):
@@ -213,10 +219,8 @@ def song_update(song_id):
         # actualizar artistas
         new_artist_ids = set(request.form.getlist("artist_ids[]"))
         old_artist_ids = {a.id for a in s.artists}
-        # borrar relaciones
         for aid in old_artist_ids - new_artist_ids:
             session.query(SongArtist).filter_by(song_id=s.id, artist_id=aid).delete()
-        # añadir relaciones
         for aid in new_artist_ids - old_artist_ids:
             session.add(SongArtist(song_id=s.id, artist_id=aid))
         session.commit()
@@ -257,29 +261,28 @@ def week_label_range(week_start: date) -> str:
 @app.route("/tocadas")
 def plays_view():
     session = db()
-    today = date.today()
-    current_week = monday_of(today)
+    # Semana por defecto: la ANTERIOR a la actual
+    current_week = monday_of(date.today())
+    default_week = current_week - timedelta(days=7)
 
-    # Semana seleccionada en la URL (o actual)
     week_start = request.args.get("week")
     if week_start:
         week_start = monday_of(parse_date(week_start))
     else:
-        week_start = current_week
+        week_start = default_week
 
-    # Asegura que existan las 3 pestañas (prev/actual/next) en la tabla weeks
+    # Asegura que existan pestañas prev/actual/next
     prev_w, base_w, next_w = week_tabs(week_start)
     ensure_week(session, prev_w)
     ensure_week(session, base_w)
     ensure_week(session, next_w)
-    session.commit()  # persistimos para que ya aparezcan en el desplegable
+    session.commit()
 
-    # para el botón "Semanas anteriores"
     weeks_list = [w[0] for w in session.query(Week.week_start).order_by(Week.week_start.desc()).all()]
 
     artists = session.query(Artist).order_by(Artist.name.asc()).all()
     stations = session.query(RadioStation).order_by(RadioStation.name.asc()).all()
-    # precargar canciones por artista, ordenadas por fecha lanzamiento desc
+
     artist_blocks = []
     for a in artists:
         songs = (session.query(Song)
@@ -290,7 +293,7 @@ def plays_view():
         artist_blocks.append((a, songs))
 
     # Cargar plays existentes de la semana (para rellenar formularios)
-    plays_map = {}  # (song_id, station_id) -> (spins, position)
+    plays_map = {}
     existing = (session.query(Play)
                 .filter(Play.week_start == week_start)
                 .all())
@@ -298,7 +301,7 @@ def plays_view():
         plays_map[(p.song_id, p.station_id)] = (p.spins, p.position)
 
     # Ranking nacional existente
-    rank_map = {}  # song_id -> national_rank
+    rank_map = {}
     swin = (session.query(SongWeekInfo)
             .filter(SongWeekInfo.week_start == week_start)
             .all())
@@ -330,7 +333,7 @@ def plays_save():
     try:
         ensure_week(session, week_start)
 
-        # Actualizar ranking nacional
+        # Ranking nacional
         national_rank_val = request.form.get("national_rank", "").strip()
         nr_int = int(national_rank_val) if national_rank_val else None
         s_info = (session.query(SongWeekInfo)
@@ -342,7 +345,7 @@ def plays_save():
             session.add(SongWeekInfo(id=str(uuid4()), song_id=song_id,
                                      week_start=week_start, national_rank=nr_int))
 
-        # Actualizar tocadas/posición por emisora
+        # Tocadas/posición por emisora
         for key, val in request.form.items():
             if key.startswith("spins_"):
                 station_id = key.split("_", 1)[1]
@@ -371,66 +374,65 @@ def plays_save():
         flash(f"Error guardando: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("plays_view", week=week_start.isoformat()))
+
+    # Volver con ancla a la canción (no sube arriba de la página)
+    return redirect(url_for("plays_view", week=week_start.isoformat()) + f"#song-{song_id}")
 
 # ---------- RESUMEN ----------
 def week_with_latest_data(session):
     row = session.query(Play.week_start).order_by(Play.week_start.desc()).first()
     if row: return row[0]
-    # Si no hay plays aún, usar semana actual
     return monday_of(date.today())
 
 @app.route("/resumen")
 def summary_view():
     session = db()
     requested = request.args.get("week")
-    if requested:
-        base_week = monday_of(parse_date(requested))
-    else:
-        base_week = week_with_latest_data(session)
+    base_week = monday_of(parse_date(requested)) if requested else week_with_latest_data(session)
 
     prev_w, base_w, next_w = week_tabs(base_week)
     current_week = monday_of(date.today())
     latest_with_data = week_with_latest_data(session)
 
-    # Etiquetas y límites de semana para la vista
     week_end = base_week + timedelta(days=6)
     week_label = f"{base_week.strftime('%d/%m/%Y')} - {week_end.strftime('%d/%m/%Y')}"
 
-    # Artistas y canciones con tocadas en la semana
     artists = session.query(Artist).order_by(Artist.name.asc()).all()
 
-    # Totales semana actual
-    totals = {}
-    for row in (session.query(Play.song_id, func.sum(Play.spins))
-                .filter(Play.week_start == base_week)
-                .group_by(Play.song_id)
-                .all()):
-        totals[row[0]] = int(row[1])
-
-    # Totales semana anterior
+    # Totales por canción
+    totals = {sid: int(total) for sid, total in (
+        session.query(Play.song_id, func.sum(Play.spins))
+        .filter(Play.week_start == base_week)
+        .group_by(Play.song_id).all()
+    )}
     prev_week = base_week - timedelta(days=7)
-    totals_prev = {}
-    for row in (session.query(Play.song_id, func.sum(Play.spins))
-                .filter(Play.week_start == prev_week)
-                .group_by(Play.song_id)
-                .all()):
-        totals_prev[row[0]] = int(row[1])
+    totals_prev = {sid: int(total) for sid, total in (
+        session.query(Play.song_id, func.sum(Play.spins))
+        .filter(Play.week_start == prev_week)
+        .group_by(Play.song_id).all()
+    )}
 
-    # Por emisora (semana actual y previa)
-    by_station, by_station_prev = {}, {}
+    # Por emisora (actual y previa)
+    by_station = {}
     for row in (session.query(Play.song_id, Play.station_id, Play.spins, Play.position)
                 .filter(Play.week_start == base_week).all()):
         by_station.setdefault(row.song_id, {})[row.station_id] = (row.spins, row.position)
 
+    by_station_prev = {}
     for row in (session.query(Play.song_id, Play.station_id, Play.spins, Play.position)
                 .filter(Play.week_start == prev_week).all()):
         by_station_prev.setdefault(row.song_id, {})[row.station_id] = (row.spins, row.position)
 
+    # Ordenar emisoras por nº de tocadas desc para cada canción
+    by_station_sorted = {
+        song_id: sorted(st_dict.items(), key=lambda kv: kv[1][0], reverse=True)
+        for song_id, st_dict in by_station.items()
+    }
+
     stations = session.query(RadioStation).order_by(RadioStation.name.asc()).all()
     stations_map = {s.id: s for s in stations}
 
-    # Canciones con tocadas esta semana
+    # Canciones con tocadas en la semana
     song_ids_this_week = set(totals.keys())
     songs = []
     if song_ids_this_week:
@@ -441,7 +443,6 @@ def summary_view():
         for s in songs:
             _ = s.artists
 
-    # Ranking nacional
     ranks = {r.song_id: r.national_rank for r in
              session.query(SongWeekInfo).filter_by(week_start=base_week).all()}
 
@@ -458,6 +459,7 @@ def summary_view():
         songs=songs,
         totals=totals, totals_prev=totals_prev,
         by_station=by_station, by_station_prev=by_station_prev,
+        by_station_sorted=by_station_sorted,
         stations_map=stations_map,
         ranks=ranks
     )
@@ -467,8 +469,7 @@ from flask import jsonify
 
 @app.get("/api/plays_json")
 def api_plays_json():
-    """Devuelve la serie semanal de tocadas de una canción.
-       Parámetros: song_id (obligatorio), station_id (opcional)"""
+    """Devuelve serie semanal de tocadas de una canción (total o por emisora)."""
     song_id = request.args.get("song_id")
     station_id = request.args.get("station_id")
     session = db()

@@ -1,13 +1,9 @@
 let evoChart = null;
 
-function toggleRowEdit(btn){
-  const tr = btn.closest('tr');
-  tr.querySelectorAll('input').forEach(i => i.disabled = !i.disabled);
-}
-
 function enableFormEdit(btn){
   const form = btn.closest('form');
-  form.querySelectorAll('input').forEach(i => i.disabled = false);
+  // Habilita SOLO los campos numéricos; los hidden deben quedar como están
+  form.querySelectorAll('input[type="number"]').forEach(i => i.disabled = false);
 }
 
 function initSelect2(){
@@ -29,7 +25,6 @@ function initSelect2(){
 }
 
 async function openChart(songId, stationId){
-  // Metadatos (título, imágenes)
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
   const title = meta.title || '';
@@ -40,7 +35,6 @@ async function openChart(songId, stationId){
   $('#chart-artist-photo').attr('src', artistPhoto || '/static/img/logo.png');
   $('#chart-cover').attr('src', cover || '/static/img/logo.png');
 
-  // Serie temporal
   const url = `/api/plays_json?song_id=${songId}` + (stationId ? `&station_id=${stationId}` : '');
   const r = await fetch(url);
   const js = await r.json();

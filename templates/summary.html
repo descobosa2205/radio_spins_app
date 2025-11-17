@@ -16,7 +16,6 @@
 <h5 class="mb-3">Tocadas — Semana {{ week_label }}</h5>
 
 {% for a in artists %}
-  {# Canciones de este artista con tocadas esta semana #}
   {% set songs_for_artist = [] %}
   {% for s in songs %}
     {% if a in s.artists %}
@@ -70,7 +69,7 @@
             </div>
 
             <div class="d-flex flex-wrap gap-3 mt-3">
-              {% for st_id, pair in by_station.get(s.id, {}).items() %}
+              {% for st_id, pair in by_station_sorted.get(s.id, []) %}
                 {% set st = stations_map[st_id] %}
                 {% set cur_spins = pair[0] %}
                 {% set cur_pos   = pair[1] %}

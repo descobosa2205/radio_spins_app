@@ -1,6 +1,7 @@
 from datetime import date, timedelta, datetime
-from uuid import uuid4
-from flask import Flask, render_template, request, redirect, url_for, flash
+from uuid import uuid4, UUID
+import uuid as _uuid
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from sqlalchemy import func, text
 from config import settings
 from models import (init_db, SessionLocal, Artist, Song, SongArtist, RadioStation,
@@ -27,6 +28,13 @@ def ensure_week(session, week_start: date):
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
+def to_uuid(val: str | UUID | None) -> UUID | None:
+    if val is None or val == "":
+        return None
+    if isinstance(val, UUID):
+        return val
+    return _uuid.UUID(val)
+
 @app.context_processor
 def inject_brand():
     return dict(BRAND_PRIMARY=settings.BRAND_PRIMARY, BRAND_ACCENT=settings.BRAND_ACCENT)
@@ -44,7 +52,8 @@ def artists_view():
         photo = request.files.get("photo")
         try:
             photo_url = upload_png(photo, "artists") if photo else None
-            artist = Artist(id=str(uuid4()), name=name, photo_url=photo_url)
+            # id: dejar que Postgres lo genere (uuid_generate_v4)
+            artist = Artist(name=name, photo_url=photo_url)
             session.add(artist)
             session.commit()
             flash("Artista creado.", "success")
@@ -61,7 +70,7 @@ def artists_view():
 @app.post("/artistas/<artist_id>/update")
 def artist_update(artist_id):
     session = db()
-    a = session.get(Artist, artist_id)
+    a = session.get(Artist, to_uuid(artist_id))
     if not a:
         flash("Artista no encontrado.", "warning")
         session.close()
@@ -84,7 +93,7 @@ def artist_update(artist_id):
 def artist_delete(artist_id):
     session = db()
     try:
-        a = session.get(Artist, artist_id)
+        a = session.get(Artist, to_uuid(artist_id))
         if a:
             session.delete(a)
             session.commit()
@@ -105,7 +114,7 @@ def stations_view():
         logo = request.files.get("logo")
         try:
             logo_url = upload_png(logo, "stations") if logo else None
-            st = RadioStation(id=str(uuid4()), name=name, logo_url=logo_url)
+            st = RadioStation(name=name, logo_url=logo_url)
             session.add(st)
             session.commit()
             flash("Emisora creada.", "success")
@@ -122,7 +131,7 @@ def stations_view():
 @app.post("/emisoras/<station_id>/update")
 def station_update(station_id):
     session = db()
-    st = session.get(RadioStation, station_id)
+    st = session.get(RadioStation, to_uuid(station_id))
     if not st:
         flash("Emisora no encontrada.", "warning")
         session.close()
@@ -145,7 +154,7 @@ def station_update(station_id):
 def station_delete(station_id):
     session = db()
     try:
-        st = session.get(RadioStation, station_id)
+        st = session.get(RadioStation, to_uuid(station_id))
         if st:
             session.delete(st)
             session.commit()
@@ -168,12 +177,13 @@ def songs_view():
         collaborator = request.form.get("collaborator", "").strip() or None
         release_date = parse_date(request.form.get("release_date"))
         cover = request.files.get("cover")
-        artist_ids = request.form.getlist("artist_ids[]")
+        artist_ids = [to_uuid(aid) for aid in request.form.getlist("artist_ids[]")]
         try:
             cover_url = upload_png(cover, "songs") if cover else None
-            s = Song(id=str(uuid4()), title=title, collaborator=collaborator,
+            s = Song(title=title, collaborator=collaborator,
                      release_date=release_date, cover_url=cover_url)
             session.add(s)
+            session.flush()  # para tener s.id
             for aid in artist_ids:
                 session.add(SongArtist(song_id=s.id, artist_id=aid))
             session.commit()
@@ -193,7 +203,6 @@ def songs_view():
                  .filter(SongArtist.artist_id == a.id)
                  .order_by(Song.release_date.desc())
                  .all())
-        # fuerza carga de relaciones para el selector
         for s in songs:
             _ = s.artists
         artist_blocks.append((a, songs))
@@ -204,7 +213,7 @@ def songs_view():
 @app.post("/canciones/<song_id>/update")
 def song_update(song_id):
     session = db()
-    s = session.get(Song, song_id)
+    s = session.get(Song, to_uuid(song_id))
     if not s:
         flash("Canción no encontrada.", "warning")
         session.close()
@@ -217,7 +226,7 @@ def song_update(song_id):
         if cover and cover.filename:
             s.cover_url = upload_png(cover, "songs")
         # actualizar artistas
-        new_artist_ids = set(request.form.getlist("artist_ids[]"))
+        new_artist_ids = {to_uuid(a) for a in request.form.getlist("artist_ids[]")}
         old_artist_ids = {a.id for a in s.artists}
         for aid in old_artist_ids - new_artist_ids:
             session.query(SongArtist).filter_by(song_id=s.id, artist_id=aid).delete()
@@ -236,7 +245,7 @@ def song_update(song_id):
 def song_delete(song_id):
     session = db()
     try:
-        s = session.get(Song, song_id)
+        s = session.get(Song, to_uuid(song_id))
         if s:
             session.delete(s)
             session.commit()
@@ -292,13 +301,13 @@ def plays_view():
                  .all())
         artist_blocks.append((a, songs))
 
-    # Cargar plays existentes de la semana (para rellenar formularios)
+    # Cargar plays existentes (para rellenar formularios)
     plays_map = {}
     existing = (session.query(Play)
                 .filter(Play.week_start == week_start)
                 .all())
     for p in existing:
-        plays_map[(p.song_id, p.station_id)] = (p.spins, p.position)
+        plays_map[(str(p.song_id), str(p.station_id))] = (p.spins, p.position)
 
     # Ranking nacional existente
     rank_map = {}
@@ -306,7 +315,7 @@ def plays_view():
             .filter(SongWeekInfo.week_start == week_start)
             .all())
     for si in swin:
-        rank_map[si.song_id] = si.national_rank
+        rank_map[str(si.song_id)] = si.national_rank
 
     session.close()
     return render_template(
@@ -328,7 +337,7 @@ def plays_view():
 def plays_save():
     session = db()
     week_start = monday_of(parse_date(request.form["week_start"]))
-    song_id = request.form["song_id"]
+    song_id = to_uuid(request.form["song_id"])  # UUID real
 
     try:
         ensure_week(session, week_start)
@@ -342,13 +351,12 @@ def plays_save():
         if s_info:
             s_info.national_rank = nr_int
         else:
-            session.add(SongWeekInfo(id=str(uuid4()), song_id=song_id,
-                                     week_start=week_start, national_rank=nr_int))
+            session.add(SongWeekInfo(song_id=song_id, week_start=week_start, national_rank=nr_int))
 
         # Tocadas/posición por emisora
         for key, val in request.form.items():
             if key.startswith("spins_"):
-                station_id = key.split("_", 1)[1]
+                station_id = to_uuid(key.split("_", 1)[1])  # UUID real
                 spins_val = val.strip()
                 pos_val = request.form.get(f"pos_{station_id}", "").strip()
 
@@ -362,10 +370,9 @@ def plays_save():
                     p.spins = spins_int
                     p.position = pos_int
                 else:
-                    session.add(Play(
-                        id=str(uuid4()), song_id=song_id, station_id=station_id,
-                        week_start=week_start, spins=spins_int, position=pos_int
-                    ))
+                    # Deja que Postgres genere id (uuid_generate_v4)
+                    session.add(Play(song_id=song_id, station_id=station_id,
+                                     week_start=week_start, spins=spins_int, position=pos_int))
 
         session.commit()
         flash("Tocadas guardadas.", "success")
@@ -465,13 +472,13 @@ def summary_view():
     )
 
 # ---------- API para gráficas ----------
-from flask import jsonify
-
 @app.get("/api/plays_json")
 def api_plays_json():
     """Devuelve serie semanal de tocadas de una canción (total o por emisora)."""
-    song_id = request.args.get("song_id")
-    station_id = request.args.get("station_id")
+    song_id = to_uuid(request.args.get("song_id"))
+    station_id_param = request.args.get("station_id")
+    station_id = to_uuid(station_id_param) if station_id_param else None
+
     session = db()
     q = session.query(Play.week_start, func.sum(Play.spins))\
                .filter(Play.song_id == song_id)
@@ -486,20 +493,25 @@ def api_plays_json():
 
 @app.get("/api/song_meta")
 def api_song_meta():
-    song_id = request.args.get("song_id")
+    sid = request.args.get("song_id")
+    try:
+        sid_uuid = to_uuid(sid)
+    except Exception:
+        return jsonify({"error": "bad id"}), 400
     session = db()
-    s = session.get(Song, song_id)
+    s = session.get(Song, sid_uuid)
     if not s:
         session.close()
         return jsonify({"error": "not found"}), 404
-    artists = [{"id": a.id, "name": a.name, "photo_url": a.photo_url} for a in s.artists]
-    session.close()
-    return jsonify({
-        "song_id": s.id,
+    artists = [{"id": str(a.id), "name": a.name, "photo_url": a.photo_url} for a in s.artists]
+    payload = {
+        "song_id": str(s.id),
         "title": s.title,
         "cover_url": s.cover_url,
         "artists": artists
-    })
+    }
+    session.close()
+    return jsonify(payload)
 
 if __name__ == "__main__":
     init_db()

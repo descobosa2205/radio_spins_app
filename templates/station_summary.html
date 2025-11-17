@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div class="d-flex align-items-center">
+    <img src="{{ station.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo me-2" alt="">
+    <h5 class="m-0">Resumen — {{ station.name }}</h5>
+  </div>
+
+  <ul class="nav nav-tabs">
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station.id, week=prev_w.isoformat()) }}">Semana anterior</a></li>
+    <li class="nav-item"><a class="nav-link active" href="{{ url_for('station_summary', station_id=station.id, week=base_week.isoformat()) }}">{{ week_label }}</a></li>
+    <li class="nav-item"><a class="nav-link" href="{{ url_for('station_summary', station_id=station.id, week=next_w.isoformat()) }}">Semana siguiente</a></li>
+  </ul>
+</div>
+
+<div class="d-flex justify-content-end mb-3">
+  <div class="dropdown">
+    <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">Semanas anteriores</button>
+    <ul class="dropdown-menu">
+      {% for w in weeks_list %}
+        <li><a class="dropdown-item" href="{{ url_for('station_summary', station_id=station.id, week=w.isoformat()) }}">{{ w.strftime('%d/%m/%Y') }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% for artist, songs in artist_blocks %}
+  <div class="mb-3 border rounded bg-white">
+    <div class="p-2 d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center">
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
+        <h5 class="m-0">{{ artist.name }}</h5>
+      </div>
+      <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#artist-{{ artist.id }}-songs"
+              aria-expanded="false" aria-controls="artist-{{ artist.id }}-songs">
+        <i class="fa fa-chevron-down chevron"></i>
+      </button>
+    </div>
+
+    <div id="artist-{{ artist.id }}-songs" class="collapse">
+      <div class="p-2">
+        {% for s in songs %}
+        {% set cur = by_song.get(s.id) %}
+        {% if cur %}
+        {% set cur_spins = cur[0] %}
+        {% set cur_pos = cur[1] %}
+        {% set prev = by_song_prev.get(s.id) %}
+        {% set prev_spins = prev[0] if prev else 0 %}
+        {% set prev_pos = prev[1] if prev else None %}
+        {% set diff = cur_spins - prev_spins %}
+        {% set pos_diff = (prev_pos - cur_pos) if (cur_pos and prev_pos) else None %}
+
+        <div class="card mb-2">
+          <div class="card-body">
+            <div class="d-flex align-items-start">
+              <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square me-3" alt="">
+              <div class="flex-grow-1">
+                <div class="d-flex justify-content-between flex-wrap gap-2">
+                  <div>
+                    <div class="fw-semibold">{{ s.title }}</div>
+                    {% if s.collaborator %}<div class="text-muted"><small>con {{ s.collaborator }}</small></div>{% endif %}
+                    <div class="text-muted"><small>Lanzamiento: {{ s.release_date.strftime('%d/%m/%Y') }}</small></div>
+                  </div>
+                  <div class="text-end">
+                    <div class="fs-5">
+                      {{ cur_spins }} tocadas
+                      {% if diff > 0 %}
+                        <span class="text-success ms-1"><i class="fa fa-arrow-up"></i> {{ diff }}</span>
+                      {% elif diff < 0 %}
+                        <span class="text-danger ms-1"><i class="fa fa-arrow-down"></i> {{ (diff * -1) }}</span>
+                      {% endif %}
+                      <button class="btn btn-sm btn-outline-primary ms-2"
+                              onclick="openChart('{{ s.id }}', '{{ station.id }}')"
+                              title="Evolución en {{ station.name }}">
+                        <i class="fa fa-chart-area"></i>
+                      </button>
+                    </div>
+                    {% if cur_pos %}
+                      <div><small>Pos: #{{ cur_pos }}
+                        {% if pos_diff %}
+                          {% if pos_diff > 0 %}
+                            <span class="badge bg-success ms-1">+{{ pos_diff }}</span>
+                          {% elif pos_diff < 0 %}
+                            <span class="badge bg-danger ms-1">{{ pos_diff }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </small></div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+{% endblock %}

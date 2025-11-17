@@ -71,7 +71,6 @@
                   </div>
                 </div>
 
-                <!-- Formulario POR CANCIÓN: guarda varias emisoras a la vez -->
                 <form class="mt-3 plays-form" method="post" action="{{ url_for('plays_save') }}">
                   <input type="hidden" name="song_id" value="{{ s.id }}">
                   <input type="hidden" name="week_start" value="{{ week_start.isoformat() }}">
@@ -91,7 +90,9 @@
                         {% set cur = plays_map.get((s.id, st.id)) %}
                         <tr>
                           <td>
-                            <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="" title="{{ st.name }}">
+                            <a href="{{ url_for('station_summary', station_id=st.id, week=week_start.isoformat()) }}" title="Ver resumen de {{ st.name }}">
+                              <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                            </a>
                           </td>
                           <td>
                             <input type="number" min="0" class="form-control" name="spins_{{ st.id }}"

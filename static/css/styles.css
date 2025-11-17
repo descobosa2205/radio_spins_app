@@ -13,7 +13,7 @@ body { background: #fafafa; }
   width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #eee;
 }
 
-/* Select2: miniaturas */
+/* Select2 */
 .select2-container .select2-selection--multiple .select2-selection__choice__display img,
 .select2-results__option .thumb {
   width: 24px; height: 24px; border-radius: 50%; object-fit: cover; margin-right: 8px; border: 1px solid #eee;
@@ -25,6 +25,6 @@ body { background: #fafafa; }
 .btn-outline-primary { color: var(--brand-primary); border-color: var(--brand-primary); }
 .btn-outline-primary:hover { background-color: var(--brand-primary); border-color: var(--brand-primary); }
 
-/* Indicador visual al plegar artistas */
+/* Plegables */
 .toggle-artist .chevron { transition: transform .2s ease; }
 .toggle-artist.collapsed .chevron { transform: rotate(-90deg); }

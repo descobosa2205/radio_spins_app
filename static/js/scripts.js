@@ -2,7 +2,6 @@ let evoChart = null;
 
 function enableFormEdit(btn){
   const form = btn.closest('form');
-  // Habilita SOLO los campos numéricos; los hidden deben quedar como están
   form.querySelectorAll('input[type="number"]').forEach(i => i.disabled = false);
 }
 

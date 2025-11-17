@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Date, Text, Integer, ForeignKey, DateTime, func
+from sqlalchemy import create_engine, Column, Date, Text, Integer, ForeignKey, DateTime, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from config import settings
@@ -16,7 +16,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 class Artist(Base):
     __tablename__ = "artists"
-    id = Column(PGUUID(as_uuid=True), primary_key=True)  # uuid en DB
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False, unique=True)
     photo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -25,7 +25,7 @@ class Artist(Base):
 
 class Song(Base):
     __tablename__ = "songs"
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     title = Column(Text, nullable=False)
     collaborator = Column(Text)
     release_date = Column(Date, nullable=False)
@@ -42,7 +42,7 @@ class SongArtist(Base):
 
 class RadioStation(Base):
     __tablename__ = "radio_stations"
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -53,7 +53,7 @@ class Week(Base):
 
 class Play(Base):
     __tablename__ = "plays"
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
     station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
     week_start = Column(Date, ForeignKey("weeks.week_start", ondelete="CASCADE"), nullable=False)
@@ -66,7 +66,7 @@ class Play(Base):
 
 class SongWeekInfo(Base):
     __tablename__ = "song_week_info"
-    id = Column(PGUUID(as_uuid=True), primary_key=True)
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
     week_start = Column(Date, ForeignKey("weeks.week_start", ondelete="CASCADE"), nullable=False)
     national_rank = Column(Integer)

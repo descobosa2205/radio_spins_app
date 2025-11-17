@@ -1,5 +1,5 @@
 from datetime import date, timedelta, datetime
-from uuid import uuid4, UUID
+from uuid import UUID
 import uuid as _uuid
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from sqlalchemy import func, text
@@ -18,7 +18,6 @@ def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
 
 def ensure_week(session, week_start: date):
-    """Asegura que exista la semana (upsert idempotente) y flushea para satisfacer FKs."""
     session.execute(
         text("insert into weeks (week_start) values (:w) on conflict (week_start) do nothing"),
         {"w": week_start}
@@ -28,12 +27,12 @@ def ensure_week(session, week_start: date):
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
-def to_uuid(val: str | UUID | None) -> UUID | None:
+def to_uuid(val):
     if val is None or val == "":
         return None
     if isinstance(val, UUID):
         return val
-    return _uuid.UUID(val)
+    return _uuid.UUID(str(val))
 
 @app.context_processor
 def inject_brand():
@@ -52,8 +51,7 @@ def artists_view():
         photo = request.files.get("photo")
         try:
             photo_url = upload_png(photo, "artists") if photo else None
-            # id: dejar que Postgres lo genere (uuid_generate_v4)
-            artist = Artist(name=name, photo_url=photo_url)
+            artist = Artist(name=name, photo_url=photo_url)  # id lo genera la BD
             session.add(artist)
             session.commit()
             flash("Artista creado.", "success")
@@ -114,7 +112,7 @@ def stations_view():
         logo = request.files.get("logo")
         try:
             logo_url = upload_png(logo, "stations") if logo else None
-            st = RadioStation(name=name, logo_url=logo_url)
+            st = RadioStation(name=name, logo_url=logo_url)  # id lo genera la BD
             session.add(st)
             session.commit()
             flash("Emisora creada.", "success")
@@ -195,7 +193,6 @@ def songs_view():
             session.close()
         return redirect(url_for("songs_view"))
 
-    # Bloques de artistas -> canciones (ordenadas por lanzamiento desc)
     artist_blocks = []
     for a in artists:
         songs = (session.query(Song)
@@ -225,7 +222,6 @@ def song_update(song_id):
     try:
         if cover and cover.filename:
             s.cover_url = upload_png(cover, "songs")
-        # actualizar artistas
         new_artist_ids = {to_uuid(a) for a in request.form.getlist("artist_ids[]")}
         old_artist_ids = {a.id for a in s.artists}
         for aid in old_artist_ids - new_artist_ids:
@@ -270,7 +266,6 @@ def week_label_range(week_start: date) -> str:
 @app.route("/tocadas")
 def plays_view():
     session = db()
-    # Semana por defecto: la ANTERIOR a la actual
     current_week = monday_of(date.today())
     default_week = current_week - timedelta(days=7)
 
@@ -280,7 +275,6 @@ def plays_view():
     else:
         week_start = default_week
 
-    # Asegura que existan pestañas prev/actual/next
     prev_w, base_w, next_w = week_tabs(week_start)
     ensure_week(session, prev_w)
     ensure_week(session, base_w)
@@ -307,7 +301,7 @@ def plays_view():
                 .filter(Play.week_start == week_start)
                 .all())
     for p in existing:
-        plays_map[(str(p.song_id), str(p.station_id))] = (p.spins, p.position)
+        plays_map[(p.song_id, p.station_id)] = (p.spins, p.position)
 
     # Ranking nacional existente
     rank_map = {}
@@ -315,7 +309,7 @@ def plays_view():
             .filter(SongWeekInfo.week_start == week_start)
             .all())
     for si in swin:
-        rank_map[str(si.song_id)] = si.national_rank
+        rank_map[si.song_id] = si.national_rank
 
     session.close()
     return render_template(
@@ -337,7 +331,7 @@ def plays_view():
 def plays_save():
     session = db()
     week_start = monday_of(parse_date(request.form["week_start"]))
-    song_id = to_uuid(request.form["song_id"])  # UUID real
+    song_id = to_uuid(request.form["song_id"])
 
     try:
         ensure_week(session, week_start)
@@ -353,14 +347,13 @@ def plays_save():
         else:
             session.add(SongWeekInfo(song_id=song_id, week_start=week_start, national_rank=nr_int))
 
-        # Tocadas/posición por emisora
+        # Tocadas/posición por emisora (múltiples a la vez)
         for key, val in request.form.items():
             if key.startswith("spins_"):
-                station_id = to_uuid(key.split("_", 1)[1])  # UUID real
-                spins_val = val.strip()
-                pos_val = request.form.get(f"pos_{station_id}", "").strip()
-
-                spins_int = int(spins_val) if spins_val else 0
+                station_id_str = key.split("_", 1)[1]
+                station_id = to_uuid(station_id_str)
+                spins_int = int(val.strip()) if val.strip() else 0
+                pos_val = request.form.get(f"pos_{station_id_str}", "").strip()
                 pos_int = int(pos_val) if pos_val else None
 
                 p = (session.query(Play)
@@ -370,7 +363,6 @@ def plays_save():
                     p.spins = spins_int
                     p.position = pos_int
                 else:
-                    # Deja que Postgres genere id (uuid_generate_v4)
                     session.add(Play(song_id=song_id, station_id=station_id,
                                      week_start=week_start, spins=spins_int, position=pos_int))
 
@@ -382,7 +374,6 @@ def plays_save():
     finally:
         session.close()
 
-    # Volver con ancla a la canción (no sube arriba de la página)
     return redirect(url_for("plays_view", week=week_start.isoformat()) + f"#song-{song_id}")
 
 # ---------- RESUMEN ----------
@@ -406,7 +397,6 @@ def summary_view():
 
     artists = session.query(Artist).order_by(Artist.name.asc()).all()
 
-    # Totales por canción
     totals = {sid: int(total) for sid, total in (
         session.query(Play.song_id, func.sum(Play.spins))
         .filter(Play.week_start == base_week)
@@ -419,7 +409,6 @@ def summary_view():
         .group_by(Play.song_id).all()
     )}
 
-    # Por emisora (actual y previa)
     by_station = {}
     for row in (session.query(Play.song_id, Play.station_id, Play.spins, Play.position)
                 .filter(Play.week_start == base_week).all()):
@@ -430,7 +419,6 @@ def summary_view():
                 .filter(Play.week_start == prev_week).all()):
         by_station_prev.setdefault(row.song_id, {})[row.station_id] = (row.spins, row.position)
 
-    # Ordenar emisoras por nº de tocadas desc para cada canción
     by_station_sorted = {
         song_id: sorted(st_dict.items(), key=lambda kv: kv[1][0], reverse=True)
         for song_id, st_dict in by_station.items()
@@ -439,7 +427,6 @@ def summary_view():
     stations = session.query(RadioStation).order_by(RadioStation.name.asc()).all()
     stations_map = {s.id: s for s in stations}
 
-    # Canciones con tocadas en la semana
     song_ids_this_week = set(totals.keys())
     songs = []
     if song_ids_this_week:
@@ -471,17 +458,15 @@ def summary_view():
         ranks=ranks
     )
 
-# ---------- API para gráficas ----------
+# ---------- API ----------
 @app.get("/api/plays_json")
 def api_plays_json():
-    """Devuelve serie semanal de tocadas de una canción (total o por emisora)."""
     song_id = to_uuid(request.args.get("song_id"))
     station_id_param = request.args.get("station_id")
     station_id = to_uuid(station_id_param) if station_id_param else None
 
     session = db()
-    q = session.query(Play.week_start, func.sum(Play.spins))\
-               .filter(Play.song_id == song_id)
+    q = session.query(Play.week_start, func.sum(Play.spins)).filter(Play.song_id == song_id)
     if station_id:
         q = q.filter(Play.station_id == station_id)
     q = q.group_by(Play.week_start).order_by(Play.week_start.asc())
@@ -504,12 +489,7 @@ def api_song_meta():
         session.close()
         return jsonify({"error": "not found"}), 404
     artists = [{"id": str(a.id), "name": a.name, "photo_url": a.photo_url} for a in s.artists]
-    payload = {
-        "song_id": str(s.id),
-        "title": s.title,
-        "cover_url": s.cover_url,
-        "artists": artists
-    }
+    payload = {"song_id": str(s.id), "title": s.title, "cover_url": s.cover_url, "artists": artists}
     session.close()
     return jsonify(payload)
 

@@ -1032,33 +1032,46 @@ def build_sales_report_context(day: date, past=False, promoter_id=None, artist_i
                 empresa=empresa, vendidos=vendidos,
                 totals=totals, today_map=today_map, last_map=last_map)
 
+# --- Reporte de ventas (próximos) ---
 @app.route("/ventas/reporte")
 def sales_report_view():
     day = date_or_today("d")
     ctx = build_sales_report_context(day)
-    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False)
+    ctx.update(past=False)
+    ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
 
+# --- Reporte de ventas (anteriores) ---
 @app.route("/ventas/anteriores")
 def sales_report_past():
     day = date_or_today("d")
     ctx = build_sales_report_context(day, past=True)
-    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=True)
+    ctx.update(past=True)
+    ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
 
+# --- Reporte por promotor ---
 @app.route("/ventas/promotor/<pid>")
 def sales_report_by_promoter(pid):
     day = date_or_today("d")
     ctx = build_sales_report_context(day, promoter_id=pid)
-    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False, promoter_id=pid)
+    ctx.update(past=False)
+    ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
 
+# --- Reporte por artista ---
 @app.route("/ventas/artista/<aid>")
 def sales_report_by_artist(aid):
     day = date_or_today("d")
     ctx = build_sales_report_context(day, artist_id=aid)
-    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False, artist_id=aid)
+    ctx.update(past=False)
+    ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
+
 
 # ------------- APIS GRAFICA DE VENTAS -----------
 

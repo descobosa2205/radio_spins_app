@@ -38,27 +38,50 @@
     </button>
     <div id="navMain" class="collapse navbar-collapse">
       <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+        <!-- RADIO -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Radio</a>
+          <ul class="dropdown-menu">
+            <li>
+              <a class="dropdown-item" href="{{ url_for('summary_view') if IS_ADMIN else url_for('public_summary') }}">
+                Resumen de radios
+              </a>
+            </li>
+            {% if IS_ADMIN %}
+            <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('stations_view') }}">Emisoras</a></li>
+            {% endif %}
+          </ul>
+        </li>
+
+        <!-- VENTAS -->
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Ventas</a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
+            {% if IS_ADMIN %}
+            <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
+            {% endif %}
+          </ul>
+        </li>
+
         {% if IS_ADMIN %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('plays_view') }}">Tocadas</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('summary_view') }}">Resumen</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('artists_view') }}">Artistas</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('songs_view') }}">Canciones</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('stations_view') }}">Emisoras</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('promoters_view') }}">Terceros</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view') }}">Conciertos</a></li>
+
+          <!-- BASES DE DATOS -->
           <li class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#">Ventas</a>
+            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Bases de datos</a>
             <ul class="dropdown-menu">
-              <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
-              <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item" href="{{ url_for('concerts_view') }}">Conciertos</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('promoters_view') }}">Promotores</a></li>
               <li><a class="dropdown-item" href="{{ url_for('venues_view') }}">Recintos</a></li>
+              <!-- aquí podrás ir añadiendo más -->
             </ul>
           </li>
+
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_logout') }}">Salir</a></li>
         {% else %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('public_summary') }}">Resumen</a></li>
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_login') }}">Administrador</a></li>
         {% endif %}
       </ul>

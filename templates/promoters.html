@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block content %}
+<h4 class="mb-3">Promotores</h4>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Nick</label>
+        <input name="nick" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Logo (PNG)</label>
+        <input type="file" name="logo" accept="image/png" class="form-control">
+      </div>
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-primary">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  {% for p in promoters %}
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-body">
+        <form method="post" action="{{ url_for('promoter_update', pid=p.id) }}" enctype="multipart/form-data">
+          <div class="d-flex align-items-center gap-3">
+            <img src="{{ p.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+            <div class="flex-grow-1">
+              <input name="nick" class="form-control" value="{{ p.nick }}">
+              <input class="form-control mt-2" type="file" name="logo" accept="image/png">
+            </div>
+            <div class="text-end">
+              <button class="btn btn-outline-primary">Guardar</button>
+            </div>
+          </div>
+        </form>
+        <form class="text-end mt-2" method="post" action="{{ url_for('promoter_delete', pid=p.id) }}">
+          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

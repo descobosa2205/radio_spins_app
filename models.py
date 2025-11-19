@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Date, Text, Integer, ForeignKey, DateTime, func, text
+from sqlalchemy import create_engine, Column, Date, Text, Integer, ForeignKey, DateTime, Boolean, func, text
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from config import settings
@@ -78,6 +78,52 @@ class SongWeekInfo(Base):
     week_start = Column(Date, ForeignKey("weeks.week_start", ondelete="CASCADE"), nullable=False)
     national_rank = Column(Integer)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Promoter(Base):
+    __tablename__ = "promoters"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    nick = Column(Text, nullable=False, unique=True)
+    logo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Venue(Base):
+    __tablename__ = "venues"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    covered = Column(Boolean, nullable=False, default=False)  # True=cubierto, False=aire libre
+    address = Column(Text)
+    municipality = Column(Text)
+    province = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class Concert(Base):
+    __tablename__ = "concerts"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    date = Column(Date, nullable=False)
+    festival_name = Column(Text)
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="RESTRICT"), nullable=False)
+    sale_type = Column(Text, nullable=False)  # 'EMPRESA' o 'VENDIDO'
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="RESTRICT"), nullable=False)
+    capacity = Column(Integer, nullable=False)
+    sale_start_date = Column(Date, nullable=False)
+    break_even_ticket = Column(Integer, nullable=False)
+    sold_out = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    promoter = relationship("Promoter")
+    venue = relationship("Venue")
+    sales = relationship("TicketSale", cascade="all, delete-orphan", order_by="TicketSale.day")
+
+class TicketSale(Base):
+    __tablename__ = "ticket_sales"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    day = Column(Date, nullable=False)
+    sold_today = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 def init_db():
     Base.metadata.create_all(bind=engine)

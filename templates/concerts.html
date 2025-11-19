@@ -1,0 +1,120 @@
+{% extends "layout.html" %}
+{% block content %}
+<h4 class="mb-3">Conciertos</h4>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" class="row g-2">
+      <div class="col-md-2">
+        <label class="form-label">Fecha</label>
+        <input type="date" name="date" class="form-control" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Artista</label>
+        <select name="artist_id" class="form-select" required>
+          {% for a in artists %}
+            <option value="{{ a.id }}">{{ a.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Nombre (festival, opcional)</label>
+        <input name="festival_name" class="form-control" placeholder="si es festival">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Recinto</label>
+        <select name="venue_id" class="form-select" required>
+          {% for v in venues %}
+            <option value="{{ v.id }}">{{ v.name }} — {{ v.municipality or '' }} {{ v.province or '' }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Tipo</label>
+        <select name="sale_type" class="form-select" id="sale_type_select">
+          <option value="EMPRESA">Empresa</option>
+          <option value="VENDIDO">Vendido</option>
+        </select>
+      </div>
+      <div class="col-md-3" id="promoter_select_wrap" style="display:none">
+        <label class="form-label">Promotor</label>
+        <select name="promoter_id" class="form-select">
+          <option value="">—</option>
+          {% for p in promoters %}
+            <option value="{{ p.id }}">{{ p.nick }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-2">
+        <label class="form-label">Aforo a la venta</label>
+        <input type="number" name="capacity" class="form-control" required min="0">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Inicio venta</label>
+        <input type="date" name="sale_start_date" class="form-control" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Punto de empate (# entrada)</label>
+        <input type="number" name="break_even_ticket" class="form-control" required min="0">
+      </div>
+
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-primary">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.getElementById('sale_type_select').addEventListener('change', function(){
+  document.getElementById('promoter_select_wrap').style.display = (this.value === 'VENDIDO') ? '' : 'none';
+});
+</script>
+
+<div class="row">
+  {% for c in concerts %}
+  <div class="col-lg-6">
+    <div class="card mb-3">
+      <div class="card-body">
+        <form method="post" action="{{ url_for('concert_update', cid=c.id) }}" class="row g-2">
+          <div class="col-md-2"><label class="form-label">Fecha</label><input type="date" name="date" class="form-control" value="{{ c.date.isoformat() }}"></div>
+          <div class="col-md-3"><label class="form-label">Artista</label>
+            <select name="artist_id" class="form-select">
+              {% for a in artists %}<option value="{{ a.id }}" {% if a.id==c.artist_id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-3"><label class="form-label">Nombre (festival)</label><input name="festival_name" class="form-control" value="{{ c.festival_name or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Recinto</label>
+            <select name="venue_id" class="form-select">
+              {% for v in venues %}<option value="{{ v.id }}" {% if v.id==c.venue_id %}selected{% endif %}>{{ v.name }} — {{ v.municipality or '' }} {{ v.province or '' }}</option>{% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-3"><label class="form-label">Tipo</label>
+            <select name="sale_type" class="form-select">
+              <option value="EMPRESA" {% if c.sale_type=='EMPRESA' %}selected{% endif %}>Empresa</option>
+              <option value="VENDIDO" {% if c.sale_type=='VENDIDO' %}selected{% endif %}>Vendido</option>
+            </select>
+          </div>
+          <div class="col-md-3"><label class="form-label">Promotor</label>
+            <select name="promoter_id" class="form-select">
+              <option value="">—</option>
+              {% for p in promoters %}<option value="{{ p.id }}" {% if c.promoter_id and p.id==c.promoter_id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-2"><label class="form-label">Aforo</label><input type="number" name="capacity" class="form-control" value="{{ c.capacity }}"></div>
+          <div class="col-md-2"><label class="form-label">Inicio venta</label><input type="date" name="sale_start_date" class="form-control" value="{{ c.sale_start_date.isoformat() }}"></div>
+          <div class="col-md-2"><label class="form-label">Empate (#)</label><input type="number" name="break_even_ticket" class="form-control" value="{{ c.break_even_ticket }}"></div>
+          <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary">Guardar</button></div>
+        </form>
+        <form class="text-end mt-2" method="post" action="{{ url_for('concert_delete', cid=c.id) }}">
+          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

@@ -4,7 +4,7 @@ import uuid as _uuid
 from functools import wraps
 
 from flask import (
-    Flask, render_template, request, redirect, url_for, flash, jsonify, session
+    Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_from_directory
 )
 from sqlalchemy import func, text
 
@@ -13,10 +13,9 @@ from werkzeug.security import check_password_hash
 from config import settings
 from models import (
     init_db, SessionLocal, User, Artist, Song, SongArtist, RadioStation,
-    Week, Play, SongWeekInfo
+    Week, Play, SongWeekInfo, Promoter, Venue, Concert, TicketSale
 )
 from supabase_utils import upload_png
-
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -69,6 +68,15 @@ def week_with_latest_data(session, station_id: UUID | None = None):
     row = q.order_by(Play.week_start.desc()).first()
     if row: return row[0]
     return monday_of(date.today())
+
+def date_or_today(param_name="d"):
+    qs = request.args.get(param_name)
+    if qs:
+        return datetime.strptime(qs, "%Y-%m-%d").date()
+    return date.today()
+
+def format_spanish_date(d: date) -> str:
+    return d.strftime("%d/%m/%Y")
 
 # ---------- context ----------
 @app.context_processor
@@ -670,6 +678,428 @@ def api_song_meta():
     payload = {"song_id": str(s.id), "title": s.title, "cover_url": s.cover_url, "artists": artists}
     session_db.close()
     return jsonify(payload)
+
+# ----------- PROMOTORES ------------
+@app.route("/promotores", methods=["GET", "POST"])
+@admin_required
+def promoters_view():
+    session = db()
+    if request.method == "POST":
+        nick = request.form.get("nick","").strip()
+        logo = request.files.get("logo")
+        try:
+            logo_url = upload_png(logo, "promoters") if logo else None
+            p = Promoter(nick=nick, logo_url=logo_url)
+            session.add(p)
+            session.commit()
+            flash("Promotor creado.", "success")
+        except Exception as e:
+            session.rollback()
+            flash(f"Error creando promotor: {e}", "danger")
+        finally:
+            session.close()
+        return redirect(url_for("promoters_view"))
+    promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
+    session.close()
+    return render_template("promoters.html", promoters=promoters)
+
+@app.post("/promotores/<pid>/update")
+@admin_required
+def promoter_update(pid):
+    session = db()
+    p = session.get(Promoter, to_uuid(pid))
+    if not p:
+        flash("Promotor no encontrado.", "warning")
+        session.close()
+        return redirect(url_for("promoters_view"))
+    p.nick = request.form.get("nick", p.nick).strip()
+    logo = request.files.get("logo")
+    try:
+        if logo and logo.filename:
+            p.logo_url = upload_png(logo, "promoters")
+        session.commit()
+        flash("Promotor actualizado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error actualizando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("promoters_view"))
+
+@app.post("/promotores/<pid>/delete")
+@admin_required
+def promoter_delete(pid):
+    session = db()
+    try:
+        p = session.get(Promoter, to_uuid(pid))
+        if p:
+            session.delete(p)
+            session.commit()
+            flash("Promotor eliminado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error eliminando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("promoters_view"))
+
+# ----------- RECINTOS ---------------
+
+@app.route("/recintos", methods=["GET", "POST"])
+@admin_required
+def venues_view():
+    session = db()
+    if request.method == "POST":
+        name = request.form.get("name","").strip()
+        covered = (request.form.get("covered") == "on")
+        address = request.form.get("address","").strip()
+        municipality = request.form.get("municipality","").strip()
+        province = request.form.get("province","").strip()
+        try:
+            v = Venue(name=name, covered=covered, address=address,
+                      municipality=municipality, province=province)
+            session.add(v)
+            session.commit()
+            flash("Recinto creado.", "success")
+        except Exception as e:
+            session.rollback()
+            flash(f"Error creando recinto: {e}", "danger")
+        finally:
+            session.close()
+        return redirect(url_for("venues_view"))
+    venues = session.query(Venue).order_by(Venue.name.asc()).all()
+    session.close()
+    return render_template("venues.html", venues=venues)
+
+@app.post("/recintos/<vid>/update")
+@admin_required
+def venue_update(vid):
+    session = db()
+    v = session.get(Venue, to_uuid(vid))
+    if not v:
+        flash("Recinto no encontrado.", "warning")
+        session.close()
+        return redirect(url_for("venues_view"))
+    v.name = request.form.get("name", v.name).strip()
+    v.covered = (request.form.get("covered") == "on")
+    v.address = request.form.get("address", v.address).strip()
+    v.municipality = request.form.get("municipality", v.municipality).strip()
+    v.province = request.form.get("province", v.province).strip()
+    try:
+        session.commit()
+        flash("Recinto actualizado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error actualizando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("venues_view"))
+
+@app.post("/recintos/<vid>/delete")
+@admin_required
+def venue_delete(vid):
+    session = db()
+    try:
+        v = session.get(Venue, to_uuid(vid))
+        if v:
+            session.delete(v)
+            session.commit()
+            flash("Recinto eliminado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error eliminando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("venues_view"))
+
+# -------------- CONCIERTOS --------------
+
+@app.route("/conciertos", methods=["GET","POST"])
+@admin_required
+def concerts_view():
+    session = db()
+    artists = session.query(Artist).order_by(Artist.name.asc()).all()
+    venues = session.query(Venue).order_by(Venue.name.asc()).all()
+    promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
+
+    if request.method == "POST":
+        try:
+            c = Concert(
+                date = parse_date(request.form["date"]),
+                festival_name = (request.form.get("festival_name") or "").strip() or None,
+                venue_id = to_uuid(request.form["venue_id"]),
+                sale_type = request.form["sale_type"],   # EMPRESA o VENDIDO
+                promoter_id = to_uuid(request.form.get("promoter_id") or None),
+                artist_id = to_uuid(request.form["artist_id"]),
+                capacity = int(request.form["capacity"]),
+                sale_start_date = parse_date(request.form["sale_start_date"]),
+                break_even_ticket = int(request.form["break_even_ticket"]),
+                sold_out = False
+            )
+            session.add(c)
+            session.commit()
+            flash("Concierto creado.", "success")
+        except Exception as e:
+            session.rollback()
+            flash(f"Error creando concierto: {e}", "danger")
+        finally:
+            session.close()
+        return redirect(url_for("concerts_view"))
+
+    concerts = (session.query(Concert)
+                .order_by(Concert.date.asc())
+                .all())
+    # Carga relaciones
+    for c in concerts:
+        _ = c.artist; _ = c.venue; _ = c.promoter
+    session.close()
+    return render_template("concerts.html",
+                           artists=artists, venues=venues, promoters=promoters,
+                           concerts=concerts)
+
+@app.post("/conciertos/<cid>/update")
+@admin_required
+def concert_update(cid):
+    session = db()
+    c = session.get(Concert, to_uuid(cid))
+    if not c:
+        flash("Concierto no encontrado.", "warning")
+        session.close(); return redirect(url_for("concerts_view"))
+    try:
+        c.date = parse_date(request.form["date"])
+        c.festival_name = (request.form.get("festival_name") or "").strip() or None
+        c.venue_id = to_uuid(request.form["venue_id"])
+        c.sale_type = request.form["sale_type"]
+        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
+        c.artist_id = to_uuid(request.form["artist_id"])
+        c.capacity = int(request.form["capacity"])
+        c.sale_start_date = parse_date(request.form["sale_start_date"])
+        c.break_even_ticket = int(request.form["break_even_ticket"])
+        session.commit()
+        flash("Concierto actualizado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error actualizando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("concerts_view"))
+
+@app.post("/conciertos/<cid>/delete")
+@admin_required
+def concert_delete(cid):
+    session = db()
+    try:
+        c = session.get(Concert, to_uuid(cid))
+        if c:
+            session.delete(c)
+            session.commit()
+            flash("Concierto eliminado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error eliminando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("concerts_view"))
+
+# -------------- VENTA DE ENTRADAS -----------
+
+def sales_maps(session, day: date):
+    # total vendido hasta 'day' inclusive
+    totals = {cid: int(total) for cid, total in (
+        session.query(TicketSale.concert_id, func.sum(TicketSale.sold_today))
+        .filter(TicketSale.day <= day)
+        .group_by(TicketSale.concert_id).all()
+    )}
+    # vendido HOY
+    today_map = {cid: qty for cid, qty in (
+        session.query(TicketSale.concert_id, TicketSale.sold_today)
+        .filter(TicketSale.day == day).all()
+    )}
+    # última actualización (máxima fecha de venta)
+    last_day = {cid: d for cid, d in (
+        session.query(TicketSale.concert_id, func.max(TicketSale.day))
+        .group_by(TicketSale.concert_id).all()
+    )}
+    return totals, today_map, last_day
+
+@app.route("/ventas")
+@admin_required
+def sales_update_view():
+    session = db()
+    day = date_or_today("d")
+    prev_day = day - timedelta(days=1)
+    next_day = day + timedelta(days=1)
+
+    # Solo conciertos "a la venta" ese día (sale_start_date <= day) y futuros
+    concerts = (session.query(Concert)
+                .filter(Concert.sale_start_date <= day, Concert.date >= day)
+                .order_by(Concert.date.asc()).all())
+    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter
+
+    totals, today_map, _last = sales_maps(session, day)
+
+    # Agrupar por Empresa / Vendido
+    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
+    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
+
+    session.close()
+    return render_template("sales_update.html",
+                           day=day, prev_day=prev_day, next_day=next_day,
+                           empresa=empresa, vendidos=vendidos,
+                           totals=totals, today_map=today_map)
+
+@app.post("/ventas/save")
+@admin_required
+def sales_save():
+    session = db()
+    day = parse_date(request.form["day"])
+    cid = to_uuid(request.form["concert_id"])
+    qty = request.form.get("sold_today","").strip()
+    qty_int = int(qty) if qty else 0
+    try:
+        row = (session.query(TicketSale)
+               .filter_by(concert_id=cid, day=day).first())
+        if row:
+            row.sold_today = qty_int
+            row.updated_at = func.now()
+        else:
+            session.add(TicketSale(concert_id=cid, day=day, sold_today=qty_int))
+        session.commit()
+        flash("Ventas guardadas.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error guardando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
+
+@app.post("/ventas/soldout/<cid>")
+@admin_required
+def sales_mark_soldout(cid):
+    session = db()
+    day = parse_date(request.form["day"])
+    try:
+        c = session.get(Concert, to_uuid(cid))
+        if c:
+            c.sold_out = True
+            session.commit()
+            flash("Marcado como SOLD OUT.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error marcando sold out: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
+
+# ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
+
+def concerts_for_report(session, today: date, include_not_on_sale=True, past=False):
+    """
+    upcoming: conciertos con fecha >= today-2 (desaparecen 2 días después)
+    past=True: muestra los anteriores al corte.
+    """
+    cutoff = today - timedelta(days=2)
+    q = session.query(Concert)
+    if past:
+        q = q.filter(Concert.date < cutoff)
+    else:
+        q = q.filter(Concert.date >= cutoff)
+    q = q.order_by(Concert.date.asc())
+    concerts = q.all()
+    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter
+    return concerts
+
+def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None):
+    session = db()
+    today = day
+    concerts = concerts_for_report(session, today, past=past)
+
+    if promoter_id:
+        pid = to_uuid(promoter_id)
+        concerts = [c for c in concerts if c.promoter_id == pid]
+    if artist_id:
+        aid = to_uuid(artist_id)
+        concerts = [c for c in concerts if c.artist_id == aid]
+
+    totals, today_map, last_map = sales_maps(session, day)
+
+    # Agrupar
+    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
+    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
+
+    session.close()
+    return dict(day=day,
+                empresa=empresa, vendidos=vendidos,
+                totals=totals, today_map=today_map, last_map=last_map)
+
+@app.route("/ventas/reporte")
+def sales_report_view():
+    day = date_or_today("d")
+    ctx = build_sales_report_context(day)
+    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False)
+    return render_template("sales_report.html", **ctx)
+
+@app.route("/ventas/anteriores")
+def sales_report_past():
+    day = date_or_today("d")
+    ctx = build_sales_report_context(day, past=True)
+    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=True)
+    return render_template("sales_report.html", **ctx)
+
+@app.route("/ventas/promotor/<pid>")
+def sales_report_by_promoter(pid):
+    day = date_or_today("d")
+    ctx = build_sales_report_context(day, promoter_id=pid)
+    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False, promoter_id=pid)
+    return render_template("sales_report.html", **ctx)
+
+@app.route("/ventas/artista/<aid>")
+def sales_report_by_artist(aid):
+    day = date_or_today("d")
+    ctx = build_sales_report_context(day, artist_id=aid)
+    ctx.update(prev_day=day - timedelta(days=1), next_day=day + timedelta(days=1), past=False, artist_id=aid)
+    return render_template("sales_report.html", **ctx)
+
+# ------------- APIS GRAFICA DE VENTAS -----------
+
+@app.get("/api/sales_json")
+def api_sales_json():
+    cid = to_uuid(request.args.get("concert_id"))
+    session = db()
+    # serie diaria acumulada desde el inicio de venta
+    pts = (session.query(TicketSale.day, func.sum(TicketSale.sold_today))
+           .filter(TicketSale.concert_id == cid)
+           .group_by(TicketSale.day)
+           .order_by(TicketSale.day.asc()).all())
+    # acumular
+    labels, values = [], []
+    running = 0
+    for d, qty in pts:
+        running += int(qty or 0)
+        labels.append(d.strftime("%Y-%m-%d"))
+        values.append(running)
+    session.close()
+    return jsonify({"labels": labels, "values": values})
+
+@app.get("/api/concert_meta")
+def api_concert_meta():
+    cid = to_uuid(request.args.get("concert_id"))
+    session = db()
+    c = session.get(Concert, cid)
+    if not c:
+        session.close(); return jsonify({"error": "not found"}), 404
+    session.refresh(c)
+    meta = {
+        "date": c.date.strftime("%Y-%m-%d"),
+        "festival_name": c.festival_name,
+        "capacity": c.capacity,
+        "artist": {"id": str(c.artist.id), "name": c.artist.name, "photo_url": c.artist.photo_url},
+        "venue": {"name": c.venue.name, "municipality": c.venue.municipality, "province": c.venue.province},
+        "promoter": ({"id": str(c.promoter.id), "nick": c.promoter.nick, "logo_url": c.promoter.logo_url} if c.promoter else None)
+    }
+    session.close()
+    return jsonify(meta)
+
 
 if __name__ == "__main__":
     init_db()

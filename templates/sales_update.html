@@ -1,0 +1,117 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div class="d-flex align-items-center gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=prev_day.isoformat()) }}"><i class="fa fa-chevron-left"></i></a>
+    <div class="badge bg-light text-dark px-3 py-2">{{ day.strftime('%d/%m/%Y') }}</div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=next_day.isoformat()) }}"><i class="fa fa-chevron-right"></i></a>
+  </div>
+  <form method="get" action="{{ url_for('sales_update_view') }}" class="d-flex align-items-center gap-2">
+    <input type="date" name="d" class="form-control" value="{{ day.isoformat() }}">
+    <button class="btn btn-outline-primary"><i class="fa fa-calendar"></i></button>
+  </form>
+</div>
+
+<h5 class="mt-3 mb-2">Conciertos — Empresa</h5>
+{% for c in empresa %}
+  {% set total = totals.get(c.id, 0) %}
+  {% set today = today_map.get(c.id, 0) %}
+  {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
+  <div class="card mb-3" id="concert-{{ c.id }}">
+    <div class="card-body">
+      <div class="d-flex align-items-start gap-3">
+        <img src="{{ c.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+        <div class="flex-grow-1">
+          <div class="d-flex justify-content-between flex-wrap gap-2">
+            <div>
+              <div class="fw-semibold">{{ c.artist.name }}</div>
+              <div class="text-muted">
+                <small>{{ c.date.strftime('%d/%m/%Y') }}{% if c.festival_name %} — {{ c.festival_name }}{% endif %}</small>
+              </div>
+              <div class="text-muted"><small>{{ c.venue.name }} — {{ c.venue.municipality or '' }} {{ c.venue.province or '' }}</small></div>
+            </div>
+            <div class="text-end">
+              <div class="mb-1"><small>Total vendidas: <strong>{{ total }}</strong> / {{ c.capacity }}</small></div>
+              {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
+            </div>
+          </div>
+
+          <form class="row g-2 align-items-end mt-2" method="post" action="{{ url_for('sales_save') }}">
+            <input type="hidden" name="concert_id" value="{{ c.id }}">
+            <input type="hidden" name="day" value="{{ day.isoformat() }}">
+            <div class="col-md-3">
+              <label class="form-label">Entradas vendidas hoy</label>
+              <input type="number" name="sold_today" class="form-control" value="{{ today }}" min="0" {% if soldout %}disabled{% endif %}>
+            </div>
+            <div class="col-md-6"></div>
+            <div class="col-md-3 text-end">
+              {% if not soldout %}
+                <button class="btn btn-primary">Guardar</button>
+                <form method="post" action="{{ url_for('sales_mark_soldout', cid=c.id) }}" class="d-inline">
+                  <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                  <button class="btn btn-outline-danger">Marcar como Sold Out</button>
+                </form>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="alert alert-light">Sin conciertos propios a la venta para esta fecha.</div>
+{% endfor %}
+
+<h5 class="mt-4 mb-2">Conciertos — Vendidos</h5>
+{% for c in vendidos %}
+  {% set total = totals.get(c.id, 0) %}
+  {% set today = today_map.get(c.id, 0) %}
+  {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
+  <div class="card mb-3" id="concert-{{ c.id }}">
+    <div class="card-body">
+      <div class="d-flex align-items-start gap-3">
+        <img src="{{ c.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+        <div class="flex-grow-1">
+          <div class="d-flex justify-content-between flex-wrap gap-2">
+            <div>
+              <div class="fw-semibold">{{ c.artist.name }}</div>
+              <div class="text-muted">
+                <small>{{ c.date.strftime('%d/%m/%Y') }}{% if c.festival_name %} — {{ c.festival_name }}{% endif %}</small>
+              </div>
+              <div class="text-muted"><small>{{ c.venue.name }} — {{ c.venue.municipality or '' }} {{ c.venue.province or '' }}</small></div>
+            </div>
+            <div class="text-end">
+              {% if c.promoter %}
+                <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" title="{{ c.promoter.nick }}">
+              {% endif %}
+              <div class="mb-1"><small>Total vendidas: <strong>{{ total }}</strong> / {{ c.capacity }}</small></div>
+              {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
+            </div>
+          </div>
+
+          <form class="row g-2 align-items-end mt-2" method="post" action="{{ url_for('sales_save') }}">
+            <input type="hidden" name="concert_id" value="{{ c.id }}">
+            <input type="hidden" name="day" value="{{ day.isoformat() }}">
+            <div class="col-md-3">
+              <label class="form-label">Entradas vendidas hoy</label>
+              <input type="number" name="sold_today" class="form-control" value="{{ today }}" min="0" {% if soldout %}disabled{% endif %}>
+            </div>
+            <div class="col-md-6"></div>
+            <div class="col-md-3 text-end">
+              {% if not soldout %}
+                <button class="btn btn-primary">Guardar</button>
+                <form method="post" action="{{ url_for('sales_mark_soldout', cid=c.id) }}" class="d-inline">
+                  <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                  <button class="btn btn-outline-danger">Marcar como Sold Out</button>
+                </form>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="alert alert-light">Sin conciertos vendidos a la venta para esta fecha.</div>
+{% endfor %}
+{% endblock %}

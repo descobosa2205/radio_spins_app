@@ -28,3 +28,4 @@ body { background: #fafafa; }
 /* Plegables */
 .toggle-artist .chevron { transition: transform .2s ease; }
 .toggle-artist.collapsed .chevron { transform: rotate(-90deg); }
+.opacity-50 { opacity: .6 !important; }

@@ -44,9 +44,21 @@
           <li class="nav-item"><a class="nav-link" href="{{ url_for('artists_view') }}">Artistas</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('songs_view') }}">Canciones</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('stations_view') }}">Emisoras</a></li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" data-bs-toggle="dropdown" href="#">Ventas</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="{{ url_for('concerts_view') }}">Conciertos</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('promoters_view') }}">Promotores</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('venues_view') }}">Recintos</a></li>
+            </ul>
+          </li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_logout') }}">Salir</a></li>
         {% else %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('public_summary') }}">Resumen</a></li>
+          <li class="nav-item"><a class="nav-link" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_login') }}">Administrador</a></li>
         {% endif %}
       </ul>

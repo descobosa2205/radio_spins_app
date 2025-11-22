@@ -30,14 +30,17 @@
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('plays_view') if IS_ADMIN else url_for('public_summary') }}">
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" height="32" class="me-2">
-      <span class="fw-bold" style="color:var(--brand-primary);">Radio Spins</span>
+      <!-- Mostramos el banner nuevo; en móviles dejamos que se reduzca -->
+      <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="Logo" style="height:32px;">
     </a>
+
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
       <span class="navbar-toggler-icon"></span>
     </button>
+
     <div id="navMain" class="collapse navbar-collapse">
       <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+
         <!-- RADIO -->
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Radio</a>
@@ -48,8 +51,8 @@
               </a>
             </li>
             {% if IS_ADMIN %}
-            <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('stations_view') }}">Emisoras</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('stations_view') }}">Emisoras</a></li>
             {% endif %}
           </ul>
         </li>
@@ -60,7 +63,7 @@
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
             {% if IS_ADMIN %}
-            <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
             {% endif %}
           </ul>
         </li>
@@ -84,23 +87,24 @@
         {% else %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_login') }}">Administrador</a></li>
         {% endif %}
+
       </ul>
     </div>
   </div>
 </nav>
 
-<main class="container my-4">
+<!-- deja espacio al final para que los dropdowns no se corten -->
+<main class="container my-4 pb-5">
   {% with messages = get_flashed_messages(with_categories=true) %}
-    {% if messages %}
-      {% for category, message in messages %}
-        <div class="alert alert-{{ 'success' if category=='success' else 'danger' if category=='danger' else 'warning' }} alert-dismissible fade show" role="alert">
-          {{ message }}
-          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        </div>
-      {% endfor %}
-    {% endif %}
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ 'success' if category=='success' else 'danger' if category=='danger' else 'warning' }} alert-dismissible fade show" role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endfor %}
+  {% endif %}
   {% endwith %}
-
   {% block content %}{% endblock %}
 </main>
 

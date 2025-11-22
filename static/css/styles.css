@@ -29,3 +29,7 @@ body { background: #fafafa; }
 .toggle-artist .chevron { transition: transform .2s ease; }
 .toggle-artist.collapsed .chevron { transform: rotate(-90deg); }
 .opacity-50 { opacity: .6 !important; }
+
+.card .artist-avatar { width: 50px; height: 50px; }
+.card .station-logo { width: 48px; height: 48px; }
+.card .card-body { padding: .9rem 1rem; }  /* compacta las tarjetas */

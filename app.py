@@ -78,6 +78,17 @@ def date_or_today(param_name="d"):
 def format_spanish_date(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
+@app.template_filter("k")
+def format_thousands(n):
+    """
+    Formatea enteros con punto de miles (1.234.567).
+    Si n viene None/'' → '0'.
+    """
+    try:
+        return f"{int(n):,}".replace(",", ".")
+    except Exception:
+        return "0"
+
 # ---------- context ----------
 @app.context_processor
 def inject_globals():
@@ -1052,26 +1063,61 @@ def sales_report_past():
     ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
 
-# --- Reporte por promotor ---
 @app.route("/ventas/promotor/<pid>")
 def sales_report_by_promoter(pid):
     day = date_or_today("d")
-    ctx = build_sales_report_context(day, promoter_id=pid)
-    ctx.update(past=False)
-    ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
-    ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
-    return render_template("sales_report.html", **ctx)
+    session_db = db()
+    p_uuid = to_uuid(pid)
 
+    # Todos los próximos (desaparecen 2 días después)
+    concerts = concerts_for_report(session_db, day, past=False)
+    concerts = [c for c in concerts if c.promoter_id == p_uuid]
+
+    # Agrupar por artista
+    grouped = {}
+    for c in concerts:
+      grouped.setdefault(c.artist, []).append(c)
+    # Ordenar cada lista por fecha asc (más cercano → más lejano)
+    for artist, lst in grouped.items():
+      lst.sort(key=lambda x: x.date)
+
+    totals, today_map, last_map = sales_maps(session_db, day)
+    promoter = session_db.get(Promoter, p_uuid)
+    session_db.close()
+
+    return render_template(
+        "sales_by_promoter.html",
+        day=day,
+        promoter=promoter,
+        grouped=grouped,        # dict {Artist: [Concert,...]}
+        totals=totals,
+        today_map=today_map,
+        last_map=last_map,
+    )
 # --- Reporte por artista ---
 @app.route("/ventas/artista/<aid>")
 def sales_report_by_artist(aid):
     day = date_or_today("d")
-    ctx = build_sales_report_context(day, artist_id=aid)
-    ctx.update(past=False)
-    ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
-    ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
-    return render_template("sales_report.html", **ctx)
+    session_db = db()
+    a_uuid = to_uuid(aid)
 
+    concerts = concerts_for_report(session_db, day, past=False)
+    concerts = [c for c in concerts if c.artist_id == a_uuid]
+    concerts.sort(key=lambda x: x.date)
+
+    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
+    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
+
+    totals, today_map, last_map = sales_maps(session_db, day)
+    artist = session_db.get(Artist, a_uuid)
+    session_db.close()
+
+    return render_template(
+        "sales_by_artist.html",
+        day=day, artist=artist,
+        empresa=empresa, vendidos=vendidos,
+        totals=totals, today_map=today_map, last_map=last_map
+    )
 
 # ------------- APIS GRAFICA DE VENTAS -----------
 

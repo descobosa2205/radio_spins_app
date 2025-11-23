@@ -66,9 +66,22 @@ $(function(){
 
 async function openSalesChart(concertId){
   try {
-    // meta
+    // 1) Referencias seguras al modal y al canvas
+    const modalEl = document.getElementById('chartModal');
+    if (!modalEl) throw new Error("No existe el modal 'chartModal' en layout.html");
+    const canvas = document.getElementById('evoChart');
+    if (!canvas) throw new Error("No existe el <canvas id='evoChart'> dentro del modal");
+
+    // 2) Cerrar/detruir cualquier gráfico ya pintado en ese canvas
+    //    Usamos el registro oficial de Chart.js (v3/v4). Si no existe, fallback a window.evoChart.
+    const existing = (Chart && typeof Chart.getChart === 'function')
+      ? Chart.getChart(canvas)
+      : (window.evoChart && typeof window.evoChart.destroy === 'function' ? window.evoChart : null);
+    if (existing) existing.destroy();
+
+    // 3) Meta para los títulos/fotos
     const metaR = await fetch(`/api/concert_meta?concert_id=${concertId}`);
-    if (!metaR.ok) throw new Error("No se pudo leer meta del concierto");
+    if (!metaR.ok) throw new Error("No se pudo leer la metadata del concierto");
     const meta = await metaR.json();
 
     const titleParts = [];
@@ -77,30 +90,44 @@ async function openSalesChart(concertId){
     if (meta.date) titleParts.push(meta.date);
     const title = titleParts.join(" — ");
 
-    $('#chart-song-title').text(title);
-    $('#chart-artist-photo').attr('src', (meta.artist && meta.artist.photo_url) || '/static/img/logo.png');
-    $('#chart-cover').attr('src', '/static/img/logo.png'); // no tenemos portada de concierto
+    const titleEl = document.getElementById('chart-song-title');
+    if (titleEl) titleEl.textContent = title;
 
-    // serie de datos
+    const artistPhoto = document.getElementById('chart-artist-photo');
+    if (artistPhoto) artistPhoto.src = (meta.artist && meta.artist.photo_url) || '/static/img/logo.png';
+
+    const cover = document.getElementById('chart-cover');
+    if (cover) cover.src = '/static/img/logo.png'; // no usamos portada de concierto
+
+    // 4) Serie de ventas (acumulado)
     const r = await fetch(`/api/sales_json?concert_id=${concertId}`);
     if (!r.ok) throw new Error("No se pudo leer la serie de ventas");
     const js = await r.json();
 
-    const modalEl = document.getElementById('chartModal');
-    if (!modalEl) throw new Error("No existe el modal de gráficas (chartModal) en layout.html");
-
-    const ctx = document.getElementById('evoChart');
-    if (window.evoChart) { window.evoChart.destroy(); }
+    // 5) Pintar el gráfico
+    const ctx = canvas.getContext('2d');
     window.evoChart = new Chart(ctx, {
       type: 'line',
-      data: { labels: js.labels, datasets: [{ label: 'Acumulado', data: js.values, tension: 0.25 }] },
-      options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+      data: {
+        labels: js.labels,
+        datasets: [{
+          label: 'Acumulado',
+          data: js.values,
+          tension: 0.25
+        }]
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+      }
     });
 
+    // 6) Mostrar modal
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
+
   } catch (err) {
     console.error(err);
-    alert("No se pudo abrir el gráfico: " + (err.message || err));
+    alert("No se pudo abrir el gráfico: " + (err && err.message ? err.message : err));
   }
 }

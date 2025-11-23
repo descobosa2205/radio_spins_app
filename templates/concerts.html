@@ -56,8 +56,8 @@
         <input type="date" name="sale_start_date" class="form-control" required>
       </div>
       <div class="col-md-2">
-        <label class="form-label">Punto de empate (# entrada)</label>
-        <input type="number" name="break_even_ticket" class="form-control" required min="0">
+        <label class="form-label">Punto de empate (# entrada) <small class="text-muted">(opcional)</small></label>
+        <input type="number" name="break_even_ticket" class="form-control" min="0">
       </div>
 
       <div class="col-12 col-md-2 d-grid">
@@ -106,7 +106,7 @@ document.getElementById('sale_type_select').addEventListener('change', function(
           </div>
           <div class="col-md-2"><label class="form-label">Aforo</label><input type="number" name="capacity" class="form-control" value="{{ c.capacity }}"></div>
           <div class="col-md-2"><label class="form-label">Inicio venta</label><input type="date" name="sale_start_date" class="form-control" value="{{ c.sale_start_date.isoformat() }}"></div>
-          <div class="col-md-2"><label class="form-label">Empate (#)</label><input type="number" name="break_even_ticket" class="form-control" value="{{ c.break_even_ticket }}"></div>
+          <div class="col-md-2"><label class="form-label">Empate (#)</label><input type="number" name="break_even_ticket" class="form-control" value="{{ c.break_even_ticket if c.break_even_ticket is not none else '' }}" min="0"></div>
           <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary">Guardar</button></div>
         </form>
         <form class="text-end mt-2" method="post" action="{{ url_for('concert_delete', cid=c.id) }}">

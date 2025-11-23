@@ -149,9 +149,11 @@
 
       <div class="d-flex justify-content-end mt-2">
         {% if not soldout %}
-          <form method="post" action="{{ url_for('sales_mark_soldout', cid=c.id) }}">
+          <form method="post" action="{{ url_for('sales_toggle_soldout', cid=c.id) }}">
             <input type="hidden" name="day" value="{{ day.isoformat() }}">
-            <button class="btn btn-sm btn-outline-danger">Marcar como Sold Out</button>
+            <button class="btn btn-sm {% if c.sold_out %}btn-outline-warning{% else %}btn-outline-danger{% endif %}">
+              {% if c.sold_out %}Quitar Sold Out{% else %}Marcar como Sold Out{% endif %}
+            </button>
           </form>
         {% endif %}
       </div>

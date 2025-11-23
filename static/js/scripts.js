@@ -65,31 +65,42 @@ $(function(){
 });
 
 async function openSalesChart(concertId){
-  // Meta para cabecera
-  const metaR = await fetch(`/api/concert_meta?concert_id=${concertId}`);
-  const meta = await metaR.json();
+  try {
+    // meta
+    const metaR = await fetch(`/api/concert_meta?concert_id=${concertId}`);
+    if (!metaR.ok) throw new Error("No se pudo leer meta del concierto");
+    const meta = await metaR.json();
 
-  const titleParts = [];
-  if (meta.artist && meta.artist.name) titleParts.push(meta.artist.name);
-  if (meta.festival_name) titleParts.push(meta.festival_name);
-  if (meta.date) titleParts.push(meta.date);
-  const title = titleParts.join(" — ");
+    const titleParts = [];
+    if (meta.artist && meta.artist.name) titleParts.push(meta.artist.name);
+    if (meta.festival_name) titleParts.push(meta.festival_name);
+    if (meta.date) titleParts.push(meta.date);
+    const title = titleParts.join(" — ");
 
-  $('#chart-song-title').text(title);
-  $('#chart-artist-photo').attr('src', (meta.artist && meta.artist.photo_url) || '/static/img/logo.png');
-  $('#chart-cover').attr('src', '/static/img/logo.png'); // no hay portada de concierto; usamos vacío
+    $('#chart-song-title').text(title);
+    $('#chart-artist-photo').attr('src', (meta.artist && meta.artist.photo_url) || '/static/img/logo.png');
+    $('#chart-cover').attr('src', '/static/img/logo.png'); // no tenemos portada de concierto
 
-  const r = await fetch(`/api/sales_json?concert_id=${concertId}`);
-  const js = await r.json();
+    // serie de datos
+    const r = await fetch(`/api/sales_json?concert_id=${concertId}`);
+    if (!r.ok) throw new Error("No se pudo leer la serie de ventas");
+    const js = await r.json();
 
-  const ctx = document.getElementById('evoChart');
-  if (window.evoChart) window.evoChart.destroy();
-  window.evoChart = new Chart(ctx, {
-    type: 'line',
-    data: { labels: js.labels, datasets: [{ label: 'Acumulado', data: js.values, tension: 0.25 }] },
-    options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
-  });
+    const modalEl = document.getElementById('chartModal');
+    if (!modalEl) throw new Error("No existe el modal de gráficas (chartModal) en layout.html");
 
-  const modal = new bootstrap.Modal(document.getElementById('chartModal'));
-  modal.show();
+    const ctx = document.getElementById('evoChart');
+    if (window.evoChart) { window.evoChart.destroy(); }
+    window.evoChart = new Chart(ctx, {
+      type: 'line',
+      data: { labels: js.labels, datasets: [{ label: 'Acumulado', data: js.values, tension: 0.25 }] },
+      options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    });
+
+    const modal = new bootstrap.Modal(modalEl);
+    modal.show();
+  } catch (err) {
+    console.error(err);
+    alert("No se pudo abrir el gráfico: " + (err.message || err));
+  }
 }

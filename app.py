@@ -2,6 +2,7 @@ from datetime import date, timedelta, datetime
 from uuid import UUID
 import uuid as _uuid
 from functools import wraps
+from zoneinfo import ZoneInfo
 
 from flask import (
     Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_from_directory
@@ -77,6 +78,19 @@ def date_or_today(param_name="d"):
 
 def format_spanish_date(d: date) -> str:
     return d.strftime("%d/%m/%Y")
+
+# --- Zona horaria Madrid ---
+TZ_MADRID = ZoneInfo("Europe/Madrid")
+
+def today_local() -> date:
+    # Fecha en Madrid (no UTC)
+    return datetime.now(TZ_MADRID).date()
+
+def date_or_today(param_name="d"):
+    qs = request.args.get(param_name)
+    if qs:
+        return datetime.strptime(qs, "%Y-%m-%d").date()
+    return today_local()
 
 @app.template_filter("k")
 def format_thousands(n):
@@ -355,7 +369,7 @@ def song_delete(song_id):
 @admin_required
 def plays_view():
     session_db = db()
-    current_week = monday_of(date.today())
+    current_week = monday_of(today_local())
     default_week = current_week - timedelta(days=7)
 
     week_start = request.args.get("week")
@@ -461,7 +475,7 @@ def build_summary_context(base_week: date):
     session_db = db()
 
     prev_w, base_w, next_w = week_tabs(base_week)
-    current_week = monday_of(date.today())
+    current_week = monday_of(today_local())
     latest_with_data = week_with_latest_data(session_db)
 
     week_end = base_week + timedelta(days=6)
@@ -835,6 +849,9 @@ def concerts_view():
 
     if request.method == "POST":
         try:
+            be_raw = (request.form.get("break_even_ticket") or "").strip()
+            be_val = int(be_raw) if be_raw != "" else None
+
             c = Concert(
                 date = parse_date(request.form["date"]),
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
@@ -844,7 +861,7 @@ def concerts_view():
                 artist_id = to_uuid(request.form["artist_id"]),
                 capacity = int(request.form["capacity"]),
                 sale_start_date = parse_date(request.form["sale_start_date"]),
-                break_even_ticket = int(request.form["break_even_ticket"]),
+                break_even_ticket = be_val,
                 sold_out = False
             )
             session.add(c)
@@ -885,7 +902,8 @@ def concert_update(cid):
         c.artist_id = to_uuid(request.form["artist_id"])
         c.capacity = int(request.form["capacity"])
         c.sale_start_date = parse_date(request.form["sale_start_date"])
-        c.break_even_ticket = int(request.form["break_even_ticket"])
+        be_raw = (request.form.get("break_even_ticket") or "").strip()
+        c.break_even_ticket = int(be_raw) if be_raw != "" else None
         session.commit()
         flash("Concierto actualizado.", "success")
     except Exception as e:
@@ -984,20 +1002,20 @@ def sales_save():
         session.close()
     return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
 
-@app.post("/ventas/soldout/<cid>")
+@app.post("/ventas/soldout/<cid>/toggle")
 @admin_required
-def sales_mark_soldout(cid):
+def sales_toggle_soldout(cid):
     session = db()
     day = parse_date(request.form["day"])
     try:
         c = session.get(Concert, to_uuid(cid))
         if c:
-            c.sold_out = True
+            c.sold_out = not c.sold_out
             session.commit()
-            flash("Marcado como SOLD OUT.", "success")
+            flash(("Quitado SOLD OUT" if not c.sold_out else "Marcado SOLD OUT"), "success")
     except Exception as e:
         session.rollback()
-        flash(f"Error marcando sold out: {e}", "danger")
+        flash(f"Error al cambiar SOLD OUT: {e}", "danger")
     finally:
         session.close()
     return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")

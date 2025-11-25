@@ -58,9 +58,9 @@
               {% endif %}
 
               <div class="fw-semibold">{{ c.venue.municipality if c.venue else '' }}</div>
+              {% if c.venue.province %}<div class="text-muted"><small>{{ c.venue.province }}</small></div>{% endif %}
               {% if c.venue %}
                 <span class="badge badge-venue">{{ c.venue.name }}</span>
-                {% if c.venue.province %}<div class="text-muted"><small>{{ c.venue.province }}</small></div>{% endif %}
               {% endif %}
 
               <div class="text-muted">

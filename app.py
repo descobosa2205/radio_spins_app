@@ -1128,37 +1128,6 @@ def sales_toggle_soldout(cid):
         session.close()
     return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
 
-@app.route("/ventas/empresa/<gid>")
-def sales_report_by_company(gid):
-    day = date_or_today("d")
-    session_db = db()
-    g_uuid = to_uuid(gid)
-
-    # conciertos que son de esa empresa (EMPRESA)
-    concerts = concerts_for_report(session_db, day, past=False)
-    mine = [c for c in concerts if c.group_company_id == g_uuid]
-
-    # y conciertos en los que participa (PARTICIPADOS/CADIZ)
-    for c in concerts:
-        if c.sale_type in ("PARTICIPADOS","CADIZ"):
-            for s in c.company_shares:
-                if s.company_id == g_uuid:
-                    mine.append(c); break
-
-    # Agrupar por artista (orden cronológico asc)
-    grouped = {}
-    for c in sorted(mine, key=lambda x: x.date):
-        grouped.setdefault(c.artist, []).append(c)
-
-    totals, today_map, last_map = sales_maps(session_db, day)
-    company = session_db.get(GroupCompany, g_uuid)
-    session_db.close()
-
-    return render_template(
-        "sales_by_company.html",
-        day=day, company=company,
-        grouped=grouped, totals=totals, today_map=today_map, last_map=last_map
-    )
 
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 

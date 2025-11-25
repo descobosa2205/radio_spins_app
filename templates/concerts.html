@@ -191,6 +191,12 @@
           <div class="col-md-2"><label class="form-label">Inicio venta</label><input type="date" name="sale_start_date" class="form-control" value="{{ c.sale_start_date.isoformat() }}"></div>
           <div class="col-md-2"><label class="form-label">Empate</label><input type="number" name="break_even_ticket" class="form-control" value="{{ c.break_even_ticket if c.break_even_ticket is not none else '' }}"></div>
           <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary">Guardar</button></div>
+          <div class="col-md-2 d-grid align-self-end">
+            <form method="post" action="{{ url_for('concert_delete', cid=c.id) }}"
+                  onsubmit="return confirm('¿Seguro que quieres borrar este concierto?');">
+              <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+            </form>
+          </div>
         </form>
       </div>
     </div>

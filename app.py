@@ -110,6 +110,55 @@ def format_thousands(n):
         return f"{int(n):,}".replace(",", ".")
     except Exception:
         return "0"
+    
+def _parse_share_pairs(ids_list, pct_list):
+    """
+    Convierte (['id', ...], ['34', ...]) -> [('id', 34), ...] y DEDUPLICA por id (último gana).
+    Además limpia ids vacíos y porcentajes no numéricos.
+    """
+    pairs = []
+    for sid, pct in zip(ids_list or [], pct_list or []):
+        sid = (sid or "").strip()
+        if not sid:
+            continue
+        try:
+            v = int(pct)
+        except Exception:
+            v = 0
+        # normalizamos rango 0..100 (opcional)
+        if v < 0: v = 0
+        if v > 100: v = 100
+        pairs.append((sid, v))
+
+    # deduplicar: el último gana
+    dedup = {}
+    for sid, v in pairs:
+        dedup[sid] = v
+    return [(sid, v) for sid, v in dedup.items()]
+
+
+def _replace_concert_shares(session, concert_id, promoter_pairs, company_pairs):
+    """
+    REEMPLAZA en DB las filas de participación de un concierto.
+    - Borra en tabla de shares con DELETE directo (garantiza orden DELETE->INSERT)
+    - Inserta deduplicados
+    """
+    # 1) borrar existentes y vaciar el buffer de la sesión
+    session.query(ConcertPromoterShare).filter_by(concert_id=concert_id)\
+        .delete(synchronize_session=False)
+    session.query(ConcertCompanyShare).filter_by(concert_id=concert_id)\
+        .delete(synchronize_session=False)
+    session.flush()  # ← muy importante para evitar UNIQUE en el mismo flush
+
+    # 2) insertar nuevos (deduplicados)
+    for pid, pct in promoter_pairs:
+        session.add(ConcertPromoterShare(
+            concert_id=concert_id, promoter_id=to_uuid(pid), pct=pct
+        ))
+    for gid, pct in company_pairs:
+        session.add(ConcertCompanyShare(
+            concert_id=concert_id, company_id=to_uuid(gid), pct=pct
+        ))
 
 # ---------- context ----------
 @app.context_processor
@@ -858,7 +907,7 @@ def concerts_view():
 
     if request.method == "POST":
         try:
-            sale_type = request.form["sale_type"]  # EMPRESA,VENDIDO,PARTICIPADOS,CADIZ
+            sale_type = request.form["sale_type"]  # EMPRESA, VENDIDO, PARTICIPADOS, CADIZ
             be_raw = (request.form.get("break_even_ticket") or "").strip()
             be_val = int(be_raw) if be_raw != "" else None
 
@@ -867,7 +916,7 @@ def concerts_view():
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
                 venue_id = to_uuid(request.form["venue_id"]),
                 sale_type = sale_type,
-                promoter_id = to_uuid(request.form.get("promoter_id") or None),         # VENDIDO
+                promoter_id = to_uuid(request.form.get("promoter_id") or None),          # VENDIDO
                 group_company_id = to_uuid(request.form.get("group_company_id") or None),# EMPRESA
                 artist_id = to_uuid(request.form["artist_id"]),
                 capacity = int(request.form["capacity"]),
@@ -876,23 +925,18 @@ def concerts_view():
                 sold_out = False,
             )
             session.add(c)
-            session.flush()  # ya tenemos c.id
+            session.flush()  # genera id
 
             if sale_type in ("PARTICIPADOS","CADIZ"):
-                # Promotores con %
-                p_ids = request.form.getlist("promoter_id_share[]")
-                p_pcts = request.form.getlist("promoter_pct[]")
-                for pid, pct in zip(p_ids, p_pcts):
-                    pid = (pid or "").strip()
-                    if not pid: continue
-                    session.add(ConcertPromoterShare(concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)))
-                # Empresas del grupo con %
-                g_ids = request.form.getlist("company_id_share[]")
-                g_pcts = request.form.getlist("company_pct[]")
-                for gid, pct in zip(g_ids, g_pcts):
-                    gid = (gid or "").strip()
-                    if not gid: continue
-                    session.add(ConcertCompanyShare(concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)))
+                p_pairs = _parse_share_pairs(
+                    request.form.getlist("promoter_id_share[]"),
+                    request.form.getlist("promoter_pct[]"),
+                )
+                g_pairs = _parse_share_pairs(
+                    request.form.getlist("company_id_share[]"),
+                    request.form.getlist("company_pct[]"),
+                )
+                _replace_concert_shares(session, c.id, p_pairs, g_pairs)
 
             session.commit()
             flash("Concierto creado.", "success")
@@ -918,6 +962,7 @@ def concert_update(cid):
     if not c:
         flash("Concierto no encontrado.", "warning")
         session.close(); return redirect(url_for("concerts_view"))
+
     try:
         c.date = parse_date(request.form["date"])
         c.festival_name = (request.form.get("festival_name") or "").strip() or None
@@ -931,25 +976,20 @@ def concert_update(cid):
         be_raw = (request.form.get("break_even_ticket") or "").strip()
         c.break_even_ticket = int(be_raw) if be_raw != "" else None
 
-        # Reemplazar participaciones si procede
+        # Reemplazar participaciones según tipo
         if c.sale_type in ("PARTICIPADOS","CADIZ"):
-            c.promoter_shares[:] = []
-            c.company_shares[:] = []
-            p_ids = request.form.getlist("promoter_id_share[]")
-            p_pcts = request.form.getlist("promoter_pct[]")
-            for pid, pct in zip(p_ids, p_pcts):
-                pid = (pid or "").strip()
-                if not pid: continue
-                c.promoter_shares.append(ConcertPromoterShare(concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)))
-            g_ids = request.form.getlist("company_id_share[]")
-            g_pcts = request.form.getlist("company_pct[]")
-            for gid, pct in zip(g_ids, g_pcts):
-                gid = (gid or "").strip()
-                if not gid: continue
-                c.company_shares.append(ConcertCompanyShare(concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)))
+            p_pairs = _parse_share_pairs(
+                request.form.getlist("promoter_id_share[]"),
+                request.form.getlist("promoter_pct[]"),
+            )
+            g_pairs = _parse_share_pairs(
+                request.form.getlist("company_id_share[]"),
+                request.form.getlist("company_pct[]"),
+            )
+            _replace_concert_shares(session, c.id, p_pairs, g_pairs)
         else:
-            c.promoter_shares[:] = []
-            c.company_shares[:] = []
+            # si deja de ser participados/cadiz, borra cualquier resto
+            _replace_concert_shares(session, c.id, [], [])
 
         session.commit()
         flash("Concierto actualizado.", "success")
@@ -969,10 +1009,10 @@ def concert_delete(cid):
         if c:
             session.delete(c)
             session.commit()
-            flash("Concierto eliminado.", "success")
+            flash("Concierto borrado.", "success")
     except Exception as e:
         session.rollback()
-        flash(f"Error eliminando: {e}", "danger")
+        flash(f"Error borrando concierto: {e}", "danger")
     finally:
         session.close()
     return redirect(url_for("concerts_view"))

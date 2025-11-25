@@ -29,6 +29,24 @@ SALES_SECTION_TITLE = {
     "VENDIDO": "Conciertos — Vendidos",
 }
 TZ_MADRID = ZoneInfo("Europe/Madrid")
+
+
+def today_local() -> date:
+    """Fecha de hoy en Madrid."""
+    return datetime.now(TZ_MADRID).date()
+
+def get_day(param: str = "d") -> date:
+    """
+    Lee ?d=YYYY-MM-DD de la query y devuelve date.
+    Si no llega / es inválido, devuelve 'hoy' Madrid.
+    """
+    raw = request.args.get(param)
+    if raw:
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date()
+        except ValueError:
+            pass
+    return today_local()
 # ---------- helpers ----------
 def db():
     return SessionLocal()
@@ -89,16 +107,6 @@ def format_spanish_date(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 # --- Zona horaria Madrid ---
-
-def today_local() -> date:
-    # Fecha en Madrid (no UTC)
-    return datetime.now(TZ_MADRID).date()
-
-def date_or_today(param_name="d"):
-    qs = request.args.get(param_name)
-    if qs:
-        return datetime.strptime(qs, "%Y-%m-%d").date()
-    return today_local()
 
 @app.template_filter("k")
 def format_thousands(n):

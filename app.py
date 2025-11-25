@@ -24,9 +24,9 @@ app.secret_key = settings.SECRET_KEY
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
     "EMPRESA": "Conciertos — Empresa",
-    "VENDIDO": "Conciertos — Vendidos",
     "PARTICIPADOS": "Conciertos — Participados",
     "CADIZ": "Cádiz Music Stadium",
+    "VENDIDO": "Conciertos — Vendidos",
 }
 TZ_MADRID = ZoneInfo("Europe/Madrid")
 # ---------- helpers ----------
@@ -1096,19 +1096,31 @@ def company_delete(cid):
 # -------------- VENTA DE ENTRADAS -----------
 
 def sales_maps(session, day: date):
+    """
+    Devuelve:
+      - totals:  {concert_id: total_acumulado_hasta_day}
+      - today:   {concert_id: vendidas_hoy}
+      - lastmap: {concert_id: última_fecha_con_registro}
+    Todas las claves que no existan en la tabla salen como 0/None en la lectura.
+    """
     totals = {cid: int(total) for cid, total in (
         session.query(TicketSale.concert_id, func.sum(TicketSale.sold_today))
-        .filter(TicketSale.day <= day).group_by(TicketSale.concert_id).all()
+              .filter(TicketSale.day <= day)
+              .group_by(TicketSale.concert_id).all()
     )}
-    today_map = {cid: qty for cid, qty in (
-        session.query(TicketSale.concert_id, TicketSale.sold_today)
-        .filter(TicketSale.day == day).all()
+
+    today = {cid: int(q) for cid, q in (
+        session.query(TicketSale.concert_id, func.sum(TicketSale.sold_today))
+              .filter(TicketSale.day == day)
+              .group_by(TicketSale.concert_id).all()
     )}
-    last_day = {cid: d for cid, d in (
+
+    lastmap = {cid: d for cid, d in (
         session.query(TicketSale.concert_id, func.max(TicketSale.day))
-        .group_by(TicketSale.concert_id).all()
+              .group_by(TicketSale.concert_id).all()
     )}
-    return totals, today_map, last_day
+
+    return totals, today, lastmap
 
 @app.route("/ventas")
 @admin_required
@@ -1182,94 +1194,109 @@ def sales_toggle_soldout(cid):
 
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 
-def concerts_for_report(session, today: date, past=False):
-    cutoff = today - timedelta(days=2)
+def concerts_for_report(session, day: date, past: bool = False):
+    """
+    - Próximos: fecha >= (hoy-2)
+    - Anteriores: fecha < (hoy-2)
+    Precarga TODAS las relaciones usadas en la plantilla para evitar lazy-load.
+    """
+    cutoff = day - timedelta(days=2)
+
     q = (
         session.query(Concert)
         .options(
+            # entidades directas de la tarjeta
             joinedload(Concert.artist),
             joinedload(Concert.venue),
-            joinedload(Concert.promoter),
-            joinedload(Concert.group_company),
+            joinedload(Concert.promoter),        # VENDIDO
+            joinedload(Concert.group_company),   # EMPRESA
+            # colecciones y sus relaciones anidadas (participaciones)
             selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
             selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
         )
     )
-    q = q.filter(Concert.date < cutoff) if past else q.filter(Concert.date >= cutoff)
+
+    if past:
+        q = q.filter(Concert.date < cutoff)
+    else:
+        q = q.filter(Concert.date >= cutoff)
+
     return q.order_by(Concert.date.asc()).all()
 
-def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):
+def build_sales_report_context(day: date, *, past=False,
+                               promoter_id=None, artist_id=None, company_id=None):
     session = db()
-    concerts = concerts_for_report(session, day, past=past)
+    try:
+        concerts = concerts_for_report(session, day, past=past)
 
-    if promoter_id:
-        pid = to_uuid(promoter_id)
-        concerts = [c for c in concerts if (c.promoter_id == pid) or any(s.promoter_id == pid for s in c.promoter_shares)]
-    if artist_id:
-        aid = to_uuid(artist_id)
-        concerts = [c for c in concerts if c.artist_id == aid]
-    if company_id:
-        gid = to_uuid(company_id)
-        concerts = [c for c in concerts if (c.group_company_id == gid) or any(s.company_id == gid for s in c.company_shares)]
+        # Filtros específicos
+        if promoter_id:
+            pid = to_uuid(promoter_id)
+            concerts = [c for c in concerts if (c.promoter_id == pid) or any(s.promoter_id == pid for s in c.promoter_shares)]
+        if artist_id:
+            aid = to_uuid(artist_id)
+            concerts = [c for c in concerts if c.artist_id == aid]
+        if company_id:
+            gid = to_uuid(company_id)
+            concerts = [c for c in concerts if (c.group_company_id == gid) or any(s.company_id == gid for s in c.company_shares)]
 
-    totals, today_map, last_map = sales_maps(session, day)
+        totals, today_map, last_map = sales_maps(session, day)
 
-    sections = {
-        "EMPRESA": [c for c in concerts if c.sale_type == "EMPRESA"],
-        "PARTICIPADOS": [c for c in concerts if c.sale_type == "PARTICIPADOS"],
-        "CADIZ": [c for c in concerts if c.sale_type == "CADIZ"],
-        "VENDIDO": [c for c in concerts if c.sale_type == "VENDIDO"],
-    }
-    for k in sections: sections[k].sort(key=lambda x: x.date)
+        sections = {
+            "EMPRESA":      [c for c in concerts if c.sale_type == "EMPRESA"],
+            "PARTICIPADOS": [c for c in concerts if c.sale_type == "PARTICIPADOS"],
+            "CADIZ":        [c for c in concerts if c.sale_type == "CADIZ"],
+            "VENDIDO":      [c for c in concerts if c.sale_type == "VENDIDO"],
+        }
+        for k in sections:
+            sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
-    session.close()
-    return dict(day=day, sections=sections, order=SALES_SECTION_ORDER,
-                totals=totals, today_map=today_map, last_map=last_map,
-                titles=SALES_SECTION_TITLE)
+        return dict(
+            day=day, past=past, sections=sections,
+            order=SALES_SECTION_ORDER, titles=SALES_SECTION_TITLE,
+            totals=totals, today_map=today_map, last_map=last_map
+        )
+    finally:
+        session.close()
 
-@app.route("/ventas/reporte")
+@app.get("/ventas/reporte", endpoint="sales_report_view")
 def sales_report_view():
-    day = date_or_today("d")
+    day = get_day("d")
     ctx = build_sales_report_context(day)
     ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat())
-    ctx["past"] = False
     return render_template("sales_report.html", **ctx)
 
-@app.route("/ventas/anteriores")
+@app.get("/ventas/anteriores", endpoint="sales_report_past")
 def sales_report_past():
-    day = date_or_today("d")
+    day = get_day("d")
     ctx = build_sales_report_context(day, past=True)
     ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
-    ctx["past"] = True
     return render_template("sales_report.html", **ctx)
 
-@app.route("/ventas/promotor/<pid>")
+@app.get("/ventas/promotor/<pid>", endpoint="sales_report_by_promoter")
 def sales_report_by_promoter(pid):
-    day = date_or_today("d")
+    day = get_day("d")
     ctx = build_sales_report_context(day, promoter_id=pid)
     ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
-    ctx["past"] = False
     return render_template("sales_report.html", **ctx)
 
-@app.route("/ventas/artista/<aid>")
+@app.get("/ventas/artista/<aid>", endpoint="sales_report_by_artist")
 def sales_report_by_artist(aid):
-    day = date_or_today("d")
+    day = get_day("d")
     ctx = build_sales_report_context(day, artist_id=aid)
     ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
-    ctx["past"] = False
     return render_template("sales_report.html", **ctx)
 
-@app.route("/ventas/empresa/<gid>")
+@app.get("/ventas/empresa/<gid>", endpoint="sales_report_by_company")
 def sales_report_by_company(gid):
-    day = date_or_today("d")
+    day = get_day("d")
     ctx = build_sales_report_context(day, company_id=gid)
     ctx["nav_prev_url"] = url_for("sales_report_by_company", gid=gid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_company", gid=gid, d=(day + timedelta(days=1)).isoformat())
-    ctx["past"] = False
     return render_template("sales_report.html", **ctx)
 
 # ------------- APIS GRAFICA DE VENTAS -----------

@@ -1,16 +1,17 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<!-- NAV -->
+<!-- NAV SUPERIOR -->
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     <a class="btn btn-outline-secondary" href="{{ nav_prev_url }}"><i class="fa fa-chevron-left"></i></a>
     <div class="badge bg-light text-dark px-3 py-2">{{ day.strftime('%d/%m/%Y') }}</div>
     <a class="btn btn-outline-secondary" href="{{ nav_next_url }}"><i class="fa fa-chevron-right"></i></a>
   </div>
+
   <div class="d-flex align-items-center gap-2">
     {% if past %}
-      <a class="btn btn-outline-primary" href="{{ url_for('sales_report_view') }}"><i class="fa fa-clock-rotate-left"></i> Ver próximos</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('sales_report_view') }}"><i class="fa fa-rotate-left"></i> Ver próximos</a>
     {% else %}
       <a class="btn btn-outline-primary" href="{{ url_for('sales_report_past') }}"><i class="fa fa-clock-rotate-left"></i> Conciertos anteriores</a>
     {% endif %}
@@ -24,6 +25,7 @@
 {% for key in order %}
   {% set title = titles.get(key, key) %}
   {% set lista = sections.get(key, []) %}
+
   <h6 class="text-uppercase text-muted mt-4 mb-2">{{ title }}</h6>
 
   {% for c in lista %}
@@ -31,28 +33,36 @@
     {% set today_sold = today_map.get(c.id, 0) %}
     {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
     {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
-    {% set days_left = (c.date - day).days %}
+    {% set days_left = (c.date - day).days if c.date else 0 %}
     {% set updated_last = last_map.get(c.id) %}
     {% set is_today = (updated_last == day) %}
     {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
 
     <div class="card mb-2">
       <div class="card-body py-3">
+
+        <!-- CABECERA -->
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+
           <div class="d-flex align-items-center gap-3">
-            <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) }}">
-              <img src="{{ c.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+            <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}">
+              <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
+                   class="artist-avatar" alt="">
             </a>
+
             <div class="d-flex align-items-center flex-wrap gap-3">
-              <div class="fw-semibold">{{ c.artist.name }}</div>
-              <div class="text-muted"><small>{{ c.date.strftime('%d/%m/%Y') }}</small></div>
+              <div class="fw-semibold">{{ c.artist.name if c.artist else '—' }}</div>
+              <div class="text-muted"><small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small></div>
               {% if c.festival_name %}<div class="text-muted"><small>{{ c.festival_name }}</small></div>{% endif %}
-              <div class="text-muted"><small>{{ c.venue.municipality or '' }}</small></div>
-              <div class="text-muted"><small>{{ c.venue.province or '' }}</small></div>
-              <div class="text-muted"><small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') }}</small></div>
+              <div class="text-muted"><small>{{ c.venue.municipality if c.venue else '' }}</small></div>
+              <div class="text-muted"><small>{{ c.venue.province if c.venue else '' }}</small></div>
+              <div class="text-muted">
+                <small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</small>
+              </div>
             </div>
           </div>
 
+          <!-- Logos y etiquetas -->
           <div class="d-flex align-items-center gap-2 flex-wrap">
             <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
 
@@ -60,12 +70,12 @@
               <a href="{{ url_for('sales_report_by_company', gid=c.group_company_id) }}" class="logo-chip" title="{{ c.group_company.name }}">
                 <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
               </a>
+
             {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
               {% for s in c.company_shares %}
                 {% set comp = s.company %}
                 {% if comp %}
-                  <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}"
-                    class="logo-chip position-relative" title="{{ comp.name }}">
+                  <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ comp.name }}">
                     <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
                     <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                   </a>
@@ -74,24 +84,31 @@
               {% for s in c.promoter_shares %}
                 {% set prom = s.promoter %}
                 {% if prom %}
-                  <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}"
-                    class="logo-chip position-relative" title="{{ prom.nick }}">
+                  <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ prom.nick }}">
                     <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
                     <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                   </a>
                 {% endif %}
               {% endfor %}
 
+            {% elif c.promoter %}
+              <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}">
+                <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+              </a>
+            {% endif %}
+
             {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
           </div>
         </div>
 
+        <!-- MÉTRICAS -->
         <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
           <div><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold">{{ today_sold|k }}</div></div>
           <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
           <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
           <div><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
           <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+
           {% if c.break_even_ticket is not none %}
             {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
             {% set reached = total >= c.break_even_ticket %}
@@ -104,6 +121,7 @@
           {% endif %}
         </div>
 
+        <!-- PIE: actualizado y gráfico -->
         <div class="d-flex justify-content-between align-items-center mt-2">
           <div>
             {% if is_today %}
@@ -118,10 +136,12 @@
             <i class="fa fa-chart-line"></i> Evolución
           </button>
         </div>
+
       </div>
     </div>
   {% else %}
     <div class="alert alert-light">No hay conciertos para esta sección.</div>
   {% endfor %}
 {% endfor %}
+
 {% endblock %}

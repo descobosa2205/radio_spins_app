@@ -28,7 +28,7 @@ SALES_SECTION_TITLE = {
     "PARTICIPADOS": "Conciertos — Participados",
     "CADIZ": "Cádiz Music Stadium",
 }
-
+TZ_MADRID = ZoneInfo("Europe/Madrid")
 # ---------- helpers ----------
 def db():
     return SessionLocal()
@@ -89,7 +89,6 @@ def format_spanish_date(d: date) -> str:
     return d.strftime("%d/%m/%Y")
 
 # --- Zona horaria Madrid ---
-TZ_MADRID = ZoneInfo("Europe/Madrid")
 
 def today_local() -> date:
     # Fecha en Madrid (no UTC)
@@ -859,7 +858,7 @@ def concerts_view():
 
     if request.method == "POST":
         try:
-            sale_type = request.form["sale_type"]  # EMPRESA, VENDIDO, PARTICIPADOS, CADIZ
+            sale_type = request.form["sale_type"]  # EMPRESA,VENDIDO,PARTICIPADOS,CADIZ
             be_raw = (request.form.get("break_even_ticket") or "").strip()
             be_val = int(be_raw) if be_raw != "" else None
 
@@ -868,8 +867,8 @@ def concerts_view():
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
                 venue_id = to_uuid(request.form["venue_id"]),
                 sale_type = sale_type,
-                promoter_id = to_uuid(request.form.get("promoter_id") or None),   # usado solo en VENDIDO
-                group_company_id = to_uuid(request.form.get("group_company_id") or None),  # usado en EMPRESA
+                promoter_id = to_uuid(request.form.get("promoter_id") or None),         # VENDIDO
+                group_company_id = to_uuid(request.form.get("group_company_id") or None),# EMPRESA
                 artist_id = to_uuid(request.form["artist_id"]),
                 capacity = int(request.form["capacity"]),
                 sale_start_date = parse_date(request.form["sale_start_date"]),
@@ -877,27 +876,23 @@ def concerts_view():
                 sold_out = False,
             )
             session.add(c)
-            session.flush()  # genera id
+            session.flush()  # ya tenemos c.id
 
             if sale_type in ("PARTICIPADOS","CADIZ"):
-                # Promotores
+                # Promotores con %
                 p_ids = request.form.getlist("promoter_id_share[]")
                 p_pcts = request.form.getlist("promoter_pct[]")
                 for pid, pct in zip(p_ids, p_pcts):
                     pid = (pid or "").strip()
                     if not pid: continue
-                    session.add(ConcertPromoterShare(
-                        concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)
-                    ))
-                # Empresas del grupo
+                    session.add(ConcertPromoterShare(concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)))
+                # Empresas del grupo con %
                 g_ids = request.form.getlist("company_id_share[]")
                 g_pcts = request.form.getlist("company_pct[]")
                 for gid, pct in zip(g_ids, g_pcts):
                     gid = (gid or "").strip()
                     if not gid: continue
-                    session.add(ConcertCompanyShare(
-                        concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)
-                    ))
+                    session.add(ConcertCompanyShare(concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)))
 
             session.commit()
             flash("Concierto creado.", "success")
@@ -908,9 +903,7 @@ def concerts_view():
             session.close()
         return redirect(url_for("concerts_view"))
 
-    concerts = (session.query(Concert)
-                .order_by(Concert.date.asc())
-                .all())
+    concerts = session.query(Concert).order_by(Concert.date.asc()).all()
     for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter; _ = c.group_company; _ = c.promoter_shares; _ = c.company_shares
     session.close()
     return render_template("concerts.html",
@@ -930,38 +923,31 @@ def concert_update(cid):
         c.festival_name = (request.form.get("festival_name") or "").strip() or None
         c.venue_id = to_uuid(request.form["venue_id"])
         c.sale_type = request.form["sale_type"]
-        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)  # solo VENDIDO
-        c.group_company_id = to_uuid(request.form.get("group_company_id") or None)  # solo EMPRESA
+        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
+        c.group_company_id = to_uuid(request.form.get("group_company_id") or None)
         c.artist_id = to_uuid(request.form["artist_id"])
         c.capacity = int(request.form["capacity"])
         c.sale_start_date = parse_date(request.form["sale_start_date"])
         be_raw = (request.form.get("break_even_ticket") or "").strip()
         c.break_even_ticket = int(be_raw) if be_raw != "" else None
 
-        # Reemplazar participaciones en PARTICIPADOS/CADIZ
+        # Reemplazar participaciones si procede
         if c.sale_type in ("PARTICIPADOS","CADIZ"):
-            # limpiar existentes
             c.promoter_shares[:] = []
             c.company_shares[:] = []
-            # recrear
             p_ids = request.form.getlist("promoter_id_share[]")
             p_pcts = request.form.getlist("promoter_pct[]")
             for pid, pct in zip(p_ids, p_pcts):
                 pid = (pid or "").strip()
                 if not pid: continue
-                c.promoter_shares.append(ConcertPromoterShare(
-                    concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)
-                ))
+                c.promoter_shares.append(ConcertPromoterShare(concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)))
             g_ids = request.form.getlist("company_id_share[]")
             g_pcts = request.form.getlist("company_pct[]")
             for gid, pct in zip(g_ids, g_pcts):
                 gid = (gid or "").strip()
                 if not gid: continue
-                c.company_shares.append(ConcertCompanyShare(
-                    concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)
-                ))
+                c.company_shares.append(ConcertCompanyShare(concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)))
         else:
-            # si no es participados/cadiz, garantizamos listas vacías
             c.promoter_shares[:] = []
             c.company_shares[:] = []
 
@@ -1012,7 +998,6 @@ def companies_view():
         finally:
             session.close()
         return redirect(url_for("companies_view"))
-
     companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
     session.close()
     return render_template("companies.html", companies=companies)
@@ -1060,18 +1045,14 @@ def company_delete(cid):
 # -------------- VENTA DE ENTRADAS -----------
 
 def sales_maps(session, day: date):
-    # total vendido hasta 'day' inclusive
     totals = {cid: int(total) for cid, total in (
         session.query(TicketSale.concert_id, func.sum(TicketSale.sold_today))
-        .filter(TicketSale.day <= day)
-        .group_by(TicketSale.concert_id).all()
+        .filter(TicketSale.day <= day).group_by(TicketSale.concert_id).all()
     )}
-    # vendido HOY
     today_map = {cid: qty for cid, qty in (
         session.query(TicketSale.concert_id, TicketSale.sold_today)
         .filter(TicketSale.day == day).all()
     )}
-    # última actualización (máxima fecha de venta)
     last_day = {cid: d for cid, d in (
         session.query(TicketSale.concert_id, func.max(TicketSale.day))
         .group_by(TicketSale.concert_id).all()
@@ -1181,10 +1162,10 @@ def sales_report_by_company(gid):
 
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 
-def concerts_for_report(session, today: date, include_not_on_sale=True, past=False):
+def concerts_for_report(session, today: date, past=False):
     """
-    upcoming: conciertos con fecha >= today-2 (desaparecen 2 días después)
-    past=True: muestra los anteriores al corte.
+    Próximos: fecha >= hoy-2 (se mantienen 2 días tras celebrarse).
+    Anteriores: fecha < hoy-2.
     """
     cutoff = today - timedelta(days=2)
     q = session.query(Concert)
@@ -1192,25 +1173,25 @@ def concerts_for_report(session, today: date, include_not_on_sale=True, past=Fal
         q = q.filter(Concert.date < cutoff)
     else:
         q = q.filter(Concert.date >= cutoff)
-    q = q.order_by(Concert.date.asc())
-    concerts = q.all()
-    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter
-    return concerts
+    res = q.order_by(Concert.date.asc()).all()
+    # toca relaciones que usaremos en plantillas
+    for c in res:
+        _ = c.artist; _ = c.venue; _ = c.promoter; _ = c.group_company; _ = c.promoter_shares; _ = c.company_shares
+    return res
 
 def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):
     session = db()
-    today = day
-    concerts = concerts_for_report(session, today, past=past)
+    concerts = concerts_for_report(session, day, past=past)
 
     if promoter_id:
         pid = to_uuid(promoter_id)
-        concerts = [c for c in concerts if c.promoter_id == pid or any(s.promoter_id == pid for s in c.promoter_shares)]
+        concerts = [c for c in concerts if (c.promoter_id == pid) or any(s.promoter_id == pid for s in c.promoter_shares)]
     if artist_id:
         aid = to_uuid(artist_id)
         concerts = [c for c in concerts if c.artist_id == aid]
     if company_id:
         gid = to_uuid(company_id)
-        concerts = [c for c in concerts if c.group_company_id == gid or any(s.company_id == gid for s in c.company_shares)]
+        concerts = [c for c in concerts if (c.group_company_id == gid) or any(s.company_id == gid for s in c.company_shares)]
 
     totals, today_map, last_map = sales_maps(session, day)
 
@@ -1220,88 +1201,57 @@ def build_sales_report_context(day: date, past=False, promoter_id=None, artist_i
         "CADIZ": [c for c in concerts if c.sale_type == "CADIZ"],
         "VENDIDO": [c for c in concerts if c.sale_type == "VENDIDO"],
     }
-    for key in sections:
-        sections[key].sort(key=lambda x: x.date)
+    for k in sections: sections[k].sort(key=lambda x: x.date)
 
     session.close()
     return dict(day=day, sections=sections, order=SALES_SECTION_ORDER,
                 totals=totals, today_map=today_map, last_map=last_map,
                 titles=SALES_SECTION_TITLE)
-# --- Reporte de ventas (próximos) ---
+
 @app.route("/ventas/reporte")
 def sales_report_view():
     day = date_or_today("d")
     ctx = build_sales_report_context(day)
-    ctx.update(past=False)
     ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat())
+    ctx["past"] = False
     return render_template("sales_report.html", **ctx)
 
-# --- Reporte de ventas (anteriores) ---
 @app.route("/ventas/anteriores")
 def sales_report_past():
     day = date_or_today("d")
     ctx = build_sales_report_context(day, past=True)
-    ctx.update(past=True)
     ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
+    ctx["past"] = True
     return render_template("sales_report.html", **ctx)
 
 @app.route("/ventas/promotor/<pid>")
 def sales_report_by_promoter(pid):
     day = date_or_today("d")
-    session_db = db()
-    p_uuid = to_uuid(pid)
+    ctx = build_sales_report_context(day, promoter_id=pid)
+    ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
+    ctx["past"] = False
+    return render_template("sales_report.html", **ctx)
 
-    # Todos los próximos (desaparecen 2 días después)
-    concerts = concerts_for_report(session_db, day, past=False)
-    concerts = [c for c in concerts if c.promoter_id == p_uuid]
-
-    # Agrupar por artista
-    grouped = {}
-    for c in concerts:
-      grouped.setdefault(c.artist, []).append(c)
-    # Ordenar cada lista por fecha asc (más cercano → más lejano)
-    for artist, lst in grouped.items():
-      lst.sort(key=lambda x: x.date)
-
-    totals, today_map, last_map = sales_maps(session_db, day)
-    promoter = session_db.get(Promoter, p_uuid)
-    session_db.close()
-
-    return render_template(
-        "sales_by_promoter.html",
-        day=day,
-        promoter=promoter,
-        grouped=grouped,        # dict {Artist: [Concert,...]}
-        totals=totals,
-        today_map=today_map,
-        last_map=last_map,
-    )
-# --- Reporte por artista ---
 @app.route("/ventas/artista/<aid>")
 def sales_report_by_artist(aid):
     day = date_or_today("d")
-    session_db = db()
-    a_uuid = to_uuid(aid)
+    ctx = build_sales_report_context(day, artist_id=aid)
+    ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
+    ctx["past"] = False
+    return render_template("sales_report.html", **ctx)
 
-    concerts = concerts_for_report(session_db, day, past=False)
-    concerts = [c for c in concerts if c.artist_id == a_uuid]
-    concerts.sort(key=lambda x: x.date)
-
-    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
-    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
-
-    totals, today_map, last_map = sales_maps(session_db, day)
-    artist = session_db.get(Artist, a_uuid)
-    session_db.close()
-
-    return render_template(
-        "sales_by_artist.html",
-        day=day, artist=artist,
-        empresa=empresa, vendidos=vendidos,
-        totals=totals, today_map=today_map, last_map=last_map
-    )
+@app.route("/ventas/empresa/<gid>")
+def sales_report_by_company(gid):
+    day = date_or_today("d")
+    ctx = build_sales_report_context(day, company_id=gid)
+    ctx["nav_prev_url"] = url_for("sales_report_by_company", gid=gid, d=(day - timedelta(days=1)).isoformat())
+    ctx["nav_next_url"] = url_for("sales_report_by_company", gid=gid, d=(day + timedelta(days=1)).isoformat())
+    ctx["past"] = False
+    return render_template("sales_report.html", **ctx)
 
 # ------------- APIS GRAFICA DE VENTAS -----------
 

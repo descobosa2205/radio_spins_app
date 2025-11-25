@@ -131,7 +131,7 @@ class TicketSale(Base):
     sold_today = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
-# -------------------- NUEVOS MODELOS --------------------
+# --- NUEVOS MODELOS ---
 
 class GroupCompany(Base):
     __tablename__ = "group_companies"
@@ -146,7 +146,7 @@ class ConcertPromoterShare(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
-    pct = Column(Integer, nullable=False)  # almacenamos como entero 0-100 para simplicidad
+    pct = Column(Integer, nullable=False)  # 0..100
 
     promoter = relationship("Promoter")
 
@@ -155,7 +155,7 @@ class ConcertCompanyShare(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="CASCADE"), nullable=False)
-    pct = Column(Integer, nullable=False)  # 0-100
+    pct = Column(Integer, nullable=False)  # 0..100
 
     company = relationship("GroupCompany")
 

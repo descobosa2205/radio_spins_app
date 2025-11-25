@@ -508,7 +508,7 @@ def build_summary_context(base_week: date):
     # Orden + filtro: solo emisoras con > 1 tocada
     by_station_sorted = {}
     for song_id, st_dict in by_station.items():
-        filtered = {st_id: pair for st_id, pair in st_dict.items() if (pair[0] or 0) > 1}
+        filtered = {st_id: pair for st_id, pair in st_dict.items() if (pair[0] or 0) > 0}
         by_station_sorted[song_id] = sorted(filtered.items(), key=lambda kv: kv[1][0], reverse=True)
 
     stations = session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()

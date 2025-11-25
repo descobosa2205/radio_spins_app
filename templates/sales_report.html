@@ -62,22 +62,23 @@
               </a>
             {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
               {% for s in c.company_shares %}
-                <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ s.company.name }}">
-                  <img src="{{ s.company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-                  <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
-                </a>
+                {% set comp = s.company %}
+                {% if comp %}
+                  <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ comp.name }}">
+                    <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                    <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                  </a>
+                {% endif %}
               {% endfor %}
               {% for s in c.promoter_shares %}
-                <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ s.promoter.nick }}">
-                  <img src="{{ s.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-                  <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
-                </a>
+                {% set prom = s.promoter %}
+                {% if prom %}
+                  <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ prom.nick }}">
+                    <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                    <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                  </a>
+                {% endif %}
               {% endfor %}
-            {% elif c.promoter %}
-              <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}">
-                <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-              </a>
-            {% endif %}
 
             {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
           </div>

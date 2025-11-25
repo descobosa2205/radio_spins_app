@@ -3,7 +3,7 @@ from uuid import UUID
 import uuid as _uuid
 from functools import wraps
 from zoneinfo import ZoneInfo
-
+from sqlalchemy.orm import selectinload, joinedload
 from flask import (
     Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_from_directory
 )
@@ -1175,18 +1175,33 @@ def concerts_for_report(session, today: date, past=False):
     """
     Próximos: fecha >= hoy-2 (se mantienen 2 días tras celebrarse).
     Anteriores: fecha < hoy-2.
+
+    Importante: precargamos TODAS las relaciones necesarias para que la plantilla
+    nunca haga cargas perezosas con la sesión cerrada.
     """
     cutoff = today - timedelta(days=2)
-    q = session.query(Concert)
+
+    base_query = (
+        session.query(Concert)
+        .options(
+            # Entidades directas usadas en la tarjeta
+            joinedload(Concert.artist),
+            joinedload(Concert.venue),
+            joinedload(Concert.promoter),        # para 'VENDIDO'
+            joinedload(Concert.group_company),   # para 'EMPRESA'
+            # Colecciones + sus relaciones anidadas (participaciones)
+            selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+            selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+        )
+    )
+
     if past:
-        q = q.filter(Concert.date < cutoff)
+        base_query = base_query.filter(Concert.date < cutoff)
     else:
-        q = q.filter(Concert.date >= cutoff)
-    res = q.order_by(Concert.date.asc()).all()
-    # toca relaciones que usaremos en plantillas
-    for c in res:
-        _ = c.artist; _ = c.venue; _ = c.promoter; _ = c.group_company; _ = c.promoter_shares; _ = c.company_shares
-    return res
+        base_query = base_query.filter(Concert.date >= cutoff)
+
+    concerts = base_query.order_by(Concert.date.asc()).all()
+    return concerts
 
 def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):
     session = db()

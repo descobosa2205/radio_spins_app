@@ -970,18 +970,25 @@ def concerts_page():
         .order_by(Concert.date.asc())
         .all()
     )
-        # después de obtener 'concerts'
-    concerts_sorted = sorted(concerts, key=lambda x: (x.artist.name if x.artist else "", x.date))
-    groups = {}
-    for c in concerts_sorted:
-        key = c.artist_id
-        if key not in groups:
-            groups[key] = {"artist": c.artist, "items": []}
-        groups[key]["items"].append(c)
-    session.close()
-    return render_template("concerts.html",
+    groups_map = {}
+    for c in concerts:
+        key = str(c.artist_id) if c.artist_id else "sin-artist"
+        groups_map.setdefault(key, {"artist": c.artist, "items": []})["items"].append(c)
+
+    for g in groups_map.values():
+        g["items"].sort(key=lambda x: (x.date or date.max))
+
+    concert_groups = sorted(
+        groups_map.values(),
+        key=lambda g: (g["artist"].name if g["artist"] else "")
+    )
+
+    return render_template(
+        "concerts.html",
         artists=artists, venues=venues, promoters=promoters, companies=companies,
-        concerts=concerts, concerts_grouped=groups)   # <-- añade esto
+        concerts=concerts,         # te lo dejo por compatibilidad
+        concert_groups=concert_groups
+    )
 
 # ---------- ACTUALIZAR ----------
 @app.post("/conciertos/<cid>/update", endpoint="concert_update")
@@ -1353,16 +1360,11 @@ def api_concert_meta():
     session = db()
     try:
         c = session.query(Concert)\
-            .options(joinedload(Concert.artist),
-                     joinedload(Concert.venue))\
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))\
             .get(to_uuid(cid))
         if not c:
             return jsonify({"error": "not found"}), 404
-        data = {
-            "artist": {
-                "name": c.artist.name if c.artist else None,
-                "photo_url": c.artist.photo_url if c.artist else None
-            },
+        return jsonify({
             "festival_name": c.festival_name,
             "venue": {
                 "name": (c.venue.name if c.venue else None),
@@ -1370,8 +1372,7 @@ def api_concert_meta():
                 "province": (c.venue.province if c.venue else None),
             },
             "date": (c.date.isoformat() if c.date else None),
-        }
-        return jsonify(data)
+        })
     finally:
         session.close()
 

@@ -41,3 +41,14 @@ body { background: #fafafa; }
 .logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
 
 .municipio-strong { font-weight: 600; color: var(--bs-primary); }
+
+.logo-chip { position: relative; display: inline-block; }
+.logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
+
+/* Festival: pantone pedido */
+.badge-festival { background-color: #00779d !important; color: #fff !important; }
+
+/* Municipio: solo negrita, color estándar */
+.fw-semibold { font-weight: 600; }
+
+.badge-venue { background-color: #f1f3f5; color: #212529; }

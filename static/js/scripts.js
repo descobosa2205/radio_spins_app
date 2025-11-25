@@ -70,22 +70,14 @@ async function openSalesChart(concertId){
     const canvas = document.getElementById('evoChart');
     if (!modalEl || !canvas) throw new Error("Falta el modal o el canvas del gráfico");
 
-    // Destruir cualquier gráfico existente en ese canvas
-    const existing = (window.Chart && typeof Chart.getChart === 'function')
-      ? Chart.getChart(canvas)
-      : (window.evoChart && typeof window.evoChart.destroy === 'function' ? window.evoChart : null);
-    if (existing) existing.destroy();
+    // Destruir gráfico previo
+    const existing = (window.Chart && Chart.getChart) ? Chart.getChart(canvas) : (window.evoChart || null);
+    if (existing && existing.destroy) existing.destroy();
 
-    // Metadatos para título/subtítulo
+    // Metadatos para subtítulo
     const metaR = await fetch(`/api/concert_meta?concert_id=${concertId}`);
-    if (!metaR.ok) throw new Error("No se pudo leer la metadata del concierto");
-    const meta = await metaR.json();
-
-    const titleEl = document.getElementById('chart-modal-title');
-    const subEl = document.getElementById('chart-modal-subtitle');
-
-    if (titleEl) titleEl.textContent = "Evolución ventas";
-
+    const meta = metaR.ok ? await metaR.json() : {};
+    document.getElementById('chart-modal-title').textContent = "Evolución ventas";
     const parts = [];
     if (meta.festival_name) parts.push(meta.festival_name);
     if (meta.venue && meta.venue.name) parts.push(meta.venue.name);
@@ -97,9 +89,9 @@ async function openSalesChart(concertId){
       const d = new Date(meta.date + "T00:00:00");
       parts.push(d.toLocaleDateString('es-ES'));
     }
-    if (subEl) subEl.textContent = parts.join(" · ");
+    document.getElementById('chart-modal-subtitle').textContent = parts.join(" · ");
 
-    // Serie del gráfico (acumulado)
+    // Serie
     const r = await fetch(`/api/sales_json?concert_id=${concertId}`);
     if (!r.ok) throw new Error("No se pudo leer la serie de ventas");
     const js = await r.json();
@@ -108,12 +100,8 @@ async function openSalesChart(concertId){
     window.evoChart = new Chart(ctx, {
       type: 'line',
       data: {
-        labels: js.labels,
-        datasets: [{
-          label: 'Acumulado',
-          data: js.values,
-          tension: 0.25
-        }]
+        labels: js.labels || [],
+        datasets: [{ data: js.values || [], tension: 0.25 }]
       },
       options: {
         maintainAspectRatio: false,
@@ -122,12 +110,9 @@ async function openSalesChart(concertId){
       }
     });
 
-    const modal = new bootstrap.Modal(modalEl);
-    modal.show();
-
+    new bootstrap.Modal(modalEl).show();
   } catch (err) {
     console.error(err);
     alert("No se pudo abrir el gráfico: " + (err && err.message ? err.message : err));
   }
 }
-

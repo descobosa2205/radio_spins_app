@@ -128,12 +128,26 @@ def _parse_share_pairs(ids_list, pct_list):
         dedup[sid] = v
     return list(dedup.items())
 
+def _parse_share_pairs(ids_list, pct_list):
+    """Normaliza y DEDUPLICA: el último gana; % en [0..100]."""
+    dedup = {}
+    for sid, pct in zip(ids_list or [], pct_list or []):
+        sid = (sid or "").strip()
+        if not sid:
+            continue
+        try:
+            v = int(pct)
+        except Exception:
+            v = 0
+        v = max(0, min(100, v))
+        dedup[sid] = v
+    return list(dedup.items())
+
 def _replace_concert_shares(session, concert_id, promoter_pairs, company_pairs):
-    # borra primero (evita UNIQUE en el mismo flush)
+    """Reemplaza participaciones evitando UNIQUE (DELETE -> FLUSH -> INSERT)."""
     session.query(ConcertPromoterShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.query(ConcertCompanyShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.flush()
-    # inserta nuevos
     for pid, pct in promoter_pairs:
         session.add(ConcertPromoterShare(concert_id=concert_id, promoter_id=to_uuid(pid), pct=pct))
     for gid, pct in company_pairs:
@@ -875,20 +889,19 @@ def venue_delete(vid):
 
 # -------------- CONCIERTOS --------------
 
-@app.route("/conciertos", methods=["GET","POST"])
+# ---------- LISTAR / CREAR ----------
+@app.route("/conciertos", methods=["GET", "POST"], endpoint="concerts_view")
 @admin_required
-@app.route("/conciertos", methods=["GET","POST"])
-@admin_required
-def concerts_view():
+def concerts_page():
     session = db()
-    artists = session.query(Artist).order_by(Artist.name.asc()).all()
-    venues = session.query(Venue).order_by(Venue.name.asc()).all()
+    artists   = session.query(Artist).order_by(Artist.name.asc()).all()
+    venues    = session.query(Venue).order_by(Venue.name.asc()).all()
     promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
     companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
 
     if request.method == "POST":
         try:
-            sale_type = request.form["sale_type"]  # EMPRESA, VENDIDO, PARTICIPADOS, CADIZ
+            sale_type = request.form["sale_type"]  # EMPRESA | VENDIDO | PARTICIPADOS | CADIZ
             be_raw = (request.form.get("break_even_ticket") or "").strip()
             be_val = int(be_raw) if be_raw != "" else None
 
@@ -897,8 +910,8 @@ def concerts_view():
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
                 venue_id = to_uuid(request.form["venue_id"]),
                 sale_type = sale_type,
-                promoter_id = to_uuid(request.form.get("promoter_id") or None),           # VENDIDO
-                group_company_id = to_uuid(request.form.get("group_company_id") or None), # EMPRESA
+                promoter_id = to_uuid(request.form.get("promoter_id") or None),            # VENDIDO
+                group_company_id = to_uuid(request.form.get("group_company_id") or None),  # EMPRESA
                 artist_id = to_uuid(request.form["artist_id"]),
                 capacity = int(request.form["capacity"]),
                 sale_start_date = parse_date(request.form["sale_start_date"]),
@@ -906,9 +919,9 @@ def concerts_view():
                 sold_out = False,
             )
             session.add(c)
-            session.flush()  # ya tenemos c.id
+            session.flush()  # c.id
 
-            if sale_type in ("PARTICIPADOS","CADIZ"):
+            if sale_type in ("PARTICIPADOS", "CADIZ"):
                 p_pairs = _parse_share_pairs(
                     request.form.getlist("promoter_id_share[]"),
                     request.form.getlist("promoter_pct[]"))
@@ -926,16 +939,28 @@ def concerts_view():
             session.close()
         return redirect(url_for("concerts_view"))
 
-    concerts = session.query(Concert).order_by(Concert.date.asc()).all()
-    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter; _ = c.group_company; _ = c.promoter_shares; _ = c.company_shares
+    concerts = (
+        session.query(Concert)
+        .options(
+            joinedload(Concert.artist),
+            joinedload(Concert.venue),
+            joinedload(Concert.promoter),
+            joinedload(Concert.group_company),
+            selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+            selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+        )
+        .order_by(Concert.date.asc())
+        .all()
+    )
     session.close()
     return render_template("concerts.html",
                            artists=artists, venues=venues, promoters=promoters, companies=companies,
                            concerts=concerts)
 
-@app.post("/conciertos/<cid>/update")
+# ---------- ACTUALIZAR ----------
+@app.post("/conciertos/<cid>/update", endpoint="concert_update")
 @admin_required
-def concert_update(cid):
+def concert_update_handler(cid):
     session = db()
     c = session.get(Concert, to_uuid(cid))
     if not c:
@@ -954,7 +979,7 @@ def concert_update(cid):
         be_raw = (request.form.get("break_even_ticket") or "").strip()
         c.break_even_ticket = int(be_raw) if be_raw != "" else None
 
-        if c.sale_type in ("PARTICIPADOS","CADIZ"):
+        if c.sale_type in ("PARTICIPADOS", "CADIZ"):
             p_pairs = _parse_share_pairs(
                 request.form.getlist("promoter_id_share[]"),
                 request.form.getlist("promoter_pct[]"))
@@ -974,16 +999,17 @@ def concert_update(cid):
         session.close()
     return redirect(url_for("concerts_view"))
 
-@app.post("/conciertos/<cid>/delete")
+# ---------- BORRAR ----------
+@app.post("/conciertos/<cid>/delete", endpoint="concert_delete")
 @admin_required
-def concert_delete(cid):
+def concert_delete_handler(cid):
     session = db()
     try:
         concert_uuid = to_uuid(cid)
         if not concert_uuid:
             raise ValueError("ID de concierto inválido")
 
-        # Limpiar dependencias por si algún FK no tiene ON DELETE CASCADE
+        # limpia hijos (por si los FKs no tienen ON DELETE CASCADE)
         session.query(TicketSale).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertPromoterShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertCompanyShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
@@ -1157,33 +1183,19 @@ def sales_toggle_soldout(cid):
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 
 def concerts_for_report(session, today: date, past=False):
-    """
-    Próximos: fecha >= hoy-2 (mantenemos 2 días tras celebrarse).
-    Anteriores: fecha < hoy-2.
-
-    Precargamos TODAS las relaciones que usa el reporte para evitar lazy-load con
-    la sesión cerrada (fuente típica de 500).
-    """
     cutoff = today - timedelta(days=2)
-
     q = (
         session.query(Concert)
         .options(
             joinedload(Concert.artist),
             joinedload(Concert.venue),
-            joinedload(Concert.promoter),        # para VENDIDO
-            joinedload(Concert.group_company),   # para EMPRESA
-            # colecciones + sus relaciones anidadas (participaciones)
+            joinedload(Concert.promoter),
+            joinedload(Concert.group_company),
             selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
             selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
         )
     )
-
-    if past:
-        q = q.filter(Concert.date < cutoff)
-    else:
-        q = q.filter(Concert.date >= cutoff)
-
+    q = q.filter(Concert.date < cutoff) if past else q.filter(Concert.date >= cutoff)
     return q.order_by(Concert.date.asc()).all()
 
 def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):

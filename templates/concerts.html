@@ -96,7 +96,7 @@
   <div class="col-lg-6">
     <div class="card mb-3">
       <div class="card-body">
-        <form method="post" action="{{ url_for('concert_update', cid=c.id) }}" class="row g-2">
+        <form id="form-edit-{{ c.id }}" method="post" action="{{ url_for('concert_update', cid=c.id) }}" class="row g-2">
           <div class="col-md-2"><label class="form-label">Fecha</label><input type="date" name="date" class="form-control" value="{{ c.date.isoformat() }}"></div>
           <div class="col-md-3"><label class="form-label">Artista</label>
             <select name="artist_id" class="form-select">
@@ -190,9 +190,10 @@
           <div class="col-md-2"><label class="form-label">Aforo</label><input type="number" name="capacity" class="form-control" value="{{ c.capacity }}"></div>
           <div class="col-md-2"><label class="form-label">Inicio venta</label><input type="date" name="sale_start_date" class="form-control" value="{{ c.sale_start_date.isoformat() }}"></div>
           <div class="col-md-2"><label class="form-label">Empate</label><input type="number" name="break_even_ticket" class="form-control" value="{{ c.break_even_ticket if c.break_even_ticket is not none else '' }}"></div>
-          <div class="col-md-2 d-grid align-self-end"><button class="btn btn-outline-primary">Guardar</button></div>
-          <div class="col-md-2 d-grid align-self-end">
-            <form method="post" action="{{ url_for('concert_delete', cid=c.id) }}"
+          <div class="d-flex gap-2 justify-content-end mt-2">
+            <button form="form-edit-{{ c.id }}" class="btn btn-outline-primary">Guardar</button>
+            <form method="post"
+                  action="{{ url_for('concert_delete', cid=c.id) }}"
                   onsubmit="return confirm('¿Seguro que quieres borrar este concierto?');">
               <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
             </form>

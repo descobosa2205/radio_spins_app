@@ -1005,11 +1005,23 @@ def concert_update(cid):
 def concert_delete(cid):
     session = db()
     try:
-        c = session.get(Concert, to_uuid(cid))
+        concert_uuid = to_uuid(cid)
+        if not concert_uuid:
+            raise ValueError("ID de concierto inválido")
+
+        # 1) eliminar ventas y participaciones (por si no hay ON DELETE CASCADE)
+        session.query(TicketSale).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.query(ConcertPromoterShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.query(ConcertCompanyShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.flush()
+
+        # 2) eliminar concierto
+        c = session.get(Concert, concert_uuid)
         if c:
             session.delete(c)
-            session.commit()
-            flash("Concierto borrado.", "success")
+
+        session.commit()
+        flash("Concierto borrado.", "success")
     except Exception as e:
         session.rollback()
         flash(f"Error borrando concierto: {e}", "danger")
@@ -1173,35 +1185,33 @@ def sales_toggle_soldout(cid):
 
 def concerts_for_report(session, today: date, past=False):
     """
-    Próximos: fecha >= hoy-2 (se mantienen 2 días tras celebrarse).
+    Próximos: fecha >= hoy-2 (mantenemos 2 días tras celebrarse).
     Anteriores: fecha < hoy-2.
 
-    Importante: precargamos TODAS las relaciones necesarias para que la plantilla
-    nunca haga cargas perezosas con la sesión cerrada.
+    Precargamos TODAS las relaciones que la plantilla usa para impedir cargas
+    perezosas con la sesión cerrada (fuente típica del 500).
     """
     cutoff = today - timedelta(days=2)
 
-    base_query = (
+    q = (
         session.query(Concert)
         .options(
-            # Entidades directas usadas en la tarjeta
+            # relaciones directas
             joinedload(Concert.artist),
             joinedload(Concert.venue),
-            joinedload(Concert.promoter),        # para 'VENDIDO'
-            joinedload(Concert.group_company),   # para 'EMPRESA'
-            # Colecciones + sus relaciones anidadas (participaciones)
+            joinedload(Concert.promoter),        # 'VENDIDO'
+            joinedload(Concert.group_company),   # 'EMPRESA'
+            # colecciones + relaciones anidadas (participaciones)
             selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
             selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
         )
     )
-
     if past:
-        base_query = base_query.filter(Concert.date < cutoff)
+        q = q.filter(Concert.date < cutoff)
     else:
-        base_query = base_query.filter(Concert.date >= cutoff)
+        q = q.filter(Concert.date >= cutoff)
 
-    concerts = base_query.order_by(Concert.date.asc()).all()
-    return concerts
+    return q.order_by(Concert.date.asc()).all()
 
 def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):
     session = db()

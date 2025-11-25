@@ -64,7 +64,8 @@
               {% for s in c.company_shares %}
                 {% set comp = s.company %}
                 {% if comp %}
-                  <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ comp.name }}">
+                  <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}"
+                    class="logo-chip position-relative" title="{{ comp.name }}">
                     <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
                     <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                   </a>
@@ -73,7 +74,8 @@
               {% for s in c.promoter_shares %}
                 {% set prom = s.promoter %}
                 {% if prom %}
-                  <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ prom.nick }}">
+                  <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}"
+                    class="logo-chip position-relative" title="{{ prom.nick }}">
                     <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
                     <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                   </a>

@@ -111,6 +111,12 @@ class Concert(Base):
     sold_out = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+
+# relaciones:
+    group_company = relationship("GroupCompany")
+    promoter_shares = relationship("ConcertPromoterShare", cascade="all, delete-orphan", order_by="ConcertPromoterShare.pct")
+    company_shares = relationship("ConcertCompanyShare", cascade="all, delete-orphan", order_by="ConcertCompanyShare.pct")
 
     artist = relationship("Artist")
     promoter = relationship("Promoter")
@@ -124,6 +130,34 @@ class TicketSale(Base):
     day = Column(Date, nullable=False)
     sold_today = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# -------------------- NUEVOS MODELOS --------------------
+
+class GroupCompany(Base):
+    __tablename__ = "group_companies"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False, unique=True)
+    logo_url = Column(Text)
+    tax_info = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ConcertPromoterShare(Base):
+    __tablename__ = "concert_promoter_shares"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    pct = Column(Integer, nullable=False)  # almacenamos como entero 0-100 para simplicidad
+
+    promoter = relationship("Promoter")
+
+class ConcertCompanyShare(Base):
+    __tablename__ = "concert_company_shares"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="CASCADE"), nullable=False)
+    pct = Column(Integer, nullable=False)  # 0-100
+
+    company = relationship("GroupCompany")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

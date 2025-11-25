@@ -131,3 +131,4 @@ async function openSalesChart(concertId){
     alert("No se pudo abrir el gráfico: " + (err && err.message ? err.message : err));
   }
 }
+

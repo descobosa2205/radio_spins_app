@@ -54,16 +54,40 @@
           </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <!-- etiqueta días -->
           <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
-          {% if c.promoter %}
-            <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" title="Conciertos del promotor">
+
+          <!-- EMPRESA: logo de la empresa -->
+          {% if c.sale_type == 'EMPRESA' and c.group_company %}
+            <a href="{{ url_for('sales_report_by_company', gid=c.group_company_id) }}" class="logo-chip position-relative" title="{{ c.group_company.name }}">
+              <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+            </a>
+
+          <!-- PARTICIPADOS / CADIZ: logos con % (empresas + promotores) -->
+          {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
+            {% for s in c.company_shares %}
+              <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ s.company.name }}">
+                <img src="{{ s.company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+              </a>
+            {% endfor %}
+            {% for s in c.promoter_shares %}
+              <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ s.promoter.nick }}">
+                <img src="{{ s.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+              </a>
+            {% endfor %}
+
+          <!-- VENDIDO: logo de promotor clásico -->
+          {% elif c.promoter %}
+            <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}">
               <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
             </a>
           {% endif %}
+
           {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
         </div>
-      </div>
 
       <!-- Métricas compactas (títulos arriba, datos abajo) -->
       <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
@@ -133,16 +157,40 @@
           </div>
         </div>
 
-        <div class="d-flex align-items-center gap-2">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <!-- etiqueta días -->
           <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
-          {% if c.promoter %}
-            <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" title="Conciertos del promotor">
+
+          <!-- EMPRESA: logo de la empresa -->
+          {% if c.sale_type == 'EMPRESA' and c.group_company %}
+            <a href="{{ url_for('sales_report_by_company', gid=c.group_company_id) }}" class="logo-chip position-relative" title="{{ c.group_company.name }}">
+              <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+            </a>
+
+          <!-- PARTICIPADOS / CADIZ: logos con % (empresas + promotores) -->
+          {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
+            {% for s in c.company_shares %}
+              <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ s.company.name }}">
+                <img src="{{ s.company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+              </a>
+            {% endfor %}
+            {% for s in c.promoter_shares %}
+              <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ s.promoter.nick }}">
+                <img src="{{ s.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+              </a>
+            {% endfor %}
+
+          <!-- VENDIDO: logo de promotor clásico -->
+          {% elif c.promoter %}
+            <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}">
               <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
             </a>
           {% endif %}
+
           {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
         </div>
-      </div>
 
       <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
         <div><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold">{{ today_sold|k }}</div></div>

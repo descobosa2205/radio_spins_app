@@ -1,0 +1,55 @@
+{% extends "layout.html" %}
+{% block content %}
+<h4 class="mb-3">Empresas del grupo</h4>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Nombre</label>
+        <input name="name" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Logo (PNG)</label>
+        <input type="file" name="logo" accept="image/png" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Datos fiscales</label>
+        <input name="tax_info" class="form-control">
+      </div>
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-primary">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  {% for co in companies %}
+  <div class="col-md-6">
+    <div class="card mb-3">
+      <div class="card-body">
+        <form method="post" action="{{ url_for('company_update', cid=co.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+          <div class="col-3 text-center">
+            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo mb-2">
+            <input type="file" name="logo" accept="image/png" class="form-control form-control-sm">
+          </div>
+          <div class="col-9">
+            <label class="form-label">Nombre</label>
+            <input name="name" class="form-control" value="{{ co.name }}">
+            <label class="form-label mt-2">Datos fiscales</label>
+            <input name="tax_info" class="form-control" value="{{ co.tax_info or '' }}">
+          </div>
+          <div class="col-12 text-end">
+            <button class="btn btn-outline-primary">Guardar</button>
+          </div>
+        </form>
+        <form method="post" action="{{ url_for('company_delete', cid=co.id) }}" class="text-end mt-2">
+          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

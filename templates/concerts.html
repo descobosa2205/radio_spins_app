@@ -35,16 +35,44 @@
         <select name="sale_type" class="form-select" id="sale_type_select">
           <option value="EMPRESA">Empresa</option>
           <option value="VENDIDO">Vendido</option>
+          <option value="PARTICIPADOS">Participados</option>
+          <option value="CADIZ">CADIZ MUSIC STADIUM</option>
         </select>
       </div>
-      <div class="col-md-3" id="promoter_select_wrap" style="display:none">
+
+      <!-- EMPRESA → empresa del grupo -->
+      <div class="col-md-3" id="company_single_wrap">
+        <label class="form-label">Empresa del grupo</label>
+        <select name="group_company_id" class="form-select">
+          <option value="">—</option>
+          {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <!-- VENDIDO → promotor simple -->
+      <div class="col-md-3" id="promoter_single_wrap" style="display:none;">
         <label class="form-label">Promotor</label>
         <select name="promoter_id" class="form-select">
           <option value="">—</option>
-          {% for p in promoters %}
-            <option value="{{ p.id }}">{{ p.nick }}</option>
-          {% endfor %}
+          {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
         </select>
+      </div>
+      <!-- PARTICIPADOS/CADIZ → participaciones -->
+      <div class="col-12" id="shares_wrap" style="display:none;">
+        <div class="border rounded p-2 mb-2">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong>Participación de promotores</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addShareRow('promoter')"><i class="fa fa-plus"></i> Añadir</button>
+          </div>
+          <div id="promoter_shares_rows" class="row g-2"></div>
+        </div>
+        <div class="border rounded p-2">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <strong>Participación de empresas del grupo</strong>
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addShareRow('company')"><i class="fa fa-plus"></i> Añadir</button>
+          </div>
+          <div id="company_shares_rows" class="row g-2"></div>
+        </div>
       </div>
 
       <div class="col-md-2">
@@ -118,3 +146,53 @@ document.getElementById('sale_type_select').addEventListener('change', function(
   {% endfor %}
 </div>
 {% endblock %}
+
+
+<script>
+function refreshTypeUI() {
+  const v = document.getElementById('sale_type_select').value;
+  document.getElementById('company_single_wrap').style.display = (v === 'EMPRESA') ? '' : 'none';
+  document.getElementById('promoter_single_wrap').style.display = (v === 'VENDIDO') ? '' : 'none';
+  document.getElementById('shares_wrap').style.display = (v === 'PARTICIPADOS' || v === 'CADIZ') ? '' : 'none';
+}
+document.getElementById('sale_type_select').addEventListener('change', refreshTypeUI);
+refreshTypeUI();
+
+function addShareRow(kind){
+  const row = document.createElement('div');
+  row.className = 'col-md-6 d-flex align-items-end gap-2';
+  if (kind === 'promoter') {
+    row.innerHTML = `
+      <div class="flex-grow-1">
+        <label class="form-label">Tercero</label>
+        <select name="promoter_id_share[]" class="form-select">
+          <option value="">—</option>
+          {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="width:120px;">
+        <label class="form-label">% </label>
+        <input type="number" name="promoter_pct[]" class="form-control" min="0" max="100" value="0">
+      </div>
+      <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()"><i class="fa fa-trash"></i></button>
+    `;
+    document.getElementById('promoter_shares_rows').appendChild(row);
+  } else {
+    row.innerHTML = `
+      <div class="flex-grow-1">
+        <label class="form-label">Empresa</label>
+        <select name="company_id_share[]" class="form-select">
+          <option value="">—</option>
+          {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div style="width:120px;">
+        <label class="form-label">% </label>
+        <input type="number" name="company_pct[]" class="form-control" min="0" max="100" value="0">
+      </div>
+      <button type="button" class="btn btn-outline-danger" onclick="this.parentElement.remove()"><i class="fa fa-trash"></i></button>
+    `;
+    document.getElementById('company_shares_rows').appendChild(row);
+  }
+}
+</script>

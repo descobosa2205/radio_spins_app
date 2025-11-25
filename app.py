@@ -14,11 +14,20 @@ from werkzeug.security import check_password_hash
 from config import settings
 from models import (
     init_db, SessionLocal, User, Artist, Song, SongArtist, RadioStation,
-    Week, Play, SongWeekInfo, Promoter, Venue, Concert, TicketSale
+    Week, Play, SongWeekInfo, Promoter, Venue, Concert, TicketSale, GroupCompany, ConcertPromoterShare, 
+    ConcertCompanyShare
 )
 from supabase_utils import upload_png
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
+
+SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
+SALES_SECTION_TITLE = {
+    "EMPRESA": "Conciertos — Empresa",
+    "VENDIDO": "Conciertos — Vendidos",
+    "PARTICIPADOS": "Conciertos — Participados",
+    "CADIZ": "Cádiz Music Stadium",
+}
 
 # ---------- helpers ----------
 def db():
@@ -846,9 +855,11 @@ def concerts_view():
     artists = session.query(Artist).order_by(Artist.name.asc()).all()
     venues = session.query(Venue).order_by(Venue.name.asc()).all()
     promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
+    companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
 
     if request.method == "POST":
         try:
+            sale_type = request.form["sale_type"]  # EMPRESA, VENDIDO, PARTICIPADOS, CADIZ
             be_raw = (request.form.get("break_even_ticket") or "").strip()
             be_val = int(be_raw) if be_raw != "" else None
 
@@ -856,15 +867,38 @@ def concerts_view():
                 date = parse_date(request.form["date"]),
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
                 venue_id = to_uuid(request.form["venue_id"]),
-                sale_type = request.form["sale_type"],   # EMPRESA o VENDIDO
-                promoter_id = to_uuid(request.form.get("promoter_id") or None),
+                sale_type = sale_type,
+                promoter_id = to_uuid(request.form.get("promoter_id") or None),   # usado solo en VENDIDO
+                group_company_id = to_uuid(request.form.get("group_company_id") or None),  # usado en EMPRESA
                 artist_id = to_uuid(request.form["artist_id"]),
                 capacity = int(request.form["capacity"]),
                 sale_start_date = parse_date(request.form["sale_start_date"]),
                 break_even_ticket = be_val,
-                sold_out = False
+                sold_out = False,
             )
             session.add(c)
+            session.flush()  # genera id
+
+            if sale_type in ("PARTICIPADOS","CADIZ"):
+                # Promotores
+                p_ids = request.form.getlist("promoter_id_share[]")
+                p_pcts = request.form.getlist("promoter_pct[]")
+                for pid, pct in zip(p_ids, p_pcts):
+                    pid = (pid or "").strip()
+                    if not pid: continue
+                    session.add(ConcertPromoterShare(
+                        concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)
+                    ))
+                # Empresas del grupo
+                g_ids = request.form.getlist("company_id_share[]")
+                g_pcts = request.form.getlist("company_pct[]")
+                for gid, pct in zip(g_ids, g_pcts):
+                    gid = (gid or "").strip()
+                    if not gid: continue
+                    session.add(ConcertCompanyShare(
+                        concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)
+                    ))
+
             session.commit()
             flash("Concierto creado.", "success")
         except Exception as e:
@@ -877,12 +911,10 @@ def concerts_view():
     concerts = (session.query(Concert)
                 .order_by(Concert.date.asc())
                 .all())
-    # Carga relaciones
-    for c in concerts:
-        _ = c.artist; _ = c.venue; _ = c.promoter
+    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter; _ = c.group_company; _ = c.promoter_shares; _ = c.company_shares
     session.close()
     return render_template("concerts.html",
-                           artists=artists, venues=venues, promoters=promoters,
+                           artists=artists, venues=venues, promoters=promoters, companies=companies,
                            concerts=concerts)
 
 @app.post("/conciertos/<cid>/update")
@@ -898,12 +930,41 @@ def concert_update(cid):
         c.festival_name = (request.form.get("festival_name") or "").strip() or None
         c.venue_id = to_uuid(request.form["venue_id"])
         c.sale_type = request.form["sale_type"]
-        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
+        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)  # solo VENDIDO
+        c.group_company_id = to_uuid(request.form.get("group_company_id") or None)  # solo EMPRESA
         c.artist_id = to_uuid(request.form["artist_id"])
         c.capacity = int(request.form["capacity"])
         c.sale_start_date = parse_date(request.form["sale_start_date"])
         be_raw = (request.form.get("break_even_ticket") or "").strip()
         c.break_even_ticket = int(be_raw) if be_raw != "" else None
+
+        # Reemplazar participaciones en PARTICIPADOS/CADIZ
+        if c.sale_type in ("PARTICIPADOS","CADIZ"):
+            # limpiar existentes
+            c.promoter_shares[:] = []
+            c.company_shares[:] = []
+            # recrear
+            p_ids = request.form.getlist("promoter_id_share[]")
+            p_pcts = request.form.getlist("promoter_pct[]")
+            for pid, pct in zip(p_ids, p_pcts):
+                pid = (pid or "").strip()
+                if not pid: continue
+                c.promoter_shares.append(ConcertPromoterShare(
+                    concert_id=c.id, promoter_id=to_uuid(pid), pct=int(pct or 0)
+                ))
+            g_ids = request.form.getlist("company_id_share[]")
+            g_pcts = request.form.getlist("company_pct[]")
+            for gid, pct in zip(g_ids, g_pcts):
+                gid = (gid or "").strip()
+                if not gid: continue
+                c.company_shares.append(ConcertCompanyShare(
+                    concert_id=c.id, company_id=to_uuid(gid), pct=int(pct or 0)
+                ))
+        else:
+            # si no es participados/cadiz, garantizamos listas vacías
+            c.promoter_shares[:] = []
+            c.company_shares[:] = []
+
         session.commit()
         flash("Concierto actualizado.", "success")
     except Exception as e:
@@ -929,6 +990,72 @@ def concert_delete(cid):
     finally:
         session.close()
     return redirect(url_for("concerts_view"))
+
+# --------- EMPRESAS ---------------------
+@app.route("/empresas", methods=["GET", "POST"])
+@admin_required
+def companies_view():
+    session = db()
+    if request.method == "POST":
+        name = request.form.get("name","").strip()
+        tax_info = request.form.get("tax_info","").strip()
+        logo = request.files.get("logo")
+        try:
+            logo_url = upload_png(logo, "companies") if logo else None
+            co = GroupCompany(name=name, tax_info=tax_info, logo_url=logo_url)
+            session.add(co)
+            session.commit()
+            flash("Empresa creada.", "success")
+        except Exception as e:
+            session.rollback()
+            flash(f"Error creando empresa: {e}", "danger")
+        finally:
+            session.close()
+        return redirect(url_for("companies_view"))
+
+    companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    session.close()
+    return render_template("companies.html", companies=companies)
+
+@app.post("/empresas/<cid>/update")
+@admin_required
+def company_update(cid):
+    session = db()
+    co = session.get(GroupCompany, to_uuid(cid))
+    if not co:
+        flash("Empresa no encontrada.", "warning")
+        session.close(); return redirect(url_for("companies_view"))
+    co.name = request.form.get("name", co.name).strip()
+    co.tax_info = request.form.get("tax_info", co.tax_info or "").strip()
+    logo = request.files.get("logo")
+    try:
+        if logo and logo.filename:
+            co.logo_url = upload_png(logo, "companies")
+        session.commit()
+        flash("Empresa actualizada.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error actualizando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("companies_view"))
+
+@app.post("/empresas/<cid>/delete")
+@admin_required
+def company_delete(cid):
+    session = db()
+    try:
+        co = session.get(GroupCompany, to_uuid(cid))
+        if co:
+            session.delete(co)
+            session.commit()
+            flash("Empresa eliminada.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error eliminando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("companies_view"))
 
 # -------------- VENTA DE ENTRADAS -----------
 
@@ -1020,6 +1147,38 @@ def sales_toggle_soldout(cid):
         session.close()
     return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
 
+@app.route("/ventas/empresa/<gid>")
+def sales_report_by_company(gid):
+    day = date_or_today("d")
+    session_db = db()
+    g_uuid = to_uuid(gid)
+
+    # conciertos que son de esa empresa (EMPRESA)
+    concerts = concerts_for_report(session_db, day, past=False)
+    mine = [c for c in concerts if c.group_company_id == g_uuid]
+
+    # y conciertos en los que participa (PARTICIPADOS/CADIZ)
+    for c in concerts:
+        if c.sale_type in ("PARTICIPADOS","CADIZ"):
+            for s in c.company_shares:
+                if s.company_id == g_uuid:
+                    mine.append(c); break
+
+    # Agrupar por artista (orden cronológico asc)
+    grouped = {}
+    for c in sorted(mine, key=lambda x: x.date):
+        grouped.setdefault(c.artist, []).append(c)
+
+    totals, today_map, last_map = sales_maps(session_db, day)
+    company = session_db.get(GroupCompany, g_uuid)
+    session_db.close()
+
+    return render_template(
+        "sales_by_company.html",
+        day=day, company=company,
+        grouped=grouped, totals=totals, today_map=today_map, last_map=last_map
+    )
+
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 
 def concerts_for_report(session, today: date, include_not_on_sale=True, past=False):
@@ -1038,29 +1197,36 @@ def concerts_for_report(session, today: date, include_not_on_sale=True, past=Fal
     for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter
     return concerts
 
-def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None):
+def build_sales_report_context(day: date, past=False, promoter_id=None, artist_id=None, company_id=None):
     session = db()
     today = day
     concerts = concerts_for_report(session, today, past=past)
 
     if promoter_id:
         pid = to_uuid(promoter_id)
-        concerts = [c for c in concerts if c.promoter_id == pid]
+        concerts = [c for c in concerts if c.promoter_id == pid or any(s.promoter_id == pid for s in c.promoter_shares)]
     if artist_id:
         aid = to_uuid(artist_id)
         concerts = [c for c in concerts if c.artist_id == aid]
+    if company_id:
+        gid = to_uuid(company_id)
+        concerts = [c for c in concerts if c.group_company_id == gid or any(s.company_id == gid for s in c.company_shares)]
 
     totals, today_map, last_map = sales_maps(session, day)
 
-    # Agrupar
-    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
-    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
+    sections = {
+        "EMPRESA": [c for c in concerts if c.sale_type == "EMPRESA"],
+        "PARTICIPADOS": [c for c in concerts if c.sale_type == "PARTICIPADOS"],
+        "CADIZ": [c for c in concerts if c.sale_type == "CADIZ"],
+        "VENDIDO": [c for c in concerts if c.sale_type == "VENDIDO"],
+    }
+    for key in sections:
+        sections[key].sort(key=lambda x: x.date)
 
     session.close()
-    return dict(day=day,
-                empresa=empresa, vendidos=vendidos,
-                totals=totals, today_map=today_map, last_map=last_map)
-
+    return dict(day=day, sections=sections, order=SALES_SECTION_ORDER,
+                totals=totals, today_map=today_map, last_map=last_map,
+                titles=SALES_SECTION_TITLE)
 # --- Reporte de ventas (próximos) ---
 @app.route("/ventas/reporte")
 def sales_report_view():

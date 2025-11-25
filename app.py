@@ -161,6 +161,16 @@ def _replace_concert_shares(session, concert_id, promoter_pairs, company_pairs):
     for gid, pct in company_pairs:
         session.add(ConcertCompanyShare(concert_id=concert_id, company_id=to_uuid(gid), pct=pct))
 
+def _parse_optional_positive_int(value):
+    """
+    Devuelve un int > 0 o None si vacío/0/no-numérico.
+    """
+    try:
+        n = int((value or "").strip())
+        return n if n > 0 else None
+    except Exception:
+        return None
+    
 # ---------- context ----------
 @app.context_processor
 def inject_globals():
@@ -911,7 +921,7 @@ def concerts_page():
         try:
             sale_type = request.form["sale_type"]  # EMPRESA | VENDIDO | PARTICIPADOS | CADIZ
             be_raw = (request.form.get("break_even_ticket") or "").strip()
-            be_val = int(be_raw) if be_raw != "" else None
+            be_val = _parse_optional_positive_int(be_raw)
 
             c = Concert(
                 date = parse_date(request.form["date"]),
@@ -960,10 +970,18 @@ def concerts_page():
         .order_by(Concert.date.asc())
         .all()
     )
+        # después de obtener 'concerts'
+    concerts_sorted = sorted(concerts, key=lambda x: (x.artist.name if x.artist else "", x.date))
+    groups = {}
+    for c in concerts_sorted:
+        key = c.artist_id
+        if key not in groups:
+            groups[key] = {"artist": c.artist, "items": []}
+        groups[key]["items"].append(c)
     session.close()
     return render_template("concerts.html",
-                           artists=artists, venues=venues, promoters=promoters, companies=companies,
-                           concerts=concerts)
+        artists=artists, venues=venues, promoters=promoters, companies=companies,
+        concerts=concerts, concerts_grouped=groups)   # <-- añade esto
 
 # ---------- ACTUALIZAR ----------
 @app.post("/conciertos/<cid>/update", endpoint="concert_update")
@@ -985,7 +1003,8 @@ def concert_update_handler(cid):
         c.capacity = int(request.form["capacity"])
         c.sale_start_date = parse_date(request.form["sale_start_date"])
         be_raw = (request.form.get("break_even_ticket") or "").strip()
-        c.break_even_ticket = int(be_raw) if be_raw != "" else None
+        be_val = _parse_optional_positive_int(be_raw)
+        c.break_even_ticket = be_val 
 
         if c.sale_type in ("PARTICIPADOS", "CADIZ"):
             p_pairs = _parse_share_pairs(
@@ -1330,22 +1349,31 @@ def api_sales_json():
 
 @app.get("/api/concert_meta")
 def api_concert_meta():
-    cid = to_uuid(request.args.get("concert_id"))
+    cid = request.args.get("concert_id")
     session = db()
-    c = session.get(Concert, cid)
-    if not c:
-        session.close(); return jsonify({"error": "not found"}), 404
-    session.refresh(c)
-    meta = {
-        "date": c.date.strftime("%Y-%m-%d"),
-        "festival_name": c.festival_name,
-        "capacity": c.capacity,
-        "artist": {"id": str(c.artist.id), "name": c.artist.name, "photo_url": c.artist.photo_url},
-        "venue": {"name": c.venue.name, "municipality": c.venue.municipality, "province": c.venue.province},
-        "promoter": ({"id": str(c.promoter.id), "nick": c.promoter.nick, "logo_url": c.promoter.logo_url} if c.promoter else None)
-    }
-    session.close()
-    return jsonify(meta)
+    try:
+        c = session.query(Concert)\
+            .options(joinedload(Concert.artist),
+                     joinedload(Concert.venue))\
+            .get(to_uuid(cid))
+        if not c:
+            return jsonify({"error": "not found"}), 404
+        data = {
+            "artist": {
+                "name": c.artist.name if c.artist else None,
+                "photo_url": c.artist.photo_url if c.artist else None
+            },
+            "festival_name": c.festival_name,
+            "venue": {
+                "name": (c.venue.name if c.venue else None),
+                "municipality": (c.venue.municipality if c.venue else None),
+                "province": (c.venue.province if c.venue else None),
+            },
+            "date": (c.date.isoformat() if c.date else None),
+        }
+        return jsonify(data)
+    finally:
+        session.close()
 
 
 if __name__ == "__main__":

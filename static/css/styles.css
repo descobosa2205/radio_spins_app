@@ -36,3 +36,8 @@ body { background: #fafafa; }
 
 .logo-chip { position: relative; display: inline-block; }
 .logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
+
+.logo-chip { position: relative; display: inline-block; }
+.logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
+
+.municipio-strong { font-weight: 600; color: var(--bs-primary); }

@@ -66,45 +66,44 @@ $(function(){
 
 async function openSalesChart(concertId){
   try {
-    // 1) Referencias seguras al modal y al canvas
     const modalEl = document.getElementById('chartModal');
-    if (!modalEl) throw new Error("No existe el modal 'chartModal' en layout.html");
     const canvas = document.getElementById('evoChart');
-    if (!canvas) throw new Error("No existe el <canvas id='evoChart'> dentro del modal");
+    if (!modalEl || !canvas) throw new Error("Falta el modal o el canvas del gráfico");
 
-    // 2) Cerrar/detruir cualquier gráfico ya pintado en ese canvas
-    //    Usamos el registro oficial de Chart.js (v3/v4). Si no existe, fallback a window.evoChart.
-    const existing = (Chart && typeof Chart.getChart === 'function')
+    // Destruir cualquier gráfico existente en ese canvas
+    const existing = (window.Chart && typeof Chart.getChart === 'function')
       ? Chart.getChart(canvas)
       : (window.evoChart && typeof window.evoChart.destroy === 'function' ? window.evoChart : null);
     if (existing) existing.destroy();
 
-    // 3) Meta para los títulos/fotos
+    // Metadatos para título/subtítulo
     const metaR = await fetch(`/api/concert_meta?concert_id=${concertId}`);
     if (!metaR.ok) throw new Error("No se pudo leer la metadata del concierto");
     const meta = await metaR.json();
 
-    const titleParts = [];
-    if (meta.artist && meta.artist.name) titleParts.push(meta.artist.name);
-    if (meta.festival_name) titleParts.push(meta.festival_name);
-    if (meta.date) titleParts.push(meta.date);
-    const title = titleParts.join(" — ");
+    const titleEl = document.getElementById('chart-modal-title');
+    const subEl = document.getElementById('chart-modal-subtitle');
 
-    const titleEl = document.getElementById('chart-song-title');
-    if (titleEl) titleEl.textContent = title;
+    if (titleEl) titleEl.textContent = "Evolución ventas";
 
-    const artistPhoto = document.getElementById('chart-artist-photo');
-    if (artistPhoto) artistPhoto.src = (meta.artist && meta.artist.photo_url) || '/static/img/logo.png';
+    const parts = [];
+    if (meta.festival_name) parts.push(meta.festival_name);
+    if (meta.venue && meta.venue.name) parts.push(meta.venue.name);
+    const loc = [];
+    if (meta.venue && meta.venue.municipality) loc.push(meta.venue.municipality);
+    if (meta.venue && meta.venue.province) loc.push(meta.venue.province);
+    if (loc.length) parts.push(loc.join(", "));
+    if (meta.date) {
+      const d = new Date(meta.date + "T00:00:00");
+      parts.push(d.toLocaleDateString('es-ES'));
+    }
+    if (subEl) subEl.textContent = parts.join(" · ");
 
-    const cover = document.getElementById('chart-cover');
-    if (cover) cover.src = '/static/img/logo.png'; // no usamos portada de concierto
-
-    // 4) Serie de ventas (acumulado)
+    // Serie del gráfico (acumulado)
     const r = await fetch(`/api/sales_json?concert_id=${concertId}`);
     if (!r.ok) throw new Error("No se pudo leer la serie de ventas");
     const js = await r.json();
 
-    // 5) Pintar el gráfico
     const ctx = canvas.getContext('2d');
     window.evoChart = new Chart(ctx, {
       type: 'line',
@@ -118,11 +117,11 @@ async function openSalesChart(concertId){
       },
       options: {
         maintainAspectRatio: false,
-        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        plugins: { legend: { display: false } }
       }
     });
 
-    // 6) Mostrar modal
     const modal = new bootstrap.Modal(modalEl);
     modal.show();
 

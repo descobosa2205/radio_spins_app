@@ -41,31 +41,38 @@
     <div class="card mb-2">
       <div class="card-body py-3">
 
-        <!-- CABECERA -->
+        <!-- CABECERA (logos a la derecha) -->
         <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-
           <div class="d-flex align-items-center gap-3">
             <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}">
               <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
                    class="artist-avatar" alt="">
             </a>
 
-            <div class="d-flex align-items-center flex-wrap gap-3">
+            <div class="d-flex align-items-center flex-wrap gap-2">
               <div class="fw-semibold">{{ c.artist.name if c.artist else '—' }}</div>
+
+              {% if c.festival_name %}
+                <span class="badge bg-warning text-dark">{{ c.festival_name }}</span>
+              {% endif %}
+
+              <div class="text-muted">
+                <small><span class="municipio-strong">{{ c.venue.municipality if c.venue else '' }}</span>{% if c.venue and c.venue.province %}, {{ c.venue.province }}{% endif %}</small>
+              </div>
+
+              {% if c.venue %}
+                <span class="badge bg-light text-dark">{{ c.venue.name }}</span>
+              {% endif %}
+
               <div class="text-muted"><small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small></div>
-              {% if c.festival_name %}<div class="text-muted"><small>{{ c.festival_name }}</small></div>{% endif %}
-              <div class="text-muted"><small>{{ c.venue.municipality if c.venue else '' }}</small></div>
-              <div class="text-muted"><small>{{ c.venue.province if c.venue else '' }}</small></div>
               <div class="text-muted">
                 <small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</small>
               </div>
             </div>
           </div>
 
-          <!-- Logos y etiquetas -->
+          <!-- Logos (empresa / participaciones / promotor clásico) -->
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
-
             {% if c.sale_type == 'EMPRESA' and c.group_company %}
               <a href="{{ url_for('sales_report_by_company', gid=c.group_company_id) }}" class="logo-chip" title="{{ c.group_company.name }}">
                 <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
@@ -96,8 +103,6 @@
                 <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
               </a>
             {% endif %}
-
-            {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
           </div>
         </div>
 
@@ -109,7 +114,7 @@
           <div><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
           <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
 
-          {% if c.break_even_ticket is not none %}
+          {% if c.break_even_ticket and c.break_even_ticket > 0 %}
             {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
             {% set reached = total >= c.break_even_ticket %}
             <div>
@@ -121,9 +126,9 @@
           {% endif %}
         </div>
 
-        <!-- PIE: actualizado y gráfico -->
-        <div class="d-flex justify-content-between align-items-center mt-2">
-          <div>
+        <!-- PIE: Actualizado + 'Faltan X' + SOLD OUT + icono gráfico -->
+        <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
             {% if is_today %}
               <span class="badge bg-success">Actualizado hoy</span>
             {% elif updated_last %}
@@ -131,9 +136,14 @@
             {% else %}
               <span class="badge bg-light text-dark">Sin actualizaciones</span>
             {% endif %}
+
+            <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
+            {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
           </div>
-          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSalesChart('{{ c.id }}')">
-            <i class="fa fa-chart-line"></i> Evolución
+
+          <button type="button" class="btn btn-sm btn-outline-primary" title="Evolución"
+                  onclick="openSalesChart('{{ c.id }}')">
+            <i class="fa fa-chart-line"></i>
           </button>
         </div>
 

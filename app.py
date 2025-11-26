@@ -1207,23 +1207,29 @@ def sales_save():
         session.close()
     return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
 
-@app.post("/ventas/soldout/<cid>/toggle")
+@app.post("/ventas/soldout/<cid>/toggle", endpoint="sales_toggle_soldout")
 @admin_required
 def sales_toggle_soldout(cid):
     session = db()
-    day = parse_date(request.form["day"])
     try:
         c = session.get(Concert, to_uuid(cid))
-        if c:
-            c.sold_out = not c.sold_out
-            session.commit()
-            flash(("Quitado SOLD OUT" if not c.sold_out else "Marcado SOLD OUT"), "success")
+        if not c:
+            flash("Concierto no encontrado.", "warning")
+            session.close()
+            return redirect(request.referrer or url_for("sales_update_view"))
+
+        # Alterna el flag manual (independiente del aforo lleno)
+        c.sold_out = not bool(c.sold_out)
+        session.commit()
+        flash("Estado SOLD OUT actualizado.", "success")
     except Exception as e:
         session.rollback()
-        flash(f"Error al cambiar SOLD OUT: {e}", "danger")
+        flash(f"Error cambiando SOLD OUT: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("sales_update_view", d=day.isoformat()) + f"#concert-{cid}")
+    # vuelve a la misma fecha
+    day = request.form.get("day") or request.args.get("day")
+    return redirect(url_for("sales_update_view", d=day) if day else (request.referrer or url_for("sales_update_view")))
 
 
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------

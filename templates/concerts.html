@@ -20,12 +20,19 @@
         <label class="form-label">Nombre (festival, opcional)</label>
         <input name="festival_name" class="form-control">
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Recinto</label>
-        <select name="venue_id" class="form-select" required>
-          {% for v in venues %}<option value="{{ v.id }}">{{ v.name }} — {{ v.municipality or '' }} {{ v.province or '' }}</option>{% endfor %}
-        </select>
+      <div class="col-md-3" id="promoter_single_wrap" style="display:none;">
+        <label class="form-label">Tercero</label>
+        <input id="promoter_search_create" class="form-control" placeholder="Escribe para buscar...">
+        <input type="hidden" name="promoter_id" id="promoter_id_create">
       </div>
+
+      <script>
+      document.addEventListener('DOMContentLoaded', function(){
+        initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
+        initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
+      });
+      </script>
+
 
       <div class="col-md-3">
         <label class="form-label">Tipo</label>
@@ -117,10 +124,12 @@
                 </select>
               </div>
               <div class="col-md-3"><label class="form-label">Nombre (festival)</label><input name="festival_name" class="form-control" value="{{ c.festival_name or '' }}"></div>
-              <div class="col-md-4"><label class="form-label">Recinto</label>
-                <select name="venue_id" class="form-select">
-                  {% for v in venues %}<option value="{{ v.id }}" {% if v.id==c.venue_id %}selected{% endif %}>{{ v.name }} — {{ v.municipality or '' }} {{ v.province or '' }}</option>{% endfor %}
-                </select>
+              <div class="col-md-4">
+                <label class="form-label">Recinto</label>
+                <input id="venue_search_{{ c.id }}" class="form-control"
+                      placeholder="Escribe para buscar..."
+                      value="{{ (c.venue.name ~ ' — ' ~ (c.venue.municipality or '') ~ ' ' ~ (c.venue.province or '')) if c.venue else '' }}">
+                <input type="hidden" name="venue_id" id="venue_id_{{ c.id }}" value="{{ c.venue_id }}">
               </div>
 
               <div class="col-md-3"><label class="form-label">Tipo</label>
@@ -142,11 +151,18 @@
 
               <div class="col-md-3" id="promoter_single_wrap_{{ c.id }}" {% if c.sale_type != 'VENDIDO' %}style="display:none"{% endif %}>
                 <label class="form-label">Tercero</label>
-                <select name="promoter_id" class="form-select">
-                  <option value="">—</option>
-                  {% for p in promoters %}<option value="{{ p.id }}" {% if c.promoter_id and p.id==c.promoter_id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}
-                </select>
+                <input id="promoter_search_{{ c.id }}" class="form-control"
+                      placeholder="Escribe para buscar..."
+                      value="{{ c.promoter.nick if c.promoter else '' }}">
+                <input type="hidden" name="promoter_id" id="promoter_id_{{ c.id }}" value="{{ c.promoter_id or '' }}">
               </div>
+
+              <script>
+              document.addEventListener('DOMContentLoaded', function(){
+                initTypeahead('venue_search_{{ c.id }}', 'venue_id_{{ c.id }}', '/api/search/venues');
+                initTypeahead('promoter_search_{{ c.id }}', 'promoter_id_{{ c.id }}', '/api/search/promoters');
+              });
+              </script>
 
               <div class="col-12" id="shares_wrap_{{ c.id }}" {% if c.sale_type not in ['PARTICIPADOS','CADIZ'] %}style="display:none"{% endif %}>
                 <div class="border rounded p-2 mb-2">

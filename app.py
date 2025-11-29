@@ -191,7 +191,7 @@ def admin_login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = request.form.get("password") or ""
-        nxt = request.form.get("next") or url_for("plays_view")
+        nxt = request.form.get("next") or url_for("home")
 
         session_db = db()
         try:
@@ -212,6 +212,14 @@ def admin_logout():
     session.pop("user_id", None)
     flash("Sesión cerrada.", "success")
     return redirect(url_for("landing"))
+
+# ------ Home Page --------
+
+@app.get("/home", endpoint="home")
+def home():
+    # Si ya tienes un control de sesión/rol, puedes leer:
+    # role = session.get("role")  # 'admin' | 'viewer'
+    return render_template("home.html")
 
 # ---------- ARTISTAS ----------
 @app.route("/artistas", methods=["GET", "POST"])
@@ -1379,6 +1387,48 @@ def api_concert_meta():
             },
             "date": (c.date.isoformat() if c.date else None),
         })
+    finally:
+        session.close()
+
+#-------------- Apis Buscador de recintos y promotores ------------
+
+@app.get("/api/search/venues", endpoint="api_search_venues")
+def api_search_venues():
+    q = (request.args.get("q") or "").strip()
+    session = db()
+    try:
+        query = session.query(Venue)
+        if q:
+            like = f"%{q}%"
+            query = query.filter(
+                (Venue.name.ilike(like)) |
+                (Venue.municipality.ilike(like)) |
+                (Venue.province.ilike(like))
+            )
+        venues = query.order_by(Venue.name.asc()).limit(20).all()
+        return jsonify([
+            {
+                "id": str(v.id),
+                "label": f"{v.name} — {v.municipality or ''} {v.province or ''}".strip()
+            } for v in venues
+        ])
+    finally:
+        session.close()
+
+
+@app.get("/api/search/promoters", endpoint="api_search_promoters")
+def api_search_promoters():
+    q = (request.args.get("q") or "").strip()
+    session = db()
+    try:
+        query = session.query(Promoter)
+        if q:
+            like = f"%{q}%"
+            query = query.filter(Promoter.nick.ilike(like))
+        promoters = query.order_by(Promoter.nick.asc()).limit(20).all()
+        return jsonify([
+            {"id": str(p.id), "label": p.nick} for p in promoters
+        ])
     finally:
         session.close()
 

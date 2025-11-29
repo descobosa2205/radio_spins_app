@@ -1,0 +1,99 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="text-center my-4">
+  <h3 class="mb-2">¡Bienvenido/a!</h3>
+  <p class="text-muted">Elige una sección para continuar.</p>
+</div>
+
+<div class="row g-3">
+  <!-- RADIO -->
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('radio_summary_view') if 'radio_summary_view' in current_app.view_functions else '#' }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-broadcast-tower fa-2x mb-2"></i>
+          <h6 class="mb-1">Resumen de radios</h6>
+          <p class="text-muted small">Evolución semanal por emisoras</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('spins_view') if 'spins_view' in current_app.view_functions else '#' }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-sliders-h fa-2x mb-2"></i>
+          <h6 class="mb-1">Actualizar tocadas</h6>
+          <p class="text-muted small">Carga semanal por emisora</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- VENTAS -->
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('sales_report_view') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-chart-line fa-2x mb-2"></i>
+          <h6 class="mb-1">Reporte de ventas</h6>
+          <p class="text-muted small">Resumen y evolución</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('sales_update_view') if 'sales_update_view' in current_app.view_functions else '#' }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-pen fa-2x mb-2"></i>
+          <h6 class="mb-1">Actualizar ventas</h6>
+          <p class="text-muted small">Entradas vendidas por día</p>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- BASES / ENTIDADES -->
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('concerts_view') }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-music fa-2x mb-2"></i>
+          <h6 class="mb-1">Conciertos</h6>
+          <p class="text-muted small">Altas y edición</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('venues_view') if 'venues_view' in current_app.view_functions else '#' }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-city fa-2x mb-2"></i>
+          <h6 class="mb-1">Recintos</h6>
+          <p class="text-muted small">BBDD de recintos</p>
+        </div>
+      </div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-lg-4">
+    <a href="{{ url_for('promoters_view') if 'promoters_view' in current_app.view_functions else '#' }}" class="text-decoration-none">
+      <div class="card h-100 shadow-sm hover-card">
+        <div class="card-body text-center">
+          <i class="fa fa-handshake fa-2x mb-2"></i>
+          <h6 class="mb-1">Terceros</h6>
+          <p class="text-muted small">BBDD de promotores</p>
+        </div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<style>
+.hover-card { transition: transform .12s, box-shadow .12s; }
+.hover-card:hover { transform: translateY(-2px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.1); }
+</style>
+
+{% endblock %}

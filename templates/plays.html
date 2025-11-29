@@ -3,7 +3,7 @@
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <ul class="nav nav-tabs">
     <li class="nav-item">
-      <a class="nav-link" href="{{ url_for('plays_view', week=prev_w.isoformat()) }}">Semana anterior</a>
+      <a class="nav-link" href="{{ url_for('plays_view', week=prev_w.isoformat()) }}"><i class="fa fa-chevron-left"></i></a>
     </li>
     <li class="nav-item">
       <a class="nav-link active" href="{{ url_for('plays_view', week=base_w.isoformat()) }}">
@@ -11,7 +11,7 @@
       </a>
     </li>
     <li class="nav-item">
-      <a class="nav-link" href="{{ url_for('plays_view', week=next_w.isoformat()) }}">Semana siguiente</a>
+      <a class="nav-link" href="{{ url_for('plays_view', week=next_w.isoformat()) }}"><i class="fa fa-chevron-right"></i></a>
     </li>
   </ul>
 

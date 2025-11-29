@@ -1176,24 +1176,45 @@ def sales_update_view():
     prev_day = day - timedelta(days=1)
     next_day = day + timedelta(days=1)
 
-    # Solo conciertos "a la venta" ese día (sale_start_date <= day) y futuros
-    concerts = (session.query(Concert)
-                .filter(Concert.sale_start_date <= day, Concert.date >= day)
-                .order_by(Concert.date.asc()).all())
-    for c in concerts: _ = c.artist; _ = c.venue; _ = c.promoter
+    # Conciertos a la venta ese día (inicio venta <= día y fecha de concierto futura)
+    concerts = (
+        session.query(Concert)
+        .options(
+            joinedload(Concert.artist),
+            joinedload(Concert.venue),
+            joinedload(Concert.promoter),
+            joinedload(Concert.group_company),
+        )
+        .filter(Concert.sale_start_date <= day, Concert.date >= day)
+        .order_by(Concert.date.asc())
+        .all()
+    )
 
     totals, today_map, _last = sales_maps(session, day)
 
-    # Agrupar por Empresa / Vendido
-    empresa = [c for c in concerts if c.sale_type == "EMPRESA"]
-    vendidos = [c for c in concerts if c.sale_type == "VENDIDO"]
+    # Agrupamos por tipo de concierto usando el mismo orden y títulos que el reporte
+    sections = {k: [] for k in SALES_SECTION_ORDER}
+    for c in concerts:
+        if c.sale_type in sections:
+            sections[c.sale_type].append(c)
+
+    # Orden interno: fecha y nombre de artista
+    for lst in sections.values():
+        lst.sort(key=lambda x: (x.date or date.max,
+                                x.artist.name if x.artist else ""))
 
     session.close()
-    return render_template("sales_update.html",
-                           day=day, prev_day=prev_day, next_day=next_day,
-                           empresa=empresa, vendidos=vendidos,
-                           totals=totals, today_map=today_map)
-
+    return render_template(
+        "sales_update.html",
+        day=day,
+        prev_day=prev_day,
+        next_day=next_day,
+        sections=sections,
+        order=SALES_SECTION_ORDER,
+        titles=SALES_SECTION_TITLE,
+        totals=totals,
+        today_map=today_map,
+    )
 @app.post("/ventas/save")
 @admin_required
 def sales_save():

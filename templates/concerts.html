@@ -144,7 +144,7 @@
     <div id="a-{{ grp.artist.id if grp.artist else 'na-' ~ loop.index }}"
          class="collapse show">
       <div class="p-2">
-        {% for c in grp.items %}
+        {% for c in grp['items'] %}
         <!-- TARJETA DE EDICIÓN -->
         <div class="card mb-3">
           <div class="card-body">

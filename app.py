@@ -174,10 +174,14 @@ def _parse_optional_positive_int(value):
 # ---------- context ----------
 @app.context_processor
 def inject_globals():
+    def has_endpoint(name: str) -> bool:
+        # permite: {% if has_endpoint('mi_vista') %} ...
+        return name in app.view_functions
     return dict(
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
-        IS_ADMIN=bool(session.get("user_id"))
+        IS_ADMIN=bool(session.get("user_id")),
+        has_endpoint=has_endpoint
     )
 
 # ---------- landing ----------

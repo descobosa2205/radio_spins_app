@@ -4,7 +4,9 @@
 
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="m-0">Recintos</h4>
-  <input id="filter-venues" class="form-control" placeholder="Buscar recinto, municipio o provincia..." style="max-width: 340px;">
+  <input id="filter-venues" class="form-control"
+         placeholder="Buscar recinto, municipio o provincia..."
+         style="max-width: 340px;">
 </div>
 
 <script>
@@ -13,7 +15,7 @@ document.addEventListener('DOMContentLoaded', function(){
   const rows = document.querySelectorAll('[data-venue-row]');
   inp.addEventListener('input', function(){
     const q = (inp.value || '').toLowerCase();
-    rows.forEach(el=>{
+    rows.forEach(el => {
       const k = (el.getAttribute('data-key') || '').toLowerCase();
       el.style.display = (!q || k.includes(q)) ? '' : 'none';
     });
@@ -24,31 +26,82 @@ document.addEventListener('DOMContentLoaded', function(){
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" class="row g-2 align-items-end">
-      <div class="col-md-4"><label class="form-label">Nombre</label><input name="name" class="form-control" required></div>
-      <div class="col-md-2"><label class="form-label">Cubierto</label><div class="form-check"><input class="form-check-input" type="checkbox" name="covered"><label class="form-check-label">Sí (desmarcado = Aire libre)</label></div></div>
-      <div class="col-md-6"><label class="form-label">Dirección</label><input name="address" class="form-control"></div>
-      <div class="col-md-3"><label class="form-label">Municipio</label><input name="municipality" class="form-control"></div>
-      <div class="col-md-3"><label class="form-label">Provincia</label><input name="province" class="form-control"></div>
-      <div class="col-12 col-md-2 d-grid"><button class="btn btn-primary">Crear</button></div>
+      <div class="col-md-4">
+        <label class="form-label">Nombre</label>
+        <input name="name" class="form-control" required>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Cubierto</label>
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="covered">
+          <label class="form-check-label">Sí (desmarcado = Aire libre)</label>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Dirección</label>
+        <input name="address" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Municipio</label>
+        <input name="municipality" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Provincia</label>
+        <input name="province" class="form-control">
+      </div>
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-primary">Crear</button>
+      </div>
     </form>
   </div>
 </div>
 
 <div class="row">
   {% for v in venues %}
-  <div class="col-md-6">
+  <div class="col-md-6"
+       data-venue-row
+       data-key="{{ v.name }} {{ v.municipality or '' }} {{ v.province or '' }}">
     <div class="card mb-3">
       <div class="card-body">
-        <form method="post" action="{{ url_for('venue_update', vid=v.id) }}" class="row g-2 align-items-end">
-          <div class="col-md-4"><label class="form-label">Nombre</label><input name="name" class="form-control" value="{{ v.name }}"></div>
-          <div class="col-md-2"><label class="form-label">Cubierto</label><div class="form-check"><input class="form-check-input" type="checkbox" name="covered" {% if v.covered %}checked{% endif %}><label class="form-check-label">Sí</label></div></div>
-          <div class="col-md-6"><label class="form-label">Dirección</label><input name="address" class="form-control" value="{{ v.address or '' }}"></div>
-          <div class="col-md-3"><label class="form-label">Municipio</label><input name="municipality" class="form-control" value="{{ v.municipality or '' }}"></div>
-          <div class="col-md-3"><label class="form-label">Provincia</label><input name="province" class="form-control" value="{{ v.province or '' }}"></div>
-          <div class="col-md-2 d-grid"><button class="btn btn-outline-primary">Guardar</button></div>
+        <form method="post"
+              action="{{ url_for('venue_update', vid=v.id) }}"
+              class="row g-2 align-items-end">
+          <div class="col-md-4">
+            <label class="form-label">Nombre</label>
+            <input name="name" class="form-control" value="{{ v.name }}">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label">Cubierto</label>
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="covered"
+                     {% if v.covered %}checked{% endif %}>
+              <label class="form-check-label">Sí</label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Dirección</label>
+            <input name="address" class="form-control" value="{{ v.address or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Municipio</label>
+            <input name="municipality" class="form-control"
+                   value="{{ v.municipality or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Provincia</label>
+            <input name="province" class="form-control"
+                   value="{{ v.province or '' }}">
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-outline-primary">Guardar</button>
+          </div>
         </form>
-        <form class="text-end mt-2" method="post" action="{{ url_for('venue_delete', vid=v.id) }}">
-          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
+        <form class="text-end mt-2"
+              method="post"
+              action="{{ url_for('venue_delete', vid=v.id) }}">
+          <button class="btn btn-outline-danger">
+            <i class="fa fa-trash"></i> Borrar
+          </button>
         </form>
       </div>
     </div>

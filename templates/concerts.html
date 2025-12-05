@@ -6,6 +6,7 @@
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" class="row g-2" enctype="multipart/form-data">
+      <!-- fila 1: fecha, artista, festival, recinto -->
       <div class="col-md-2">
         <label class="form-label">Fecha</label>
         <input type="date" name="date" class="form-control" required>
@@ -23,7 +24,6 @@
         <input name="festival_name" class="form-control">
       </div>
 
-      {# ---- RECINTO CON BUSCADOR ---- #}
       <div class="col-md-4">
         <label class="form-label">Recinto</label>
         <input id="venue_search_create" class="form-control"
@@ -31,13 +31,7 @@
         <input type="hidden" name="venue_id" id="venue_id_create">
       </div>
 
-      <script>
-      document.addEventListener('DOMContentLoaded', function(){
-        initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
-        initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
-      });
-      </script>
-
+      <!-- fila 2: tipo, empresa, tercero -->
       <div class="col-md-3">
         <label class="form-label">Tipo</label>
         <select name="sale_type" class="form-select" id="sale_type_select">
@@ -56,49 +50,13 @@
         </select>
       </div>
 
-      {# Tercero único con buscador, solo para VENDIDO #}
       <div class="col-md-3" id="promoter_single_wrap" style="display:none;">
         <label class="form-label">Tercero</label>
         <input id="promoter_search_create" class="form-control" placeholder="Escribe para buscar...">
         <input type="hidden" name="promoter_id" id="promoter_id_create">
       </div>
 
-      <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        // Alta
-        if (typeof initTypeahead === "function") {
-          initTypeahead('venue_search_create',
-                        'venue_id_create',
-                        '/api/search/venues');
-
-          initTypeahead('promoter_search_create',
-                        'promoter_id_create',
-                        '/api/search/promoters');
-        }
-      });
-      </script>
-
-      <div class="col-md-3">
-        <label class="form-label">Tipo</label>
-        <select name="sale_type" class="form-select" id="sale_type_select">
-          <option value="EMPRESA">Empresa</option>
-          <option value="VENDIDO">Vendido</option>
-          <option value="PARTICIPADOS">Participados</option>
-          <option value="CADIZ">CADIZ MUSIC STADIUM</option>
-        </select>
-      </div>
-
-      <div class="col-md-3" id="company_single_wrap">
-        <label class="form-label">Empresa del grupo</label>
-        <select name="group_company_id" class="form-select">
-          <option value="">—</option>
-          {% for co in companies %}
-            <option value="{{ co.id }}">{{ co.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <!-- Bloque de participaciones (PARTICIPADOS / CADIZ) -->
+      <!-- bloques de participaciones -->
       <div class="col-12" id="shares_wrap" style="display:none;">
         <div class="border rounded p-2 mb-2">
           <div class="d-flex justify-content-between align-items-center mb-2">
@@ -122,6 +80,7 @@
         </div>
       </div>
 
+      <!-- fila 3: aforo, inicio venta, punto de empate, botón -->
       <div class="col-md-2">
         <label class="form-label">Aforo</label>
         <input type="number" name="capacity" class="form-control" required min="0">
@@ -132,21 +91,27 @@
         <input type="date" name="sale_start_date" class="form-control" required>
       </div>
 
-      <div class="col-md-2">
-        <label class="form-label">
-          Punto de empate <small class="text-muted">(opcional)</small>
-        </label>
+      <div class="col-md-3">
+        <label class="form-label">Punto de empate <small class="text-muted">(opcional)</small></label>
         <input type="number" name="break_even_ticket" class="form-control"
                min="0" placeholder="(vacío = sin punto)">
       </div>
 
-      <div class="col-12 col-md-2 d-grid">
+      <div class="col-12 col-md-2 d-grid ms-md-auto">
+        <label class="form-label d-none d-md-block">&nbsp;</label>
         <button class="btn btn-primary">Crear</button>
       </div>
     </form>
   </div>
 </div>
 
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  // buscadores de recinto y promotor en ALTA
+  initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
+  initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
+});
+</script>
 <!-- LISTA AGRUPADA POR ARTISTA -->
 {% for grp in concert_groups %}
   <div class="mb-3 border rounded bg-white">

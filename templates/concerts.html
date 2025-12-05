@@ -14,9 +14,7 @@
       <div class="col-md-3">
         <label class="form-label">Artista</label>
         <select name="artist_id" class="form-select" required>
-          {% for a in artists %}
-            <option value="{{ a.id }}">{{ a.name }}</option>
-          {% endfor %}
+          {% for a in artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
         </select>
       </div>
 
@@ -25,19 +23,43 @@
         <input name="festival_name" class="form-control">
       </div>
 
-      <!-- RECINTO (typeahead) -->
+      {# ---- RECINTO CON BUSCADOR ---- #}
       <div class="col-md-4">
         <label class="form-label">Recinto</label>
         <input id="venue_search_create" class="form-control"
-               placeholder="Escribe para buscar recinto...">
+               placeholder="Escribe para buscar...">
         <input type="hidden" name="venue_id" id="venue_id_create">
       </div>
 
-      <!-- TERCERO (solo para VENDIDO, typeahead) -->
-      <div class="col-md-3" id="promoter_single_wrap_create" style="display:none;">
+      <script>
+      document.addEventListener('DOMContentLoaded', function(){
+        initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
+        initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
+      });
+      </script>
+
+      <div class="col-md-3">
+        <label class="form-label">Tipo</label>
+        <select name="sale_type" class="form-select" id="sale_type_select">
+          <option value="EMPRESA">Empresa</option>
+          <option value="VENDIDO">Vendido</option>
+          <option value="PARTICIPADOS">Participados</option>
+          <option value="CADIZ">CADIZ MUSIC STADIUM</option>
+        </select>
+      </div>
+
+      <div class="col-md-3" id="company_single_wrap">
+        <label class="form-label">Empresa del grupo</label>
+        <select name="group_company_id" class="form-select">
+          <option value="">—</option>
+          {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+        </select>
+      </div>
+
+      {# Tercero único con buscador, solo para VENDIDO #}
+      <div class="col-md-3" id="promoter_single_wrap" style="display:none;">
         <label class="form-label">Tercero</label>
-        <input id="promoter_search_create" class="form-control"
-               placeholder="Escribe para buscar tercero...">
+        <input id="promoter_search_create" class="form-control" placeholder="Escribe para buscar...">
         <input type="hidden" name="promoter_id" id="promoter_id_create">
       </div>
 

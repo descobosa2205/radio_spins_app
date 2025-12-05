@@ -935,10 +935,15 @@ def concerts_page():
             be_raw = (request.form.get("break_even_ticket") or "").strip()
             be_val = _parse_optional_positive_int(be_raw)
 
+            # --- validar recinto ---
+            venue_raw = (request.form.get("venue_id") or "").strip()
+            if not venue_raw:
+                raise ValueError("Debes seleccionar un recinto de la lista.")
+
             c = Concert(
                 date = parse_date(request.form["date"]),
                 festival_name = (request.form.get("festival_name") or "").strip() or None,
-                venue_id = to_uuid(request.form["venue_id"]),
+                venue_id = to_uuid(venue_raw),
                 sale_type = sale_type,
                 promoter_id = to_uuid(request.form.get("promoter_id") or None),            # VENDIDO
                 group_company_id = to_uuid(request.form.get("group_company_id") or None),  # EMPRESA
@@ -949,7 +954,7 @@ def concerts_page():
                 sold_out = False,
             )
             session.add(c)
-            session.flush()  # c.id
+            session.flush()
 
             if sale_type in ("PARTICIPADOS", "CADIZ"):
                 p_pairs = _parse_share_pairs(

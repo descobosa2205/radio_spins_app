@@ -1255,29 +1255,53 @@ def concerts_page():
             session.close()
 
     # --- GET ---
-    concerts = (
-        session.query(Concert)
-        .options(
-            joinedload(Concert.artist),
-            joinedload(Concert.venue),
-            joinedload(Concert.promoter),
-            joinedload(Concert.group_company),
-            selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
-            selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
-            selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
-            selectinload(Concert.caches),
-            selectinload(Concert.contracts),
-        )
-        .order_by(Concert.date.asc())
-        .all()
-    )
-
+    concerts = []
     sections = {k: [] for k in SALES_SECTION_ORDER}
-    for c in concerts:
-        sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
 
-    for k in sections:
-        sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
+    try:
+        concerts = (
+            session.query(Concert)
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                joinedload(Concert.promoter),
+                joinedload(Concert.group_company),
+                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+                selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+                selectinload(Concert.caches),
+                selectinload(Concert.contracts),
+            )
+            .order_by(Concert.date.asc())
+            .all()
+        )
+
+        for c in concerts:
+            sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
+
+        for k in sections:
+            sections[k].sort(
+                key=lambda x: (x.date or date.max, (x.artist.name if x.artist else ""))
+            )
+
+    except Exception as e:
+        session.rollback()
+        msg = str(e)
+
+        # Si falta una tabla/columna de migración, que no reviente en 500
+        if ("does not exist" in msg) or ("UndefinedTable" in msg) or ("UndefinedColumn" in msg):
+            flash(
+                "La página de Conciertos no puede cargar porque faltan tablas/columnas nuevas en la BD "
+                "(por ejemplo: concerts.status, concert_contracts, concert_caches, concert_zone_agents). "
+                "Ejecuta la migración SQL de Conciertos en Supabase y recarga.",
+                "danger",
+            )
+        else:
+            flash(f"Error cargando conciertos: {msg}", "danger")
+
+    finally:
+        # Evita fugas de conexiones
+        session.close()
 
     return render_template(
         "concerts.html",
@@ -1291,6 +1315,7 @@ def concerts_page():
         order=SALES_SECTION_ORDER,
         titles=SALES_SECTION_TITLE,
     )
+
 
 
 # ---------- EDITAR (vista dedicada) ----------

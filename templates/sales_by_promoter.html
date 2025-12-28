@@ -33,8 +33,9 @@
           {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
           {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
           {% set days_left = (c.date - day).days %}
-          {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
-          {% set reached = total >= c.break_even_ticket %}
+          {% set be = c.break_even_ticket or 0 %}
+          {% set be_pct = ((be / c.capacity) * 100) if (be and c.capacity) else 0 %}
+          {% set reached = (be and total >= be) %}
 
           <div class="card mb-2">
             <div class="card-body py-3">
@@ -60,9 +61,13 @@
                 <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
                 <div>
                   <small class="text-muted d-block">Punto de empate</small>
-                  <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">
-                    {{ c.break_even_ticket|k }} ({{ '%.0f' % be_pct }}%)
-                  </span>
+                  {% if be and be > 0 %}
+                    <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">
+                      {{ be|k }} ({{ '%.0f' % be_pct }}%)
+                    </span>
+                  {% else %}
+                    <span class="badge bg-light text-dark">—</span>
+                  {% endif %}
                 </div>
               </div>
 

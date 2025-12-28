@@ -2,428 +2,912 @@
 {% block content %}
 <h4 class="mb-3">Conciertos</h4>
 
-<!-- ALTA -->
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" class="row g-2" enctype="multipart/form-data">
-      <!-- fila 1: fecha, artista, festival, recinto -->
-      <div class="col-md-2">
-        <label class="form-label">Fecha</label>
-        <input type="date" name="date" class="form-control" required>
-      </div>
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'alta' %}active{% endif %}"
+       href="{{ url_for('concerts_view', tab='alta') }}">Alta conciertos</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if active_tab == 'vista' %}active{% endif %}"
+       href="{{ url_for('concerts_view', tab='vista') }}">Vista conciertos</a>
+  </li>
+</ul>
 
-      <div class="col-md-3">
-        <label class="form-label">Artista</label>
-        <select name="artist_id" class="form-select" required>
-          {% for a in artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
-        </select>
-      </div>
+{# ===================== TAB: ALTA ===================== #}
+<div class="{% if active_tab != 'alta' %}d-none{% endif %}">
 
-      <div class="col-md-3">
-        <label class="form-label">Nombre (festival, opcional)</label>
-        <input name="festival_name" class="form-control">
-      </div>
+  <div class="card mb-4">
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data" class="row g-2">
 
-      <div class="col-md-4">
-        <label class="form-label">Recinto</label>
-        <input id="venue_search_create" class="form-control"
-               placeholder="Escribe para buscar...">
-        <input type="hidden" name="venue_id" id="venue_id_create">
-      </div>
+        <!-- fila 1 -->
+        <div class="col-md-2">
+          <label class="form-label">Fecha</label>
+          <input type="date" name="date" class="form-control" required>
+        </div>
 
-      <!-- fila 2: tipo, empresa, tercero -->
-      <div class="col-md-3">
-        <label class="form-label">Tipo</label>
-        <select name="sale_type" class="form-select" id="sale_type_select">
-          <option value="EMPRESA">Empresa</option>
-          <option value="VENDIDO">Vendido</option>
-          <option value="PARTICIPADOS">Participados</option>
-          <option value="CADIZ">CADIZ MUSIC STADIUM</option>
-        </select>
-      </div>
+        <div class="col-md-2">
+          <label class="form-label">Estado</label>
+          <select name="status" class="form-select" required>
+            <option value="HABLADO">Hablado</option>
+            <option value="RESERVADO">Reservado</option>
+            <option value="CONFIRMADO">Confirmado</option>
+          </select>
+        </div>
 
-      <div class="col-md-3" id="company_single_wrap">
-        <label class="form-label">Empresa del grupo</label>
-        <select name="group_company_id" class="form-select">
-          <option value="">—</option>
-          {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
-        </select>
-      </div>
+        <div class="col-md-3">
+          <label class="form-label">Artista</label>
+          <select name="artist_id" class="form-select" required>
+            {% for a in artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+          </select>
+        </div>
 
-      <div class="col-md-3" id="promoter_single_wrap" style="display:none;">
-        <label class="form-label">Tercero</label>
-        <input id="promoter_search_create" class="form-control" placeholder="Escribe para buscar...">
-        <input type="hidden" name="promoter_id" id="promoter_id_create">
-      </div>
+        <div class="col-md-5">
+          <label class="form-label">Nombre del evento <small class="text-muted">(opcional)</small></label>
+          <input name="festival_name" class="form-control" placeholder="Festival / nombre interno">
+        </div>
 
-      <!-- bloques de participaciones -->
-      <div class="col-12" id="shares_wrap" style="display:none;">
-        <div class="border rounded p-2 mb-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Participación de terceros</strong>
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    onclick="addShareRow('promoter','create')">
-              <i class="fa fa-plus"></i> Añadir
+        <!-- fila 2 -->
+        <div class="col-md-8">
+          <label class="form-label">Recinto</label>
+          <div class="input-group">
+            <input id="venue_search_create" class="form-control" placeholder="Escribe para buscar...">
+            <button type="button" class="btn btn-outline-secondary" onclick="openVenueModal('venue_search_create','venue_id_create')">
+              <i class="fa fa-plus"></i>
             </button>
           </div>
-          <div id="promoter_shares_rows_create" class="row g-2"></div>
+          <input type="hidden" name="venue_id" id="venue_id_create">
+          <div class="form-text">Si no existe, crea el recinto con el botón +.</div>
         </div>
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Participación de empresas del grupo</strong>
-            <button type="button" class="btn btn-sm btn-outline-secondary"
-                    onclick="addShareRow('company','create')">
-              <i class="fa fa-plus"></i> Añadir
+
+        <div class="col-md-4">
+          <label class="form-label">Tipo de concierto</label>
+          <select name="sale_type" class="form-select" id="sale_type_select">
+            <option value="EMPRESA">Empresa</option>
+            <option value="VENDIDO">Vendido</option>
+            <option value="PARTICIPADOS">Participado</option>
+            <option value="CADIZ">Cádiz Music Stadium</option>
+          </select>
+        </div>
+
+        <!-- fila 3: empresa / tercero principal -->
+        <div class="col-md-6" id="company_single_wrap">
+          <label class="form-label">Empresa del grupo que lo gestiona</label>
+          <select name="group_company_id" class="form-select">
+            <option value="">—</option>
+            {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+          </select>
+        </div>
+
+        <div class="col-md-6" id="promoter_single_wrap" style="display:none;">
+          <label class="form-label">Tercero principal</label>
+          <div class="input-group">
+            <input id="promoter_search_create" class="form-control" placeholder="Escribe para buscar...">
+            <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'typeahead', inputId:'promoter_search_create', hiddenId:'promoter_id_create'})">
+              <i class="fa fa-plus"></i>
             </button>
           </div>
-          <div id="company_shares_rows_create" class="row g-2"></div>
+          <input type="hidden" name="promoter_id" id="promoter_id_create">
+          <div class="form-text">Si no existe, crea el tercero con el botón +.</div>
         </div>
-      </div>
 
-      <!-- fila 3: aforo, inicio venta, punto de empate, botón -->
-      <div class="col-md-2">
-        <label class="form-label">Aforo</label>
-        <input type="number" name="capacity" class="form-control" required min="0">
-      </div>
+        <!-- fila 4 -->
+        <div class="col-md-3">
+          <label class="form-label">Aforo a la venta</label>
+          <input type="number" name="capacity" class="form-control" required min="0">
+        </div>
 
-      <div class="col-md-2">
-        <label class="form-label">Inicio venta</label>
-        <input type="date" name="sale_start_date" class="form-control" required>
-      </div>
+        <div class="col-md-3">
+          <label class="form-label">Salida a la venta</label>
+          <input type="date" name="sale_start_date" class="form-control" required>
+        </div>
 
-      <div class="col-md-3">
-        <label class="form-label">Punto de empate <small class="text-muted">(opcional)</small></label>
-        <input type="number" name="break_even_ticket" class="form-control"
-               min="0" placeholder="(vacío = sin punto)">
-      </div>
+        <div class="col-md-3">
+          <label class="form-label">Punto de empate <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="break_even_ticket" class="form-control" min="0" placeholder="Vacío = sin punto">
+        </div>
 
-      <div class="col-12 col-md-2 d-grid ms-md-auto">
-        <label class="form-label d-none d-md-block">&nbsp;</label>
-        <button class="btn btn-primary">Crear</button>
-      </div>
-    </form>
-  </div>
-</div>
+        <div class="col-12 col-md-3 d-grid ms-md-auto">
+          <label class="form-label d-none d-md-block">&nbsp;</label>
+          <button class="btn btn-primary"><i class="fa fa-plus"></i> Crear concierto</button>
+        </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  // buscadores de recinto y promotor en ALTA
-  initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
-  initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
-});
-</script>
-<!-- LISTA AGRUPADA POR ARTISTA -->
-{% for grp in concert_groups %}
-  <div class="mb-3 border rounded bg-white">
-    <div class="p-2 d-flex align-items-center justify-content-between">
-      <div class="d-flex align-items-center gap-2">
-        <img src="{{ (grp.artist.photo_url if grp.artist else None) or url_for('static', filename='img/logo.png') }}"
-             class="artist-avatar">
-        <h5 class="m-0">{{ grp.artist.name if grp.artist else '—' }}</h5>
-      </div>
-      <button class="btn btn-sm btn-light"
-              data-bs-toggle="collapse"
-              data-bs-target="#a-{{ grp.artist.id if grp.artist else 'na-' ~ loop.index }}">
-        <i class="fa fa-chevron-down"></i>
-      </button>
-    </div>
-
-    <div id="a-{{ grp.artist.id if grp.artist else 'na-' ~ loop.index }}"
-         class="collapse show">
-      <div class="p-2">
-        {% for c in grp['items'] %}
-        <!-- TARJETA DE EDICIÓN -->
-        <div class="card mb-3">
-          <div class="card-body">
-            <form id="form-edit-{{ c.id }}" method="post"
-                  action="{{ url_for('concert_update', cid=c.id) }}"
-                  class="row g-2">
-              <div class="col-md-2">
-                <label class="form-label">Fecha</label>
-                <input type="date" name="date" class="form-control"
-                       value="{{ c.date.isoformat() if c.date }}">
-              </div>
-
-              <div class="col-md-3">
-                <label class="form-label">Artista</label>
-                <select name="artist_id" class="form-select">
-                  {% for a in artists %}
-                    <option value="{{ a.id }}" {% if a.id == c.artist_id %}selected{% endif %}>
-                      {{ a.name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="col-md-3">
-                <label class="form-label">Nombre (festival)</label>
-                <input name="festival_name" class="form-control"
-                       value="{{ c.festival_name or '' }}">
-              </div>
-
-              <div class="col-md-4">
-                <label class="form-label">Recinto</label>
-                <input id="venue_search_{{ c.id }}" class="form-control"
-                       placeholder="Escribe para buscar..."
-                       value="{% if c.venue %}{{ c.venue.name }} — {{ c.venue.municipality or '' }} {{ c.venue.province or '' }}{% endif %}">
-                <input type="hidden" name="venue_id" id="venue_id_{{ c.id }}"
-                       value="{{ c.venue_id }}">
-              </div>
-
-              <div class="col-md-3">
-                <label class="form-label">Tipo</label>
-                <select name="sale_type"
-                        class="form-select sale-type-edit"
-                        data-edit-id="{{ c.id }}">
-                  <option value="EMPRESA" {% if c.sale_type == 'EMPRESA' %}selected{% endif %}>Empresa</option>
-                  <option value="VENDIDO" {% if c.sale_type == 'VENDIDO' %}selected{% endif %}>Vendido</option>
-                  <option value="PARTICIPADOS" {% if c.sale_type == 'PARTICIPADOS' %}selected{% endif %}>Participados</option>
-                  <option value="CADIZ" {% if c.sale_type == 'CADIZ' %}selected{% endif %}>CADIZ MUSIC STADIUM</option>
-                </select>
-              </div>
-
-              <div class="col-md-3" id="company_single_wrap_{{ c.id }}"
-                   {% if c.sale_type != 'EMPRESA' %}style="display:none"{% endif %}>
-                <label class="form-label">Empresa</label>
-                <select name="group_company_id" class="form-select">
-                  <option value="">—</option>
-                  {% for co in companies %}
-                    <option value="{{ co.id }}"
-                      {% if c.group_company_id and co.id == c.group_company_id %}selected{% endif %}>
-                      {{ co.name }}
-                    </option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="col-md-3" id="promoter_single_wrap_{{ c.id }}"
-                   {% if c.sale_type != 'VENDIDO' %}style="display:none"{% endif %}>
-                <label class="form-label">Tercero</label>
-                <input id="promoter_search_{{ c.id }}" class="form-control"
-                       placeholder="Escribe para buscar..."
-                       value="{{ c.promoter.nick if c.promoter else '' }}">
-                <input type="hidden" name="promoter_id"
-                       id="promoter_id_{{ c.id }}"
-                       value="{{ c.promoter_id or '' }}">
-              </div>
-
-              <script>
-              document.addEventListener('DOMContentLoaded', function () {
-                if (typeof initTypeahead === "function") {
-                  initTypeahead('venue_search_{{ c.id }}',
-                                'venue_id_{{ c.id }}',
-                                '/api/search/venues');
-                  initTypeahead('promoter_search_{{ c.id }}',
-                                'promoter_id_{{ c.id }}',
-                                '/api/search/promoters');
-                }
-              });
-              </script>
-
-              <div class="col-12" id="shares_wrap_{{ c.id }}"
-                   {% if c.sale_type not in ['PARTICIPADOS','CADIZ'] %}style="display:none"{% endif %}>
-                <div class="border rounded p-2 mb-2">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <strong>Participación de terceros</strong>
-                    <button type="button"
-                            class="btn btn-sm btn-outline-secondary"
-                            onclick="addShareRow('promoter','edit','{{ c.id }}')">
-                      <i class="fa fa-plus"></i> Añadir
-                    </button>
-                  </div>
-                  <div id="promoter_shares_rows_edit_{{ c.id }}" class="row g-2">
-                    {% for s in c.promoter_shares %}
-                    <div class="col-md-6 d-flex align-items-end gap-2">
-                      <div class="flex-grow-1">
-                        <label class="form-label">Tercero</label>
-                        <select name="promoter_id_share[]" class="form-select">
-                          <option value="">—</option>
-                          {% for p in promoters %}
-                            <option value="{{ p.id }}"
-                              {% if p.id == s.promoter_id %}selected{% endif %}>
-                              {{ p.nick }}
-                            </option>
-                          {% endfor %}
-                        </select>
-                      </div>
-                      <div style="width:120px;">
-                        <label class="form-label">% </label>
-                        <input type="number" name="promoter_pct[]" class="form-control"
-                               min="0" max="100" value="{{ s.pct }}">
-                      </div>
-                      <button type="button" class="btn btn-outline-danger"
-                              onclick="this.parentElement.remove()">
-                        <i class="fa fa-trash"></i>
-                      </button>
-                    </div>
-                    {% endfor %}
-                  </div>
-                </div>
-
-                <div class="border rounded p-2">
-                  <div class="d-flex justify-content-between align-items-center mb-2">
-                    <strong>Participación de empresas</strong>
-                    <button type="button"
-                            class="btn btn-sm btn-outline-secondary"
-                            onclick="addShareRow('company','edit','{{ c.id }}')">
-                      <i class="fa fa-plus"></i> Añadir
-                    </button>
-                  </div>
-                  <div id="company_shares_rows_edit_{{ c.id }}" class="row g-2">
-                    {% for s in c.company_shares %}
-                    <div class="col-md-6 d-flex align-items-end gap-2">
-                      <div class="flex-grow-1">
-                        <label class="form-label">Empresa</label>
-                        <select name="company_id_share[]" class="form-select">
-                          <option value="">—</option>
-                          {% for co in companies %}
-                            <option value="{{ co.id }}"
-                              {% if co.id == s.company_id %}selected{% endif %}>
-                              {{ co.name }}
-                            </option>
-                          {% endfor %}
-                        </select>
-                      </div>
-                      <div style="width:120px;">
-                        <label class="form-label">% </label>
-                        <input type="number" name="company_pct[]" class="form-control"
-                               min="0" max="100" value="{{ s.pct }}">
-                      </div>
-                      <button type="button" class="btn btn-outline-danger"
-                              onclick="this.parentElement.remove()">
-                        <i class="fa fa-trash"></i>
-                      </button>
-                    </div>
-                    {% endfor %}
-                  </div>
-                </div>
-              </div>
-
-              <div class="col-md-2">
-                <label class="form-label">Aforo</label>
-                <input type="number" name="capacity" class="form-control"
-                       value="{{ c.capacity }}">
-              </div>
-
-              <div class="col-md-2">
-                <label class="form-label">Inicio venta</label>
-                <input type="date" name="sale_start_date" class="form-control"
-                       value="{{ c.sale_start_date.isoformat() if c.sale_start_date }}">
-              </div>
-
-              <div class="col-md-2">
-                <label class="form-label">Punto de empate</label>
-                <input type="number" name="break_even_ticket" class="form-control"
-                       value="{{ c.break_even_ticket if c.break_even_ticket }}">
-              </div>
-            </form>
-
-            <div class="d-flex gap-2 justify-content-end mt-2">
-              <button form="form-edit-{{ c.id }}" class="btn btn-outline-primary">
-                Guardar
+        <!-- ==================== COLABORADORES ==================== -->
+        <div class="col-12 mt-3">
+          <div class="border rounded p-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong>Colaboradores <span class="text-muted fw-normal">(opcionales)</span></strong>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleBlock('block-collab')">
+                <i class="fa fa-chevron-down"></i>
               </button>
-              <form method="post"
-                    action="{{ url_for('concert_delete', cid=c.id) }}"
-                    onsubmit="return confirm('¿Seguro que quieres borrar este concierto?');">
-                <button class="btn btn-outline-danger">
-                  <i class="fa fa-trash"></i> Borrar
-                </button>
-              </form>
+            </div>
+
+            <div id="block-collab" style="display:none;">
+
+              <!-- terceros -->
+              <div class="border rounded p-2 mb-2">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <strong>Participación de terceros</strong>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addPromoterShareRow('promoter_shares_rows_create')">
+                      <i class="fa fa-plus"></i> Añadir
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openPromoterModal()">
+                      <i class="fa fa-plus"></i> Nuevo tercero
+                    </button>
+                  </div>
+                </div>
+                <div id="promoter_shares_rows_create" class="row g-2"></div>
+              </div>
+
+              <!-- empresas -->
+              <div class="border rounded p-2 mb-2">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <strong>Participación de empresas del grupo</strong>
+                  <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCompanyShareRow('company_shares_rows_create')">
+                    <i class="fa fa-plus"></i> Añadir
+                  </button>
+                </div>
+                <div id="company_shares_rows_create" class="row g-2"></div>
+              </div>
+
+              <!-- zona -->
+              <div class="border rounded p-2">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <strong>Promotores de zona (comisionistas)</strong>
+                  <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addZoneRow('zone_rows_create')">
+                      <i class="fa fa-plus"></i> Añadir
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openPromoterModal()">
+                      <i class="fa fa-plus"></i> Nuevo tercero
+                    </button>
+                  </div>
+                </div>
+                <div id="zone_rows_create" class="row g-2"></div>
+              </div>
+
             </div>
           </div>
         </div>
-        {% endfor %}
+
+        <!-- ==================== CACHES ==================== -->
+        <div class="col-12 mt-3">
+          <div class="border rounded p-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong>Cachés <span class="text-muted fw-normal">(opcional)</span></strong>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCacheRow('cache_rows_create')">
+                <i class="fa fa-plus"></i> Añadir
+              </button>
+            </div>
+            <div id="cache_rows_create" class="row g-2"></div>
+          </div>
+        </div>
+
+        <!-- ==================== CONTRATOS ==================== -->
+        <div class="col-12 mt-3">
+          <div class="border rounded p-2">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <strong>Contratos (PDF) <span class="text-muted fw-normal">(opcional)</span></strong>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addContractRow('contract_rows_create')">
+                <i class="fa fa-plus"></i> Añadir
+              </button>
+            </div>
+            <div id="contract_rows_create" class="row g-2"></div>
+            <div class="form-text">Se guardará la fecha de subida automáticamente.</div>
+          </div>
+        </div>
+
+      </form>
+    </div>
+  </div>
+</div>
+
+{# ===================== TAB: VISTA ===================== #}
+<div class="{% if active_tab != 'vista' %}d-none{% endif %}">
+
+  {% for key in order %}
+    {% set title = titles.get(key, key) %}
+    {% set lista = sections.get(key, []) %}
+
+    <div class="mt-3">
+      <div class="d-flex align-items-center justify-content-between mb-1">
+        <h6 class="text-uppercase text-muted m-0">{{ title }}</h6>
+        <button class="btn btn-sm btn-light" type="button"
+                data-bs-toggle="collapse" data-bs-target="#sec-concerts-{{ key }}">
+          <i class="fa fa-chevron-down"></i>
+        </button>
+      </div>
+
+      <div id="sec-concerts-{{ key }}" class="collapse show">
+
+        {% if lista %}
+          {% for c in lista %}
+            {% set st = (c.status or '').upper() %}
+            {% if st == 'HABLADO' %}
+              {% set st_cls = 'bg-warning text-dark' %}
+            {% elif st == 'RESERVADO' %}
+              {% set st_cls = 'bg-primary' %}
+            {% else %}
+              {% set st_cls = 'bg-success' %}
+            {% endif %}
+
+            {% set has_contracts = (c.contracts|length) > 0 %}
+            {% set has_caches = (c.caches|length) > 0 %}
+
+            <div class="card mb-2" id="concert-{{ c.id }}">
+              <div class="card-body py-3">
+
+                <!-- CABECERA -->
+                <div class="d-flex align-items-start justify-content-between flex-wrap gap-2">
+
+                  <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+
+                    <div class="d-flex align-items-center flex-wrap gap-2">
+                      <div class="fw-semibold">
+                        {{ c.artist.name if c.artist else '—' }}
+                        <span class="text-muted ms-2"><small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small></span>
+                      </div>
+
+                      {% if c.venue and c.venue.province %}
+                        <div class="fw-semibold">{{ c.venue.province }}</div>
+                      {% endif %}
+
+                      {% if c.venue and c.venue.municipality %}
+                        <div class="fw-semibold">{{ c.venue.municipality }}</div>
+                      {% endif %}
+
+                      {% if c.venue %}
+                        <span class="badge badge-venue">{{ c.venue.name }}</span>
+                      {% endif %}
+
+                      <div class="text-muted"><small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</small></div>
+
+                      {% if c.festival_name %}
+                        <span class="badge badge-festival">{{ c.festival_name }}</span>
+                      {% endif %}
+                    </div>
+                  </div>
+
+                  <span class="badge {{ st_cls }} px-3 py-2">{{ st.capitalize() }}</span>
+                </div>
+
+                <!-- AFORO / PUNTO EMPATE -->
+                <div class="d-flex align-items-center flex-wrap gap-2 mt-2">
+                  <span class="badge bg-light text-dark">Aforo a la venta: {{ c.capacity|k }}</span>
+                  {% if c.break_even_ticket and c.break_even_ticket > 0 %}
+                    <span class="badge bg-light text-dark">Punto de empate: {{ c.break_even_ticket|k }}</span>
+                  {% endif %}
+                </div>
+
+                <!-- CACHES -->
+                {% if has_caches %}
+                  <div class="mt-2">
+                    <button class="btn btn-sm btn-outline-secondary" type="button"
+                            data-bs-toggle="collapse" data-bs-target="#caches-{{ c.id }}">
+                      <i class="fa fa-chevron-down"></i> Cachés ({{ c.caches|length }})
+                    </button>
+
+                    <div id="caches-{{ c.id }}" class="collapse mt-2">
+                      <div class="border rounded p-2">
+                        <ul class="mb-0">
+                          {% for ch in c.caches %}
+                            <li>
+                              {% set kind = (ch.kind or '').upper() %}
+                              {% if kind == 'VARIABLE' %}
+                                <strong>Variable</strong>
+                                {% if (ch.variable_basis or '').upper() == 'TICKETS' %} (por entradas){% endif %}
+                                {% if (ch.variable_basis or '').upper() == 'REVENUE' %} (por recaudación){% endif %}
+                              {% elif kind == 'OTHER' %}
+                                <strong>Otros</strong>{% if ch.concept %} — {{ ch.concept }}{% endif %}
+                              {% else %}
+                                <strong>Fijo</strong>
+                              {% endif %}
+
+                              {% set parts = [] %}
+                              {% if ch.pct %}
+                                {% set _ = parts.append((ch.pct|string) ~ '% ' ~ (('neto' if (ch.pct_base or '').upper() == 'NET' else 'bruto')) ) %}
+                              {% endif %}
+                              {% if ch.amount %}
+                                {% set _ = parts.append((ch.amount|string) ~ '€ ' ~ (('neto' if (ch.amount_base or '').upper() == 'NET' else 'bruto')) ) %}
+                              {% endif %}
+                              {% if parts %}
+                                — {{ parts|join(' + ') }}
+                              {% endif %}
+                            </li>
+                          {% endfor %}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                {% endif %}
+
+                <!-- TIPO + COLABORADORES -->
+                <div class="mt-3">
+                  <div class="d-flex align-items-center flex-wrap gap-2">
+                    <span class="badge bg-secondary">Tipo: {{ c.sale_type }}</span>
+
+                    {% if c.sale_type == 'EMPRESA' and c.group_company %}
+                      <div class="d-flex align-items-center gap-2 ms-2">
+                        <div class="logo-chip" title="{{ c.group_company.name }}">
+                          <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                        </div>
+                        <div class="small fw-semibold">{{ c.group_company.name }}</div>
+                      </div>
+                    {% endif %}
+
+                    {% if c.sale_type == 'VENDIDO' and c.promoter %}
+                      <div class="d-flex align-items-center gap-2 ms-2">
+                        <div class="logo-chip" title="{{ c.promoter.nick }}">
+                          <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                        </div>
+                        <div class="small fw-semibold">{{ c.promoter.nick }}</div>
+                      </div>
+                    {% endif %}
+                  </div>
+
+                  {% set has_collab = (c.company_shares|length) > 0 or (c.promoter_shares|length) > 0 or (c.zone_agents|length) > 0 %}
+                  {% if has_collab %}
+                    <div class="d-flex align-items-center flex-wrap gap-3 mt-2">
+
+                      {% for s in c.company_shares %}
+                        {% if s.company %}
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="logo-chip position-relative" title="{{ s.company.name }}">
+                              <img src="{{ s.company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                              {% if s.pct %}
+                                <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                              {% elif s.amount %}
+                                <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                              {% endif %}
+                            </div>
+                            <div>
+                              <div class="small fw-semibold">{{ s.company.name }}</div>
+                              {% if s.pct and s.pct_base %}<div class="small text-muted">{{ 'Neto' if s.pct_base=='NET' else 'Bruto' }}</div>{% endif %}
+                              {% if (not s.pct) and s.amount and s.amount_base %}<div class="small text-muted">{{ 'Neto' if s.amount_base=='NET' else 'Bruto' }}</div>{% endif %}
+                            </div>
+                          </div>
+                        {% endif %}
+                      {% endfor %}
+
+                      {% for s in c.promoter_shares %}
+                        {% if s.promoter %}
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="logo-chip position-relative" title="{{ s.promoter.nick }}">
+                              <img src="{{ s.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                              {% if s.pct %}
+                                <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                              {% elif s.amount %}
+                                <span class="badge bg-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                              {% endif %}
+                            </div>
+                            <div>
+                              <div class="small fw-semibold">{{ s.promoter.nick }}</div>
+                              {% if s.pct and s.pct_base %}<div class="small text-muted">{{ 'Neto' if s.pct_base=='NET' else 'Bruto' }}</div>{% endif %}
+                              {% if (not s.pct) and s.amount and s.amount_base %}<div class="small text-muted">{{ 'Neto' if s.amount_base=='NET' else 'Bruto' }}</div>{% endif %}
+                            </div>
+                          </div>
+                        {% endif %}
+                      {% endfor %}
+
+                      {% for z in c.zone_agents %}
+                        {% if z.promoter %}
+                          <div class="d-flex align-items-center gap-2">
+                            <div class="logo-chip position-relative" title="{{ z.promoter.nick }}">
+                              <img src="{{ z.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                              {% if z.commission_type == 'PERCENT' and z.commission_pct %}
+                                <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_pct }}%</span>
+                              {% elif z.commission_amount %}
+                                <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_amount }}€</span>
+                              {% endif %}
+                            </div>
+                            <div>
+                              <div class="small fw-semibold">{{ z.promoter.nick }}</div>
+                              {% if z.commission_type == 'PERCENT' and z.commission_base %}<div class="small text-muted">{{ 'Neto' if z.commission_base=='NET' else 'Bruto' }}</div>{% endif %}
+                              {% if z.commission_type != 'PERCENT' and z.commission_amount_base %}<div class="small text-muted">{{ 'Neto' if z.commission_amount_base=='NET' else 'Bruto' }}</div>{% endif %}
+                            </div>
+                          </div>
+                        {% endif %}
+                      {% endfor %}
+
+                    </div>
+                  {% endif %}
+                </div>
+
+                <!-- BOTONES -->
+                <div class="d-flex justify-content-end gap-2 mt-3">
+                  <button type="button"
+                          class="btn btn-sm {% if has_contracts %}btn-outline-primary{% else %}btn-secondary{% endif %}"
+                          data-bs-toggle="modal" data-bs-target="#contractsModal-{{ c.id }}">
+                    <i class="fa fa-file-contract"></i> Contratos
+                  </button>
+
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('concert_edit_view', cid=c.id) }}">
+                    <i class="fa fa-pen"></i> Editar
+                  </a>
+
+                  <form method="post" action="{{ url_for('concert_delete', cid=c.id) }}"
+                        onsubmit="return confirm('¿Seguro que quieres borrar este concierto?');">
+                    <button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button>
+                  </form>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- MODAL CONTRATOS -->
+            <div class="modal fade" id="contractsModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
+              <div class="modal-dialog modal-lg modal-dialog-centered">
+                <div class="modal-content">
+                  <div class="modal-header">
+                    <h6 class="modal-title m-0">Contratos — {{ c.artist.name if c.artist else '' }} ({{ c.date.strftime('%d/%m/%Y') if c.date else '' }})</h6>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                  </div>
+                  <div class="modal-body">
+                    {% if c.contracts %}
+                      <div class="list-group">
+                        {% for ct in c.contracts %}
+                          <div class="list-group-item d-flex justify-content-between align-items-center gap-3">
+                            <div>
+                              <div class="fw-semibold">{{ ct.concept }}</div>
+                              <div class="small text-muted">Subido: {{ ct.uploaded_at.strftime('%d/%m/%Y') if ct.uploaded_at else '—' }}</div>
+                            </div>
+                            <a class="btn btn-sm btn-outline-primary" href="{{ ct.pdf_url }}" target="_blank">
+                              <i class="fa fa-file-pdf"></i> Ver PDF
+                            </a>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      <div class="alert alert-light mb-0">Este concierto aún no tiene contratos adjuntos.</div>
+                    {% endif %}
+
+                    <div class="mt-3">
+                      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('concert_edit_view', cid=c.id) }}">
+                        <i class="fa fa-plus"></i> Añadir / gestionar contratos
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          {% endfor %}
+        {% else %}
+          <div class="alert alert-light">No hay conciertos para esta sección.</div>
+        {% endif %}
+
+      </div>
+    </div>
+  {% endfor %}
+
+</div>
+
+
+<!-- ===================== MODALES ===================== -->
+
+<!-- Modal: Nuevo recinto -->
+<div class="modal fade" id="modalNewVenue" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title m-0">Nuevo recinto</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formNewVenue">
+          <div class="mb-2">
+            <label class="form-label">Nombre</label>
+            <input name="name" class="form-control" required>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Ciudad / Municipio</label>
+              <input name="municipality" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Provincia</label>
+              <input name="province" class="form-control">
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Dirección <small class="text-muted">(opcional)</small></label>
+            <input name="address" class="form-control">
+          </div>
+          <div class="form-check mt-2">
+            <input class="form-check-input" type="checkbox" name="covered" id="venueCovered">
+            <label class="form-check-label" for="venueCovered">Cubierto</label>
+          </div>
+        </form>
+        <div id="venueModalError" class="alert alert-danger d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="submitNewVenue()">Guardar</button>
       </div>
     </div>
   </div>
-{% endfor %}
+</div>
 
-<!-- JS dinámico (mostrar/ocultar bloques según tipo + añadir filas) -->
+<!-- Modal: Nuevo tercero -->
+<div class="modal fade" id="modalNewPromoter" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title m-0">Nuevo tercero</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="formNewPromoter" enctype="multipart/form-data">
+          <div class="mb-2">
+            <label class="form-label">Nombre</label>
+            <input name="nick" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Logo (PNG) <small class="text-muted">(opcional)</small></label>
+            <input type="file" name="logo" accept="image/png" class="form-control">
+          </div>
+        </form>
+        <div id="promoterModalError" class="alert alert-danger d-none mt-2"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" onclick="submitNewPromoter()">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script>
-function refreshTypeUI() {
-  const v = document.getElementById('sale_type_select').value;
-  document.getElementById('company_single_wrap').style.display =
-    (v === 'EMPRESA') ? '' : 'none';
-  document.getElementById('promoter_single_wrap_create').style.display =
-    (v === 'VENDIDO') ? '' : 'none';
-  document.getElementById('shares_wrap').style.display =
-    (v === 'PARTICIPADOS' || v === 'CADIZ') ? '' : 'none';
+// ====== helpers ======
+function toggleBlock(id){
+  const el = document.getElementById(id);
+  if(!el) return;
+  el.style.display = (el.style.display === 'none' || !el.style.display) ? '' : 'none';
 }
-document.getElementById('sale_type_select').addEventListener('change', refreshTypeUI);
-refreshTypeUI();
 
-function addShareRow(kind, mode, editId) {
-  const wrapId = (mode === 'edit')
-    ? (kind === 'promoter'
-       ? `promoter_shares_rows_edit_${editId}`
-       : `company_shares_rows_edit_${editId}`)
-    : (kind === 'promoter'
-       ? 'promoter_shares_rows_create'
-       : 'company_shares_rows_create');
+function moneyBaseSelect(name){
+  return `
+    <select name="${name}" class="form-select">
+      <option value="">—</option>
+      <option value="GROSS">Bruto</option>
+      <option value="NET">Neto</option>
+    </select>
+  `;
+}
 
-  const wrap = document.getElementById(wrapId);
-  if (!wrap) return;
+// ====== Sale type UI ======
+function refreshTypeUI(){
+  const v = document.getElementById('sale_type_select')?.value;
+  const wrapCompany = document.getElementById('company_single_wrap');
+  const wrapProm = document.getElementById('promoter_single_wrap');
+  if(wrapCompany) wrapCompany.style.display = (v === 'EMPRESA') ? '' : 'none';
+  if(wrapProm) wrapProm.style.display = (v === 'VENDIDO') ? '' : 'none';
+}
+document.addEventListener('DOMContentLoaded', function(){
+  document.getElementById('sale_type_select')?.addEventListener('change', refreshTypeUI);
+  refreshTypeUI();
+});
 
-  const div = document.createElement('div');
-  div.className = 'col-md-6 d-flex align-items-end gap-2';
-
-  if (kind === 'promoter') {
-    div.innerHTML = `
-      <div class="flex-grow-1">
-        <label class="form-label">Tercero</label>
-        <select name="promoter_id_share[]" class="form-select">
-          <option value="">—</option>
-          {% for p in promoters %}
-            <option value="{{ p.id }}">{{ p.nick }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="width:120px;">
-        <label class="form-label">% </label>
-        <input type="number" name="promoter_pct[]" class="form-control"
-               min="0" max="100" value="0">
-      </div>
-      <button type="button" class="btn btn-outline-danger"
-              onclick="this.parentElement.remove()">
-        <i class="fa fa-trash"></i>
-      </button>
-    `;
-  } else {
-    div.innerHTML = `
-      <div class="flex-grow-1">
-        <label class="form-label">Empresa</label>
-        <select name="company_id_share[]" class="form-select">
-          <option value="">—</option>
-          {% for co in companies %}
-            <option value="{{ co.id }}">{{ co.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div style="width:120px;">
-        <label class="form-label">% </label>
-        <input type="number" name="company_pct[]" class="form-control"
-               min="0" max="100" value="0">
-      </div>
-      <button type="button" class="btn btn-outline-danger"
-              onclick="this.parentElement.remove()">
-        <i class="fa fa-trash"></i>
-      </button>
-    `;
+// ====== Typeahead ======
+document.addEventListener('DOMContentLoaded', function(){
+  if (typeof initTypeahead === 'function') {
+    initTypeahead('venue_search_create', 'venue_id_create', '/api/search/venues');
+    initTypeahead('promoter_search_create', 'promoter_id_create', '/api/search/promoters');
   }
+});
+
+// ====== Dynamic rows: shares ======
+function addPromoterShareRow(targetId, pre){
+  const wrap = document.getElementById(targetId);
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'col-12';
+  div.innerHTML = `
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Tercero</label>
+          <select name="promoter_share_id[]" class="form-select third-party-select">
+            <option value="">—</option>
+            {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">% <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="promoter_share_pct[]" class="form-control" min="0" max="100" placeholder="0">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base %</label>
+          ${moneyBaseSelect('promoter_share_pct_base[]')}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Fijo € <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="promoter_share_amount[]" class="form-control" step="0.01" placeholder="0,00">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base fijo</label>
+          ${moneyBaseSelect('promoter_share_amount_base[]')}
+        </div>
+        <div class="col-12 text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.col-12').remove()">
+            <i class="fa fa-trash"></i> Quitar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
   wrap.appendChild(div);
 }
 
-document.querySelectorAll('.sale-type-edit').forEach(sel => {
-  sel.addEventListener('change', (e) => {
-    const id = e.target.getAttribute('data-edit-id');
-    const v = e.target.value;
-    document.getElementById(`company_single_wrap_${id}`).style.display =
-      (v === 'EMPRESA') ? '' : 'none';
-    document.getElementById(`promoter_single_wrap_${id}`).style.display =
-      (v === 'VENDIDO') ? '' : 'none';
-    document.getElementById(`shares_wrap_${id}`).style.display =
-      (v === 'PARTICIPADOS' || v === 'CADIZ') ? '' : 'none';
+function addCompanyShareRow(targetId){
+  const wrap = document.getElementById(targetId);
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'col-12';
+  div.innerHTML = `
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Empresa</label>
+          <select name="company_share_id[]" class="form-select">
+            <option value="">—</option>
+            {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">% <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="company_share_pct[]" class="form-control" min="0" max="100" placeholder="0">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base %</label>
+          ${moneyBaseSelect('company_share_pct_base[]')}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Fijo € <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="company_share_amount[]" class="form-control" step="0.01" placeholder="0,00">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base fijo</label>
+          ${moneyBaseSelect('company_share_amount_base[]')}
+        </div>
+        <div class="col-12 text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.col-12').remove()">
+            <i class="fa fa-trash"></i> Quitar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  wrap.appendChild(div);
+}
+
+function addZoneRow(targetId){
+  const wrap = document.getElementById(targetId);
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'col-12';
+  div.innerHTML = `
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Tercero</label>
+          <select name="zone_promoter_id[]" class="form-select zone-party-select">
+            <option value="">—</option>
+            {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">% <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="zone_commission_pct[]" class="form-control" step="0.01" placeholder="0">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base %</label>
+          ${moneyBaseSelect('zone_commission_base[]')}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Fijo € <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="zone_commission_amount[]" class="form-control" step="0.01" placeholder="0,00">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base fijo</label>
+          ${moneyBaseSelect('zone_commission_amount_base[]')}
+        </div>
+        <div class="col-12 text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.col-12').remove()">
+            <i class="fa fa-trash"></i> Quitar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  wrap.appendChild(div);
+}
+
+// ====== Dynamic rows: caches ======
+function cacheKindSelect(){
+  return `
+    <select name="cache_kind[]" class="form-select cache-kind" onchange="onCacheKindChange(this)">
+      <option value="FIXED">Fijo</option>
+      <option value="VARIABLE">Variable</option>
+      <option value="OTHER">Otros</option>
+    </select>
+  `;
+}
+function cacheVarSelect(){
+  return `
+    <select name="cache_variable_basis[]" class="form-select cache-var" style="display:none;">
+      <option value="">—</option>
+      <option value="TICKETS">Por nº de entradas</option>
+      <option value="REVENUE">Por recaudación</option>
+    </select>
+  `;
+}
+function addCacheRow(targetId){
+  const wrap = document.getElementById(targetId);
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'col-12';
+  div.innerHTML = `
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">Tipo</label>
+          ${cacheKindSelect()}
+        </div>
+        <div class="col-md-3">
+          <label class="form-label">Variable</label>
+          ${cacheVarSelect()}
+          <input name="cache_concept[]" class="form-control cache-concept" placeholder="Concepto" style="display:none;">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">% <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="cache_pct[]" class="form-control" step="0.01" placeholder="0">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base %</label>
+          ${moneyBaseSelect('cache_pct_base[]')}
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Fijo € <small class="text-muted">(opcional)</small></label>
+          <input type="number" name="cache_amount[]" class="form-control" step="0.01" placeholder="0,00">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Base fijo</label>
+          ${moneyBaseSelect('cache_amount_base[]')}
+        </div>
+        <div class="col-12 text-end">
+          <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.col-12').remove()">
+            <i class="fa fa-trash"></i> Quitar
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  wrap.appendChild(div);
+}
+
+function onCacheKindChange(sel){
+  const box = sel.closest('.row');
+  if(!box) return;
+  const kind = (sel.value || '').toUpperCase();
+  const varSel = box.querySelector('.cache-var');
+  const concept = box.querySelector('.cache-concept');
+  if(varSel) varSel.style.display = (kind === 'VARIABLE') ? '' : 'none';
+  if(concept) concept.style.display = (kind === 'OTHER') ? '' : 'none';
+}
+
+// ====== Dynamic rows: contracts ======
+function addContractRow(targetId){
+  const wrap = document.getElementById(targetId);
+  if(!wrap) return;
+  const div = document.createElement('div');
+  div.className = 'col-12';
+  div.innerHTML = `
+    <div class="border rounded p-2">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-5">
+          <label class="form-label">Concepto</label>
+          <input name="contract_concept[]" class="form-control" placeholder="Ej: Contrato de actuación">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">PDF</label>
+          <input type="file" name="contract_file[]" accept="application/pdf" class="form-control">
+        </div>
+        <div class="col-md-2 d-grid">
+          <label class="form-label d-none d-md-block">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.col-12').remove()">
+            <i class="fa fa-trash"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  wrap.appendChild(div);
+}
+
+// ====== Modal: Venue create ======
+let __venueTarget = { inputId: null, hiddenId: null };
+function openVenueModal(inputId, hiddenId){
+  __venueTarget = { inputId, hiddenId };
+  document.getElementById('venueModalError')?.classList.add('d-none');
+  const modal = new bootstrap.Modal(document.getElementById('modalNewVenue'));
+  modal.show();
+}
+
+async function submitNewVenue(){
+  const form = document.getElementById('formNewVenue');
+  const err = document.getElementById('venueModalError');
+  err?.classList.add('d-none');
+
+  const fd = new FormData(form);
+  const r = await fetch('/api/venues/create', { method: 'POST', body: fd });
+  const js = await r.json().catch(()=>({}));
+  if(!r.ok){
+    if(err){ err.textContent = js.error || 'Error creando recinto'; err.classList.remove('d-none'); }
+    return;
+  }
+
+  const input = document.getElementById(__venueTarget.inputId);
+  const hidden = document.getElementById(__venueTarget.hiddenId);
+  if(input) input.value = js.label || '';
+  if(hidden) hidden.value = js.id || '';
+
+  bootstrap.Modal.getInstance(document.getElementById('modalNewVenue'))?.hide();
+  form.reset();
+}
+
+// ====== Modal: Promoter create ======
+let __promoterTarget = null; // {mode:'typeahead', inputId, hiddenId}
+function openPromoterModal(target){
+  __promoterTarget = target || null;
+  document.getElementById('promoterModalError')?.classList.add('d-none');
+  const modal = new bootstrap.Modal(document.getElementById('modalNewPromoter'));
+  modal.show();
+}
+
+function addOptionToSelects(selectors, id, label){
+  selectors.forEach(sel => {
+    document.querySelectorAll(sel).forEach(el => {
+      const exists = Array.from(el.options).some(o => o.value === id);
+      if(!exists){
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = label;
+        el.appendChild(opt);
+      }
+    });
   });
-});
+}
+
+async function submitNewPromoter(){
+  const form = document.getElementById('formNewPromoter');
+  const err = document.getElementById('promoterModalError');
+  err?.classList.add('d-none');
+
+  const fd = new FormData(form);
+  const r = await fetch('/api/promoters/create', { method: 'POST', body: fd });
+  const js = await r.json().catch(()=>({}));
+  if(!r.ok){
+    if(err){ err.textContent = js.error || 'Error creando tercero'; err.classList.remove('d-none'); }
+    return;
+  }
+
+  // update typeahead target
+  if(__promoterTarget && __promoterTarget.mode === 'typeahead'){
+    const input = document.getElementById(__promoterTarget.inputId);
+    const hidden = document.getElementById(__promoterTarget.hiddenId);
+    if(input) input.value = js.label || '';
+    if(hidden) hidden.value = js.id || '';
+  }
+
+  // update selects
+  addOptionToSelects(['.third-party-select','.zone-party-select'], js.id, js.label);
+
+  bootstrap.Modal.getInstance(document.getElementById('modalNewPromoter'))?.hide();
+  form.reset();
+}
 </script>
-{% endblock %}
+

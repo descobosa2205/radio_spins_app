@@ -100,7 +100,11 @@
                         <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}"
                            class="logo-chip position-relative" title="{{ comp.name }}">
                           <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                          {% if s.pct %}
                           <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                          {% elif s.amount %}
+                          <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                          {% endif %}
                         </a>
                       {% endif %}
                     {% endfor %}
@@ -110,7 +114,11 @@
                         <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}"
                            class="logo-chip position-relative" title="{{ prom.nick }}">
                           <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                          {% if s.pct %}
                           <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                          {% elif s.amount %}
+                          <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                          {% endif %}
                         </a>
                       {% endif %}
                     {% endfor %}

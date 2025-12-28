@@ -14,10 +14,10 @@ from werkzeug.security import check_password_hash
 from config import settings
 from models import (
     init_db, SessionLocal, User, Artist, Song, SongArtist, RadioStation,
-    Week, Play, SongWeekInfo, Promoter, Venue, Concert, TicketSale, GroupCompany, ConcertPromoterShare, 
-    ConcertCompanyShare
+    Week, Play, SongWeekInfo, Promoter, Venue, Concert, TicketSale, GroupCompany,
+    ConcertPromoterShare, ConcertCompanyShare, ConcertZoneAgent, ConcertCache, ConcertContract
 )
-from supabase_utils import upload_png
+from supabase_utils import upload_png, upload_pdf
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -919,61 +919,342 @@ def venue_delete(vid):
 
 # -------------- CONCIERTOS --------------
 
-# ---------- LISTAR / CREAR ----------
+from decimal import Decimal, InvalidOperation
+
+
+def _parse_optional_decimal(value: str | None) -> Decimal | None:
+    """Parsea números tipo '1234,56' o '1234.56'. Vacío -> None."""
+    s = (value or "").strip()
+    if not s:
+        return None
+    s = s.replace(" ", "").replace(",", ".")
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _parse_optional_int(value: str | None, *, min_v: int | None = None, max_v: int | None = None) -> int | None:
+    s = (value or "").strip()
+    if not s:
+        return None
+    try:
+        n = int(s)
+    except Exception:
+        return None
+    if min_v is not None:
+        n = max(min_v, n)
+    if max_v is not None:
+        n = min(max_v, n)
+    return n
+
+
+def _norm_base(val: str | None) -> str | None:
+    """Normaliza base a GROSS/NET. Vacío -> None."""
+    v = (val or "").strip().upper()
+    if not v:
+        return None
+    if v in ("NET", "NETO"):
+        return "NET"
+    if v in ("GROSS", "BRUTO"):
+        return "GROSS"
+    # fallback
+    return "GROSS"
+
+
+def _norm_status(val: str | None) -> str:
+    v = (val or "").strip().upper()
+    if v in ("CONFIRMADO", "RESERVADO", "HABLADO"):
+        return v
+    return "HABLADO"
+
+
+def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_list):
+    """Devuelve lista de dicts con id, pct, pct_base, amount, amount_base (dedupe por id)."""
+    rows = []
+    for i, sid in enumerate(ids or []):
+        sid = (sid or "").strip()
+        if not sid:
+            continue
+
+        pct = _parse_optional_int(pct_list[i] if i < len(pct_list) else None, min_v=0, max_v=100)
+        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
+
+        # descartamos filas vacías
+        if (pct is None or pct == 0) and (amt is None or amt == 0):
+            continue
+
+        rows.append({
+            "id": sid,
+            "pct": pct if pct and pct > 0 else None,
+            "pct_base": _norm_base(pct_base_list[i] if i < len(pct_base_list) else None),
+            "amount": amt,
+            "amount_base": _norm_base(amount_base_list[i] if i < len(amount_base_list) else None),
+        })
+
+    # dedupe (último gana)
+    dedup = {}
+    for r in rows:
+        dedup[r["id"]] = r
+    return list(dedup.values())
+
+
+def _replace_concert_promoter_shares(session, concert_id, rows):
+    session.query(ConcertPromoterShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
+    session.flush()
+    for r in rows:
+        session.add(
+            ConcertPromoterShare(
+                concert_id=concert_id,
+                promoter_id=to_uuid(r["id"]),
+                pct=r["pct"],
+                pct_base=r["pct_base"],
+                amount=r["amount"],
+                amount_base=r["amount_base"],
+            )
+        )
+
+
+def _replace_concert_company_shares(session, concert_id, rows):
+    session.query(ConcertCompanyShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
+    session.flush()
+    for r in rows:
+        session.add(
+            ConcertCompanyShare(
+                concert_id=concert_id,
+                company_id=to_uuid(r["id"]),
+                pct=r["pct"],
+                pct_base=r["pct_base"],
+                amount=r["amount"],
+                amount_base=r["amount_base"],
+            )
+        )
+
+
+def _parse_zone_rows(ids, pct_list, base_list, amount_list, amount_base_list):
+    rows = []
+    for i, sid in enumerate(ids or []):
+        sid = (sid or "").strip()
+        if not sid:
+            continue
+        pct = _parse_optional_decimal(pct_list[i] if i < len(pct_list) else None)
+        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
+
+        if (pct is None or pct == 0) and (amt is None or amt == 0):
+            continue
+
+        if pct is not None and pct > 0:
+            ctype = "PERCENT"
+        else:
+            ctype = "AMOUNT"
+
+        rows.append({
+            "id": sid,
+            "commission_type": ctype,
+            "commission_pct": pct if (pct and pct > 0) else None,
+            "commission_base": _norm_base(base_list[i] if i < len(base_list) else None),
+            "commission_amount": amt,
+            "commission_amount_base": _norm_base(amount_base_list[i] if i < len(amount_base_list) else None),
+        })
+
+    dedup = {}
+    for r in rows:
+        dedup[r["id"]] = r
+    return list(dedup.values())
+
+
+def _replace_concert_zone_agents(session, concert_id, rows):
+    session.query(ConcertZoneAgent).filter_by(concert_id=concert_id).delete(synchronize_session=False)
+    session.flush()
+    for r in rows:
+        session.add(
+            ConcertZoneAgent(
+                concert_id=concert_id,
+                promoter_id=to_uuid(r["id"]),
+                commission_type=r["commission_type"],
+                commission_pct=r["commission_pct"],
+                commission_base=r["commission_base"],
+                commission_amount=r["commission_amount"],
+                commission_amount_base=r["commission_amount_base"],
+            )
+        )
+
+
+def _parse_cache_rows(kinds, var_basis_list, concept_list, pct_list, pct_base_list, amount_list, amount_base_list):
+    rows = []
+    for i, k in enumerate(kinds or []):
+        kind = (k or "").strip().upper()
+        if not kind:
+            continue
+
+        if kind not in ("FIXED", "VARIABLE", "OTHER"):
+            kind = "FIXED"
+
+        vb = (var_basis_list[i] if i < len(var_basis_list) else None) or None
+        vb = (vb or "").strip().upper() or None
+        if vb and vb not in ("TICKETS", "REVENUE"):
+            vb = None
+
+        concept = (concept_list[i] if i < len(concept_list) else "")
+        concept = (concept or "").strip() or None
+
+        pct = _parse_optional_decimal(pct_list[i] if i < len(pct_list) else None)
+        amt = _parse_optional_decimal(amount_list[i] if i < len(amount_list) else None)
+
+        # si todo está vacío y es fijo sin valores, lo omitimos
+        if (pct is None or pct == 0) and (amt is None or amt == 0) and kind != "OTHER":
+            continue
+
+        rows.append({
+            "kind": kind,
+            "variable_basis": vb,
+            "concept": concept,
+            "pct": pct,
+            "pct_base": _norm_base(pct_base_list[i] if i < len(pct_base_list) else None),
+            "amount": amt,
+            "amount_base": _norm_base(amount_base_list[i] if i < len(amount_base_list) else None),
+        })
+
+    return rows
+
+
+def _replace_concert_caches(session, concert_id, rows):
+    session.query(ConcertCache).filter_by(concert_id=concert_id).delete(synchronize_session=False)
+    session.flush()
+    for r in rows:
+        session.add(
+            ConcertCache(
+                concert_id=concert_id,
+                kind=r["kind"],
+                variable_basis=r["variable_basis"],
+                concept=r["concept"],
+                pct=r["pct"],
+                pct_base=r["pct_base"],
+                amount=r["amount"],
+                amount_base=r["amount_base"],
+            )
+        )
+
+
+def _add_contracts_from_request(session, concert_id):
+    concepts = request.form.getlist("contract_concept[]")
+    files = request.files.getlist("contract_file[]")
+
+    for i, fs in enumerate(files or []):
+        if not fs or not getattr(fs, "filename", ""):
+            continue
+
+        concept = (concepts[i] if i < len(concepts) else "")
+        concept = (concept or "").strip() or fs.filename
+
+        url = upload_pdf(fs, "contracts")
+        session.add(
+            ConcertContract(
+                concert_id=concert_id,
+                concept=concept,
+                pdf_url=url,
+                original_name=fs.filename,
+            )
+        )
+
+
+# ---------- LISTAR / CREAR (2 pestañas: Alta + Vista) ----------
 @app.route("/conciertos", methods=["GET", "POST"], endpoint="concerts_view")
 @admin_required
 def concerts_page():
     session = db()
-    artists   = session.query(Artist).order_by(Artist.name.asc()).all()
-    venues    = session.query(Venue).order_by(Venue.name.asc()).all()
+    artists = session.query(Artist).order_by(Artist.name.asc()).all()
+    venues = session.query(Venue).order_by(Venue.name.asc()).all()
     promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
     companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
 
+    active_tab = (request.args.get("tab") or "alta").lower()
+    if active_tab not in ("alta", "vista"):
+        active_tab = "alta"
+
     if request.method == "POST":
         try:
-            sale_type = request.form["sale_type"]  # EMPRESA | VENDIDO | PARTICIPADOS | CADIZ
-            be_raw = (request.form.get("break_even_ticket") or "").strip()
-            be_val = _parse_optional_positive_int(be_raw)
+            sale_type = (request.form.get("sale_type") or "EMPRESA").strip().upper()
+            if sale_type not in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"):
+                sale_type = "EMPRESA"
 
-            # --- validar recinto ---
             venue_raw = (request.form.get("venue_id") or "").strip()
             if not venue_raw:
-                raise ValueError("Debes seleccionar un recinto de la lista.")
+                raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
+
+            be_val = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
 
             c = Concert(
-                date = parse_date(request.form["date"]),
-                festival_name = (request.form.get("festival_name") or "").strip() or None,
-                venue_id = to_uuid(venue_raw),
-                sale_type = sale_type,
-                promoter_id = to_uuid(request.form.get("promoter_id") or None),            # VENDIDO
-                group_company_id = to_uuid(request.form.get("group_company_id") or None),  # EMPRESA
-                artist_id = to_uuid(request.form["artist_id"]),
-                capacity = int(request.form["capacity"]),
-                sale_start_date = parse_date(request.form["sale_start_date"]),
-                break_even_ticket = be_val,
-                sold_out = False,
+                date=parse_date(request.form["date"]),
+                festival_name=(request.form.get("festival_name") or "").strip() or None,
+                venue_id=to_uuid(venue_raw),
+                sale_type=sale_type,
+                promoter_id=to_uuid(request.form.get("promoter_id") or None) if sale_type == "VENDIDO" else None,
+                group_company_id=to_uuid(request.form.get("group_company_id") or None) if sale_type == "EMPRESA" else None,
+                artist_id=to_uuid(request.form["artist_id"]),
+                capacity=int(request.form.get("capacity") or 0),
+                sale_start_date=parse_date(request.form["sale_start_date"]),
+                break_even_ticket=be_val,
+                sold_out=False,
+                status=_norm_status(request.form.get("status")),
             )
             session.add(c)
             session.flush()
 
-            if sale_type in ("PARTICIPADOS", "CADIZ"):
-                p_pairs = _parse_share_pairs(
-                    request.form.getlist("promoter_id_share[]"),
-                    request.form.getlist("promoter_pct[]"))
-                g_pairs = _parse_share_pairs(
-                    request.form.getlist("company_id_share[]"),
-                    request.form.getlist("company_pct[]"))
-                _replace_concert_shares(session, c.id, p_pairs, g_pairs)
+            # --- colaboradores / participaciones (opcionales en cualquier tipo) ---
+            p_rows = _parse_share_rows(
+                request.form.getlist("promoter_share_id[]"),
+                request.form.getlist("promoter_share_pct[]"),
+                request.form.getlist("promoter_share_pct_base[]"),
+                request.form.getlist("promoter_share_amount[]"),
+                request.form.getlist("promoter_share_amount_base[]"),
+            )
+            _replace_concert_promoter_shares(session, c.id, p_rows)
+
+            g_rows = _parse_share_rows(
+                request.form.getlist("company_share_id[]"),
+                request.form.getlist("company_share_pct[]"),
+                request.form.getlist("company_share_pct_base[]"),
+                request.form.getlist("company_share_amount[]"),
+                request.form.getlist("company_share_amount_base[]"),
+            )
+            _replace_concert_company_shares(session, c.id, g_rows)
+
+            z_rows = _parse_zone_rows(
+                request.form.getlist("zone_promoter_id[]"),
+                request.form.getlist("zone_commission_pct[]"),
+                request.form.getlist("zone_commission_base[]"),
+                request.form.getlist("zone_commission_amount[]"),
+                request.form.getlist("zone_commission_amount_base[]"),
+            )
+            _replace_concert_zone_agents(session, c.id, z_rows)
+
+            cache_rows = _parse_cache_rows(
+                request.form.getlist("cache_kind[]"),
+                request.form.getlist("cache_variable_basis[]"),
+                request.form.getlist("cache_concept[]"),
+                request.form.getlist("cache_pct[]"),
+                request.form.getlist("cache_pct_base[]"),
+                request.form.getlist("cache_amount[]"),
+                request.form.getlist("cache_amount_base[]"),
+            )
+            _replace_concert_caches(session, c.id, cache_rows)
+
+            # contratos (opcionales)
+            _add_contracts_from_request(session, c.id)
 
             session.commit()
             flash("Concierto creado.", "success")
+            return redirect(url_for("concerts_view", tab="vista") + f"#concert-{c.id}")
+
         except Exception as e:
             session.rollback()
             flash(f"Error creando concierto: {e}", "danger")
+            return redirect(url_for("concerts_view", tab="alta"))
         finally:
             session.close()
-        return redirect(url_for("concerts_view"))
 
+    # --- GET ---
     concerts = (
         session.query(Concert)
         .options(
@@ -983,29 +1264,77 @@ def concerts_page():
             joinedload(Concert.group_company),
             selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
             selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+            selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+            selectinload(Concert.caches),
+            selectinload(Concert.contracts),
         )
         .order_by(Concert.date.asc())
         .all()
     )
-    groups_map = {}
+
+    sections = {k: [] for k in SALES_SECTION_ORDER}
     for c in concerts:
-        key = str(c.artist_id) if c.artist_id else "sin-artist"
-        groups_map.setdefault(key, {"artist": c.artist, "items": []})["items"].append(c)
+        sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
 
-    for g in groups_map.values():
-        g["items"].sort(key=lambda x: (x.date or date.max))
-
-    concert_groups = sorted(
-        groups_map.values(),
-        key=lambda g: (g["artist"].name if g["artist"] else "")
-    )
+    for k in sections:
+        sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
     return render_template(
         "concerts.html",
-        artists=artists, venues=venues, promoters=promoters, companies=companies,
-        concerts=concerts,         # te lo dejo por compatibilidad
-        concert_groups=concert_groups
+        active_tab=active_tab,
+        artists=artists,
+        venues=venues,
+        promoters=promoters,
+        companies=companies,
+        concerts=concerts,
+        sections=sections,
+        order=SALES_SECTION_ORDER,
+        titles=SALES_SECTION_TITLE,
     )
+
+
+# ---------- EDITAR (vista dedicada) ----------
+@app.get("/conciertos/<cid>/editar", endpoint="concert_edit_view")
+@admin_required
+def concert_edit_view(cid):
+    session = db()
+    try:
+        c = (
+            session.query(Concert)
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                joinedload(Concert.promoter),
+                joinedload(Concert.group_company),
+                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+                selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+                selectinload(Concert.caches),
+                selectinload(Concert.contracts),
+            )
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not c:
+            flash("Concierto no encontrado.", "warning")
+            return redirect(url_for("concerts_view", tab="vista"))
+
+        artists = session.query(Artist).order_by(Artist.name.asc()).all()
+        venues = session.query(Venue).order_by(Venue.name.asc()).all()
+        promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
+        companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+
+        return render_template(
+            "concert_edit.html",
+            c=c,
+            artists=artists,
+            venues=venues,
+            promoters=promoters,
+            companies=companies,
+        )
+    finally:
+        session.close()
+
 
 # ---------- ACTUALIZAR ----------
 @app.post("/conciertos/<cid>/update", endpoint="concert_update")
@@ -1015,40 +1344,86 @@ def concert_update_handler(cid):
     c = session.get(Concert, to_uuid(cid))
     if not c:
         flash("Concierto no encontrado.", "warning")
-        session.close(); return redirect(url_for("concerts_view"))
+        session.close()
+        return redirect(url_for("concerts_view", tab="vista"))
+
     try:
+        sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
+        if sale_type not in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"):
+            sale_type = "EMPRESA"
+
+        venue_raw = (request.form.get("venue_id") or "").strip()
+        if not venue_raw:
+            raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
+
         c.date = parse_date(request.form["date"])
         c.festival_name = (request.form.get("festival_name") or "").strip() or None
-        c.venue_id = to_uuid(request.form["venue_id"])
-        c.sale_type = request.form["sale_type"]
-        c.promoter_id = to_uuid(request.form.get("promoter_id") or None)
-        c.group_company_id = to_uuid(request.form.get("group_company_id") or None)
+        c.venue_id = to_uuid(venue_raw)
+        c.sale_type = sale_type
         c.artist_id = to_uuid(request.form["artist_id"])
-        c.capacity = int(request.form["capacity"])
+        c.capacity = int(request.form.get("capacity") or 0)
         c.sale_start_date = parse_date(request.form["sale_start_date"])
-        be_raw = (request.form.get("break_even_ticket") or "").strip()
-        be_val = _parse_optional_positive_int(be_raw)
-        c.break_even_ticket = be_val 
+        c.break_even_ticket = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
+        c.status = _norm_status(request.form.get("status"))
 
-        if c.sale_type in ("PARTICIPADOS", "CADIZ"):
-            p_pairs = _parse_share_pairs(
-                request.form.getlist("promoter_id_share[]"),
-                request.form.getlist("promoter_pct[]"))
-            g_pairs = _parse_share_pairs(
-                request.form.getlist("company_id_share[]"),
-                request.form.getlist("company_pct[]"))
-            _replace_concert_shares(session, c.id, p_pairs, g_pairs)
-        else:
-            _replace_concert_shares(session, c.id, [], [])
+        # principal según tipo
+        c.group_company_id = to_uuid(request.form.get("group_company_id") or None) if sale_type == "EMPRESA" else None
+        c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type == "VENDIDO" else None
+
+        # --- replace relaciones ---
+        p_rows = _parse_share_rows(
+            request.form.getlist("promoter_share_id[]"),
+            request.form.getlist("promoter_share_pct[]"),
+            request.form.getlist("promoter_share_pct_base[]"),
+            request.form.getlist("promoter_share_amount[]"),
+            request.form.getlist("promoter_share_amount_base[]"),
+        )
+        _replace_concert_promoter_shares(session, c.id, p_rows)
+
+        g_rows = _parse_share_rows(
+            request.form.getlist("company_share_id[]"),
+            request.form.getlist("company_share_pct[]"),
+            request.form.getlist("company_share_pct_base[]"),
+            request.form.getlist("company_share_amount[]"),
+            request.form.getlist("company_share_amount_base[]"),
+        )
+        _replace_concert_company_shares(session, c.id, g_rows)
+
+        z_rows = _parse_zone_rows(
+            request.form.getlist("zone_promoter_id[]"),
+            request.form.getlist("zone_commission_pct[]"),
+            request.form.getlist("zone_commission_base[]"),
+            request.form.getlist("zone_commission_amount[]"),
+            request.form.getlist("zone_commission_amount_base[]"),
+        )
+        _replace_concert_zone_agents(session, c.id, z_rows)
+
+        cache_rows = _parse_cache_rows(
+            request.form.getlist("cache_kind[]"),
+            request.form.getlist("cache_variable_basis[]"),
+            request.form.getlist("cache_concept[]"),
+            request.form.getlist("cache_pct[]"),
+            request.form.getlist("cache_pct_base[]"),
+            request.form.getlist("cache_amount[]"),
+            request.form.getlist("cache_amount_base[]"),
+        )
+        _replace_concert_caches(session, c.id, cache_rows)
+
+        # contratos (solo añadimos nuevos)
+        _add_contracts_from_request(session, c.id)
 
         session.commit()
         flash("Concierto actualizado.", "success")
+
     except Exception as e:
         session.rollback()
         flash(f"Error actualizando: {e}", "danger")
+
     finally:
         session.close()
-    return redirect(url_for("concerts_view"))
+
+    return redirect(url_for("concerts_view", tab="vista") + f"#concert-{cid}")
+
 
 # ---------- BORRAR ----------
 @app.post("/conciertos/<cid>/delete", endpoint="concert_delete")
@@ -1064,6 +1439,9 @@ def concert_delete_handler(cid):
         session.query(TicketSale).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertPromoterShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.query(ConcertCompanyShare).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.query(ConcertZoneAgent).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.query(ConcertCache).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
+        session.query(ConcertContract).filter_by(concert_id=concert_uuid).delete(synchronize_session=False)
         session.flush()
 
         c = session.get(Concert, concert_uuid)
@@ -1072,12 +1450,72 @@ def concert_delete_handler(cid):
 
         session.commit()
         flash("Concierto borrado.", "success")
+
     except Exception as e:
         session.rollback()
         flash(f"Error borrando concierto: {e}", "danger")
+
     finally:
         session.close()
-    return redirect(url_for("concerts_view"))
+
+    return redirect(url_for("concerts_view", tab="vista"))
+
+
+# ----------- API: crear Recinto / Tercero (modal) -----------
+
+@app.post("/api/venues/create", endpoint="api_create_venue")
+@admin_required
+def api_create_venue():
+    session = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "El nombre del recinto es obligatorio."}), 400
+
+        v = Venue(
+            name=name,
+            covered=(request.form.get("covered") == "on"),
+            address=(request.form.get("address") or "").strip() or None,
+            municipality=(request.form.get("municipality") or "").strip() or None,
+            province=(request.form.get("province") or "").strip() or None,
+        )
+        session.add(v)
+        session.commit()
+
+        label = f"{v.name} — {(v.municipality or '').strip()} {(v.province or '').strip()}".strip(" —")
+        return jsonify({"id": str(v.id), "label": label, "municipality": v.municipality, "province": v.province})
+
+    except Exception as e:
+        session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+    finally:
+        session.close()
+
+
+@app.post("/api/promoters/create", endpoint="api_create_promoter")
+@admin_required
+def api_create_promoter():
+    session = db()
+    try:
+        nick = (request.form.get("nick") or "").strip()
+        if not nick:
+            return jsonify({"error": "El nombre del tercero es obligatorio."}), 400
+
+        logo = request.files.get("logo")
+        logo_url = upload_png(logo, "promoters") if logo and getattr(logo, "filename", "") else None
+
+        p = Promoter(nick=nick, logo_url=logo_url)
+        session.add(p)
+        session.commit()
+        return jsonify({"id": str(p.id), "label": p.nick, "logo_url": p.logo_url})
+
+    except Exception as e:
+        session.rollback()
+        return jsonify({"error": str(e)}), 400
+
+    finally:
+        session.close()
 
 # --------- EMPRESAS ---------------------
 @app.route("/empresas", methods=["GET", "POST"])

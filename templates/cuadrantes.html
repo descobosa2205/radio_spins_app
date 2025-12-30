@@ -1,0 +1,491 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<!-- Leaflet (mapa) - lo metemos aquí para no tocar el <head> del layout -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  .quad-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  /* En pantallas grandes: izquierda (cal + mapa), derecha (resumen) */
+  @media (min-width: 992px){
+    .quad-grid {
+      grid-template-columns: 7fr 5fr;
+      align-items: stretch;
+    }
+  }
+
+  .year-grid {
+    display: grid;
+    grid-template-columns: repeat(1, minmax(0,1fr));
+    gap: .75rem;
+  }
+
+  @media (min-width: 768px){
+    .year-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  }
+  @media (min-width: 1200px){
+    .year-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  }
+
+  .month-card {
+    border: 1px solid #eee;
+    border-radius: 10px;
+    background: #fff;
+    overflow: hidden;
+  }
+  .month-title{
+    font-weight: 700;
+    padding: .4rem .6rem;
+    background: #f8f9fa;
+    border-bottom: 1px solid #eee;
+  }
+
+  table.month-table{
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 12px;
+  }
+  table.month-table th{
+    text-align: center;
+    padding: .25rem 0;
+    color: #666;
+    font-weight: 700;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  table.month-table td{
+    vertical-align: top;
+    border-bottom: 1px solid #fafafa;
+    border-right: 1px solid #fafafa;
+    height: 32px;
+    padding: 2px;
+    position: relative;
+    background: #fff;
+  }
+  table.month-table tr:last-child td{ border-bottom: 0; }
+  table.month-table td:last-child{ border-right: 0; }
+
+  .day-num{
+    position: absolute;
+    top: 2px;
+    left: 4px;
+    font-weight: 700;
+    font-size: 11px;
+    color: #444;
+    z-index: 2;
+  }
+  .day-icons{
+    position: absolute;
+    bottom: 2px;
+    left: 2px;
+    right: 2px;
+    display: flex;
+    gap: 2px;
+    flex-wrap: wrap;
+    align-items: center;
+    z-index: 1;
+  }
+  .day-icon{
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 1px solid #eee;
+  }
+  .day-more{
+    font-size: 10px;
+    color: #666;
+    background: #f1f3f5;
+    border: 1px solid #e9ecef;
+    border-radius: 10px;
+    padding: 0 4px;
+    line-height: 14px;
+  }
+
+  /* Mapa */
+  #quad-map{
+    height: 380px;
+    width: 100%;
+  }
+
+  .artist-marker .marker-wrap{
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid white;
+    box-shadow: 0 2px 10px rgba(0,0,0,.25);
+    background: #fff;
+  }
+  .artist-marker img{
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Resumen derecha */
+  .right-pane{
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .right-scroll{
+    overflow: auto;
+    max-height: calc(100vh - 260px);
+  }
+  @media (min-width: 992px){
+    .right-scroll{
+      max-height: calc(100vh - 220px);
+    }
+  }
+
+  .event-row{
+    display: flex;
+    gap: .6rem;
+    align-items: center;
+  }
+  .event-n{
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    background: #f1f3f5;
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    color: #333;
+    flex: 0 0 auto;
+  }
+  .event-meta{
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .event-meta .line1{
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    font-weight: 700;
+  }
+  .event-meta .line2{
+    display: flex;
+    gap: .5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    color: #666;
+    font-size: 12px;
+  }
+  .mini-pill{
+    background: #f8f9fa;
+    border: 1px solid #eee;
+    border-radius: 999px;
+    padding: 0 .45rem;
+    font-size: 12px;
+    color: #555;
+  }
+  .promoter-logo{
+    width: 28px;
+    height: 28px;
+    object-fit: contain;
+    border-radius: 8px;
+    background: #fff;
+    border: 1px solid #eee;
+    flex: 0 0 auto;
+  }
+
+  /* Print/PDF */
+  @media print{
+    nav.navbar { display: none !important; }
+    .no-print { display: none !important; }
+    main.container { max-width: 100% !important; }
+    .card { break-inside: avoid; }
+    #quad-map { height: 420px !important; }
+    .right-scroll { max-height: none !important; overflow: visible !important; }
+  }
+</style>
+
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <div>
+    <h3 class="m-0">Cuadrantes</h3>
+    <div class="text-muted">Selecciona uno o varios artistas para visualizar calendario + mapa + resumen.</div>
+  </div>
+
+  <div class="no-print d-flex gap-2">
+    <button type="button" class="btn btn-outline-primary" onclick="window.print()">
+      <i class="fa fa-file-pdf"></i> Exportar PDF
+    </button>
+  </div>
+</div>
+
+<form method="get" class="card mb-3 no-print">
+  <div class="card-body">
+    <div class="row g-2 align-items-end">
+      <div class="col-12 col-lg-7">
+        <label class="form-label mb-1">Artistas</label>
+        <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona artistas...">
+          {% for a in artists %}
+            <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}"
+              {% if a.id|string in selected_artist_ids %}selected{% endif %}>
+              {{ a.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-6 col-lg-2">
+        <label class="form-label mb-1">Año</label>
+        <select name="year" class="form-select">
+          {% for y in year_options %}
+            <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="col-6 col-lg-3 d-flex gap-2">
+        <button class="btn btn-primary w-100">
+          <i class="fa fa-magnifying-glass"></i> Ver cuadrante
+        </button>
+      </div>
+    </div>
+  </div>
+</form>
+
+<div class="quad-grid">
+  <!-- IZQUIERDA: calendario arriba + mapa abajo -->
+  <div>
+    <div class="card mb-3">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
+        <span class="text-muted small">Días con evento muestran el logo</span>
+      </div>
+      <div class="card-body">
+        <div class="year-grid">
+          {% for m in months %}
+            <div class="month-card">
+              <div class="month-title">{{ m.name }}</div>
+              <table class="month-table">
+                <thead>
+                  <tr>
+                    {% for d in dow %}
+                      <th>{{ d }}</th>
+                    {% endfor %}
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for week in m.weeks %}
+                    <tr>
+                      {% for day in week %}
+                        {% if day == 0 %}
+                          <td></td>
+                        {% else %}
+                          {% set date_str = "%04d-%02d-%02d"|format(year, m.num, day) %}
+                          {% set marks = marks_by_date.get(date_str, []) %}
+                          <td>
+                            <div class="day-num">{{ day }}</div>
+                            {% if marks and marks|length > 0 %}
+                              <div class="day-icons">
+                                {% for it in marks[:3] %}
+                                  <img class="day-icon"
+                                       src="{{ it.photo_url or url_for('static', filename='img/logo.png') }}"
+                                       title="{{ it.name }}">
+                                {% endfor %}
+                                {% if marks|length > 3 %}
+                                  <span class="day-more">+{{ marks|length - 3 }}</span>
+                                {% endif %}
+                              </div>
+                            {% endif %}
+                          </td>
+                        {% endif %}
+                      {% endfor %}
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header d-flex align-items-center justify-content-between">
+        <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
+        <span class="text-muted small">Chinchetas = logo del artista</span>
+      </div>
+      <div class="card-body p-0">
+        <div id="quad-map"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DERECHA: info artistas + resumen eventos -->
+  <div class="right-pane">
+    <div class="card h-100">
+      <div class="card-header">
+        <div class="d-flex align-items-start justify-content-between gap-2">
+          <div>
+            <div class="fw-semibold">Artistas seleccionados</div>
+            {% if selected_artists and selected_artists|length > 0 %}
+              <div class="d-flex flex-wrap gap-2 mt-2">
+                {% for a in selected_artists %}
+                  <div class="d-flex align-items-center gap-2">
+                    <img class="artist-avatar" style="width:34px;height:34px;"
+                         src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                         alt="">
+                    <div class="fw-semibold">{{ a.name }}</div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted mt-1">No hay artistas seleccionados.</div>
+            {% endif %}
+          </div>
+
+          <div class="no-print">
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="window.print()">
+              <i class="fa fa-file-pdf"></i> Exportar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-body right-scroll">
+        {% if events and events|length > 0 %}
+          <div class="d-flex align-items-center justify-content-between mb-2">
+            <div class="fw-semibold">Resumen de eventos ({{ events|length }})</div>
+            <div class="text-muted small">Ordenados de más cercano a más lejano</div>
+          </div>
+
+          <div class="list-group">
+            {% for e in events %}
+              <div class="list-group-item">
+                <div class="event-row">
+                  <div class="event-n">{{ e.n }}</div>
+
+                  <div class="event-meta">
+                    <div class="line1">
+                      <span>{{ e.date_es }}</span>
+                      <span class="mini-pill">{{ e.province }}</span>
+                      <span class="mini-pill">{{ e.municipality }}</span>
+                      <span class="mini-pill">{{ e.venue_name }}</span>
+                    </div>
+
+                    <div class="line2">
+                      <span class="mini-pill">Aforo: {{ e.capacity|k }}</span>
+                      <span class="mini-pill">Caché: {{ e.cache }}</span>
+                    </div>
+                  </div>
+
+                  {% if e.promoter_logo %}
+                    <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
+                  {% else %}
+                    <div class="mini-pill">Sin promotora</div>
+                  {% endif %}
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">
+            Selecciona uno o varios artistas y pulsa <b>Ver cuadrante</b>.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Metemos el JSON aquí para que el editor no lo trate como JS -->
+<script id="quad-events-json" type="application/json">
+  {{ (events or []) | tojson }}
+</script>
+
+<script>
+  const EVENTS = JSON.parse(
+    document.getElementById("quad-events-json")?.textContent || "[]"
+  );
+
+  function getGeoCache(){
+    try { return JSON.parse(localStorage.getItem("quad_geo_cache") || "{}"); }
+    catch(e){ return {}; }
+  }
+  
+  function setGeoCache(obj){
+    try { localStorage.setItem("quad_geo_cache", JSON.stringify(obj)); }
+    catch(e){}
+  }
+
+  async function geocodeCity(city, province){
+    const key = (city || "") + "|" + (province || "");
+    const cache = getGeoCache();
+    if (cache[key]) return cache[key];
+
+    const url = `/api/geocode?city=${encodeURIComponent(city||"")}&province=${encodeURIComponent(province||"")}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const js = await r.json();
+    if (!js.ok) return null;
+
+    cache[key] = {lat: js.lat, lng: js.lng};
+    setGeoCache(cache);
+    return cache[key];
+  }
+
+  function artistIcon(photo){
+    const safe = photo || "/static/img/logo.png";
+    return L.divIcon({
+      className: "artist-marker",
+      html: `<div class="marker-wrap"><img src="${safe}" /></div>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17]
+    });
+  }
+
+  (async function initMap(){
+    const el = document.getElementById("quad-map");
+    if (!el) return;
+
+    const map = L.map("quad-map", {scrollWheelZoom: false}).setView([40.4168, -3.7038], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+
+    const bounds = [];
+
+    for (const e of EVENTS){
+      const city = e.municipality || "";
+      const prov = e.province || "";
+      if (!city) continue;
+
+      const coords = await geocodeCity(city, prov);
+      if (!coords) continue;
+
+      const m = L.marker([coords.lat, coords.lng], {icon: artistIcon(e.artist_photo)}).addTo(map);
+
+      const html = `
+        <div style="min-width:220px">
+          <div><b>${e.n}. ${e.artist_name || ""}</b></div>
+          <div>${e.date_es || ""}</div>
+          <div>${(e.venue_name||"")} — ${city}${prov ? ", " + prov : ""}</div>
+        </div>
+      `;
+      m.bindPopup(html);
+
+      bounds.push([coords.lat, coords.lng]);
+    }
+
+    if (bounds.length){
+      map.fitBounds(bounds, {padding: [20, 20]});
+    }
+  })();
+</script>
+
+{% endblock %}

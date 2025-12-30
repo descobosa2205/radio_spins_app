@@ -1,813 +1,991 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div class="d-flex align-items-center gap-2">
-    <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}#concert-{{ c.id }}">
-      <i class="fa fa-chevron-left"></i>
-    </a>
-    <h4 class="m-0">Editar concierto</h4>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <div>
+    <h4 class="mb-0">Editar concierto</h4>
+    <div class="text-muted small">{{ concert.artist.name if concert.artist else '—' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }}</div>
   </div>
-  <div class="badge bg-light text-dark px-3 py-2">
-    {{ c.artist.name if c.artist else '—' }} — {{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}
-  </div>
+  <a href="{{ url_for('concerts_view', tab='vista') }}#concert-{{ concert.id }}" class="btn btn-outline-secondary">
+    <i class="fa fa-arrow-left"></i> Volver
+  </a>
 </div>
 
-<div class="card">
-  <div class="card-body">
+<form method="post" enctype="multipart/form-data" class="row g-2">
 
-    <form method="post" action="{{ url_for('concert_update', cid=c.id) }}" enctype="multipart/form-data" class="row g-2">
+  <!-- fila 1: Estado -->
+  <div class="col-12">
+    <label class="form-label">Estado</label>
+    <select name="status" class="form-select" required>
+      <option value="HABLADO" {% if concert.status=='HABLADO' %}selected{% endif %}>Hablado</option>
+      <option value="RESERVADO" {% if concert.status=='RESERVADO' %}selected{% endif %}>Reservado</option>
+      <option value="CONFIRMADO" {% if concert.status=='CONFIRMADO' %}selected{% endif %}>Confirmado</option>
+    </select>
+  </div>
 
-      <!-- fila 1 -->
-      <div class="col-md-2">
-        <label class="form-label">Fecha</label>
-        <input type="date" name="date" class="form-control" required
-               value="{{ c.date.isoformat() if c.date }}">
+  <!-- fila 2: Artista / Fecha / Nombre -->
+  <div class="col-md-5">
+    <label class="form-label">Artista</label>
+    <select name="artist_id" class="form-select select-artists" required>
+      {% for a in artists %}
+        <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Fecha</label>
+    <input type="date" name="date" class="form-control" required value="{{ concert.date.isoformat() if concert.date else '' }}">
+  </div>
+  <div class="col-md-5">
+    <label class="form-label">Nombre del festival / evento <small class="text-muted">(opcional)</small></label>
+    <input name="festival_name" class="form-control" value="{{ concert.festival_name or '' }}" placeholder="Festival / nombre interno">
+  </div>
+
+  <!-- fila 3: Recinto / Aforo / Salida / Empresa factura -->
+  <div class="col-md-5">
+    <label class="form-label">Recinto</label>
+    <select name="venue_id" class="form-select" required>
+      {% for v in venues %}
+        <option value="{{ v.id }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Aforo a la venta</label>
+    <input type="number" name="capacity" class="form-control" required min="0" value="{{ concert.capacity or 0 }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label">Salida a la venta</label>
+    <input type="date" name="sale_start_date" class="form-control" required value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label">Empresa que factura</label>
+    <select name="billing_company_id" class="form-select" required>
+      <option value="">—</option>
+      {% for co in companies %}
+        <option value="{{ co.id }}" {% if concert.billing_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <!-- fila 4: Tipo / Empresa gestiona o Promotor / Punto empate -->
+  <div class="col-md-4">
+    <label class="form-label">Tipo de concierto</label>
+    <select name="sale_type" class="form-select" id="sale_type_select">
+      <option value="EMPRESA" {% if concert.sale_type=='EMPRESA' %}selected{% endif %}>Empresa</option>
+      <option value="VENDIDO" {% if concert.sale_type=='VENDIDO' %}selected{% endif %}>Vendido</option>
+      <option value="PARTICIPADOS" {% if concert.sale_type=='PARTICIPADOS' %}selected{% endif %}>Participado</option>
+      <option value="CADIZ" {% if concert.sale_type=='CADIZ' %}selected{% endif %}>Cádiz Music Stadium</option>
+    </select>
+  </div>
+
+  <div class="col-md-4" id="company_single_wrap">
+    <label class="form-label">Empresa del grupo que lo gestiona</label>
+    <select name="group_company_id" class="form-select">
+      <option value="">—</option>
+      {% for co in companies %}
+        <option value="{{ co.id }}" {% if concert.group_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="col-md-4" id="promoter_single_wrap">
+    <label class="form-label">Promotor</label>
+    <div class="input-group">
+      <select name="promoter_id" class="form-select third-party-select">
+        <option value="">—</option>
+        {% for p in promoters %}
+          <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" {% if concert.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select2', selectName:'promoter_id'})"><i class="fa fa-plus"></i></button>
+    </div>
+  </div>
+
+  <div class="col-md-4" id="break_even_wrap">
+    <label class="form-label">Punto de empate <small class="text-muted">(opcional)</small></label>
+    <input type="number" name="break_even_ticket" class="form-control" min="0" value="{{ concert.break_even_ticket or '' }}" placeholder="Vacío = sin punto">
+  </div>
+
+  <!-- ==================== COLABORADORES (no vendido) ==================== -->
+  <div class="col-12 mt-3" id="collab_block">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Colaboradores <span class="text-muted fw-normal">(opcionales)</span></strong>
+        <button type="button" class="btn btn-sm btn-outline-secondary" onclick="toggleBlock('block-collab')">
+          <i class="fa fa-chevron-down"></i>
+        </button>
       </div>
 
-      <div class="col-md-2">
-        <label class="form-label">Estado</label>
-        <select name="status" class="form-select" required>
-          <option value="HABLADO" {% if (c.status or '').upper() == 'HABLADO' %}selected{% endif %}>Hablado</option>
-          <option value="RESERVADO" {% if (c.status or '').upper() == 'RESERVADO' %}selected{% endif %}>Reservado</option>
-          <option value="CONFIRMADO" {% if (c.status or '').upper() == 'CONFIRMADO' %}selected{% endif %}>Confirmado</option>
-        </select>
-      </div>
+      <div id="block-collab" style="display:none;">
 
-      <div class="col-md-4">
-        <label class="form-label">Artista</label>
-        <select name="artist_id" class="form-select" required>
-          {% for a in artists %}
-            <option value="{{ a.id }}" {% if a.id == c.artist_id %}selected{% endif %}>{{ a.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="col-md-4">
-        <label class="form-label">Nombre del evento (opcional)</label>
-        <input name="festival_name" class="form-control" value="{{ c.festival_name or '' }}">
-      </div>
-
-      <!-- fila 2 -->
-      <div class="col-md-6">
-        <label class="form-label">Recinto</label>
-        <div class="input-group">
-          {% set venue_label = (c.venue.name ~ ' — ' ~ (c.venue.municipality or '') ~ ' ' ~ (c.venue.province or '')) if c.venue else '' %}
-          <input id="venue_search_edit" class="form-control" value="{{ venue_label.strip() }}" placeholder="Buscar recinto...">
-          <input id="venue_id_edit" type="hidden" name="venue_id" value="{{ c.venue_id }}">
-          <button class="btn btn-outline-secondary" type="button" onclick="openVenueModal({mode:'typeahead', inputId:'venue_search_edit', hiddenId:'venue_id_edit'})">
-            <i class="fa fa-plus"></i>
-          </button>
-        </div>
-        <div class="form-text">Si no aparece en el buscador, créalo con el botón +.</div>
-      </div>
-
-      <div class="col-md-3">
-        <label class="form-label">Tipo de concierto</label>
-        <select name="sale_type" id="sale_type_edit" class="form-select" required onchange="refreshTypeUIEdit()">
-          <option value="PARTICIPADOS" {% if c.sale_type == 'PARTICIPADOS' %}selected{% endif %}>Participado</option>
-          <option value="EMPRESA" {% if c.sale_type == 'EMPRESA' %}selected{% endif %}>Empresa</option>
-          <option value="VENDIDO" {% if c.sale_type == 'VENDIDO' %}selected{% endif %}>Vendido</option>
-          <option value="CADIZ" {% if c.sale_type == 'CADIZ' %}selected{% endif %}>Cádiz Music Stadium</option>
-        </select>
-      </div>
-
-      <div class="col-md-3" id="company_wrap_edit" style="display:none;">
-        <label class="form-label">Empresa del grupo (gestión)</label>
-        <select name="group_company_id" class="form-select">
-          <option value="">—</option>
-          {% for co in companies %}
-            <option value="{{ co.id }}" {% if co.id == c.group_company_id %}selected{% endif %}>{{ co.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-
-      <div class="col-md-6" id="promoter_wrap_edit" style="display:none;">
-        <label class="form-label">Tercero principal (vendido)</label>
-        <div class="input-group">
-          <input id="promoter_search_edit" class="form-control" placeholder="Buscar tercero..." value="{{ c.promoter.nick if c.promoter else '' }}">
-          <input id="promoter_id_edit" type="hidden" name="promoter_id" value="{{ c.promoter_id or '' }}">
-          <button class="btn btn-outline-secondary" type="button" onclick="openPromoterModal({mode:'typeahead', inputId:'promoter_search_edit', hiddenId:'promoter_id_edit'})">
-            <i class="fa fa-plus"></i>
-          </button>
-        </div>
-        <div class="form-text">Si no aparece, créalo con el botón +.</div>
-      </div>
-
-      <!-- fila 3 -->
-      <div class="col-md-2">
-        <label class="form-label">Aforo a la venta</label>
-        <input type="number" name="capacity" class="form-control" required value="{{ c.capacity }}">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label">Salida a la venta</label>
-        <input type="date" name="sale_start_date" class="form-control" required
-               value="{{ c.sale_start_date.isoformat() if c.sale_start_date }}">
-      </div>
-
-      <div class="col-md-2">
-        <label class="form-label">Punto de empate (opcional)</label>
-        <input type="number" name="break_even_ticket" class="form-control"
-               value="{{ c.break_even_ticket if c.break_even_ticket }}">
-      </div>
-
-      <!-- ===== COLABORADORES ===== -->
-      <div class="col-12 mt-2">
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Participación de terceros</strong>
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openPromoterModal(null)">
-                <i class="fa fa-plus"></i> Crear tercero
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addThirdPartyRowEdit()">
-                <i class="fa fa-plus"></i> Añadir
-              </button>
-            </div>
+        <!-- empresas -->
+        <div class="mb-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold">Participaciones de empresas</div>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCompanyShareRow('company_shares_container')">+ Añadir</button>
           </div>
-          <div id="third_party_rows_edit" class="row g-2">
-            {% for s in c.promoter_shares %}
-              <div class="col-12 d-flex flex-wrap align-items-end gap-2 third-party-row">
-                <div style="min-width:260px;" class="flex-grow-1">
-                  <label class="form-label">Tercero</label>
-                  <select name="promoter_share_id[]" class="form-select third-party-select">
-                    <option value="">—</option>
-                    {% for p in promoters %}
-                      <option value="{{ p.id }}" {% if p.id == s.promoter_id %}selected{% endif %}>{{ p.nick }}</option>
-                    {% endfor %}
-                  </select>
-                </div>
-
-                <div style="width:140px;">
-                  <label class="form-label">% </label>
-                  <input type="number" name="promoter_share_pct[]" class="form-control" min="0" max="100"
-                         value="{{ s.pct if s.pct }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base %</label>
-                  <select name="promoter_share_pct_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.pct_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.pct_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <div style="width:160px;">
-                  <label class="form-label">Fijo (€)</label>
-                  <input type="number" step="0.01" name="promoter_share_amount[]" class="form-control"
-                         value="{{ s.amount if s.amount }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base fijo</label>
-                  <select name="promoter_share_amount_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.amount_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.amount_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.third-party-row').remove()">
-                  <i class="fa fa-trash"></i>
-                </button>
-              </div>
-            {% endfor %}
-          </div>
-          {% if (c.promoter_shares|length) == 0 %}
-            <div class="text-muted"><small>Opcional. Si no añades nada, no se mostrará en la ficha.</small></div>
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="col-12 mt-2">
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Participación de empresas</strong>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCompanyRowEdit()">
-              <i class="fa fa-plus"></i> Añadir
-            </button>
-          </div>
-          <div id="company_rows_edit" class="row g-2">
-            {% for s in c.company_shares %}
-              <div class="col-12 d-flex flex-wrap align-items-end gap-2 company-row">
-                <div style="min-width:260px;" class="flex-grow-1">
+          <div id="company_shares_container" class="mt-2">
+            {% for s in concert.company_shares %}
+              <div class="row g-2 align-items-end mb-2">
+                <div class="col-md-5">
                   <label class="form-label">Empresa</label>
                   <select name="company_share_id[]" class="form-select">
                     <option value="">—</option>
                     {% for co in companies %}
-                      <option value="{{ co.id }}" {% if co.id == s.company_id %}selected{% endif %}>{{ co.name }}</option>
+                      <option value="{{ co.id }}" {% if s.company_id == co.id %}selected{% endif %}>{{ co.name }}</option>
                     {% endfor %}
                   </select>
                 </div>
-
-                <div style="width:140px;">
-                  <label class="form-label">% </label>
-                  <input type="number" name="company_share_pct[]" class="form-control" min="0" max="100"
-                         value="{{ s.pct if s.pct }}">
+                <div class="col-md-3">
+                  <label class="form-label">% (opcional)</label>
+                  <input type="number" step="0.01" name="company_share_pct[]" class="form-control" value="{{ s.pct or '' }}">
                 </div>
-                <div style="width:140px;">
+                <div class="col-md-2">
                   <label class="form-label">Base %</label>
                   <select name="company_share_pct_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.pct_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.pct_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
+                    <option value="GROSS" {% if s.pct_base=='GROSS' %}selected{% endif %}>Bruto</option>
+                    <option value="NET" {% if s.pct_base=='NET' %}selected{% endif %}>Neto</option>
                   </select>
                 </div>
-
-                <div style="width:160px;">
-                  <label class="form-label">Fijo (€)</label>
-                  <input type="number" step="0.01" name="company_share_amount[]" class="form-control"
-                         value="{{ s.amount if s.amount }}">
+                <div class="col-md-1 d-grid">
+                  <label class="form-label">&nbsp;</label>
+                  <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
                 </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base fijo</label>
-                  <select name="company_share_amount_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.amount_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.amount_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.company-row').remove()">
-                  <i class="fa fa-trash"></i>
-                </button>
               </div>
             {% endfor %}
           </div>
-          {% if (c.company_shares|length) == 0 %}
-            <div class="text-muted"><small>Opcional. Si no añades nada, no se mostrará en la ficha.</small></div>
-          {% endif %}
         </div>
+
+        <!-- promotores / terceros -->
+        <div class="mb-2">
+          <div class="d-flex justify-content-between align-items-center">
+            <div class="fw-semibold">Promotores / terceros</div>
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="addPromoterShareRow('promoter_shares_container')">+ Añadir</button>
+          </div>
+          <div id="promoter_shares_container" class="mt-2">
+            {% for s in concert.promoter_shares %}
+              <div class="row g-2 align-items-end mb-2">
+                <div class="col-md-5">
+                  <label class="form-label">Promotor</label>
+                  <div class="input-group">
+                    <select name="promoter_share_id[]" class="form-select third-party-select">
+                      <option value="">—</option>
+                      {% for p in promoters %}
+                        <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" {% if s.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>
+                      {% endfor %}
+                    </select>
+                    <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select2', selectName:'promoter_share_id[]'})"><i class="fa fa-plus"></i></button>
+                  </div>
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">% (opcional)</label>
+                  <input type="number" step="0.01" name="promoter_share_pct[]" class="form-control" value="{{ s.pct or '' }}">
+                </div>
+                <div class="col-md-2">
+                  <label class="form-label">Base %</label>
+                  <select name="promoter_share_pct_base[]" class="form-select">
+                    <option value="GROSS" {% if s.pct_base=='GROSS' %}selected{% endif %}>Bruto</option>
+                    <option value="NET" {% if s.pct_base=='NET' %}selected{% endif %}>Neto</option>
+                  </select>
+                </div>
+                <div class="col-md-1 d-grid">
+                  <label class="form-label">&nbsp;</label>
+                  <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== CACHES ==================== -->
+  <div class="col-12">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Cachés <span class="text-muted fw-normal">(opcionales)</span></strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCacheRow('caches_container')">+ Añadir</button>
       </div>
 
-      <div class="col-12 mt-2">
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Promotores de zona (comisionistas)</strong>
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openPromoterModal(null)">
-                <i class="fa fa-plus"></i> Crear tercero
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addZoneRowEdit()">
-                <i class="fa fa-plus"></i> Añadir
-              </button>
-            </div>
-          </div>
+      <div id="caches_container">
+        {% for ch in concert.caches %}
+          {% set cfg = ch.config or {} %}
+          <div class="border rounded p-2 mb-2 cache-row">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label">Tipo</label>
+                <select name="cache_kind[]" class="form-select cache-kind" onchange="onCacheKindChange(this)">
+                  <option value="FIXED" {% if ch.kind=='FIXED' %}selected{% endif %}>Fijo</option>
+                  <option value="VARIABLE" {% if ch.kind=='VARIABLE' %}selected{% endif %}>Variable</option>
+                  <option value="OTHER" {% if ch.kind=='OTHER' %}selected{% endif %}>Otros</option>
+                </select>
+              </div>
 
-          <div id="zone_rows_edit" class="row g-2">
-            {% for s in c.zone_agents %}
-              <div class="col-12 d-flex flex-wrap align-items-end gap-2 zone-row">
-                <div style="min-width:260px;" class="flex-grow-1">
-                  <label class="form-label">Tercero</label>
-                  <select name="zone_promoter_id[]" class="form-select zone-party-select">
+              <div class="col-md-4 cache-fixed-wrap" {% if ch.kind!='FIXED' %}style="display:none"{% endif %}>
+                <label class="form-label">Importe (€)</label>
+                <input type="number" step="0.01" name="cache_amount[]" class="form-control" value="{{ ch.amount or '' }}">
+              </div>
+
+              <div class="col-md-4 cache-other-wrap" {% if ch.kind!='OTHER' %}style="display:none"{% endif %}>
+                <label class="form-label">Concepto</label>
+                <input name="cache_concept[]" class="form-control" value="{{ ch.concept or '' }}" placeholder="Concepto">
+              </div>
+
+              <div class="col-md-4 cache-variable-wrap" {% if ch.kind!='VARIABLE' %}style="display:none"{% endif %}>
+                <label class="form-label">Modo</label>
+                <select name="cache_var_mode[]" class="form-select cache-var-mode" onchange="onCacheVarModeChange(this)">
+                  <option value="FIXED" {% if cfg.get('mode')=='FIXED' %}selected{% endif %}>Fijo</option>
+                  <option value="PERCENT" {% if cfg.get('mode')=='PERCENT' %}selected{% endif %}>Porcentaje</option>
+                </select>
+              </div>
+
+              <div class="col-md-4 cache-variable-wrap" {% if ch.kind!='VARIABLE' %}style="display:none"{% endif %}>
+                <label class="form-label">Opción</label>
+                <select name="cache_var_option[]" class="form-select cache-var-option" onchange="onCacheVarOptionChange(this)"></select>
+              </div>
+
+              <div class="col-md-3 cache-variable-wrap" {% if ch.kind!='VARIABLE' %}style="display:none"{% endif %}>
+                <label class="form-label">Valor</label>
+                <input type="number" step="0.01" name="cache_var_value[]" class="form-control" value="{{ (ch.amount if cfg.get('mode')=='FIXED' else ch.pct) or '' }}" placeholder="Importe o %">
+                <input type="hidden" name="cache_pct[]" value="{{ ch.pct or '' }}">
+              </div>
+
+              <div class="col-md-2 cache-var-base-wrap" {% if not (ch.kind=='VARIABLE' and cfg.get('mode')=='PERCENT') %}style="display:none"{% endif %}>
+                <label class="form-label">Base %</label>
+                <select name="cache_pct_base[]" class="form-select">
+                  <option value="GROSS" {% if ch.pct_base=='GROSS' %}selected{% endif %}>Bruto</option>
+                  <option value="NET" {% if ch.pct_base=='NET' %}selected{% endif %}>Neto</option>
+                </select>
+              </div>
+
+              <!-- thresholds / extra -->
+              <input type="hidden" name="cache_from_ticket[]" value="{{ cfg.get('from_ticket','') }}">
+              <input type="hidden" name="cache_min_tickets[]" value="{{ cfg.get('min_tickets','') }}">
+              <input type="hidden" name="cache_min_revenue[]" value="{{ cfg.get('min_revenue','') }}">
+              <input type="hidden" name="cache_ticket_type[]" value="{{ cfg.get('ticket_type','') }}">
+
+              <div class="col-md-1 d-grid">
+                <label class="form-label">&nbsp;</label>
+                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.cache-row').remove()"><i class="fa fa-trash"></i></button>
+              </div>
+            </div>
+
+            <!-- extra inputs area (JS la rellena) -->
+            <div class="cache-extra mt-2"></div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== COMISIONISTAS ==================== -->
+  <div class="col-12" id="zone_block">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Comisionistas <span class="text-muted fw-normal">(opcionales)</span></strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addZoneRow('zone_container')">+ Añadir</button>
+      </div>
+
+      <div id="zone_container">
+        {% for z in concert.zone_agents %}
+          <div class="border rounded p-2 mb-2 zone-row">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-4">
+                <label class="form-label">Comisionista</label>
+                <div class="input-group">
+                  <select name="zone_promoter_id[]" class="form-select third-party-select">
                     <option value="">—</option>
                     {% for p in promoters %}
-                      <option value="{{ p.id }}" {% if p.id == s.promoter_id %}selected{% endif %}>{{ p.nick }}</option>
+                      <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" {% if z.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>
                     {% endfor %}
                   </select>
+                  <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select2', selectName:'zone_promoter_id[]'})"><i class="fa fa-plus"></i></button>
                 </div>
-
-                <div style="width:160px;">
-                  <label class="form-label">% comisión</label>
-                  <input type="number" step="0.01" name="zone_commission_pct[]" class="form-control"
-                         value="{{ s.commission_pct if s.commission_pct }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base %</label>
-                  <select name="zone_commission_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.commission_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.commission_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <div style="width:160px;">
-                  <label class="form-label">Fijo (€)</label>
-                  <input type="number" step="0.01" name="zone_commission_amount[]" class="form-control"
-                         value="{{ s.commission_amount if s.commission_amount }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base fijo</label>
-                  <select name="zone_commission_amount_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (s.commission_amount_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (s.commission_amount_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.zone-row').remove()">
-                  <i class="fa fa-trash"></i>
-                </button>
               </div>
-            {% endfor %}
-          </div>
-          {% if (c.zone_agents|length) == 0 %}
-            <div class="text-muted"><small>Opcional. Si no añades nada, no se mostrará en la ficha.</small></div>
-          {% endif %}
-        </div>
-      </div>
 
-      <!-- ===== CACHÉS ===== -->
-      <div class="col-12 mt-2">
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Cachés</strong>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addCacheRowEdit()">
-              <i class="fa fa-plus"></i> Añadir
-            </button>
-          </div>
-
-          <div id="cache_rows_edit" class="row g-2">
-            {% for ch in c.caches %}
-              <div class="col-12 d-flex flex-wrap align-items-end gap-2 cache-row">
-                <div style="width:160px;">
-                  <label class="form-label">Tipo</label>
-                  <select name="cache_kind[]" class="form-select" onchange="onCacheKindChange(this)">
-                    <option value="FIXED" {% if (ch.kind or '').upper() == 'FIXED' %}selected{% endif %}>Fijo</option>
-                    <option value="VARIABLE" {% if (ch.kind or '').upper() == 'VARIABLE' %}selected{% endif %}>Variable</option>
-                    <option value="OTHER" {% if (ch.kind or '').upper() == 'OTHER' %}selected{% endif %}>Otros</option>
-                  </select>
-                </div>
-
-                <div style="width:180px;" data-cache-variable-wrap>
-                  <label class="form-label">Variable</label>
-                  <select name="cache_variable_basis[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="TICKETS" {% if (ch.variable_basis or '').upper() == 'TICKETS' %}selected{% endif %}>Por entradas</option>
-                    <option value="REVENUE" {% if (ch.variable_basis or '').upper() == 'REVENUE' %}selected{% endif %}>Por recaudación</option>
-                  </select>
-                </div>
-
-                <div style="min-width:220px;" class="flex-grow-1" data-cache-concept-wrap>
-                  <label class="form-label">Concepto (otros)</label>
-                  <input name="cache_concept[]" class="form-control" value="{{ ch.concept or '' }}">
-                </div>
-
-                <div style="width:140px;">
-                  <label class="form-label">% </label>
-                  <input type="number" step="0.01" name="cache_pct[]" class="form-control" value="{{ ch.pct if ch.pct }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base %</label>
-                  <select name="cache_pct_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (ch.pct_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (ch.pct_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <div style="width:160px;">
-                  <label class="form-label">Fijo (€)</label>
-                  <input type="number" step="0.01" name="cache_amount[]" class="form-control" value="{{ ch.amount if ch.amount }}">
-                </div>
-                <div style="width:140px;">
-                  <label class="form-label">Base fijo</label>
-                  <select name="cache_amount_base[]" class="form-select">
-                    <option value="">—</option>
-                    <option value="GROSS" {% if (ch.amount_base or '').upper() == 'GROSS' %}selected{% endif %}>Bruto</option>
-                    <option value="NET" {% if (ch.amount_base or '').upper() == 'NET' %}selected{% endif %}>Neto</option>
-                  </select>
-                </div>
-
-                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.cache-row').remove()">
-                  <i class="fa fa-trash"></i>
-                </button>
+              <div class="col-md-2">
+                <label class="form-label">Tipo</label>
+                <select name="zone_commission_mode[]" class="form-select" onchange="onZoneModeChange(this)">
+                  <option value="FIXED" {% if z.commission_type != 'PERCENT' %}selected{% endif %}>Fijo</option>
+                  <option value="PERCENT" {% if z.commission_type == 'PERCENT' %}selected{% endif %}>% (variable)</option>
+                </select>
               </div>
-            {% endfor %}
-          </div>
 
-          {% if (c.caches|length) == 0 %}
-            <div class="text-muted"><small>Opcional. Si no añades nada, no se mostrará en la ficha.</small></div>
-          {% endif %}
-        </div>
-      </div>
+              <div class="col-md-2 zone-pct-wrap" {% if z.commission_type != 'PERCENT' %}style="display:none"{% endif %}>
+                <label class="form-label">%</label>
+                <input type="number" step="0.01" name="zone_commission_pct[]" class="form-control" value="{{ z.commission_pct or '' }}">
+              </div>
+              <div class="col-md-2 zone-pct-wrap" {% if z.commission_type != 'PERCENT' %}style="display:none"{% endif %}>
+                <label class="form-label">Base</label>
+                <select name="zone_commission_base[]" class="form-select">
+                  <option value="GROSS" {% if z.commission_base=='GROSS' %}selected{% endif %}>Bruto</option>
+                  <option value="NET" {% if z.commission_base=='NET' %}selected{% endif %}>Neto</option>
+                </select>
+              </div>
 
-      <!-- ===== CONTRATOS ===== -->
-      <div class="col-12 mt-2">
-        <div class="border rounded p-2">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <strong>Contratos</strong>
-            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addContractRowEdit()">
-              <i class="fa fa-plus"></i> Añadir
-            </button>
-          </div>
+              <div class="col-md-4 zone-amt-wrap" {% if z.commission_type == 'PERCENT' %}style="display:none"{% endif %}>
+                <label class="form-label">Importe fijo (€)</label>
+                <input type="number" step="0.01" name="zone_commission_amount[]" class="form-control" value="{{ z.commission_amount or '' }}">
+              </div>
 
-          {% if c.contracts and (c.contracts|length) > 0 %}
-            <div class="mb-2">
-              <ul class="list-group">
-                {% for ct in c.contracts %}
-                  <li class="list-group-item d-flex justify-content-between align-items-center">
-                    <div>
-                      <div class="fw-semibold">{{ ct.concept }}</div>
-                      <div class="text-muted"><small>Subido: {{ ct.uploaded_at.strftime('%d/%m/%Y') if ct.uploaded_at else '' }}</small></div>
-                    </div>
-                    <a class="btn btn-sm btn-outline-primary" href="{{ ct.pdf_url }}" target="_blank">
-                      <i class="fa fa-file-pdf"></i> Ver
-                    </a>
-                  </li>
-                {% endfor %}
-              </ul>
-            </div>
-          {% else %}
-            <div class="text-muted"><small>Este concierto todavía no tiene contratos adjuntos.</small></div>
-          {% endif %}
+              <div class="col-md-2">
+                <label class="form-label">Importe exento <small class="text-muted">(opcional)</small></label>
+                <input type="number" step="0.01" name="zone_exempt_amount[]" class="form-control" value="{{ z.exempt_amount or '' }}">
+              </div>
 
-          <div id="contract_rows_edit" class="row g-2 mt-2"></div>
+              <div class="col-md-1 d-grid">
+                <label class="form-label">&nbsp;</label>
+                <button type="button" class="btn btn-outline-danger" onclick="this.closest('.zone-row').remove()"><i class="fa fa-trash"></i></button>
+              </div>
 
-          <div class="form-text">Para añadir nuevos contratos: agrega filas, selecciona PDF y guarda.</div>
-        </div>
-      </div>
-
-      <!-- acciones -->
-      <div class="col-12 d-flex justify-content-end gap-2 mt-2">
-        <button class="btn btn-primary">Guardar cambios</button>
-        <form method="post" action="{{ url_for('concert_delete', cid=c.id) }}" onsubmit="return confirm('¿Seguro que quieres borrar este concierto?');">
-          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
-        </form>
-      </div>
-
-    </form>
-
-  </div>
-</div>
-
-<!-- ====== Modales (Recinto / Tercero) ====== -->
-<div class="modal fade" id="modalNewVenue" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h6 class="modal-title">Crear recinto</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div id="venueModalError" class="alert alert-danger d-none"></div>
-        <form id="formNewVenue">
-          <div class="mb-2">
-            <label class="form-label">Nombre</label>
-            <input name="name" class="form-control" required>
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Dirección</label>
-            <input name="address" class="form-control">
-          </div>
-          <div class="row g-2">
-            <div class="col-md-6">
-              <label class="form-label">Ciudad</label>
-              <input name="municipality" class="form-control">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label">Provincia</label>
-              <input name="province" class="form-control">
+              <div class="col-12">
+                <label class="form-label">Motivo / Concepto</label>
+                <textarea name="zone_concept[]" class="form-control" rows="2" placeholder="Motivo de la comisión...">{{ z.concept or '' }}</textarea>
+              </div>
             </div>
           </div>
-          <div class="form-check mt-2">
-            <input class="form-check-input" type="checkbox" name="covered" id="coveredEdit">
-            <label class="form-check-label" for="coveredEdit">Cubierto</label>
-          </div>
-        </form>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-primary" type="button" onclick="submitNewVenue()">Crear</button>
+        {% endfor %}
       </div>
     </div>
   </div>
-</div>
 
-<div class="modal fade" id="modalNewPromoter" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h6 class="modal-title">Crear tercero</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+  <!-- ==================== EQUIPAMIENTO ==================== -->
+  <div class="col-12">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Equipamiento <span class="text-muted fw-normal">(opcional)</span></strong>
       </div>
-      <div class="modal-body">
-        <div id="promoterModalError" class="alert alert-danger d-none"></div>
-        <form id="formNewPromoter" enctype="multipart/form-data">
-          <div class="mb-2">
-            <label class="form-label">Nombre</label>
-            <input name="nick" class="form-control" required>
+
+      {% set eq = concert.equipment %}
+
+      <div class="row g-2">
+        <div class="col-md-8">
+          <label class="form-label">Equipos incluidos</label>
+          <select name="equipment_included[]" class="form-select" multiple size="6">
+            {% set selected_eq = (eq.included if eq and eq.included else []) %}
+            {% for opt in ['Sonido','Iluminación','Pantallas','Backline','Escenario','Generadores','Vallas','Camerinos','Seguridad','Producción'] %}
+              <option value="{{ opt }}" {% if opt in selected_eq %}selected{% endif %}>{{ opt }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">Puedes seleccionar varios.</div>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">Otros <small class="text-muted">(opcional)</small></label>
+          <input name="equipment_other" class="form-control" value="{{ eq.other if eq else '' }}" placeholder="Texto libre">
+
+          <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" id="equipment_covered" name="equipment_covered" {% if eq and eq.covered_by_promoter %}checked{% endif %} onchange="toggleEquipmentCovered()">
+            <label class="form-check-label" for="equipment_covered">Cubierto por promotor</label>
           </div>
-          <div class="mb-2">
-            <label class="form-label">Logo (PNG)</label>
-            <input type="file" name="logo" accept="image/png" class="form-control">
+
+          <div id="equipment_covered_wrap" class="mt-2" {% if not (eq and eq.covered_by_promoter) %}style="display:none"{% endif %}>
+            <label class="form-label">Tipo</label>
+            <select name="equipment_covered_mode" class="form-select" id="equipment_covered_mode" onchange="toggleEquipmentCoveredMode()">
+              <option value="RIDER" {% if eq and eq.covered_mode=='RIDER' %}selected{% endif %}>Rider de artista</option>
+              <option value="AMOUNT" {% if eq and eq.covered_mode=='AMOUNT' %}selected{% endif %}>Importe concreto</option>
+            </select>
+
+            <div id="equipment_covered_amount_wrap" class="mt-2" {% if not (eq and eq.covered_mode=='AMOUNT') %}style="display:none"{% endif %}>
+              <label class="form-label">Importe (€)</label>
+              <input type="number" step="0.01" name="equipment_covered_amount" class="form-control" value="{{ eq.covered_amount if eq else '' }}">
+            </div>
           </div>
-        </form>
+        </div>
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-primary" type="button" onclick="submitNewPromoter()">Crear</button>
+
+      <hr class="my-3">
+
+      <!-- riders -->
+      <div>
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="fw-semibold">Riders / PDFs</div>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentDocRow('equipment_docs_container')">+ Adjuntar PDF</button>
+        </div>
+
+        {% if concert.equipment_documents %}
+          <div class="mt-2">
+            {% for d in concert.equipment_documents %}
+              <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2">
+                <div>
+                  <div class="fw-semibold">{{ d.concept }}</div>
+                  <div class="small text-muted">Subido: {{ d.uploaded_at.strftime('%d/%m/%Y') if d.uploaded_at else '' }}</div>
+                  <a class="small" href="{{ d.pdf_url }}" target="_blank">Abrir PDF</a>
+                </div>
+                <form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, doc_id=d.id) }}">
+                  <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div id="equipment_docs_container" class="mt-2"></div>
       </div>
+
+      <hr class="my-3">
+
+      <!-- notas equipamiento -->
+      <div>
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="fw-semibold">Notas equipamiento</div>
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentNoteRow('equipment_notes_container')">+ Añadir nota</button>
+        </div>
+
+        {% if concert.equipment_notes %}
+          <div class="mt-2">
+            {% for n in concert.equipment_notes %}
+              <div class="border rounded p-2 mb-2">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div class="small text-muted">{{ n.created_at.strftime('%d/%m/%Y') if n.created_at else '' }}</div>
+                  <form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, note_id=n.id) }}">
+                    <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
+                    <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
+                  </form>
+                </div>
+                <div class="mt-1">{{ n.body }}</div>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+
+        <div id="equipment_notes_container" class="mt-2"></div>
+      </div>
+
     </div>
   </div>
-</div>
+
+  <!-- ==================== CONTRATOS ==================== -->
+  <div class="col-12">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Contratos <span class="text-muted fw-normal">(opcionales)</span></strong>
+      </div>
+
+      {% if concert.contracts %}
+        <div class="mb-2">
+          {% for ct in concert.contracts %}
+            <div class="d-flex justify-content-between align-items-center border rounded p-2 mb-2">
+              <div>
+                <div class="fw-semibold">{{ ct.concept }}</div>
+                <div class="small text-muted">Subido: {{ ct.uploaded_at.strftime('%d/%m/%Y') if ct.uploaded_at else '' }}</div>
+                <a class="small" href="{{ ct.pdf_url }}" target="_blank">Abrir PDF</a>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div class="row g-2">
+        <div class="col-md-4">
+          <label class="form-label">Concepto</label>
+          <input name="contract_concept[]" class="form-control" placeholder="Ej: Contrato principal">
+        </div>
+        <div class="col-md-5">
+          <label class="form-label">PDF</label>
+          <input type="file" name="contract_pdf[]" class="form-control" accept="application/pdf">
+        </div>
+        <div class="col-md-3 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-secondary" onclick="addContractRow('contracts_container')">+ Añadir otro</button>
+        </div>
+      </div>
+      <div id="contracts_container" class="mt-2"></div>
+    </div>
+  </div>
+
+  <!-- ==================== NOTAS CONTRATACIÓN ==================== -->
+  <div class="col-12">
+    <div class="border rounded p-2">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <strong>Notas contratación <span class="text-muted fw-normal">(opcionales)</span></strong>
+        <button type="button" class="btn btn-sm btn-outline-primary" onclick="addNoteRow('notes_container')">+ Añadir nota</button>
+      </div>
+
+      {% if concert.notes %}
+        <div class="mb-2">
+          {% for n in concert.notes %}
+            <div class="border rounded p-2 mb-2">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <div class="fw-semibold">{{ n.title or 'Nota' }}</div>
+                  <div class="small text-muted">{{ n.created_at.strftime('%d/%m/%Y') if n.created_at else '' }}</div>
+                </div>
+                <form method="post" action="{{ url_for('concert_note_delete', cid=concert.id, note_id=n.id) }}">
+                  <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
+                </form>
+              </div>
+              <div class="mt-1">{{ n.body }}</div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <div id="notes_container"></div>
+    </div>
+  </div>
+
+  <div class="col-12 d-flex justify-content-end gap-2 mt-2">
+    <button class="btn btn-primary" type="submit"><i class="fa fa-save"></i> Guardar cambios</button>
+    <a href="{{ url_for('concerts_view', tab='vista') }}#concert-{{ concert.id }}" class="btn btn-outline-secondary">Cancelar</a>
+  </div>
+
+</form>
 
 <script>
-// ===== Typeahead =====
-document.addEventListener('DOMContentLoaded', function(){
-  if (typeof initTypeahead === 'function') {
-    initTypeahead('venue_search_edit', 'venue_id_edit', '/api/search/venues');
-    initTypeahead('promoter_search_edit', 'promoter_id_edit', '/api/search/promoters');
-  }
-  refreshTypeUIEdit();
+  // reutiliza select2 de artistas (scripts.js)
 
-  // ajustar UI de filas de cachés existentes
-  document.querySelectorAll('#cache_rows_edit .cache-row select[name="cache_kind[]"]').forEach(sel => onCacheKindChange(sel));
-});
-
-function refreshTypeUIEdit(){
-  const v = (document.getElementById('sale_type_edit')?.value || '').toUpperCase();
-  document.getElementById('company_wrap_edit').style.display = (v === 'EMPRESA') ? '' : 'none';
-  document.getElementById('promoter_wrap_edit').style.display = (v === 'VENDIDO') ? '' : 'none';
-}
-
-function onCacheKindChange(sel){
-  const row = sel.closest('.cache-row');
-  if(!row) return;
-  const kind = (sel.value || '').toUpperCase();
-  const varWrap = row.querySelector('[data-cache-variable-wrap]');
-  const conceptWrap = row.querySelector('[data-cache-concept-wrap]');
-  if(varWrap) varWrap.style.display = (kind === 'VARIABLE') ? '' : 'none';
-  if(conceptWrap) conceptWrap.style.display = (kind === 'OTHER') ? '' : 'none';
-}
-
-// ===== Dynamic rows (Edit) =====
-function addThirdPartyRowEdit(){
-  const wrap = document.getElementById('third_party_rows_edit');
-  const div = document.createElement('div');
-  div.className = 'col-12 d-flex flex-wrap align-items-end gap-2 third-party-row';
-  div.innerHTML = `
-    <div style="min-width:260px;" class="flex-grow-1">
-      <label class="form-label">Tercero</label>
-      <select name="promoter_share_id[]" class="form-select third-party-select">
-        <option value="">—</option>
-        {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
-      </select>
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">% </label>
-      <input type="number" name="promoter_share_pct[]" class="form-control" min="0" max="100">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base %</label>
-      <select name="promoter_share_pct_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <div style="width:160px;">
-      <label class="form-label">Fijo (€)</label>
-      <input type="number" step="0.01" name="promoter_share_amount[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base fijo</label>
-      <select name="promoter_share_amount_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.third-party-row').remove()"><i class="fa fa-trash"></i></button>
-  `;
-  wrap.appendChild(div);
-}
-
-function addCompanyRowEdit(){
-  const wrap = document.getElementById('company_rows_edit');
-  const div = document.createElement('div');
-  div.className = 'col-12 d-flex flex-wrap align-items-end gap-2 company-row';
-  div.innerHTML = `
-    <div style="min-width:260px;" class="flex-grow-1">
-      <label class="form-label">Empresa</label>
-      <select name="company_share_id[]" class="form-select">
-        <option value="">—</option>
-        {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
-      </select>
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">% </label>
-      <input type="number" name="company_share_pct[]" class="form-control" min="0" max="100">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base %</label>
-      <select name="company_share_pct_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <div style="width:160px;">
-      <label class="form-label">Fijo (€)</label>
-      <input type="number" step="0.01" name="company_share_amount[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base fijo</label>
-      <select name="company_share_amount_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.company-row').remove()"><i class="fa fa-trash"></i></button>
-  `;
-  wrap.appendChild(div);
-}
-
-function addZoneRowEdit(){
-  const wrap = document.getElementById('zone_rows_edit');
-  const div = document.createElement('div');
-  div.className = 'col-12 d-flex flex-wrap align-items-end gap-2 zone-row';
-  div.innerHTML = `
-    <div style="min-width:260px;" class="flex-grow-1">
-      <label class="form-label">Tercero</label>
-      <select name="zone_promoter_id[]" class="form-select zone-party-select">
-        <option value="">—</option>
-        {% for p in promoters %}<option value="{{ p.id }}">{{ p.nick }}</option>{% endfor %}
-      </select>
-    </div>
-    <div style="width:160px;">
-      <label class="form-label">% comisión</label>
-      <input type="number" step="0.01" name="zone_commission_pct[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base %</label>
-      <select name="zone_commission_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <div style="width:160px;">
-      <label class="form-label">Fijo (€)</label>
-      <input type="number" step="0.01" name="zone_commission_amount[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base fijo</label>
-      <select name="zone_commission_amount_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.zone-row').remove()"><i class="fa fa-trash"></i></button>
-  `;
-  wrap.appendChild(div);
-}
-
-function addCacheRowEdit(){
-  const wrap = document.getElementById('cache_rows_edit');
-  const div = document.createElement('div');
-  div.className = 'col-12 d-flex flex-wrap align-items-end gap-2 cache-row';
-  div.innerHTML = `
-    <div style="width:160px;">
-      <label class="form-label">Tipo</label>
-      <select name="cache_kind[]" class="form-select" onchange="onCacheKindChange(this)">
-        <option value="FIXED">Fijo</option>
-        <option value="VARIABLE">Variable</option>
-        <option value="OTHER">Otros</option>
-      </select>
-    </div>
-    <div style="width:180px;" data-cache-variable-wrap>
-      <label class="form-label">Variable</label>
-      <select name="cache_variable_basis[]" class="form-select">
-        <option value="">—</option>
-        <option value="TICKETS">Por entradas</option>
-        <option value="REVENUE">Por recaudación</option>
-      </select>
-    </div>
-    <div style="min-width:220px;" class="flex-grow-1" data-cache-concept-wrap>
-      <label class="form-label">Concepto (otros)</label>
-      <input name="cache_concept[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">% </label>
-      <input type="number" step="0.01" name="cache_pct[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base %</label>
-      <select name="cache_pct_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <div style="width:160px;">
-      <label class="form-label">Fijo (€)</label>
-      <input type="number" step="0.01" name="cache_amount[]" class="form-control">
-    </div>
-    <div style="width:140px;">
-      <label class="form-label">Base fijo</label>
-      <select name="cache_amount_base[]" class="form-select">
-        <option value="">—</option>
-        <option value="GROSS">Bruto</option>
-        <option value="NET">Neto</option>
-      </select>
-    </div>
-    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.cache-row').remove()"><i class="fa fa-trash"></i></button>
-  `;
-  wrap.appendChild(div);
-  onCacheKindChange(div.querySelector('select[name="cache_kind[]"]'));
-}
-
-function addContractRowEdit(){
-  const wrap = document.getElementById('contract_rows_edit');
-  const div = document.createElement('div');
-  div.className = 'col-12 d-flex flex-wrap align-items-end gap-2 contract-row';
-  div.innerHTML = `
-    <div style="min-width:260px;" class="flex-grow-1">
-      <label class="form-label">Concepto</label>
-      <input name="contract_concept[]" class="form-control" placeholder="Ej: Contrato principal">
-    </div>
-    <div style="width:320px;">
-      <label class="form-label">PDF</label>
-      <input type="file" name="contract_file[]" accept="application/pdf" class="form-control">
-    </div>
-    <button type="button" class="btn btn-outline-danger" onclick="this.closest('.contract-row').remove()"><i class="fa fa-trash"></i></button>
-  `;
-  wrap.appendChild(div);
-}
-
-// ====== Modals: Venue / Promoter (reutiliza misma lógica que /conciertos) ======
-let __venueTarget = null;
-function openVenueModal(target){
-  __venueTarget = target || null;
-  document.getElementById('venueModalError')?.classList.add('d-none');
-  const modal = new bootstrap.Modal(document.getElementById('modalNewVenue'));
-  modal.show();
-}
-
-async function submitNewVenue(){
-  const form = document.getElementById('formNewVenue');
-  const err = document.getElementById('venueModalError');
-  err?.classList.add('d-none');
-
-  const fd = new FormData(form);
-  const r = await fetch('/api/venues/create', { method: 'POST', body: fd });
-  const js = await r.json().catch(()=>({}));
-  if(!r.ok){
-    if(err){ err.textContent = js.error || 'Error creando recinto'; err.classList.remove('d-none'); }
-    return;
+  function toggleBlock(id){
+    const el = document.getElementById(id);
+    el.style.display = (el.style.display === 'none' || !el.style.display) ? 'block' : 'none';
   }
 
-  if(__venueTarget && __venueTarget.mode === 'typeahead'){
-    const input = document.getElementById(__venueTarget.inputId);
-    const hidden = document.getElementById(__venueTarget.hiddenId);
-    if(input) input.value = js.label || '';
-    if(hidden) hidden.value = js.id || '';
+  function updateSaleTypeUI(){
+    const v = document.getElementById('sale_type_select').value;
+    document.getElementById('company_single_wrap').style.display = (v === 'EMPRESA') ? 'block' : 'none';
+    document.getElementById('promoter_single_wrap').style.display = (v === 'VENDIDO') ? 'block' : 'none';
+    document.getElementById('break_even_wrap').style.display = (v === 'VENDIDO') ? 'none' : 'block';
+    document.getElementById('collab_block').style.display = (v === 'VENDIDO') ? 'none' : 'block';
+    document.getElementById('zone_block').style.display = (v === 'VENDIDO') ? 'none' : 'block';
   }
 
-  bootstrap.Modal.getInstance(document.getElementById('modalNewVenue'))?.hide();
-  form.reset();
-}
+  function onZoneModeChange(sel){
+    const row = sel.closest('.zone-row');
+    const isPct = sel.value === 'PERCENT';
+    row.querySelectorAll('.zone-pct-wrap').forEach(el => el.style.display = isPct ? 'block' : 'none');
+    row.querySelectorAll('.zone-amt-wrap').forEach(el => el.style.display = isPct ? 'none' : 'block');
+  }
 
-let __promoterTarget = null;
-function openPromoterModal(target){
-  __promoterTarget = target || null;
-  document.getElementById('promoterModalError')?.classList.add('d-none');
-  const modal = new bootstrap.Modal(document.getElementById('modalNewPromoter'));
-  modal.show();
-}
+  // caches (mismo JS que en concerts.html)
+  const VAR_FIXED_OPTIONS = [
+    {v:'FIXED_PER_TICKET_FROM', t:'Importe fijo por entrada vendida, a partir de la entrada X'},
+    {v:'FIXED_FROM_TICKETS', t:'Importe fijo, a partir de X entradas vendidas'},
+    {v:'FIXED_FROM_REVENUE', t:'Importe fijo, a partir de X recaudación'},
+  ];
+  const VAR_PCT_OPTIONS = [
+    {v:'PCT_FROM_REVENUE', t:'Porcentaje de taquilla, a partir de un importe'},
+    {v:'PCT_FROM_TICKETS', t:'Porcentaje de taquilla, a partir de X entradas vendidas'},
+    {v:'PCT_TICKET_TYPE', t:'Porcentaje de un tipo de entradas vendidas'},
+  ];
 
-function addOptionToSelects(selectors, id, label){
-  selectors.forEach(sel => {
-    document.querySelectorAll(sel).forEach(el => {
-      const exists = Array.from(el.options).some(o => o.value === id);
-      if(!exists){
-        const opt = document.createElement('option');
-        opt.value = id;
-        opt.textContent = label;
-        el.appendChild(opt);
-      }
+  function onCacheKindChange(selectEl){
+    const row = selectEl.closest('.cache-row');
+    const kind = selectEl.value;
+    row.querySelector('.cache-fixed-wrap').style.display = (kind==='FIXED') ? 'block' : 'none';
+    row.querySelector('.cache-variable-wrap').style.display = (kind==='VARIABLE') ? 'block' : 'none';
+    row.querySelector('.cache-other-wrap').style.display = (kind==='OTHER') ? 'block' : 'none';
+    row.querySelector('.cache-extra').innerHTML = '';
+    if(kind==='VARIABLE'){
+      const modeSel = row.querySelector('.cache-var-mode');
+      onCacheVarModeChange(modeSel);
+    }
+  }
+
+  function onCacheVarModeChange(modeSelect){
+    const row = modeSelect.closest('.cache-row');
+    const mode = modeSelect.value;
+    const optSel = row.querySelector('.cache-var-option');
+    optSel.innerHTML = '';
+    const opts = (mode==='PERCENT') ? VAR_PCT_OPTIONS : VAR_FIXED_OPTIONS;
+    opts.forEach(o => {
+      const op = document.createElement('option');
+      op.value = o.v; op.textContent = o.t;
+      optSel.appendChild(op);
     });
+    row.querySelector('.cache-var-base-wrap').style.display = (mode==='PERCENT') ? 'block' : 'none';
+    onCacheVarOptionChange(optSel);
+  }
+
+  function onCacheVarOptionChange(optSelect){
+    const row = optSelect.closest('.cache-row');
+    const option = optSelect.value;
+    const extra = row.querySelector('.cache-extra');
+    extra.innerHTML = '';
+
+    function addNumber(name, label, placeholder){
+      const div = document.createElement('div');
+      div.className = 'row g-2';
+      div.innerHTML = `
+        <div class="col-md-4">
+          <label class="form-label">${label}</label>
+          <input type="number" step="0.01" class="form-control" name="${name}" placeholder="${placeholder||''}">
+        </div>
+      `;
+      extra.appendChild(div);
+    }
+
+    if(option==='FIXED_PER_TICKET_FROM'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Importe por entrada (€)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="€ por entrada">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">A partir de entrada #</label>
+            <input type="number" class="form-control" name="cache_from_ticket[]" placeholder="X">
+          </div>
+        </div>
+      `;
+    } else if(option==='FIXED_FROM_TICKETS'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Importe fijo (€)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="€">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">A partir de X entradas</label>
+            <input type="number" class="form-control" name="cache_min_tickets[]" placeholder="X">
+          </div>
+        </div>
+      `;
+    } else if(option==='FIXED_FROM_REVENUE'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Importe fijo (€)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="€">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Desde recaudación (€)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_min_revenue[]" placeholder="€">
+          </div>
+        </div>
+      `;
+    } else if(option==='PCT_FROM_REVENUE'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Porcentaje (%)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="%">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Desde recaudación (€)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_min_revenue[]" placeholder="€">
+          </div>
+        </div>
+      `;
+    } else if(option==='PCT_FROM_TICKETS'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Porcentaje (%)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="%">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Desde X entradas</label>
+            <input type="number" class="form-control" name="cache_min_tickets[]" placeholder="X">
+          </div>
+        </div>
+      `;
+    } else if(option==='PCT_TICKET_TYPE'){
+      extra.innerHTML = `
+        <div class="row g-2">
+          <div class="col-md-3">
+            <label class="form-label">Porcentaje (%)</label>
+            <input type="number" step="0.01" class="form-control" name="cache_var_value[]" placeholder="%">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Tipo de entrada</label>
+            <input type="text" class="form-control" name="cache_ticket_type[]" placeholder="Ej: VIP">
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function addCacheRow(containerId){
+    // igual que create: crea una fila nueva vacía
+    const container = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2 cache-row';
+    row.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-md-3">
+          <label class="form-label">Tipo</label>
+          <select name="cache_kind[]" class="form-select cache-kind" onchange="onCacheKindChange(this)">
+            <option value="FIXED">Fijo</option>
+            <option value="VARIABLE">Variable</option>
+            <option value="OTHER">Otros</option>
+          </select>
+        </div>
+        <div class="col-md-4 cache-fixed-wrap">
+          <label class="form-label">Importe (€)</label>
+          <input type="number" step="0.01" name="cache_amount[]" class="form-control">
+        </div>
+        <div class="col-md-4 cache-variable-wrap" style="display:none;">
+          <label class="form-label">Modo</label>
+          <select name="cache_var_mode[]" class="form-select cache-var-mode" onchange="onCacheVarModeChange(this)">
+            <option value="FIXED">Fijo</option>
+            <option value="PERCENT">Porcentaje</option>
+          </select>
+        </div>
+        <div class="col-md-4 cache-variable-wrap" style="display:none;">
+          <label class="form-label">Opción</label>
+          <select name="cache_var_option[]" class="form-select cache-var-option" onchange="onCacheVarOptionChange(this)"></select>
+        </div>
+        <div class="col-md-2 cache-var-base-wrap" style="display:none;">
+          <label class="form-label">Base %</label>
+          <select name="cache_pct_base[]" class="form-select">
+            <option value="GROSS">Bruto</option>
+            <option value="NET">Neto</option>
+          </select>
+        </div>
+        <div class="col-md-4 cache-other-wrap" style="display:none;">
+          <label class="form-label">Concepto</label>
+          <input name="cache_concept[]" class="form-control" placeholder="Concepto">
+        </div>
+        <input type="hidden" name="cache_from_ticket[]" value="">
+        <input type="hidden" name="cache_min_tickets[]" value="">
+        <input type="hidden" name="cache_min_revenue[]" value="">
+        <input type="hidden" name="cache_pct[]" value="">
+        <input type="hidden" name="cache_ticket_type[]" value="">
+        <div class="col-md-1 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.cache-row').remove()"><i class="fa fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="cache-extra mt-2"></div>
+    `;
+    container.appendChild(row);
+    onCacheVarModeChange(row.querySelector('.cache-var-mode'));
+  }
+
+  function addCompanyShareRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-md-5">
+        <label class="form-label">Empresa</label>
+        <select name="company_share_id[]" class="form-select">
+          <option value="">—</option>
+          {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">% (opcional)</label>
+        <input type="number" step="0.01" name="company_share_pct[]" class="form-control">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Base %</label>
+        <select name="company_share_pct_base[]" class="form-select">
+          <option value="GROSS">Bruto</option>
+          <option value="NET">Neto</option>
+        </select>
+      </div>
+      <div class="col-md-1 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+    `;
+    c.appendChild(row);
+  }
+
+  function addPromoterShareRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-md-5">
+        <label class="form-label">Promotor</label>
+        <div class="input-group">
+          <select name="promoter_share_id[]" class="form-select third-party-select">
+            <option value="">—</option>
+            {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}">{{ p.nick }}</option>{% endfor %}
+          </select>
+          <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select2', selectName:'promoter_share_id[]'})"><i class="fa fa-plus"></i></button>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">% (opcional)</label>
+        <input type="number" step="0.01" name="promoter_share_pct[]" class="form-control">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Base %</label>
+        <select name="promoter_share_pct_base[]" class="form-select">
+          <option value="GROSS">Bruto</option>
+          <option value="NET">Neto</option>
+        </select>
+      </div>
+      <div class="col-md-1 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+    `;
+    c.appendChild(row);
+    if(window.jQuery && window.jQuery.fn && window.jQuery.fn.select2){
+      window.jQuery(row).find('.third-party-select').select2({ width:'100%' });
+    }
+  }
+
+  function addZoneRow(containerId){
+    const c = document.getElementById(containerId);
+    const box = document.createElement('div');
+    box.className = 'border rounded p-2 mb-2 zone-row';
+    box.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <label class="form-label">Comisionista</label>
+          <div class="input-group">
+            <select name="zone_promoter_id[]" class="form-select third-party-select">
+              <option value="">—</option>
+              {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}">{{ p.nick }}</option>{% endfor %}
+            </select>
+            <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select2', selectName:'zone_promoter_id[]'})"><i class="fa fa-plus"></i></button>
+          </div>
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Tipo</label>
+          <select name="zone_commission_mode[]" class="form-select" onchange="onZoneModeChange(this)">
+            <option value="FIXED">Fijo</option>
+            <option value="PERCENT">% (variable)</option>
+          </select>
+        </div>
+        <div class="col-md-2 zone-pct-wrap" style="display:none;">
+          <label class="form-label">%</label>
+          <input type="number" step="0.01" name="zone_commission_pct[]" class="form-control">
+        </div>
+        <div class="col-md-2 zone-pct-wrap" style="display:none;">
+          <label class="form-label">Base</label>
+          <select name="zone_commission_base[]" class="form-select">
+            <option value="GROSS">Bruto</option>
+            <option value="NET">Neto</option>
+          </select>
+        </div>
+        <div class="col-md-4 zone-amt-wrap">
+          <label class="form-label">Importe fijo (€)</label>
+          <input type="number" step="0.01" name="zone_commission_amount[]" class="form-control">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">Importe exento</label>
+          <input type="number" step="0.01" name="zone_exempt_amount[]" class="form-control">
+        </div>
+        <div class="col-md-1 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.zone-row').remove()"><i class="fa fa-trash"></i></button>
+        </div>
+        <div class="col-12">
+          <label class="form-label">Motivo / Concepto</label>
+          <textarea name="zone_concept[]" class="form-control" rows="2" placeholder="Motivo de la comisión..."></textarea>
+        </div>
+      </div>
+    `;
+    c.appendChild(box);
+    if(window.jQuery && window.jQuery.fn && window.jQuery.fn.select2){
+      window.jQuery(box).find('.third-party-select').select2({ width:'100%' });
+    }
+  }
+
+  function addContractRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mt-2';
+    row.innerHTML = `
+      <div class="col-md-4">
+        <label class="form-label">Concepto</label>
+        <input name="contract_concept[]" class="form-control" placeholder="Concepto">
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">PDF</label>
+        <input type="file" name="contract_pdf[]" class="form-control" accept="application/pdf">
+      </div>
+      <div class="col-md-3 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+    `;
+    c.appendChild(row);
+  }
+
+  function addNoteRow(containerId){
+    const c = document.getElementById(containerId);
+    const box = document.createElement('div');
+    box.className = 'border rounded p-2 mb-2';
+    box.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Nueva nota</div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-md-4">
+          <label class="form-label">Título</label>
+          <input name="note_title[]" class="form-control" placeholder="Título">
+        </div>
+        <div class="col-md-8">
+          <label class="form-label">Texto</label>
+          <textarea name="note_body[]" class="form-control" rows="2" placeholder="Escribe la nota..."></textarea>
+        </div>
+      </div>
+    `;
+    c.appendChild(box);
+  }
+
+  function toggleEquipmentCovered(){
+    const checked = document.getElementById('equipment_covered').checked;
+    document.getElementById('equipment_covered_wrap').style.display = checked ? 'block' : 'none';
+  }
+  function toggleEquipmentCoveredMode(){
+    const mode = document.getElementById('equipment_covered_mode').value;
+    document.getElementById('equipment_covered_amount_wrap').style.display = (mode==='AMOUNT') ? 'block' : 'none';
+  }
+
+  function addEquipmentDocRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-md-4">
+        <label class="form-label">Concepto</label>
+        <input name="equipment_doc_concept[]" class="form-control" placeholder="Ej: Rider artista">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">PDF</label>
+        <input type="file" name="equipment_doc_file[]" class="form-control" accept="application/pdf">
+      </div>
+      <div class="col-md-2 d-grid">
+        <label class="form-label">&nbsp;</label>
+        <button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+    `;
+    c.appendChild(row);
+  }
+
+  function addEquipmentNoteRow(containerId){
+    const c = document.getElementById(containerId);
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center">
+        <div class="fw-semibold">Nueva nota</div>
+        <button type="button" class="btn btn-sm btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+      </div>
+      <div class="mt-2">
+        <textarea name="equipment_note_body[]" class="form-control" rows="2" placeholder="Escribe la nota..."></textarea>
+      </div>
+    `;
+    c.appendChild(row);
+  }
+
+  // initialize
+  document.getElementById('sale_type_select').addEventListener('change', updateSaleTypeUI);
+  updateSaleTypeUI();
+
+  // cache rows init (rellena selects y extra según config existente)
+  document.querySelectorAll('.cache-row').forEach(row => {
+    const kindSel = row.querySelector('.cache-kind');
+    if(kindSel){ onCacheKindChange(kindSel); }
   });
-}
 
-async function submitNewPromoter(){
-  const form = document.getElementById('formNewPromoter');
-  const err = document.getElementById('promoterModalError');
-  err?.classList.add('d-none');
-
-  const fd = new FormData(form);
-  const r = await fetch('/api/promoters/create', { method: 'POST', body: fd });
-  const js = await r.json().catch(()=>({}));
-  if(!r.ok){
-    if(err){ err.textContent = js.error || 'Error creando tercero'; err.classList.remove('d-none'); }
-    return;
+  // init select2 third parties
+  if(window.jQuery && window.jQuery.fn && window.jQuery.fn.select2){
+    window.jQuery('.third-party-select').select2({ width: '100%' });
   }
-
-  if(__promoterTarget && __promoterTarget.mode === 'typeahead'){
-    const input = document.getElementById(__promoterTarget.inputId);
-    const hidden = document.getElementById(__promoterTarget.hiddenId);
-    if(input) input.value = js.label || '';
-    if(hidden) hidden.value = js.id || '';
-  }
-
-  addOptionToSelects(['.third-party-select','.zone-party-select'], js.id, js.label);
-
-  bootstrap.Modal.getInstance(document.getElementById('modalNewPromoter'))?.hide();
-  form.reset();
-}
 </script>
 
 {% endblock %}

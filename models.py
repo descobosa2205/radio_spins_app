@@ -12,7 +12,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
 
 from config import settings
 
@@ -167,11 +167,39 @@ class Concert(Base):
     # Empresa del grupo (si aplica)
     group_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
 
+    # Empresa que factura (empresa del grupo)
+    billing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+
     # Estado: HABLADO | RESERVADO | CONFIRMADO
     status = Column(Text, nullable=False, server_default=text("'HABLADO'"))
 
     # relaciones:
-    group_company = relationship("GroupCompany")
+    group_company = relationship("GroupCompany", foreign_keys=[group_company_id])
+    billing_company = relationship("GroupCompany", foreign_keys=[billing_company_id])
+
+    notes = relationship(
+        "ConcertNote",
+        cascade="all, delete-orphan",
+        order_by="ConcertNote.created_at",
+    )
+
+    equipment = relationship(
+        "ConcertEquipment",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    equipment_documents = relationship(
+        "ConcertEquipmentDocument",
+        cascade="all, delete-orphan",
+        order_by="ConcertEquipmentDocument.uploaded_at",
+    )
+
+    equipment_notes = relationship(
+        "ConcertEquipmentNote",
+        cascade="all, delete-orphan",
+        order_by="ConcertEquipmentNote.created_at",
+    )
 
     promoter_shares = relationship(
         "ConcertPromoterShare",
@@ -275,6 +303,12 @@ class ConcertZoneAgent(Base):
     commission_amount = Column(Numeric)
     commission_amount_base = Column(Text)  # GROSS | NET
 
+    # Importe exento (opcional)
+    exempt_amount = Column(Numeric)
+
+    # Concepto / motivo de la comisión
+    concept = Column(Text)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     promoter = relationship("Promoter")
@@ -303,6 +337,9 @@ class ConcertCache(Base):
     amount = Column(Numeric)
     amount_base = Column(Text)  # GROSS | NET
 
+    # Config extra (JSON) para cachés variables avanzados
+    config = Column(JSONB)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -319,6 +356,71 @@ class ConcertContract(Base):
     original_name = Column(Text)
 
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# --- NOTAS (contratación / generales) ---
+
+class ConcertNote(Base):
+    __tablename__ = "concert_notes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+
+    title = Column(Text, nullable=False, server_default=text("''"))
+    body = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# --- EQUIPAMIENTO ---
+
+class ConcertEquipment(Base):
+    __tablename__ = "concert_equipments"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    # lista seleccionada (JSON)
+    included = Column(JSONB)
+
+    # texto libre (opcional)
+    other = Column(Text)
+
+    covered_by_promoter = Column(Boolean, nullable=False, default=False)
+    # RIDER | AMOUNT
+    covered_mode = Column(Text)
+    covered_amount = Column(Numeric)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertEquipmentDocument(Base):
+    __tablename__ = "concert_equipment_documents"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+
+    concept = Column(Text, nullable=False)
+    pdf_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertEquipmentNote(Base):
+    __tablename__ = "concert_equipment_notes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 def init_db():

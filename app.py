@@ -1962,22 +1962,47 @@ def concert_note_create(cid):
     return redirect(url_for("concerts_view", tab="vista") + f"#concert-{cid}")
 
 
-@app.post("/conciertos/<cid>/notes/<nid>/delete", endpoint="concert_note_delete")
+@app.post("/conciertos/notes/<nid>/delete", endpoint="concert_note_delete")
+@app.post("/conciertos/<cid>/notes/<note_id>/delete")  # compat con template (cid + note_id)
 @admin_required
-def concert_note_delete(cid, nid):
-    session = db()
+def concert_note_delete(nid=None, cid=None, note_id=None):
+    session_db = db()
+    next_url = (request.form.get("next") or "").strip() or url_for("concerts_view", tab="vista")
+
     try:
-        n = session.get(ConcertNote, to_uuid(nid))
-        if n:
-            session.delete(n)
-            session.commit()
-            flash("Nota eliminada.", "success")
+        # admitimos ambas formas:
+        #  - /conciertos/notes/<nid>/delete
+        #  - /conciertos/<cid>/notes/<note_id>/delete
+        target_id = nid or note_id
+        if not target_id:
+            flash("Nota inválida.", "warning")
+            return redirect(next_url)
+
+        note_uuid = to_uuid(target_id)
+        note = session_db.get(ConcertNote, note_uuid)
+        if not note:
+            flash("Nota no encontrada.", "warning")
+            return redirect(next_url)
+
+        # si viene cid, verificamos que la nota pertenece a ese concierto
+        if cid:
+            cid_uuid = to_uuid(cid)
+            if cid_uuid and getattr(note, "concert_id", None) != cid_uuid:
+                flash("La nota no corresponde a este concierto.", "warning")
+                return redirect(next_url)
+
+        session_db.delete(note)
+        session_db.commit()
+        flash("Nota eliminada.", "success")
+        return redirect(next_url)
+
     except Exception as e:
-        session.rollback()
+        session_db.rollback()
         flash(f"Error eliminando nota: {e}", "danger")
+        return redirect(next_url)
+
     finally:
-        session.close()
-    return redirect(url_for("concerts_view", tab="vista") + f"#concert-{cid}")
+        session_db.close()
 
 
 # ----------- EQUIPAMIENTO: borrar docs / notas -----------

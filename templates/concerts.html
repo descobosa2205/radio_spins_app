@@ -36,48 +36,91 @@
 {% if active_tab == 'vista' %}
 
   <!-- FILTROS -->
-  <form class="card card-body mb-3" method="get" action="{{ url_for('concerts_view') }}">
+  <form method="get" action="{{ url_for('concerts_view') }}" class="card p-3 mb-3">
     <input type="hidden" name="tab" value="vista">
-    <div class="row g-2 align-items-end">
 
-      <div class="col-12 col-lg-5">
-        <label class="form-label mb-1">Artistas</label>
-        <select name="artist" class="form-select select-artists" multiple>
+    <div class="row g-3 align-items-start">
+      <!-- ARTISTAS (multi selector) -->
+      <div class="col-md-4">
+        <label class="form-label">Artistas</label>
+        <select name="artist_id" class="form-select" multiple size="4">
           {% for a in artists %}
-            <option value="{{ a.id }}"
-                    data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
-                    {% if (a.id|string) in f_artist_ids %}selected{% endif %}>
+            {% set aid = a.id|string %}
+            <option value="{{ aid }}" {% if selected_artist_ids and (aid in selected_artist_ids) %}selected{% endif %}>
               {{ a.name }}
             </option>
           {% endfor %}
         </select>
+        <div class="form-text">Para seleccionar varios: ⌘ (Mac) / Ctrl (Windows).</div>
       </div>
 
-      <div class="col-12 col-lg-4">
-        <label class="form-label mb-1">Tipos</label>
-        <select name="type" class="form-select" multiple>
-          {% for k in order %}
-            <option value="{{ k }}" {% if k in f_sale_types %}selected{% endif %}>{{ titles[k] }}</option>
-          {% endfor %}
-        </select>
+      <!-- TIPOS (checkboxes) -->
+      <div class="col-md-4">
+        <label class="form-label">Tipos</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set T = selected_types or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="EMPRESA"
+                  {% if "EMPRESA" in T %}checked{% endif %}>
+            Conciertos — Empresa
+          </label>
+
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="PARTICIPADOS"
+                  {% if "PARTICIPADOS" in T %}checked{% endif %}>
+            Conciertos — Participados
+          </label>
+
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="CADIZ"
+                  {% if "CADIZ" in T %}checked{% endif %}>
+            Cádiz Music Stadium
+          </label>
+
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="VENDIDO"
+                  {% if "VENDIDO" in T %}checked{% endif %}>
+            Conciertos — Vendidos
+          </label>
+        </div>
       </div>
 
-      <div class="col-12 col-lg-3">
-        <label class="form-label mb-1">Estado</label>
-        <select name="status" class="form-select" multiple>
-          {% for s in ['HABLADO','RESERVADO','CONFIRMADO'] %}
-            <option value="{{ s }}" {% if s in f_statuses %}selected{% endif %}>{{ s|capitalize }}</option>
-          {% endfor %}
-        </select>
-      </div>
+      <!-- ESTADO (checkboxes) -->
+      <div class="col-md-4">
+        <label class="form-label">Estado</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set S = selected_statuses or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO"
+                  {% if "HABLADO" in S %}checked{% endif %}>
+            Hablado
+          </label>
 
-      <div class="col-12 d-flex justify-content-end gap-2 mt-2">
-        <button class="btn btn-primary" type="submit"><i class="fa fa-filter"></i> Filtrar</button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">Limpiar</a>
-      </div>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="RESERVADO"
+                  {% if "RESERVADO" in S %}checked{% endif %}>
+            Reservado
+          </label>
 
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO"
+                  {% if "CONFIRMADO" in S %}checked{% endif %}>
+            Confirmado
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mt-3">
+      <button class="btn btn-danger" type="submit">
+        <i class="fa-solid fa-filter"></i> Filtrar
+      </button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">
+        Limpiar
+      </a>
     </div>
   </form>
+
 
   <!-- LISTADO -->
   {% for key in order %}
@@ -336,6 +379,17 @@
                     {% endif %}
                   </button>
                 </div>
+                <!-- PREVIEW: última nota debajo de la ficha -->
+                {% if c.notes and (c.notes|length) > 0 %}
+                  {% set last_note = (c.notes|sort(attribute='created_at', reverse=True))[0] %}
+                  {% set first_line = (((last_note.body or '').splitlines() | first) or '') %}
+                  <div class="note-bubble mt-2">
+                    <div class="small truncate-2">
+                      <span class="note-title">{{ last_note.title or 'Nota' }}</span>
+                      <span class="text-muted"> — {{ first_line }}</span>
+                    </div>
+                  </div>
+                {% endif %}
 
                 <div class="d-flex gap-2">
                   <a class="btn btn-sm btn-primary" href="{{ url_for('concert_edit_view', cid=c.id) }}">

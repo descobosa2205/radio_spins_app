@@ -11,6 +11,9 @@ from flask import (
 from sqlalchemy import func, text
 
 from werkzeug.security import check_password_hash
+import calendar as _cal
+from urllib.parse import quote_plus
+from urllib.request import Request, urlopen
 
 from config import settings
 from models import (
@@ -2417,6 +2420,273 @@ def api_search_promoters():
     finally:
         session.close()
 
+# =========================
+# CUADRANTES
+# =========================
+
+MONTHS_ES = [
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+]
+DOW_ES = ["L", "M", "X", "J", "V", "S", "D"]  # lunes..domingo
+
+
+def _build_year_calendar(year: int):
+    """Estructura de 12 meses con semanas (monthdayscalendar)."""
+    cal = _cal.Calendar(firstweekday=0)  # 0 = lunes
+    months = []
+    for m in range(1, 13):
+        months.append({
+            "num": m,
+            "name": MONTHS_ES[m - 1],
+            "weeks": cal.monthdayscalendar(year, m),  # list[list[int]] con 0 para padding
+        })
+    return months
+
+
+def _table_exists(session_db, full_name: str) -> bool:
+    """
+    full_name ejemplo: 'public.concert_caches'
+    """
+    try:
+        r = session_db.execute(text("select to_regclass(:t)"), {"t": full_name}).scalar()
+        return r is not None
+    except Exception:
+        return False
+
+
+def _cache_summary(cache_rows: list) -> str:
+    """
+    Devuelve un resumen cortito de cachés para el cuadrante.
+    Si no hay tabla cachés o no hay datos: '—'
+    """
+    if not cache_rows:
+        return "—"
+
+    parts = []
+    for r in cache_rows:
+        # amount
+        if getattr(r, "amount", None) not in (None, ""):
+            try:
+                parts.append(f"{float(r.amount):g}€")
+            except Exception:
+                parts.append(f"{r.amount}€")
+            continue
+
+        # pct
+        if getattr(r, "pct", None) not in (None, ""):
+            try:
+                parts.append(f"{float(r.pct):g}%")
+            except Exception:
+                parts.append(f"{r.pct}%")
+            continue
+
+        # concept / kind
+        if getattr(r, "concept", None):
+            parts.append(str(r.concept))
+        elif getattr(r, "kind", None):
+            parts.append(str(r.kind))
+
+    if not parts:
+        return "—"
+
+    if len(parts) > 3:
+        return " + ".join(parts[:3]) + f" (+{len(parts) - 3})"
+    return " + ".join(parts)
+
+
+def _promoter_display(concert: Concert):
+    """
+    Promotora(logo) en cuadrantes:
+    - si hay promoter -> ese
+    - si no, si hay group_company -> esa
+    """
+    if getattr(concert, "promoter", None):
+        return (
+            getattr(concert.promoter, "logo_url", None),
+            getattr(concert.promoter, "nick", None),
+        )
+    if getattr(concert, "group_company", None):
+        return (
+            getattr(concert.group_company, "logo_url", None),
+            getattr(concert.group_company, "name", None),
+        )
+    return (None, None)
+
+
+@app.get("/api/geocode")
+@admin_required
+def api_geocode():
+    """
+    Geocoding server-side (Nominatim) para evitar CORS en el navegador.
+    Devuelve lat/lng aproximados para (city, province).
+    """
+    city = (request.args.get("city") or "").strip()
+    province = (request.args.get("province") or "").strip()
+
+    if not city:
+        return jsonify({"ok": False, "error": "city is required"}), 400
+
+    q = f"{city}, {province}, España" if province else f"{city}, España"
+    url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&q=" + quote_plus(q)
+
+    try:
+        req = Request(url, headers={
+            "User-Agent": "radio-spins-app/1.0 (cuadrantes)"
+        })
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        if not data:
+            return jsonify({"ok": False, "error": "not found"}), 404
+
+        lat = float(data[0]["lat"])
+        lng = float(data[0]["lon"])
+        return jsonify({"ok": True, "lat": lat, "lng": lng})
+
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/cuadrantes", endpoint="quadrantes_view")
+@admin_required
+def quadrantes_view():
+    """
+    Vista Cuadrantes:
+      - selector múltiple de artistas
+      - calendario anual con días marcados por logos
+      - mapa con chinchetas (logos) geocodificando ciudades de recintos
+      - resumen de eventos ordenados de más cercano a más lejano
+      - exportable a PDF via window.print()
+    """
+    session_db = db()
+    try:
+        # 1) Artistas para selector
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+
+        # 2) Selección
+        raw_ids = request.args.getlist("artist_id")  # ?artist_id=...&artist_id=...
+        selected_uuids = []
+        for rid in raw_ids:
+            try:
+                u = to_uuid(rid)
+                if u:
+                    selected_uuids.append(u)
+            except Exception:
+                pass
+
+        # 3) Año
+        try:
+            year = int(request.args.get("year") or today_local().year)
+        except Exception:
+            year = today_local().year
+
+        # años disponibles (selector)
+        years_rows = (
+            session_db.query(func.extract("year", Concert.date))
+            .distinct()
+            .order_by(func.extract("year", Concert.date))
+            .all()
+        )
+        year_options = sorted({int(r[0]) for r in years_rows if r and r[0] is not None})
+        if not year_options:
+            year_options = [today_local().year]
+
+        # 4) Calendario anual
+        months = _build_year_calendar(year)
+
+        selected_artists = []
+        events = []          # lista derecha
+        marks_by_date = {}   # YYYY-MM-DD -> list[{id,name,photo_url}]
+
+        if selected_uuids:
+            selected_artists = (
+                session_db.query(Artist)
+                .filter(Artist.id.in_(selected_uuids))
+                .order_by(Artist.name.asc())
+                .all()
+            )
+
+            concerts = (
+                session_db.query(Concert)
+                .options(
+                    joinedload(Concert.artist),
+                    joinedload(Concert.venue),
+                    joinedload(Concert.promoter),
+                    joinedload(Concert.group_company),
+                )
+                .filter(Concert.artist_id.in_(selected_uuids))
+                .filter(func.extract("year", Concert.date) == year)
+                .order_by(Concert.date.asc())
+                .all()
+            )
+
+            concert_ids = [c.id for c in concerts]
+
+            # cachés (si existe tabla)
+            caches_map = {}
+            if concert_ids and _table_exists(session_db, "public.concert_caches"):
+                try:
+                    cache_rows = (
+                        session_db.query(ConcertCache)
+                        .filter(ConcertCache.concert_id.in_(concert_ids))
+                        .all()
+                    )
+                    for r in cache_rows:
+                        caches_map.setdefault(r.concert_id, []).append(r)
+                except Exception:
+                    caches_map = {}
+
+            for idx, c in enumerate(concerts, start=1):
+                dstr = c.date.isoformat()
+
+                # marks: dedup por artista
+                marks_by_date.setdefault(dstr, {})
+                if c.artist_id:
+                    marks_by_date[dstr][str(c.artist_id)] = {
+                        "id": str(c.artist_id),
+                        "name": c.artist.name if c.artist else "",
+                        "photo_url": c.artist.photo_url if c.artist else "",
+                    }
+
+                cache_txt = _cache_summary(caches_map.get(c.id, []))
+                pro_logo, pro_name = _promoter_display(c)
+                v = c.venue
+
+                events.append({
+                    "n": idx,
+                    "concert_id": str(c.id),
+                    "date": dstr,
+                    "date_es": c.date.strftime("%d/%m/%Y"),
+                    "artist_name": c.artist.name if c.artist else "",
+                    "artist_photo": c.artist.photo_url if c.artist else "",
+                    "province": (v.province or "") if v else "",
+                    "municipality": (v.municipality or "") if v else "",
+                    "venue_name": (v.name or "") if v else "",
+                    "capacity": int(c.capacity or 0),
+                    "cache": cache_txt,
+                    "promoter_name": pro_name or "",
+                    "promoter_logo": pro_logo or "",
+                })
+
+            # convertir dict interno -> lista para template
+            marks_by_date = {k: list(v.values()) for k, v in marks_by_date.items()}
+
+        return render_template(
+            "cuadrantes.html",
+            artists=artists,
+            selected_artist_ids=[str(u) for u in selected_uuids],
+            selected_artists=selected_artists,
+            year=year,
+            year_options=year_options,
+            months=months,
+            dow=DOW_ES,
+            marks_by_date=marks_by_date,
+            events=events,
+        )
+
+    finally:
+        session_db.close()
 
 if __name__ == "__main__":
     init_db()

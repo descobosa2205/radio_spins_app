@@ -36,22 +36,21 @@
 {% if active_tab == 'vista' %}
 
   <!-- FILTROS -->
-  <form method="get" action="{{ url_for('concerts_view') }}" class="card p-3 mb-3">
+  <form class="card card-body mb-3" method="get" action="{{ url_for('concerts_view') }}">
     <input type="hidden" name="tab" value="vista">
+    <div class="row g-2 align-items-end">
 
-    <div class="row g-3 align-items-start">
-      <!-- ARTISTAS (multi selector) -->
-      <div class="col-md-4">
-        <label class="form-label">Artistas</label>
-        <select name="artist_id" class="form-select" multiple size="4">
+      <div class="col-12 col-lg-5">
+        <label class="form-label mb-1">Artistas</label>
+        <select name="artist" class="form-select select-artists" multiple>
           {% for a in artists %}
-            {% set aid = a.id|string %}
-            <option value="{{ aid }}" {% if selected_artist_ids and (aid in selected_artist_ids) %}selected{% endif %}>
+            <option value="{{ a.id }}"
+                    data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                    {% if (a.id|string) in f_artist_ids %}selected{% endif %}>
               {{ a.name }}
             </option>
           {% endfor %}
         </select>
-        <div class="form-text">Para seleccionar varios: ⌘ (Mac) / Ctrl (Windows).</div>
       </div>
 
       <!-- TIPOS (checkboxes) -->

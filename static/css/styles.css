@@ -56,3 +56,25 @@ body { background: #fafafa; }
 /* Home */
 .hover-card { transition: transform .12s, box-shadow .12s; }
 .hover-card:hover { transform: translateY(-2px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.1); }
+
+/* =========================================================
+   FIX: Avatar (thumb) gigante en Select2 en selección SIMPLE
+   (Alta concierto + Editar concierto)
+   ========================================================= */
+
+/* Evita desbordes del contenido renderizado en selección simple */
+.select2-container--default .select2-selection--single .select2-selection__rendered{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;          /* CLAVE: impide que la imagen se salga */
+}
+
+/* Tamaño fijo del avatar cuando Select2 está en modo single */
+.select2-container--default .select2-selection--single .select2-selection__rendered img.thumb{
+  width: 24px !important;
+  height: 24px !important;
+  border-radius: 50% !important;
+  object-fit: cover !important;
+  flex: 0 0 auto;
+}

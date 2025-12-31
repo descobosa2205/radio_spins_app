@@ -1868,31 +1868,51 @@ def concert_delete_handler(cid):
 @app.post("/api/venues/create", endpoint="api_create_venue")
 @admin_required
 def api_create_venue():
-    session = db()
+    session_db = db()
     try:
         name = (request.form.get("name") or "").strip()
         if not name:
             return jsonify({"error": "El nombre del recinto es obligatorio."}), 400
 
+        municipality = (request.form.get("municipality") or "").strip() or None
+        province = (request.form.get("province") or "").strip() or None
+
         v = Venue(
             name=name,
             covered=(request.form.get("covered") == "on"),
             address=(request.form.get("address") or "").strip() or None,
-            municipality=(request.form.get("municipality") or "").strip() or None,
-            province=(request.form.get("province") or "").strip() or None,
+            municipality=municipality,
+            province=province,
         )
-        session.add(v)
-        session.commit()
+        session_db.add(v)
+        session_db.commit()
 
-        label = f"{v.name} — {(v.municipality or '').strip()} {(v.province or '').strip()}".strip(" —")
-        return jsonify({"id": str(v.id), "label": label, "municipality": v.municipality, "province": v.province})
+        mun = (v.municipality or "").strip()
+        prov = (v.province or "").strip()
+        text_label = f"{v.name} — {mun} ({prov})".strip()
+        if not mun and not prov:
+            text_label = v.name
+        elif mun and not prov:
+            text_label = f"{v.name} — {mun}"
+        elif not mun and prov:
+            text_label = f"{v.name} ({prov})"
+
+        return jsonify({
+            "id": str(v.id),
+            "name": (v.name or "").strip(),
+            "municipality": mun,
+            "province": prov,
+            "label": text_label,
+            "text": text_label,   # ✅ CLAVE para Select2
+        })
 
     except Exception as e:
-        session.rollback()
+        session_db.rollback()
         return jsonify({"error": str(e)}), 400
 
     finally:
-        session.close()
+        session_db.close()
+
 
 
 @app.post("/api/promoters/create", endpoint="api_create_promoter")
@@ -2449,10 +2469,12 @@ def api_concert_meta():
 
 @app.get("/api/search/venues", endpoint="api_search_venues")
 def api_search_venues():
-    q = (request.args.get("q") or "").strip()
-    session = db()
+    # Select2 suele mandar "term"; tu frontend quizá manda "q"
+    q = (request.args.get("q") or request.args.get("term") or "").strip()
+
+    session_db = db()
     try:
-        query = session.query(Venue)
+        query = session_db.query(Venue)
         if q:
             like = f"%{q}%"
             query = query.filter(
@@ -2460,15 +2482,39 @@ def api_search_venues():
                 (Venue.municipality.ilike(like)) |
                 (Venue.province.ilike(like))
             )
+
         venues = query.order_by(Venue.name.asc()).limit(20).all()
-        return jsonify([
-            {
+
+        out = []
+        for v in venues:
+            name = (v.name or "").strip()
+            mun = (v.municipality or "").strip()
+            prov = (v.province or "").strip()
+
+            # texto estándar que usará Select2
+            text_label = f"{name} — {mun} ({prov})".strip()
+            # arreglos por si faltan cosas
+            if not mun and not prov:
+                text_label = name
+            elif mun and not prov:
+                text_label = f"{name} — {mun}"
+            elif not mun and prov:
+                text_label = f"{name} ({prov})"
+
+            out.append({
                 "id": str(v.id),
-                "label": f"{v.name} — {v.municipality or ''} {v.province or ''}".strip()
-            } for v in venues
-        ])
+                "name": name,
+                "municipality": mun,
+                "province": prov,
+                "label": text_label,  # compatibilidad
+                "text": text_label,   # ✅ CLAVE para Select2
+            })
+
+        return jsonify(out)
+
     finally:
-        session.close()
+        session_db.close()
+
 
 
 @app.get("/api/search/promoters", endpoint="api_search_promoters")

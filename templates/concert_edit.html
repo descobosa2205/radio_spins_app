@@ -414,7 +414,7 @@
                   <div class="small text-muted">Subido: {{ d.uploaded_at.strftime('%d/%m/%Y') if d.uploaded_at else '' }}</div>
                   <a class="small" href="{{ d.pdf_url }}" target="_blank">Abrir PDF</a>
                 </div>
-                <form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, doc_id=d.id) }}">
+                <form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, did=d.id) }}">
                   <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
                   <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
                 </form>
@@ -486,7 +486,7 @@
         </div>
         <div class="col-md-5">
           <label class="form-label">PDF</label>
-          <input type="file" name="contract_pdf[]" class="form-control" accept="application/pdf">
+          <input type="file" name="contract_file[]" class="form-control" accept="application/pdf">
         </div>
         <div class="col-md-3 d-grid">
           <label class="form-label">&nbsp;</label>
@@ -514,7 +514,7 @@
                   <div class="fw-semibold">{{ n.title or 'Nota' }}</div>
                   <div class="small text-muted">{{ n.created_at.strftime('%d/%m/%Y') if n.created_at else '' }}</div>
                 </div>
-                <form method="post" action="{{ url_for('concert_note_delete', cid=concert.id, note_id=n.id) }}">
+                <form method="post" action="{{ url_for('concert_note_delete', cid=concert.id, nid=n.id) }}">
                   <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
                   <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
                 </form>

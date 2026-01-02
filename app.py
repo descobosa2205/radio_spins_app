@@ -1423,68 +1423,46 @@ def _add_equipment_notes_from_request(session, concert_id):
 @app.route("/conciertos", methods=["GET", "POST"], endpoint="concerts_view")
 @admin_required
 def concerts_page():
-    session_db = db()
+    s = db()
     try:
-        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-        venues = session_db.query(Venue).order_by(Venue.name.asc()).all()
-        promoters = session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
-        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        venues = s.query(Venue).order_by(Venue.name.asc()).all()
+        promoters = s.query(Promoter).order_by(Promoter.nick.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
 
         active_tab = (request.args.get("tab") or "vista").lower()
         if active_tab not in ("vista", "alta"):
             active_tab = "vista"
 
-        # =========================
-        # FILTROS (solo para vista)
-        # =========================
-        # Soporta nombres alternativos por si cambiaste el HTML en algún momento
-        raw_artist_ids = (
-            request.args.getlist("artist")
-            or request.args.getlist("artist_id")
-            or request.args.getlist("artist_id[]")
-            or []
-        )
-        raw_sale_types = (
-            request.args.getlist("type")
-            or request.args.getlist("sale_type")
-            or request.args.getlist("sale_type[]")
-            or []
-        )
-        raw_statuses = (
-            request.args.getlist("status")
-            or request.args.getlist("status[]")
-            or []
-        )
+        # ---------------- filtros (solo afectan a la vista) ----------------
+        f_artist_ids_raw = request.args.getlist("artist") or []
+        f_sale_types_raw = request.args.getlist("type") or []
+        f_statuses_raw = request.args.getlist("status") or []
 
-        def _safe_uuid_list(items):
-            out = []
-            for x in items or []:
-                x = (x or "").strip()
-                if not x:
-                    continue
-                try:
-                    u = to_uuid(x)
-                except Exception:
-                    continue
-                if u:
-                    out.append(u)
-            return out
+        f_artist_ids = []
+        for x in f_artist_ids_raw:
+            x = (x or "").strip()
+            if not x:
+                continue
+            try:
+                f_artist_ids.append(to_uuid(x))
+            except Exception:
+                pass
 
-        f_artist_ids = _safe_uuid_list(raw_artist_ids)
-        f_sale_types = [(x or "").strip().upper() for x in raw_sale_types if (x or "").strip()]
-        f_statuses = [(x or "").strip().upper() for x in raw_statuses if (x or "").strip()]
+        f_sale_types = [(x or "").strip().upper() for x in f_sale_types_raw if (x or "").strip()]
+        f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
 
-        # sanitizar
-        f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
-        f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+        allowed_sale_types = {"EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"}
+        allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
 
-        # =========================
-        # POST: crear concierto
-        # =========================
+        f_sale_types = [x for x in f_sale_types if x in allowed_sale_types]
+        f_statuses = [x for x in f_statuses if x in allowed_statuses]
+
+        # ---------------- POST: crear concierto ----------------
         if request.method == "POST":
             try:
                 sale_type = (request.form.get("sale_type") or "EMPRESA").strip().upper()
-                if sale_type not in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"):
+                if sale_type not in allowed_sale_types:
                     sale_type = "EMPRESA"
 
                 venue_raw = (request.form.get("venue_id") or "").strip()
@@ -1493,31 +1471,33 @@ def concerts_page():
 
                 be_val = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
 
+                promoter_raw = (request.form.get("promoter_id") or "").strip()
+                group_company_raw = (request.form.get("group_company_id") or "").strip()
+                billing_company_raw = (request.form.get("billing_company_id") or "").strip()
+
                 c = Concert(
-                    date=parse_date(request.form["date"]),
+                    date=parse_date(request.form.get("date") or ""),
                     festival_name=(request.form.get("festival_name") or "").strip() or None,
                     venue_id=to_uuid(venue_raw),
                     sale_type=sale_type,
-                    promoter_id=to_uuid(request.form.get("promoter_id") or None) if sale_type == "VENDIDO" else None,
-                    group_company_id=to_uuid(request.form.get("group_company_id") or None) if sale_type == "EMPRESA" else None,
-                    billing_company_id=to_uuid(request.form.get("billing_company_id") or None),
-                    artist_id=to_uuid(request.form["artist_id"]),
+                    promoter_id=(to_uuid(promoter_raw) if sale_type == "VENDIDO" and promoter_raw else None),
+                    group_company_id=(to_uuid(group_company_raw) if sale_type == "EMPRESA" and group_company_raw else None),
+                    billing_company_id=(to_uuid(billing_company_raw) if billing_company_raw else None),
+                    artist_id=to_uuid((request.form.get("artist_id") or "").strip()),
                     capacity=int(request.form.get("capacity") or 0),
-                    sale_start_date=parse_date(request.form["sale_start_date"]),
+                    sale_start_date=parse_date(request.form.get("sale_start_date") or ""),
                     break_even_ticket=(None if sale_type == "VENDIDO" else be_val),
                     sold_out=False,
                     status=_norm_status(request.form.get("status")),
                 )
 
-                # Si es EMPRESA y no han seleccionado empresa que factura, usar la misma de gestión
                 if sale_type == "EMPRESA" and not c.billing_company_id:
                     c.billing_company_id = c.group_company_id
 
-                session_db.add(c)
-                session_db.flush()
+                s.add(c)
+                s.flush()
 
-                # --- colaboradores / participaciones (opcionales) ---
-                # En VENDIDO no hay colaboradores
+                # colaboradores / participaciones (opcionales)
                 if sale_type != "VENDIDO":
                     p_rows = _parse_share_rows(
                         request.form.getlist("promoter_share_id[]"),
@@ -1526,7 +1506,7 @@ def concerts_page():
                         request.form.getlist("promoter_share_amount[]"),
                         request.form.getlist("promoter_share_amount_base[]"),
                     )
-                    _replace_concert_promoter_shares(session_db, c.id, p_rows)
+                    _replace_concert_promoter_shares(s, c.id, p_rows)
 
                     g_rows = _parse_share_rows(
                         request.form.getlist("company_share_id[]"),
@@ -1535,7 +1515,7 @@ def concerts_page():
                         request.form.getlist("company_share_amount[]"),
                         request.form.getlist("company_share_amount_base[]"),
                     )
-                    _replace_concert_company_shares(session_db, c.id, g_rows)
+                    _replace_concert_company_shares(s, c.id, g_rows)
 
                     z_rows = _parse_zone_rows(
                         request.form.getlist("zone_promoter_id[]"),
@@ -1546,11 +1526,11 @@ def concerts_page():
                         request.form.getlist("zone_exempt_amount[]"),
                         request.form.getlist("zone_concept[]"),
                     )
-                    _replace_concert_zone_agents(session_db, c.id, z_rows)
+                    _replace_concert_zone_agents(s, c.id, z_rows)
                 else:
-                    _replace_concert_promoter_shares(session_db, c.id, [])
-                    _replace_concert_company_shares(session_db, c.id, [])
-                    _replace_concert_zone_agents(session_db, c.id, [])
+                    _replace_concert_promoter_shares(s, c.id, [])
+                    _replace_concert_company_shares(s, c.id, [])
+                    _replace_concert_zone_agents(s, c.id, [])
 
                 # cachés (opcional)
                 cache_rows = _parse_cache_rows(
@@ -1566,33 +1546,29 @@ def concerts_page():
                     request.form.getlist("cache_pct_base[]"),
                     request.form.getlist("cache_ticket_type[]"),
                 )
-                _replace_concert_caches(session_db, c.id, cache_rows)
+                _replace_concert_caches(s, c.id, cache_rows)
 
-                # contratos (opcionales)
-                _add_contracts_from_request(session_db, c.id)
+                # contratos + notas contratación
+                _add_contracts_from_request(s, c.id)
+                _add_concert_notes_from_request(s, c.id)
 
-                # notas contratación (opcionales)
-                _add_concert_notes_from_request(session_db, c.id)
+                # equipamiento
+                _upsert_equipment_from_request(s, c.id)
+                _add_equipment_docs_from_request(s, c.id)
+                _add_equipment_notes_from_request(s, c.id)
 
-                # equipamiento (opcional)
-                _upsert_equipment_from_request(session_db, c.id)
-                _add_equipment_docs_from_request(session_db, c.id)
-                _add_equipment_notes_from_request(session_db, c.id)
-
-                session_db.commit()
+                s.commit()
                 flash("Concierto creado.", "success")
                 return redirect(url_for("concerts_view", tab="vista") + f"#concert-{c.id}")
 
             except Exception as e:
-                session_db.rollback()
+                s.rollback()
                 flash(f"Error creando concierto: {e}", "danger")
                 return redirect(url_for("concerts_view", tab="alta"))
 
-        # =========================
-        # GET: listar conciertos
-        # =========================
+        # ---------------- GET: vista ----------------
         q = (
-            session_db.query(Concert)
+            s.query(Concert)
             .options(
                 joinedload(Concert.artist),
                 joinedload(Concert.venue),
@@ -1611,14 +1587,12 @@ def concerts_page():
             )
         )
 
-        # aplica filtros solo si estás en la vista (por limpieza)
-        if active_tab == "vista":
-            if f_artist_ids:
-                q = q.filter(Concert.artist_id.in_(f_artist_ids))
-            if f_sale_types:
-                q = q.filter(Concert.sale_type.in_(f_sale_types))
-            if f_statuses:
-                q = q.filter(Concert.status.in_(f_statuses))
+        if f_artist_ids:
+            q = q.filter(Concert.artist_id.in_(f_artist_ids))
+        if f_sale_types:
+            q = q.filter(Concert.sale_type.in_(f_sale_types))
+        if f_statuses:
+            q = q.filter(Concert.status.in_(f_statuses))
 
         concerts = q.order_by(Concert.date.asc()).all()
 
@@ -1644,10 +1618,9 @@ def concerts_page():
             f_sale_types=f_sale_types,
             f_statuses=f_statuses,
         )
-
     finally:
-        # MUY IMPORTANTE: evita fugas de conexiones y timeouts
-        session_db.close()
+        s.close()
+
 
 
 

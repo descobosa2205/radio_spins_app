@@ -1,0 +1,81 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<h4 class="mb-3">Ticketeras</h4>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="m-0">Ticketeras</h4>
+  <input id="filter-ticketers" class="form-control"
+         placeholder="Buscar ticketera..." style="max-width: 340px;">
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const inp = document.getElementById('filter-ticketers');
+  const rows = document.querySelectorAll('[data-ticketer-row]');
+  inp.addEventListener('input', function(){
+    const q = (inp.value || '').toLowerCase();
+    rows.forEach(el => {
+      const k = (el.getAttribute('data-key') || '').toLowerCase();
+      el.style.display = (!q || k.includes(q)) ? '' : 'none';
+    });
+  });
+});
+</script>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Nombre</label>
+        <input name="name" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Logo (PNG)</label>
+        <input type="file" name="logo" accept="image/png" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Link (opcional)</label>
+        <input name="link_url" class="form-control" placeholder="https://...">
+      </div>
+      <div class="col-12 col-md-2 d-grid">
+        <button class="btn btn-primary">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="row">
+  {% for t in ticketers %}
+  <div class="col-md-6" data-ticketer-row data-key="{{ t.name }} {{ t.link_url or '' }}">
+    <div class="card mb-3">
+      <div class="card-body">
+        <form method="post" action="{{ url_for('ticketer_update', tid=t.id) }}" enctype="multipart/form-data">
+          <div class="d-flex align-items-center gap-3">
+            <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}"
+                 class="station-logo" alt="">
+            <div class="flex-grow-1">
+              <label class="form-label">Nombre</label>
+              <input name="name" class="form-control" value="{{ t.name }}">
+              <label class="form-label mt-2">Link (opcional)</label>
+              <input name="link_url" class="form-control" value="{{ t.link_url or '' }}">
+              <label class="form-label mt-2">Logo (PNG)</label>
+              <input class="form-control" type="file" name="logo" accept="image/png">
+            </div>
+            <div class="text-end">
+              <button class="btn btn-outline-primary">Guardar</button>
+            </div>
+          </div>
+        </form>
+        <form class="text-end mt-2" method="post" action="{{ url_for('ticketer_delete', tid=t.id) }}">
+          <button class="btn btn-outline-danger">
+            <i class="fa fa-trash"></i> Borrar
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}

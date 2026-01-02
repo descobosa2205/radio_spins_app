@@ -3,13 +3,17 @@
 
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
-    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=prev_day.isoformat()) }}"><i class="fa fa-chevron-left"></i></a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=prev_day.isoformat()) }}">
+      <i class="fa fa-chevron-left"></i>
+    </a>
     <div class="badge bg-light text-dark px-3 py-2">{{ day.strftime('%d/%m/%Y') }}</div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=next_day.isoformat()) }}"><i class="fa fa-chevron-right"></i></a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=next_day.isoformat()) }}">
+      <i class="fa fa-chevron-right"></i>
+    </a>
   </div>
   <form method="get" action="{{ url_for('sales_update_view') }}" class="d-flex align-items-center gap-2">
     <input type="date" name="d" class="form-control" value="{{ day.isoformat() }}">
-    <button class="btn btn-outline-primary"><i class="fa fa-calendar"></i></button>
+    <button class="btn btn-outline-primary" title="Ir a fecha"><i class="fa fa-calendar"></i></button>
   </form>
 </div>
 
@@ -32,97 +36,394 @@
       {% if lista %}
         {% for c in lista %}
           {% set total = totals.get(c.id, 0) %}
-          {% set today_val = today_map.get(c.id) %}
-          {% set today_sold = today_map.get(c.id, 0) %}
-          {% set has_today = (today_val is not none) %}
           {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
           {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
           {% set days_left = (c.date - day).days if c.date else 0 %}
-          {% set be = c.break_even_ticket or 0 %}
-          {% set be_pct = ((be / c.capacity) * 100) if (be and c.capacity) else 0 %}
-          {% set reached = (be > 0 and total >= be) %}
+          {% set gross = (gross_map.get(c.id, 0) or 0) %}
+          {% set net = (net_map.get(c.id, 0) or 0) %}
+
+          {% set updated_last = last_map.get(c.id) %}
+          {% set is_today = (updated_last == day) %}
+
           {% set soldout = c.sold_out %}
           {% set full = (c.capacity and total >= c.capacity) %}
 
-          <div class="card mb-2 {% if c.sale_start_date and c.sale_start_date > day %}bg-light opacity-50{% endif %}"
-               id="concert-{{ c.id }}">
+          <div class="card mb-2" id="concert-{{ c.id }}">
             <div class="card-body py-3">
 
-              <!-- CABECERA -->
-              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <!-- CABECERA (estilo reporte) -->
+              <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
                 <div class="d-flex align-items-center gap-3">
                   <img src="{{ c.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-                  <div class="d-flex align-items-center flex-wrap gap-3">
-                    <div class="fw-semibold">{{ c.artist.name }}</div>
-                    <div class="text-muted"><small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small></div>
-                    {% if c.festival_name %}<div class="text-muted"><small>{{ c.festival_name }}</small></div>{% endif %}
-                    <div class="text-muted"><small>{{ c.venue.municipality if c.venue else '' }}</small></div>
-                    <div class="text-muted"><small>{{ c.venue.province if c.venue else '' }}</small></div>
-                    <div class="text-muted"><small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</small></div>
+                  <div>
+                    <div class="d-flex align-items-center gap-2 flex-wrap">
+                      <div class="fw-semibold">{{ c.artist.name }}</div>
+                      {% if c.festival_name %}
+                        <span class="badge badge-festival">{{ c.festival_name }}</span>
+                      {% endif %}
+                    </div>
+
+                    <div class="text-muted small d-flex flex-wrap gap-2">
+                      <span><strong>{{ c.venue.municipality if c.venue else '' }}</strong></span>
+                      <span>{{ c.venue.province if c.venue else '' }}</span>
+                      {% if c.venue %}
+                        <span class="badge badge-venue">{{ c.venue.name }}</span>
+                      {% endif %}
+                      <span>Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</strong></span>
+                    </div>
                   </div>
                 </div>
 
                 <div class="d-flex align-items-center gap-2">
-                  <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
                   {% if full and not soldout %}<span class="badge bg-light text-dark">Aforo completo</span>{% endif %}
 
-                  {# Logo principal (promotor o empresa) para referencia rápida #}
-                  {% if c.sale_type == 'EMPRESA' and c.group_company %}
-                    <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
-                  {% elif c.promoter %}
-                    <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
-                  {% endif %}
-
-                  {% if soldout %}<span class="badge bg-danger">SOLD OUT</span>{% endif %}
+                  {# Logos como en reporte #}
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if c.sale_type == 'EMPRESA' and c.billing_company %}
+                      <a href="{{ url_for('sales_report_by_company', gid=c.billing_company.id) }}" class="logo-chip" title="{{ c.billing_company.name }}">
+                        <img src="{{ c.billing_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                      </a>
+                    {% elif c.sale_type == 'EMPRESA' and c.group_company %}
+                      <a href="{{ url_for('sales_report_by_company', gid=c.group_company.id) }}" class="logo-chip" title="{{ c.group_company.name }}">
+                        <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                      </a>
+                    {% elif c.sale_type == 'PARTICIPADOS' and c.company_shares %}
+                      {% for s in c.company_shares %}
+                        {% set comp = s.company %}
+                        {% if comp %}
+                          <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}"
+                             class="logo-chip position-relative" title="{{ comp.name }}">
+                            <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                            {% if s.pct %}
+                              <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                            {% elif s.amount %}
+                              <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                            {% endif %}
+                          </a>
+                        {% endif %}
+                      {% endfor %}
+                    {% elif c.sale_type == 'VENDIDO' and c.promoter_shares %}
+                      {% for s in c.promoter_shares %}
+                        {% set prom = s.promoter %}
+                        {% if prom %}
+                          <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}"
+                             class="logo-chip position-relative" title="{{ prom.nick }}">
+                            <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                            {% if s.pct %}
+                              <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                            {% elif s.amount %}
+                              <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
+                            {% endif %}
+                          </a>
+                        {% endif %}
+                      {% endfor %}
+                    {% elif c.promoter %}
+                      <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}">
+                        <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                      </a>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
 
-              <!-- MÉTRICAS + FORM -->
+              <!-- MÉTRICAS (sin "vendidas hoy") -->
               <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
-                <div>
-                  <small class="text-muted d-block">Vendidas hoy</small>
-                  <form class="d-inline" method="post" action="{{ url_for('sales_save') }}">
+                <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
+                <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
+                <div><small class="text-muted d-block">Aforo a la venta</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
+                <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+                <div><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ gross|eur }}</div></div>
+                <div><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ net|eur }}</div></div>
+              </div>
+
+              <!-- PIE: actualizado + faltan + botones -->
+              <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+                <div class="d-flex align-items-center gap-2 flex-wrap">
+                  {% if is_today %}
+                    <span class="badge bg-success">Actualizado hoy</span>
+                  {% elif updated_last %}
+                    <span class="badge bg-warning text-dark">Actualizado {{ updated_last.strftime('%d/%m/%Y') }}</span>
+                  {% else %}
+                    <span class="badge bg-light text-dark">Sin actualizaciones</span>
+                  {% endif %}
+                  <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
+                </div>
+
+                <div class="d-flex align-items-center gap-2">
+                  <a class="btn btn-sm btn-outline-secondary" target="_blank" title="Informe"
+                     href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
+                    Informe
+                  </a>
+
+                  <form method="post" action="{{ url_for('sales_toggle_soldout', cid=c.id) }}" class="d-inline">
+                    <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                    <button class="btn btn-sm {% if soldout %}btn-danger{% else %}btn-outline-secondary{% endif %}">
+                      SOLD OUT
+                    </button>
+                  </form>
+
+                  <button type="button" class="btn btn-sm btn-outline-secondary" title="Configuración avanzada"
+                          data-bs-toggle="modal" data-bs-target="#salesCfgModal-{{ c.id }}">
+                    <i class="fa fa-gear"></i>
+                  </button>
+                </div>
+              </div>
+
+              {# ====== MODO RÁPIDO (legacy) si no hay V2 configurado ====== #}
+              {% set has_types = (c.ticket_types and (c.ticket_types|length > 0)) %}
+              {% set has_ticketers = (c.ticketers and (c.ticketers|length > 0)) %}
+              {% if not has_types or not has_ticketers %}
+                {% set today_val = today_map.get(c.id) %}
+                {% set today_sold = today_map.get(c.id, 0) %}
+                {% set has_today = (today_val is not none) %}
+                <div class="mt-3 p-2 border rounded bg-light">
+                  <div class="small text-muted mb-2">
+                    Modo rápido (legacy): aún no has configurado <strong>tipos de entradas</strong> y/o <strong>ticketeras</strong>.
+                    Usa el engranaje para activar el modo avanzado.
+                  </div>
+                  <form class="d-flex align-items-end gap-2 flex-wrap" method="post" action="{{ url_for('sales_save') }}">
                     <input type="hidden" name="concert_id" value="{{ c.id }}">
                     <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                    <input id="sold_today_{{ c.id }}" type="number" name="sold_today"
-                           class="form-control form-control-sm {% if has_today %}bg-light{% endif %}"
-                           value="{{ today_sold }}" min="0"
-                           {% if soldout %}disabled{% elif has_today %}readonly{% endif %}>
-                    <div class="d-flex justify-content-end gap-2 mt-1">
-                      {% if not soldout %}
-                        <button type="button" class="btn btn-sm btn-outline-secondary"
-                                onclick="enableEdit('{{ c.id }}')">Editar</button>
-                        <button class="btn btn-sm btn-primary">Guardar</button>
-                      {% endif %}
+                    <div>
+                      <label class="form-label small text-muted mb-1">Vendidas hoy (total)</label>
+                      <input id="sold_today_{{ c.id }}" type="number" name="sold_today" min="0"
+                             class="form-control form-control-sm {% if has_today %}bg-white{% endif %}"
+                             value="{{ today_sold }}" {% if has_today %}readonly{% endif %}>
+                    </div>
+                    <div class="d-flex gap-2">
+                      <button type="button" class="btn btn-sm btn-outline-secondary" onclick="enableEditLegacy('{{ c.id }}')">Editar</button>
+                      <button class="btn btn-sm btn-primary">Guardar</button>
                     </div>
                   </form>
                 </div>
-                <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
-                <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
-                <div><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
-                <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
-
-                {% if be > 0 %}
-                <div>
-                  <small class="text-muted d-block">Punto de empate</small>
-                  <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">
-                    {{ be|k }} ({{ '%.0f' % be_pct }}%)
-                  </span>
-                </div>
-                {% endif %}
-              </div>
-
-              <div class="d-flex justify-content-end mt-2">
-                <form method="post" action="{{ url_for('sales_toggle_soldout', cid=c.id) }}">
-                  <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                  <button class="btn btn-sm {% if soldout %}btn-outline-warning{% else %}btn-outline-danger{% endif %}">
-                    {% if soldout %}Quitar Sold Out{% else %}Marcar como Sold Out{% endif %}
-                  </button>
-                </form>
-              </div>
+              {% endif %}
 
             </div>
           </div>
+
+
+          <!-- MODAL: Configuración avanzada -->
+          <div class="modal fade" id="salesCfgModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-xl modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <div class="d-flex align-items-center gap-2">
+                    <img src="{{ c.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                    <div>
+                      <h6 class="modal-title m-0">Configuración avanzada — {{ c.artist.name }}</h6>
+                      <div class="small text-muted">
+                        {{ c.venue.municipality if c.venue else '' }} · {{ c.venue.province if c.venue else '' }} · {{ c.venue.name if c.venue else '' }}
+                      </div>
+                    </div>
+                  </div>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="modal-body">
+
+                  <!-- IVA / SGAE -->
+                  <div class="border rounded p-3 mb-3">
+                    <div class="fw-semibold mb-2">Porcentajes</div>
+                    <form method="post" action="{{ url_for('sales_config_save', cid=c.id) }}" class="row g-2 align-items-end">
+                      <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                      <div class="col-12 col-md-3">
+                        <label class="form-label">% IVA</label>
+                        <input type="number" step="0.01" name="vat_pct" class="form-control"
+                               value="{{ (c.sales_config.vat_pct if c.sales_config else 0) or 0 }}">
+                      </div>
+                      <div class="col-12 col-md-3">
+                        <label class="form-label">% SGAE</label>
+                        <input type="number" step="0.01" name="sgae_pct" class="form-control"
+                               value="{{ (c.sales_config.sgae_pct if c.sales_config else 0) or 0 }}">
+                      </div>
+                      <div class="col-12 col-md-3">
+                        <button class="btn btn-primary">Guardar</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <!-- Tipos de entradas -->
+                  <div class="border rounded p-3 mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                      <div class="fw-semibold">Tipos de entrada</div>
+                    </div>
+
+                    {% if c.ticket_types and (c.ticket_types|length > 0) %}
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th>Tipo</th>
+                              <th style="width: 160px;">Entradas a la venta</th>
+                              <th style="width: 160px;">Importe</th>
+                              <th style="width: 170px;"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                          {% for tt in c.ticket_types %}
+                            <tr>
+                              <td>
+                                <form method="post" action="{{ url_for('sales_ticket_type_update', cid=c.id, ttid=tt.id) }}" class="d-flex gap-2">
+                                  <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                                  <input name="type_name" class="form-control form-control-sm" value="{{ tt.name }}">
+                              </td>
+                              <td>
+                                  <input name="type_qty" type="number" min="0" class="form-control form-control-sm" value="{{ tt.qty_for_sale or 0 }}">
+                              </td>
+                              <td>
+                                  <input name="type_price" type="number" step="0.01" min="0" class="form-control form-control-sm" value="{{ tt.price or 0 }}">
+                              </td>
+                              <td class="text-end">
+                                  <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                                </form>
+                                <form method="post" action="{{ url_for('sales_ticket_type_delete', cid=c.id, ttid=tt.id) }}" class="d-inline">
+                                  <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                                  <button class="btn btn-sm btn-outline-danger" onclick="return confirm('¿Eliminar tipo de entrada? Se borrarán sus ventas asociadas.');">
+                                    <i class="fa fa-trash"></i>
+                                  </button>
+                                </form>
+                              </td>
+                            </tr>
+                          {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    {% else %}
+                      <div class="alert alert-light mb-2">Aún no hay tipos de entrada. Añade al menos uno para activar el módulo de ventas por ticketera.</div>
+                    {% endif %}
+
+                    <form method="post" action="{{ url_for('sales_ticket_type_add', cid=c.id) }}" class="row g-2 align-items-end">
+                      <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                      <div class="col-12 col-md-4">
+                        <label class="form-label">Nuevo tipo</label>
+                        <input name="type_name" class="form-control" placeholder="Ej: General / VIP">
+                      </div>
+                      <div class="col-12 col-md-3">
+                        <label class="form-label">Entradas a la venta</label>
+                        <input name="type_qty" type="number" min="0" class="form-control" placeholder="0">
+                      </div>
+                      <div class="col-12 col-md-3">
+                        <label class="form-label">Importe</label>
+                        <input name="type_price" type="number" step="0.01" min="0" class="form-control" placeholder="0,00">
+                      </div>
+                      <div class="col-12 col-md-2">
+                        <button class="btn btn-outline-primary w-100"><i class="fa fa-plus"></i> Añadir</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <!-- Ticketeras -->
+                  <div class="border rounded p-3 mb-3">
+                    <div class="fw-semibold mb-2">Ticketeras</div>
+
+                    {% if c.ticketers and (c.ticketers|length > 0) %}
+                      <div class="d-flex flex-wrap gap-2 mb-3">
+                        {% for ct in c.ticketers %}
+                          {% set t = ct.ticketer %}
+                          <div class="badge bg-light text-dark d-flex align-items-center gap-2" style="border:1px solid #e6e6e6;">
+                            <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:22px; height:22px; object-fit:contain;" alt="">
+                            <span>{{ t.name }}</span>
+                            <form method="post" action="{{ url_for('sales_ticketer_remove', cid=c.id, tid=t.id) }}" class="ms-1">
+                              <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                              <button class="btn btn-sm btn-link text-danger p-0" title="Quitar">
+                                <i class="fa fa-times"></i>
+                              </button>
+                            </form>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+
+                    <form id="ticketerAddForm-{{ c.id }}" method="post" action="{{ url_for('sales_ticketer_add', cid=c.id) }}" class="row g-2 align-items-end">
+                      <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                      <div class="col-12 col-md-8">
+                        <label class="form-label">Agregar ticketera</label>
+                        <div class="d-flex gap-2">
+                          <select id="ticketerSelect-{{ c.id }}" name="ticketer_id" class="form-select ticketer-select">
+                            <option value="">— Selecciona —</option>
+                            {% for t in all_ticketers %}
+                              <option value="{{ t.id }}" data-logo="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}">{{ t.name }}</option>
+                            {% endfor %}
+                          </select>
+                          <button type="button" class="btn btn-outline-secondary" title="Crear ticketera" onclick="openTicketerCreateModal('{{ c.id }}')">
+                            <i class="fa fa-plus"></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="col-12 col-md-4">
+                        <button class="btn btn-outline-primary w-100">Añadir al evento</button>
+                      </div>
+                    </form>
+                  </div>
+
+                  <!-- Entradas vendidas hoy por ticketera (V2) -->
+                  <div class="border rounded p-3">
+                    <div class="fw-semibold mb-2">Entradas vendidas hoy ({{ day.strftime('%d/%m/%Y') }})</div>
+                    {% if not (c.ticket_types and (c.ticket_types|length > 0)) %}
+                      <div class="alert alert-light">Añade primero tipos de entrada para poder registrar ventas por ticketera.</div>
+                    {% elif not (c.ticketers and (c.ticketers|length > 0)) %}
+                      <div class="alert alert-light">Añade al menos una ticketera al evento.</div>
+                    {% else %}
+                      <div class="d-flex flex-wrap gap-3">
+                        {% for ct in c.ticketers %}
+                          {% set t = ct.ticketer %}
+                          {% set has_today = ( (c.id ~ '') ~ ':' ~ (t.id ~ '') ) in ticketer_has_today %}
+                          <div class="border rounded p-3" style="width: 280px;">
+                            <div class="d-flex align-items-center gap-2 mb-2">
+                              <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:28px; height:28px; object-fit:contain;" alt="">
+                              <div class="fw-semibold">{{ t.name }}</div>
+                            </div>
+
+                            <form method="post" action="{{ url_for('sales_ticketer_day_save', cid=c.id, tid=t.id) }}" oninput="recalcTicketerTotals('{{ c.id }}','{{ t.id }}')">
+                              <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                              <div class="d-flex flex-column gap-2">
+                                {% for tt in c.ticket_types %}
+                                  {% set qty_val = ((details_today.get(c.id, {}) or {}).get(t.id, {}) or {}).get(tt.id, 0) %}
+                                  <div class="d-flex align-items-center justify-content-between gap-2">
+                                    <div class="small text-muted" style="width: 150px;">
+                                      {{ tt.name }}
+                                      <div class="text-muted" style="font-size: 0.75rem;">{{ (tt.price or 0)|eur }}</div>
+                                    </div>
+                                    <input type="number" min="0"
+                                           name="qty_{{ tt.id }}"
+                                           value="{{ qty_val }}"
+                                           class="form-control form-control-sm ticketer-input ticketer-input-{{ c.id }}-{{ t.id }}"
+                                           data-price="{{ tt.price or 0 }}"
+                                           {% if has_today %}readonly{% endif %}>
+                                  </div>
+                                {% endfor %}
+                              </div>
+
+                              <hr class="my-2">
+                              <div class="small">
+                                <div><span class="text-muted">Total vendidas:</span>
+                                  <strong id="ticketerTotal-{{ c.id }}-{{ t.id }}">{{ (ticketer_today_totals.get(c.id, {}) or {}).get(t.id, 0) }}</strong>
+                                </div>
+                                <div><span class="text-muted">Recaudación hoy:</span>
+                                  <strong id="ticketerGross-{{ c.id }}-{{ t.id }}">{{ ((ticketer_today_gross.get(c.id, {}) or {}).get(t.id, 0) or 0)|eur }}</strong>
+                                </div>
+                              </div>
+
+                              <div class="d-flex justify-content-end gap-2 mt-2">
+                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="enableTicketerEdit('{{ c.id }}','{{ t.id }}')">Editar</button>
+                                <button class="btn btn-sm btn-primary">Guardar</button>
+                              </div>
+                            </form>
+                          </div>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+
+                </div>
+
+                <div class="modal-footer">
+                  <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
         {% endfor %}
       {% else %}
         <div class="alert alert-light">Sin conciertos en esta categoría para esta fecha.</div>
@@ -132,19 +433,147 @@
   </div>
 {% endfor %}
 
+
+<!-- Modal: Crear ticketera (reutilizable) -->
+<div class="modal fade" id="createTicketerModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title">Nueva ticketera</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="createTicketerForm">
+          <input type="hidden" id="createTicketerConcertId" value="">
+          <div class="mb-2">
+            <label class="form-label">Nombre</label>
+            <input name="name" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Logo (PNG)</label>
+            <input name="logo" type="file" accept="image/png" class="form-control" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Link (opcional)</label>
+            <input name="link_url" type="url" class="form-control" placeholder="https://...">
+          </div>
+          <button class="btn btn-primary">Crear</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+
 <script>
-function enableEdit(cid){
+function enableEditLegacy(cid){
   const inp = document.getElementById('sold_today_' + cid);
   if (!inp) return;
   if (inp.hasAttribute('readonly')) {
     inp.removeAttribute('readonly');
-    inp.classList.remove('bg-light');
-    try {
-      inp.focus({preventScroll:true});
-      inp.select();
-    } catch(e){}
+    try { inp.focus({preventScroll:true}); inp.select(); } catch(e){}
   }
 }
+
+function enableTicketerEdit(cid, tid){
+  const inputs = document.querySelectorAll('.ticketer-input-' + cid + '-' + tid);
+  inputs.forEach(i => {
+    if (i.hasAttribute('readonly')) i.removeAttribute('readonly');
+  });
+}
+
+function _formatEur(v){
+  try {
+    const n = Number(v || 0);
+    return n.toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' €';
+  } catch(e){
+    return '0,00 €';
+  }
+}
+
+function recalcTicketerTotals(cid, tid){
+  const inputs = document.querySelectorAll('.ticketer-input-' + cid + '-' + tid);
+  let qty = 0;
+  let gross = 0;
+  inputs.forEach(i => {
+    const q = Number(i.value || 0);
+    const p = Number(i.dataset.price || 0);
+    qty += q;
+    gross += q * p;
+  });
+  const tEl = document.getElementById('ticketerTotal-' + cid + '-' + tid);
+  const gEl = document.getElementById('ticketerGross-' + cid + '-' + tid);
+  if (tEl) tEl.textContent = qty;
+  if (gEl) gEl.textContent = _formatEur(gross);
+}
+
+let _ticketerTargetConcertId = null;
+
+function openTicketerCreateModal(concertId){
+  _ticketerTargetConcertId = concertId;
+  document.getElementById('createTicketerConcertId').value = concertId;
+  const form = document.getElementById('createTicketerForm');
+  form.reset();
+  const modal = new bootstrap.Modal(document.getElementById('createTicketerModal'));
+  modal.show();
+}
+
+document.getElementById('createTicketerForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const form = e.target;
+  const concertId = document.getElementById('createTicketerConcertId').value;
+  const fd = new FormData(form);
+  try {
+    const res = await fetch('{{ url_for('api_create_ticketer') }}', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || !data || !data.id) {
+      alert(data && data.error ? data.error : 'Error creando ticketera');
+      return;
+    }
+    // Insertar option en el select de ese concierto
+    const sel = document.getElementById('ticketerSelect-' + concertId);
+    if (sel) {
+      const opt = document.createElement('option');
+      opt.value = data.id;
+      opt.textContent = data.name;
+      opt.setAttribute('data-logo', data.logo_url || '');
+      sel.appendChild(opt);
+      sel.value = data.id;
+      // Si hay select2
+      if (window.jQuery && jQuery(sel).data('select2')) {
+        jQuery(sel).trigger('change');
+      }
+      // Auto-submit para añadir al evento
+      const addForm = document.getElementById('ticketerAddForm-' + concertId);
+      if (addForm) addForm.submit();
+    }
+    bootstrap.Modal.getInstance(document.getElementById('createTicketerModal')).hide();
+  } catch(err){
+    alert('Error creando ticketera');
+  }
+});
+
+// Init select2 para ticketeras (con logo)
+document.addEventListener('DOMContentLoaded', function(){
+  if (!window.jQuery) return;
+  if (!jQuery.fn.select2) return;
+
+  function formatTicketer(opt){
+    if (!opt.id) return opt.text;
+    const logo = opt.element && opt.element.dataset ? opt.element.dataset.logo : null;
+    if (!logo) return opt.text;
+    const $c = jQuery('<span class="d-flex align-items-center gap-2"></span>');
+    const $img = jQuery('<img>').attr('src', logo).css({width:'18px',height:'18px',objectFit:'contain'});
+    $c.append($img).append(jQuery('<span></span>').text(opt.text));
+    return $c;
+  }
+
+  jQuery('.ticketer-select').select2({
+    width: '100%',
+    templateResult: formatTicketer,
+    templateSelection: formatTicketer
+  });
+});
 </script>
 
 {% endblock %}

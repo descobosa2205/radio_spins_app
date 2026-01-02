@@ -84,6 +84,7 @@
             <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Bases de datos</a>
             <ul class="dropdown-menu">
               <li><a class="dropdown-item" href="{{ url_for('venues_view') }}">Recintos</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('ticketers_view') }}">Ticketeras</a></li>
               <li><a class="dropdown-item" href="{{ url_for('companies_view') }}">Empresas del grupo</a></li>
               <!-- aquí podrás ir añadiendo más -->
             </ul>
@@ -114,38 +115,21 @@
   {% block content %}{% endblock %}
 </main>
 
-<!-- Modal de gráficas -->
+<!-- Modal de gráficas (Tocadas + Ventas) -->
 <div class="modal fade" id="chartModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
-        <div class="d-flex align-items-center">
-          <img id="chart-artist-photo" class="artist-avatar me-2" src="" alt="">
-          <img id="chart-cover" class="cover-square me-2" src="" alt="">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          <img id="chart-artist-photo" class="artist-avatar" src="" alt="">
+          <img id="chart-cover" class="cover-square" src="" alt="">
           <div>
-            <h5 class="modal-title m-0">Evolución Tocadas</h5>
+            <h6 class="m-0" id="chart-modal-title">Evolución</h6>
+            <div class="small text-muted" id="chart-modal-subtitle"></div>
             <small id="chart-song-title" class="text-muted"></small>
           </div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
-      <div class="modal-body">
-        <canvas id="evoChart"></canvas>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- Modal gráfico evolución -->
-<div class="modal fade" id="chartModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div>
-          <h6 class="m-0" id="chart-modal-title">Evolución ventas</h6>
-          <div class="small text-muted" id="chart-modal-subtitle"></div>
-        </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body" style="height: 360px;">
         <canvas id="evoChart"></canvas>

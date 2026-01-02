@@ -1,0 +1,235 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=day.isoformat()) }}">
+      <i class="fa fa-arrow-left"></i> Volver a ventas
+    </a>
+    <div class="badge bg-light text-dark px-3 py-2">
+      Informe · {{ day.strftime('%d/%m/%Y') }}
+    </div>
+  </div>
+
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" target="_blank" href="{{ pdf_url }}">
+      <i class="fa fa-file-pdf"></i> Exportar PDF
+    </a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+      <div class="d-flex align-items-center gap-3">
+        <img src="{{ concert.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+        <div>
+          <div class="fw-semibold">{{ concert.artist.name if concert.artist else 'Evento' }}</div>
+          <div class="text-muted small d-flex flex-wrap gap-2">
+            {% if concert.festival_name %}<span class="badge badge-festival">{{ concert.festival_name }}</span>{% endif %}
+            <span><strong>{{ concert.venue.municipality if concert.venue else '' }}</strong></span>
+            <span>{{ concert.venue.province if concert.venue else '' }}</span>
+            {% if concert.venue %}<span class="badge badge-venue">{{ concert.venue.name }}</span>{% endif %}
+            <span>Fecha: <strong>{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }}</strong></span>
+            <span>Salida a la venta: <strong>{{ concert.sale_start_date.strftime('%d/%m/%Y') if concert.sale_start_date else '—' }}</strong></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-3">
+      <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total_sold|k }}</div></div>
+      <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
+      <div><small class="text-muted d-block">Aforo a la venta</small><div class="fw-semibold">{{ capacity|k }}</div></div>
+      <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+      <div><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ gross_total|eur }}</div></div>
+      <div><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ net_total|eur }}</div></div>
+    </div>
+
+    <div class="d-flex gap-2 mt-2 flex-wrap">
+      <span class="badge bg-light text-dark">IVA: {{ '%.2f' % vat_pct }}%</span>
+      <span class="badge bg-light text-dark">SGAE: {{ '%.2f' % sgae_pct }}%</span>
+      {% if not has_v2 %}
+        <span class="badge bg-warning text-dark">Nota: este evento aún usa el modo legacy (sin ticketeras / tipos de entrada).</span>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <div class="fw-semibold">Evolución venta de entradas</div>
+    </div>
+    <canvas id="salesReportChart" height="120"></canvas>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-2">Totales por día</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="text-end">Vendidas</th>
+                <th class="text-end">Bruto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if daily_totals %}
+                {% for d, qty, gross in daily_totals %}
+                  <tr>
+                    <td>{{ d.strftime('%d/%m/%Y') }}</td>
+                    <td class="text-end">{{ qty|k }}</td>
+                    <td class="text-end">{{ (gross or 0)|eur }}</td>
+                  </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="3" class="text-muted">Sin datos.</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-2">Totales por tipo de entrada</div>
+        {% if by_type %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th class="text-end">Vendidas</th>
+                  <th class="text-end">A la venta</th>
+                  <th class="text-end">Precio</th>
+                  <th class="text-end">Bruto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for r in by_type %}
+                  <tr>
+                    <td>{{ r.name }}</td>
+                    <td class="text-end">{{ r.sold|k }}</td>
+                    <td class="text-end">{{ r.qty_for_sale|k }}</td>
+                    <td class="text-end">{{ r.price|eur }}</td>
+                    <td class="text-end">{{ r.gross|eur }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted">Sin datos.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body">
+    <div class="fw-semibold mb-2">Totales por ticketera</div>
+    {% if by_ticketer %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Ticketera</th>
+              <th class="text-end">Vendidas</th>
+              <th class="text-end">Bruto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in by_ticketer %}
+              <tr>
+                <td>{{ r.name }}</td>
+                <td class="text-end">{{ r.sold|k }}</td>
+                <td class="text-end">{{ r.gross|eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted">Sin datos.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mt-3">
+  <div class="card-body">
+    <div class="fw-semibold mb-2">Detalle por día / ticketera / tipo</div>
+    {% if daily_rows %}
+      <div class="table-responsive" style="max-height: 520px; overflow: auto;">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Ticketera</th>
+              <th>Tipo</th>
+              <th class="text-end">Vendidas</th>
+              <th class="text-end">Precio</th>
+              <th class="text-end">Bruto</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in daily_rows %}
+              <tr>
+                <td>{{ r.day.strftime('%d/%m/%Y') }}</td>
+                <td>{{ r.ticketer }}</td>
+                <td>{{ r.ticket_type }}</td>
+                <td class="text-end">{{ r.qty|k }}</td>
+                <td class="text-end">{{ r.price|eur }}</td>
+                <td class="text-end">{{ r.gross|eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="text-muted">Sin datos.</div>
+    {% endif %}
+  </div>
+</div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const ctx = document.getElementById('salesReportChart');
+  if (!ctx) return;
+  const labels = {{ chart_labels|tojson }};
+  const values = {{ chart_values|tojson }};
+  if (!labels || labels.length === 0) return;
+
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Entradas vendidas (acumulado)',
+        data: values,
+        tension: 0.2,
+        fill: false
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+});
+</script>
+
+{% endblock %}

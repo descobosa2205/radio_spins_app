@@ -10,6 +10,7 @@ from sqlalchemy import (
     Numeric,
     func,
     text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
@@ -236,6 +237,28 @@ class Concert(Base):
 
     sales = relationship("TicketSale", cascade="all, delete-orphan", order_by="TicketSale.day")
 
+    # --- Ventas V2 (ticketeras + tipos de entrada) ---
+    sales_config = relationship(
+        "ConcertSalesConfig",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    ticket_types = relationship(
+        "ConcertTicketType",
+        cascade="all, delete-orphan",
+        order_by="ConcertTicketType.created_at",
+    )
+    ticketers = relationship(
+        "ConcertTicketer",
+        cascade="all, delete-orphan",
+        order_by="ConcertTicketer.created_at",
+    )
+    sales_details = relationship(
+        "TicketSaleDetail",
+        cascade="all, delete-orphan",
+        order_by="TicketSaleDetail.day",
+    )
+
 
 class TicketSale(Base):
     __tablename__ = "ticket_sales"
@@ -244,6 +267,112 @@ class TicketSale(Base):
     day = Column(Date, nullable=False)
     sold_today = Column(Integer, nullable=False, default=0)
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ==============================
+#   VENTAS (V2) — TICKETERAS
+# ==============================
+
+
+class Ticketer(Base):
+    """Ticketeras (plataformas de venta de entradas)."""
+
+    __tablename__ = "ticketers"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False, unique=True)
+    logo_url = Column(Text)
+    link_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertSalesConfig(Base):
+    """Configuración de ventas por concierto (IVA/SGAE)."""
+
+    __tablename__ = "concert_sales_config"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+
+    vat_pct = Column(Numeric, nullable=False, server_default=text("0"))
+    sgae_pct = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertTicketType(Base):
+    """Tipos de entrada por concierto (nombre, cupo y precio)."""
+
+    __tablename__ = "concert_ticket_types"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+
+    name = Column(Text, nullable=False)
+    qty_for_sale = Column(Integer, nullable=False, server_default=text("0"))
+    price = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("concert_id", "name", name="uq_concert_ticket_type_name"),
+    )
+
+
+class ConcertTicketer(Base):
+    """Relación: ticketeras asignadas a un concierto."""
+
+    __tablename__ = "concert_ticketers"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    ticketer_id = Column(PGUUID(as_uuid=True), ForeignKey("ticketers.id", ondelete="CASCADE"), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ticketer = relationship("Ticketer")
+
+    __table_args__ = (
+        UniqueConstraint("concert_id", "ticketer_id", name="uq_concert_ticketer"),
+    )
+
+
+class TicketSaleDetail(Base):
+    """Ventas diarias por ticketer y tipo de entrada."""
+
+    __tablename__ = "ticket_sales_details"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    day = Column(Date, nullable=False)
+
+    ticketer_id = Column(PGUUID(as_uuid=True), ForeignKey("ticketers.id", ondelete="CASCADE"), nullable=False)
+    ticket_type_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concert_ticket_types.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    qty = Column(Integer, nullable=False, server_default=text("0"))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ticketer = relationship("Ticketer")
+    ticket_type = relationship("ConcertTicketType")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "concert_id",
+            "day",
+            "ticketer_id",
+            "ticket_type_id",
+            name="uq_ticket_sales_details_day",
+        ),
+    )
 
 
 # --- PARTICIPACIONES / COLABORADORES ---

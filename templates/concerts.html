@@ -189,13 +189,13 @@
                                   <strong>Variable</strong>:
                                   {% if cfg.get('mode') == 'FIXED' %}
                                     {% if cfg.get('option') == 'FIXED_PER_TICKET_FROM' %}
-                                      {{ cfg.get('amount') }}€ / entrada desde la entrada {{ cfg.get('from_ticket') }}
+                                      {{ ch.amount }}€ / entrada desde la entrada {{ cfg.get('from_ticket') }}
                                     {% elif cfg.get('option') == 'FIXED_FROM_TICKETS' %}
-                                      {{ cfg.get('amount') }}€ a partir de {{ cfg.get('min_tickets') }} entradas
+                                      {{ ch.amount }}€ a partir de {{ cfg.get('min_tickets') }} entradas
                                     {% elif cfg.get('option') == 'FIXED_FROM_REVENUE' %}
-                                      {{ cfg.get('amount') }}€ a partir de {{ cfg.get('min_revenue') }}€
+                                      {{ ch.amount }}€ a partir de {{ cfg.get('min_revenue') }}€
                                     {% else %}
-                                      {{ cfg.get('amount') }}€
+                                      {{ ch.amount }}€
                                     {% endif %}
                                   {% else %}
                                     {% if cfg.get('option') == 'PCT_FROM_REVENUE' %}
@@ -228,6 +228,12 @@
                         <span class="badge rounded-pill text-bg-primary">Participado</span>
                       {% elif c.sale_type == 'VENDIDO' %}
                         <span class="badge rounded-pill text-bg-primary">Vendido</span>
+                        {% if c.promoter %}
+                          <span class="ms-2 d-inline-flex align-items-center gap-2">
+                            <img src="{{ c.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
+                            <span class="small fw-semibold">{{ c.promoter.nick }}</span>
+                          </span>
+                        {% endif %}
                       {% elif c.sale_type == 'CADIZ' %}
                         <span class="badge rounded-pill text-bg-primary">Cádiz Music Stadium</span>
                       {% endif %}
@@ -310,20 +316,17 @@
                       <div class="mt-2">
                         <div class="small text-muted">Equipamiento</div>
                         <div class="small">
-                          {% if c.equipment and c.equipment.included %}
-                            <div><strong>Incluido:</strong> {{ (c.equipment.included | join(', ')) if c.equipment.included is iterable else c.equipment.included }}</div>
-                          {% endif %}
-                          {% if c.equipment and c.equipment.covered_by_promoter %}
-                            <div><strong>Cubierto por promotor:</strong>
-                              {% if c.equipment.covered_mode == 'RIDER' %}Rider{% elif c.equipment.covered_mode == 'AMOUNT' %}{{ c.equipment.covered_amount }}€{% else %}Sí{% endif %}
-                            </div>
-                          {% endif %}
-                          {% if c.equipment_documents and (c.equipment_documents|length)>0 %}
-                            <div class="text-muted">Riders adjuntos: {{ c.equipment_documents|length }}</div>
+                          {% if c.equipment %}
+                            {% if c.equipment.covered_by_promoter %}
+                              <div><strong>Promotor cubre equipos</strong></div>
+                            {% elif c.equipment.included or c.equipment.other %}
+                              <div><strong>Equipos incluidos</strong></div>
+                            {% endif %}
                           {% endif %}
                         </div>
                       </div>
                     {% endif %}
+                          
 
                   </div>
                 </div>
@@ -375,6 +378,26 @@
                     {% if c.contracts and (c.contracts|length)>0 %}Contratos{% else %}Pendiente contrato{% endif %}
                     {% if c.contracts and (c.contracts|length)>0 %}
                       <span class="badge text-bg-primary">{{ c.contracts|length }}</span>
+                    {% endif %}
+                  </button>
+
+                  <!-- Rider -->
+                  <button type="button"
+                          class="btn btn-sm {% if c.equipment_documents and (c.equipment_documents|length)>0 %}btn-outline-primary{% else %}btn-outline-secondary{% endif %}"
+                          data-bs-toggle="modal" data-bs-target="#riderModal-{{ c.id }}">
+                    <i class="fa fa-file-pdf"></i> Rider
+                    {% if c.equipment_documents and (c.equipment_documents|length)>0 %}
+                      <span class="badge text-bg-primary">{{ c.equipment_documents|length }}</span>
+                    {% endif %}
+                  </button>
+
+                  <!-- Notas equipamiento -->
+                  <button type="button"
+                          class="btn btn-sm {% if c.equipment_notes and (c.equipment_notes|length)>0 %}btn-outline-info{% else %}btn-outline-secondary{% endif %}"
+                          data-bs-toggle="modal" data-bs-target="#equipNotesModal-{{ c.id }}">
+                    <i class="fa-solid fa-screwdriver-wrench"></i> Equipamiento
+                    {% if c.equipment_notes and (c.equipment_notes|length)>0 %}
+                      <span class="badge text-bg-info">{{ c.equipment_notes|length }}</span>
                     {% endif %}
                   </button>
                 </div>
@@ -432,6 +455,62 @@
               </div>
             </div>
           </div>
+
+          <!-- MODAL: RIDER (EQUIPAMIENTO DOCS) -->
+          <div class="modal fade" id="riderModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Rider — {{ c.artist.name if c.artist else '' }} ({{ c.date.strftime('%d/%m/%Y') if c.date else '' }})</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  {% if c.equipment_documents and (c.equipment_documents|length)>0 %}
+                    <ul class="list-group">
+                      {% for doc in c.equipment_documents %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                          <div>
+                            <div class="fw-semibold">{{ doc.concept }}</div>
+                            <div class="small text-muted">Subido: {{ doc.uploaded_at.strftime('%d/%m/%Y %H:%M') if doc.uploaded_at else '' }}</div>
+                          </div>
+                          <a class="btn btn-sm btn-outline-primary" href="{{ doc.pdf_url }}" target="_blank"><i class="fa fa-up-right-from-square"></i></a>
+                        </li>
+                      {% endfor %}
+                    </ul>
+                  {% else %}
+                    <div class="text-muted">No hay riders adjuntos.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- MODAL: NOTAS EQUIPAMIENTO -->
+          <div class="modal fade" id="equipNotesModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+              <div class="modal-content">
+                <div class="modal-header">
+                  <h5 class="modal-title">Notas equipamiento — {{ c.artist.name if c.artist else '' }} ({{ c.date.strftime('%d/%m/%Y') if c.date else '' }})</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  {% if c.equipment_notes and (c.equipment_notes|length)>0 %}
+                    <div class="d-flex flex-column gap-2">
+                      {% for n in c.equipment_notes %}
+                        <div class="border rounded p-2">
+                          <div class="small text-muted">{{ n.created_at.strftime('%d/%m/%Y %H:%M') if n.created_at else '' }}</div>
+                          <div class="mt-1">{{ n.body }}</div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div class="text-muted">No hay notas de equipamiento.</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          </div>
+
 
           <!-- MODAL: NOTAS -->
           <div class="modal fade" id="notesModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
@@ -677,39 +756,17 @@
           <div class="border rounded p-2">
             <strong>Equipamiento <span class="text-muted fw-normal">(opcional)</span></strong>
 
-            <div class="row g-2 mt-1">
-              <div class="col-12 col-md-6">
-                <label class="form-label">Equipos incluidos</label>
-                <select name="equipment_included[]" class="form-select" multiple>
-                  {% for opt in ['Sonido','Iluminación','Pantallas','Backline','Escenario','Generadores','Vallas','Camerinos','Seguridad','Producción'] %}
-                    <option value="{{ opt }}">{{ opt }}</option>
-                  {% endfor %}
-                </select>
-              </div>
-
-              <div class="col-12 col-md-6">
-                <label class="form-label">Otros <small class="text-muted">(opcional)</small></label>
-                <input name="equipment_other" class="form-control" placeholder="Detalles adicionales">
-              </div>
-
+            <div class="row g-2 mt-2">
               <div class="col-12">
                 <div class="form-check">
-                  <input class="form-check-input" type="checkbox" id="equipment_covered" name="equipment_covered" value="1">
-                  <label class="form-check-label" for="equipment_covered">Cubierto por promotor</label>
+                  <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_included_create" value="INCLUDED">
+                  <label class="form-check-label" for="equipment_option_included_create">Equipos incluidos</label>
                 </div>
-              </div>
-
-              <div class="col-12 col-md-4" id="equipment_covered_mode_wrap" style="display:none;">
-                <label class="form-label">Modo</label>
-                <select class="form-select" name="equipment_covered_mode" id="equipment_covered_mode">
-                  <option value="RIDER">Rider de artista</option>
-                  <option value="AMOUNT">Importe concreto</option>
-                </select>
-              </div>
-
-              <div class="col-12 col-md-4" id="equipment_covered_amount_wrap" style="display:none;">
-                <label class="form-label">Importe (€)</label>
-                <input type="number" step="0.01" name="equipment_covered_amount" class="form-control" placeholder="0,00">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_promoter_create" value="PROMOTER">
+                  <label class="form-check-label" for="equipment_option_promoter_create">Promotor cubre equipos</label>
+                </div>
+                <div class="form-text">Solo una opción. Si no marcas nada, no se guardará equipamiento.</div>
               </div>
             </div>
 

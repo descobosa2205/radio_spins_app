@@ -361,38 +361,31 @@
 
       {% set eq = concert.equipment %}
 
+      {# UI simplificada: solo 2 opciones #}
+      {% set eq_option = '' %}
+      {% if eq %}
+        {% if eq.covered_by_promoter %}
+          {% set eq_option = 'PROMOTER' %}
+        {% elif eq.included or eq.other %}
+          {% set eq_option = 'INCLUDED' %}
+        {% endif %}
+      {% endif %}
+
       <div class="row g-2">
-        <div class="col-md-8">
-          <label class="form-label">Equipos incluidos</label>
-          <select name="equipment_included[]" class="form-select" multiple size="6">
-            {% set selected_eq = (eq.included if eq and eq.included else []) %}
-            {% for opt in ['Sonido','Iluminación','Pantallas','Backline','Escenario','Generadores','Vallas','Camerinos','Seguridad','Producción'] %}
-              <option value="{{ opt }}" {% if opt in selected_eq %}selected{% endif %}>{{ opt }}</option>
-            {% endfor %}
-          </select>
-          <div class="form-text">Puedes seleccionar varios.</div>
-        </div>
-        <div class="col-md-4">
-          <label class="form-label">Otros <small class="text-muted">(opcional)</small></label>
-          <input name="equipment_other" class="form-control" value="{{ eq.other if eq else '' }}" placeholder="Texto libre">
+        <div class="col-12">
+          <label class="form-label">Equipamiento</label>
 
-          <div class="form-check form-switch mt-3">
-            <input class="form-check-input" type="checkbox" id="equipment_covered" name="equipment_covered" {% if eq and eq.covered_by_promoter %}checked{% endif %} onchange="toggleEquipmentCovered()">
-            <label class="form-check-label" for="equipment_covered">Cubierto por promotor</label>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_included" value="INCLUDED" {% if eq_option=='INCLUDED' %}checked{% endif %}>
+            <label class="form-check-label" for="equipment_option_included">Equipos incluidos</label>
           </div>
 
-          <div id="equipment_covered_wrap" class="mt-2" {% if not (eq and eq.covered_by_promoter) %}style="display:none"{% endif %}>
-            <label class="form-label">Tipo</label>
-            <select name="equipment_covered_mode" class="form-select" id="equipment_covered_mode" onchange="toggleEquipmentCoveredMode()">
-              <option value="RIDER" {% if eq and eq.covered_mode=='RIDER' %}selected{% endif %}>Rider de artista</option>
-              <option value="AMOUNT" {% if eq and eq.covered_mode=='AMOUNT' %}selected{% endif %}>Importe concreto</option>
-            </select>
-
-            <div id="equipment_covered_amount_wrap" class="mt-2" {% if not (eq and eq.covered_mode=='AMOUNT') %}style="display:none"{% endif %}>
-              <label class="form-label">Importe (€)</label>
-              <input type="number" step="0.01" name="equipment_covered_amount" class="form-control" value="{{ eq.covered_amount if eq else '' }}">
-            </div>
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_promoter" value="PROMOTER" {% if eq_option=='PROMOTER' %}checked{% endif %}>
+            <label class="form-check-label" for="equipment_option_promoter">Promotor cubre equipos</label>
           </div>
+
+          <div class="form-text">Si no marcas nada, se considera que no hay información de equipamiento.</div>
         </div>
       </div>
 
@@ -441,7 +434,7 @@
               <div class="border rounded p-2 mb-2">
                 <div class="d-flex justify-content-between align-items-start">
                   <div class="small text-muted">{{ n.created_at.strftime('%d/%m/%Y') if n.created_at else '' }}</div>
-                  <form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, note_id=n.id) }}">
+                  <form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, nid=n.id) }}">
                     <input type="hidden" name="next" value="{{ url_for('concert_edit_view', cid=concert.id) }}">
                     <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
                   </form>
@@ -893,7 +886,7 @@
       </div>
       <div class="col-md-5">
         <label class="form-label">PDF</label>
-        <input type="file" name="contract_pdf[]" class="form-control" accept="application/pdf">
+        <input type="file" name="contract_file[]" class="form-control" accept="application/pdf">
       </div>
       <div class="col-md-3 d-grid">
         <label class="form-label">&nbsp;</label>
@@ -926,14 +919,8 @@
     c.appendChild(box);
   }
 
-  function toggleEquipmentCovered(){
-    const checked = document.getElementById('equipment_covered').checked;
-    document.getElementById('equipment_covered_wrap').style.display = checked ? 'block' : 'none';
-  }
-  function toggleEquipmentCoveredMode(){
-    const mode = document.getElementById('equipment_covered_mode').value;
-    document.getElementById('equipment_covered_amount_wrap').style.display = (mode==='AMOUNT') ? 'block' : 'none';
-  }
+  function toggleEquipmentCovered(){}
+  function toggleEquipmentCoveredMode(){}
 
   function addEquipmentDocRow(containerId){
     const c = document.getElementById(containerId);

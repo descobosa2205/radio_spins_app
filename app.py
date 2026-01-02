@@ -1357,12 +1357,56 @@ def _add_concert_notes_from_request(session, concert_id):
 
 
 def _upsert_equipment_from_request(session, concert_id):
+    """Upsert del resumen de equipamiento.
+
+    Nuevo comportamiento (2026-01):
+    - UI simplificada: solo 2 opciones mutuamente excluyentes:
+        * equipment_option=INCLUDED  -> Equipos incluidos
+        * equipment_option=PROMOTER  -> Promotor cubre equipos
+      (opcional: si no se marca nada, se elimina el resumen)
+
+    - Se mantiene compatibilidad con el formulario legacy para no romper despliegues antiguos:
+        equipment_included[], equipment_other, equipment_covered, equipment_covered_mode, equipment_covered_amount
+    """
+
+    eq = session.query(ConcertEquipment).filter_by(concert_id=concert_id).first()
+
+    # 1) Nuevo formulario
+    opt = (request.form.get("equipment_option") or "").strip().upper()
+    if opt in ("INCLUDED", "PROMOTER"):
+        if not eq:
+            eq = ConcertEquipment(concert_id=concert_id)
+            session.add(eq)
+
+        if opt == "PROMOTER":
+            eq.covered_by_promoter = True
+            eq.covered_mode = None
+            eq.covered_amount = None
+            # limpiamos para evitar listados antiguos
+            eq.included = None
+            eq.other = None
+        else:
+            # INCLUDED
+            eq.covered_by_promoter = False
+            eq.covered_mode = None
+            eq.covered_amount = None
+            eq.other = None
+
+            # Si ya había una lista histórica, la conservamos.
+            # Si no, guardamos un marcador mínimo para poder mostrar "Equipos incluidos".
+            if not eq.included:
+                eq.included = ["Incluido"]
+        return
+
+    # 2) Fallback legacy (por compatibilidad)
     included = request.form.getlist("equipment_included[]")
     included = [x for x in (included or []) if (x or "").strip()]
 
     other = (request.form.get("equipment_other") or "").strip() or None
 
-    covered = (request.form.get("equipment_covered") == "on")
+    covered_raw = (request.form.get("equipment_covered") or "").strip().lower()
+    covered = covered_raw in ("on", "1", "true", "yes")
+
     covered_mode = (request.form.get("equipment_covered_mode") or "").strip().upper() or None
     if covered_mode not in ("RIDER", "AMOUNT"):
         covered_mode = None
@@ -1371,8 +1415,6 @@ def _upsert_equipment_from_request(session, concert_id):
 
     # determinar si hay contenido
     has_any = bool(included) or bool(other) or covered
-
-    eq = session.query(ConcertEquipment).filter_by(concert_id=concert_id).first()
 
     if not has_any:
         if eq:
@@ -1388,6 +1430,7 @@ def _upsert_equipment_from_request(session, concert_id):
     eq.covered_by_promoter = bool(covered)
     eq.covered_mode = covered_mode if covered else None
     eq.covered_amount = covered_amount if (covered and covered_mode == "AMOUNT") else None
+
 
 
 def _add_equipment_docs_from_request(session, concert_id):
@@ -2061,11 +2104,13 @@ def concert_equipment_doc_delete(cid, did):
 
 
 @app.post("/conciertos/<cid>/equipment_notes/<nid>/delete", endpoint="concert_equipment_note_delete")
+@app.post("/conciertos/<cid>/equipment_notes/<note_id>/delete")  # compat template: note_id
 @admin_required
-def concert_equipment_note_delete(cid, nid):
+def concert_equipment_note_delete(cid, nid=None, note_id=None):
     session = db()
     try:
-        n = session.get(ConcertEquipmentNote, to_uuid(nid))
+        target_id = nid or note_id
+        n = session.get(ConcertEquipmentNote, to_uuid(target_id)) if target_id else None
         if n:
             session.delete(n)
             session.commit()

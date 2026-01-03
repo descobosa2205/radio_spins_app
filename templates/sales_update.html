@@ -568,10 +568,24 @@ document.addEventListener('DOMContentLoaded', function(){
     return $c;
   }
 
-  jQuery('.ticketer-select').select2({
-    width: '100%',
-    templateResult: formatTicketer,
-    templateSelection: formatTicketer
+  // IMPORTANT (Bootstrap modal):
+  // Select2 por defecto añade el dropdown al <body>. Con el focus-trap del modal,
+  // a veces no deja abrir/seleccionar bien (parece que “no hay opciones”).
+  // Solución: usar dropdownParent apuntando al modal contenedor.
+  jQuery('.ticketer-select').each(function(){
+    const $sel = jQuery(this);
+
+    // Evita doble inicialización
+    if ($sel.data('select2')) return;
+
+    const $modal = $sel.closest('.modal');
+
+    $sel.select2({
+      width: '100%',
+      templateResult: formatTicketer,
+      templateSelection: formatTicketer,
+      dropdownParent: $modal.length ? $modal : jQuery(document.body)
+    });
   });
 });
 </script>

@@ -13,6 +13,7 @@ from flask import (
     redirect,
     url_for,
     flash,
+    abort,
     jsonify,
     session,
     send_from_directory,
@@ -133,6 +134,108 @@ def admin_required(view):
         return view(*args, **kwargs)
     return wrapper
 
+# ---------- Roles / permisos ----------
+# role: 1,2,3,4,10 (10 = master)
+ROLE_LABELS = {
+    1: "Acceso lectura (sin economía / sin edición)",
+    2: "Radios (edición tocadas)",
+    3: "Ventas (edición + economía)",
+    4: "Lectura total (incluye economía, sin edición)",
+    5: "Conciertos + Catálogos (ventas sin economía, radio lectura)",
+    6: "Conciertos + Catálogos (ventas con economía, radio lectura)",
+    10: "Master",
+}
+
+ROLE_WELCOME = {
+    1: "Bienvenido. Estás en modo lectura (sin datos económicos) y sin permisos de edición.",
+    2: "Bienvenido. Puedes editar tocadas de radio. Ventas en modo lectura (sin datos económicos).",
+    3: "Bienvenido. Puedes editar ventas y ver la parte económica. Radios en modo lectura.",
+    4: "Bienvenido. Puedes ver toda la información (incluida la económica) en modo lectura.",
+    5: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas sin economía. Radios en modo lectura.",
+    6: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas en modo lectura con economía. Radios en modo lectura.",
+    10: "Bienvenido. Acceso master: puedes ver y modificar toda la información.",
+}
+
+def current_role() -> int:
+    try:
+        return int(session.get("role") or 10)
+    except Exception:
+        return 10
+
+def can_view_economics() -> bool:
+    return current_role() in (3, 4, 6, 10)
+
+def can_edit_radio() -> bool:
+    return current_role() in (2, 10)
+
+def can_edit_concerts() -> bool:
+    # Roles que pueden dar de alta / editar conciertos
+    return current_role() in (5, 6, 10)
+
+def can_edit_catalogs() -> bool:
+    # Roles que pueden modificar catálogos/bases de datos (artistas, recintos, empresas, etc.)
+    return current_role() in (5, 6, 10)
+
+def can_edit_sales() -> bool:
+    return current_role() in (3, 10)
+
+def is_master() -> bool:
+    return current_role() == 10
+
+def forbid(message: str = "No tienes permisos para realizar esta acción."):
+    flash(message, "danger")
+    return abort(403)
+
+@app.before_request
+def enforce_role_permissions():
+    # Si no hay sesión, nada que hacer
+    if not session.get("user_id"):
+        return
+
+    # Si no está el role en sesión (usuarios antiguos), lo cargamos 1 vez desde BD
+    if session.get("role") is None:
+        session_db = db()
+        try:
+            u = session_db.query(User).get(to_uuid(session.get("user_id")))
+            if u:
+                session["role"] = int(getattr(u, "role", 10) or 10)
+        finally:
+            session_db.close()
+
+    # Bloqueo centralizado de acciones de escritura
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        path = request.path or ""
+
+        # Radios: tocadas
+        if path.startswith("/tocadas"):
+            if not can_edit_radio():
+                return forbid("Tu usuario no tiene permisos para modificar tocadas de radio.")
+            return
+
+        # Ventas: actualización
+        if path.startswith("/ventas"):
+            # Ojo: /ventas es también reporte. Solo bloqueamos escrituras (ya estamos en POST/PUT/PATCH/DELETE)
+            if not can_edit_sales():
+                return forbid("Tu usuario no tiene permisos para modificar ventas.")
+            return
+
+        # Conciertos (alta/edición/borrado/notas/zonas/etc.)
+        if path.startswith("/conciertos"):
+            if not (is_master() or can_edit_concerts()):
+                return forbid("Tu usuario no tiene permisos para modificar conciertos.")
+            return
+
+        # Catálogos / Bases de datos (CRUD)
+        if path.startswith(("/artistas", "/emisoras", "/canciones", "/promotores", "/recintos", "/ticketeras", "/empresas")):
+            if not (is_master() or can_edit_catalogs()):
+                return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
+            return
+
+        # Cualquier otra escritura: solo master
+        if not is_master():
+            return forbid("Tu usuario no tiene permisos para modificar datos en esta sección.")
+
+
 def week_tabs(base: date):
     prev_w = base - timedelta(days=7)
     next_w = base + timedelta(days=7)
@@ -244,7 +347,15 @@ def inject_globals():
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
         IS_ADMIN=bool(session.get("user_id")),
-        has_endpoint=has_endpoint
+        has_endpoint=has_endpoint,
+        ROLE=current_role(),
+        ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
+        CAN_VIEW_ECON=can_view_economics(),
+        CAN_EDIT_RADIO=can_edit_radio(),
+        CAN_EDIT_SALES=can_edit_sales(),
+        CAN_EDIT_CONCERTS=can_edit_concerts(),
+        CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        IS_MASTER=is_master()
     )
 
 # ---------- landing ----------
@@ -279,7 +390,8 @@ def admin_login():
             user = session_db.query(User).filter(func.lower(User.email) == email).first()
             if user and check_password_hash(user.password_hash, password):
                 session["user_id"] = str(user.id)
-                flash("Bienvenido.", "success")
+                session["role"] = int(getattr(user, "role", 10) or 10)
+                flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
             else:
                 flash("Usuario o contraseña incorrectos.", "danger")
@@ -291,6 +403,7 @@ def admin_login():
 @app.get("/logout")
 def admin_logout():
     session.pop("user_id", None)
+    session.pop("role", None)
     flash("Sesión cerrada.", "success")
     return redirect(url_for("landing"))
 
@@ -567,6 +680,8 @@ def song_delete(song_id):
 @app.route("/tocadas")
 @admin_required
 def plays_view():
+    if not can_edit_radio():
+        return forbid("No tienes permisos para acceder a la actualización de tocadas.")
     session_db = db()
     current_week = monday_of(today_local())
     default_week = current_week - timedelta(days=7)
@@ -1855,6 +1970,8 @@ def concerts_page():
 @app.get("/conciertos/<cid>/editar", endpoint="concert_edit_view")
 @admin_required
 def concert_edit_view(cid):
+    if not is_master():
+        return forbid("Tu usuario no tiene permisos para editar conciertos.")
     session = db()
     try:
         c = (
@@ -2496,6 +2613,11 @@ def sales_maps_unified(session, day: date, concert_ids=None):
 @app.route("/ventas")
 @admin_required
 def sales_update_view():
+    if not can_edit_sales():
+        return forbid("No tienes permisos para acceder a la actualización de ventas.")
+    if not can_edit_sales() and not is_master():
+        flash("Modo lectura: no puedes actualizar ventas.", "info")
+        return redirect(url_for("sales_report_view"))
     session = db()
     try:
         day = get_day("d")
@@ -3211,6 +3333,7 @@ def sales_event_report_view(cid):
 @app.get("/ventas/informe/<cid>/pdf", endpoint="sales_event_report_pdf")
 @admin_required
 def sales_event_report_pdf(cid):
+    show_econ = can_view_economics()
     if not REPORTLAB_AVAILABLE:
         flash("El servidor no tiene ReportLab instalado. Añade 'reportlab' a requirements.txt.", "danger")
         return redirect(request.referrer or url_for("sales_event_report_view", cid=cid))
@@ -3282,14 +3405,22 @@ def sales_event_report_pdf(cid):
             for r in details:
                 price = float(getattr(r.ticket_type, "price", 0) or 0)
                 qty = int(r.qty or 0)
-                daily_rows.append([
-                    r.day.strftime("%d/%m/%Y"),
-                    (r.ticketer.name if r.ticketer else "—"),
-                    (r.ticket_type.name if r.ticket_type else "—"),
-                    str(qty),
-                    _fmt_money_eur(price),
-                    _fmt_money_eur(qty * price),
-                ])
+                if show_econ:
+                    daily_rows.append([
+                        r.day.strftime("%d/%m/%Y"),
+                        (r.ticketer.name if r.ticketer else "—"),
+                        (r.ticket_type.name if r.ticket_type else "—"),
+                        str(qty),
+                        _fmt_money_eur(price),
+                        _fmt_money_eur(qty * price),
+                    ])
+                else:
+                    daily_rows.append([
+                        r.day.strftime("%d/%m/%Y"),
+                        (r.ticketer.name if r.ticketer else "—"),
+                        (r.ticket_type.name if r.ticket_type else "—"),
+                        str(qty),
+                    ])
         else:
             pts = (
                 session_db.query(TicketSale.day, func.sum(TicketSale.sold_today))
@@ -3339,11 +3470,14 @@ def sales_event_report_pdf(cid):
             ["Total vendidas", str(total_sold)],
             ["% venta", f"{pct:.1f}%"],
             ["Pendientes", str(pending)],
-            ["Recaudación bruta", _fmt_money_eur(gross_total)],
-            ["Recaudación neta", _fmt_money_eur(net_total)],
-            ["IVA", f"{vat:.2f}%"],
-            ["SGAE", f"{sgae:.2f}%"],
         ]
+        if show_econ:
+            summary_data += [
+                ["Recaudación bruta", _fmt_money_eur(gross_total)],
+                ["Recaudación neta", _fmt_money_eur(net_total)],
+                ["IVA", f"{vat:.2f}%"],
+                ["SGAE", f"{sgae:.2f}%"],
+            ]
         t = Table(summary_data, colWidths=[140, 140])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
@@ -3379,7 +3513,7 @@ def sales_event_report_pdf(cid):
         # Tabla detalle (puede ir a varias páginas si hay mucho)
         if daily_rows:
             story.append(Paragraph("Detalle por día / ticketera / tipo", styles["Heading2"]))
-            table_data = [["Fecha", "Ticketera", "Tipo", "Vendidas", "Precio", "Bruto"]] + daily_rows
+            table_data = ([["Fecha", "Ticketera", "Tipo", "Vendidas", "Precio", "Bruto"]] if show_econ else [["Fecha", "Ticketera", "Tipo", "Vendidas"]]) + daily_rows
             tbl = Table(table_data, repeatRows=1)
             tbl.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f3f5")),

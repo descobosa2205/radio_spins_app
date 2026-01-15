@@ -55,7 +55,9 @@
               </a>
             </li>
             {% if IS_ADMIN %}
-              <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
+              {% if CAN_EDIT_RADIO %}
+                <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
+              {% endif %}
               <li><a class="dropdown-item" href="{{ url_for('stations_view') }}">Emisoras</a></li>
             {% endif %}
           </ul>
@@ -66,7 +68,7 @@
           <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Ventas</a>
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
-            {% if IS_ADMIN %}
+            {% if CAN_EDIT_SALES %}
               <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
             {% endif %}
           </ul>

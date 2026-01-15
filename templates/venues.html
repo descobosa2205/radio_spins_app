@@ -1,53 +1,29 @@
 {% extends "layout.html" %}
 {% block content %}
-<h4 class="mb-3">Recintos</h4>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="m-0">Recintos</h4>
-  <input id="filter-venues" class="form-control"
-         placeholder="Buscar recinto, municipio o provincia..."
-         style="max-width: 340px;">
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Recintos</h4>
+  {% if CAN_EDIT_CATALOGS %}
+    <span class="badge text-bg-primary">Edición</span>
+  {% else %}
+    <span class="badge text-bg-secondary">Lectura</span>
+  {% endif %}
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const inp = document.getElementById('filter-venues');
-  const rows = document.querySelectorAll('[data-venue-row]');
-  inp.addEventListener('input', function(){
-    const q = (inp.value || '').toLowerCase();
-    rows.forEach(el => {
-      const k = (el.getAttribute('data-key') || '').toLowerCase();
-      el.style.display = (!q || k.includes(q)) ? '' : 'none';
-    });
-  });
-});
-</script>
-
+{% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" class="row g-2 align-items-end">
-      <div class="col-md-4">
+    <form method="post" class="row gy-2 gx-2 align-items-end">
+      <div class="col-md-5">
         <label class="form-label">Nombre</label>
-        <input name="name" class="form-control" required>
+        <input required name="name" class="form-control" />
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Ciudad</label>
+        <input name="city" class="form-control" />
       </div>
       <div class="col-md-2">
-        <label class="form-label">Cubierto</label>
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" name="covered">
-          <label class="form-check-label">Sí (desmarcado = Aire libre)</label>
-        </div>
-      </div>
-      <div class="col-md-6">
-        <label class="form-label">Dirección</label>
-        <input name="address" class="form-control">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Municipio</label>
-        <input name="municipality" class="form-control">
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Provincia</label>
-        <input name="province" class="form-control">
+        <label class="form-label">Aforo</label>
+        <input name="capacity" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -55,57 +31,44 @@ document.addEventListener('DOMContentLoaded', function(){
     </form>
   </div>
 </div>
+{% endif %}
 
-<div class="row">
-  {% for v in venues %}
-  <div class="col-md-6"
-       data-venue-row
-       data-key="{{ v.name }} {{ v.municipality or '' }} {{ v.province or '' }}">
-    <div class="card mb-3">
-      <div class="card-body">
-        <form method="post"
-              action="{{ url_for('venue_update', vid=v.id) }}"
-              class="row g-2 align-items-end">
-          <div class="col-md-4">
-            <label class="form-label">Nombre</label>
-            <input name="name" class="form-control" value="{{ v.name }}">
-          </div>
-          <div class="col-md-2">
-            <label class="form-label">Cubierto</label>
-            <div class="form-check">
-              <input class="form-check-input" type="checkbox" name="covered"
-                     {% if v.covered %}checked{% endif %}>
-              <label class="form-check-label">Sí</label>
-            </div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Dirección</label>
-            <input name="address" class="form-control" value="{{ v.address or '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Municipio</label>
-            <input name="municipality" class="form-control"
-                   value="{{ v.municipality or '' }}">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Provincia</label>
-            <input name="province" class="form-control"
-                   value="{{ v.province or '' }}">
-          </div>
-          <div class="col-md-2 d-grid">
-            <button class="btn btn-outline-primary">Guardar</button>
-          </div>
-        </form>
-        <form class="text-end mt-2"
-              method="post"
-              action="{{ url_for('venue_delete', vid=v.id) }}">
-          <button class="btn btn-outline-danger">
-            <i class="fa fa-trash"></i> Borrar
-          </button>
-        </form>
-      </div>
-    </div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Ciudad</th>
+          <th>Aforo</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for v in venues %}
+        <tr>
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('venue_update', venue_id=v.id) }}">
+              <td><input class="form-control" name="name" value="{{ v.name }}"></td>
+              <td><input class="form-control" name="city" value="{{ v.city or '' }}"></td>
+              <td style="max-width:160px"><input class="form-control" name="capacity" value="{{ v.capacity or '' }}"></td>
+              <td class="text-end">
+                <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('venue_delete', venue_id=v.id) }}"
+                        onclick="return confirm('¿Borrar recinto?');">
+                  <i class="fa fa-trash"></i>
+                </button>
+              </td>
+            </form>
+          {% else %}
+            <td class="fw-semibold">{{ v.name }}</td>
+            <td>{{ v.city or '' }}</td>
+            <td>{{ v.capacity or '' }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% endfor %}
 </div>
 {% endblock %}

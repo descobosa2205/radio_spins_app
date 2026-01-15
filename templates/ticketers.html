@@ -1,42 +1,25 @@
 {% extends "layout.html" %}
 {% block content %}
-
-<h4 class="mb-3">Ticketeras</h4>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="m-0">Ticketeras</h4>
-  <input id="filter-ticketers" class="form-control"
-         placeholder="Buscar ticketera..." style="max-width: 340px;">
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Ticketeras</h4>
+  {% if CAN_EDIT_CATALOGS %}
+    <span class="badge text-bg-primary">Edición</span>
+  {% else %}
+    <span class="badge text-bg-secondary">Lectura</span>
+  {% endif %}
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const inp = document.getElementById('filter-ticketers');
-  const rows = document.querySelectorAll('[data-ticketer-row]');
-  inp.addEventListener('input', function(){
-    const q = (inp.value || '').toLowerCase();
-    rows.forEach(el => {
-      const k = (el.getAttribute('data-key') || '').toLowerCase();
-      el.style.display = (!q || k.includes(q)) ? '' : 'none';
-    });
-  });
-});
-</script>
-
+{% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
-      <div class="col-md-4">
+    <form method="post" class="row gy-2 gx-2 align-items-end">
+      <div class="col-md-5">
         <label class="form-label">Nombre</label>
-        <input name="name" class="form-control" required>
+        <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Logo (PNG)</label>
-        <input type="file" name="logo" accept="image/png" class="form-control">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Link (opcional)</label>
-        <input name="link_url" class="form-control" placeholder="https://...">
+      <div class="col-md-5">
+        <label class="form-label">URL (opcional)</label>
+        <input name="url" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -44,38 +27,43 @@ document.addEventListener('DOMContentLoaded', function(){
     </form>
   </div>
 </div>
+{% endif %}
 
-<div class="row">
-  {% for t in ticketers %}
-  <div class="col-md-6" data-ticketer-row data-key="{{ t.name }} {{ t.link_url or '' }}">
-    <div class="card mb-3">
-      <div class="card-body">
-        <form method="post" action="{{ url_for('ticketer_update', tid=t.id) }}" enctype="multipart/form-data">
-          <div class="d-flex align-items-center gap-3">
-            <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}"
-                 class="station-logo" alt="">
-            <div class="flex-grow-1">
-              <label class="form-label">Nombre</label>
-              <input name="name" class="form-control" value="{{ t.name }}">
-              <label class="form-label mt-2">Link (opcional)</label>
-              <input name="link_url" class="form-control" value="{{ t.link_url or '' }}">
-              <label class="form-label mt-2">Logo (PNG)</label>
-              <input class="form-control" type="file" name="logo" accept="image/png">
-            </div>
-            <div class="text-end">
-              <button class="btn btn-outline-primary">Guardar</button>
-            </div>
-          </div>
-        </form>
-        <form class="text-end mt-2" method="post" action="{{ url_for('ticketer_delete', tid=t.id) }}">
-          <button class="btn btn-outline-danger">
-            <i class="fa fa-trash"></i> Borrar
-          </button>
-        </form>
-      </div>
-    </div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>URL</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for t in ticketers %}
+        <tr>
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('ticketer_update', ticketer_id=t.id) }}">
+              <td><input class="form-control" name="name" value="{{ t.name }}"></td>
+              <td><input class="form-control" name="url" value="{{ t.url or '' }}"></td>
+              <td class="text-end">
+                <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('ticketer_delete', ticketer_id=t.id) }}"
+                        onclick="return confirm('¿Borrar ticketera?');">
+                  <i class="fa fa-trash"></i>
+                </button>
+              </td>
+            </form>
+          {% else %}
+            <td class="fw-semibold">{{ t.name }}</td>
+            <td>
+              {% if t.url %}<a href="{{ t.url }}" target="_blank">{{ t.url }}</a>{% endif %}
+            </td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% endfor %}
 </div>
-
 {% endblock %}

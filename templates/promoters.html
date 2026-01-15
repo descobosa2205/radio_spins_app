@@ -1,38 +1,25 @@
 {% extends "layout.html" %}
 {% block content %}
-<h4 class="mb-3">Promotores</h4>
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="m-0">Terceros</h4>
-  <input id="filter-promoters" class="form-control"
-         placeholder="Buscar tercero..." style="max-width: 340px;">
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Terceros</h4>
+  {% if CAN_EDIT_CATALOGS %}
+    <span class="badge text-bg-primary">Edición</span>
+  {% else %}
+    <span class="badge text-bg-secondary">Lectura</span>
+  {% endif %}
 </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const inp = document.getElementById('filter-promoters');
-  const rows = document.querySelectorAll('[data-promoter-row]');
-  inp.addEventListener('input', function(){
-    const q = (inp.value || '').toLowerCase();
-    rows.forEach(el => {
-      const k = (el.getAttribute('data-key') || '').toLowerCase();
-      el.style.display = (!q || k.includes(q)) ? '' : 'none';
-    });
-  });
-});
-</script>
-
+{% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" enctype="multipart/form-data"
-          class="row g-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label">Nick</label>
-        <input name="nick" class="form-control" required>
+    <form method="post" class="row gy-2 gx-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">Nombre</label>
+        <input required name="name" class="form-control" />
       </div>
       <div class="col-md-4">
-        <label class="form-label">Logo (PNG)</label>
-        <input type="file" name="logo" accept="image/png" class="form-control">
+        <label class="form-label">Contacto (opcional)</label>
+        <input name="contact" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -40,40 +27,41 @@ document.addEventListener('DOMContentLoaded', function(){
     </form>
   </div>
 </div>
+{% endif %}
 
-<div class="row">
-  {% for p in promoters %}
-  <div class="col-md-6"
-       data-promoter-row
-       data-key="{{ p.nick }}">
-    <div class="card mb-3">
-      <div class="card-body">
-        <form method="post"
-              action="{{ url_for('promoter_update', pid=p.id) }}"
-              enctype="multipart/form-data">
-          <div class="d-flex align-items-center gap-3">
-            <img src="{{ p.logo_url or url_for('static', filename='img/logo.png') }}"
-                 class="station-logo" alt="">
-            <div class="flex-grow-1">
-              <input name="nick" class="form-control" value="{{ p.nick }}">
-              <input class="form-control mt-2" type="file" name="logo"
-                     accept="image/png">
-            </div>
-            <div class="text-end">
-              <button class="btn btn-outline-primary">Guardar</button>
-            </div>
-          </div>
-        </form>
-        <form class="text-end mt-2"
-              method="post"
-              action="{{ url_for('promoter_delete', pid=p.id) }}">
-          <button class="btn btn-outline-danger">
-            <i class="fa fa-trash"></i> Borrar
-          </button>
-        </form>
-      </div>
-    </div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Contacto</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in promoters %}
+        <tr>
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('promoter_update', promoter_id=p.id) }}">
+              <td><input class="form-control" name="name" value="{{ p.name }}"></td>
+              <td><input class="form-control" name="contact" value="{{ p.contact or '' }}"></td>
+              <td class="text-end">
+                <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('promoter_delete', promoter_id=p.id) }}"
+                        onclick="return confirm('¿Borrar tercero?');">
+                  <i class="fa fa-trash"></i>
+                </button>
+              </td>
+            </form>
+          {% else %}
+            <td class="fw-semibold">{{ p.name }}</td>
+            <td>{{ p.contact or '' }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% endfor %}
 </div>
 {% endblock %}

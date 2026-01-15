@@ -1,21 +1,25 @@
 {% extends "layout.html" %}
 {% block content %}
-<h4 class="mb-3">Empresas del grupo</h4>
+<div class="d-flex align-items-center justify-content-between mb-3">
+  <h4 class="mb-0">Empresas del grupo</h4>
+  {% if CAN_EDIT_CATALOGS %}
+    <span class="badge text-bg-primary">Edición</span>
+  {% else %}
+    <span class="badge text-bg-secondary">Lectura</span>
+  {% endif %}
+</div>
 
+{% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row g-2 align-items-end">
-      <div class="col-md-4">
+    <form method="post" class="row gy-2 gx-2 align-items-end">
+      <div class="col-md-8">
         <label class="form-label">Nombre</label>
-        <input name="name" class="form-control" required>
+        <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Logo (PNG)</label>
-        <input type="file" name="logo" accept="image/png" class="form-control">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Datos fiscales</label>
-        <input name="tax_info" class="form-control">
+      <div class="col-md-2">
+        <label class="form-label">Color (opcional)</label>
+        <input name="color" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -23,33 +27,41 @@
     </form>
   </div>
 </div>
+{% endif %}
 
-<div class="row">
-  {% for co in companies %}
-  <div class="col-md-6">
-    <div class="card mb-3">
-      <div class="card-body">
-        <form method="post" action="{{ url_for('company_update', cid=co.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
-          <div class="col-3 text-center">
-            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo mb-2">
-            <input type="file" name="logo" accept="image/png" class="form-control form-control-sm">
-          </div>
-          <div class="col-9">
-            <label class="form-label">Nombre</label>
-            <input name="name" class="form-control" value="{{ co.name }}">
-            <label class="form-label mt-2">Datos fiscales</label>
-            <input name="tax_info" class="form-control" value="{{ co.tax_info or '' }}">
-          </div>
-          <div class="col-12 text-end">
-            <button class="btn btn-outline-primary">Guardar</button>
-          </div>
-        </form>
-        <form method="post" action="{{ url_for('company_delete', cid=co.id) }}" class="text-end mt-2">
-          <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Borrar</button>
-        </form>
-      </div>
-    </div>
+<div class="card">
+  <div class="card-body table-responsive">
+    <table class="table align-middle">
+      <thead>
+        <tr>
+          <th>Nombre</th>
+          <th>Color</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+      {% for c in companies %}
+        <tr>
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('company_update', company_id=c.id) }}">
+              <td><input class="form-control" name="name" value="{{ c.name }}"></td>
+              <td style="max-width:180px"><input class="form-control" name="color" value="{{ c.color or '' }}"></td>
+              <td class="text-end">
+                <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('company_delete', company_id=c.id) }}"
+                        onclick="return confirm('¿Borrar empresa?');">
+                  <i class="fa fa-trash"></i>
+                </button>
+              </td>
+            </form>
+          {% else %}
+            <td class="fw-semibold">{{ c.name }}</td>
+            <td>{{ c.color or '' }}</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
   </div>
-  {% endfor %}
 </div>
 {% endblock %}

@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 
+{% if CAN_EDIT_SALES %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     <a class="btn btn-outline-secondary" href="{{ url_for('sales_update_view', d=prev_day.isoformat()) }}">
@@ -590,4 +591,7 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 </script>
 
+{% else %}
+<div class="alert alert-info">Modo lectura: este usuario no puede actualizar ventas. Puedes usar el <a href="{{ url_for('sales_report_view') }}">reporte de ventas</a>.</div>
+{% endif %}
 {% endblock %}

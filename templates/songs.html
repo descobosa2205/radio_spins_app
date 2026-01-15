@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% if CAN_EDIT_CATALOGS %}
 <h4 class="mb-3">Canciones</h4>
 
 <div class="card mb-4">
@@ -112,4 +113,44 @@
     </div>
   </div>
 {% endfor %}
+
+{% else %}
+<h4 class="mb-3">Canciones</h4>
+{% for artist, songs in artist_blocks %}
+  <div class="mb-3 border rounded bg-white">
+    <div class="p-2 d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center">
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
+        <h5 class="m-0">{{ artist.name }}</h5>
+      </div>
+      <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#artist-{{ artist.id }}-songs"
+              aria-expanded="false" aria-controls="artist-{{ artist.id }}-songs">
+        <i class="fa fa-chevron-down chevron"></i>
+      </button>
+    </div>
+
+    <div id="artist-{{ artist.id }}-songs" class="collapse">
+      <div class="p-2">
+        {% if songs %}
+          {% for s in songs %}
+            <div class="d-flex align-items-start gap-3 py-2 border-bottom">
+              <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+              <div class="flex-grow-1">
+                <div class="fw-semibold">{{ s.title }}</div>
+                <div class="small text-muted">
+                  {% if s.collaborator %}Feat. {{ s.collaborator }} · {% endif %}
+                  {{ s.release_date.strftime('%d/%m/%Y') if s.release_date else '' }}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted small">Sin canciones.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endfor %}
+{% endif %}
 {% endblock %}

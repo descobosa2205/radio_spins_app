@@ -34,6 +34,7 @@ class User(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     email = Column(Text, nullable=False, unique=True)
     password_hash = Column(Text, nullable=False)
+    role = Column(Integer, nullable=False, server_default=text('10'))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

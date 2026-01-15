@@ -1,105 +1,112 @@
 # import_users_from_txt.py
+"""Importa/actualiza usuarios desde users.txt (email, password, role).
+
+Formato por línea (separado por coma):
+    email, contraseña, role
+
+Ejemplos:
+    daniel@33producciones.es, MiPassword123, 10
+    radio@empresa.com, pass, 2
+
+Si el role no se indica, se asume 10 (master).
+"""
+
 import os
 import sys
 import argparse
 import json
-from typing import List, Tuple
+from typing import List, Dict, Tuple
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, find_dotenv
 import requests
 from werkzeug.security import generate_password_hash
 
-"""
-Lee un fichero de texto con pares email/contraseña y los inserta/actualiza en la tabla 'users'
-de Supabase usando el endpoint REST. No necesita psycopg2.
+ALLOWED_ROLES = {1, 2, 3, 4, 10}
 
-Requisitos (si no ejecutas en tu .venv del proyecto):
-    pip install requests python-dotenv werkzeug
-Variables de entorno necesarias (.env):
-    SUPABASE_URL=https://<project-ref>.supabase.co
-    SUPABASE_SERVICE_ROLE_KEY=<service_role_key>
-"""
+def parse_users_file(path: str) -> List[Dict]:
+    if not os.path.exists(path):
+        raise FileNotFoundError(path)
 
-def parse_users_file(path: str) -> List[Tuple[str, str]]:
-    users = []
-    with open(path, "r", encoding="utf-8") as f:
-        for lineno, raw in enumerate(f, start=1):
+    rows: List[Dict] = []
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for ln, raw in enumerate(f, start=1):
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
-            sep = "," if "," in line else (";" if ";" in line else None)
-            if not sep:
-                print(f"[avisó] línea {lineno}: no tiene separador ',' ni ';' -> ignorada: {line}")
-                continue
-            email, pwd = [p.strip() for p in line.split(sep, 1)]
-            if not email or not pwd:
-                print(f"[avisó] línea {lineno}: email o contraseña vacíos -> ignorada")
-                continue
-            if "@" not in email:
-                print(f"[avisó] línea {lineno}: email parece inválido -> {email!r}")
-            users.append((email.lower(), pwd))
-    return users
 
-def main():
-    parser = argparse.ArgumentParser(description="Importar usuarios desde .txt a Supabase (tabla users)")
-    parser.add_argument("file", help="Ruta del fichero .txt (email,contraseña por línea)")
-    parser.add_argument("--dry-run", action="store_true", help="No escribe en BD, solo muestra lo que haría")
-    args = parser.parse_args()
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 2:
+                raise ValueError(f"Línea {ln}: formato inválido. Esperado: email, password, role(opcional)")
 
-    load_dotenv()
-    supabase_url = os.getenv("SUPABASE_URL")
-    service_role = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            email = parts[0].lower()
+            password = parts[1]
+            role = 10
+            if len(parts) >= 3 and parts[2]:
+                try:
+                    role = int(parts[2])
+                except Exception:
+                    raise ValueError(f"Línea {ln}: role inválido: {parts[2]!r}")
+            if role not in ALLOWED_ROLES:
+                raise ValueError(f"Línea {ln}: role no permitido ({role}). Permitidos: {sorted(ALLOWED_ROLES)}")
 
-    if not supabase_url or not service_role:
-        print("Faltan variables en .env: SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY")
-        sys.exit(1)
+            rows.append({
+                "email": email,
+                "password_hash": generate_password_hash(password),
+                "role": role,
+            })
+    return rows
 
-    users = parse_users_file(args.file)
-    if not users:
-        print("No hay usuarios válidos que importar.")
-        sys.exit(0)
+def chunked(items: List[Dict], size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i+size]
 
-    # Construye payload con password hash compatible con check_password_hash de Werkzeug
-    rows = []
-    for email, pwd in users:
-        rows.append({
-            "email": email,
-            "password_hash": generate_password_hash(pwd)  # pbkdf2/scrypt según versión de Werkzeug
-        })
-
-    if args.dry_run:
-        print("[dry-run] Insertaría/actualizaría estos usuarios:")
-        for r in rows:
-            print(f"  - {r['email']}  (hash={r['password_hash'][:20]}...)")
-        sys.exit(0)
-
-    # Llamada a PostgREST de Supabase:
-    # upsert por email -> on_conflict=email + Prefer: resolution=merge-duplicates
-    endpoint = f"{supabase_url}/rest/v1/users?on_conflict=email"
+def upsert_rows(supabase_url: str, service_role_key: str, rows: List[Dict], chunk_size: int = 200):
+    endpoint = supabase_url.rstrip("/") + "/rest/v1/users?on_conflict=email"
     headers = {
-        "apikey": service_role,
-        "Authorization": f"Bearer {service_role}",
+        "apikey": service_role_key,
+        "Authorization": f"Bearer {service_role_key}",
         "Content-Type": "application/json",
-        # Queremos upsert y que devuelva las filas para verificar
-        "Prefer": "resolution=merge-duplicates, return=representation"
+        "Prefer": "resolution=merge-duplicates,return=representation",
     }
 
-    # Enviar en bloques por si hay muchos
-    CHUNK = 100
-    total_ok = 0
-    for i in range(0, len(rows), CHUNK):
-        chunk = rows[i:i+CHUNK]
-        resp = requests.post(endpoint, headers=headers, data=json.dumps(chunk), timeout=30)
+    total = 0
+    for chunk in chunked(rows, chunk_size):
+        resp = requests.post(endpoint, headers=headers, data=json.dumps(chunk), timeout=60)
         if resp.status_code not in (200, 201):
-            print(f"[ERROR] HTTP {resp.status_code} -> {resp.text}")
-            sys.exit(1)
-        try:
-            data = resp.json()
-        except Exception:
-            data = []
-        total_ok += len(data) if isinstance(data, list) else len(chunk)
+            raise RuntimeError(f"HTTP {resp.status_code}: {resp.text}")
+        total += len(chunk)
+        print(f"OK: {total}/{len(rows)}")
 
-    print(f"Listo. Usuarios insertados/actualizados: {total_ok}")
+def main():
+    load_dotenv(find_dotenv(), override=False)
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", default="users.txt", help="Ruta al fichero users.txt")
+    args = ap.parse_args()
+
+    supabase_url = os.getenv("SUPABASE_URL")
+    service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    if not supabase_url or not service_key:
+        print("Faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY en el entorno (.env)")
+        sys.exit(1)
+
+    try:
+        rows = parse_users_file(args.file)
+    except Exception as e:
+        print(f"[ERROR] {e}")
+        sys.exit(1)
+
+    if not rows:
+        print("No hay usuarios que importar.")
+        return
+
+    try:
+        upsert_rows(supabase_url, service_key, rows)
+    except Exception as e:
+        print(f"[ERROR] Importación fallida: {e}")
+        sys.exit(1)
+
+    print(f"Listo. Usuarios insertados/actualizados: {len(rows)}")
 
 if __name__ == "__main__":
     main()

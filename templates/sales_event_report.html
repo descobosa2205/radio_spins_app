@@ -120,8 +120,8 @@
                     <td>{{ r.name }}</td>
                     <td class="text-end">{{ r.sold|k }}</td>
                     <td class="text-end">{{ r.qty_for_sale|k }}</td>
-                    <td class="text-end">{{ r.price|eur }}</td>
-                    <td class="text-end">{{ r.gross|eur }}</td>
+                    {% if CAN_VIEW_ECON %}<td class="text-end">{{ r.price|eur }}</td>{% endif %}
+                    {% if CAN_VIEW_ECON %}<td class="text-end">{{ r.gross|eur }}</td>{% endif %}
                   </tr>
                 {% endfor %}
               </tbody>
@@ -153,7 +153,7 @@
               <tr>
                 <td>{{ r.name }}</td>
                 <td class="text-end">{{ r.sold|k }}</td>
-                <td class="text-end">{{ r.gross|eur }}</td>
+                {% if CAN_VIEW_ECON %}<td class="text-end">{{ r.gross|eur }}</td>{% endif %}
               </tr>
             {% endfor %}
           </tbody>
@@ -188,8 +188,8 @@
                 <td>{{ r.ticketer }}</td>
                 <td>{{ r.ticket_type }}</td>
                 <td class="text-end">{{ r.qty|k }}</td>
-                <td class="text-end">{{ r.price|eur }}</td>
-                <td class="text-end">{{ r.gross|eur }}</td>
+                {% if CAN_VIEW_ECON %}<td class="text-end">{{ r.price|eur }}</td>{% endif %}
+                {% if CAN_VIEW_ECON %}<td class="text-end">{{ r.gross|eur }}</td>{% endif %}
               </tr>
             {% endfor %}
           </tbody>

@@ -1,5 +1,25 @@
-daniel@33producciones.es, 2005
-music@piesrecords.com, Disco2025.
-escobosa@33producciones.es, Ces14261426.
-ticketing@33producciones.es, Disco2025.
-contratacion@33producciones.es, Disco2025.
+daniel@33producciones.es, 2005, 10
+music@piesrecords.com, Disco2025, 2
+escobosa@33producciones.es, Ces14261426, 10
+ticketing@33producciones.es, Disco2025, 3
+contratacion@33producciones.es, Disco2025, 5
+blanca.delgado@33producciones.es, Disco2026.Blanca, 4
+oscar@33producciones.es, Disco2026.Oscar, 4
+carlos.escobosa@33producciones.es, Disco2026.Carlos, 4
+andrea.rodriguez@33producciones.es, Disco2026.Andrea, 6 
+laura.delmoral@33producciones.es,Disco2026.laura, 1
+cesar.hernandez@33producciones.es, Disco2026.cesar, 1
+Julia.puerto@piesrecords.com, Disco2026.julia, 1
+cristina.ordonez@33producciones.es, Disco2026.Cristina, 4
+carol.valls@33producciones.es, Disco2026.Carol, 1
+henar.martin@33producciones.es,Disco2026.Henar, 1
+mare.elizalde@33producciones.es, Disco2026.mare, 1
+maria.garcia@33producciones.es,Disco2026.maria, 1
+administracion@33producciones.es,Disco2026.Monica, 1
+nuria.chillon@33producciones.es, Disco2026.nuria, 1
+patricia.mediero@33producciones.es,Disco2026.patricia, 1
+pilar.ordonez@33producciones.es, Disco2026.pili, 1
+sandra.luci@33producciones.es, Disco2026.Sandra, 5
+digital@33producciones.es, Disco2026.sergio, 1
+ximena.cacho@33producciones.es, Disco2026.Ximena, 5
+david.escobosa@33sport.es, Disco2026.David, 4

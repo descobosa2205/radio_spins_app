@@ -1,56 +1,77 @@
 # manage_users.py
+"""Utilidad CLI para crear/listar usuarios en la tabla public.users.
+
+Usa DATABASE_URL del .env (Postgres/Supabase).
+"""
+
 import argparse
 import sys
 from getpass import getpass
-from werkzeug.security import generate_password_hash
-from sqlalchemy import create_engine, text
-from dotenv import load_dotenv
 import os
 
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+from werkzeug.security import generate_password_hash
+from sqlalchemy import create_engine, text
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    print("Falta DATABASE_URL en .env")
-    sys.exit(1)
+ALLOWED_ROLES = {1, 2, 3, 4, 10}
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+def get_engine():
+    load_dotenv(find_dotenv(), override=False)
+    url = os.getenv("DATABASE_URL") or os.getenv("SUPABASE_DB_URL") or os.getenv("SUPABASE_POSTGRES_URL")
+    if not url:
+        print("Falta DATABASE_URL (o SUPABASE_DB_URL / SUPABASE_POSTGRES_URL) en el .env")
+        sys.exit(1)
+    # normaliza prefijos (compat)
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
+    if "sslmode=" not in url:
+        url += ("&" if "?" in url else "?") + "sslmode=require"
+    return create_engine(url, future=True)
 
-def create_user(email: str, password: str):
-    if not email or not password:
-        raise ValueError("Email y contraseña son obligatorios")
+def create_user(email: str, password: str, role: int):
+    if role not in ALLOWED_ROLES:
+        raise ValueError(f"role no permitido ({role}). Permitidos: {sorted(ALLOWED_ROLES)}")
+
     pwd_hash = generate_password_hash(password)
-    with engine.begin() as conn:
+    eng = get_engine()
+    with eng.begin() as conn:
         conn.execute(text("""
-            insert into users (email, password_hash)
-            values (:email, :password_hash)
-        """), {"email": email.strip().lower(), "password_hash": pwd_hash})
-    print(f"Usuario creado: {email}")
+            INSERT INTO public.users (email, password_hash, role)
+            VALUES (:email, :password_hash, :role)
+            ON CONFLICT (email) DO UPDATE
+            SET password_hash = EXCLUDED.password_hash,
+                role = EXCLUDED.role
+        """), {"email": email.lower(), "password_hash": pwd_hash, "role": role})
+    print("OK")
 
 def list_users():
-    with engine.begin() as conn:
-        rows = conn.execute(text("select id, email, created_at from users order by created_at desc")).fetchall()
-        if not rows:
-            print("No hay usuarios")
-            return
-        for r in rows:
-            print(f"{r.id}  {r.email}  {r.created_at}")
+    eng = get_engine()
+    with eng.begin() as conn:
+        rows = conn.execute(text("SELECT email, role, created_at FROM public.users ORDER BY created_at DESC")).fetchall()
+    for r in rows:
+        print(f"{r.email}\trole={r.role}\t{r.created_at}")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Gestor de usuarios")
-    sub = parser.add_subparsers(dest="cmd")
+def main():
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest="cmd")
 
-    c = sub.add_parser("create", help="Crear usuario")
+    c = sub.add_parser("create", help="Crear/actualizar usuario")
     c.add_argument("--email", required=True)
-    c.add_argument("--password", help="(opcional) si no se pasa, se pedirá por prompt", required=False)
+    c.add_argument("--password", required=False, help="Si no se pasa, se pedirá por prompt")
+    c.add_argument("--role", required=False, type=int, default=10)
 
     l = sub.add_parser("list", help="Listar usuarios")
 
-    args = parser.parse_args()
+    args = ap.parse_args()
     if args.cmd == "create":
         pwd = args.password or getpass("Contraseña: ")
-        create_user(args.email, pwd)
+        create_user(args.email, pwd, args.role)
     elif args.cmd == "list":
         list_users()
     else:
-        parser.print_help()
+        ap.print_help()
+
+if __name__ == "__main__":
+    main()

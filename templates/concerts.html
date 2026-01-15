@@ -413,6 +413,7 @@
                   </div>
                 {% endif %}
 
+                {% if CAN_EDIT_CONCERTS %}
                 <div class="d-flex gap-2">
                   <a class="btn btn-sm btn-primary" href="{{ url_for('concert_edit_view', cid=c.id) }}">
                     <i class="fa fa-pen"></i> Editar
@@ -421,6 +422,7 @@
                     <button class="btn btn-sm btn-outline-danger" type="submit"><i class="fa fa-trash"></i></button>
                   </form>
                 </div>
+                {% endif %}
 
               </div>
 
@@ -532,13 +534,13 @@
                           </div>
                           <div class="mt-1 truncate-2" data-full="{{ n.body|e }}">{{ n.body }}</div>
                           <div class="d-flex justify-content-end mt-2">
-                            <form method="post"
+                            {% if CAN_EDIT_CONCERTS %}<form method="post"
                                   action="{{ url_for('concert_note_delete', cid=c.id, nid=n.id) }}"
                                   onsubmit="return confirm('¿Borrar esta nota?')">
                               <button class="btn btn-sm btn-outline-danger">
                                 <i class="fa fa-trash"></i>
                               </button>
-                            </form>
+                            </form>{% endif %}
                           </div>
                         </div>
                       {% endfor %}
@@ -549,7 +551,7 @@
 
                   <hr>
 
-                  <form method="post" action="{{ url_for('concert_note_create', cid=c.id) }}" class="row g-2">
+                  {% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_note_create', cid=c.id) }}" class="row g-2">
                     <input type="hidden" name="next" value="{{ url_for('concerts_view', tab='vista') }}#concert-{{ c.id }}">
 
                     <div class="col-12">
@@ -565,7 +567,7 @@
                     <div class="col-12 d-flex justify-content-end">
                       <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir nota</button>
                     </div>
-                  </form>
+                  </form>{% endif %}
 
                 </div>
               </div>
@@ -692,7 +694,9 @@
         </div>
 
         <div class="col-12 d-flex justify-content-end mt-2">
-          <button class="btn btn-primary"><i class="fa fa-plus"></i> Crear concierto</button>
+          {% if CAN_EDIT_CONCERTS %}
+            <button class="btn btn-primary"><i class="fa fa-plus"></i> Crear concierto</button>
+          {% endif %}
         </div>
 
         <!-- ==================== COLABORADORES ==================== -->

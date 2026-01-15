@@ -13,7 +13,7 @@ from dotenv import load_dotenv, find_dotenv
 from werkzeug.security import generate_password_hash
 from sqlalchemy import create_engine, text
 
-ALLOWED_ROLES = {1, 2, 3, 4, 10}
+ALLOWED_ROLES = {1, 2, 3, 4, 5, 6, 10}
 
 def get_engine():
     load_dotenv(find_dotenv(), override=False)

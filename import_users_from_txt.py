@@ -21,7 +21,7 @@ from dotenv import load_dotenv, find_dotenv
 import requests
 from werkzeug.security import generate_password_hash
 
-ALLOWED_ROLES = {1, 2, 3, 4, 10}
+ALLOWED_ROLES = {1, 2, 3, 4, 5, 6, 10}
 
 def parse_users_file(path: str) -> List[Dict]:
     if not os.path.exists(path):

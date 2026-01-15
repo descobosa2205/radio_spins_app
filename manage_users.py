@@ -53,6 +53,32 @@ def list_users():
     for r in rows:
         print(f"{r.email}\trole={r.role}\t{r.created_at}")
 
+def load_users_from_txt(path="users.txt"):
+    users = {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 2:
+                    continue
+
+                email = parts[0].lower()
+                password = parts[1]
+                role = int(parts[2]) if len(parts) >= 3 else 10
+
+                users[email] = {
+                    "password": password,
+                    "role": role
+                }
+    except FileNotFoundError:
+        pass
+
+    return users
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd")

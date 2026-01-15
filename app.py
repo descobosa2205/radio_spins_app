@@ -1,6 +1,7 @@
 from datetime import date, timedelta, datetime
 from uuid import UUID
 import uuid as _uuid
+import os
 import json
 from io import BytesIO
 from functools import wraps
@@ -21,7 +22,7 @@ from flask import (
 )
 from sqlalchemy import func, text
 
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 import calendar as _cal
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -155,6 +156,54 @@ ROLE_WELCOME = {
     6: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas en modo lectura con economía. Radios en modo lectura.",
     10: "Bienvenido. Acceso master: puedes ver y modificar toda la información.",
 }
+
+# Roles permitidos en users.txt / BD
+ALLOWED_ROLES = {1, 2, 3, 4, 5, 6, 10}
+
+def _users_txt_path() -> str:
+    """Ruta absoluta a users.txt (siempre junto a app.py)."""
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.txt")
+
+def load_users_from_txt(path: str | None = None) -> dict:
+    """Carga users.txt en memoria: {email: {password, role}}.
+
+    Formato por línea (CSV simple):
+        email, password, role(opcional)
+    - Ignora líneas vacías y comentarios (#...)
+    - Hace strip() para tolerar espacios
+    - Si role es inválido → 10
+    """
+    p = path or _users_txt_path()
+    users: dict = {}
+    try:
+        with open(p, "r", encoding="utf-8", errors="ignore") as f:
+            for raw in f:
+                line = (raw or "").strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [x.strip() for x in line.split(",")]
+                if len(parts) < 2:
+                    continue
+                email = (parts[0] or "").strip().lower()
+                password = parts[1] or ""
+
+                role = 10
+                if len(parts) >= 3 and parts[2]:
+                    try:
+                        role = int((parts[2] or "").strip())
+                    except Exception:
+                        role = 10
+                if role not in ALLOWED_ROLES:
+                    role = 10
+
+                if email:
+                    users[email] = {"password": password, "role": role}
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        # No rompemos el login si el fichero tiene algún problema puntual
+        return {}
+    return users
 
 def current_role() -> int:
     try:
@@ -388,13 +437,45 @@ def admin_login():
         session_db = db()
         try:
             user = session_db.query(User).filter(func.lower(User.email) == email).first()
+            # 1) Validación normal contra BD
             if user and check_password_hash(user.password_hash, password):
                 session["user_id"] = str(user.id)
                 session["role"] = int(getattr(user, "role", 10) or 10)
                 flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
-            else:
-                flash("Usuario o contraseña incorrectos.", "danger")
+
+            # 2) Fallback: users.txt (para poder añadir usuarios sin necesidad de scripts)
+            txt = load_users_from_txt().get(email)
+            if txt and (txt.get("password") or "") == password:
+                role = int(txt.get("role") or 10)
+                if role not in ALLOWED_ROLES:
+                    role = 10
+
+                if not user:
+                    user = User(
+                        email=email,
+                        password_hash=generate_password_hash(password),
+                        role=role,
+                    )
+                    session_db.add(user)
+                else:
+                    # Sincronizamos el usuario de BD con el fichero
+                    user.password_hash = generate_password_hash(password)
+                    user.role = role
+
+                session_db.commit()
+                # Aseguramos que tenemos el id (PK) cargado
+                if not getattr(user, "id", None):
+                    user = session_db.query(User).filter(func.lower(User.email) == email).first()
+                session["user_id"] = str(user.id)
+                session["role"] = role
+                flash(ROLE_WELCOME.get(role, "Bienvenido."), "success")
+                return redirect(nxt)
+
+            flash("Usuario o contraseña incorrectos.", "danger")
+        except Exception:
+            session_db.rollback()
+            flash("Error validando el usuario. Revisa la configuración.", "danger")
         finally:
             session_db.close()
     next_param = request.args.get("next") or ""

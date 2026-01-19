@@ -29,7 +29,7 @@
           <p class="dash-hero__subtitle">Acceso total a la aplicación</p>
         {% else %}
           <h3 class="dash-hero__title">Panel de Consulta</h3>
-          <p class="dash-hero__subtitle">Acceso en modo lectura (sin economía)</p>
+          <p class="dash-hero__subtitle">Acceso en modo lectura</p>
         {% endif %}
         <div class="small text-muted">Rol {{ ROLE }} · {{ ROLE_LABEL }}</div>
       </div>
@@ -39,7 +39,7 @@
       {% if CAN_VIEW_ECON %}
         <span class="badge text-bg-success"><i class="fa fa-euro-sign me-1"></i> Economía visible</span>
       {% else %}
-        <span class="badge text-bg-secondary"><i class="fa fa-eye-slash me-1"></i> Economía oculta</span>
+        <span class="badge text-bg-secondary"><i class="fa fa-eye-slash me-1"></i> Vista general ventas</span>
       {% endif %}
       {% if CAN_EDIT_RADIO %}<span class="badge text-bg-primary">Edición radio</span>{% endif %}
       {% if CAN_EDIT_SALES %}<span class="badge text-bg-primary">Edición ventas</span>{% endif %}
@@ -157,7 +157,7 @@
           <div class="dash-tile__icon"><i class="fa fa-chart-line"></i></div>
           <div>
             <p class="dash-tile__title">Reporte de ventas</p>
-            <p class="dash-tile__text">Resumen y evolución{% if CAN_VIEW_ECON %} (con economía){% else %} (sin economía){% endif %}</p>
+            <p class="dash-tile__text">Resumen y evolución{% if CAN_VIEW_ECON %} (con economía){% else %} (Vista general){% endif %}</p>
           </div>
         </div>
       </div>

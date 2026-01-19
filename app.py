@@ -2,6 +2,8 @@ from datetime import date, timedelta, datetime
 from uuid import UUID
 import uuid as _uuid
 import json
+import csv
+from pathlib import Path
 from io import BytesIO
 from functools import wraps
 from zoneinfo import ZoneInfo
@@ -21,7 +23,7 @@ from flask import (
 )
 from sqlalchemy import func, text
 
-from werkzeug.security import check_password_hash
+from werkzeug.security import check_password_hash, generate_password_hash
 import calendar as _cal
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
@@ -181,6 +183,51 @@ ROLE_WELCOME = {
     6: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas en modo lectura con economía. Radios en modo lectura.",
     10: "Bienvenido. Acceso master: puedes ver y modificar toda la información.",
 }
+
+
+# --- users.txt (fuente de usuarios) ---
+USERS_TXT_PATH = Path(__file__).resolve().parent / "users.txt"
+
+
+def load_users_from_txt():
+    """Carga usuarios desde users.txt.
+
+    Formato esperado por linea:
+      email, password, role
+
+    - Soporta espacios tras comas.
+    - Soporta UTF-8 con BOM.
+    - Ignora lineas vacias y comentarios (#).
+    """
+    users = {}
+    try:
+        if not USERS_TXT_PATH.exists():
+            return users
+        with USERS_TXT_PATH.open('r', encoding='utf-8-sig', newline='') as f:
+            reader = csv.reader(f, skipinitialspace=True)
+            for row in reader:
+                if not row:
+                    continue
+                first = (row[0] or '').strip()
+                if not first or first.startswith('#'):
+                    continue
+                if len(row) < 2:
+                    continue
+                email = first.lower()
+                pwd = (row[1] or '').strip()
+                role = 10
+                if len(row) >= 3:
+                    raw_role = (row[2] or '').strip()
+                    if raw_role:
+                        try:
+                            role = int(raw_role)
+                        except Exception:
+                            role = 10
+                users[email] = {'password': pwd, 'role': role}
+    except Exception:
+        # Si hay cualquier problema leyendo el fichero, fallamos "cerrado" (sin permitir login por TXT).
+        return {}
+    return users
 
 def current_role() -> int:
     try:
@@ -411,19 +458,59 @@ def admin_login():
 
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
-        password = request.form.get("password") or ""
+        password = (request.form.get("password") or "").strip()
         nxt = request.form.get("next") or url_for("home")
+
+        txt_users = load_users_from_txt()
 
         session_db = db()
         try:
             user = session_db.query(User).filter(func.lower(User.email) == email).first()
+
+            # 1) Intentar login contra BD
             if user and check_password_hash(user.password_hash, password):
+                # Si el usuario existe en users.txt, sincronizamos el rol (para que editar el TXT sea suficiente)
+                rec = txt_users.get(email)
+                if rec and rec.get('role') is not None:
+                    try:
+                        role_txt = int(rec.get('role') or 10)
+                    except Exception:
+                        role_txt = int(getattr(user, 'role', 10) or 10)
+                    if int(getattr(user, 'role', 10) or 10) != role_txt:
+                        user.role = role_txt
+                        session_db.commit()
+
                 session["user_id"] = str(user.id)
                 session["role"] = int(getattr(user, "role", 10) or 10)
                 flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
-            else:
-                flash("Usuario o contraseña incorrectos.", "danger")
+
+            # 2) Fallback users.txt (si existe y password coincide)
+            rec = txt_users.get(email)
+            if rec and rec.get('password') == password:
+                role = int(rec.get('role') or 10)
+
+                if not user:
+                    user = User(
+                        email=email,
+                        password_hash=generate_password_hash(password),
+                        role=role,
+                    )
+                    session_db.add(user)
+                else:
+                    # Si el usuario ya existe en BD pero en users.txt tiene otra password/role,
+                    # sincronizamos BD con el TXT (source of truth).
+                    user.password_hash = generate_password_hash(password)
+                    user.role = role
+
+                session_db.commit()
+
+                session["user_id"] = str(user.id)
+                session["role"] = role
+                flash(ROLE_WELCOME.get(role, "Bienvenido."), "success")
+                return redirect(nxt)
+
+            flash("Usuario o contraseña incorrectos.", "danger")
         finally:
             session_db.close()
     next_param = request.args.get("next") or ""

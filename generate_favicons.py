@@ -5,7 +5,7 @@ from pathlib import Path
 SRC = Path("static/favicon-source.png")
 OUT = Path("static")
 
-def save_png(img, name, size):
+def save_png(img, name, size):    
     im = img.copy().resize((size, size), Image.LANCZOS)
     im.save(OUT / name, format="PNG")
 

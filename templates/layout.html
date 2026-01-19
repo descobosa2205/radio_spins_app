@@ -29,7 +29,7 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
   <div class="container-fluid">
-    <a class="navbar-brand d-flex align-items-center" href="{{ url_for('plays_view') if IS_ADMIN else url_for('public_summary') }}">
+    <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') if IS_ADMIN else url_for('landing') }}">
       <!-- Mostramos el banner nuevo; en móviles dejamos que se reduzca -->
       <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="Logo" style="height:32px;">
     </a>
@@ -41,40 +41,37 @@
     <div id="navMain" class="collapse navbar-collapse">
       <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
 
-        <li class="nav-item">
-          <a class="nav-link" href="{{ url_for('home') }}"><i class="fa fa-home"></i> Inicio</a>
-        </li>
+        {% if IS_ADMIN %}
 
-        <!-- RADIO -->
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Radio</a>
-          <ul class="dropdown-menu">
-            <li>
-              <a class="dropdown-item" href="{{ url_for('summary_view') if IS_ADMIN else url_for('public_summary') }}">
-                Reporte de radios
-              </a>
-            </li>
-            {% if IS_ADMIN %}
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('home') }}"><i class="fa fa-home"></i> Inicio</a>
+          </li>
+
+          <!-- RADIO -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Radio</a>
+            <ul class="dropdown-menu">
+              <li>
+                <a class="dropdown-item" href="{{ url_for('summary_view') }}">Reporte de radios</a>
+              </li>
               {% if CAN_EDIT_RADIO %}
                 <li><a class="dropdown-item" href="{{ url_for('plays_view') }}">Actualizar tocadas</a></li>
               {% endif %}
               <li><a class="dropdown-item" href="{{ url_for('stations_view') }}">Emisoras</a></li>
-            {% endif %}
-          </ul>
-        </li>
+            </ul>
+          </li>
 
-        <!-- VENTAS -->
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Ventas</a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
-            {% if CAN_EDIT_SALES %}
-              <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
-            {% endif %}
-          </ul>
-        </li>
+          <!-- VENTAS -->
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">Ventas</a>
+            <ul class="dropdown-menu">
+              <li><a class="dropdown-item" href="{{ url_for('sales_report_view') }}">Reporte de ventas</a></li>
+              {% if CAN_EDIT_SALES %}
+                <li><a class="dropdown-item" href="{{ url_for('sales_update_view') }}">Actualizar ventas</a></li>
+              {% endif %}
+            </ul>
+          </li>
 
-        {% if IS_ADMIN %}
           <li class="nav-item"><a class="nav-link" href="{{ url_for('artists_view') }}">Artistas</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('songs_view') }}">Canciones</a></li>
           <li class="nav-item"><a class="nav-link" href="{{ url_for('promoters_view') }}">Terceros</a></li>
@@ -92,9 +89,27 @@
             </ul>
           </li>
 
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_logout') }}">Salir</a></li>
+          <li class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+              <i class="fa fa-user"></i>
+              {{ ROLE_LABEL }}
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end">
+              <li class="px-3 py-2">
+                <div class="small text-muted">Rol</div>
+                <div class="fw-semibold">{{ ROLE }}</div>
+              </li>
+              <li><hr class="dropdown-divider"></li>
+              <li><a class="dropdown-item" href="{{ url_for('admin_logout') }}"><i class="fa fa-right-from-bracket me-2"></i> Salir</a></li>
+            </ul>
+          </li>
+
         {% else %}
-          <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_login') }}">Administrador</a></li>
+          <li class="nav-item">
+            <a class="nav-link" href="{{ url_for('admin_login') }}">
+              <i class="fa fa-right-to-bracket"></i> Iniciar sesión
+            </a>
+          </li>
         {% endif %}
 
       </ul>

@@ -22,9 +22,11 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h4 class="mb-0">Conciertos</h4>
   {% if active_tab == 'vista' %}
-    <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='alta') }}">
-      <i class="fa fa-plus"></i> Alta concierto
-    </a>
+    {% if CAN_EDIT_CONCERTS %}
+      <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='alta') }}">
+        <i class="fa fa-plus"></i> Alta concierto
+      </a>
+    {% endif %}
   {% else %}
     <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">
       <i class="fa fa-arrow-left"></i> Volver a vista
@@ -336,16 +338,20 @@
                   {% set st = (c.status or 'HABLADO') %}
                   {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
 
-                  <div class="dropdown">
-                    <button class="btn btn-sm status-pill {{ st_class }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                      {{ st|capitalize }}
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','HABLADO')">Hablado</a></li>
-                      <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','RESERVADO')">Reservado</a></li>
-                      <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','CONFIRMADO')">Confirmado</a></li>
-                    </ul>
-                  </div>
+                  {% if CAN_EDIT_CONCERTS %}
+                    <div class="dropdown">
+                      <button class="btn btn-sm status-pill {{ st_class }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        {{ st|capitalize }}
+                      </button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','HABLADO')">Hablado</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','RESERVADO')">Reservado</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="return setConcertStatus('{{ c.id }}','CONFIRMADO')">Confirmado</a></li>
+                      </ul>
+                    </div>
+                  {% else %}
+                    <span class="btn btn-sm status-pill {{ st_class }}" aria-disabled="true">{{ st|capitalize }}</span>
+                  {% endif %}
 
                   {% if c.billing_company %}
                     <div class="mt-2 d-flex flex-column align-items-end">

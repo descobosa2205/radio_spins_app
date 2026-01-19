@@ -5,8 +5,9 @@
     <div class="card">
       <div class="card-body">
         <div class="text-center mb-3">
-          <img src="{{ url_for('static', filename='img/logo.png') }}" style="height:60px;" alt="Logo">
-          <h4 class="mt-2">Acceso administrador</h4>
+          <img src="{{ url_for('static', filename='img/logo.png') }}" style="height:60px;" alt="PIES">
+          <h4 class="mt-2">Iniciar sesión</h4>
+          <div class="small text-muted">Introduce tu email y contraseña</div>
         </div>
         <form method="post" action="{{ url_for('admin_login') }}">
           <input type="hidden" name="next" value="{{ next_url or '' }}">
@@ -25,7 +26,9 @@
       </div>
     </div>
     <div class="text-center mt-3">
-      <a href="{{ url_for('public_summary') }}">Ir a Vista general</a>
+      <a href="{{ url_for('landing') }}" class="text-decoration-none">
+        <i class="fa fa-arrow-left me-1"></i> Volver
+      </a>
     </div>
   </div>
 </div>

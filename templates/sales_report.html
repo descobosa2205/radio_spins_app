@@ -168,11 +168,15 @@
                 </div>
 
                 <div class="d-flex align-items-center gap-2">
-                  {% if IS_ADMIN %}
-                  <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
-                     href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
-                    <i class="fa fa-file-lines"></i>
-                  </a>
+                  {#
+                    IMPORTANTE: si el rol no puede ver economía, tampoco debe ver el botón
+                    de "Informe" de ventas por concierto.
+                  #}
+                  {% if CAN_VIEW_ECON %}
+                    <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
+                       href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
+                      <i class="fa fa-file-lines"></i>
+                    </a>
                   {% endif %}
                   <button type="button" class="btn btn-sm btn-outline-primary" title="Evolución"
                           onclick="openSalesChart('{{ c.id }}')">

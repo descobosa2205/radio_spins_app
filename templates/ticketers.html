@@ -12,16 +12,20 @@
 {% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-5">
+    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
+      <div class="col-12 col-md-4">
         <label class="form-label">Nombre</label>
         <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-5">
-        <label class="form-label">URL (opcional)</label>
-        <input name="url" class="form-control" />
+      <div class="col-12 col-md-5">
+        <label class="form-label">Enlace (opcional)</label>
+        <input name="link_url" class="form-control" placeholder="https://..." />
       </div>
-      <div class="col-12 col-md-2 d-grid">
+      <div class="col-12 col-md-2">
+        <label class="form-label">Logo (opcional)</label>
+        <input type="file" name="logo" class="form-control" accept="image/*" />
+      </div>
+      <div class="col-12 col-md-1 d-grid">
         <button class="btn btn-primary">Crear</button>
       </div>
     </form>
@@ -34,30 +38,47 @@
     <table class="table align-middle">
       <thead>
         <tr>
+          <th style="width:64px">Logo</th>
           <th>Nombre</th>
-          <th>URL</th>
-          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+          <th>Enlace</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
         </tr>
       </thead>
       <tbody>
       {% for t in ticketers %}
         <tr>
           {% if CAN_EDIT_CATALOGS %}
-            <form method="post" action="{{ url_for('ticketer_update', ticketer_id=t.id) }}">
-              <td><input class="form-control" name="name" value="{{ t.name }}"></td>
-              <td><input class="form-control" name="url" value="{{ t.url or '' }}"></td>
+            <form method="post" enctype="multipart/form-data" action="{{ url_for('ticketer_update', tid=t.id) }}">
+              <td>
+                {% if t.logo_url %}
+                  <img src="{{ t.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
+                {% endif %}
+              </td>
+              <td style="min-width:220px"><input class="form-control" name="name" value="{{ t.name }}"></td>
+              <td style="min-width:260px"><input class="form-control" name="link_url" value="{{ t.link_url or '' }}"></td>
               <td class="text-end">
-                <button class="btn btn-outline-primary btn-sm">Guardar</button>
-                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('ticketer_delete', ticketer_id=t.id) }}"
-                        onclick="return confirm('¿Borrar ticketera?');">
-                  <i class="fa fa-trash"></i>
-                </button>
+                <div class="d-flex justify-content-end gap-2 flex-wrap">
+                  <input type="file" name="logo" class="form-control form-control-sm" accept="image/*" style="max-width:220px" />
+                  <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                  <button class="btn btn-outline-danger btn-sm"
+                          formaction="{{ url_for('ticketer_delete', tid=t.id) }}"
+                          onclick="return confirm('¿Borrar ticketera?');">
+                    <i class="fa fa-trash"></i>
+                  </button>
+                </div>
               </td>
             </form>
           {% else %}
+            <td>
+              {% if t.logo_url %}
+                <img src="{{ t.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
+              {% endif %}
+            </td>
             <td class="fw-semibold">{{ t.name }}</td>
             <td>
-              {% if t.url %}<a href="{{ t.url }}" target="_blank">{{ t.url }}</a>{% endif %}
+              {% if t.link_url %}
+                <a href="{{ t.link_url }}" target="_blank">{{ t.link_url }}</a>
+              {% endif %}
             </td>
           {% endif %}
         </tr>

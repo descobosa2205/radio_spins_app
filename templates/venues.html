@@ -13,17 +13,28 @@
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-5">
+      <div class="col-12 col-md-4">
         <label class="form-label">Nombre</label>
         <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Ciudad</label>
-        <input name="city" class="form-control" />
+      <div class="col-12 col-md-3">
+        <label class="form-label">Municipio</label>
+        <input name="municipality" class="form-control" />
       </div>
-      <div class="col-md-2">
-        <label class="form-label">Aforo</label>
-        <input name="capacity" class="form-control" />
+      <div class="col-12 col-md-3">
+        <label class="form-label">Provincia</label>
+        <input name="province" class="form-control" />
+      </div>
+      <div class="col-12 col-md-2">
+        <label class="form-label">Tipo</label>
+        <div class="form-check form-switch mt-2">
+          <input class="form-check-input" type="checkbox" role="switch" id="covered_new" name="covered">
+          <label class="form-check-label" for="covered_new">Cubierto</label>
+        </div>
+      </div>
+      <div class="col-12 col-md-10">
+        <label class="form-label">Dirección</label>
+        <input name="address" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -39,22 +50,31 @@
       <thead>
         <tr>
           <th>Nombre</th>
-          <th>Ciudad</th>
-          <th>Aforo</th>
-          {% if CAN_EDIT_CATALOGS %}<th class="text-end">Acciones</th>{% endif %}
+          <th>Municipio</th>
+          <th>Provincia</th>
+          <th>Dirección</th>
+          <th class="text-center" style="width:120px">Cubierto</th>
+          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:160px">Acciones</th>{% endif %}
         </tr>
       </thead>
       <tbody>
       {% for v in venues %}
         <tr>
           {% if CAN_EDIT_CATALOGS %}
-            <form method="post" action="{{ url_for('venue_update', venue_id=v.id) }}">
-              <td><input class="form-control" name="name" value="{{ v.name }}"></td>
-              <td><input class="form-control" name="city" value="{{ v.city or '' }}"></td>
-              <td style="max-width:160px"><input class="form-control" name="capacity" value="{{ v.capacity or '' }}"></td>
+            <form method="post" action="{{ url_for('venue_update', vid=v.id) }}">
+              <td style="min-width:220px"><input class="form-control" name="name" value="{{ v.name }}"></td>
+              <td style="min-width:180px"><input class="form-control" name="municipality" value="{{ v.municipality or '' }}"></td>
+              <td style="min-width:160px"><input class="form-control" name="province" value="{{ v.province or '' }}"></td>
+              <td style="min-width:260px"><input class="form-control" name="address" value="{{ v.address or '' }}"></td>
+              <td class="text-center">
+                <div class="form-check form-switch d-inline-block">
+                  <input class="form-check-input" type="checkbox" role="switch" name="covered" {% if v.covered %}checked{% endif %}>
+                </div>
+              </td>
               <td class="text-end">
                 <button class="btn btn-outline-primary btn-sm">Guardar</button>
-                <button class="btn btn-outline-danger btn-sm ms-1" formaction="{{ url_for('venue_delete', venue_id=v.id) }}"
+                <button class="btn btn-outline-danger btn-sm ms-1"
+                        formaction="{{ url_for('venue_delete', vid=v.id) }}"
                         onclick="return confirm('¿Borrar recinto?');">
                   <i class="fa fa-trash"></i>
                 </button>
@@ -62,8 +82,16 @@
             </form>
           {% else %}
             <td class="fw-semibold">{{ v.name }}</td>
-            <td>{{ v.city or '' }}</td>
-            <td>{{ v.capacity or '' }}</td>
+            <td>{{ v.municipality or '' }}</td>
+            <td>{{ v.province or '' }}</td>
+            <td>{{ v.address or '' }}</td>
+            <td class="text-center">
+              {% if v.covered %}
+                <span class="badge text-bg-success">Sí</span>
+              {% else %}
+                <span class="badge text-bg-secondary">No</span>
+              {% endif %}
+            </td>
           {% endif %}
         </tr>
       {% endfor %}

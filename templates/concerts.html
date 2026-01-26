@@ -59,27 +59,27 @@
       <div class="col-md-4">
         <label class="form-label">Tipos</label>
         <div class="d-flex flex-wrap gap-2">
-          {% set T = selected_types or [] %}
+          {% set T = f_sale_types or [] %}
           <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="EMPRESA"
+            <input class="form-check-input me-1" type="checkbox" name="type" value="EMPRESA"
                   {% if "EMPRESA" in T %}checked{% endif %}>
             Conciertos — Empresa
           </label>
 
           <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="PARTICIPADOS"
+            <input class="form-check-input me-1" type="checkbox" name="type" value="PARTICIPADOS"
                   {% if "PARTICIPADOS" in T %}checked{% endif %}>
             Conciertos — Participados
           </label>
 
           <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="CADIZ"
+            <input class="form-check-input me-1" type="checkbox" name="type" value="CADIZ"
                   {% if "CADIZ" in T %}checked{% endif %}>
             Cádiz Music Stadium
           </label>
 
           <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="sale_type" value="VENDIDO"
+            <input class="form-check-input me-1" type="checkbox" name="type" value="VENDIDO"
                   {% if "VENDIDO" in T %}checked{% endif %}>
             Conciertos — Vendidos
           </label>
@@ -90,7 +90,7 @@
       <div class="col-md-4">
         <label class="form-label">Estado</label>
         <div class="d-flex flex-wrap gap-2">
-          {% set S = selected_statuses or [] %}
+          {% set S = f_statuses or [] %}
           <label class="btn btn-outline-secondary btn-sm">
             <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO"
                   {% if "HABLADO" in S %}checked{% endif %}>
@@ -107,6 +107,24 @@
             <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO"
                   {% if "CONFIRMADO" in S %}checked{% endif %}>
             Confirmado
+          </label>
+        </div>
+      </div>
+
+      <!-- FECHA (pasados / futuros) -->
+      <div class="col-md-4">
+        <label class="form-label">Fecha</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set W = f_when or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="when" value="FUTURE"
+                  {% if "FUTURE" in W %}checked{% endif %}>
+            Conciertos futuros
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="when" value="PAST"
+                  {% if "PAST" in W %}checked{% endif %}>
+            Conciertos pasados
           </label>
         </div>
       </div>
@@ -127,7 +145,7 @@
   {% for key in order %}
     {% set group = sections.get(key, []) %}
     {% if group and (not f_sale_types or key in f_sale_types) %}
-      <details class="mb-3" open>
+      <details class="mb-3">
         <summary class="h6 mb-2">{{ titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
 
         {% for c in group %}

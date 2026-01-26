@@ -11,7 +11,7 @@
   </a>
 </div>
 
-<form method="post" enctype="multipart/form-data" class="row g-2">
+<form method="post" action="{{ url_for('concert_update', cid=concert.id) }}" enctype="multipart/form-data" class="row g-2">
 
   <!-- fila 1: Estado -->
   <div class="col-12">

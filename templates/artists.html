@@ -2,14 +2,14 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0">Artistas</h4>
-  {% if CAN_EDIT_CATALOGS %}
+  {% if CAN_EDIT_ARTISTS_STATIONS %}
     <span class="badge text-bg-primary">Edición</span>
   {% else %}
     <span class="badge text-bg-secondary">Lectura</span>
   {% endif %}
 </div>
 
-{% if CAN_EDIT_CATALOGS %}
+{% if CAN_EDIT_ARTISTS_STATIONS %}
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
@@ -36,7 +36,7 @@
       <div class="card-body d-flex">
         <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-3" alt="">
         <div class="flex-grow-1">
-          {% if CAN_EDIT_CATALOGS %}
+          {% if CAN_EDIT_ARTISTS_STATIONS %}
             <form method="post" action="{{ url_for('artist_update', artist_id=a.id) }}" enctype="multipart/form-data">
               <div class="d-flex gap-2 flex-wrap">
                 <input name="name" class="form-control" value="{{ a.name }}" />

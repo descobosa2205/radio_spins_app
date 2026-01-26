@@ -247,7 +247,16 @@ def can_edit_concerts() -> bool:
 
 def can_edit_catalogs() -> bool:
     # Roles que pueden modificar catálogos/bases de datos (artistas, recintos, empresas, etc.)
-    return current_role() in (5, 6, 10)
+    return current_role() in (2, 5, 6, 10)
+
+
+def can_edit_artists_stations() -> bool:
+    """Permiso específico: artistas + emisoras.
+
+    Petición del cliente: los usuarios de rango 2 deben poder añadir/editar
+    artistas y emisoras, sin ampliar permisos al resto de catálogos.
+    """
+    return current_role() in (2, 5, 6, 10)
 
 def can_edit_sales() -> bool:
     return current_role() in (3, 10)
@@ -299,7 +308,14 @@ def enforce_role_permissions():
             return
 
         # Catálogos / Bases de datos (CRUD)
-        if path.startswith(("/artistas", "/emisoras", "/canciones", "/promotores", "/recintos", "/ticketeras", "/empresas")):
+        # - Artistas + Emisoras: también permitido a rol 2 (radio edición)
+        if path.startswith(("/artistas", "/emisoras")):
+            if not (is_master() or can_edit_artists_stations()):
+                return forbid("Tu usuario no tiene permisos para modificar artistas/emisoras.")
+            return
+
+        # - Resto de catálogos
+        if path.startswith(("/canciones", "/promotores", "/recintos", "/ticketeras", "/empresas")):
             if not (is_master() or can_edit_catalogs()):
                 return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
             return
@@ -428,6 +444,7 @@ def inject_globals():
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
     )
 
@@ -1900,6 +1917,8 @@ def concerts_page():
         f_artist_ids_raw = request.args.getlist("artist") or []
         f_sale_types_raw = request.args.getlist("type") or []
         f_statuses_raw = request.args.getlist("status") or []
+        # Filtro temporal (pasados / futuros). Por defecto: futuros.
+        f_when_raw = request.args.getlist("when") or []
 
         f_artist_ids = []
         for x in f_artist_ids_raw:
@@ -1913,6 +1932,14 @@ def concerts_page():
 
         f_sale_types = [(x or "").strip().upper() for x in f_sale_types_raw if (x or "").strip()]
         f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
+
+        # when: {PAST, FUTURE}
+        f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
+        allowed_when = {"PAST", "FUTURE"}
+        f_when = {x for x in f_when if x in allowed_when}
+        # Por defecto, si no viene nada, mostramos FUTUROS.
+        if not f_when:
+            f_when = {"FUTURE"}
 
         allowed_sale_types = {"EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"}
         allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
@@ -2021,7 +2048,10 @@ def concerts_page():
 
                 s.commit()
                 flash("Concierto creado.", "success")
-                return redirect(url_for("concerts_view", tab="vista") + f"#concert-{c.id}")
+                # Volver a la vista asegurando que el concierto queda visible
+                # según el filtro pasados/futuros.
+                target_when = "PAST" if (c.date and c.date < today_local()) else "FUTURE"
+                return redirect(url_for("concerts_view", tab="vista", when=target_when) + f"#concert-{c.id}")
 
             except Exception as e:
                 s.rollback()
@@ -2056,6 +2086,15 @@ def concerts_page():
         if f_statuses:
             q = q.filter(Concert.status.in_(f_statuses))
 
+        # Fecha: pasados/futuros
+        today = today_local()
+        want_past = "PAST" in f_when
+        want_future = "FUTURE" in f_when
+        if want_past and not want_future:
+            q = q.filter(Concert.date < today)
+        elif want_future and not want_past:
+            q = q.filter(Concert.date >= today)
+
         concerts = q.order_by(Concert.date.asc()).all()
 
         sections = {k: [] for k in SALES_SECTION_ORDER}
@@ -2079,6 +2118,7 @@ def concerts_page():
             f_artist_ids=[str(x) for x in f_artist_ids],
             f_sale_types=f_sale_types,
             f_statuses=f_statuses,
+            f_when=sorted(list(f_when)),
         )
     finally:
         s.close()
@@ -2090,7 +2130,7 @@ def concerts_page():
 @app.get("/conciertos/<cid>/editar", endpoint="concert_edit_view")
 @admin_required
 def concert_edit_view(cid):
-    if not is_master():
+    if not (is_master() or can_edit_concerts()):
         return forbid("Tu usuario no tiene permisos para editar conciertos.")
     session = db()
     try:
@@ -2153,6 +2193,10 @@ def concert_update_handler(cid):
         flash("Concierto no encontrado.", "warning")
         session.close()
         return redirect(url_for("concerts_view", tab="vista"))
+
+    # Para el redirect final: aseguramos que el concierto queda visible
+    # en la vista (pasados/futuros).
+    target_when = "FUTURE"
 
     try:
         sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
@@ -2250,6 +2294,12 @@ def concert_update_handler(cid):
         session.commit()
         flash("Concierto actualizado.", "success")
 
+        # Decide a qué filtro volver (pasados/futuros) según la nueva fecha.
+        if c.date and c.date < today_local():
+            target_when = "PAST"
+        else:
+            target_when = "FUTURE"
+
     except Exception as e:
         session.rollback()
         flash(f"Error actualizando: {e}", "danger")
@@ -2257,7 +2307,7 @@ def concert_update_handler(cid):
     finally:
         session.close()
 
-    return redirect(url_for("concerts_view", tab="vista") + f"#concert-{cid}")
+    return redirect(url_for("concerts_view", tab="vista", when=target_when) + f"#concert-{cid}")
 
 
 # ---------- BORRAR ----------

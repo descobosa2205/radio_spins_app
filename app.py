@@ -3975,7 +3975,7 @@ def quadrantes_view():
       - calendario anual con días marcados por número de evento
       - mapa con chinchetas (número) geocodificando ciudades de recintos
       - resumen agrupado por artista (numeración reinicia por artista)
-      - filtros de estado / caché / equipamiento / aforo
+      - filtro de estado
       - control de contenido (mostrar/ocultar campos) y exportación por impresión
       - exportable a PDF via window.print()
     """
@@ -4015,31 +4015,11 @@ def quadrantes_view():
         # 4) Calendario anual
         months = _build_year_calendar(year)
 
-        # 5) Filtros (estado / caché / equipamiento / aforo)
+        # 5) Filtros (solo estado)
         allowed_status = {"HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
         if not f_statuses:
             f_statuses = ["HABLADO", "RESERVADO", "CONFIRMADO"]
-
-        f_cache_mode = (request.args.get("cache_mode") or "ALL").upper().strip()
-        if f_cache_mode not in ("ALL", "WITH", "WITHOUT"):
-            f_cache_mode = "ALL"
-
-        f_equip_mode = (request.args.get("equip_mode") or "ALL").upper().strip()
-        if f_equip_mode not in ("ALL", "WITH", "WITHOUT"):
-            f_equip_mode = "ALL"
-
-        def _parse_int(name: str):
-            raw = (request.args.get(name) or "").strip()
-            if not raw:
-                return None
-            try:
-                return int(raw)
-            except Exception:
-                return None
-
-        f_min_capacity = _parse_int("min_capacity")
-        f_max_capacity = _parse_int("max_capacity")
 
         # 6) Contenido (mostrar/ocultar). Para permitir desmarcar, usamos
         #    checkbox + input hidden (0/1) y leemos con getlist.
@@ -4157,22 +4137,9 @@ def quadrantes_view():
                     continue
 
                 has_cache = bool(caches_map.get(c.id))
-                if f_cache_mode == "WITH" and not has_cache:
-                    continue
-                if f_cache_mode == "WITHOUT" and has_cache:
-                    continue
-
                 has_equip = (c.id in equip_ids)
-                if f_equip_mode == "WITH" and not has_equip:
-                    continue
-                if f_equip_mode == "WITHOUT" and has_equip:
-                    continue
 
                 cap = int(c.capacity or 0)
-                if f_min_capacity is not None and cap < f_min_capacity:
-                    continue
-                if f_max_capacity is not None and cap > f_max_capacity:
-                    continue
 
                 dstr = c.date.isoformat()
                 v = c.venue
@@ -4245,10 +4212,7 @@ def quadrantes_view():
 
             # filtros (para mantener UI)
             f_statuses=f_statuses,
-            f_cache_mode=f_cache_mode,
-            f_equip_mode=f_equip_mode,
-            f_min_capacity=f_min_capacity,
-            f_max_capacity=f_max_capacity,
+            # (el resto de filtros se eliminan de esta pantalla)
 
             # contenido
             show_calendar=show_calendar,

@@ -5,21 +5,6 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
 <style>
-  .quad-grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-
-  /* En pantallas grandes: izquierda (cal + mapa), derecha (resumen) */
-  @media (min-width: 992px){
-    .quad-grid {
-      /* Hacemos el resumen más ancho para que la información entre en una sola línea */
-      grid-template-columns: 5fr 7fr;
-      align-items: stretch;
-    }
-  }
-
   .year-grid {
     display: grid;
     grid-template-columns: repeat(1, minmax(0,1fr));
@@ -92,13 +77,13 @@
     z-index: 1;
   }
   .day-badge{
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
     border-radius: 50%;
     display: grid;
     place-items: center;
     font-weight: 900;
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1;
     border: 2px solid #0d6efd; /* se sobreescribe inline por artista */
     box-shadow: 0 1px 4px rgba(0,0,0,.18);
@@ -121,13 +106,13 @@
 
   /* Mapa */
   #quad-map{
-    height: 380px;
+    height: 520px;
     width: 100%;
   }
 
   .event-marker .marker-wrap{
-    width: 40px;
-    height: 40px;
+    width: 46px;
+    height: 46px;
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -136,24 +121,8 @@
   }
   .event-marker .marker-n{
     font-weight: 900;
-    font-size: 16px;
+    font-size: 18px;
     line-height: 1;
-  }
-
-  /* Resumen derecha */
-  .right-pane{
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-  }
-  .right-scroll{
-    overflow: auto;
-    max-height: calc(100vh - 260px);
-  }
-  @media (min-width: 992px){
-    .right-scroll{
-      max-height: calc(100vh - 220px);
-    }
   }
 
   .event-row{
@@ -227,18 +196,43 @@
     flex: 0 0 auto;
   }
 
-  /* Print/PDF */
+
+  /* Print/PDF (exportación a PDF con window.print)
+     - 2 caras si hay calendario/mapa: 1) resumen 2) calendario+mapa
+     - Sin hoja inicial "Cuadrantes" (ocultamos cabecera de pantalla)
+  */
+  .print-only{ display:none; }
+  .print-page{ }
+  .print-break-after{ }
+
   @media print{
     @page { size: A4 landscape; margin: 8mm; }
     nav.navbar { display: none !important; }
     .no-print { display: none !important; }
+    .print-only { display: block !important; }
     main.container { max-width: 100% !important; }
-    .card { break-inside: avoid; }
-    /* En export: el listado debe ocupar más espacio que calendario+mapa */
-    .quad-grid{ grid-template-columns: 4fr 8fr !important; gap: .6rem !important; }
 
-    /* Calendario mucho más compacto para que quepa en 1 cara */
+    /* IMPORTANTE: permitir que los bloques se partan para evitar páginas en blanco */
+    .card { break-inside: auto !important; }
+
+    .print-break-after{ break-after: page; }
+
+    /* Cabecera de impresión con artistas más visible */
+    .artist-avatar{ width: 54px !important; height: 54px !important; border-radius: 14px !important; }
+
+    /* Resumen: compactar pero manteniendo 1 línea por evento */
+    table.summary-table{ font-size: 10px !important; }
+    table.summary-table th{ font-size: 9px !important; }
+    table.summary-table th, table.summary-table td{ padding: .18rem .25rem !important; }
+    .artist-group-head{ padding: .35rem .45rem !important; }
+    .event-n{ width: 28px !important; height: 28px !important; border-radius: 8px !important; }
+
+    /* Calendario + mapa en la 2ª cara */
     .year-grid{ gap: .35rem !important; }
+    /* En impresión (media), usamos 2 columnas para que los meses se lean mejor */
+    @supports (grid-template-columns: repeat(2, 1fr)){
+      .year-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+    }
     .month-title{ padding: .15rem .25rem !important; font-size: 9px !important; }
     table.month-table{ font-size: 8px !important; }
     table.month-table th{ padding: .12rem 0 !important; }
@@ -246,21 +240,12 @@
     .day-num{ font-size: 9px !important; }
     .day-badge{ width: 16px !important; height: 16px !important; font-size: 10px !important; border-width: 2px !important; }
     .day-more{ line-height: 16px !important; }
-
-    /* Mapa más bajo */
-    #quad-map { height: 250px !important; }
-
-    /* Tabla resumen compacta, 1 línea por concierto */
-    table.summary-table{ font-size: 10px !important; }
-    table.summary-table th{ font-size: 9px !important; }
-    table.summary-table th, table.summary-table td{ padding: .18rem .25rem !important; }
-    .artist-group-head{ padding: .35rem .45rem !important; }
-    .event-n{ width: 28px !important; height: 28px !important; border-radius: 8px !important; }
-    .right-scroll { max-height: none !important; overflow: visible !important; }
+    #quad-map{ height: 170mm !important; }
   }
 </style>
 
-<div class="d-flex align-items-center justify-content-between mb-3">
+<!-- Cabecera de pantalla (NO se imprime para evitar hoja vacía) -->
+<div class="d-flex align-items-center justify-content-between mb-3 no-print">
   <div>
     <h3 class="m-0">Cuadrantes</h3>
     <div class="text-muted">Selecciona uno o varios artistas para visualizar calendario + mapa + resumen.</div>
@@ -307,7 +292,7 @@
     <hr class="my-3">
 
     <div class="row g-2">
-      <div class="col-12 col-lg-6">
+      <div class="col-12">
         <label class="form-label mb-1">Estado</label>
         {% set S = f_statuses or [] %}
         <div class="d-flex flex-wrap gap-2">
@@ -324,33 +309,6 @@
             Confirmado
           </label>
         </div>
-      </div>
-
-      <div class="col-6 col-lg-2">
-        <label class="form-label mb-1">Caché</label>
-        <select name="cache_mode" class="form-select form-select-sm">
-          <option value="ALL" {% if f_cache_mode=='ALL' %}selected{% endif %}>Todos</option>
-          <option value="WITH" {% if f_cache_mode=='WITH' %}selected{% endif %}>Solo con caché</option>
-          <option value="WITHOUT" {% if f_cache_mode=='WITHOUT' %}selected{% endif %}>Solo sin caché</option>
-        </select>
-      </div>
-
-      <div class="col-6 col-lg-2">
-        <label class="form-label mb-1">Equipamiento</label>
-        <select name="equip_mode" class="form-select form-select-sm">
-          <option value="ALL" {% if f_equip_mode=='ALL' %}selected{% endif %}>Todos</option>
-          <option value="WITH" {% if f_equip_mode=='WITH' %}selected{% endif %}>Con equipamiento</option>
-          <option value="WITHOUT" {% if f_equip_mode=='WITHOUT' %}selected{% endif %}>Sin equipamiento</option>
-        </select>
-      </div>
-
-      <div class="col-6 col-lg-1">
-        <label class="form-label mb-1">Aforo ≥</label>
-        <input type="number" name="min_capacity" class="form-control form-control-sm" value="{{ f_min_capacity or '' }}" min="0" step="1">
-      </div>
-      <div class="col-6 col-lg-1">
-        <label class="form-label mb-1">Aforo ≤</label>
-        <input type="number" name="max_capacity" class="form-control form-control-sm" value="{{ f_max_capacity or '' }}" min="0" step="1">
       </div>
     </div>
 
@@ -432,193 +390,200 @@
   </div>
 </form>
 
-<div class="quad-grid">
-  <!-- IZQUIERDA: calendario arriba + mapa abajo -->
-  <div>
-    {% if show_calendar %}
-    <div class="card mb-3">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
-        <span class="text-muted small">Días con evento muestran el número</span>
+<!-- =====================
+     RESUMEN (pantalla: debajo del formulario)
+     PRINT: 1ª cara
+     ===================== -->
+<div class="print-page {% if show_calendar or show_map %}print-break-after{% endif %}">
+  <div class="card mb-3">
+    <div class="card-header">
+      <div class="d-flex align-items-start justify-content-between gap-2">
+        <div>
+          <div class="fw-semibold">Artistas seleccionados</div>
+          {% if selected_artists and selected_artists|length > 0 %}
+            <div class="d-flex flex-wrap gap-3 mt-2">
+              {% for a in selected_artists %}
+                <div class="d-flex align-items-center gap-2">
+                  <img class="artist-avatar" style="width:36px;height:36px;"
+                       src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
+                       alt="">
+                  <div class="fw-semibold">{{ a.name }}</div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted mt-1">No hay artistas seleccionados.</div>
+          {% endif %}
+        </div>
       </div>
-      <div class="card-body">
-        <div class="year-grid">
-          {% for m in months %}
-            <div class="month-card">
-              <div class="month-title">{{ m.name }}</div>
-              <table class="month-table">
+    </div>
+
+    <div class="card-body">
+      {% if events and events|length > 0 %}
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <div class="fw-semibold">Resumen de eventos ({{ events|length }})</div>
+          <div class="text-muted small">Numeración reinicia por artista</div>
+        </div>
+
+        {% for g in (events_by_artist or []) %}
+          <div class="artist-group-head mb-2">
+            <div class="d-flex align-items-center gap-2" style="min-width:0;">
+              <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
+              <div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
+            </div>
+            <div class="mini-pill">{{ (g.events or [])|length }}</div>
+          </div>
+
+          {% if g.events and (g.events|length) > 0 %}
+            <div class="summary-table-wrap mb-3">
+              <table class="summary-table">
                 <thead>
                   <tr>
-                    {% for d in dow %}
-                      <th>{{ d }}</th>
-                    {% endfor %}
+                    <th style="width:52px;">#</th>
+                    {% if show_date %}<th>Fecha</th>{% endif %}
+                    {% if show_festival %}<th>Festival</th>{% endif %}
+                    {% if show_sale_type %}<th>Tipo</th>{% endif %}
+                    {% if show_province %}<th>Provincia</th>{% endif %}
+                    {% if show_municipality %}<th>Municipio</th>{% endif %}
+                    {% if show_venue %}<th>Recinto</th>{% endif %}
+                    {% if show_capacity %}<th class="text-end">Aforo</th>{% endif %}
+                    {% if show_cache %}<th>Caché</th>{% endif %}
+                    {% if show_equipment %}<th>Equip.</th>{% endif %}
+                    {% if show_status %}<th>Estado</th>{% endif %}
+                    {% if show_promoter %}<th>Promotora</th>{% endif %}
                   </tr>
                 </thead>
                 <tbody>
-                  {% for week in m.weeks %}
+                  {% for e in g.events %}
+                    {% set st = (e.status or 'HABLADO') %}
+                    {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
                     <tr>
-                      {% for day in week %}
-                        {% if day == 0 %}
-                          <td></td>
-                        {% else %}
-                          {% set date_str = "%04d-%02d-%02d"|format(year, m.num, day) %}
-                          {% set marks = marks_by_date.get(date_str, []) %}
-                          <td>
-                            <div class="day-num">{{ day }}</div>
-                            {% if marks and marks|length > 0 %}
-                              <div class="day-badges">
-                                {% for it in marks[:4] %}
-                                  {% set st = (it.status or 'HABLADO') %}
-                                  {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
-                                  <span class="day-badge {{ st_class }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
-                                {% endfor %}
-                                {% if marks|length > 4 %}
-                                  <span class="day-more">+{{ marks|length - 4 }}</span>
-                                {% endif %}
-                              </div>
-                            {% endif %}
-                          </td>
-                        {% endif %}
-                      {% endfor %}
+                      <td>
+                        <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
+                      </td>
+
+                      {% if show_date %}<td>{{ e.date_es }}</td>{% endif %}
+                      {% if show_festival %}<td>{{ e.festival_name or '' }}</td>{% endif %}
+                      {% if show_sale_type %}<td>{{ e.sale_type or '' }}</td>{% endif %}
+                      {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
+                      {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
+                      {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
+                      {% if show_capacity %}<td class="text-end">{{ e.capacity|k }}</td>{% endif %}
+                      {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
+                      {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}
+                      {% if show_status %}<td>{{ st|capitalize }}</td>{% endif %}
+                      {% if show_promoter %}
+                        <td>
+                          {% if e.promoter_logo %}
+                            <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
+                          {% elif e.promoter_name %}
+                            {{ e.promoter_name }}
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                      {% endif %}
                     </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
-          {% endfor %}
+          {% else %}
+            <div class="text-muted mb-3">Sin eventos con los filtros actuales.</div>
+          {% endif %}
+        {% endfor %}
+
+      {% else %}
+        <div class="text-muted">
+          Selecciona uno o varios artistas y pulsa <b>Ver cuadrante</b>.
         </div>
-      </div>
-    </div>
-    {% endif %}
-
-    {% if show_map %}
-    <div class="card">
-      <div class="card-header d-flex align-items-center justify-content-between">
-        <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
-        <span class="text-muted small">Chinchetas = número del evento</span>
-      </div>
-      <div class="card-body p-0">
-        <div id="quad-map"></div>
-      </div>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- DERECHA: info artistas + resumen eventos -->
-  <div class="right-pane">
-    <div class="card h-100">
-      <div class="card-header">
-        <div class="d-flex align-items-start justify-content-between gap-2">
-          <div>
-            <div class="fw-semibold">Artistas seleccionados</div>
-            {% if selected_artists and selected_artists|length > 0 %}
-              <div class="d-flex flex-wrap gap-2 mt-2">
-                {% for a in selected_artists %}
-                  <div class="d-flex align-items-center gap-2">
-                    <img class="artist-avatar" style="width:34px;height:34px;"
-                         src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
-                         alt="">
-                    <div class="fw-semibold">{{ a.name }}</div>
-                  </div>
-                {% endfor %}
-              </div>
-            {% else %}
-              <div class="text-muted mt-1">No hay artistas seleccionados.</div>
-            {% endif %}
-          </div>
-
-          <div class="no-print">
-            <button type="button" class="btn btn-outline-primary btn-sm" onclick="window.print()">
-              <i class="fa fa-file-pdf"></i> Exportar
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card-body right-scroll">
-        {% if events and events|length > 0 %}
-          <div class="d-flex align-items-center justify-content-between mb-2">
-            <div class="fw-semibold">Resumen de eventos ({{ events|length }})</div>
-            <div class="text-muted small">Numeración reinicia por artista</div>
-          </div>
-
-          {% for g in (events_by_artist or []) %}
-            <div class="artist-group-head mb-2">
-              <div class="d-flex align-items-center gap-2" style="min-width:0;">
-                <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
-                <div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
-              </div>
-              <div class="mini-pill">{{ (g.events or [])|length }}</div>
-            </div>
-
-            {% if g.events and (g.events|length) > 0 %}
-              <div class="summary-table-wrap mb-3">
-                <table class="summary-table">
-                  <thead>
-                    <tr>
-                      <th style="width:52px;">#</th>
-                      {% if show_date %}<th>Fecha</th>{% endif %}
-                      {% if show_festival %}<th>Festival</th>{% endif %}
-                      {% if show_sale_type %}<th>Tipo</th>{% endif %}
-                      {% if show_province %}<th>Provincia</th>{% endif %}
-                      {% if show_municipality %}<th>Municipio</th>{% endif %}
-                      {% if show_venue %}<th>Recinto</th>{% endif %}
-                      {% if show_capacity %}<th class="text-end">Aforo</th>{% endif %}
-                      {% if show_cache %}<th>Caché</th>{% endif %}
-                      {% if show_equipment %}<th>Equip.</th>{% endif %}
-                      {% if show_status %}<th>Estado</th>{% endif %}
-                      {% if show_promoter %}<th>Promotora</th>{% endif %}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for e in g.events %}
-                      {% set st = (e.status or 'HABLADO') %}
-                      {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
-                      <tr>
-                        <td>
-                          <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
-                        </td>
-
-                        {% if show_date %}<td>{{ e.date_es }}</td>{% endif %}
-                        {% if show_festival %}<td>{{ e.festival_name or '' }}</td>{% endif %}
-                        {% if show_sale_type %}<td>{{ e.sale_type or '' }}</td>{% endif %}
-                        {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
-                        {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
-                        {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
-                        {% if show_capacity %}<td class="text-end">{{ e.capacity|k }}</td>{% endif %}
-                        {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
-                        {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}
-                        {% if show_status %}<td>{{ st|capitalize }}</td>{% endif %}
-                        {% if show_promoter %}
-                          <td>
-                            {% if e.promoter_logo %}
-                              <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
-                            {% elif e.promoter_name %}
-                              {{ e.promoter_name }}
-                            {% else %}
-                              —
-                            {% endif %}
-                          </td>
-                        {% endif %}
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              <div class="text-muted mb-3">Sin eventos con los filtros actuales.</div>
-            {% endif %}
-          {% endfor %}
-
-        {% else %}
-          <div class="text-muted">
-            Selecciona uno o varios artistas y pulsa <b>Ver cuadrante</b>.
-          </div>
-        {% endif %}
-      </div>
+      {% endif %}
     </div>
   </div>
 </div>
+
+<!-- =====================
+     CALENDARIO + MAPA
+     Pantalla: debajo del resumen, 50/50
+     PRINT: 2ª cara
+     ===================== -->
+{% if show_calendar or show_map %}
+  <div class="print-page">
+    <div class="row g-3">
+      {% if show_calendar %}
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
+            <span class="text-muted small">Días con evento muestran el número</span>
+          </div>
+          <div class="card-body">
+            <div class="year-grid">
+              {% for m in months %}
+                <div class="month-card">
+                  <div class="month-title">{{ m.name }}</div>
+                  <table class="month-table">
+                    <thead>
+                      <tr>
+                        {% for d in dow %}
+                          <th>{{ d }}</th>
+                        {% endfor %}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for week in m.weeks %}
+                        <tr>
+                          {% for day in week %}
+                            {% if day == 0 %}
+                              <td></td>
+                            {% else %}
+                              {% set date_str = "%04d-%02d-%02d"|format(year, m.num, day) %}
+                              {% set marks = marks_by_date.get(date_str, []) %}
+                              <td>
+                                <div class="day-num">{{ day }}</div>
+                                {% if marks and marks|length > 0 %}
+                                  <div class="day-badges">
+                                    {% for it in marks[:4] %}
+                                      {% set st = (it.status or 'HABLADO') %}
+                                      {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                                      <span class="day-badge {{ st_class }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
+                                    {% endfor %}
+                                    {% if marks|length > 4 %}
+                                      <span class="day-more">+{{ marks|length - 4 }}</span>
+                                    {% endif %}
+                                  </div>
+                                {% endif %}
+                              </td>
+                            {% endif %}
+                          {% endfor %}
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if show_map %}
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          <div class="card-header d-flex align-items-center justify-content-between">
+            <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
+            <span class="text-muted small">Chinchetas = número del evento</span>
+          </div>
+          <div class="card-body p-0">
+            <div id="quad-map"></div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -672,8 +637,8 @@
     return L.divIcon({
       className: "event-marker",
       html: `<div class="marker-wrap ${cls}" style="border-color:${border}"><div class="marker-n">${nn}</div></div>`,
-      iconSize: [40, 40],
-      iconAnchor: [20, 20]
+      iconSize: [46, 46],
+      iconAnchor: [23, 23]
     });
   }
 
@@ -686,6 +651,12 @@
       maxZoom: 18,
       attribution: "&copy; OpenStreetMap"
     }).addTo(map);
+
+    // Al cambiar el layout (resumen arriba + mapa abajo) Leaflet a veces necesita recalcular tamaños.
+    // Esto evita que salga "encogido" o con tiles mal colocadas.
+    setTimeout(() => {
+      try { map.invalidateSize(); } catch(e) {}
+    }, 250);
 
     const bounds = [];
 

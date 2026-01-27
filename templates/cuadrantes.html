@@ -227,20 +227,59 @@
     .artist-group-head{ padding: .35rem .45rem !important; }
     .event-n{ width: 28px !important; height: 28px !important; border-radius: 8px !important; }
 
-    /* Calendario + mapa en la 2ª cara */
-    .year-grid{ gap: .35rem !important; }
-    /* En impresión (media), usamos 2 columnas para que los meses se lean mejor */
-    @supports (grid-template-columns: repeat(2, 1fr)){
-      .year-grid{ grid-template-columns: repeat(2, minmax(0,1fr)) !important; }
+    /* 2ª cara (CALENDARIO + MAPA EN LA MISMA HOJA)
+       - Calendario más pequeño a la izquierda
+       - Mapa a la derecha
+       - Evitar que ambos se partan entre páginas
+    */
+    .print-calmap-page{ break-inside: avoid !important; }
+    .print-calmap-row{ break-inside: avoid !important; }
+
+    /* En impresión, Bootstrap a veces apila columnas: forzamos layout en fila cuando hay ambos */
+    .print-calmap-row.print-both{
+      display: flex !important;
+      flex-wrap: nowrap !important;
+      gap: 6mm !important;
+      align-items: stretch !important;
+      margin: 0 !important;
     }
-    .month-title{ padding: .15rem .25rem !important; font-size: 9px !important; }
-    table.month-table{ font-size: 8px !important; }
-    table.month-table th{ padding: .12rem 0 !important; }
-    table.month-table td{ height: 16px !important; padding: 1px !important; }
-    .day-num{ font-size: 9px !important; }
-    .day-badge{ width: 16px !important; height: 16px !important; font-size: 10px !important; border-width: 2px !important; }
-    .day-more{ line-height: 16px !important; }
-    #quad-map{ height: 170mm !important; }
+    .print-calmap-row.print-both > [class*="col"]{
+      padding: 0 !important;
+      margin: 0 !important;
+      float: none !important;
+    }
+    .print-calmap-row.print-both .print-col-calendar{
+      flex: 0 0 38% !important;
+      max-width: 38% !important;
+    }
+    .print-calmap-row.print-both .print-col-map{
+      flex: 1 1 62% !important;
+      max-width: 62% !important;
+    }
+
+    /* Cards: no partir entre páginas */
+    .print-calmap-page .card{ break-inside: avoid !important; }
+
+    /* Cabeceras/paddings más compactos en la 2ª cara */
+    .print-calmap-page .card-header{ padding: .25rem .35rem !important; font-size: 10px !important; }
+    .print-col-calendar .card-body{ padding: .25rem .35rem !important; }
+    .print-col-map .card-body{ padding: 0 !important; overflow: hidden !important; }
+
+    /* Calendario (compacto para que quepa junto al mapa) */
+    .print-col-calendar .year-grid{
+      gap: 2mm !important;
+      grid-template-columns: repeat(3, minmax(0,1fr)) !important;
+    }
+    .print-col-calendar .month-title{ padding: .12rem .18rem !important; font-size: 8px !important; }
+    .print-col-calendar table.month-table{ font-size: 7px !important; }
+    .print-col-calendar table.month-table th{ padding: .08rem 0 !important; }
+    .print-col-calendar table.month-table td{ height: 14px !important; padding: 1px !important; }
+    .print-col-calendar .day-num{ font-size: 8px !important; }
+    .print-col-calendar .day-badge{ width: 12px !important; height: 12px !important; font-size: 9px !important; border-width: 2px !important; }
+    .print-col-calendar .day-more{ line-height: 12px !important; font-size: 8px !important; }
+
+    /* Mapa: altura fija para garantizar que NO salte a otra hoja */
+    .print-col-map #quad-map{ height: 150mm !important; width: 100% !important; }
   }
 </style>
 
@@ -508,10 +547,10 @@
      PRINT: 2ª cara
      ===================== -->
 {% if show_calendar or show_map %}
-  <div class="print-page">
-    <div class="row g-3">
+  <div class="print-page print-calmap-page">
+    <div class="row g-3 print-calmap-row {% if show_calendar and show_map %}print-both{% else %}print-single{% endif %}">
       {% if show_calendar %}
-      <div class="col-12 col-lg-6">
+      <div class="col-12 col-lg-6 print-col-calendar">
         <div class="card h-100">
           <div class="card-header d-flex align-items-center justify-content-between">
             <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
@@ -569,7 +608,7 @@
       {% endif %}
 
       {% if show_map %}
-      <div class="col-12 col-lg-6">
+      <div class="col-12 col-lg-6 print-col-map">
         <div class="card h-100">
           <div class="card-header d-flex align-items-center justify-content-between">
             <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
@@ -596,6 +635,22 @@
   const EVENTS = JSON.parse(
     document.getElementById("quad-events-json")?.textContent || "[]"
   );
+
+  // Ajuste para impresión: Leaflet necesita recalcular tamaños cuando cambia el layout (CSS de print).
+  window.addEventListener("beforeprint", () => {
+    try {
+      if (window.__quadMap){
+        setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250);
+      }
+    } catch(e){}
+  });
+  window.addEventListener("afterprint", () => {
+    try {
+      if (window.__quadMap){
+        setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250);
+      }
+    } catch(e){}
+  });
 
   function getGeoCache(){
     try { return JSON.parse(localStorage.getItem("quad_geo_cache") || "{}"); }
@@ -647,6 +702,7 @@
     if (!el) return;
 
     const map = L.map("quad-map", {scrollWheelZoom: false}).setView([40.4168, -3.7038], 6);
+    window.__quadMap = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 18,
       attribution: "&copy; OpenStreetMap"

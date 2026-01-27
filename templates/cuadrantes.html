@@ -14,7 +14,8 @@
   /* En pantallas grandes: izquierda (cal + mapa), derecha (resumen) */
   @media (min-width: 992px){
     .quad-grid {
-      grid-template-columns: 7fr 5fr;
+      /* Hacemos el resumen más ancho para que la información entre en una sola línea */
+      grid-template-columns: 5fr 7fr;
       align-items: stretch;
     }
   }
@@ -79,7 +80,7 @@
     color: #444;
     z-index: 2;
   }
-  .day-icons{
+  .day-badges{
     position: absolute;
     bottom: 2px;
     left: 2px;
@@ -90,12 +91,18 @@
     align-items: center;
     z-index: 1;
   }
-  .day-icon{
-    width: 14px;
-    height: 14px;
+  .day-badge{
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    object-fit: cover;
-    border: 1px solid #eee;
+    display: grid;
+    place-items: center;
+    font-weight: 900;
+    font-size: 12px;
+    line-height: 1;
+    border: 2px solid #0d6efd; /* se sobreescribe inline por artista */
+    box-shadow: 0 1px 4px rgba(0,0,0,.18);
+    user-select: none;
   }
   .day-more{
     font-size: 10px;
@@ -104,8 +111,13 @@
     border: 1px solid #e9ecef;
     border-radius: 10px;
     padding: 0 4px;
-    line-height: 14px;
+    line-height: 18px;
   }
+
+  /* Colores estado (mismo criterio que en Conciertos) */
+  .status-hablado{ background:#ffe8a1; color:#7a5b00; }
+  .status-reservado{ background:#cfe2ff; color:#084298; }
+  .status-confirmado{ background:#d1e7dd; color:#0f5132; }
 
   /* Mapa */
   #quad-map{
@@ -113,20 +125,19 @@
     width: 100%;
   }
 
-  .artist-marker .marker-wrap{
-    width: 34px;
-    height: 34px;
+  .event-marker .marker-wrap{
+    width: 40px;
+    height: 40px;
     border-radius: 50%;
-    overflow: hidden;
-    border: 2px solid white;
+    display: grid;
+    place-items: center;
+    border: 3px solid #0d6efd; /* se sobreescribe inline por artista */
     box-shadow: 0 2px 10px rgba(0,0,0,.25);
-    background: #fff;
   }
-  .artist-marker img{
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
+  .event-marker .marker-n{
+    font-weight: 900;
+    font-size: 16px;
+    line-height: 1;
   }
 
   /* Resumen derecha */
@@ -154,31 +165,49 @@
     width: 32px;
     height: 32px;
     border-radius: 10px;
-    background: #f1f3f5;
+    border: 2px solid #0d6efd; /* se sobreescribe inline por artista */
     display: grid;
     place-items: center;
     font-weight: 800;
-    color: #333;
     flex: 0 0 auto;
   }
-  .event-meta{
-    flex: 1 1 auto;
-    min-width: 0;
+  .summary-table-wrap{
+    overflow-x: auto;
   }
-  .event-meta .line1{
-    display: flex;
-    gap: .5rem;
-    flex-wrap: wrap;
-    align-items: center;
-    font-weight: 700;
+  table.summary-table{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    white-space: nowrap;
   }
-  .event-meta .line2{
+  table.summary-table th,
+  table.summary-table td{
+    padding: .35rem .45rem;
+    border-bottom: 1px solid #f1f3f5;
+    vertical-align: middle;
+  }
+  table.summary-table th{
+    font-size: 11px;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+  }
+  .artist-group-head{
+    background: #f8f9fa;
+    border: 1px solid #eee;
+    border-radius: 10px;
+    padding: .5rem .6rem;
     display: flex;
-    gap: .5rem;
-    flex-wrap: wrap;
     align-items: center;
-    color: #666;
-    font-size: 12px;
+    justify-content: space-between;
+    gap: .75rem;
+  }
+  .artist-dot{
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: .4rem;
   }
   .mini-pill{
     background: #f8f9fa;
@@ -200,11 +229,33 @@
 
   /* Print/PDF */
   @media print{
+    @page { size: A4 landscape; margin: 8mm; }
     nav.navbar { display: none !important; }
     .no-print { display: none !important; }
     main.container { max-width: 100% !important; }
     .card { break-inside: avoid; }
-    #quad-map { height: 420px !important; }
+    /* En export: el listado debe ocupar más espacio que calendario+mapa */
+    .quad-grid{ grid-template-columns: 4fr 8fr !important; gap: .6rem !important; }
+
+    /* Calendario mucho más compacto para que quepa en 1 cara */
+    .year-grid{ gap: .35rem !important; }
+    .month-title{ padding: .15rem .25rem !important; font-size: 9px !important; }
+    table.month-table{ font-size: 8px !important; }
+    table.month-table th{ padding: .12rem 0 !important; }
+    table.month-table td{ height: 16px !important; padding: 1px !important; }
+    .day-num{ font-size: 9px !important; }
+    .day-badge{ width: 16px !important; height: 16px !important; font-size: 10px !important; border-width: 2px !important; }
+    .day-more{ line-height: 16px !important; }
+
+    /* Mapa más bajo */
+    #quad-map { height: 250px !important; }
+
+    /* Tabla resumen compacta, 1 línea por concierto */
+    table.summary-table{ font-size: 10px !important; }
+    table.summary-table th{ font-size: 9px !important; }
+    table.summary-table th, table.summary-table td{ padding: .18rem .25rem !important; }
+    .artist-group-head{ padding: .35rem .45rem !important; }
+    .event-n{ width: 28px !important; height: 28px !important; border-radius: 8px !important; }
     .right-scroll { max-height: none !important; overflow: visible !important; }
   }
 </style>
@@ -252,16 +303,143 @@
         </button>
       </div>
     </div>
+
+    <hr class="my-3">
+
+    <div class="row g-2">
+      <div class="col-12 col-lg-6">
+        <label class="form-label mb-1">Estado</label>
+        {% set S = f_statuses or [] %}
+        <div class="d-flex flex-wrap gap-2">
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO" {% if 'HABLADO' in S %}checked{% endif %}>
+            Hablado
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="RESERVADO" {% if 'RESERVADO' in S %}checked{% endif %}>
+            Reservado
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO" {% if 'CONFIRMADO' in S %}checked{% endif %}>
+            Confirmado
+          </label>
+        </div>
+      </div>
+
+      <div class="col-6 col-lg-2">
+        <label class="form-label mb-1">Caché</label>
+        <select name="cache_mode" class="form-select form-select-sm">
+          <option value="ALL" {% if f_cache_mode=='ALL' %}selected{% endif %}>Todos</option>
+          <option value="WITH" {% if f_cache_mode=='WITH' %}selected{% endif %}>Solo con caché</option>
+          <option value="WITHOUT" {% if f_cache_mode=='WITHOUT' %}selected{% endif %}>Solo sin caché</option>
+        </select>
+      </div>
+
+      <div class="col-6 col-lg-2">
+        <label class="form-label mb-1">Equipamiento</label>
+        <select name="equip_mode" class="form-select form-select-sm">
+          <option value="ALL" {% if f_equip_mode=='ALL' %}selected{% endif %}>Todos</option>
+          <option value="WITH" {% if f_equip_mode=='WITH' %}selected{% endif %}>Con equipamiento</option>
+          <option value="WITHOUT" {% if f_equip_mode=='WITHOUT' %}selected{% endif %}>Sin equipamiento</option>
+        </select>
+      </div>
+
+      <div class="col-6 col-lg-1">
+        <label class="form-label mb-1">Aforo ≥</label>
+        <input type="number" name="min_capacity" class="form-control form-control-sm" value="{{ f_min_capacity or '' }}" min="0" step="1">
+      </div>
+      <div class="col-6 col-lg-1">
+        <label class="form-label mb-1">Aforo ≤</label>
+        <input type="number" name="max_capacity" class="form-control form-control-sm" value="{{ f_max_capacity or '' }}" min="0" step="1">
+      </div>
+    </div>
+
+    <div class="mt-3">
+      <label class="form-label mb-1">Contenido</label>
+      <div class="d-flex flex-wrap gap-2">
+
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_calendar" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_calendar" value="1" {% if show_calendar %}checked{% endif %}>
+          Calendario
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_map" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_map" value="1" {% if show_map %}checked{% endif %}>
+          Mapa
+        </label>
+
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_date" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_date" value="1" {% if show_date %}checked{% endif %}>
+          Fecha
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_festival" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_festival" value="1" {% if show_festival %}checked{% endif %}>
+          Festival
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_sale_type" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_sale_type" value="1" {% if show_sale_type %}checked{% endif %}>
+          Tipo
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_status" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_status" value="1" {% if show_status %}checked{% endif %}>
+          Estado
+        </label>
+
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_province" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_province" value="1" {% if show_province %}checked{% endif %}>
+          Provincia
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_municipality" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_municipality" value="1" {% if show_municipality %}checked{% endif %}>
+          Municipio
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_venue" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_venue" value="1" {% if show_venue %}checked{% endif %}>
+          Recinto
+        </label>
+
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_capacity" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_capacity" value="1" {% if show_capacity %}checked{% endif %}>
+          Aforo
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_cache" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_cache" value="1" {% if show_cache %}checked{% endif %}>
+          Caché
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_equipment" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_equipment" value="1" {% if show_equipment %}checked{% endif %}>
+          Equipamiento
+        </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_promoter" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_promoter" value="1" {% if show_promoter %}checked{% endif %}>
+          Promotora
+        </label>
+
+      </div>
+    </div>
   </div>
 </form>
 
 <div class="quad-grid">
   <!-- IZQUIERDA: calendario arriba + mapa abajo -->
   <div>
+    {% if show_calendar %}
     <div class="card mb-3">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
-        <span class="text-muted small">Días con evento muestran el logo</span>
+        <span class="text-muted small">Días con evento muestran el número</span>
       </div>
       <div class="card-body">
         <div class="year-grid">
@@ -288,14 +466,14 @@
                           <td>
                             <div class="day-num">{{ day }}</div>
                             {% if marks and marks|length > 0 %}
-                              <div class="day-icons">
-                                {% for it in marks[:3] %}
-                                  <img class="day-icon"
-                                       src="{{ it.photo_url or url_for('static', filename='img/logo.png') }}"
-                                       title="{{ it.name }}">
+                              <div class="day-badges">
+                                {% for it in marks[:4] %}
+                                  {% set st = (it.status or 'HABLADO') %}
+                                  {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                                  <span class="day-badge {{ st_class }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
                                 {% endfor %}
-                                {% if marks|length > 3 %}
-                                  <span class="day-more">+{{ marks|length - 3 }}</span>
+                                {% if marks|length > 4 %}
+                                  <span class="day-more">+{{ marks|length - 4 }}</span>
                                 {% endif %}
                               </div>
                             {% endif %}
@@ -311,16 +489,19 @@
         </div>
       </div>
     </div>
+    {% endif %}
 
+    {% if show_map %}
     <div class="card">
       <div class="card-header d-flex align-items-center justify-content-between">
         <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
-        <span class="text-muted small">Chinchetas = logo del artista</span>
+        <span class="text-muted small">Chinchetas = número del evento</span>
       </div>
       <div class="card-body p-0">
         <div id="quad-map"></div>
       </div>
     </div>
+    {% endif %}
   </div>
 
   <!-- DERECHA: info artistas + resumen eventos -->
@@ -358,38 +539,77 @@
         {% if events and events|length > 0 %}
           <div class="d-flex align-items-center justify-content-between mb-2">
             <div class="fw-semibold">Resumen de eventos ({{ events|length }})</div>
-            <div class="text-muted small">Ordenados de más cercano a más lejano</div>
+            <div class="text-muted small">Numeración reinicia por artista</div>
           </div>
 
-          <div class="list-group">
-            {% for e in events %}
-              <div class="list-group-item">
-                <div class="event-row">
-                  <div class="event-n">{{ e.n }}</div>
-
-                  <div class="event-meta">
-                    <div class="line1">
-                      <span>{{ e.date_es }}</span>
-                      <span class="mini-pill">{{ e.province }}</span>
-                      <span class="mini-pill">{{ e.municipality }}</span>
-                      <span class="mini-pill">{{ e.venue_name }}</span>
-                    </div>
-
-                    <div class="line2">
-                      <span class="mini-pill">Aforo: {{ e.capacity|k }}</span>
-                      <span class="mini-pill">Caché: {{ e.cache }}</span>
-                    </div>
-                  </div>
-
-                  {% if e.promoter_logo %}
-                    <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
-                  {% else %}
-                    <div class="mini-pill">Sin promotora</div>
-                  {% endif %}
-                </div>
+          {% for g in (events_by_artist or []) %}
+            <div class="artist-group-head mb-2">
+              <div class="d-flex align-items-center gap-2" style="min-width:0;">
+                <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
+                <div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
               </div>
-            {% endfor %}
-          </div>
+              <div class="mini-pill">{{ (g.events or [])|length }}</div>
+            </div>
+
+            {% if g.events and (g.events|length) > 0 %}
+              <div class="summary-table-wrap mb-3">
+                <table class="summary-table">
+                  <thead>
+                    <tr>
+                      <th style="width:52px;">#</th>
+                      {% if show_date %}<th>Fecha</th>{% endif %}
+                      {% if show_festival %}<th>Festival</th>{% endif %}
+                      {% if show_sale_type %}<th>Tipo</th>{% endif %}
+                      {% if show_province %}<th>Provincia</th>{% endif %}
+                      {% if show_municipality %}<th>Municipio</th>{% endif %}
+                      {% if show_venue %}<th>Recinto</th>{% endif %}
+                      {% if show_capacity %}<th class="text-end">Aforo</th>{% endif %}
+                      {% if show_cache %}<th>Caché</th>{% endif %}
+                      {% if show_equipment %}<th>Equip.</th>{% endif %}
+                      {% if show_status %}<th>Estado</th>{% endif %}
+                      {% if show_promoter %}<th>Promotora</th>{% endif %}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for e in g.events %}
+                      {% set st = (e.status or 'HABLADO') %}
+                      {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                      <tr>
+                        <td>
+                          <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
+                        </td>
+
+                        {% if show_date %}<td>{{ e.date_es }}</td>{% endif %}
+                        {% if show_festival %}<td>{{ e.festival_name or '' }}</td>{% endif %}
+                        {% if show_sale_type %}<td>{{ e.sale_type or '' }}</td>{% endif %}
+                        {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
+                        {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
+                        {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
+                        {% if show_capacity %}<td class="text-end">{{ e.capacity|k }}</td>{% endif %}
+                        {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
+                        {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}
+                        {% if show_status %}<td>{{ st|capitalize }}</td>{% endif %}
+                        {% if show_promoter %}
+                          <td>
+                            {% if e.promoter_logo %}
+                              <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
+                            {% elif e.promoter_name %}
+                              {{ e.promoter_name }}
+                            {% else %}
+                              —
+                            {% endif %}
+                          </td>
+                        {% endif %}
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="text-muted mb-3">Sin eventos con los filtros actuales.</div>
+            {% endif %}
+          {% endfor %}
+
         {% else %}
           <div class="text-muted">
             Selecciona uno o varios artistas y pulsa <b>Ver cuadrante</b>.
@@ -438,13 +658,22 @@
     return cache[key];
   }
 
-  function artistIcon(photo){
-    const safe = photo || "/static/img/logo.png";
+  function statusToClass(st){
+    const s = (st || "").toUpperCase();
+    if (s === "RESERVADO") return "status-reservado";
+    if (s === "CONFIRMADO") return "status-confirmado";
+    return "status-hablado";
+  }
+
+  function eventIcon(n, status, artistColor){
+    const cls = statusToClass(status);
+    const border = artistColor || "#0d6efd";
+    const nn = (n === 0 || n) ? String(n) : "?";
     return L.divIcon({
-      className: "artist-marker",
-      html: `<div class="marker-wrap"><img src="${safe}" /></div>`,
-      iconSize: [34, 34],
-      iconAnchor: [17, 17]
+      className: "event-marker",
+      html: `<div class="marker-wrap ${cls}" style="border-color:${border}"><div class="marker-n">${nn}</div></div>`,
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     });
   }
 
@@ -468,11 +697,11 @@
       const coords = await geocodeCity(city, prov);
       if (!coords) continue;
 
-      const m = L.marker([coords.lat, coords.lng], {icon: artistIcon(e.artist_photo)}).addTo(map);
+      const m = L.marker([coords.lat, coords.lng], {icon: eventIcon(e.n, e.status, e.artist_color)}).addTo(map);
 
       const html = `
         <div style="min-width:220px">
-          <div><b>${e.n}. ${e.artist_name || ""}</b></div>
+          <div><b>${(e.artist_name || "")} · Evento ${e.n}</b></div>
           <div>${e.date_es || ""}</div>
           <div>${(e.venue_name||"")} — ${city}${prov ? ", " + prov : ""}</div>
         </div>

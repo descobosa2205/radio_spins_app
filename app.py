@@ -247,7 +247,7 @@ def can_edit_concerts() -> bool:
 
 def can_edit_catalogs() -> bool:
     # Roles que pueden modificar catálogos/bases de datos (artistas, recintos, empresas, etc.)
-    return current_role() in (2, 5, 6, 10)
+    return current_role() in (5, 6, 10)
 
 
 def can_edit_artists_stations() -> bool:
@@ -3972,9 +3972,11 @@ def quadrantes_view():
     """
     Vista Cuadrantes:
       - selector múltiple de artistas
-      - calendario anual con días marcados por logos
-      - mapa con chinchetas (logos) geocodificando ciudades de recintos
-      - resumen de eventos ordenados de más cercano a más lejano
+      - calendario anual con días marcados por número de evento
+      - mapa con chinchetas (número) geocodificando ciudades de recintos
+      - resumen agrupado por artista (numeración reinicia por artista)
+      - filtros de estado / caché / equipamiento / aforo
+      - control de contenido (mostrar/ocultar campos) y exportación por impresión
       - exportable a PDF via window.print()
     """
     session_db = db()
@@ -4013,9 +4015,59 @@ def quadrantes_view():
         # 4) Calendario anual
         months = _build_year_calendar(year)
 
+        # 5) Filtros (estado / caché / equipamiento / aforo)
+        allowed_status = {"HABLADO", "RESERVADO", "CONFIRMADO"}
+        f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
+        if not f_statuses:
+            f_statuses = ["HABLADO", "RESERVADO", "CONFIRMADO"]
+
+        f_cache_mode = (request.args.get("cache_mode") or "ALL").upper().strip()
+        if f_cache_mode not in ("ALL", "WITH", "WITHOUT"):
+            f_cache_mode = "ALL"
+
+        f_equip_mode = (request.args.get("equip_mode") or "ALL").upper().strip()
+        if f_equip_mode not in ("ALL", "WITH", "WITHOUT"):
+            f_equip_mode = "ALL"
+
+        def _parse_int(name: str):
+            raw = (request.args.get(name) or "").strip()
+            if not raw:
+                return None
+            try:
+                return int(raw)
+            except Exception:
+                return None
+
+        f_min_capacity = _parse_int("min_capacity")
+        f_max_capacity = _parse_int("max_capacity")
+
+        # 6) Contenido (mostrar/ocultar). Para permitir desmarcar, usamos
+        #    checkbox + input hidden (0/1) y leemos con getlist.
+        def _flag(name: str, default: bool = True) -> bool:
+            vals = request.args.getlist(name)
+            if not vals:
+                return default
+            return "1" in vals or "true" in vals or "on" in vals
+
+        show_calendar = _flag("show_calendar", True)
+        show_map = _flag("show_map", True)
+
+        show_date = _flag("show_date", True)
+        show_festival = _flag("show_festival", True)
+        show_sale_type = _flag("show_sale_type", True)
+        show_status = _flag("show_status", True)
+        show_province = _flag("show_province", True)
+        show_municipality = _flag("show_municipality", True)
+        show_venue = _flag("show_venue", True)
+        show_capacity = _flag("show_capacity", True)
+        show_cache = _flag("show_cache", True)
+        show_equipment = _flag("show_equipment", True)
+        show_promoter = _flag("show_promoter", True)
+
         selected_artists = []
-        events = []          # lista derecha
-        marks_by_date = {}   # YYYY-MM-DD -> list[{id,name,photo_url}]
+        events_by_artist = []   # lista derecha, agrupada
+        events_flat = []        # para JS (mapa)
+        marks_by_date = {}      # YYYY-MM-DD -> list[{n,status,artist_color,...}]
 
         if selected_uuids:
             selected_artists = (
@@ -4055,40 +4107,128 @@ def quadrantes_view():
                 except Exception:
                     caches_map = {}
 
-            for idx, c in enumerate(concerts, start=1):
+            # Paleta de colores para diferenciar artistas (borde). Se usa en mapa+calendario
+            # cuando hay más de un artista seleccionado.
+            palette = [
+                "#0d6efd",  # bootstrap primary
+                "#198754",  # success
+                "#6f42c1",  # purple
+                "#fd7e14",  # orange
+                "#d63384",  # pink
+                "#20c997",  # teal
+                "#0dcaf0",  # cyan
+                "#dc3545",  # danger
+            ]
+            artist_color = {str(a.id): palette[i % len(palette)] for i, a in enumerate(selected_artists)}
+
+            # Equipamiento (para filtro y para mostrar en resumen)
+            equip_ids = set()
+            try:
+                if concert_ids and _table_exists(session_db, "public.concert_equipments"):
+                    rows = (
+                        session_db.query(ConcertEquipment.concert_id)
+                        .filter(ConcertEquipment.concert_id.in_(concert_ids))
+                        .all()
+                    )
+                    equip_ids.update({r[0] for r in rows if r and r[0]})
+                if concert_ids and _table_exists(session_db, "public.concert_equipment_documents"):
+                    rows = (
+                        session_db.query(ConcertEquipmentDocument.concert_id)
+                        .filter(ConcertEquipmentDocument.concert_id.in_(concert_ids))
+                        .all()
+                    )
+                    equip_ids.update({r[0] for r in rows if r and r[0]})
+                if concert_ids and _table_exists(session_db, "public.concert_equipment_notes"):
+                    rows = (
+                        session_db.query(ConcertEquipmentNote.concert_id)
+                        .filter(ConcertEquipmentNote.concert_id.in_(concert_ids))
+                        .all()
+                    )
+                    equip_ids.update({r[0] for r in rows if r and r[0]})
+            except Exception:
+                equip_ids = set()
+
+            # 1) Construimos eventos por artista aplicando filtros (sin numeración todavía)
+            per_artist = {str(a.id): [] for a in selected_artists}
+
+            for c in concerts:
+                st = (c.status or "HABLADO")
+                if st not in f_statuses:
+                    continue
+
+                has_cache = bool(caches_map.get(c.id))
+                if f_cache_mode == "WITH" and not has_cache:
+                    continue
+                if f_cache_mode == "WITHOUT" and has_cache:
+                    continue
+
+                has_equip = (c.id in equip_ids)
+                if f_equip_mode == "WITH" and not has_equip:
+                    continue
+                if f_equip_mode == "WITHOUT" and has_equip:
+                    continue
+
+                cap = int(c.capacity or 0)
+                if f_min_capacity is not None and cap < f_min_capacity:
+                    continue
+                if f_max_capacity is not None and cap > f_max_capacity:
+                    continue
+
                 dstr = c.date.isoformat()
-
-                # marks: dedup por artista
-                marks_by_date.setdefault(dstr, {})
-                if c.artist_id:
-                    marks_by_date[dstr][str(c.artist_id)] = {
-                        "id": str(c.artist_id),
-                        "name": c.artist.name if c.artist else "",
-                        "photo_url": c.artist.photo_url if c.artist else "",
-                    }
-
+                v = c.venue
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
                 pro_logo, pro_name = _promoter_display(c)
-                v = c.venue
 
-                events.append({
-                    "n": idx,
+                aid = str(c.artist_id) if c.artist_id else ""
+                if not aid:
+                    continue
+
+                per_artist.setdefault(aid, []).append({
                     "concert_id": str(c.id),
                     "date": dstr,
                     "date_es": c.date.strftime("%d/%m/%Y"),
+                    "artist_id": aid,
                     "artist_name": c.artist.name if c.artist else "",
                     "artist_photo": c.artist.photo_url if c.artist else "",
+                    "artist_color": artist_color.get(aid, "#0d6efd"),
+                    "festival_name": (c.festival_name or ""),
+                    "sale_type": (c.sale_type or ""),
+                    "status": st,
                     "province": (v.province or "") if v else "",
                     "municipality": (v.municipality or "") if v else "",
                     "venue_name": (v.name or "") if v else "",
-                    "capacity": int(c.capacity or 0),
+                    "capacity": cap,
                     "cache": cache_txt,
+                    "has_cache": has_cache,
+                    "has_equipment": has_equip,
                     "promoter_name": pro_name or "",
                     "promoter_logo": pro_logo or "",
                 })
 
-            # convertir dict interno -> lista para template
-            marks_by_date = {k: list(v.values()) for k, v in marks_by_date.items()}
+            # 2) Numeración por artista + marks + lista agrupada
+            for a in selected_artists:
+                aid = str(a.id)
+                evs = sorted(per_artist.get(aid, []), key=lambda x: x.get("date") or "")
+                for i, e in enumerate(evs, start=1):
+                    e["n"] = i
+                    events_flat.append(e)
+
+                    marks_by_date.setdefault(e["date"], []).append({
+                        "n": i,
+                        "status": e.get("status") or "HABLADO",
+                        "artist_id": aid,
+                        "artist_name": e.get("artist_name") or a.name,
+                        "artist_color": e.get("artist_color") or artist_color.get(aid, "#0d6efd"),
+                        "title": f"{e.get('artist_name') or a.name} · {e.get('venue_name') or ''} · {e.get('municipality') or ''} · {e.get('date_es') or ''}",
+                    })
+
+                events_by_artist.append({
+                    "artist_id": aid,
+                    "artist_name": a.name,
+                    "artist_photo": a.photo_url or "",
+                    "artist_color": artist_color.get(aid, "#0d6efd"),
+                    "events": evs,
+                })
 
         return render_template(
             "cuadrantes.html",
@@ -4100,7 +4240,30 @@ def quadrantes_view():
             months=months,
             dow=DOW_ES,
             marks_by_date=marks_by_date,
-            events=events,
+            events_by_artist=events_by_artist,
+            events=events_flat,
+
+            # filtros (para mantener UI)
+            f_statuses=f_statuses,
+            f_cache_mode=f_cache_mode,
+            f_equip_mode=f_equip_mode,
+            f_min_capacity=f_min_capacity,
+            f_max_capacity=f_max_capacity,
+
+            # contenido
+            show_calendar=show_calendar,
+            show_map=show_map,
+            show_date=show_date,
+            show_festival=show_festival,
+            show_sale_type=show_sale_type,
+            show_status=show_status,
+            show_province=show_province,
+            show_municipality=show_municipality,
+            show_venue=show_venue,
+            show_capacity=show_capacity,
+            show_cache=show_cache,
+            show_equipment=show_equipment,
+            show_promoter=show_promoter,
         )
 
     finally:

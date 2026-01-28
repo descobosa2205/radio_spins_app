@@ -3626,7 +3626,9 @@ def sales_report_pdf():
         except Exception:
             return "0"
 
-    buf = io.BytesIO()
+    # BytesIO ya se importa arriba con: `from io import BytesIO`
+    # (evita NameError por usar el módulo `io` sin importarlo).
+    buf = BytesIO()
     doc = SimpleDocTemplate(
         buf,
         pagesize=landscape(A4),

@@ -2780,6 +2780,105 @@ def sales_maps_unified(session, day: date, concert_ids=None):
     # Para conciertos legacy, dejamos gross=0
     return totals, today_map, last_map, gross_map, gross_today_map
 
+
+def _sales_net_breakdown(gross: float, vat_pct: float, sgae_pct: float) -> dict:
+    """Calcula neto a partir de bruto aplicando:
+
+    1) IVA sobre el bruto.
+    2) SGAE sobre el importe SIN IVA.
+
+    (Petición cliente) No se debe restar IVA+SGAE directamente del bruto.
+
+    Devuelve: vat_amount, sgae_amount, base_no_vat, net.
+    """
+    try:
+        g = float(gross or 0.0)
+    except Exception:
+        g = 0.0
+
+    try:
+        vat = max(0.0, float(vat_pct or 0.0))
+    except Exception:
+        vat = 0.0
+
+    try:
+        sgae = max(0.0, float(sgae_pct or 0.0))
+    except Exception:
+        sgae = 0.0
+
+    vat_amount = g * (vat / 100.0)
+    base_no_vat = g - vat_amount
+    sgae_amount = base_no_vat * (sgae / 100.0)
+    net = base_no_vat - sgae_amount
+
+    # Evitar negativos por redondeos / porcentajes raros
+    if net < 0:
+        net = 0.0
+    if vat_amount < 0:
+        vat_amount = 0.0
+    if sgae_amount < 0:
+        sgae_amount = 0.0
+    if base_no_vat < 0:
+        base_no_vat = 0.0
+
+    return {
+        "gross": g,
+        "vat_pct": vat,
+        "sgae_pct": sgae,
+        "vat_amount": vat_amount,
+        "base_no_vat": base_no_vat,
+        "sgae_amount": sgae_amount,
+        "net": net,
+    }
+
+
+def _concert_capacity_from_ticket_types(concert: Concert) -> int:
+    """Aforo a la venta efectivo.
+
+    Regla solicitada:
+      - Si hay aforos por categoría (tipos de entrada), el aforo total debe ser la suma.
+      - Si no hay tipos o la suma es 0, usamos el aforo del concierto.
+    """
+    try:
+        types = list(getattr(concert, "ticket_types", None) or [])
+        s = sum(int(getattr(tt, "qty_for_sale", 0) or 0) for tt in types)
+        if s > 0:
+            return int(s)
+    except Exception:
+        pass
+    try:
+        return int(getattr(concert, "capacity", 0) or 0)
+    except Exception:
+        return 0
+
+
+def _sync_concert_capacity_from_ticket_types(session_db, concert_id) -> None:
+    """Actualiza concerts.capacity como suma de concert_ticket_types.qty_for_sale.
+
+    Esto asegura que el resto de pantallas (reporte/ventas) muestre el aforo correcto
+    cuando se trabaja por categorías.
+    """
+    try:
+        total = (
+            session_db.query(func.coalesce(func.sum(ConcertTicketType.qty_for_sale), 0))
+            .filter(ConcertTicketType.concert_id == concert_id)
+            .scalar()
+        )
+        total_int = int(total or 0)
+        if total_int <= 0:
+            return
+
+        c = session_db.get(Concert, concert_id)
+        if not c:
+            return
+
+        if int(getattr(c, "capacity", 0) or 0) != total_int:
+            c.capacity = total_int
+            c.updated_at = func.now()
+    except Exception:
+        # No rompemos la operación principal si esto falla.
+        return
+
 @app.route("/ventas")
 @admin_required
 def sales_update_view():
@@ -2813,16 +2912,100 @@ def sales_update_view():
 
         concert_ids = [c.id for c in concerts]
 
+        # Si el evento está configurado con aforos por tipo (modo avanzado),
+        # el aforo "a la venta" total debe ser la suma de esos aforos.
+        # Lo aplicamos también en reportes (sin depender de que se haya sincronizado
+        # previamente la columna concerts.capacity).
+        if concert_ids:
+            cap_rows = (
+                session.query(
+                    ConcertTicketType.concert_id,
+                    func.coalesce(func.sum(ConcertTicketType.qty_for_sale), 0).label("sum_qty"),
+                )
+                .filter(ConcertTicketType.concert_id.in_(concert_ids))
+                .group_by(ConcertTicketType.concert_id)
+                .all()
+            )
+            cap_map = {cid: int(s or 0) for cid, s in cap_rows}
+            for c in concerts:
+                cap_sum = cap_map.get(c.id, 0)
+                if cap_sum > 0:
+                    # Sobrescribimos en memoria para el reporte (sin commit)
+                    c.capacity = cap_sum
+
         totals, today_map, last_map, gross_map, _gross_today = sales_maps_unified(session, day, concert_ids)
 
-        # neto: bruto - iva - sgae
+        # Aforo efectivo (si hay categorías/tipos, suma; si no, aforo del concierto)
+        capacity_map = {c.id: _concert_capacity_from_ticket_types(c) for c in concerts}
+
+        # Neto + desglose (IVA primero, SGAE sobre base sin IVA)
         net_map = {}
+        vat_amount_map = {}
+        sgae_amount_map = {}
+        base_no_vat_map = {}
         for c in concerts:
             gross = float(gross_map.get(c.id, 0.0) or 0.0)
             vat = float(getattr(c.sales_config, "vat_pct", 0) or 0) if getattr(c, "sales_config", None) else 0.0
             sgae = float(getattr(c.sales_config, "sgae_pct", 0) or 0) if getattr(c, "sales_config", None) else 0.0
-            net = gross * max(0.0, 1.0 - (vat / 100.0) - (sgae / 100.0))
-            net_map[c.id] = net
+            br = _sales_net_breakdown(gross, vat, sgae)
+            net_map[c.id] = float(br.get("net") or 0.0)
+            vat_amount_map[c.id] = float(br.get("vat_amount") or 0.0)
+            sgae_amount_map[c.id] = float(br.get("sgae_amount") or 0.0)
+            base_no_vat_map[c.id] = float(br.get("base_no_vat") or 0.0)
+
+        # Potencial de recaudación (según tipos): útil para "dinero por vender"
+        potential_gross_map = {}
+        remaining_gross_map = {}
+        for c in concerts:
+            pot = 0.0
+            for tt in (c.ticket_types or []):
+                pot += float(getattr(tt, "price", 0) or 0) * float(getattr(tt, "qty_for_sale", 0) or 0)
+            potential_gross_map[c.id] = pot
+            remaining_gross_map[c.id] = max(0.0, pot - float(gross_map.get(c.id, 0.0) or 0.0))
+
+        # Totales acumulados por tipo / ticketer (para detectar desajustes en el día a día)
+        type_totals_map = {}
+        ticketer_totals_map = {}
+        if concert_ids:
+            # Por tipo
+            rows = (
+                session.query(
+                    TicketSaleDetail.concert_id,
+                    TicketSaleDetail.ticket_type_id,
+                    func.sum(TicketSaleDetail.qty),
+                    func.sum(TicketSaleDetail.qty * ConcertTicketType.price),
+                )
+                .join(ConcertTicketType, ConcertTicketType.id == TicketSaleDetail.ticket_type_id)
+                .filter(TicketSaleDetail.concert_id.in_(concert_ids))
+                .filter(TicketSaleDetail.day <= day)
+                .group_by(TicketSaleDetail.concert_id, TicketSaleDetail.ticket_type_id)
+                .all()
+            )
+            for cid2, ttid2, sold, gross in rows:
+                type_totals_map.setdefault(cid2, {})[ttid2] = {
+                    "sold": int(sold or 0),
+                    "gross": float(gross or 0.0),
+                }
+
+            # Por ticketer
+            rows = (
+                session.query(
+                    TicketSaleDetail.concert_id,
+                    TicketSaleDetail.ticketer_id,
+                    func.sum(TicketSaleDetail.qty),
+                    func.sum(TicketSaleDetail.qty * ConcertTicketType.price),
+                )
+                .join(ConcertTicketType, ConcertTicketType.id == TicketSaleDetail.ticket_type_id)
+                .filter(TicketSaleDetail.concert_id.in_(concert_ids))
+                .filter(TicketSaleDetail.day <= day)
+                .group_by(TicketSaleDetail.concert_id, TicketSaleDetail.ticketer_id)
+                .all()
+            )
+            for cid2, tid2, sold, gross in rows:
+                ticketer_totals_map.setdefault(cid2, {})[tid2] = {
+                    "sold": int(sold or 0),
+                    "gross": float(gross or 0.0),
+                }
 
         # Detalle de HOY (V2)
         details_today = {}
@@ -2869,6 +3052,7 @@ def sales_update_view():
             day=day,
             prev_day=prev_day,
             next_day=next_day,
+            open_cfg=(request.args.get("open_cfg") or ""),
             sections=sections,
             order=SALES_SECTION_ORDER,
             titles=SALES_SECTION_TITLE,
@@ -2877,6 +3061,14 @@ def sales_update_view():
             last_map=last_map,
             gross_map=gross_map,
             net_map=net_map,
+            capacity_map=capacity_map,
+            vat_amount_map=vat_amount_map,
+            sgae_amount_map=sgae_amount_map,
+            base_no_vat_map=base_no_vat_map,
+            potential_gross_map=potential_gross_map,
+            remaining_gross_map=remaining_gross_map,
+            type_totals_map=type_totals_map,
+            ticketer_totals_map=ticketer_totals_map,
             details_today=details_today,
             ticketer_has_today=ticketer_has_today,
             ticketer_today_totals=ticketer_today_totals,
@@ -2972,7 +3164,12 @@ def sales_config_save(cid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    # Reabrir automáticamente el "recuadro" (modal) tras guardar
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticket_types/add", endpoint="sales_ticket_type_add")
@@ -2989,6 +3186,8 @@ def sales_ticket_type_add(cid):
 
         tt = ConcertTicketType(concert_id=concert_id, name=name, qty_for_sale=int(qty), price=float(price))
         session_db.add(tt)
+        session_db.flush()
+        _sync_concert_capacity_from_ticket_types(session_db, concert_id)
         session_db.commit()
         flash("Tipo de entrada añadido.", "success")
     except Exception as e:
@@ -2998,7 +3197,11 @@ def sales_ticket_type_add(cid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticket_types/<ttid>/update", endpoint="sales_ticket_type_update")
@@ -3022,6 +3225,8 @@ def sales_ticket_type_update(cid, ttid):
         if price is not None:
             tt.price = float(price)
         tt.updated_at = func.now()
+        session_db.flush()
+        _sync_concert_capacity_from_ticket_types(session_db, tt.concert_id)
         session_db.commit()
         flash("Tipo de entrada actualizado.", "success")
     except Exception as e:
@@ -3031,7 +3236,11 @@ def sales_ticket_type_update(cid, ttid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticket_types/<ttid>/delete", endpoint="sales_ticket_type_delete")
@@ -3041,7 +3250,10 @@ def sales_ticket_type_delete(cid, ttid):
     try:
         tt = session_db.get(ConcertTicketType, to_uuid(ttid))
         if tt:
+            concert_id = tt.concert_id
             session_db.delete(tt)
+            session_db.flush()
+            _sync_concert_capacity_from_ticket_types(session_db, concert_id)
             session_db.commit()
             flash("Tipo de entrada eliminado.", "success")
     except Exception as e:
@@ -3051,7 +3263,11 @@ def sales_ticket_type_delete(cid, ttid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticketers/add", endpoint="sales_ticketer_add")
@@ -3064,15 +3280,32 @@ def sales_ticketer_add(cid):
         if not ticketer_id:
             raise ValueError("Selecciona una ticketera")
 
+        cap = _parse_optional_int(request.form.get("ticketer_capacity"), min_v=0)
+        if cap is None:
+            # Mantener comportamiento anterior: si no se indica, usar aforo del concierto
+            c = session_db.get(Concert, concert_id)
+            cap = int(getattr(c, "capacity", 0) or 0) if c else 0
+
         exists = (
             session_db.query(ConcertTicketer)
             .filter_by(concert_id=concert_id, ticketer_id=ticketer_id)
             .first()
         )
         if not exists:
-            session_db.add(ConcertTicketer(concert_id=concert_id, ticketer_id=ticketer_id))
+            session_db.add(
+                ConcertTicketer(
+                    concert_id=concert_id,
+                    ticketer_id=ticketer_id,
+                    capacity_for_sale=int(cap or 0),
+                )
+            )
             session_db.commit()
             flash("Ticketera añadida al evento.", "success")
+        else:
+            # Si ya existe, permitimos actualizar el aforo de esa ticketera
+            exists.capacity_for_sale = int(cap or 0)
+            session_db.commit()
+            flash("Aforo de ticketera actualizado.", "success")
     except Exception as e:
         session_db.rollback()
         flash(f"Error añadiendo ticketera: {e}", "danger")
@@ -3080,7 +3313,11 @@ def sales_ticketer_add(cid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticketers/<tid>/remove", endpoint="sales_ticketer_remove")
@@ -3104,7 +3341,47 @@ def sales_ticketer_remove(cid, tid):
         session_db.close()
 
     day = request.form.get("day") or request.args.get("day")
-    return redirect(url_for("sales_update_view", d=day) + f"#concert-{cid}" if day else (request.referrer or url_for("sales_update_view")))
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
+
+
+@app.post("/ventas/<cid>/ticketers/<tid>/update", endpoint="sales_ticketer_update")
+@admin_required
+def sales_ticketer_update(cid, tid):
+    """Actualiza el aforo a la venta específico de una ticketera en el evento."""
+    session_db = db()
+    try:
+        concert_id = to_uuid(cid)
+        ticketer_id = to_uuid(tid)
+
+        row = (
+            session_db.query(ConcertTicketer)
+            .filter_by(concert_id=concert_id, ticketer_id=ticketer_id)
+            .first()
+        )
+        if not row:
+            flash("Ticketera no encontrada en el evento.", "warning")
+            return redirect(request.referrer or url_for("sales_update_view"))
+
+        cap = _parse_optional_int(request.form.get("capacity_for_sale"), min_v=0) or 0
+        row.capacity_for_sale = int(cap)
+        session_db.commit()
+        flash("Aforo de ticketera actualizado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando aforo de ticketera: {e}", "danger")
+    finally:
+        session_db.close()
+
+    day = request.form.get("day") or request.args.get("day")
+    return redirect(
+        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        if day
+        else (request.referrer or url_for("sales_update_view"))
+    )
 
 
 @app.post("/ventas/<cid>/ticketer/<tid>/day/save", endpoint="sales_ticketer_day_save")
@@ -3217,15 +3494,35 @@ def build_sales_report_context(day: date, *, past=False,
 
         concert_ids = [c.id for c in concerts]
 
+        # Si el evento está configurado con aforos por tipo (modo avanzado),
+        # el aforo "a la venta" total debe ser la suma de esos aforos.
+        # Esto evita que prevalezca el aforo introducido anteriormente "desde oficina".
+        if concert_ids:
+            cap_rows = (
+                session.query(
+                    ConcertTicketType.concert_id,
+                    func.coalesce(func.sum(ConcertTicketType.qty_for_sale), 0).label("sum_qty"),
+                )
+                .filter(ConcertTicketType.concert_id.in_(concert_ids))
+                .group_by(ConcertTicketType.concert_id)
+                .all()
+            )
+            cap_map = {cid: int(s or 0) for cid, s in cap_rows}
+            for c in concerts:
+                cap_sum = cap_map.get(c.id, 0)
+                if cap_sum > 0:
+                    # Sobrescribimos en memoria para el reporte (sin commit)
+                    c.capacity = cap_sum
+
         totals, today_map, last_map, gross_map, _gross_today = sales_maps_unified(session, day, concert_ids)
 
-        # neto: bruto - iva - sgae
+        # Neto (IVA primero, SGAE sobre base sin IVA)
         net_map = {}
         for c in concerts:
             gross = float(gross_map.get(c.id, 0.0) or 0.0)
             vat = float(getattr(c.sales_config, "vat_pct", 0) or 0) if getattr(c, "sales_config", None) else 0.0
             sgae = float(getattr(c.sales_config, "sgae_pct", 0) or 0) if getattr(c, "sales_config", None) else 0.0
-            net_map[c.id] = gross * max(0.0, 1.0 - (vat / 100.0) - (sgae / 100.0))
+            net_map[c.id] = float(_sales_net_breakdown(gross, vat, sgae).get("net") or 0.0)
 
         sections = {
             "EMPRESA":      [c for c in concerts if c.sale_type == "EMPRESA"],
@@ -3255,6 +3552,7 @@ def build_sales_report_context(day: date, *, past=False,
 def sales_report_view():
     day = get_day("d")
     ctx = build_sales_report_context(day)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat())
     ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
@@ -3263,6 +3561,7 @@ def sales_report_view():
 def sales_report_past():
     day = get_day("d")
     ctx = build_sales_report_context(day, past=True)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), past=1)
     ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
@@ -3271,6 +3570,7 @@ def sales_report_past():
 def sales_report_by_promoter(pid):
     day = get_day("d")
     ctx = build_sales_report_context(day, promoter_id=pid)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), promoter_id=pid)
     ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
@@ -3279,6 +3579,7 @@ def sales_report_by_promoter(pid):
 def sales_report_by_artist(aid):
     day = get_day("d")
     ctx = build_sales_report_context(day, artist_id=aid)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), artist_id=aid)
     ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
@@ -3287,9 +3588,156 @@ def sales_report_by_artist(aid):
 def sales_report_by_company(gid):
     day = get_day("d")
     ctx = build_sales_report_context(day, company_id=gid)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), company_id=gid)
     ctx["nav_prev_url"] = url_for("sales_report_by_company", gid=gid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_company", gid=gid, d=(day + timedelta(days=1)).isoformat())
     return render_template("sales_report.html", **ctx)
+
+
+@app.get("/ventas/reporte/pdf", endpoint="sales_report_pdf")
+def sales_report_pdf():
+    """Informe genérico de ventas en formato tabla (A4 apaisado).
+
+    Muestra una "foto" del estado de ventas en el momento de generación.
+    """
+    if not REPORTLAB_AVAILABLE:
+        flash("ReportLab no está instalado en el servidor. No se puede generar PDF.", "danger")
+        return redirect(request.referrer or url_for("sales_report_view"))
+
+    day = get_day("d")
+    past = str(request.args.get("past") or "").lower() in ("1", "true", "yes", "on")
+    promoter_id = request.args.get("promoter_id")
+    artist_id = request.args.get("artist_id")
+    company_id = request.args.get("company_id")
+
+    ctx = build_sales_report_context(
+        day,
+        past=past,
+        promoter_id=promoter_id,
+        artist_id=artist_id,
+        company_id=company_id,
+    )
+
+    show_econ = can_view_economics()
+
+    def _fmt_int_es(n: int) -> str:
+        try:
+            return f"{int(n):,}".replace(",", ".")
+        except Exception:
+            return "0"
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=18,
+        bottomMargin=18,
+        title="Informe genérico de ventas",
+    )
+    styles = getSampleStyleSheet()
+    story = []
+
+    title = f"Informe genérico de ventas — {day.strftime('%d/%m/%Y')}"
+    story.append(Paragraph(title, styles["Title"]))
+    story.append(Paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
+    story.append(Spacer(1, 10))
+
+    totals = ctx.get("totals", {})
+    today_map = ctx.get("today_map", {})
+    last_map = ctx.get("last_map", {})
+    gross_map = ctx.get("gross_map", {})
+    net_map = ctx.get("net_map", {})
+
+    sections = ctx.get("sections", {})
+    titles = ctx.get("titles", {})
+
+    # Columnas
+    base_header = [
+        "Fecha",
+        "Artista",
+        "Ciudad",
+        "Prov.",
+        "Recinto",
+        "Hoy",
+        "Total",
+        "%",
+        "Aforo",
+        "Pend.",
+        "Act.",
+    ]
+    if show_econ:
+        base_header += ["Bruto", "Neto"]
+
+    # Anchos (aprox) para A4 apaisado
+    col_widths = [48, 150, 85, 48, 145, 35, 45, 35, 45, 45, 55]
+    if show_econ:
+        col_widths += [70, 70]
+
+    for key, lista in sections.items():
+        if not lista:
+            continue
+        story.append(Paragraph(titles.get(key, key), styles["Heading2"]))
+
+        data = [base_header]
+        for c in lista:
+            cid = c.id
+            total = int(totals.get(cid, 0) or 0)
+            cap = int(getattr(c, "capacity", 0) or 0)
+            pct = (total / cap * 100.0) if cap else 0.0
+            pending = max(0, cap - total) if cap else 0
+            today_sold = int(today_map.get(cid, 0) or 0)
+            updated_last = last_map.get(cid)
+            updated_s = updated_last.strftime("%d/%m") if updated_last else "-"
+
+            v = c.venue
+            city = (v.municipality or "") if v else ""
+            prov = (v.province or "") if v else ""
+            venue = (v.name or "") if v else ""
+
+            row = [
+                (c.date.strftime("%d/%m") if c.date else "-"),
+                (c.artist.name if c.artist else "-"),
+                city,
+                prov,
+                venue,
+                _fmt_int_es(today_sold),
+                _fmt_int_es(total),
+                f"{pct:.1f}",
+                _fmt_int_es(cap),
+                _fmt_int_es(pending),
+                updated_s,
+            ]
+            if show_econ:
+                gross = float(gross_map.get(cid, 0.0) or 0.0)
+                net = float(net_map.get(cid, 0.0) or 0.0)
+                row += [_fmt_money_eur(gross), _fmt_money_eur(net)]
+            data.append(row)
+
+        tbl = Table(data, colWidths=col_widths, repeatRows=1)
+        tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 7),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
+                ]
+            )
+        )
+        story.append(tbl)
+        story.append(Spacer(1, 12))
+
+    doc.build(story)
+    buf.seek(0)
+
+    suffix = "anteriores" if past else "reporte"
+    filename = f"informe_ventas_{suffix}_{day.isoformat()}.pdf"
+    return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=filename)
 
 
 # ------------- INFORME DE VENTAS POR EVENTO (ADMIN) -----------
@@ -3419,41 +3867,81 @@ def sales_event_report_view(cid):
                 .order_by(ConcertTicketType.created_at.asc())
                 .all()
             )
-            by_type = [
-                {
+            by_type = []
+            for _id, n, qfs, p, sold, g in type_aggs:
+                qfs_i = int(qfs or 0)
+                price_f = float(p or 0)
+                sold_i = int(sold or 0)
+                gross_f = float(g or 0)
+                pending_qty = max(0, qfs_i - sold_i) if qfs_i else 0
+                pct_sold = (sold_i / qfs_i * 100.0) if qfs_i else 0.0
+                potential_gross = float(qfs_i) * float(price_f)
+                remaining_gross = max(0.0, potential_gross - gross_f)
+                by_type.append({
                     "name": n,
-                    "qty_for_sale": int(qfs or 0),
-                    "price": float(p or 0),
-                    "sold": int(sold or 0),
-                    "gross": float(g or 0),
-                }
-                for _id, n, qfs, p, sold, g in type_aggs
-            ]
+                    "qty_for_sale": qfs_i,
+                    "pending_qty": pending_qty,
+                    "pct_sold": pct_sold,
+                    "price": price_f,
+                    "sold": sold_i,
+                    "gross": gross_f,
+                    "potential_gross": potential_gross,
+                    "remaining_gross": remaining_gross,
+                })
 
-            # Por ticketer
+            # Por ticketer (incluye capacidad configurada por ticketera)
             tick_aggs = (
                 session_db.query(
-                    Ticketer.id,
-                    Ticketer.name,
+                    TicketSaleDetail.ticketer_id,
                     func.sum(TicketSaleDetail.qty),
                     func.sum(TicketSaleDetail.qty * ConcertTicketType.price),
                 )
-                .join(Ticketer, Ticketer.id == TicketSaleDetail.ticketer_id)
                 .join(ConcertTicketType, ConcertTicketType.id == TicketSaleDetail.ticket_type_id)
                 .filter(TicketSaleDetail.concert_id == concert_id)
                 .filter(TicketSaleDetail.day <= day)
-                .group_by(Ticketer.id)
-                .order_by(Ticketer.name.asc())
+                .group_by(TicketSaleDetail.ticketer_id)
                 .all()
             )
-            by_ticketer = [
-                {
-                    "name": n,
-                    "sold": int(sold or 0),
-                    "gross": float(g or 0),
-                }
-                for _id, n, sold, g in tick_aggs
-            ]
+            tick_map = {tid: {"sold": int(sold or 0), "gross": float(g or 0.0)} for tid, sold, g in tick_aggs}
+
+            by_ticketer = []
+            seen_ticketers = set()
+            for ct in (c.ticketers or []):
+                t = getattr(ct, "ticketer", None)
+                tid = getattr(ct, "ticketer_id", None)
+                seen_ticketers.add(tid)
+                sold_i = int((tick_map.get(tid, {}) or {}).get("sold", 0) or 0)
+                gross_f = float((tick_map.get(tid, {}) or {}).get("gross", 0.0) or 0.0)
+                cap_i = int(getattr(ct, "capacity_for_sale", 0) or 0)
+                pending_qty = max(0, cap_i - sold_i) if cap_i else 0
+                pct_sold = (sold_i / cap_i * 100.0) if cap_i else 0.0
+                by_ticketer.append({
+                    "name": getattr(t, "name", None) or "—",
+                    "capacity_for_sale": cap_i,
+                    "pending_qty": pending_qty,
+                    "pct_sold": pct_sold,
+                    "sold": sold_i,
+                    "gross": gross_f,
+                })
+
+            # Si existen ventas de ticketers que ya no estén asignadas al evento, las añadimos.
+            missing = [tid for tid in tick_map.keys() if tid not in seen_ticketers]
+            if missing:
+                extra = session_db.query(Ticketer).filter(Ticketer.id.in_(missing)).all()
+                extra_name = {t.id: t.name for t in extra}
+                for tid in missing:
+                    sold_i = int((tick_map.get(tid, {}) or {}).get("sold", 0) or 0)
+                    gross_f = float((tick_map.get(tid, {}) or {}).get("gross", 0.0) or 0.0)
+                    by_ticketer.append({
+                        "name": extra_name.get(tid) or "—",
+                        "capacity_for_sale": 0,
+                        "pending_qty": 0,
+                        "pct_sold": 0.0,
+                        "sold": sold_i,
+                        "gross": gross_f,
+                    })
+
+            by_ticketer.sort(key=lambda r: (r.get("name") or ""))
 
         else:
             # Legacy: tabla ticket_sales (solo cantidades)
@@ -3474,10 +3962,21 @@ def sales_event_report_view(cid):
                 daily_totals.append((d, qv, 0.0))
                 total_sold += qv
 
-        capacity = int(c.capacity or 0)
+        capacity = _concert_capacity_from_ticket_types(c)
         pct = (total_sold / capacity * 100.0) if capacity else 0.0
         pending = max(0, capacity - total_sold) if capacity else 0
-        net_total = gross_total * max(0.0, 1.0 - (vat / 100.0) - (sgae / 100.0))
+
+        # Potencial (según categorías) y desglose neto
+        potential_gross_total = 0.0
+        for tt in (c.ticket_types or []):
+            potential_gross_total += float(getattr(tt, "price", 0) or 0) * float(getattr(tt, "qty_for_sale", 0) or 0)
+        remaining_gross_total = max(0.0, potential_gross_total - gross_total)
+
+        br = _sales_net_breakdown(gross_total, vat, sgae)
+        net_total = float(br.get("net") or 0.0)
+        vat_amount = float(br.get("vat_amount") or 0.0)
+        sgae_amount = float(br.get("sgae_amount") or 0.0)
+        base_no_vat = float(br.get("base_no_vat") or 0.0)
 
         return render_template(
             "sales_event_report.html",
@@ -3492,6 +3991,11 @@ def sales_event_report_view(cid):
             pending=pending,
             gross_total=gross_total,
             net_total=net_total,
+            vat_amount=vat_amount,
+            sgae_amount=sgae_amount,
+            base_no_vat=base_no_vat,
+            potential_gross_total=potential_gross_total,
+            remaining_gross_total=remaining_gross_total,
             chart_labels=chart_labels,
             chart_values=chart_values,
             daily_totals=daily_totals,
@@ -3518,7 +4022,12 @@ def sales_event_report_pdf(cid):
         concert_id = to_uuid(cid)
         c = (
             session_db.query(Concert)
-            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.sales_config))
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                joinedload(Concert.sales_config),
+                selectinload(Concert.ticket_types),
+            )
             .get(concert_id)
         )
         if not c:
@@ -3612,10 +4121,20 @@ def sales_event_report_pdf(cid):
                 values.append(running)
                 total_sold += qv
 
-        capacity = int(c.capacity or 0)
+        capacity = _concert_capacity_from_ticket_types(c)
         pct = (total_sold / capacity * 100.0) if capacity else 0.0
         pending = max(0, capacity - total_sold) if capacity else 0
-        net_total = gross_total * max(0.0, 1.0 - (vat / 100.0) - (sgae / 100.0))
+
+        potential_gross_total = 0.0
+        for tt in (c.ticket_types or []):
+            potential_gross_total += float(getattr(tt, "price", 0) or 0) * float(getattr(tt, "qty_for_sale", 0) or 0)
+        remaining_gross_total = max(0.0, potential_gross_total - gross_total)
+
+        br = _sales_net_breakdown(gross_total, vat, sgae)
+        net_total = float(br.get("net") or 0.0)
+        vat_amount = float(br.get("vat_amount") or 0.0)
+        sgae_amount = float(br.get("sgae_amount") or 0.0)
+        base_no_vat = float(br.get("base_no_vat") or 0.0)
 
         # --- PDF ---
         buf = BytesIO()
@@ -3648,10 +4167,18 @@ def sales_event_report_pdf(cid):
         if show_econ:
             summary_data += [
                 ["Recaudación bruta", _fmt_money_eur(gross_total)],
-                ["Recaudación neta", _fmt_money_eur(net_total)],
                 ["IVA", f"{vat:.2f}%"],
-                ["SGAE", f"{sgae:.2f}%"],
+                ["Importe IVA", _fmt_money_eur(vat_amount)],
+                ["Base sin IVA", _fmt_money_eur(base_no_vat)],
+                ["SGAE", f"{sgae:.2f}% (sobre base sin IVA)"],
+                ["Importe SGAE", _fmt_money_eur(sgae_amount)],
+                ["Recaudación neta", _fmt_money_eur(net_total)],
             ]
+            if potential_gross_total > 0:
+                summary_data += [
+                    ["Bruto potencial", _fmt_money_eur(potential_gross_total)],
+                    ["Bruto pendiente", _fmt_money_eur(remaining_gross_total)],
+                ]
         t = Table(summary_data, colWidths=[140, 140])
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),

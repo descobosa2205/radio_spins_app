@@ -37,8 +37,9 @@
       {% if lista %}
         {% for c in lista %}
           {% set total = totals.get(c.id, 0) %}
-          {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
-          {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
+          {% set capacity = (capacity_map.get(c.id, c.capacity or 0) or 0) %}
+          {% set pct = ((total / capacity) * 100) if capacity else 0 %}
+          {% set pending = (capacity - total) if capacity and total < capacity else 0 %}
           {% set days_left = (c.date - day).days if c.date else 0 %}
           {% set gross = (gross_map.get(c.id, 0) or 0) %}
           {% set net = (net_map.get(c.id, 0) or 0) %}
@@ -47,7 +48,7 @@
           {% set is_today = (updated_last == day) %}
 
           {% set soldout = c.sold_out %}
-          {% set full = (c.capacity and total >= c.capacity) %}
+          {% set full = (capacity and total >= capacity) %}
 
           <div class="card mb-2" id="concert-{{ c.id }}">
             <div class="card-body py-3">
@@ -71,6 +72,7 @@
                         <span class="badge badge-venue">{{ c.venue.name }}</span>
                       {% endif %}
                       <span>Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</strong></span>
+                      <span>Fecha evento: <strong>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</strong></span>
                     </div>
                   </div>
                 </div>
@@ -131,7 +133,7 @@
               <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
                 <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
                 <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
-                <div><small class="text-muted d-block">Aforo a la venta</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
+                <div><small class="text-muted d-block">Aforo a la venta</small><div class="fw-semibold">{{ capacity|k }}</div></div>
                 <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
                 <div><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ gross|eur }}</div></div>
                 <div><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ net|eur }}</div></div>
@@ -170,7 +172,7 @@
                 </div>
               </div>
 
-              {# ====== MODO RÁPIDO (legacy) si no hay V2 configurado ====== #}
+              {# ====== Ventas (modo rápido / modo avanzado) ====== #}
               {% set has_types = (c.ticket_types and (c.ticket_types|length > 0)) %}
               {% set has_ticketers = (c.ticketers and (c.ticketers|length > 0)) %}
               {% if not has_types or not has_ticketers %}
@@ -196,6 +198,197 @@
                       <button class="btn btn-sm btn-primary">Guardar</button>
                     </div>
                   </form>
+                </div>
+              {% else %}
+                {# ====== MODO AVANZADO: visible directamente bajo el evento ====== #}
+                <div class="mt-3 p-2 border rounded bg-light">
+                  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                    <div>
+                      <div class="fw-semibold">Modo avanzado — ventas por ticketera ({{ day.strftime('%d/%m/%Y') }})</div>
+                      <div class="small text-muted">
+                        Introduce las ventas de hoy por ticketera y tipo de entrada.
+                      </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#salesCfgModal-{{ c.id }}">
+                      Configurar
+                    </button>
+                  </div>
+
+                  <div class="d-flex flex-wrap gap-3">
+                    {% for ct in c.ticketers %}
+                      {% set t = ct.ticketer %}
+                      {% set has_today = ( (c.id ~ '') ~ ':' ~ (t.id ~ '') ) in ticketer_has_today %}
+                      {% set cum = ((ticketer_totals_map.get(c.id, {}) or {}).get(t.id, {}) or {}) %}
+                      {% set cum_sold = (cum.get('sold', 0) or 0) %}
+                      {% set cum_gross = (cum.get('gross', 0) or 0) %}
+                      {% set cap_t = (ct.capacity_for_sale or 0) %}
+                      {% set t_pct = ((cum_sold / cap_t) * 100) if cap_t else 0 %}
+                      {% set t_pending = (cap_t - cum_sold) if cap_t and cum_sold < cap_t else 0 %}
+
+                      <div class="border rounded p-3" style="width: 300px; background:#fff;">
+                        <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                          <div class="d-flex align-items-center gap-2">
+                            <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:28px; height:28px; object-fit:contain;" alt="">
+                            <div class="fw-semibold">{{ t.name }}</div>
+                          </div>
+                          <div class="small text-muted text-end">
+                            <div>Aforo: <strong>{{ cap_t|k }}</strong></div>
+                            <div>%: <strong>{{ '%.1f' % t_pct }}</strong></div>
+                          </div>
+                        </div>
+
+                        <div class="small text-muted mb-2">
+                          Acumulado: <strong>{{ cum_sold|k }}</strong> · Pendientes: <strong>{{ t_pending|k }}</strong>
+                          {% if CAN_VIEW_ECON %}· Bruto: <strong>{{ cum_gross|eur }}</strong>{% endif %}
+                        </div>
+
+                        <form method="post" action="{{ url_for('sales_ticketer_day_save', cid=c.id, tid=t.id) }}" oninput="recalcTicketerTotals('{{ c.id }}','{{ t.id }}')">
+                          <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                          <div class="d-flex flex-column gap-2">
+                            {% for tt in c.ticket_types %}
+                              {% set qty_val = ((details_today.get(c.id, {}) or {}).get(t.id, {}) or {}).get(tt.id, 0) %}
+                              <div class="d-flex align-items-center justify-content-between gap-2">
+                                <div class="small text-muted" style="width: 150px;">
+                                  {{ tt.name }}
+                                  {% if CAN_VIEW_ECON %}
+                                    <div class="text-muted" style="font-size: 0.75rem;">{{ (tt.price or 0)|eur }}</div>
+                                  {% endif %}
+                                </div>
+                                <input type="number" min="0"
+                                       name="qty_{{ tt.id }}"
+                                       value="{{ qty_val }}"
+                                       class="form-control form-control-sm ticketer-input ticketer-input-{{ c.id }}-{{ t.id }}"
+                                       data-price="{{ tt.price or 0 }}"
+                                       {% if has_today %}readonly{% endif %}>
+                              </div>
+                            {% endfor %}
+                          </div>
+
+                          <hr class="my-2">
+                          <div class="small">
+                            <div><span class="text-muted">Total hoy:</span>
+                              <strong id="ticketerTotal-{{ c.id }}-{{ t.id }}">{{ (ticketer_today_totals.get(c.id, {}) or {}).get(t.id, 0) }}</strong>
+                            </div>
+                            {% if CAN_VIEW_ECON %}
+                              <div><span class="text-muted">Bruto hoy:</span>
+                                <strong id="ticketerGross-{{ c.id }}-{{ t.id }}">{{ ((ticketer_today_gross.get(c.id, {}) or {}).get(t.id, 0) or 0)|eur }}</strong>
+                              </div>
+                            {% endif %}
+                          </div>
+
+                          <div class="d-flex justify-content-end gap-2 mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="enableTicketerEdit('{{ c.id }}','{{ t.id }}')">Editar</button>
+                            <button class="btn btn-sm btn-primary">Guardar</button>
+                          </div>
+                        </form>
+                      </div>
+                    {% endfor %}
+                  </div>
+
+                  <hr class="my-3">
+
+                  <div class="row g-3">
+                    <div class="col-12 col-lg-7">
+                      <div class="fw-semibold mb-2">Recaudación por tipo de entrada (acumulado)</div>
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th>Tipo</th>
+                              {% if CAN_VIEW_ECON %}<th class="text-end">Precio</th>{% endif %}
+                              <th class="text-end">Aforo</th>
+                              <th class="text-end">Vendidas</th>
+                              <th class="text-end">% venta</th>
+                              <th class="text-end">Pendientes</th>
+                              {% if CAN_VIEW_ECON %}
+                                <th class="text-end">Bruto</th>
+                                <th class="text-end">Bruto pendiente</th>
+                              {% endif %}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for tt in c.ticket_types %}
+                              {% set row = ((type_totals_map.get(c.id, {}) or {}).get(tt.id, {}) or {}) %}
+                              {% set sold_t = (row.get('sold', 0) or 0) %}
+                              {% set gross_t = (row.get('gross', 0) or 0) %}
+                              {% set qfs = (tt.qty_for_sale or 0) %}
+                              {% set pend = (qfs - sold_t) if qfs and sold_t < qfs else 0 %}
+                              {% set pct_t = ((sold_t / qfs) * 100) if qfs else 0 %}
+                              {% set potential = (qfs * (tt.price or 0)) %}
+                              {% set rem_g = (potential - gross_t) if potential and gross_t < potential else 0 %}
+                              <tr>
+                                <td>{{ tt.name }}</td>
+                                {% if CAN_VIEW_ECON %}<td class="text-end">{{ (tt.price or 0)|eur }}</td>{% endif %}
+                                <td class="text-end">{{ qfs|k }}</td>
+                                <td class="text-end">{{ sold_t|k }}</td>
+                                <td class="text-end">{{ '%.1f' % pct_t }}</td>
+                                <td class="text-end">{{ pend|k }}</td>
+                                {% if CAN_VIEW_ECON %}
+                                  <td class="text-end">{{ gross_t|eur }}</td>
+                                  <td class="text-end">{{ rem_g|eur }}</td>
+                                {% endif %}
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div class="col-12 col-lg-5">
+                      <div class="fw-semibold mb-2">Resumen por ticketera (acumulado)</div>
+                      <div class="table-responsive">
+                        <table class="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th>Ticketera</th>
+                              <th class="text-end">Aforo</th>
+                              <th class="text-end">Vendidas</th>
+                              <th class="text-end">% venta</th>
+                              <th class="text-end">Pend.</th>
+                              {% if CAN_VIEW_ECON %}<th class="text-end">Bruto</th>{% endif %}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for ct in c.ticketers %}
+                              {% set t = ct.ticketer %}
+                              {% set row = ((ticketer_totals_map.get(c.id, {}) or {}).get(t.id, {}) or {}) %}
+                              {% set sold_t = (row.get('sold', 0) or 0) %}
+                              {% set gross_t = (row.get('gross', 0) or 0) %}
+                              {% set cap_i = (ct.capacity_for_sale or 0) %}
+                              {% set pend = (cap_i - sold_t) if cap_i and sold_t < cap_i else 0 %}
+                              {% set pct_t = ((sold_t / cap_i) * 100) if cap_i else 0 %}
+                              <tr>
+                                <td>{{ t.name }}</td>
+                                <td class="text-end">{{ cap_i|k }}</td>
+                                <td class="text-end">{{ sold_t|k }}</td>
+                                <td class="text-end">{{ '%.1f' % pct_t }}</td>
+                                <td class="text-end">{{ pend|k }}</td>
+                                {% if CAN_VIEW_ECON %}<td class="text-end">{{ gross_t|eur }}</td>{% endif %}
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
+                  {% if CAN_VIEW_ECON %}
+                    {% set vat_amt = (vat_amount_map.get(c.id, 0) or 0) %}
+                    {% set sgae_amt = (sgae_amount_map.get(c.id, 0) or 0) %}
+                    {% set base_no_vat = (base_no_vat_map.get(c.id, 0) or 0) %}
+                    {% set pot = (potential_gross_map.get(c.id, 0) or 0) %}
+                    {% set rem_pot = (remaining_gross_map.get(c.id, 0) or 0) %}
+                    <div class="small text-muted mt-2 d-flex flex-wrap gap-3">
+                      <span><strong>IVA</strong> {{ (c.sales_config.vat_pct if c.sales_config else 0) or 0 }}% = {{ vat_amt|eur }}</span>
+                      <span><strong>Base sin IVA</strong> = {{ base_no_vat|eur }}</span>
+                      <span><strong>SGAE</strong> {{ (c.sales_config.sgae_pct if c.sales_config else 0) or 0 }}% (sobre base sin IVA) = {{ sgae_amt|eur }}</span>
+                      <span><strong>Neto</strong> = {{ net|eur }}</span>
+                      {% if pot > 0 %}
+                        <span><strong>Bruto potencial</strong> = {{ pot|eur }}</span>
+                        <span><strong>Bruto pendiente</strong> = {{ rem_pot|eur }}</span>
+                      {% endif %}
+                    </div>
+                  {% endif %}
                 </div>
               {% endif %}
 
@@ -318,26 +511,50 @@
                     <div class="fw-semibold mb-2">Ticketeras</div>
 
                     {% if c.ticketers and (c.ticketers|length > 0) %}
-                      <div class="d-flex flex-wrap gap-2 mb-3">
-                        {% for ct in c.ticketers %}
-                          {% set t = ct.ticketer %}
-                          <div class="badge bg-light text-dark d-flex align-items-center gap-2" style="border:1px solid #e6e6e6;">
-                            <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:22px; height:22px; object-fit:contain;" alt="">
-                            <span>{{ t.name }}</span>
-                            <form method="post" action="{{ url_for('sales_ticketer_remove', cid=c.id, tid=t.id) }}" class="ms-1">
-                              <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                              <button class="btn btn-sm btn-link text-danger p-0" title="Quitar">
-                                <i class="fa fa-times"></i>
-                              </button>
-                            </form>
-                          </div>
-                        {% endfor %}
+                      <div class="table-responsive mb-3">
+                        <table class="table table-sm align-middle">
+                          <thead>
+                            <tr>
+                              <th>Ticketera</th>
+                              <th style="width: 220px;">Aforo a la venta (por ticketera)</th>
+                              <th style="width: 120px;" class="text-end">Quitar</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {% for ct in c.ticketers %}
+                              {% set t = ct.ticketer %}
+                              <tr>
+                                <td>
+                                  <div class="d-flex align-items-center gap-2">
+                                    <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:22px; height:22px; object-fit:contain;" alt="">
+                                    <span>{{ t.name }}</span>
+                                  </div>
+                                </td>
+                                <td>
+                                  <form method="post" action="{{ url_for('sales_ticketer_update', cid=c.id, tid=t.id) }}" class="d-flex gap-2">
+                                    <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                                    <input name="capacity_for_sale" type="number" min="0" class="form-control form-control-sm" value="{{ ct.capacity_for_sale or 0 }}">
+                                    <button class="btn btn-sm btn-outline-primary">Guardar</button>
+                                  </form>
+                                </td>
+                                <td class="text-end">
+                                  <form method="post" action="{{ url_for('sales_ticketer_remove', cid=c.id, tid=t.id) }}" class="d-inline">
+                                    <input type="hidden" name="day" value="{{ day.isoformat() }}">
+                                    <button class="btn btn-sm btn-outline-danger" title="Quitar" onclick="return confirm('¿Quitar ticketera del evento?');">
+                                      <i class="fa fa-times"></i>
+                                    </button>
+                                  </form>
+                                </td>
+                              </tr>
+                            {% endfor %}
+                          </tbody>
+                        </table>
                       </div>
                     {% endif %}
 
                     <form id="ticketerAddForm-{{ c.id }}" method="post" action="{{ url_for('sales_ticketer_add', cid=c.id) }}" class="row g-2 align-items-end">
                       <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                      <div class="col-12 col-md-8">
+                      <div class="col-12 col-md-6">
                         <label class="form-label">Agregar ticketera</label>
                         <div class="d-flex gap-2">
                           <select id="ticketerSelect-{{ c.id }}" name="ticketer_id" class="form-select ticketer-select">
@@ -351,69 +568,18 @@
                           </button>
                         </div>
                       </div>
-                      <div class="col-12 col-md-4">
+                      <div class="col-12 col-md-3">
+                        <label class="form-label">Aforo ticketera</label>
+                        <input name="ticketer_capacity" type="number" min="0" class="form-control" value="{{ capacity }}">
+                      </div>
+                      <div class="col-12 col-md-3">
                         <button class="btn btn-outline-primary w-100">Añadir al evento</button>
                       </div>
                     </form>
                   </div>
 
-                  <!-- Entradas vendidas hoy por ticketera (V2) -->
-                  <div class="border rounded p-3">
-                    <div class="fw-semibold mb-2">Entradas vendidas hoy ({{ day.strftime('%d/%m/%Y') }})</div>
-                    {% if not (c.ticket_types and (c.ticket_types|length > 0)) %}
-                      <div class="alert alert-light">Añade primero tipos de entrada para poder registrar ventas por ticketera.</div>
-                    {% elif not (c.ticketers and (c.ticketers|length > 0)) %}
-                      <div class="alert alert-light">Añade al menos una ticketera al evento.</div>
-                    {% else %}
-                      <div class="d-flex flex-wrap gap-3">
-                        {% for ct in c.ticketers %}
-                          {% set t = ct.ticketer %}
-                          {% set has_today = ( (c.id ~ '') ~ ':' ~ (t.id ~ '') ) in ticketer_has_today %}
-                          <div class="border rounded p-3" style="width: 280px;">
-                            <div class="d-flex align-items-center gap-2 mb-2">
-                              <img src="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:28px; height:28px; object-fit:contain;" alt="">
-                              <div class="fw-semibold">{{ t.name }}</div>
-                            </div>
-
-                            <form method="post" action="{{ url_for('sales_ticketer_day_save', cid=c.id, tid=t.id) }}" oninput="recalcTicketerTotals('{{ c.id }}','{{ t.id }}')">
-                              <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                              <div class="d-flex flex-column gap-2">
-                                {% for tt in c.ticket_types %}
-                                  {% set qty_val = ((details_today.get(c.id, {}) or {}).get(t.id, {}) or {}).get(tt.id, 0) %}
-                                  <div class="d-flex align-items-center justify-content-between gap-2">
-                                    <div class="small text-muted" style="width: 150px;">
-                                      {{ tt.name }}
-                                      <div class="text-muted" style="font-size: 0.75rem;">{{ (tt.price or 0)|eur }}</div>
-                                    </div>
-                                    <input type="number" min="0"
-                                           name="qty_{{ tt.id }}"
-                                           value="{{ qty_val }}"
-                                           class="form-control form-control-sm ticketer-input ticketer-input-{{ c.id }}-{{ t.id }}"
-                                           data-price="{{ tt.price or 0 }}"
-                                           {% if has_today %}readonly{% endif %}>
-                                  </div>
-                                {% endfor %}
-                              </div>
-
-                              <hr class="my-2">
-                              <div class="small">
-                                <div><span class="text-muted">Total vendidas:</span>
-                                  <strong id="ticketerTotal-{{ c.id }}-{{ t.id }}">{{ (ticketer_today_totals.get(c.id, {}) or {}).get(t.id, 0) }}</strong>
-                                </div>
-                                <div><span class="text-muted">Recaudación hoy:</span>
-                                  <strong id="ticketerGross-{{ c.id }}-{{ t.id }}">{{ ((ticketer_today_gross.get(c.id, {}) or {}).get(t.id, 0) or 0)|eur }}</strong>
-                                </div>
-                              </div>
-
-                              <div class="d-flex justify-content-end gap-2 mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="enableTicketerEdit('{{ c.id }}','{{ t.id }}')">Editar</button>
-                                <button class="btn btn-sm btn-primary">Guardar</button>
-                              </div>
-                            </form>
-                          </div>
-                        {% endfor %}
-                      </div>
-                    {% endif %}
+                  <div class="alert alert-light mb-0">
+                    Las ventas del día en modo avanzado se registran directamente en la tarjeta del evento (debajo del resumen), sin necesidad de abrir este panel.
                   </div>
 
                 </div>
@@ -588,6 +754,18 @@ document.addEventListener('DOMContentLoaded', function(){
       dropdownParent: $modal.length ? $modal : jQuery(document.body)
     });
   });
+});
+
+// Reabrir automáticamente el modal de configuración cuando venimos de un "Guardar"
+// dentro del propio modal (evita tener que clicar de nuevo la ruedita).
+document.addEventListener('DOMContentLoaded', function(){
+  const openCfg = "{{ open_cfg or '' }}";
+  if (!openCfg) return;
+  const el = document.getElementById('salesCfgModal-' + openCfg);
+  if (!el || !window.bootstrap) return;
+  try {
+    new bootstrap.Modal(el).show();
+  } catch(e){}
 });
 </script>
 

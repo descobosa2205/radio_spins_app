@@ -334,6 +334,10 @@ class ConcertTicketer(Base):
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
     ticketer_id = Column(PGUUID(as_uuid=True), ForeignKey("ticketers.id", ondelete="CASCADE"), nullable=False)
 
+    # Aforo a la venta específico de esta ticketera para el evento.
+    # (Si no se configura, puede quedar a 0; la UI permite establecerlo.)
+    capacity_for_sale = Column(Integer, nullable=False, server_default=text("0"))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     ticketer = relationship("Ticketer")

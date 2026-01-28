@@ -14,6 +14,11 @@
     {% else %}
       <a class="btn btn-outline-primary" href="{{ url_for('sales_report_past') }}"><i class="fa fa-clock-rotate-left"></i> Conciertos anteriores</a>
     {% endif %}
+    {% if pdf_url %}
+      <a class="btn btn-outline-secondary" href="{{ pdf_url }}" target="_blank" title="Imprimir en A4 horizontal">
+        <i class="fa fa-print"></i> Imprimir A4
+      </a>
+    {% endif %}
     <form method="get" class="d-flex align-items-center gap-2">
       <input type="date" name="d" class="form-control" value="{{ day.isoformat() }}">
       <button class="btn btn-outline-primary"><i class="fa fa-calendar"></i></button>

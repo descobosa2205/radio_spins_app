@@ -3620,6 +3620,12 @@ def sales_report_pdf():
 
     show_econ = can_view_economics()
 
+    # Estilos y utilidades para que la tabla no se salga de márgenes en A4 apaisado.
+    # (En ReportLab, si la tabla es más ancha que el frame y está centrada, se recorta
+    # por ambos lados. Aquí forzamos anchos más ajustados + wrap en texto.)
+    from xml.sax.saxutils import escape as _xml_escape
+    from reportlab.lib.styles import ParagraphStyle
+
     def _fmt_int_es(n: int) -> str:
         try:
             return f"{int(n):,}".replace(",", ".")
@@ -3639,6 +3645,16 @@ def sales_report_pdf():
         title="Informe genérico de ventas",
     )
     styles = getSampleStyleSheet()
+    tbl_txt = ParagraphStyle(
+        "tbl_txt",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=7,
+        leading=8,
+    )
+
+    def _p(s: str) -> Paragraph:
+        return Paragraph(_xml_escape(str(s or "")), tbl_txt)
     story = []
 
     title = f"Informe genérico de ventas — {day.strftime('%d/%m/%Y')}"
@@ -3672,10 +3688,21 @@ def sales_report_pdf():
     if show_econ:
         base_header += ["Bruto", "Neto"]
 
-    # Anchos (aprox) para A4 apaisado
-    col_widths = [48, 150, 85, 48, 145, 35, 45, 35, 45, 45, 55]
+    # Anchos para A4 apaisado (ajustados a márgenes). Los textos (artista/ciudad/prov/recinto)
+    # irán con wrap si no caben.
+    col_widths = [40, 110, 70, 45, 140, 32, 45, 30, 45, 45, 40]
     if show_econ:
-        col_widths += [70, 70]
+        col_widths += [60, 60]
+
+    # Si por cualquier motivo el total supera el ancho útil del documento, escalamos.
+    try:
+        avail_w = float(doc.width)
+        total_w = float(sum(col_widths))
+        if total_w > 0 and total_w > avail_w:
+            scale = avail_w / total_w
+            col_widths = [w * scale for w in col_widths]
+    except Exception:
+        pass
 
     for key, lista in sections.items():
         if not lista:
@@ -3700,10 +3727,10 @@ def sales_report_pdf():
 
             row = [
                 (c.date.strftime("%d/%m") if c.date else "-"),
-                (c.artist.name if c.artist else "-"),
-                city,
-                prov,
-                venue,
+                _p(c.artist.name if c.artist else "-"),
+                _p(city),
+                _p(prov),
+                _p(venue),
                 _fmt_int_es(today_sold),
                 _fmt_int_es(total),
                 f"{pct:.1f}",
@@ -3717,7 +3744,7 @@ def sales_report_pdf():
                 row += [_fmt_money_eur(gross), _fmt_money_eur(net)]
             data.append(row)
 
-        tbl = Table(data, colWidths=col_widths, repeatRows=1)
+        tbl = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
         tbl.setStyle(
             TableStyle(
                 [
@@ -3725,8 +3752,13 @@ def sales_report_pdf():
                     ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
                     ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
                     ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                     ("FONTSIZE", (0, 0), (-1, -1), 7),
                     ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
                     ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
                 ]
             )

@@ -314,7 +314,13 @@
                               {% set qfs = (tt.qty_for_sale or 0) %}
                               {% set pend = (qfs - sold_t) if qfs and sold_t < qfs else 0 %}
                               {% set pct_t = ((sold_t / qfs) * 100) if qfs else 0 %}
-                              {% set potential = (qfs * (tt.price or 0)) %}
+                              {#
+                                tt.price puede venir como decimal.Decimal (NUMERIC en Postgres).
+                                En Jinja, restar Decimal - float lanza TypeError. Normalizamos a float
+                                para poder calcular el "bruto pendiente" sin romper la vista.
+                              #}
+                              {% set potential = (qfs * (tt.price or 0))|float %}
+                              {% set gross_t = gross_t|float %}
                               {% set rem_g = (potential - gross_t) if potential and gross_t < potential else 0 %}
                               <tr>
                                 <td>{{ tt.name }}</td>

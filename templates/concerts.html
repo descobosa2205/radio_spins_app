@@ -67,6 +67,12 @@
           </label>
 
           <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="GRATUITO"
+                  {% if "GRATUITO" in T %}checked{% endif %}>
+            Conciertos — Gratuitos
+          </label>
+
+          <label class="btn btn-outline-secondary btn-sm">
             <input class="form-check-input me-1" type="checkbox" name="type" value="PARTICIPADOS"
                   {% if "PARTICIPADOS" in T %}checked{% endif %}>
             Conciertos — Participados
@@ -185,7 +191,7 @@
                         <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>
                       {% endif %}
 
-                      {% if c.break_even_ticket and c.sale_type != 'VENDIDO' %}
+                      {% if c.break_even_ticket and c.sale_type not in ['VENDIDO','GRATUITO'] %}
                         <span class="badge text-bg-light border">Punto de empate: <strong>{{ c.break_even_ticket }}</strong></span>
                       {% endif %}
 
@@ -244,6 +250,8 @@
                     <div class="mt-2">
                       {% if c.sale_type == 'EMPRESA' %}
                         <span class="badge rounded-pill text-bg-primary">A Empresa</span>
+                      {% elif c.sale_type == 'GRATUITO' %}
+                        <span class="badge rounded-pill text-bg-primary">Gratuito</span>
                       {% elif c.sale_type == 'PARTICIPADOS' %}
                         <span class="badge rounded-pill text-bg-primary">Participado</span>
                       {% elif c.sale_type == 'VENDIDO' %}
@@ -685,6 +693,7 @@
           <label class="form-label">Tipo de concierto</label>
           <select name="sale_type" class="form-select" id="sale_type_select">
             <option value="EMPRESA">Empresa</option>
+            <option value="GRATUITO">Gratuito</option>
             <option value="VENDIDO">Vendido</option>
             <option value="PARTICIPADOS">Participado</option>
             <option value="CADIZ">Cádiz Music Stadium</option>
@@ -1003,6 +1012,14 @@
       if (collabBlock) collabBlock.style.display = '';
       if (commBlock) commBlock.style.display = '';
       if (equipBlock) equipBlock.style.display = '';
+    } else if (v === 'GRATUITO') {
+      // GRATUITO: se gestiona por empresa pero no hay punto de empate.
+      companyWrap.style.display = '';
+      promoterWrap.style.display = 'none';
+      if (breakEvenWrap) breakEvenWrap.style.display = 'none';
+      if (collabBlock) collabBlock.style.display = '';
+      if (commBlock) commBlock.style.display = '';
+      if (equipBlock) equipBlock.style.display = '';
     } else if (v === 'VENDIDO') {
       companyWrap.style.display = 'none';
       promoterWrap.style.display = '';
@@ -1035,7 +1052,7 @@
     if (groupSel && billSel) {
       groupSel.addEventListener('change', () => {
         const saleType = document.getElementById('sale_type_select')?.value;
-        if (saleType === 'EMPRESA' && !billSel.value) {
+        if ((saleType === 'EMPRESA' || saleType === 'GRATUITO') && !billSel.value) {
           billSel.value = groupSel.value;
         }
       });

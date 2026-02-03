@@ -349,6 +349,33 @@
           </label>
         </div>
       </div>
+
+      <div class="col-12 mt-2">
+        <label class="form-label mb-1">Tipos</label>
+        {% set T = f_sale_types or [] %}
+        <div class="d-flex flex-wrap gap-2">
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="EMPRESA" {% if 'EMPRESA' in T %}checked{% endif %}>
+            Empresa
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="GRATUITO" {% if 'GRATUITO' in T %}checked{% endif %}>
+            Gratuito
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="PARTICIPADOS" {% if 'PARTICIPADOS' in T %}checked{% endif %}>
+            Participado
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="CADIZ" {% if 'CADIZ' in T %}checked{% endif %}>
+            Cádiz Music Stadium
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="VENDIDO" {% if 'VENDIDO' in T %}checked{% endif %}>
+            Vendido
+          </label>
+        </div>
+      </div>
     </div>
 
     <div class="mt-3">

@@ -84,6 +84,21 @@ SALES_SECTION_TITLE = {
     "CADIZ": "Cádiz Music Stadium",
     "VENDIDO": "Conciertos — Vendidos",
 }
+
+# Tipos de concierto disponibles en la app.
+# NOTA: "GRATUITO" NO debe aparecer en actualización/reporte de ventas.
+CONCERT_SALE_TYPES_ALL = ["EMPRESA", "GRATUITO", "PARTICIPADOS", "CADIZ", "VENDIDO"]
+CONCERT_SALE_TYPES_ALL_SET = set(CONCERT_SALE_TYPES_ALL)
+
+# Secciones SOLO para la pantalla de Conciertos (incluye gratuitos).
+CONCERTS_SECTION_ORDER = ["EMPRESA", "GRATUITO", "PARTICIPADOS", "CADIZ", "VENDIDO"]
+CONCERTS_SECTION_TITLE = {
+    "EMPRESA": "Conciertos — Empresa",
+    "GRATUITO": "Conciertos — Gratuitos",
+    "PARTICIPADOS": "Conciertos — Participados",
+    "CADIZ": "Cádiz Music Stadium",
+    "VENDIDO": "Conciertos — Vendidos",
+}
 TZ_MADRID = ZoneInfo("Europe/Madrid")
 
 
@@ -470,7 +485,7 @@ def admin_login():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -564,7 +579,7 @@ def artists_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -642,7 +657,7 @@ def stations_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -722,7 +737,7 @@ def songs_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -1167,7 +1182,7 @@ def promoters_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -1246,7 +1261,7 @@ def venues_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -1941,7 +1956,7 @@ def concerts_page():
         if not f_when:
             f_when = {"FUTURE"}
 
-        allowed_sale_types = {"EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"}
+        allowed_sale_types = CONCERT_SALE_TYPES_ALL_SET
         allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
 
         f_sale_types = [x for x in f_sale_types if x in allowed_sale_types]
@@ -1970,17 +1985,18 @@ def concerts_page():
                     venue_id=to_uuid(venue_raw),
                     sale_type=sale_type,
                     promoter_id=(to_uuid(promoter_raw) if sale_type == "VENDIDO" and promoter_raw else None),
-                    group_company_id=(to_uuid(group_company_raw) if sale_type == "EMPRESA" and group_company_raw else None),
+                    group_company_id=(to_uuid(group_company_raw) if sale_type in ("EMPRESA", "GRATUITO") and group_company_raw else None),
                     billing_company_id=(to_uuid(billing_company_raw) if billing_company_raw else None),
                     artist_id=to_uuid((request.form.get("artist_id") or "").strip()),
                     capacity=int(request.form.get("capacity") or 0),
                     sale_start_date=parse_date(request.form.get("sale_start_date") or ""),
-                    break_even_ticket=(None if sale_type == "VENDIDO" else be_val),
+                    # En "GRATUITO" no existe punto de empate.
+                    break_even_ticket=(None if sale_type in ("VENDIDO", "GRATUITO") else be_val),
                     sold_out=False,
                     status=_norm_status(request.form.get("status")),
                 )
 
-                if sale_type == "EMPRESA" and not c.billing_company_id:
+                if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
                     c.billing_company_id = c.group_company_id
 
                 s.add(c)
@@ -2097,7 +2113,7 @@ def concerts_page():
 
         concerts = q.order_by(Concert.date.asc()).all()
 
-        sections = {k: [] for k in SALES_SECTION_ORDER}
+        sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
             sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
 
@@ -2113,8 +2129,8 @@ def concerts_page():
             companies=companies,
             concerts=concerts,
             sections=sections,
-            order=SALES_SECTION_ORDER,
-            titles=SALES_SECTION_TITLE,
+            order=CONCERTS_SECTION_ORDER,
+            titles=CONCERTS_SECTION_TITLE,
             f_artist_ids=[str(x) for x in f_artist_ids],
             f_sale_types=f_sale_types,
             f_statuses=f_statuses,
@@ -2200,7 +2216,7 @@ def concert_update_handler(cid):
 
     try:
         sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
-        if sale_type not in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ"):
+        if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
             sale_type = "EMPRESA"
 
         venue_raw = (request.form.get("venue_id") or "").strip()
@@ -2213,19 +2229,20 @@ def concert_update_handler(cid):
         c.sale_type = sale_type
         c.artist_id = to_uuid(request.form["artist_id"])
         c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
-        if sale_type == "EMPRESA" and not c.billing_company_id:
+        if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
             c.billing_company_id = c.group_company_id
         c.capacity = int(request.form.get("capacity") or 0)
         c.sale_start_date = parse_date(request.form["sale_start_date"])
-        c.break_even_ticket = None if sale_type == "VENDIDO" else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
+        # En "GRATUITO" no existe punto de empate.
+        c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
         c.status = _norm_status(request.form.get("status"))
 
         # principal según tipo
-        c.group_company_id = to_uuid(request.form.get("group_company_id") or None) if sale_type == "EMPRESA" else None
+        c.group_company_id = to_uuid(request.form.get("group_company_id") or None) if sale_type in ("EMPRESA", "GRATUITO") else None
         c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type == "VENDIDO" else None
 
         # Si es EMPRESA y no han seleccionado empresa que factura, usar la misma de gestión
-        if sale_type == "EMPRESA" and not c.billing_company_id:
+        if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
             c.billing_company_id = c.group_company_id
 
         # --- replace relaciones ---
@@ -2614,7 +2631,7 @@ def companies_view():
     f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
 
     # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in ("EMPRESA", "VENDIDO", "PARTICIPADOS", "CADIZ")]
+    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
     f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
@@ -2905,6 +2922,8 @@ def sales_update_view():
                 selectinload(Concert.ticket_types),
                 selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer),
             )
+            # Solo los tipos con ventas. "GRATUITO" no debe aparecer aquí.
+            .filter(Concert.sale_type.in_(SALES_SECTION_ORDER))
             .filter(Concert.sale_start_date <= day, Concert.date >= day)
             .order_by(Concert.date.asc())
             .all()
@@ -3468,6 +3487,9 @@ def concerts_for_report(session, day: date, past: bool = False):
             joinedload(Concert.sales_config),
         )
     )
+
+    # Solo los tipos con ventas (excluye "GRATUITO").
+    q = q.filter(Concert.sale_type.in_(SALES_SECTION_ORDER))
 
     if past:
         q = q.filter(Concert.date < cutoff)
@@ -4576,11 +4598,19 @@ def quadrantes_view():
         # 4) Calendario anual
         months = _build_year_calendar(year)
 
-        # 5) Filtros (solo estado)
+        # 5) Filtros (estado + tipo)
         allowed_status = {"HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
         if not f_statuses:
             f_statuses = ["HABLADO", "RESERVADO", "CONFIRMADO"]
+
+        allowed_types = CONCERT_SALE_TYPES_ALL_SET
+        f_sale_types_raw = request.args.getlist("type") or []
+        f_sale_types = [(t or "").strip().upper() for t in f_sale_types_raw if (t or "").strip()]
+        f_sale_types = [t for t in f_sale_types if t in allowed_types]
+        # Por defecto: todos los tipos.
+        if not f_sale_types:
+            f_sale_types = list(CONCERT_SALE_TYPES_ALL)
 
         # 6) Contenido (mostrar/ocultar). Para permitir desmarcar, usamos
         #    checkbox + input hidden (0/1) y leemos con getlist.
@@ -4628,6 +4658,7 @@ def quadrantes_view():
                 )
                 .filter(Concert.artist_id.in_(selected_uuids))
                 .filter(func.extract("year", Concert.date) == year)
+                .filter(Concert.sale_type.in_(f_sale_types))
                 .order_by(Concert.date.asc())
                 .all()
             )
@@ -4773,6 +4804,7 @@ def quadrantes_view():
 
             # filtros (para mantener UI)
             f_statuses=f_statuses,
+            f_sale_types=f_sale_types,
             # (el resto de filtros se eliminan de esta pantalla)
 
             # contenido

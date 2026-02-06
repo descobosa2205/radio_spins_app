@@ -45,7 +45,90 @@ class Artist(Base):
     photo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    people = relationship(
+        "ArtistPerson",
+        back_populates="artist",
+        cascade="all, delete-orphan",
+        order_by="ArtistPerson.created_at",
+    )
+
     songs = relationship("Song", secondary="songs_artists", back_populates="artists")
+
+
+class ArtistPerson(Base):
+    """Personas asociadas a un artista (útil si el artista es un grupo)."""
+
+    __tablename__ = "artist_people"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text, nullable=False, server_default=text("''"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist", back_populates="people")
+
+
+class ArtistContract(Base):
+    """Contratos a nivel artista (no confundir con contratos de conciertos)."""
+
+    __tablename__ = "artist_contracts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    name = Column(Text, nullable=False)
+    signed_date = Column(Date)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    commitments = relationship(
+        "ArtistContractCommitment",
+        back_populates="contract",
+        cascade="all, delete-orphan",
+        order_by="ArtistContractCommitment.created_at",
+    )
+
+    artist = relationship("Artist")
+
+
+class ArtistContractCommitment(Base):
+    """Líneas de compromiso dentro de un contrato (concepto + porcentajes + base)."""
+
+    __tablename__ = "artist_contract_commitments"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    contract_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artist_contracts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    concept = Column(Text, nullable=False)
+
+    # Porcentajes (0..100) — la UI hará el control; en BD dejamos numérico.
+    pct_artist = Column(Numeric, nullable=False, server_default=text("0"))
+    pct_office = Column(Numeric, nullable=False, server_default=text("0"))
+
+    # GROSS | NET | PROFIT
+    base = Column(Text, nullable=False, server_default=text("'GROSS'"))
+
+    # Si base == PROFIT: CONCEPT_ONLY | CONCEPT_PLUS_GENERAL
+    profit_scope = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    contract = relationship("ArtistContract", back_populates="commitments")
 
 
 class Song(Base):

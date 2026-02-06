@@ -46,6 +46,9 @@ from models import (
     SessionLocal,
     User,
     Artist,
+    ArtistPerson,
+    ArtistContract,
+    ArtistContractCommitment,
     Song,
     SongArtist,
     RadioStation,
@@ -99,6 +102,19 @@ CONCERTS_SECTION_TITLE = {
     "CADIZ": "Cádiz Music Stadium",
     "VENDIDO": "Conciertos — Vendidos",
 }
+
+# Conceptos por defecto para compromisos de contratos a nivel artista.
+# Se muestran como sugerencias al añadir filas (no como catálogo editable).
+ARTIST_CONTRACT_DEFAULT_CONCEPTS = [
+    "Discográfico",
+    "Distribución",
+    "Editorial",
+    "Booking",
+    "Management",
+    "Catálogo",
+    "Conciertos vendidos",
+    "Conciertos propios",
+]
 TZ_MADRID = ZoneInfo("Europe/Madrid")
 
 
@@ -141,6 +157,18 @@ def to_uuid(val):
     if isinstance(val, UUID):
         return val
     return _uuid.UUID(str(val))
+
+
+def safe_next_or(default_url: str) -> str:
+    """Devuelve el parámetro next (form/args) si parece seguro (ruta relativa),
+    si no, devuelve default_url.
+
+    Evita open-redirects (no permitimos http(s):// ni //).
+    """
+    nxt = (request.form.get("next") or request.args.get("next") or "").strip()
+    if nxt.startswith("/") and ("://" not in nxt) and (not nxt.startswith("//")):
+        return nxt
+    return default_url
 
 def admin_required(view):
     @wraps(view)
@@ -601,6 +629,120 @@ def artists_view():
     session_db.close()
     return render_template("artists.html", artists=artists)
 
+
+@app.get("/artistas/<artist_id>", endpoint="artist_detail_view")
+@admin_required
+def artist_detail_view(artist_id):
+    """Ficha de artista (tabs: datos/contratos/conciertos/discográfica...)."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("artists_view"))
+
+        tab = (request.args.get("tab") or "datos").strip().lower()
+        allowed_tabs = {
+            "datos",
+            "contratos",
+            "conciertos",
+            "discografica",
+            "agenda",
+            "promocion",
+            "liquidaciones",
+        }
+        if tab not in allowed_tabs:
+            tab = "datos"
+
+        disc_tab = (request.args.get("disc") or "repertorio").strip().lower()
+        if disc_tab not in {"repertorio"}:
+            disc_tab = "repertorio"
+
+        # Datos: personas asociadas
+        people = (
+            session_db.query(ArtistPerson)
+            .filter(ArtistPerson.artist_id == artist.id)
+            .order_by(ArtistPerson.created_at.asc())
+            .all()
+        )
+
+        # Contratos (nivel artista)
+        contracts = (
+            session_db.query(ArtistContract)
+            .options(selectinload(ArtistContract.commitments))
+            .filter(ArtistContract.artist_id == artist.id)
+            .order_by(ArtistContract.created_at.desc())
+            .all()
+        )
+
+        # Discográfica: repertorio (canciones asociadas)
+        songs = (
+            session_db.query(Song)
+            .join(SongArtist, SongArtist.song_id == Song.id)
+            .filter(SongArtist.artist_id == artist.id)
+            .order_by(Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+
+        # Conciertos del artista (solo lectura) + filtros
+        f_statuses_raw = request.args.getlist("status") or []
+        f_when_raw = request.args.getlist("when") or []
+
+        f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
+        allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
+        f_statuses = [x for x in f_statuses if x in allowed_statuses]
+
+        f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
+        allowed_when = {"PAST", "FUTURE"}
+        f_when = {x for x in f_when if x in allowed_when}
+        # Por defecto, mostrar FUTUROS (igual que la pantalla de conciertos)
+        if not f_when:
+            f_when = {"FUTURE"}
+
+        q = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.venue))
+            .filter(Concert.artist_id == artist.id)
+        )
+
+        if f_statuses:
+            q = q.filter(Concert.status.in_(f_statuses))
+
+        today = today_local()
+        want_past = "PAST" in f_when
+        want_future = "FUTURE" in f_when
+        if want_past and not want_future:
+            q = q.filter(Concert.date < today)
+        elif want_future and not want_past:
+            q = q.filter(Concert.date >= today)
+
+        concerts = q.order_by(Concert.date.asc()).all()
+
+        concerts_sections = {k: [] for k in CONCERTS_SECTION_ORDER}
+        for c in concerts:
+            concerts_sections.setdefault(c.sale_type or "EMPRESA", []).append(c)
+        for k in concerts_sections:
+            concerts_sections[k].sort(key=lambda x: (x.date or date.max))
+
+        return render_template(
+            "artist_detail.html",
+            artist=artist,
+            tab=tab,
+            disc_tab=disc_tab,
+            people=people,
+            contracts=contracts,
+            songs=songs,
+            default_concepts=ARTIST_CONTRACT_DEFAULT_CONCEPTS,
+            concerts_sections=concerts_sections,
+            concerts_order=CONCERTS_SECTION_ORDER,
+            concerts_titles=CONCERTS_SECTION_TITLE,
+            concerts_total=len(concerts),
+            f_statuses=f_statuses,
+            f_when=sorted(list(f_when)),
+        )
+    finally:
+        session_db.close()
+
 @app.post("/artistas/<artist_id>/update")
 @admin_required
 def artist_update(artist_id):
@@ -609,7 +751,7 @@ def artist_update(artist_id):
     if not a:
         flash("Artista no encontrado.", "warning")
         session_db.close()
-        return redirect(url_for("artists_view"))
+        return redirect(safe_next_or(url_for("artists_view")))
     a.name = request.form.get("name", a.name).strip()
     photo = request.files.get("photo")
     try:
@@ -622,7 +764,7 @@ def artist_update(artist_id):
         flash(f"Error actualizando: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("artists_view"))
+    return redirect(safe_next_or(url_for("artists_view")))
 
 @app.post("/artistas/<artist_id>/delete")
 @admin_required
@@ -639,7 +781,314 @@ def artist_delete(artist_id):
         flash(f"Error eliminando: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("artists_view"))
+    return redirect(safe_next_or(url_for("artists_view")))
+
+
+# ---------- ARTISTAS: PERSONAS (miembros) ----------
+
+@app.post("/artistas/<artist_id>/person/add", endpoint="artist_person_add")
+@admin_required
+def artist_person_add(artist_id):
+    session_db = db()
+    try:
+        a = session_db.get(Artist, to_uuid(artist_id))
+        if not a:
+            flash("Artista no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        first_name = (request.form.get("first_name") or "").strip()
+        last_name = (request.form.get("last_name") or "").strip()
+        if not first_name:
+            flash("El nombre es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
+
+        p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "")
+        session_db.add(p)
+        session_db.commit()
+        flash("Persona añadida.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo persona: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/person/<person_id>/update", endpoint="artist_person_update")
+@admin_required
+def artist_person_update(person_id):
+    session_db = db()
+    try:
+        p = session_db.get(ArtistPerson, to_uuid(person_id))
+        if not p:
+            flash("Persona no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        first_name = (request.form.get("first_name") or "").strip()
+        last_name = (request.form.get("last_name") or "").strip()
+        if not first_name:
+            flash("El nombre es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=p.artist_id, tab="datos")))
+
+        p.first_name = first_name
+        p.last_name = last_name or ""
+        session_db.commit()
+        flash("Persona actualizada.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=p.artist_id, tab="datos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando persona: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/person/<person_id>/delete", endpoint="artist_person_delete")
+@admin_required
+def artist_person_delete(person_id):
+    session_db = db()
+    try:
+        p = session_db.get(ArtistPerson, to_uuid(person_id))
+        if not p:
+            flash("Persona no encontrada.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        artist_id = p.artist_id
+        session_db.delete(p)
+        session_db.commit()
+        flash("Persona eliminada.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando persona: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+# ---------- ARTISTAS: CONTRATOS ----------
+
+def _parse_pct(v) -> float:
+    try:
+        s = (v or "").strip().replace(",", ".")
+        n = float(s) if s else 0.0
+    except Exception:
+        n = 0.0
+    return max(0.0, min(100.0, n))
+
+
+def _norm_contract_base(v: str) -> str:
+    v = (v or "").strip().upper()
+    return v if v in ("GROSS", "NET", "PROFIT") else "GROSS"
+
+
+def _norm_profit_scope(v: str) -> str:
+    v = (v or "").strip().upper()
+    return v if v in ("CONCEPT_ONLY", "CONCEPT_PLUS_GENERAL") else "CONCEPT_ONLY"
+
+
+@app.post("/artistas/<artist_id>/contracts/create", endpoint="artist_contract_create")
+@admin_required
+def artist_contract_create(artist_id):
+    session_db = db()
+    try:
+        a = session_db.get(Artist, to_uuid(artist_id))
+        if not a:
+            flash("Artista no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        name = (request.form.get("name") or "").strip()
+        signed_raw = (request.form.get("signed_date") or "").strip()
+        signed_date = None
+        if signed_raw:
+            try:
+                signed_date = parse_date(signed_raw)
+            except Exception:
+                signed_date = None
+
+        if not name:
+            flash("El nombre del contrato es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="contratos")))
+
+        c = ArtistContract(artist_id=a.id, name=name, signed_date=signed_date)
+        session_db.add(c)
+        session_db.commit()
+        flash("Contrato creado.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="contratos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error creando contrato: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/contracts/<contract_id>/update", endpoint="artist_contract_update")
+@admin_required
+def artist_contract_update(contract_id):
+    session_db = db()
+    try:
+        c = session_db.get(ArtistContract, to_uuid(contract_id))
+        if not c:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        name = (request.form.get("name") or "").strip()
+        signed_raw = (request.form.get("signed_date") or "").strip()
+        signed_date = None
+        if signed_raw:
+            try:
+                signed_date = parse_date(signed_raw)
+            except Exception:
+                signed_date = None
+
+        if not name:
+            flash("El nombre del contrato es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=c.artist_id, tab="contratos")))
+
+        c.name = name
+        c.signed_date = signed_date
+        session_db.commit()
+        flash("Contrato actualizado.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=c.artist_id, tab="contratos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando contrato: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/contracts/<contract_id>/delete", endpoint="artist_contract_delete")
+@admin_required
+def artist_contract_delete(contract_id):
+    session_db = db()
+    try:
+        c = session_db.get(ArtistContract, to_uuid(contract_id))
+        if not c:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        aid = c.artist_id
+        session_db.delete(c)
+        session_db.commit()
+        flash("Contrato eliminado.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=aid, tab="contratos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando contrato: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+# ---------- ARTISTAS: COMPROMISOS (líneas de contrato) ----------
+
+@app.post("/artistas/contracts/<contract_id>/commitments/add", endpoint="artist_commitment_add")
+@admin_required
+def artist_commitment_add(contract_id):
+    session_db = db()
+    try:
+        c = session_db.get(ArtistContract, to_uuid(contract_id))
+        if not c:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        concept = (request.form.get("concept") or "").strip()
+        if not concept:
+            flash("El concepto es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=c.artist_id, tab="contratos")))
+
+        base = _norm_contract_base(request.form.get("base"))
+        profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+
+        m = ArtistContractCommitment(
+            contract_id=c.id,
+            concept=concept,
+            pct_artist=_parse_pct(request.form.get("pct_artist")),
+            pct_office=_parse_pct(request.form.get("pct_office")),
+            base=base,
+            profit_scope=profit_scope,
+        )
+        session_db.add(m)
+        session_db.commit()
+        flash("Compromiso añadido.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=c.artist_id, tab="contratos")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo compromiso: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/commitments/<commitment_id>/update", endpoint="artist_commitment_update")
+@admin_required
+def artist_commitment_update(commitment_id):
+    session_db = db()
+    try:
+        m = session_db.get(ArtistContractCommitment, to_uuid(commitment_id))
+        if not m:
+            flash("Compromiso no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        # necesitamos el contrato para redirigir
+        c = session_db.get(ArtistContract, m.contract_id)
+        artist_id = c.artist_id if c else None
+
+        concept = (request.form.get("concept") or "").strip()
+        if not concept:
+            flash("El concepto es obligatorio.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="contratos")))
+
+        base = _norm_contract_base(request.form.get("base"))
+        profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+
+        m.concept = concept
+        m.pct_artist = _parse_pct(request.form.get("pct_artist"))
+        m.pct_office = _parse_pct(request.form.get("pct_office"))
+        m.base = base
+        m.profit_scope = profit_scope
+
+        session_db.commit()
+        flash("Compromiso actualizado.", "success")
+        if artist_id:
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="contratos")))
+        return redirect(safe_next_or(url_for("artists_view")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando compromiso: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/commitments/<commitment_id>/delete", endpoint="artist_commitment_delete")
+@admin_required
+def artist_commitment_delete(commitment_id):
+    session_db = db()
+    try:
+        m = session_db.get(ArtistContractCommitment, to_uuid(commitment_id))
+        if not m:
+            flash("Compromiso no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("artists_view")))
+
+        c = session_db.get(ArtistContract, m.contract_id)
+        artist_id = c.artist_id if c else None
+
+        session_db.delete(m)
+        session_db.commit()
+        flash("Compromiso eliminado.", "success")
+        if artist_id:
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="contratos")))
+        return redirect(safe_next_or(url_for("artists_view")))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando compromiso: {e}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
 
 # ---------- EMISORAS ----------
 @app.route("/emisoras", methods=["GET", "POST"])

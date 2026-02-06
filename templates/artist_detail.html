@@ -1,0 +1,591 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<style>
+  /* Reutilizamos estilos de conciertos para los pills de estado */
+  .status-pill{ border:1px solid rgba(0,0,0,.08); }
+  .status-hablado{ background:#ffe8a1; color:#7a5b00; }
+  .status-reservado{ background:#cfe2ff; color:#084298; }
+  .status-confirmado{ background:#d1e7dd; color:#0f5132; }
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <a class="btn btn-outline-secondary" href="{{ url_for('artists_view') }}">
+    <i class="fa fa-arrow-left"></i> Volver a artistas
+  </a>
+
+  <div>
+    {% if CAN_EDIT_ARTISTS_STATIONS %}
+      <span class="badge text-bg-primary">Edición</span>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <img
+      src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}"
+      class="artist-hero-photo"
+      alt="Foto artista"
+    >
+
+    <div class="flex-grow-1">
+      <h3 class="m-0">{{ artist.name }}</h3>
+      <div class="small text-muted">Ficha del artista</div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='datos' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+      Datos del artista
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='contratos' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+      Contratos
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='conciertos' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='conciertos') }}">
+      Conciertos
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='discografica' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica') }}">
+      Discográfica
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='agenda' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='agenda') }}">
+      Agenda
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='promocion' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='promocion') }}">
+      Promoción
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='liquidaciones' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='liquidaciones') }}">
+      Liquidaciones
+    </a>
+  </li>
+</ul>
+
+{# ===================== TAB: DATOS ===================== #}
+{% if tab == 'datos' %}
+
+  <div class="row g-3">
+    <div class="col-12 col-lg-5">
+      <div class="card">
+        <div class="card-body">
+          <h6 class="mb-3">Datos básicos</h6>
+
+          {% if CAN_EDIT_ARTISTS_STATIONS %}
+            <form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+              <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+
+              <div class="col-12">
+                <label class="form-label">Nombre artístico</label>
+                <input name="name" class="form-control" value="{{ artist.name }}" required>
+              </div>
+
+              <div class="col-12">
+                <label class="form-label">Foto (PNG)</label>
+                <input type="file" name="photo" accept="image/png" class="form-control">
+              </div>
+
+              <div class="col-12 d-grid">
+                <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+              </div>
+            </form>
+
+            <hr>
+
+            <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}" onsubmit="return confirm('¿Borrar artista?');">
+              <input type="hidden" name="next" value="{{ url_for('artists_view') }}">
+              <button class="btn btn-outline-danger w-100">
+                <i class="fa fa-trash"></i> Eliminar artista
+              </button>
+            </form>
+
+          {% else %}
+            <div class="text-muted">No tienes permisos de edición en esta sección.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-7">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">Personas (nombre y apellidos)</h6>
+            <span class="small text-muted">(puede haber más de una si el artista es un grupo)</span>
+          </div>
+
+          {% if people and (people|length) > 0 %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Apellidos</th>
+                    <th class="text-end">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for p in people %}
+                    <form id="person-update-{{ p.id }}" method="post" action="{{ url_for('artist_person_update', person_id=p.id) }}">
+                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+                    </form>
+                    <form id="person-delete-{{ p.id }}" method="post" action="{{ url_for('artist_person_delete', person_id=p.id) }}" onsubmit="return confirm('¿Borrar esta persona?');">
+                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+                    </form>
+                    <tr>
+                      <td>
+                        <input form="person-update-{{ p.id }}" name="first_name" class="form-control form-control-sm" value="{{ p.first_name }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
+                      </td>
+                      <td>
+                        <input form="person-update-{{ p.id }}" name="last_name" class="form-control form-control-sm" value="{{ p.last_name }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                      </td>
+                      <td class="text-end">
+                        {% if CAN_EDIT_ARTISTS_STATIONS %}
+                          <button form="person-update-{{ p.id }}" class="btn btn-outline-primary btn-sm"><i class="fa fa-save"></i></button>
+                          <button form="person-delete-{{ p.id }}" class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-muted">Aún no hay personas asociadas a este artista.</div>
+          {% endif %}
+
+          {% if CAN_EDIT_ARTISTS_STATIONS %}
+            <hr>
+            <h6 class="mb-2">Añadir persona</h6>
+            <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" class="row g-2 align-items-end">
+              <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+              <div class="col-md-5">
+                <label class="form-label">Nombre</label>
+                <input name="first_name" class="form-control" required>
+              </div>
+              <div class="col-md-5">
+                <label class="form-label">Apellidos</label>
+                <input name="last_name" class="form-control">
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
+              </div>
+            </form>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+{# ===================== TAB: CONTRATOS ===================== #}
+{% elif tab == 'contratos' %}
+
+  {% if CAN_EDIT_ARTISTS_STATIONS %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2">Nuevo contrato</h6>
+        <form method="post" action="{{ url_for('artist_contract_create', artist_id=artist.id) }}" class="row g-2 align-items-end">
+          <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+          <div class="col-md-6">
+            <label class="form-label">Nombre del contrato</label>
+            <input name="name" class="form-control" required>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Fecha de firma</label>
+            <input type="date" name="signed_date" class="form-control">
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-primary"><i class="fa fa-plus"></i> Crear</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+  {% if not contracts or (contracts|length) == 0 %}
+    <div class="text-muted">Este artista aún no tiene contratos.</div>
+  {% else %}
+
+    <div class="accordion" id="contractsAccordion">
+      {% for c in contracts %}
+        <div class="accordion-item">
+          <h2 class="accordion-header" id="heading-{{ c.id }}">
+            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-{{ c.id }}" aria-expanded="false" aria-controls="collapse-{{ c.id }}">
+              <div class="d-flex flex-column">
+                <div class="fw-semibold">{{ c.name }}</div>
+                <div class="small text-muted">
+                  {% if c.signed_date %}
+                    Firmado: {{ c.signed_date.strftime('%d/%m/%Y') }}
+                  {% else %}
+                    Fecha de firma pendiente
+                  {% endif %}
+                </div>
+              </div>
+            </button>
+          </h2>
+          <div id="collapse-{{ c.id }}" class="accordion-collapse collapse" aria-labelledby="heading-{{ c.id }}" data-bs-parent="#contractsAccordion">
+            <div class="accordion-body">
+
+              {% if CAN_EDIT_ARTISTS_STATIONS %}
+                <div class="card mb-3">
+                  <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="mb-0">Editar contrato</h6>
+                      <form method="post" action="{{ url_for('artist_contract_delete', contract_id=c.id) }}" onsubmit="return confirm('¿Eliminar este contrato?');">
+                        <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                        <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i> Eliminar</button>
+                      </form>
+                    </div>
+
+                    <form method="post" action="{{ url_for('artist_contract_update', contract_id=c.id) }}" class="row g-2 align-items-end">
+                      <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                      <div class="col-md-6">
+                        <label class="form-label">Nombre del contrato</label>
+                        <input name="name" class="form-control" value="{{ c.name }}" required>
+                      </div>
+                      <div class="col-md-4">
+                        <label class="form-label">Fecha de firma</label>
+                        <input type="date" name="signed_date" class="form-control" value="{{ c.signed_date.isoformat() if c.signed_date else '' }}">
+                      </div>
+                      <div class="col-md-2 d-grid">
+                        <button class="btn btn-outline-primary"><i class="fa fa-save"></i> Guardar</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              {% endif %}
+
+              <h6 class="mb-2">Compromisos (ingresos)</h6>
+              <div class="small text-muted mb-2">
+                Cada fila es un concepto de ingresos con el % del artista y el % de la oficina. El icono <i class="fa fa-gear"></i> corresponde a la configuración de base (bruto / neto / beneficio).
+              </div>
+
+              <div class="table-responsive">
+                <table class="table table-sm align-middle">
+                  <thead>
+                    <tr>
+                      <th style="min-width: 220px;">Concepto</th>
+                      <th class="text-end" style="min-width: 130px;">% artista</th>
+                      <th class="text-end" style="min-width: 130px;">% oficina</th>
+                      <th style="min-width: 190px;">Base <span class="text-muted"><i class="fa fa-gear"></i></span></th>
+                      <th style="min-width: 230px;">Si es beneficio…</th>
+                      <th class="text-end" style="min-width: 120px;">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+
+                    {% for m in c.commitments %}
+                      <form id="commit-update-{{ m.id }}" method="post" action="{{ url_for('artist_commitment_update', commitment_id=m.id) }}">
+                        <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                      </form>
+                      <form id="commit-delete-{{ m.id }}" method="post" action="{{ url_for('artist_commitment_delete', commitment_id=m.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');">
+                        <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                      </form>
+
+                      {% set base = (m.base or 'GROSS') %}
+                      {% set scope = (m.profit_scope or 'CONCEPT_ONLY') %}
+
+                      <tr class="commitment-row">
+                        <td>
+                          <input form="commit-update-{{ m.id }}" name="concept" class="form-control form-control-sm" value="{{ m.concept }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
+                        </td>
+                        <td>
+                          <input form="commit-update-{{ m.id }}" name="pct_artist" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" value="{{ m.pct_artist }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                        </td>
+                        <td>
+                          <input form="commit-update-{{ m.id }}" name="pct_office" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" value="{{ m.pct_office }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                        </td>
+                        <td>
+                          <select form="commit-update-{{ m.id }}" name="base" class="form-select form-select-sm commitment-base" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                            <option value="GROSS" {% if base == 'GROSS' %}selected{% endif %}>Bruto</option>
+                            <option value="NET" {% if base == 'NET' %}selected{% endif %}>Neto</option>
+                            <option value="PROFIT" {% if base == 'PROFIT' %}selected{% endif %}>Beneficio</option>
+                          </select>
+                        </td>
+                        <td class="profit-scope-wrap">
+                          <select form="commit-update-{{ m.id }}" name="profit_scope" class="form-select form-select-sm commitment-profit-scope" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                            <option value="CONCEPT_ONLY" {% if scope == 'CONCEPT_ONLY' %}selected{% endif %}>Solo ingresos/gastos del concepto</option>
+                            <option value="CONCEPT_PLUS_GENERAL" {% if scope == 'CONCEPT_PLUS_GENERAL' %}selected{% endif %}>Ingresos del concepto + gastos generales</option>
+                          </select>
+                        </td>
+                        <td class="text-end">
+                          {% if CAN_EDIT_ARTISTS_STATIONS %}
+                            <button form="commit-update-{{ m.id }}" class="btn btn-outline-primary btn-sm" title="Guardar">
+                              <i class="fa fa-save"></i>
+                            </button>
+                            <button form="commit-delete-{{ m.id }}" class="btn btn-outline-danger btn-sm" title="Borrar">
+                              <i class="fa fa-trash"></i>
+                            </button>
+                          {% else %}
+                            <span class="text-muted">—</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+
+                    {% if CAN_EDIT_ARTISTS_STATIONS %}
+                      <tr>
+                        <td colspan="6">
+                          <form method="post" action="{{ url_for('artist_commitment_add', contract_id=c.id) }}" class="row g-2 align-items-end">
+                            <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+
+                            <div class="col-12 col-lg-4">
+                              <label class="form-label">Añadir compromiso</label>
+                              <input name="concept" class="form-control form-control-sm" list="defaultConcepts-{{ c.id }}" placeholder="Concepto…" required>
+                              <datalist id="defaultConcepts-{{ c.id }}">
+                                {% for x in default_concepts %}
+                                  <option value="{{ x }}"></option>
+                                {% endfor %}
+                              </datalist>
+                            </div>
+                            <div class="col-6 col-lg-2">
+                              <label class="form-label">% artista</label>
+                              <input name="pct_artist" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" value="0">
+                            </div>
+                            <div class="col-6 col-lg-2">
+                              <label class="form-label">% oficina</label>
+                              <input name="pct_office" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" value="0">
+                            </div>
+                            <div class="col-6 col-lg-2">
+                              <label class="form-label">Base</label>
+                              <select name="base" class="form-select form-select-sm commitment-base">
+                                <option value="GROSS">Bruto</option>
+                                <option value="NET">Neto</option>
+                                <option value="PROFIT">Beneficio</option>
+                              </select>
+                            </div>
+                            <div class="col-6 col-lg-2 profit-scope-wrap">
+                              <label class="form-label">Beneficio</label>
+                              <select name="profit_scope" class="form-select form-select-sm commitment-profit-scope">
+                                <option value="CONCEPT_ONLY">Solo concepto</option>
+                                <option value="CONCEPT_PLUS_GENERAL">+ gastos generales</option>
+                              </select>
+                            </div>
+                            <div class="col-12 d-grid">
+                              <button class="btn btn-outline-primary btn-sm"><i class="fa fa-plus"></i> Añadir fila</button>
+                            </div>
+                          </form>
+                        </td>
+                      </tr>
+                    {% endif %}
+
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+  {% endif %}
+
+{# ===================== TAB: CONCIERTOS ===================== #}
+{% elif tab == 'conciertos' %}
+
+  <form class="card card-body mb-3" method="get" action="{{ url_for('artist_detail_view', artist_id=artist.id) }}">
+    <input type="hidden" name="tab" value="conciertos">
+
+    <div class="row g-2 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">Fecha</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set W = f_when or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="when" value="FUTURE" {% if 'FUTURE' in W %}checked{% endif %}>
+            Conciertos futuros
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="when" value="PAST" {% if 'PAST' in W %}checked{% endif %}>
+            Conciertos pasados
+          </label>
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Estado</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set S = f_statuses or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO" {% if 'HABLADO' in S %}checked{% endif %}>
+            Hablado
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="RESERVADO" {% if 'RESERVADO' in S %}checked{% endif %}>
+            Reservado
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO" {% if 'CONFIRMADO' in S %}checked{% endif %}>
+            Confirmado
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex justify-content-end gap-2 mt-3">
+      <button class="btn btn-danger" type="submit"><i class="fa-solid fa-filter"></i> Filtrar</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='conciertos') }}">Limpiar</a>
+    </div>
+  </form>
+
+  {% if concerts_total == 0 %}
+    <div class="text-muted">No hay conciertos para este artista con los filtros seleccionados.</div>
+  {% else %}
+
+    {% for key in concerts_order %}
+      {% set group = concerts_sections.get(key, []) %}
+      {% if group and (group|length) > 0 %}
+        <details class="mb-3" open>
+          <summary class="h6 mb-2">{{ concerts_titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
+
+          {% for c in group %}
+            <div class="card mb-2">
+              <div class="card-body">
+
+                <div class="d-flex justify-content-between gap-3">
+                  <div class="d-flex gap-3 flex-grow-1">
+                    <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+
+                    <div class="flex-grow-1">
+                      <div class="d-flex flex-wrap align-items-center gap-2">
+                        {% if c.date %}
+                          <span class="text-muted">{{ c.date.strftime('%d/%m/%Y') }}</span>
+                        {% endif %}
+
+                        {% if c.festival_name %}
+                          <span class="badge badge-festival">{{ c.festival_name }}</span>
+                        {% endif %}
+
+                        {% if c.venue %}
+                          <span class="text-muted">{{ c.venue.province }}</span>
+                          <span class="municipio-strong">{{ c.venue.municipality }}</span>
+                          <span class="badge badge-venue">{{ c.venue.name }}</span>
+                        {% endif %}
+
+                        {% set st = (c.status or 'HABLADO')|upper %}
+                        <span class="badge status-pill {% if st=='HABLADO' %}status-hablado{% elif st=='RESERVADO' %}status-reservado{% else %}status-confirmado{% endif %}">
+                          {{ st.title() }}
+                        </span>
+                      </div>
+
+                      <div class="d-flex flex-wrap gap-2 mt-1">
+                        <span class="badge text-bg-light border">Tipo: <strong>{{ c.sale_type }}</strong></span>
+
+                        {% if c.capacity is not none %}
+                          <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>
+                        {% endif %}
+
+                        {% if c.break_even_ticket and c.sale_type not in ['VENDIDO','GRATUITO'] %}
+                          <span class="badge text-bg-light border">Punto de empate: <strong>{{ c.break_even_ticket }}</strong></span>
+                        {% endif %}
+
+                        {% if c.sale_start_date %}
+                          <span class="badge text-bg-light border">Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') }}</strong></span>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+          {% endfor %}
+
+        </details>
+      {% endif %}
+    {% endfor %}
+
+  {% endif %}
+
+{# ===================== TAB: DISCOGRÁFICA ===================== #}
+{% elif tab == 'discografica' %}
+
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item">
+      <a class="nav-link {% if disc_tab=='repertorio' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica', disc='repertorio') }}">
+        Repertorio
+      </a>
+    </li>
+  </ul>
+
+  {% if disc_tab == 'repertorio' %}
+    {% if not songs or (songs|length) == 0 %}
+      <div class="text-muted">No hay canciones asociadas a este artista.</div>
+    {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="width:72px;">Portada</th>
+              <th>Título</th>
+              <th>Colaborador</th>
+              <th class="text-nowrap">Lanzamiento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in songs %}
+              <tr>
+                <td>
+                  <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                </td>
+                <td>
+                  <div class="fw-semibold">{{ s.title }}</div>
+                </td>
+                <td>
+                  <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                </td>
+                <td>
+                  {% if s.release_date %}
+                    {{ s.release_date.strftime('%d/%m/%Y') }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% endif %}
+
+{# ===================== TAB: AGENDA / PROMOCIÓN / LIQUIDACIONES ===================== #}
+{% elif tab in ['agenda','promocion','liquidaciones'] %}
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-2">Próximamente</h6>
+      <div class="text-muted">Próximamente estará disponible, estamos trabajando en ello!!!.</div>
+    </div>
+  </div>
+
+{% endif %}
+
+{% endblock %}

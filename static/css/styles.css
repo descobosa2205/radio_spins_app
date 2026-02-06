@@ -46,6 +46,22 @@ body { background: #fafafa; }
   width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
   border: 2px solid #eee;
 }
+
+.artist-hero{
+  border: 1px solid rgba(0,0,0,.06);
+  background: #fff;
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.artist-hero-photo{
+  width: 120px;
+  height: 120px;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1px solid #eee;
+  background: #fff;
+}
 .cover-square {
   width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid #eee;
 }

@@ -23,6 +23,46 @@ function initSelect2(){
   });
 }
 
+function initArtistContractControls(){
+  // Habilita / deshabilita la selección de "beneficio" según la base.
+  document.querySelectorAll('.commitment-row').forEach((row) => {
+    const baseSel = row.querySelector('.commitment-base');
+    const profitSel = row.querySelector('.commitment-profit-scope');
+    const wrap = row.querySelector('.profit-scope-wrap') || profitSel?.parentElement;
+    if (!baseSel || !profitSel) return;
+    // Si la fila viene en modo lectura (disabled), no hacemos nada.
+    if (baseSel.disabled) return;
+
+    const apply = () => {
+      const isProfit = (baseSel.value || '').toUpperCase() === 'PROFIT';
+      profitSel.disabled = !isProfit;
+      if (wrap) {
+        wrap.classList.toggle('opacity-50', !isProfit);
+      }
+    };
+
+    baseSel.addEventListener('change', apply);
+    apply();
+  });
+
+  // Formularios de "añadir fila" (no están dentro de .commitment-row)
+  document.querySelectorAll('form .commitment-base').forEach((baseSel) => {
+    const form = baseSel.closest('form');
+    if (!form) return;
+    const profitSel = form.querySelector('.commitment-profit-scope');
+    const wrap = form.querySelector('.profit-scope-wrap') || profitSel?.parentElement;
+    if (!profitSel) return;
+    if (baseSel.disabled) return;
+    const apply = () => {
+      const isProfit = (baseSel.value || '').toUpperCase() === 'PROFIT';
+      profitSel.disabled = !isProfit;
+      if (wrap) wrap.classList.toggle('opacity-50', !isProfit);
+    };
+    baseSel.addEventListener('change', apply);
+    apply();
+  });
+}
+
 async function openChart(songId, stationId){
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
@@ -62,6 +102,7 @@ async function openChart(songId, stationId){
 
 $(function(){
   initSelect2();
+  initArtistContractControls();
 });
 
 async function openSalesChart(concertId){

@@ -115,6 +115,46 @@ body { background: #fafafa; }
 .song-platform.active.platform-amazon{ color: #FF9900; }
 .song-platform.active.platform-tiktok{ color: #111111; }
 .song-platform.active.platform-youtube{ color: #FF0000; }
+
+/* Barra de estados (ficha canción) */
+.song-status-bar {
+  border: 1px dashed #ddd;
+  border-radius: 12px;
+  padding: 10px;
+  background: #fafafa;
+}
+
+.song-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e6e6e6;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+  text-decoration: none;
+}
+
+button.song-status-item {
+  border: 1px solid #e6e6e6;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #fff;
+  text-decoration: none;
+}
+
+button.song-status-item:hover,
+.song-status-item:hover {
+  background: #f3f3f3;
+}
+
+button.song-status-item:focus {
+  box-shadow: none;
+}
+
+.song-status-item i {
+  font-size: 18px;
+}
 .station-logo {
   width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #eee;
 }

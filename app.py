@@ -45,6 +45,7 @@ from models import (
     init_db,
     ensure_artist_feature_schema,
     ensure_discografica_schema,
+    ensure_isrc_and_song_detail_schema,
     SessionLocal,
     User,
     Artist,
@@ -52,6 +53,11 @@ from models import (
     ArtistContract,
     ArtistContractCommitment,
     Song,
+    ISRCConfig,
+    ArtistISRCSetting,
+    SongInterpreter,
+    SongISRCCode,
+    SongStatus,
     SongArtist,
     RadioStation,
     Week,
@@ -85,6 +91,8 @@ app.secret_key = settings.SECRET_KEY
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
 ensure_artist_feature_schema()
 ensure_discografica_schema()
+ensure_isrc_and_song_detail_schema()
+ensure_isrc_and_song_detail_schema()
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -156,6 +164,37 @@ def ensure_week(session, week_start: date):
 
 def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def parse_timecode_to_seconds(value: str | None) -> int | None:
+    """Convierte un timecode tipo "mm:ss" o "ss" a segundos.
+
+    Acepta también "hh:mm:ss".
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    try:
+        if ":" not in raw:
+            n = int(raw)
+            return n if n >= 0 else None
+        parts = [p.strip() for p in raw.split(":")]
+        if len(parts) == 2:
+            mm = int(parts[0] or 0)
+            ss = int(parts[1] or 0)
+            if mm < 0 or ss < 0:
+                return None
+            return mm * 60 + ss
+        if len(parts) == 3:
+            hh = int(parts[0] or 0)
+            mm = int(parts[1] or 0)
+            ss = int(parts[2] or 0)
+            if hh < 0 or mm < 0 or ss < 0:
+                return None
+            return hh * 3600 + mm * 60 + ss
+    except Exception:
+        return None
+    return None
 
 def to_uuid(val):
     if val is None or val == "":
@@ -1190,13 +1229,24 @@ def discografica_view():
     """
 
     section = (request.args.get("section") or "canciones").lower().strip()
-    if section not in ("canciones", "royalties", "editorial", "ingresos"):
+    if section not in ("canciones", "royalties", "editorial", "ingresos", "isrc"):
         section = "canciones"
+
+    # subpestañas ISRC
+    isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
+    if isrc_tab not in ("repertorio", "configurador"):
+        isrc_tab = "repertorio"
 
     session_db = db()
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
 
     artist_blocks = []
+    isrc_artist_blocks = []
+    isrc_years = []
+    isrc_config = None
+    isrc_artist_settings = {}
+    isrc_contract_artists = []
+
     if section == "canciones":
         for a in artists:
             songs = (
@@ -1210,13 +1260,192 @@ def discografica_view():
                 _ = s.artists
             artist_blocks.append((a, songs))
 
+    if section == "isrc":
+        # filtros
+        f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
+        f_year = None
+        try:
+            f_year = int((request.args.get("year") or "").strip())
+        except Exception:
+            f_year = None
+
+        # años disponibles (release_date)
+        years_rows = (
+            session_db.query(func.extract("year", Song.release_date).label("y"))
+            .distinct()
+            .order_by(func.extract("year", Song.release_date).desc())
+            .all()
+        )
+        isrc_years = [int(r.y) for r in years_rows if r and r.y]
+
+        if isrc_tab == "repertorio":
+            # Construimos el repertorio agrupado por artista, pero mostrando ISRC Audio + Video
+            # y permitiendo filtros.
+            artists_iter = [a for a in artists if (not f_artist_id) or a.id == f_artist_id]
+
+            # Cargamos todas las canciones de los artistas seleccionados
+            songs_by_artist = {}
+            for a in artists_iter:
+                q = (
+                    session_db.query(Song)
+                    .join(SongArtist, Song.id == SongArtist.song_id)
+                    .filter(SongArtist.artist_id == a.id)
+                )
+                if f_year:
+                    q = q.filter(func.extract("year", Song.release_date) == f_year)
+                songs = q.order_by(Song.release_date.desc()).all()
+                songs_by_artist[a.id] = songs
+
+            # Prefetch ISRCs primarios para las canciones cargadas
+            song_ids = [s.id for sl in songs_by_artist.values() for s in sl]
+            code_map = {}  # (song_id, kind) -> code
+            if song_ids:
+                rows = (
+                    session_db.query(SongISRCCode)
+                    .filter(SongISRCCode.song_id.in_(song_ids))
+                    .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                    .all()
+                )
+                for r in rows:
+                    code_map[(r.song_id, (r.kind or "").upper())] = r.code
+
+            for a in artists_iter:
+                songs = songs_by_artist.get(a.id) or []
+                # Enriquecemos con códigos
+                enriched = []
+                for s in songs:
+                    audio = code_map.get((s.id, "AUDIO"))
+                    video = code_map.get((s.id, "VIDEO"))
+                    enriched.append((s, audio, video))
+                isrc_artist_blocks.append((a, enriched))
+
+        else:
+            # Configurador
+            isrc_config = session_db.get(ISRCConfig, 1)
+            if not isrc_config:
+                isrc_config = ISRCConfig(id=1)
+                session_db.add(isrc_config)
+                session_db.commit()
+
+            # Ajustes por artista
+            settings_rows = session_db.query(ArtistISRCSetting).all()
+            isrc_artist_settings = {r.artist_id: r for r in settings_rows}
+
+            # Artistas con contrato discográfico / catálogo / distribución.
+            concepts = [
+                "discográfico",
+                "discografico",
+                "catálogo",
+                "catalogo",
+                "distribución",
+                "distribucion",
+            ]
+            # artist ids
+            aid_rows = (
+                session_db.query(ArtistContract.artist_id)
+                .join(ArtistContractCommitment, ArtistContractCommitment.contract_id == ArtistContract.id)
+                .filter(func.lower(ArtistContractCommitment.concept).in_([c.lower() for c in concepts]))
+                .distinct()
+                .all()
+            )
+            aid_set = {r.artist_id for r in aid_rows if r and r.artist_id}
+            isrc_contract_artists = [a for a in artists if a.id in aid_set]
+
     session_db.close()
     return render_template(
         "discografica.html",
         section=section,
         artists=artists,
         artist_blocks=artist_blocks,
+        # ISRC
+        isrc_tab=isrc_tab,
+        isrc_artist_blocks=isrc_artist_blocks,
+        isrc_years=isrc_years,
+        isrc_config=isrc_config,
+        isrc_artist_settings=isrc_artist_settings,
+        isrc_contract_artists=isrc_contract_artists,
+        selected_artist_id=str(f_artist_id) if section == "isrc" and 'f_artist_id' in locals() and f_artist_id else "",
+        selected_year=str(f_year) if section == "isrc" and 'f_year' in locals() and f_year else "",
     )
+
+
+@app.post("/discografica/isrc/config/update")
+@admin_required
+def discografica_isrc_config_update():
+    """Guardar configuración global de ISRC (país + matrices audio/video)."""
+
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar la configuración ISRC.")
+
+    country_code = (request.form.get("country_code") or "ES").strip().upper()[:2] or "ES"
+    audio_matrix = (request.form.get("audio_matrix") or "").strip()
+    video_matrix = (request.form.get("video_matrix") or "").strip()
+
+    # Normalizar: solo dígitos y padding
+    def norm_digits(v: str, length: int) -> str:
+        v = "".join([c for c in (v or "") if c.isdigit()])
+        if not v:
+            return "0" * length
+        return v.zfill(length)[-length:]
+
+    audio_matrix = norm_digits(audio_matrix, 3)
+    video_matrix = norm_digits(video_matrix, 3)
+
+    session_db = db()
+    try:
+        cfg = session_db.get(ISRCConfig, 1)
+        if not cfg:
+            cfg = ISRCConfig(id=1)
+            session_db.add(cfg)
+        cfg.country_code = country_code
+        cfg.audio_matrix = audio_matrix
+        cfg.video_matrix = video_matrix
+        cfg.updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+        session_db.commit()
+        flash("Configuración ISRC guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando configuración ISRC: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+
+
+@app.post("/discografica/isrc/artist/<artist_id>/set")
+@admin_required
+def discografica_isrc_artist_set(artist_id):
+    """Guardar número matriz ISRC del artista (2 dígitos)."""
+
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar ISRC por artista.")
+
+    matrix = (request.form.get("artist_matrix") or "").strip()
+    matrix = "".join([c for c in matrix if c.isdigit()]).zfill(2)[-2:] if matrix else None
+
+    session_db = db()
+    try:
+        aid = to_uuid(artist_id)
+        artist = session_db.get(Artist, aid)
+        if not artist:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+
+        rec = session_db.get(ArtistISRCSetting, aid)
+        if not rec:
+            rec = ArtistISRCSetting(artist_id=aid)
+            session_db.add(rec)
+        rec.artist_matrix = matrix
+        rec.updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+        session_db.commit()
+        flash(f"ISRC del artista guardado: {artist.name}", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando ISRC del artista: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
 
 
 @app.post("/discografica/canciones/create")
@@ -1253,6 +1482,18 @@ def discografica_song_create():
         session_db.add(s)
         session_db.flush()  # para obtener s.id
         session_db.add(SongArtist(song_id=s.id, artist_id=artist_id))
+
+        # Estado por defecto
+        session_db.add(SongStatus(song_id=s.id, cover_done=False))
+
+        # Intérpretes por defecto: artista principal (main) + colaboradores (no main)
+        primary_artist = session_db.get(Artist, artist_id)
+        if primary_artist:
+            session_db.add(SongInterpreter(song_id=s.id, name=primary_artist.name, is_main=True))
+        if collaborator:
+            for part in [p.strip() for p in collaborator.split(",") if p.strip()]:
+                session_db.add(SongInterpreter(song_id=s.id, name=part, is_main=False))
+
         session_db.commit()
         flash("Canción creada.", "success")
         return redirect(url_for("discografica_song_detail", song_id=str(s.id)))
@@ -1267,6 +1508,24 @@ def discografica_song_create():
 @app.get("/discografica/canciones/<song_id>")
 @admin_required
 def discografica_song_detail(song_id):
+    tab = (request.args.get("tab") or "informacion").lower().strip()
+    allowed_tabs = {
+        "informacion",
+        "editorial",
+        "materiales",
+        "royalties",
+        "ingresos",
+        "gastos",
+        "promocion",
+        "radio",
+    }
+    if tab not in allowed_tabs:
+        tab = "informacion"
+
+    edit = bool((request.args.get("edit") or "").strip())
+    if edit and not can_edit_catalogs():
+        edit = False
+
     session_db = db()
     s = session_db.get(Song, to_uuid(song_id))
     if not s:
@@ -1277,8 +1536,387 @@ def discografica_song_detail(song_id):
     # Cargar relación
     _ = s.artists
     primary_artist = s.artists[0] if s.artists else None
+
+    # Asegurar estado
+    st = session_db.get(SongStatus, s.id)
+    if not st:
+        st = SongStatus(song_id=s.id)
+        # portada (auto)
+        st.cover_done = bool(s.cover_url)
+        if st.cover_done:
+            st.cover_updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+        session_db.add(st)
+        session_db.commit()
+
+    # Intérpretes
+    interpreters = (
+        session_db.query(SongInterpreter)
+        .filter(SongInterpreter.song_id == s.id)
+        .order_by(SongInterpreter.created_at.asc())
+        .all()
+    )
+
+    # ISRCs
+    isrc_codes = (
+        session_db.query(SongISRCCode)
+        .filter(SongISRCCode.song_id == s.id)
+        .order_by(SongISRCCode.created_at.asc())
+        .all()
+    )
+
+    # Días restantes
+    days_remaining = None
+    if s.release_date and s.release_date > today_local():
+        try:
+            days_remaining = (s.release_date - today_local()).days
+        except Exception:
+            days_remaining = None
+
+    # defaults de UI
+    current_year = today_local().year
+    default_copyright = f"© ℗ {current_year} PIES compañía discográfica SL"
+
     session_db.close()
-    return render_template("song_detail.html", song=s, primary_artist=primary_artist)
+    return render_template(
+        "song_detail.html",
+        song=s,
+        primary_artist=primary_artist,
+        tab=tab,
+        edit=edit,
+        status=st,
+        interpreters=interpreters,
+        isrc_codes=isrc_codes,
+        days_remaining=days_remaining,
+        default_copyright=default_copyright,
+    )
+
+
+@app.post("/discografica/canciones/<song_id>/status/toggle")
+@admin_required
+def discografica_song_status_toggle(song_id):
+    """Toggle de iconos de estado (excepto portada, que es automática)."""
+
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para actualizar estados.")
+
+    key = (request.form.get("key") or "").strip().lower()
+    allowed = {
+        "materials": ("materials_done", "materials_updated_at"),
+        "production_contract": ("production_contract_done", "production_contract_updated_at"),
+        "collaboration_contract": ("collaboration_contract_done", "collaboration_contract_updated_at"),
+        "agedi": ("agedi_done", "agedi_updated_at"),
+        "sgae": ("sgae_done", "sgae_updated_at"),
+        "ritmonet": ("ritmonet_done", "ritmonet_updated_at"),
+        "distributed": ("distributed_done", "distributed_updated_at"),
+    }
+
+    nxt = safe_next_or(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+    if key not in allowed:
+        flash("Estado no válido.", "warning")
+        return redirect(nxt)
+
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        st = session_db.get(SongStatus, sid)
+        if not st:
+            st = SongStatus(song_id=sid)
+            st.cover_done = bool(getattr(s, "cover_url", None))
+            if st.cover_done:
+                st.cover_updated_at = datetime.now(TZ_MADRID)
+            session_db.add(st)
+
+        done_attr, ts_attr = allowed[key]
+        current = bool(getattr(st, done_attr) or False)
+        setattr(st, done_attr, not current)
+        setattr(st, ts_attr, datetime.now(TZ_MADRID))
+        st.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+        session_db.commit()
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando estado: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(nxt)
+
+
+@app.post("/discografica/canciones/<song_id>/info/update")
+@admin_required
+def discografica_song_info_update(song_id):
+    """Actualiza la pestaña Información de la ficha de canción."""
+
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar la ficha de la canción.")
+
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        # Base
+        s.title = (request.form.get("title") or s.title or "").strip() or s.title
+        s.version = (request.form.get("version") or "").strip() or None
+        s.collaborator = (request.form.get("collaborator") or "").strip() or None
+
+        rd = (request.form.get("release_date") or "").strip()
+        if rd:
+            s.release_date = parse_date(rd)
+
+        s.is_catalog = bool(request.form.get("is_catalog"))
+
+        # Portada
+        cover = request.files.get("cover")
+        cover_uploaded = False
+        if cover and getattr(cover, "filename", ""):
+            s.cover_url = upload_image(cover, "songs")
+            cover_uploaded = True
+
+        # Portada (estado automático)
+        st = session_db.get(SongStatus, s.id)
+        if not st:
+            st = SongStatus(song_id=s.id)
+        st.cover_done = bool(s.cover_url)
+        if cover_uploaded:
+            st.cover_updated_at = datetime.now(TZ_MADRID)
+        st.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+
+        # Timing / TikTok start
+        s.duration_seconds = parse_timecode_to_seconds(request.form.get("duration") or request.form.get("duration_seconds"))
+        s.tiktok_start_seconds = parse_timecode_to_seconds(request.form.get("tiktok_start") or request.form.get("tiktok_start_seconds"))
+
+        # Fecha grabación
+        rec_date = (request.form.get("recording_date") or "").strip()
+        s.recording_date = parse_date(rec_date) if rec_date else None
+
+        # BPM
+        bpm_raw = (request.form.get("bpm") or "").strip()
+        if bpm_raw:
+            try:
+                s.bpm = int(bpm_raw)
+            except Exception:
+                s.bpm = None
+        else:
+            s.bpm = None
+
+        s.genre = (request.form.get("genre") or "").strip() or None
+        s.copyright_text = (request.form.get("copyright_text") or "").strip() or None
+
+        s.recording_engineer = (request.form.get("recording_engineer") or "").strip() or None
+        s.mixing_engineer = (request.form.get("mixing_engineer") or "").strip() or None
+        s.mastering_engineer = (request.form.get("mastering_engineer") or "").strip() or None
+        s.studio = (request.form.get("studio") or "").strip() or None
+
+        # Listas en JSON
+        def to_lines_json(v: str | None):
+            raw = (v or "").replace("\r", "")
+            items = [x.strip() for x in raw.split("\n") if x.strip()]
+            return items or None
+
+        s.producers = to_lines_json(request.form.get("producers"))
+        s.arrangers = to_lines_json(request.form.get("arrangers"))
+
+        # Músicos/participantes
+        insts = request.form.getlist("musician_instrument[]")
+        names = request.form.getlist("musician_name[]")
+        mus = []
+        for inst, name in zip(insts, names):
+            inst = (inst or "").strip()
+            name = (name or "").strip()
+            if not inst and not name:
+                continue
+            mus.append({"instrument": inst, "name": name})
+        s.musicians = mus or None
+
+        # Intérpretes
+        names_i = request.form.getlist("interpreter_name[]")
+        mains_i = request.form.getlist("interpreter_is_main[]")
+
+        session_db.query(SongInterpreter).filter(SongInterpreter.song_id == sid).delete(synchronize_session=False)
+        for idx, nm in enumerate(names_i):
+            nm = (nm or "").strip()
+            if not nm:
+                continue
+            main_val = "0"
+            if idx < len(mains_i):
+                main_val = (mains_i[idx] or "0").strip()
+            is_main = main_val in ("1", "true", "True", "MAIN")
+            session_db.add(SongInterpreter(song_id=sid, name=nm, is_main=is_main))
+
+        # Asegurar estado / portada auto
+        st = session_db.get(SongStatus, sid)
+        if not st:
+            st = SongStatus(song_id=sid)
+        st.cover_done = bool(s.cover_url)
+        if cover and getattr(cover, "filename", ""):
+            st.cover_updated_at = datetime.now(TZ_MADRID)
+        st.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+
+        session_db.commit()
+        flash("Ficha actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando ficha: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+def _generate_isrc(session_db, *, kind: str, artist_id, country: str, matrix: str) -> tuple[str, int, int]:
+    """Genera un ISRC con el formato:
+
+    CC-AAA-YY-XXNNN
+    - CC: país (2 letras)
+    - AAA: matriz (3 dígitos)
+    - YY: año (2 dígitos, del año actual)
+    - XX: matriz artista (2 dígitos)
+    - NNN: secuencia (3 dígitos) por artista y año
+    """
+    cfg_year = today_local().year
+    yy = str(cfg_year % 100).zfill(2)
+
+    aset = session_db.get(ArtistISRCSetting, artist_id)
+    if not aset or not (aset.artist_matrix or "").strip():
+        raise ValueError("Falta el número matriz ISRC del artista (configurador).")
+    artist_matrix = "".join([c for c in (aset.artist_matrix or "") if c.isdigit()]).zfill(2)[-2:]
+
+    max_seq = (
+        session_db.query(func.max(SongISRCCode.sequence_num))
+        .filter(SongISRCCode.artist_id == artist_id)
+        .filter(SongISRCCode.year == cfg_year)
+        .scalar()
+    )
+    seq = int(max_seq or 0) + 1
+
+    country = (country or "ES").strip().upper()[:2] or "ES"
+    matrix = "".join([c for c in (matrix or "") if c.isdigit()]).zfill(3)[-3:]
+
+    code = f"{country}-{matrix}-{yy}-{artist_matrix}{str(seq).zfill(3)}"
+    return code, cfg_year, seq
+
+
+@app.post("/discografica/canciones/<song_id>/isrc/add")
+@admin_required
+def discografica_song_isrc_add(song_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para añadir ISRC.")
+
+    kind = (request.form.get("kind") or "AUDIO").strip().upper()
+    if kind not in ("AUDIO", "VIDEO"):
+        kind = "AUDIO"
+
+    is_primary = (request.form.get("is_primary") or "primary").strip().lower() == "primary"
+    subproduct_name = (request.form.get("subproduct_name") or "").strip() or None
+
+    mode = (request.form.get("mode") or "generate").strip().lower()
+    manual_code = (request.form.get("code") or "").strip() or None
+
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        _ = s.artists
+        primary_artist = s.artists[0] if s.artists else None
+        if not primary_artist:
+            flash("La canción no tiene artista asociado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+        year_full = None
+        seq = None
+
+        if mode == "manual":
+            if not manual_code:
+                flash("Debes indicar un código ISRC.", "warning")
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+            code = manual_code.strip().upper()
+
+            # Intento de parseo (opcional)
+            try:
+                # ES-270-26-01001
+                parts = code.split("-")
+                if len(parts) == 4 and len(parts[2]) == 2:
+                    yy = int(parts[2])
+                    year_full = 2000 + yy
+                    tail = parts[3]
+                    if len(tail) >= 5:
+                        seq = int(tail[-3:])
+            except Exception:
+                year_full = None
+                seq = None
+        else:
+            cfg = session_db.get(ISRCConfig, 1)
+            if not cfg:
+                cfg = ISRCConfig(id=1)
+                session_db.add(cfg)
+                session_db.flush()
+
+            matrix = cfg.audio_matrix if kind == "AUDIO" else cfg.video_matrix
+            code, year_full, seq = _generate_isrc(
+                session_db,
+                kind=kind,
+                artist_id=primary_artist.id,
+                country=cfg.country_code,
+                matrix=matrix,
+            )
+
+        rec = SongISRCCode(
+            song_id=sid,
+            artist_id=primary_artist.id,
+            kind=kind,
+            code=code,
+            is_primary=is_primary,
+            subproduct_name=subproduct_name,
+            year=year_full,
+            sequence_num=seq,
+        )
+        session_db.add(rec)
+        session_db.commit()
+        flash("ISRC añadido.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo ISRC: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.post("/discografica/canciones/<song_id>/isrc/delete/<code_id>")
+@admin_required
+def discografica_song_isrc_delete(song_id, code_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para eliminar ISRC.")
+
+    session_db = db()
+    try:
+        rec = session_db.get(SongISRCCode, to_uuid(code_id))
+        if rec:
+            session_db.delete(rec)
+            session_db.commit()
+            flash("ISRC eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando ISRC: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
 
 
 @app.post("/discografica/canciones/<song_id>/update")

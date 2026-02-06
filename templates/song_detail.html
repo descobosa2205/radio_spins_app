@@ -1,180 +1,719 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <a class="btn btn-outline-secondary" href="{{ url_for('discografica_view', section='canciones') }}">
-    <i class="fa fa-arrow-left"></i> Volver a discográfica
+<div class="mb-3">
+  <a href="{{ url_for('discografica_view', section='canciones') }}" class="btn btn-outline-secondary">
+    <i class="fa fa-arrow-left"></i> Volver
   </a>
-
-  {% if CAN_EDIT_CATALOGS %}
-    <span class="badge text-bg-primary">Edición</span>
-  {% else %}
-    <span class="badge text-bg-secondary">Lectura</span>
-  {% endif %}
 </div>
 
-<div class="song-hero mb-3">
-  <div class="d-flex flex-wrap gap-3 align-items-start">
-    <img
-      src="{{ song.cover_url or url_for('static', filename='img/logo.png') }}"
-      class="song-hero-cover"
-      alt="Portada"
-    >
+<!-- Cabecera -->
+<div class="song-hero">
+  <div class="d-flex gap-3 flex-wrap align-items-start">
+    <img src="{{ song.cover_url or url_for('static', filename='img/logo.png') }}" class="song-hero-cover" alt="">
 
     <div class="flex-grow-1">
-      <h3 class="m-0">{{ song.title }}</h3>
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <h3 class="m-0">{{ song.title }}</h3>
 
-      <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
-        {% if primary_artist %}
-          <img src="{{ primary_artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
-          <span class="fw-semibold">{{ primary_artist.name }}</span>
-        {% endif %}
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <img src="{{ primary_artist.photo_url if primary_artist else (url_for('static', filename='img/logo.png')) }}" class="artist-avatar" alt="">
+            <div>
+              <div class="fw-semibold">{{ primary_artist.name if primary_artist else '—' }}</div>
+              {% if song.collaborator %}
+                <div class="text-muted small">Colaboradores: {{ song.collaborator }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
 
-        {% if song.collaborator %}
-          <span class="text-muted">·</span>
-          <span class="text-muted">Colaboradores: {{ song.collaborator }}</span>
-        {% endif %}
-      </div>
+        <!-- Enlaces plataformas -->
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {% set sp = song.spotify_url %}
+          {% set ap = song.apple_music_url %}
+          {% set am = song.amazon_music_url %}
+          {% set tk = song.tiktok_url %}
+          {% set yt = song.youtube_url %}
 
-      <div class="small text-muted mt-1">
-        {% if song.release_date %}
-          Publicación: {{ song.release_date.strftime('%d/%m/%Y') }}
-        {% endif %}
-        {% if song.is_catalog %}
-          · <span class="badge text-bg-secondary">Catálogo</span>
-        {% endif %}
-      </div>
-
-      <div class="d-flex gap-3 flex-wrap mt-3">
-        {% set p = [
-          ('spotify', 'Spotify', song.spotify_url, 'fa-brands fa-spotify', 'platform-spotify'),
-          ('apple_music', 'Apple Music', song.apple_music_url, 'fa-brands fa-apple', 'platform-apple'),
-          ('amazon_music', 'Amazon Music', song.amazon_music_url, 'fa-brands fa-amazon', 'platform-amazon'),
-          ('tiktok', 'TikTok', song.tiktok_url, 'fa-brands fa-tiktok', 'platform-tiktok'),
-          ('youtube', 'YouTube', song.youtube_url, 'fa-brands fa-youtube', 'platform-youtube')
-        ] %}
-
-        {% for key, label, url, icon, cls in p %}
-          {% if url %}
-            <a class="song-platform active {{ cls }}" href="{{ url }}" target="_blank" rel="noopener">
-              <i class="{{ icon }}"></i>
-            </a>
-          {% else %}
-            <a class="song-platform disabled {{ cls }}" href="#" data-platform="{{ key }}" data-platform-label="{{ label }}">
-              <i class="{{ icon }}"></i>
-            </a>
-          {% endif %}
-        {% endfor %}
-      </div>
-
-      <div class="small text-muted mt-2">
-        <i class="fa fa-circle-info"></i>
-        Si un icono está en gris, pulsa para añadir el enlace.
+          <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}"
+             data-platform="spotify" data-platform-label="Spotify"
+             {% if sp %}href="{{ sp }}" target="_blank"{% else %}href="#"{% endif %}>
+            <i class="fab fa-spotify"></i>
+          </a>
+          <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}"
+             data-platform="apple_music" data-platform-label="Apple Music"
+             {% if ap %}href="{{ ap }}" target="_blank"{% else %}href="#"{% endif %}>
+            <i class="fab fa-apple"></i>
+          </a>
+          <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}"
+             data-platform="amazon_music" data-platform-label="Amazon Music"
+             {% if am %}href="{{ am }}" target="_blank"{% else %}href="#"{% endif %}>
+            <i class="fab fa-amazon"></i>
+          </a>
+          <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}"
+             data-platform="tiktok" data-platform-label="TikTok"
+             {% if tk %}href="{{ tk }}" target="_blank"{% else %}href="#"{% endif %}>
+            <i class="fab fa-tiktok"></i>
+          </a>
+          <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}"
+             data-platform="youtube" data-platform-label="YouTube"
+             {% if yt %}href="{{ yt }}" target="_blank"{% else %}href="#"{% endif %}>
+            <i class="fab fa-youtube"></i>
+          </a>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-<div class="row g-3">
-  <div class="col-12 col-lg-7">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="mb-3">Datos de la canción</h6>
+<!-- Pestañas ficha -->
+<ul class="nav nav-tabs mt-3">
+  {% set tabs = [
+    ('informacion','Información'),
+    ('editorial','Editorial'),
+    ('materiales','Materiales'),
+    ('royalties','Royalties'),
+    ('ingresos','Ingresos'),
+    ('gastos','Gastos'),
+    ('promocion','Promoción'),
+    ('radio','Radio')
+  ] %}
+  {% for k, label in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
+    </li>
+  {% endfor %}
+</ul>
 
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+
+  {% if tab == 'informacion' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div>
+        <h5 class="m-0">Información</h5>
+        <div class="text-muted small">Vista por defecto (solo lectura). Edita para completar campos.</div>
+      </div>
+      <div class="d-flex gap-2">
         {% if CAN_EDIT_CATALOGS %}
-          <form method="post" action="{{ url_for('discografica_song_update', song_id=song.id) }}" enctype="multipart/form-data" class="row g-2">
-            <div class="col-12">
-              <label class="form-label">Nombre</label>
-              <input name="title" class="form-control" value="{{ song.title }}" required>
-            </div>
+          {% if edit %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">
+              Cancelar edición
+            </a>
+          {% else %}
+            <a class="btn btn-primary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion', edit=1) }}">
+              <i class="fa fa-edit"></i> Editar
+            </a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
 
-            <div class="col-12">
-              <label class="form-label">Colaboradores (opcional)</label>
-              <input name="collaborator" class="form-control" value="{{ song.collaborator or '' }}" placeholder="Ej: Artista X, Artista Y">
-            </div>
+    <!-- Barra de estados -->
+    {% set has_collabs = (song.collaborator or '')|trim != '' %}
+    <div class="song-status-bar mt-3">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
 
-            <div class="col-12 col-md-6">
-              <label class="form-label">Fecha de publicación</label>
-              <input type="date" name="release_date" class="form-control" value="{{ song.release_date.isoformat() if song.release_date else '' }}" required>
-            </div>
+        <!-- Portada (automático) -->
+        <span class="song-status-item" data-bs-toggle="tooltip"
+              title="{% if status.cover_updated_at %}{{ status.cover_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+          <i class="fa fa-image {% if status.cover_done %}text-success{% else %}text-danger{% endif %}"></i>
+          <span class="small">Portada</span>
+        </span>
 
-            <div class="col-12 col-md-6">
-              <label class="form-label">ISRC principal</label>
-              <input name="isrc" class="form-control" value="{{ song.isrc or '' }}" placeholder="Ej: ESXXX2400001">
-            </div>
+        <!-- Materiales -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="materials">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.materials_updated_at %}{{ status.materials_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-box-open {% if status.materials_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">Materiales</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.materials_updated_at %}{{ status.materials_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-box-open {% if status.materials_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">Materiales</span>
+          </span>
+        {% endif %}
 
-            <div class="col-12 col-md-6">
-              <label class="form-label">Portada (imagen)</label>
-              <input type="file" name="cover" accept="image/*" class="form-control">
-            </div>
+        <!-- Contrato producción -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="production_contract">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.production_contract_updated_at %}{{ status.production_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-file-signature {% if status.production_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">Contrato prod.</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.production_contract_updated_at %}{{ status.production_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-file-signature {% if status.production_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">Contrato prod.</span>
+          </span>
+        {% endif %}
 
-            <div class="col-12 col-md-6 d-flex align-items-end">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="1" id="songIsCatalog" name="is_catalog" {% if song.is_catalog %}checked{% endif %}>
-                <label class="form-check-label" for="songIsCatalog">Marcar como catálogo</label>
+        <!-- Contrato colaboración (solo si hay colaboradores) -->
+        {% if has_collabs %}
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+              <input type="hidden" name="key" value="collaboration_contract">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                      title="{% if status.collaboration_contract_updated_at %}{{ status.collaboration_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+                <i class="fa fa-handshake {% if status.collaboration_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
+                <span class="small">Contrato colab.</span>
+              </button>
+            </form>
+          {% else %}
+            <span class="song-status-item" data-bs-toggle="tooltip"
+                  title="{% if status.collaboration_contract_updated_at %}{{ status.collaboration_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-handshake {% if status.collaboration_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">Contrato colab.</span>
+            </span>
+          {% endif %}
+        {% endif %}
+
+        <!-- AGEDI -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="agedi">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.agedi_updated_at %}{{ status.agedi_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-clipboard-check {% if status.agedi_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">AGEDI</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.agedi_updated_at %}{{ status.agedi_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-clipboard-check {% if status.agedi_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">AGEDI</span>
+          </span>
+        {% endif %}
+
+        <!-- SGAE -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="sgae">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.sgae_updated_at %}{{ status.sgae_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-registered {% if status.sgae_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">SGAE</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.sgae_updated_at %}{{ status.sgae_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-registered {% if status.sgae_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">SGAE</span>
+          </span>
+        {% endif %}
+
+        <!-- RITMONET -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="ritmonet">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.ritmonet_updated_at %}{{ status.ritmonet_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-network-wired {% if status.ritmonet_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">RITMONET</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.ritmonet_updated_at %}{{ status.ritmonet_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-network-wired {% if status.ritmonet_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">RITMONET</span>
+          </span>
+        {% endif %}
+
+        <!-- Distribuida -->
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <input type="hidden" name="key" value="distributed">
+            <input type="hidden" name="next" value="{{ request.full_path }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if status.distributed_updated_at %}{{ status.distributed_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-truck {% if status.distributed_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">Distribuida</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if status.distributed_updated_at %}{{ status.distributed_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-truck {% if status.distributed_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">Distribuida</span>
+          </span>
+        {% endif %}
+
+      </div>
+    </div>
+
+    <!-- Fecha publicación + días -->
+    <div class="mt-3">
+      <span class="fw-semibold">Publicación:</span>
+      {% if song.release_date %}
+        {{ song.release_date.strftime('%d/%m/%Y') }}
+      {% else %}
+        <span class="text-muted">—</span>
+      {% endif %}
+
+      {% if days_remaining and days_remaining > 0 %}
+        <span class="badge text-bg-warning ms-2">Faltan {{ days_remaining }} días</span>
+      {% endif %}
+    </div>
+
+    <!-- Contenido -->
+    <div class="row g-3 mt-1">
+
+      <div class="col-12 col-lg-7">
+
+        {% if edit and CAN_EDIT_CATALOGS %}
+          <form class="card" method="post" action="{{ url_for('discografica_song_info_update', song_id=song.id) }}" enctype="multipart/form-data">
+            <div class="card-body">
+              <h6 class="mb-3">Editar información</h6>
+
+              <div class="row g-2">
+                <div class="col-12">
+                  <label class="form-label">Nombre de la canción</label>
+                  <input name="title" class="form-control" value="{{ song.title }}" required>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Versión (opcional)</label>
+                  <input name="version" class="form-control" value="{{ song.version or '' }}" placeholder="Ej: Acoustic, Remix...">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Fecha de publicación</label>
+                  <input type="date" name="release_date" class="form-control" value="{{ song.release_date.strftime('%Y-%m-%d') if song.release_date else '' }}" required>
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">Colaboradores (opcional)</label>
+                  <input name="collaborator" class="form-control" value="{{ song.collaborator or '' }}" placeholder="Ej: Artista X, Artista Y">
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">Portada</label>
+                  <input type="file" name="cover" class="form-control" accept="image/*">
+                </div>
+
+                <div class="col-12 col-md-6 d-flex align-items-end">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog" {% if song.is_catalog %}checked{% endif %}>
+                    <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+                  </div>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Timing (mm:ss)</label>
+                  <input name="duration" class="form-control" placeholder="03:21"
+                         value="{% if song.duration_seconds %}{{ (song.duration_seconds // 60) }}:{{ '%02d' % (song.duration_seconds % 60) }}{% endif %}">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">TikTok start time (mm:ss)</label>
+                  <input name="tiktok_start" class="form-control" placeholder="00:15"
+                         value="{% if song.tiktok_start_seconds %}{{ (song.tiktok_start_seconds // 60) }}:{{ '%02d' % (song.tiktok_start_seconds % 60) }}{% endif %}">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Fecha de grabación</label>
+                  <input type="date" name="recording_date" class="form-control" value="{{ song.recording_date.strftime('%Y-%m-%d') if song.recording_date else '' }}">
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">BPM</label>
+                  <input type="number" name="bpm" class="form-control" value="{{ song.bpm or '' }}" min="0" step="1">
+                </div>
+
+                <div class="col-12 col-md-8">
+                  <label class="form-label">Género</label>
+                  <input name="genre" class="form-control" value="{{ song.genre or '' }}">
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">Copyright</label>
+                  <input name="copyright_text" class="form-control" value="{{ song.copyright_text or default_copyright }}">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Ingeniero de grabación</label>
+                  <input name="recording_engineer" class="form-control" value="{{ song.recording_engineer or '' }}">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Ingeniero de mezcla</label>
+                  <input name="mixing_engineer" class="form-control" value="{{ song.mixing_engineer or '' }}">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Ingeniero de masterización</label>
+                  <input name="mastering_engineer" class="form-control" value="{{ song.mastering_engineer or '' }}">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Estudio de grabación</label>
+                  <input name="studio" class="form-control" value="{{ song.studio or '' }}">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Productores (1 por línea)</label>
+                  <textarea name="producers" class="form-control" rows="4">{% if song.producers %}{{ song.producers|join('\n') }}{% endif %}</textarea>
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Arreglistas (1 por línea)</label>
+                  <textarea name="arrangers" class="form-control" rows="4">{% if song.arrangers %}{{ song.arrangers|join('\n') }}{% endif %}</textarea>
+                </div>
               </div>
-            </div>
 
-            <div class="col-12 d-grid mt-2">
-              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar cambios</button>
+              <hr>
+
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="m-0">Intérpretes</h6>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="addInterpreterRow">
+                  <i class="fa fa-plus"></i> Añadir
+                </button>
+              </div>
+              <div class="text-muted small">Marca si es <strong>main artist</strong>.
+              </div>
+
+              <div id="interpretersContainer" class="mt-2 d-flex flex-column gap-2">
+                {% if interpreters and (interpreters|length) > 0 %}
+                  {% for it in interpreters %}
+                    <div class="row g-2 interpreter-row">
+                      <div class="col-12 col-md-7">
+                        <input class="form-control" name="interpreter_name[]" value="{{ it.name }}" placeholder="Nombre" required>
+                      </div>
+                      <div class="col-8 col-md-4">
+                        <select class="form-select" name="interpreter_is_main[]">
+                          <option value="1" {% if it.is_main %}selected{% endif %}>Main artist</option>
+                          <option value="0" {% if not it.is_main %}selected{% endif %}>Colaborador</option>
+                        </select>
+                      </div>
+                      <div class="col-4 col-md-1 d-grid">
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+                      </div>
+                    </div>
+                  {% endfor %}
+                {% else %}
+                  <div class="row g-2 interpreter-row">
+                    <div class="col-12 col-md-7">
+                      <input class="form-control" name="interpreter_name[]" value="{{ primary_artist.name if primary_artist else '' }}" placeholder="Nombre" required>
+                    </div>
+                    <div class="col-8 col-md-4">
+                      <select class="form-select" name="interpreter_is_main[]">
+                        <option value="1" selected>Main artist</option>
+                        <option value="0">Colaborador</option>
+                      </select>
+                    </div>
+                    <div class="col-4 col-md-1 d-grid">
+                      <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+
+              <hr>
+
+              <div class="d-flex justify-content-between align-items-center">
+                <h6 class="m-0">Músicos y participantes</h6>
+                <button type="button" class="btn btn-sm btn-outline-primary" id="addMusicianRow">
+                  <i class="fa fa-plus"></i> Añadir
+                </button>
+              </div>
+              <div id="musiciansContainer" class="mt-2 d-flex flex-column gap-2">
+                {% if song.musicians and (song.musicians|length) > 0 %}
+                  {% for m in song.musicians %}
+                    <div class="row g-2 musician-row">
+                      <div class="col-12 col-md-5">
+                        <input class="form-control" name="musician_instrument[]" value="{{ m.instrument }}" placeholder="Instrumento">
+                      </div>
+                      <div class="col-8 col-md-6">
+                        <input class="form-control" name="musician_name[]" value="{{ m.name }}" placeholder="Nombre">
+                      </div>
+                      <div class="col-4 col-md-1 d-grid">
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+                      </div>
+                    </div>
+                  {% endfor %}
+                {% else %}
+                  <div class="row g-2 musician-row">
+                    <div class="col-12 col-md-5">
+                      <input class="form-control" name="musician_instrument[]" placeholder="Instrumento">
+                    </div>
+                    <div class="col-8 col-md-6">
+                      <input class="form-control" name="musician_name[]" placeholder="Nombre">
+                    </div>
+                    <div class="col-4 col-md-1 d-grid">
+                      <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="d-flex justify-content-end mt-3 gap-2">
+                <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">Cancelar</a>
+                <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+              </div>
             </div>
           </form>
         {% else %}
-          <div class="table-responsive">
-            <table class="table table-sm mb-0">
-              <tbody>
-                <tr><th>Título</th><td>{{ song.title }}</td></tr>
-                <tr><th>Colaboradores</th><td>{{ song.collaborator or '—' }}</td></tr>
-                <tr><th>Publicación</th><td>{{ song.release_date.strftime('%d/%m/%Y') if song.release_date else '—' }}</td></tr>
-                <tr><th>ISRC</th><td>{{ song.isrc or '—' }}</td></tr>
-              </tbody>
-            </table>
+
+          <!-- Vista solo lectura (solo campos rellenos) -->
+          <div class="card">
+            <div class="card-body">
+              <h6 class="mb-3">Datos</h6>
+              <table class="table table-sm mb-0">
+                <tbody>
+                  {% if song.version %}
+                    <tr><th style="width: 220px;">Versión</th><td>{{ song.version }}</td></tr>
+                  {% endif %}
+
+                  {% if interpreters and (interpreters|length) > 0 %}
+                    <tr>
+                      <th>Intérpretes</th>
+                      <td>
+                        {% for it in interpreters %}
+                          <span class="badge text-bg-light me-1">
+                            {{ it.name }}
+                            {% if it.is_main %}
+                              <span class="badge text-bg-primary ms-1">Main artist</span>
+                            {% endif %}
+                          </span>
+                        {% endfor %}
+                      </td>
+                    </tr>
+                  {% endif %}
+
+                  {% if song.duration_seconds %}
+                    <tr><th>Timing</th><td>{{ (song.duration_seconds // 60) }}:{{ '%02d' % (song.duration_seconds % 60) }}</td></tr>
+                  {% endif %}
+
+                  {% if song.tiktok_start_seconds %}
+                    <tr><th>TikTok start time</th><td>{{ (song.tiktok_start_seconds // 60) }}:{{ '%02d' % (song.tiktok_start_seconds % 60) }}</td></tr>
+                  {% endif %}
+
+                  {% if song.recording_date %}
+                    <tr><th>Fecha de grabación</th><td>{{ song.recording_date.strftime('%d/%m/%Y') }}</td></tr>
+                  {% endif %}
+
+                  {% if song.bpm %}
+                    <tr><th>BPM</th><td>{{ song.bpm }}</td></tr>
+                  {% endif %}
+
+                  {% if song.genre %}
+                    <tr><th>Género</th><td>{{ song.genre }}</td></tr>
+                  {% endif %}
+
+                  {% if song.recording_engineer %}
+                    <tr><th>Ingeniero de grabación</th><td>{{ song.recording_engineer }}</td></tr>
+                  {% endif %}
+                  {% if song.mixing_engineer %}
+                    <tr><th>Ingeniero de mezcla</th><td>{{ song.mixing_engineer }}</td></tr>
+                  {% endif %}
+                  {% if song.mastering_engineer %}
+                    <tr><th>Ingeniero de masterización</th><td>{{ song.mastering_engineer }}</td></tr>
+                  {% endif %}
+                  {% if song.studio %}
+                    <tr><th>Estudio</th><td>{{ song.studio }}</td></tr>
+                  {% endif %}
+
+                  {% if song.producers and (song.producers|length) > 0 %}
+                    <tr><th>Productores</th><td>{{ song.producers|join(', ') }}</td></tr>
+                  {% endif %}
+
+                  {% if song.arrangers and (song.arrangers|length) > 0 %}
+                    <tr><th>Arreglistas</th><td>{{ song.arrangers|join(', ') }}</td></tr>
+                  {% endif %}
+
+                  {% if song.copyright_text %}
+                    <tr><th>Copyright</th><td>{{ song.copyright_text }}</td></tr>
+                  {% endif %}
+
+                  {% if song.musicians and (song.musicians|length) > 0 %}
+                    <tr>
+                      <th>Músicos/participantes</th>
+                      <td>
+                        {% for m in song.musicians %}
+                          <div class="small">{% if m.instrument %}<strong>{{ m.instrument }}:</strong> {% endif %}{{ m.name }}</div>
+                        {% endfor %}
+                      </td>
+                    </tr>
+                  {% endif %}
+                </tbody>
+              </table>
+              {% if (not song.version) and (not song.duration_seconds) and (not song.tiktok_start_seconds) and (not song.recording_date) and (not song.bpm) and (not song.genre) and (not song.recording_engineer) and (not song.mixing_engineer) and (not song.mastering_engineer) and (not song.studio) and (not song.producers) and (not song.arrangers) and (not song.copyright_text) and (not song.musicians) %}
+                <div class="text-muted">Todavía no se han completado datos extra de la ficha.</div>
+              {% endif %}
+            </div>
           </div>
         {% endif %}
 
       </div>
-    </div>
-  </div>
 
-  <div class="col-12 col-lg-5">
-    <div class="card">
-      <div class="card-body">
-        <h6 class="mb-2">Enlaces de plataformas</h6>
-        <div class="text-muted small">
-          Añádelos pulsando sobre los iconos. Cuando exista enlace, el icono se mostrará en su color.
+      <div class="col-12 col-lg-5">
+        <!-- ISRCs -->
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center">
+              <h6 class="m-0">ISRC</h6>
+              {% if CAN_EDIT_CATALOGS %}
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addIsrcModal">
+                  <i class="fa fa-plus"></i>
+                </button>
+              {% endif %}
+            </div>
+            <div class="text-muted small mt-1">Audio / Vídeo, principal y subproductos.</div>
+
+            <div class="mt-2">
+              {% if isrc_codes and (isrc_codes|length) > 0 %}
+                <div class="table-responsive">
+                  <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Tipo</th>
+                        <th>Código</th>
+                        <th>Uso</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for c in isrc_codes %}
+                        <tr>
+                          <td class="text-nowrap">{{ c.kind }}</td>
+                          <td class="text-nowrap">{{ c.code }}</td>
+                          <td>
+                            {% if c.is_primary %}
+                              <span class="badge text-bg-primary">Principal</span>
+                            {% else %}
+                              <span class="badge text-bg-secondary">Subproducto</span>
+                              {% if c.subproduct_name %}
+                                <span class="text-muted small">({{ c.subproduct_name }})</span>
+                              {% endif %}
+                            {% endif %}
+                          </td>
+                          <td class="text-end">
+                            {% if CAN_EDIT_CATALOGS %}
+                              <form method="post" action="{{ url_for('discografica_song_isrc_delete', song_id=song.id, code_id=c.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este ISRC?');">
+                                <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                              </form>
+                            {% endif %}
+                          </td>
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% else %}
+                <div class="text-muted">No hay ISRCs todavía.</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
 
-        <hr>
-
-        <ul class="list-group list-group-flush">
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            Spotify
-            <span class="text-muted small">{{ song.spotify_url or '—' }}</span>
-          </li>
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            Apple Music
-            <span class="text-muted small">{{ song.apple_music_url or '—' }}</span>
-          </li>
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            Amazon Music
-            <span class="text-muted small">{{ song.amazon_music_url or '—' }}</span>
-          </li>
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            TikTok
-            <span class="text-muted small">{{ song.tiktok_url or '—' }}</span>
-          </li>
-          <li class="list-group-item d-flex justify-content-between align-items-center">
-            YouTube
-            <span class="text-muted small">{{ song.youtube_url or '—' }}</span>
-          </li>
-        </ul>
+        <div class="card mt-3">
+          <div class="card-body">
+            <h6 class="mb-2">Notas</h6>
+            <div class="text-muted small">Los enlaces de Spotify/Apple/Amazon/TikTok/YouTube se añaden pulsando los iconos grises.</div>
+          </div>
+        </div>
       </div>
     </div>
-  </div>
+
+    {% if CAN_EDIT_CATALOGS %}
+      <!-- Modal añadir ISRC -->
+      <div class="modal fade" id="addIsrcModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_song_isrc_add', song_id=song.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">Añadir ISRC</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="row g-2">
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Tipo</label>
+                  <select name="kind" class="form-select">
+                    <option value="AUDIO">Audio</option>
+                    <option value="VIDEO">Vídeo</option>
+                  </select>
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Uso</label>
+                  <select name="is_primary" class="form-select" id="isrcPrimarySelect">
+                    <option value="primary">Principal</option>
+                    <option value="subproduct">Subproducto</option>
+                  </select>
+                </div>
+
+                <div class="col-12 col-md-4" id="isrcSubproductWrap" style="display:none;">
+                  <label class="form-label">Nombre subproducto</label>
+                  <input name="subproduct_name" class="form-control" placeholder="Ej: Videoclip, radio edit...">
+                </div>
+
+                <div class="col-12">
+                  <label class="form-label">¿Cómo quieres añadirlo?</label>
+                  <div class="d-flex gap-3 flex-wrap">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="mode" id="modeGenerate" value="generate" checked>
+                      <label class="form-check-label" for="modeGenerate">Generar nuevo</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="mode" id="modeManual" value="manual">
+                      <label class="form-check-label" for="modeManual">Introducir a mano</label>
+                    </div>
+                  </div>
+                  <div class="text-muted small mt-1">Para generar, necesitas matriz global y matriz del artista en el Configurador.</div>
+                </div>
+
+                <div class="col-12" id="isrcManualWrap" style="display:none;">
+                  <label class="form-label">Código ISRC</label>
+                  <input name="code" class="form-control" placeholder="ES-270-26-01001">
+                </div>
+
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+  {% else %}
+    {% set ns = namespace(lbl='') %}
+    {% for k, label in tabs %}
+      {% if k == tab %}{% set ns.lbl = label %}{% endif %}
+    {% endfor %}
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div>
+        <h5 class="m-0">{{ ns.lbl }}</h5>
+        <div class="text-muted">Próximamente estará disponible, estamos trabajando en ello!!!.</div>
+      </div>
+      {% if CAN_EDIT_CATALOGS %}
+        <button class="btn btn-outline-secondary" disabled><i class="fa fa-edit"></i> Editar</button>
+      {% endif %}
+    </div>
+  {% endif %}
+
 </div>
 
+<!-- Modal: añadir enlace de plataforma -->
 {% if CAN_EDIT_CATALOGS %}
-<!-- Modal: añadir enlace plataforma -->
 <div class="modal fade" id="songLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_song_set_link', song_id=song.id) }}">
@@ -184,10 +723,9 @@
       </div>
       <div class="modal-body">
         <input type="hidden" name="platform" id="songLinkPlatform">
-
         <label class="form-label">URL</label>
-        <input type="url" class="form-control" name="url" id="songLinkUrl" placeholder="https://..." required>
-        <div class="form-text">Si pegas un enlace sin http(s), lo añadimos automáticamente.</div>
+        <input name="url" id="songLinkUrl" class="form-control" placeholder="https://..." required>
+        <div class="small text-muted mt-2">Si pegas un enlace sin https:// se añadirá automáticamente.</div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

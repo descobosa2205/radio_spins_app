@@ -30,6 +30,12 @@
       Ingresos
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='isrc' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio') }}">
+      ISRC
+    </a>
+  </li>
 </ul>
 
 {% if section == 'canciones' %}
@@ -164,6 +170,185 @@
       </form>
     </div>
   </div>
+  {% endif %}
+
+{% elif section == 'isrc' %}
+
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <ul class="nav nav-pills">
+      <li class="nav-item">
+        <a class="nav-link {% if isrc_tab=='repertorio' %}active{% endif %}"
+           href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio', artist_id=selected_artist_id, year=selected_year) }}">Repertorio</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if isrc_tab=='configurador' %}active{% endif %}"
+           href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador') }}">Configurador</a>
+      </li>
+    </ul>
+  </div>
+
+  {% if isrc_tab == 'repertorio' %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <form class="row g-2" method="get" action="{{ url_for('discografica_view') }}">
+          <input type="hidden" name="section" value="isrc">
+          <input type="hidden" name="isrc_tab" value="repertorio">
+
+          <div class="col-12 col-md-6">
+            <label class="form-label">Artista</label>
+            <select class="form-select" name="artist_id">
+              <option value="">Todos</option>
+              {% for a in artists %}
+                <option value="{{ a.id }}" {% if selected_artist_id==a.id|string %}selected{% endif %}>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-12 col-md-4">
+            <label class="form-label">Año (publicación)</label>
+            <select class="form-select" name="year">
+              <option value="">Todos</option>
+              {% for y in isrc_years %}
+                <option value="{{ y }}" {% if selected_year==y|string %}selected{% endif %}>{{ y }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-12 col-md-2 d-flex align-items-end">
+            <button class="btn btn-outline-primary w-100"><i class="fa fa-filter"></i> Filtrar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if not isrc_artist_blocks or (isrc_artist_blocks|length) == 0 %}
+      <div class="text-muted">No hay canciones para los filtros seleccionados.</div>
+    {% else %}
+      {% for artist, rows in isrc_artist_blocks %}
+        <div class="mb-4">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+            <h5 class="m-0">{{ artist.name }}</h5>
+          </div>
+
+          {% if not rows or (rows|length) == 0 %}
+            <div class="text-muted small">Este artista no tiene canciones en ese año.</div>
+          {% else %}
+            <div class="table-responsive bg-white border rounded">
+              <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Nombre</th>
+                    <th>Artista</th>
+                    <th>Colaboradores</th>
+                    <th class="text-nowrap">Duración</th>
+                    <th class="text-nowrap">Publicación</th>
+                    <th class="text-nowrap">ISRC audio</th>
+                    <th class="text-nowrap">ISRC vídeo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for s, audio, video in rows %}
+                    <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}">
+                      <td>
+                        <div class="fw-semibold">{{ s.title }}</div>
+                        {% if s.is_catalog %}
+                          <span class="badge text-bg-secondary">Catálogo</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        <div class="d-flex align-items-center gap-2">
+                          <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                          <span>{{ artist.name }}</span>
+                        </div>
+                      </td>
+                      <td><span class="text-muted">{{ s.collaborator or '—' }}</span></td>
+                      <td>
+                        {% if s.duration_seconds %}
+                          {{ (s.duration_seconds // 60) }}:{{ '%02d' % (s.duration_seconds % 60) }}
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if s.release_date %}
+                          {{ s.release_date.strftime('%d/%m/%Y') }}
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                      <td><span class="text-muted">{{ audio or '—' }}</span></td>
+                      <td><span class="text-muted">{{ video or '—' }}</span></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+
+  {% else %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2">Matriz ISRC (global)</h6>
+        <form class="row g-2" method="post" action="{{ url_for('discografica_isrc_config_update') }}">
+          <div class="col-12 col-md-2">
+            <label class="form-label">País</label>
+            <input name="country_code" class="form-control" maxlength="2" value="{{ (isrc_config.country_code if isrc_config else 'ES') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
+          </div>
+          <div class="col-12 col-md-5">
+            <label class="form-label">Matriz audio (3 dígitos)</label>
+            <input name="audio_matrix" class="form-control" value="{{ (isrc_config.audio_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
+          </div>
+          <div class="col-12 col-md-5">
+            <label class="form-label">Matriz vídeo (3 dígitos)</label>
+            <input name="video_matrix" class="form-control" value="{{ (isrc_config.video_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
+          </div>
+          <div class="col-12 d-grid mt-1">
+            {% if CAN_EDIT_CATALOGS %}
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración</button>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-2">Artistas con contrato discográfico / catálogo / distribución</h6>
+        <div class="text-muted small mb-3">Aquí se configura el número matriz del artista (2 dígitos) usado para generar ISRC.</div>
+
+        {% if not isrc_contract_artists or (isrc_contract_artists|length)==0 %}
+          <div class="text-muted">No hay artistas con ese tipo de contrato todavía.</div>
+        {% else %}
+          <div class="row g-2">
+            {% for a in isrc_contract_artists %}
+              {% set st = isrc_artist_settings.get(a.id) %}
+              <div class="col-12 col-lg-6">
+                <form method="post" action="{{ url_for('discografica_isrc_artist_set', artist_id=a.id) }}" class="border rounded p-2 bg-white d-flex gap-2 align-items-center">
+                  <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                  <div class="flex-grow-1">
+                    <div class="fw-semibold">{{ a.name }}</div>
+                    <div class="small text-muted">Matriz artista (2 dígitos)</div>
+                  </div>
+                  <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
+                  {% if CAN_EDIT_CATALOGS %}
+                    <button class="btn btn-outline-primary"><i class="fa fa-save"></i></button>
+                  {% endif %}
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
   {% endif %}
 
 {% else %}

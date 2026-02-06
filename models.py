@@ -139,8 +139,31 @@ class Song(Base):
     # Si la canción forma parte del catálogo (histórico)
     is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
 
-    # ISRC principal
+    # ISRC principal (legacy / compat)
     isrc = Column(Text)
+
+    # ===== Ficha de canción (Información) =====
+    version = Column(Text)
+    duration_seconds = Column(Integer)
+    tiktok_start_seconds = Column(Integer)
+    recording_date = Column(Date)
+
+    # ISRCs avanzados (principal/subproductos) se guardan en song_isrc_codes,
+    # pero mantenemos campos básicos en songs para compatibilidad.
+
+    bpm = Column(Integer)
+    genre = Column(Text)
+    copyright_text = Column(Text)
+
+    recording_engineer = Column(Text)
+    mixing_engineer = Column(Text)
+    mastering_engineer = Column(Text)
+    studio = Column(Text)
+
+    # Listas (JSON)
+    producers = Column(JSONB)
+    arrangers = Column(JSONB)
+    musicians = Column(JSONB)
 
     # Enlaces de plataformas
     spotify_url = Column(Text)
@@ -154,6 +177,123 @@ class Song(Base):
 
     artists = relationship("Artist", secondary="songs_artists", back_populates="songs")
     plays = relationship("Play", back_populates="song", cascade="all, delete-orphan")
+
+
+class ISRCConfig(Base):
+    """Configuración global de ISRC.
+
+    - country_code: 2 letras (por defecto ES)
+    - audio_matrix: 3 dígitos
+    - video_matrix: 3 dígitos
+
+    Usamos una única fila (id=1) como singleton.
+    """
+
+    __tablename__ = "isrc_config"
+
+    id = Column(Integer, primary_key=True, server_default=text("1"))
+    country_code = Column(Text, nullable=False, server_default=text("'ES'"))
+    audio_matrix = Column(Text, nullable=False, server_default=text("'270'"))
+    video_matrix = Column(Text, nullable=False, server_default=text("'270'"))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ArtistISRCSetting(Base):
+    """Configuración ISRC por artista (número matriz del artista: 2 dígitos)."""
+
+    __tablename__ = "artist_isrc_settings"
+
+    artist_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    artist_matrix = Column(Text)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+
+
+class SongInterpreter(Base):
+    """Intérpretes / artistas participantes en una canción."""
+
+    __tablename__ = "song_interpreters"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name = Column(Text, nullable=False)
+    is_main = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongISRCCode(Base):
+    """ISRCs asociados a una canción (audio/video, principal/subproducto)."""
+
+    __tablename__ = "song_isrc_codes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    artist_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artists.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    kind = Column(Text, nullable=False)  # AUDIO | VIDEO
+    code = Column(Text, nullable=False)
+    is_primary = Column(Boolean, nullable=False, server_default=text("true"))
+    subproduct_name = Column(Text)
+
+    year = Column(Integer)
+    sequence_num = Column(Integer)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongStatus(Base):
+    """Barra de estados de la ficha de canción (iconos rojo/verde + fecha)."""
+
+    __tablename__ = "song_status"
+
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    cover_done = Column(Boolean, nullable=False, server_default=text("false"))
+    cover_updated_at = Column(DateTime(timezone=True))
+
+    materials_done = Column(Boolean, nullable=False, server_default=text("false"))
+    materials_updated_at = Column(DateTime(timezone=True))
+
+    production_contract_done = Column(Boolean, nullable=False, server_default=text("false"))
+    production_contract_updated_at = Column(DateTime(timezone=True))
+
+    collaboration_contract_done = Column(Boolean, nullable=False, server_default=text("false"))
+    collaboration_contract_updated_at = Column(DateTime(timezone=True))
+
+    agedi_done = Column(Boolean, nullable=False, server_default=text("false"))
+    agedi_updated_at = Column(DateTime(timezone=True))
+
+    sgae_done = Column(Boolean, nullable=False, server_default=text("false"))
+    sgae_updated_at = Column(DateTime(timezone=True))
+
+    ritmonet_done = Column(Boolean, nullable=False, server_default=text("false"))
+    ritmonet_updated_at = Column(DateTime(timezone=True))
+
+    distributed_done = Column(Boolean, nullable=False, server_default=text("false"))
+    distributed_updated_at = Column(DateTime(timezone=True))
+
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class SongArtist(Base):
@@ -758,6 +898,165 @@ def ensure_discografica_schema():
 
         'CREATE INDEX IF NOT EXISTS idx_songs_release_date ON songs(release_date DESC);',
         'CREATE INDEX IF NOT EXISTS idx_songs_isrc ON songs(isrc);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
+
+def ensure_isrc_and_song_detail_schema():
+    """Asegura el esquema necesario para:
+
+    - Pestaña Discográfica > ISRC (config global + config por artista)
+    - Ficha de canción (campos adicionales + barra de estados)
+    - ISRCs múltiples (audio/video, principal/subproducto)
+
+    Lo hacemos sin Alembic (DDL idempotente).
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        # Config global
+        """
+        CREATE TABLE IF NOT EXISTS isrc_config (
+            id integer PRIMARY KEY DEFAULT 1,
+            country_code text NOT NULL DEFAULT 'ES',
+            audio_matrix text NOT NULL DEFAULT '270',
+            video_matrix text NOT NULL DEFAULT '270',
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        INSERT INTO isrc_config (id)
+        SELECT 1
+        WHERE NOT EXISTS (SELECT 1 FROM isrc_config WHERE id = 1);
+        """,
+
+        # Config por artista
+        """
+        CREATE TABLE IF NOT EXISTS artist_isrc_settings (
+            artist_id uuid PRIMARY KEY REFERENCES artists(id) ON DELETE CASCADE,
+            artist_matrix text,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+
+        # Intérpretes
+        """
+        CREATE TABLE IF NOT EXISTS song_interpreters (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            is_main boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_interpreters_song_id ON song_interpreters(song_id);
+        """,
+
+        # Backfill: crear al menos un intérprete "main" por canción existente si no hay ninguno.
+        # (Tomamos un artista asociado; en esta app normalmente hay 1 artista por canción.)
+        """
+        INSERT INTO song_interpreters (song_id, name, is_main)
+        SELECT DISTINCT ON (sa.song_id) sa.song_id, a.name, true
+        FROM songs_artists sa
+        JOIN artists a ON a.id = sa.artist_id
+        WHERE NOT EXISTS (SELECT 1 FROM song_interpreters si WHERE si.song_id = sa.song_id)
+        ORDER BY sa.song_id, a.name;
+        """,
+
+        # ISRCs por canción
+        """
+        CREATE TABLE IF NOT EXISTS song_isrc_codes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE RESTRICT,
+            kind text NOT NULL,
+            code text NOT NULL,
+            is_primary boolean NOT NULL DEFAULT true,
+            subproduct_name text,
+            year integer,
+            sequence_num integer,
+            created_at timestamptz DEFAULT now(),
+
+            CONSTRAINT chk_song_isrc_kind CHECK (kind IN ('AUDIO', 'VIDEO'))
+        );
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_song_isrc_code_code ON song_isrc_codes(code);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_isrc_codes_song_id ON song_isrc_codes(song_id);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_isrc_codes_artist_year ON song_isrc_codes(artist_id, year, sequence_num);
+        """,
+        # Único "primary" por canción y tipo
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_song_isrc_primary_per_kind
+        ON song_isrc_codes(song_id, kind)
+        WHERE is_primary = true;
+        """,
+
+        # Estados de ficha
+        """
+        CREATE TABLE IF NOT EXISTS song_status (
+            song_id uuid PRIMARY KEY REFERENCES songs(id) ON DELETE CASCADE,
+            cover_done boolean NOT NULL DEFAULT false,
+            cover_updated_at timestamptz,
+            materials_done boolean NOT NULL DEFAULT false,
+            materials_updated_at timestamptz,
+            production_contract_done boolean NOT NULL DEFAULT false,
+            production_contract_updated_at timestamptz,
+            collaboration_contract_done boolean NOT NULL DEFAULT false,
+            collaboration_contract_updated_at timestamptz,
+            agedi_done boolean NOT NULL DEFAULT false,
+            agedi_updated_at timestamptz,
+            sgae_done boolean NOT NULL DEFAULT false,
+            sgae_updated_at timestamptz,
+            ritmonet_done boolean NOT NULL DEFAULT false,
+            ritmonet_updated_at timestamptz,
+            distributed_done boolean NOT NULL DEFAULT false,
+            distributed_updated_at timestamptz,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+
+        # Campos extra en songs
+        """
+        ALTER TABLE IF EXISTS songs
+            ADD COLUMN IF NOT EXISTS version text,
+            ADD COLUMN IF NOT EXISTS duration_seconds integer,
+            ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
+            ADD COLUMN IF NOT EXISTS recording_date date,
+            ADD COLUMN IF NOT EXISTS bpm integer,
+            ADD COLUMN IF NOT EXISTS genre text,
+            ADD COLUMN IF NOT EXISTS copyright_text text,
+            ADD COLUMN IF NOT EXISTS recording_engineer text,
+            ADD COLUMN IF NOT EXISTS mixing_engineer text,
+            ADD COLUMN IF NOT EXISTS mastering_engineer text,
+            ADD COLUMN IF NOT EXISTS studio text,
+            ADD COLUMN IF NOT EXISTS producers jsonb,
+            ADD COLUMN IF NOT EXISTS arrangers jsonb,
+            ADD COLUMN IF NOT EXISTS musicians jsonb;
+        """,
+
+        # Backfill: crear estado para canciones existentes si no existe
+        """
+        INSERT INTO song_status (song_id, cover_done, cover_updated_at, updated_at)
+        SELECT s.id,
+               (s.cover_url IS NOT NULL) AS cover_done,
+               CASE WHEN s.cover_url IS NOT NULL THEN now() ELSE NULL END AS cover_updated_at,
+               now() AS updated_at
+        FROM songs s
+        WHERE NOT EXISTS (SELECT 1 FROM song_status ss WHERE ss.song_id = s.id);
+        """,
     ]
 
     with engine.begin() as conn:

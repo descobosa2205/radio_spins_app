@@ -95,6 +95,91 @@ function initSongLinkModal(){
   });
 }
 
+function initBootstrapTooltips(){
+  if (!window.bootstrap) return;
+  document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach((el) => {
+    try { new bootstrap.Tooltip(el); } catch (_) {}
+  });
+}
+
+function initDynamicRows(){
+  // Intérpretes
+  const addInterpreterBtn = document.getElementById('addInterpreterRow');
+  const interpretersContainer = document.getElementById('interpretersContainer');
+  if (addInterpreterBtn && interpretersContainer){
+    addInterpreterBtn.addEventListener('click', () => {
+      const row = document.createElement('div');
+      row.className = 'row g-2 interpreter-row';
+      row.innerHTML = `
+        <div class="col-12 col-md-7">
+          <input class="form-control" name="interpreter_name[]" placeholder="Nombre" required>
+        </div>
+        <div class="col-8 col-md-4">
+          <select class="form-select" name="interpreter_is_main[]">
+            <option value="1">Main artist</option>
+            <option value="0" selected>Colaborador</option>
+          </select>
+        </div>
+        <div class="col-4 col-md-1 d-grid">
+          <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+        </div>
+      `;
+      interpretersContainer.appendChild(row);
+    });
+  }
+
+  // Músicos
+  const addMusicianBtn = document.getElementById('addMusicianRow');
+  const musiciansContainer = document.getElementById('musiciansContainer');
+  if (addMusicianBtn && musiciansContainer){
+    addMusicianBtn.addEventListener('click', () => {
+      const row = document.createElement('div');
+      row.className = 'row g-2 musician-row';
+      row.innerHTML = `
+        <div class="col-12 col-md-5">
+          <input class="form-control" name="musician_instrument[]" placeholder="Instrumento">
+        </div>
+        <div class="col-8 col-md-6">
+          <input class="form-control" name="musician_name[]" placeholder="Nombre">
+        </div>
+        <div class="col-4 col-md-1 d-grid">
+          <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+        </div>
+      `;
+      musiciansContainer.appendChild(row);
+    });
+  }
+
+  // Botón quitar (delegación)
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remove-row');
+    if (!btn) return;
+    const row = btn.closest('.interpreter-row') || btn.closest('.musician-row');
+    if (row) row.remove();
+  });
+}
+
+function initIsrcModalControls(){
+  const primarySel = document.getElementById('isrcPrimarySelect');
+  const subWrap = document.getElementById('isrcSubproductWrap');
+  const manualWrap = document.getElementById('isrcManualWrap');
+  const modeManual = document.getElementById('modeManual');
+  const modeGenerate = document.getElementById('modeGenerate');
+
+  const apply = () => {
+    if (subWrap && primarySel){
+      subWrap.style.display = (primarySel.value === 'subproduct') ? '' : 'none';
+    }
+    const isManual = modeManual && modeManual.checked;
+    if (manualWrap) manualWrap.style.display = isManual ? '' : 'none';
+  };
+
+  if (primarySel) primarySel.addEventListener('change', apply);
+  if (modeManual) modeManual.addEventListener('change', apply);
+  if (modeGenerate) modeGenerate.addEventListener('change', apply);
+  apply();
+}
+
 async function openChart(songId, stationId){
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
@@ -137,6 +222,9 @@ $(function(){
   initArtistContractControls();
   initClickableRows();
   initSongLinkModal();
+  initBootstrapTooltips();
+  initDynamicRows();
+  initIsrcModalControls();
 });
 
 async function openSalesChart(concertId){

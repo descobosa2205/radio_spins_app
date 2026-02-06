@@ -1,0 +1,180 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="m-0">Discográfica</h4>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {% if section=='canciones' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='canciones') }}">
+      Canciones
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='royalties' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='royalties') }}">
+      Royalties
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='editorial' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='editorial') }}">
+      Editorial
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if section=='ingresos' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='ingresos') }}">
+      Ingresos
+    </a>
+  </li>
+</ul>
+
+{% if section == 'canciones' %}
+
+  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+    <ul class="nav nav-pills">
+      <li class="nav-item">
+        <span class="nav-link active">Repertorio</span>
+      </li>
+    </ul>
+
+    {% if CAN_EDIT_CATALOGS %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
+        <i class="fa fa-plus"></i> Añadir canción
+      </button>
+    {% endif %}
+  </div>
+
+  {% if not artist_blocks or (artist_blocks|length) == 0 %}
+    <div class="text-muted">No hay artistas creados todavía.</div>
+  {% else %}
+    {% for artist, songs in artist_blocks %}
+      <div class="mb-4">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+          <h5 class="m-0">{{ artist.name }}</h5>
+        </div>
+
+        {% if not songs or (songs|length) == 0 %}
+          <div class="text-muted small">Este artista no tiene canciones aún.</div>
+        {% else %}
+          <div class="table-responsive bg-white border rounded">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:72px;">Portada</th>
+                  <th>Nombre</th>
+                  <th>Artista</th>
+                  <th>Colaboradores</th>
+                  <th class="text-nowrap">ISRC</th>
+                  <th class="text-nowrap">Publicación</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for s in songs %}
+                  <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}">
+                    <td>
+                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                    </td>
+                    <td>
+                      <div class="fw-semibold">{{ s.title }}</div>
+                      {% if s.is_catalog %}
+                        <span class="badge text-bg-secondary">Catálogo</span>
+                      {% endif %}
+                    </td>
+                    <td>
+                      <div class="d-flex align-items-center gap-2">
+                        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                        <span>{{ artist.name }}</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                    </td>
+                    <td>
+                      <span class="text-muted">{{ s.isrc or '—' }}</span>
+                    </td>
+                    <td>
+                      {% if s.release_date %}
+                        {{ s.release_date.strftime('%d/%m/%Y') }}
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+
+  {% if CAN_EDIT_CATALOGS %}
+  <!-- Modal: añadir canción -->
+  <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered">
+      <form class="modal-content" method="post" action="{{ url_for('discografica_song_create') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Añadir canción</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Nombre de la canción</label>
+              <input name="title" class="form-control" required>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Artista</label>
+              <select name="artist_id" class="form-select select-artists" required>
+                <option value="">Selecciona…</option>
+                {% for a in artists %}
+                  <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Colaboradores (opcional)</label>
+              <input name="collaborator" class="form-control" placeholder="Ej: Artista X, Artista Y">
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Fecha de publicación</label>
+              <input type="date" name="release_date" class="form-control" required>
+            </div>
+            <div class="col-12 col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog">
+                <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+              </div>
+            </div>
+          </div>
+          <div class="small text-muted mt-2">
+            El resto de datos (ISRC, portada y enlaces) se completan en la ficha de la canción.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+{% else %}
+
+  <div class="card">
+    <div class="card-body">
+      <h6 class="mb-2">Próximamente</h6>
+      <div class="text-muted">Próximamente estará disponible, estamos trabajando en ello!!!.</div>
+    </div>
+  </div>
+
+{% endif %}
+
+{% endblock %}

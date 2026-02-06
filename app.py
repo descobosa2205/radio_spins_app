@@ -43,6 +43,8 @@ except Exception:
 from config import settings
 from models import (
     init_db,
+    ensure_artist_feature_schema,
+    ensure_discografica_schema,
     SessionLocal,
     User,
     Artist,
@@ -76,9 +78,13 @@ from models import (
     ConcertTicketer,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf
+from supabase_utils import upload_png, upload_pdf, upload_image
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
+
+# Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
+ensure_artist_feature_schema()
+ensure_discografica_schema()
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -1168,7 +1174,202 @@ def station_delete(station_id):
         session_db.close()
     return redirect(url_for("stations_view"))
 
-# ---------- CANCIONES ----------
+# ---------- DISCOGRÁFICA ----------
+
+
+@app.get("/discografica")
+@admin_required
+def discografica_view():
+    """Pestaña principal Discográfica.
+
+    Agrupa (por ahora):
+    - Canciones (Repertorio)
+    - Royalties (próximamente)
+    - Editorial (próximamente)
+    - Ingresos (próximamente)
+    """
+
+    section = (request.args.get("section") or "canciones").lower().strip()
+    if section not in ("canciones", "royalties", "editorial", "ingresos"):
+        section = "canciones"
+
+    session_db = db()
+    artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+
+    artist_blocks = []
+    if section == "canciones":
+        for a in artists:
+            songs = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .filter(SongArtist.artist_id == a.id)
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+            for s in songs:
+                _ = s.artists
+            artist_blocks.append((a, songs))
+
+    session_db.close()
+    return render_template(
+        "discografica.html",
+        section=section,
+        artists=artists,
+        artist_blocks=artist_blocks,
+    )
+
+
+@app.post("/discografica/canciones/create")
+@admin_required
+def discografica_song_create():
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para añadir canciones.")
+
+    title = (request.form.get("title") or "").strip()
+    collaborator = (request.form.get("collaborator") or "").strip() or None
+    release_date_raw = (request.form.get("release_date") or "").strip()
+    artist_id = to_uuid((request.form.get("artist_id") or "").strip())
+    is_catalog = bool(request.form.get("is_catalog"))
+
+    if not title:
+        flash("El nombre de la canción es obligatorio.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+    if not release_date_raw:
+        flash("La fecha de publicación es obligatoria.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+    if not artist_id:
+        flash("Debes seleccionar un artista.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+
+    session_db = db()
+    try:
+        release_date = parse_date(release_date_raw)
+        s = Song(
+            title=title,
+            collaborator=collaborator,
+            release_date=release_date,
+            is_catalog=is_catalog,
+        )
+        session_db.add(s)
+        session_db.flush()  # para obtener s.id
+        session_db.add(SongArtist(song_id=s.id, artist_id=artist_id))
+        session_db.commit()
+        flash("Canción creada.", "success")
+        return redirect(url_for("discografica_song_detail", song_id=str(s.id)))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error creando canción: {e}", "danger")
+        return redirect(url_for("discografica_view", section="canciones"))
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/canciones/<song_id>")
+@admin_required
+def discografica_song_detail(song_id):
+    session_db = db()
+    s = session_db.get(Song, to_uuid(song_id))
+    if not s:
+        session_db.close()
+        flash("Canción no encontrada.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+
+    # Cargar relación
+    _ = s.artists
+    primary_artist = s.artists[0] if s.artists else None
+    session_db.close()
+    return render_template("song_detail.html", song=s, primary_artist=primary_artist)
+
+
+@app.post("/discografica/canciones/<song_id>/update")
+@admin_required
+def discografica_song_update(song_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar canciones.")
+
+    session_db = db()
+    s = session_db.get(Song, to_uuid(song_id))
+    if not s:
+        session_db.close()
+        flash("Canción no encontrada.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+
+    try:
+        s.title = (request.form.get("title") or s.title or "").strip() or s.title
+        s.collaborator = (request.form.get("collaborator") or "").strip() or None
+
+        rd = (request.form.get("release_date") or "").strip()
+        if rd:
+            s.release_date = parse_date(rd)
+
+        s.is_catalog = bool(request.form.get("is_catalog"))
+        s.isrc = (request.form.get("isrc") or "").strip() or None
+
+        cover = request.files.get("cover")
+        if cover and getattr(cover, "filename", ""):
+            s.cover_url = upload_image(cover, "songs")
+
+        session_db.commit()
+        flash("Canción actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando canción: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id))
+
+
+@app.post("/discografica/canciones/<song_id>/set_link")
+@admin_required
+def discografica_song_set_link(song_id):
+    if not can_edit_catalogs():
+        return forbid("No tienes permisos para editar enlaces.")
+
+    platform = (request.form.get("platform") or "").strip().lower()
+    url = (request.form.get("url") or "").strip()
+    if not platform:
+        flash("Falta la plataforma.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id))
+    if not url:
+        flash("Debes indicar un enlace.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id))
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "https://" + url
+
+    field_map = {
+        "spotify": "spotify_url",
+        "apple_music": "apple_music_url",
+        "amazon_music": "amazon_music_url",
+        "tiktok": "tiktok_url",
+        "youtube": "youtube_url",
+    }
+    field = field_map.get(platform)
+    if not field:
+        flash("Plataforma no soportada.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id))
+
+    session_db = db()
+    s = session_db.get(Song, to_uuid(song_id))
+    if not s:
+        session_db.close()
+        flash("Canción no encontrada.", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
+
+    try:
+        setattr(s, field, url)
+        session_db.commit()
+        flash("Enlace guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando enlace: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id))
+
+
+# ---------- CANCIONES (LEGACY) ----------
 @app.route("/canciones", methods=["GET", "POST"])
 @admin_required
 def songs_view():
@@ -1196,7 +1397,7 @@ def songs_view():
         cover = request.files.get("cover")
         artist_ids = [to_uuid(aid) for aid in request.form.getlist("artist_ids[]")]
         try:
-            cover_url = upload_png(cover, "songs") if cover else None
+            cover_url = upload_image(cover, "songs") if cover else None
             s = Song(title=title, collaborator=collaborator,
                      release_date=release_date, cover_url=cover_url)
             session_db.add(s)
@@ -1240,7 +1441,7 @@ def song_update(song_id):
     cover = request.files.get("cover")
     try:
         if cover and cover.filename:
-            s.cover_url = upload_png(cover, "songs")
+            s.cover_url = upload_image(cover, "songs")
         new_artist_ids = {to_uuid(a) for a in request.form.getlist("artist_ids[]")}
         old_artist_ids = {a.id for a in s.artists}
         for aid in old_artist_ids - new_artist_ids:

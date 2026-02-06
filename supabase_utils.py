@@ -55,6 +55,53 @@ def upload_png(file_storage, folder: str) -> str | None:
     return _upload_bytes(data, key, "image/png")
 
 
+def upload_image(file_storage, folder: str) -> str | None:
+    """Sube una imagen (formatos comunes) y devuelve URL pública.
+
+    Formatos soportados:
+    - PNG
+    - JPG/JPEG
+    - WEBP
+    - GIF
+    - SVG
+
+    Nota: Validamos por extensión (y content-type si viene informado).
+    """
+
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return None
+
+    fname = (file_storage.filename or "").lower().strip()
+    ext_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+    }
+
+    ext = None
+    for k in ext_map.keys():
+        if fname.endswith(k):
+            ext = k
+            break
+
+    if not ext:
+        raise ValueError("Formato de imagen no permitido. Sube PNG/JPG/WEBP/GIF/SVG.")
+
+    content_type = ext_map[ext]
+    # Si werkzeug nos pasa un mimetype de imagen, lo respetamos.
+    mt = (getattr(file_storage, "mimetype", "") or "").lower()
+    if mt.startswith("image/"):
+        content_type = mt
+
+    key = f"{folder}/{uuid4().hex}{ext}"
+    data = file_storage.read()
+    file_storage.stream.seek(0)
+    return _upload_bytes(data, key, content_type)
+
+
 def upload_pdf(file_storage, folder: str) -> str | None:
     """Sube un PDF (si viene) y devuelve URL pública."""
     if not file_storage or not getattr(file_storage, "filename", ""):

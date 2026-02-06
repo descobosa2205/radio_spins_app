@@ -24,8 +24,8 @@
         <input name="collaborator" class="form-control" placeholder="Si se deja en blanco, no se mostrará" />
       </div>
       <div class="col-md-4">
-        <label class="form-label">Portada (PNG)</label>
-        <input type="file" name="cover" accept="image/png" class="form-control" />
+        <label class="form-label">Portada (imagen)</label>
+        <input type="file" name="cover" accept="image/*" class="form-control" />
       </div>
       <div class="col-md-4">
         <label class="form-label">Fecha de lanzamiento</label>
@@ -85,8 +85,8 @@
                                value="{{ s.release_date.isoformat() if s.release_date else '' }}">
                       </div>
                       <div class="col-md-6">
-                        <label class="form-label">Portada (PNG)</label>
-                        <input type="file" name="cover" accept="image/png" class="form-control">
+                        <label class="form-label">Portada (imagen)</label>
+                        <input type="file" name="cover" accept="image/*" class="form-control">
                       </div>
                       <div class="col-md-6 d-flex align-items-end justify-content-end gap-2">
                         <button class="btn btn-outline-primary">Guardar</button>

@@ -136,6 +136,18 @@ class Song(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     title = Column(Text, nullable=False)
     collaborator = Column(Text)
+    # Si la canción forma parte del catálogo (histórico)
+    is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # ISRC principal
+    isrc = Column(Text)
+
+    # Enlaces de plataformas
+    spotify_url = Column(Text)
+    apple_music_url = Column(Text)
+    amazon_music_url = Column(Text)
+    tiktok_url = Column(Text)
+    youtube_url = Column(Text)
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -638,6 +650,122 @@ class ConcertEquipmentNote(Base):
 
     body = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ==============================
+#  MIGRACIONES LIGERAS (SIN ALEMBIC)
+# ==============================
+
+
+def ensure_artist_feature_schema():
+    """Asegura que existan las tablas nuevas del apartado *Artistas*.
+
+    En producción (p. ej. Render + gunicorn) no se ejecuta el bloque
+    ``if __name__ == "__main__"`` y por tanto ``init_db()`` no se lanzaba.
+
+    Aquí usamos DDL con ``IF NOT EXISTS`` para que sea:
+    - idempotente
+    - seguro ante múltiples workers arrancando a la vez
+
+    Tablas:
+    - artist_people
+    - artist_contracts
+    - artist_contract_commitments
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        # Personas asociadas al artista (útil para grupos)
+        """
+        CREATE TABLE IF NOT EXISTS artist_people (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            first_name text NOT NULL,
+            last_name text NOT NULL DEFAULT '',
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_people_artist_id ON artist_people(artist_id);',
+
+        # Contratos a nivel artista
+        """
+        CREATE TABLE IF NOT EXISTS artist_contracts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            signed_date date,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_contracts_artist_id ON artist_contracts(artist_id);',
+
+        # Líneas/compromisos de cada contrato
+        """
+        CREATE TABLE IF NOT EXISTS artist_contract_commitments (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            contract_id uuid NOT NULL REFERENCES artist_contracts(id) ON DELETE CASCADE,
+            concept text NOT NULL,
+            pct_artist numeric NOT NULL DEFAULT 0,
+            pct_office numeric NOT NULL DEFAULT 0,
+            base text NOT NULL DEFAULT 'GROSS',
+            profit_scope text,
+            created_at timestamptz DEFAULT now(),
+
+            CONSTRAINT chk_acc_pct_artist CHECK (pct_artist >= 0 AND pct_artist <= 100),
+            CONSTRAINT chk_acc_pct_office CHECK (pct_office >= 0 AND pct_office <= 100),
+            CONSTRAINT chk_acc_base CHECK (base IN ('GROSS', 'NET', 'PROFIT')),
+            CONSTRAINT chk_acc_profit_scope CHECK (
+                profit_scope IS NULL
+                OR profit_scope IN ('CONCEPT_ONLY', 'CONCEPT_PLUS_GENERAL')
+            )
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_contract_commitments_contract_id ON artist_contract_commitments(contract_id);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or '').strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
+
+def ensure_discografica_schema():
+    """Asegura columnas nuevas en `songs` para la pestaña Discográfica.
+
+    Lo hacemos sin Alembic, usando DDL idempotente (IF NOT EXISTS) para:
+    - is_catalog
+    - isrc
+    - enlaces plataformas
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        # Campos nuevos en songs
+        """
+        ALTER TABLE IF EXISTS songs
+            ADD COLUMN IF NOT EXISTS is_catalog boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS isrc text,
+            ADD COLUMN IF NOT EXISTS spotify_url text,
+            ADD COLUMN IF NOT EXISTS apple_music_url text,
+            ADD COLUMN IF NOT EXISTS amazon_music_url text,
+            ADD COLUMN IF NOT EXISTS tiktok_url text,
+            ADD COLUMN IF NOT EXISTS youtube_url text;
+        """,
+
+        'CREATE INDEX IF NOT EXISTS idx_songs_release_date ON songs(release_date DESC);',
+        'CREATE INDEX IF NOT EXISTS idx_songs_isrc ON songs(isrc);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
 
 
 def init_db():

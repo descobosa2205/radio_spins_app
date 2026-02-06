@@ -216,12 +216,12 @@
   </div>
 
   <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('songs_view') }}" class="text-decoration-none">
+    <a href="{{ url_for('discografica_view', section='canciones') }}" class="text-decoration-none">
       <div class="dash-tile">
         <div class="d-flex align-items-center gap-3">
           <div class="dash-tile__icon"><i class="fa fa-compact-disc"></i></div>
           <div>
-            <p class="dash-tile__title">Canciones</p>
+            <p class="dash-tile__title">Discográfica</p>
             <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
           </div>
         </div>

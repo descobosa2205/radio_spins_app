@@ -63,6 +63,38 @@ function initArtistContractControls(){
   });
 }
 
+function initClickableRows(){
+  document.querySelectorAll('.clickable-row[data-href]').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      const href = row.getAttribute('data-href');
+      if (href) window.location.href = href;
+    });
+  });
+}
+
+function initSongLinkModal(){
+  const modalEl = document.getElementById('songLinkModal');
+  if (!modalEl || !window.bootstrap) return;
+
+  const titleEl = modalEl.querySelector('#songLinkModalTitle') || modalEl.querySelector('.modal-title');
+  const platformInput = modalEl.querySelector('#songLinkPlatform');
+  const urlInput = modalEl.querySelector('#songLinkUrl');
+  const modal = new bootstrap.Modal(modalEl);
+
+  document.querySelectorAll('a.song-platform.disabled').forEach((a) => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const platform = (a.dataset.platform || '').trim();
+      const label = (a.dataset.platformLabel || platform || 'enlace').trim();
+      if (platformInput) platformInput.value = platform;
+      if (titleEl) titleEl.textContent = `Añadir enlace: ${label}`;
+      if (urlInput) urlInput.value = '';
+      modal.show();
+      setTimeout(() => { if (urlInput) urlInput.focus(); }, 180);
+    });
+  });
+}
+
 async function openChart(songId, stationId){
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
@@ -103,6 +135,8 @@ async function openChart(songId, stationId){
 $(function(){
   initSelect2();
   initArtistContractControls();
+  initClickableRows();
+  initSongLinkModal();
 });
 
 async function openSalesChart(concertId){

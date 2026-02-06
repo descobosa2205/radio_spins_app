@@ -1,0 +1,201 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <a class="btn btn-outline-secondary" href="{{ url_for('discografica_view', section='canciones') }}">
+    <i class="fa fa-arrow-left"></i> Volver a discográfica
+  </a>
+
+  {% if CAN_EDIT_CATALOGS %}
+    <span class="badge text-bg-primary">Edición</span>
+  {% else %}
+    <span class="badge text-bg-secondary">Lectura</span>
+  {% endif %}
+</div>
+
+<div class="song-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-start">
+    <img
+      src="{{ song.cover_url or url_for('static', filename='img/logo.png') }}"
+      class="song-hero-cover"
+      alt="Portada"
+    >
+
+    <div class="flex-grow-1">
+      <h3 class="m-0">{{ song.title }}</h3>
+
+      <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+        {% if primary_artist %}
+          <img src="{{ primary_artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+          <span class="fw-semibold">{{ primary_artist.name }}</span>
+        {% endif %}
+
+        {% if song.collaborator %}
+          <span class="text-muted">·</span>
+          <span class="text-muted">Colaboradores: {{ song.collaborator }}</span>
+        {% endif %}
+      </div>
+
+      <div class="small text-muted mt-1">
+        {% if song.release_date %}
+          Publicación: {{ song.release_date.strftime('%d/%m/%Y') }}
+        {% endif %}
+        {% if song.is_catalog %}
+          · <span class="badge text-bg-secondary">Catálogo</span>
+        {% endif %}
+      </div>
+
+      <div class="d-flex gap-3 flex-wrap mt-3">
+        {% set p = [
+          ('spotify', 'Spotify', song.spotify_url, 'fa-brands fa-spotify', 'platform-spotify'),
+          ('apple_music', 'Apple Music', song.apple_music_url, 'fa-brands fa-apple', 'platform-apple'),
+          ('amazon_music', 'Amazon Music', song.amazon_music_url, 'fa-brands fa-amazon', 'platform-amazon'),
+          ('tiktok', 'TikTok', song.tiktok_url, 'fa-brands fa-tiktok', 'platform-tiktok'),
+          ('youtube', 'YouTube', song.youtube_url, 'fa-brands fa-youtube', 'platform-youtube')
+        ] %}
+
+        {% for key, label, url, icon, cls in p %}
+          {% if url %}
+            <a class="song-platform active {{ cls }}" href="{{ url }}" target="_blank" rel="noopener">
+              <i class="{{ icon }}"></i>
+            </a>
+          {% else %}
+            <a class="song-platform disabled {{ cls }}" href="#" data-platform="{{ key }}" data-platform-label="{{ label }}">
+              <i class="{{ icon }}"></i>
+            </a>
+          {% endif %}
+        {% endfor %}
+      </div>
+
+      <div class="small text-muted mt-2">
+        <i class="fa fa-circle-info"></i>
+        Si un icono está en gris, pulsa para añadir el enlace.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-3">Datos de la canción</h6>
+
+        {% if CAN_EDIT_CATALOGS %}
+          <form method="post" action="{{ url_for('discografica_song_update', song_id=song.id) }}" enctype="multipart/form-data" class="row g-2">
+            <div class="col-12">
+              <label class="form-label">Nombre</label>
+              <input name="title" class="form-control" value="{{ song.title }}" required>
+            </div>
+
+            <div class="col-12">
+              <label class="form-label">Colaboradores (opcional)</label>
+              <input name="collaborator" class="form-control" value="{{ song.collaborator or '' }}" placeholder="Ej: Artista X, Artista Y">
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Fecha de publicación</label>
+              <input type="date" name="release_date" class="form-control" value="{{ song.release_date.isoformat() if song.release_date else '' }}" required>
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">ISRC principal</label>
+              <input name="isrc" class="form-control" value="{{ song.isrc or '' }}" placeholder="Ej: ESXXX2400001">
+            </div>
+
+            <div class="col-12 col-md-6">
+              <label class="form-label">Portada (imagen)</label>
+              <input type="file" name="cover" accept="image/*" class="form-control">
+            </div>
+
+            <div class="col-12 col-md-6 d-flex align-items-end">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" value="1" id="songIsCatalog" name="is_catalog" {% if song.is_catalog %}checked{% endif %}>
+                <label class="form-check-label" for="songIsCatalog">Marcar como catálogo</label>
+              </div>
+            </div>
+
+            <div class="col-12 d-grid mt-2">
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar cambios</button>
+            </div>
+          </form>
+        {% else %}
+          <div class="table-responsive">
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr><th>Título</th><td>{{ song.title }}</td></tr>
+                <tr><th>Colaboradores</th><td>{{ song.collaborator or '—' }}</td></tr>
+                <tr><th>Publicación</th><td>{{ song.release_date.strftime('%d/%m/%Y') if song.release_date else '—' }}</td></tr>
+                <tr><th>ISRC</th><td>{{ song.isrc or '—' }}</td></tr>
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-5">
+    <div class="card">
+      <div class="card-body">
+        <h6 class="mb-2">Enlaces de plataformas</h6>
+        <div class="text-muted small">
+          Añádelos pulsando sobre los iconos. Cuando exista enlace, el icono se mostrará en su color.
+        </div>
+
+        <hr>
+
+        <ul class="list-group list-group-flush">
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Spotify
+            <span class="text-muted small">{{ song.spotify_url or '—' }}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Apple Music
+            <span class="text-muted small">{{ song.apple_music_url or '—' }}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            Amazon Music
+            <span class="text-muted small">{{ song.amazon_music_url or '—' }}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            TikTok
+            <span class="text-muted small">{{ song.tiktok_url or '—' }}</span>
+          </li>
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            YouTube
+            <span class="text-muted small">{{ song.youtube_url or '—' }}</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if CAN_EDIT_CATALOGS %}
+<!-- Modal: añadir enlace plataforma -->
+<div class="modal fade" id="songLinkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_song_set_link', song_id=song.id) }}">
+      <div class="modal-header">
+        <h5 class="modal-title" id="songLinkModalTitle">Añadir enlace</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="platform" id="songLinkPlatform">
+
+        <label class="form-label">URL</label>
+        <input type="url" class="form-control" name="url" id="songLinkUrl" placeholder="https://..." required>
+        <div class="form-text">Si pegas un enlace sin http(s), lo añadimos automáticamente.</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}

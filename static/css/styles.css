@@ -62,9 +62,59 @@ body { background: #fafafa; }
   border: 1px solid #eee;
   background: #fff;
 }
+
+.artist-mini{
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid #eee;
+  background: #fff;
+}
 .cover-square {
   width: 64px; height: 64px; object-fit: cover; border-radius: 10px; border: 1px solid #eee;
 }
+
+.clickable-row{ cursor: pointer; }
+
+/* =========================================================
+   Discográfica / Canciones
+   ========================================================= */
+
+.song-hero{
+  border: 1px solid rgba(0,0,0,.06);
+  background: #fff;
+  border-radius: 18px;
+  padding: 1rem;
+}
+
+.song-hero-cover{
+  width: 160px;
+  height: 160px;
+  border-radius: 18px;
+  object-fit: cover;
+  border: 1px solid #eee;
+  background: #fff;
+}
+
+.song-platform{
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: .35rem;
+  border-radius: 12px;
+}
+.song-platform i{ font-size: 28px; }
+.song-platform.disabled{ color: #adb5bd !important; }
+.song-platform.active:hover{ opacity: .85; }
+
+/* Colores "naturales" (aproximación a marca) */
+.song-platform.active.platform-spotify{ color: #1DB954; }
+.song-platform.active.platform-apple{ color: #000000; }
+.song-platform.active.platform-amazon{ color: #FF9900; }
+.song-platform.active.platform-tiktok{ color: #111111; }
+.song-platform.active.platform-youtube{ color: #FF0000; }
 .station-logo {
   width: 56px; height: 56px; object-fit: contain; background: #fff; border-radius: 8px; border: 1px solid #eee;
 }

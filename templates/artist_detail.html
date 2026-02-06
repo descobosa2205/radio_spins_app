@@ -545,13 +545,14 @@
             <tr>
               <th style="width:72px;">Portada</th>
               <th>Título</th>
-              <th>Colaborador</th>
+              <th>Colaboradores</th>
+              <th>ISRC</th>
               <th class="text-nowrap">Lanzamiento</th>
             </tr>
           </thead>
           <tbody>
             {% for s in songs %}
-              <tr>
+              <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}">
                 <td>
                   <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
                 </td>
@@ -560,6 +561,9 @@
                 </td>
                 <td>
                   <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                </td>
+                <td>
+                  <span class="text-muted">{{ s.isrc or '—' }}</span>
                 </td>
                 <td>
                   {% if s.release_date %}

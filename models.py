@@ -353,6 +353,50 @@ class Promoter(Base):
     logo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Datos de contacto / fiscales (para royalties y otros usos)
+    tax_id = Column(Text)  # CIF / DNI
+    contact_email = Column(Text)
+    contact_phone = Column(Text)
+
+
+class SongRoyaltyBeneficiary(Base):
+    """Beneficiarios de royalties por canción (otros beneficiarios).
+
+    Nota:
+    - El artista principal se calcula automáticamente en la UI según contratos.
+    - Aquí guardamos únicamente beneficiarios adicionales (terceros/otros).
+    """
+
+    __tablename__ = "song_royalty_beneficiaries"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    pct = Column(Numeric, nullable=False, server_default=text("0"))
+    # GROSS | NET | PROFIT
+    base = Column(Text, nullable=False, server_default=text("'GROSS'"))
+    # Si base == PROFIT: CONCEPT_ONLY | CONCEPT_PLUS_GENERAL
+    profit_scope = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    song = relationship("Song")
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        UniqueConstraint("song_id", "promoter_id", name="uq_song_royalty_beneficiary"),
+    )
+
 
 class Venue(Base):
     __tablename__ = "venues"
@@ -1064,6 +1108,65 @@ def ensure_isrc_and_song_detail_schema():
                now() AS updated_at
         FROM songs s
         WHERE NOT EXISTS (SELECT 1 FROM song_status ss WHERE ss.song_id = s.id);
+        """,
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
+
+def ensure_song_royalties_schema():
+    """Asegura el esquema necesario para la pestaña de Royalties por canción.
+
+    - Ampliamos `promoters` (terceros) con datos fiscales y de contacto.
+    - Creamos `song_royalty_beneficiaries` para guardar beneficiarios adicionales.
+
+    Lo hacemos sin Alembic (DDL idempotente).
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        # Datos extra en terceros (promoters)
+        """
+        ALTER TABLE IF EXISTS promoters
+            ADD COLUMN IF NOT EXISTS tax_id text,
+            ADD COLUMN IF NOT EXISTS contact_email text,
+            ADD COLUMN IF NOT EXISTS contact_phone text;
+        """,
+
+        # Beneficiarios adicionales por canción
+        """
+        CREATE TABLE IF NOT EXISTS song_royalty_beneficiaries (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE RESTRICT,
+            pct numeric NOT NULL DEFAULT 0,
+            base text NOT NULL DEFAULT 'GROSS',
+            profit_scope text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+
+            CONSTRAINT chk_srb_pct CHECK (pct >= 0 AND pct <= 100),
+            CONSTRAINT chk_srb_base CHECK (base IN ('GROSS','NET','PROFIT')),
+            CONSTRAINT chk_srb_profit_scope CHECK (
+                profit_scope IS NULL
+                OR profit_scope IN ('CONCEPT_ONLY','CONCEPT_PLUS_GENERAL')
+            ),
+            CONSTRAINT uq_song_royalty_beneficiary UNIQUE (song_id, promoter_id)
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_royalty_beneficiaries_song_id
+        ON song_royalty_beneficiaries(song_id);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_royalty_beneficiaries_promoter_id
+        ON song_royalty_beneficiaries(promoter_id);
         """,
     ]
 

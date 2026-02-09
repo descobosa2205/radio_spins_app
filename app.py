@@ -3,6 +3,7 @@ from uuid import UUID
 import uuid as _uuid
 import json
 import csv
+import unicodedata
 from pathlib import Path
 from io import BytesIO
 from functools import wraps
@@ -47,6 +48,7 @@ from models import (
     ensure_artist_feature_schema,
     ensure_discografica_schema,
     ensure_isrc_and_song_detail_schema,
+    ensure_song_royalties_schema,
     SessionLocal,
     User,
     Artist,
@@ -65,6 +67,7 @@ from models import (
     Play,
     SongWeekInfo,
     Promoter,
+    SongRoyaltyBeneficiary,
     Venue,
     Concert,
     TicketSale,
@@ -94,6 +97,7 @@ ensure_artist_feature_schema()
 ensure_discografica_schema()
 ensure_isrc_and_song_detail_schema()
 ensure_isrc_and_song_detail_schema()
+ensure_song_royalties_schema()
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -408,6 +412,25 @@ def enforce_role_permissions():
             if not (is_master() or can_edit_catalogs()):
                 return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
             return
+
+        # Discográfica (ficha de canción, ISRC, etc.)
+        if path.startswith("/discografica"):
+            if not (is_master() or can_edit_catalogs()):
+                return forbid("Tu usuario no tiene permisos para modificar datos en Discográfica.")
+            return
+
+        # Endpoints /api usados por modales (crear tercero/recinto/ticketera/artista, etc.)
+        # NOTA: los GET no entran aquí (solo bloqueamos escrituras).
+        if path.startswith("/api/"):
+            if path.startswith("/api/artists"):
+                if not (is_master() or can_edit_artists_stations() or can_edit_catalogs()):
+                    return forbid("Tu usuario no tiene permisos para modificar artistas.")
+                return
+
+            if path.startswith(("/api/venues", "/api/promoters", "/api/ticketers", "/api/companies")):
+                if not (is_master() or can_edit_catalogs() or can_edit_concerts()):
+                    return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
+                return
 
         # Cualquier otra escritura: solo master
         if not is_master():
@@ -932,6 +955,59 @@ def _norm_contract_base(v: str) -> str:
 def _norm_profit_scope(v: str) -> str:
     v = (v or "").strip().upper()
     return v if v in ("CONCEPT_ONLY", "CONCEPT_PLUS_GENERAL") else "CONCEPT_ONLY"
+
+
+def _norm_text_key(v: str) -> str:
+    """Normaliza textos para comparaciones (minúsculas + sin acentos)."""
+    v = (v or "").strip().lower()
+    if not v:
+        return ""
+    v = unicodedata.normalize("NFD", v)
+    v = "".join(ch for ch in v if unicodedata.category(ch) != "Mn")
+    v = " ".join(v.split())
+    return v
+
+
+def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[str]):
+    """Devuelve el compromiso de contrato más reciente para un concepto.
+
+    - concept_variants: lista de strings (ya normalizados con _norm_text_key)
+
+    Estrategia de selección:
+    1) Filtramos compromisos del artista cuyo concepto normalizado coincide con alguna variante.
+    2) Elegimos el más reciente según:
+       signed_date DESC (NULLS LAST) -> created_at DESC -> commitment.created_at DESC
+    """
+
+    rows = (
+        session_db.query(ArtistContractCommitment, ArtistContract)
+        .join(ArtistContract, ArtistContractCommitment.contract_id == ArtistContract.id)
+        .filter(ArtistContract.artist_id == artist_id)
+        .all()
+    )
+
+    candidates = []
+    vset = {(_norm_text_key(x) or "") for x in (concept_variants or []) if (x or "").strip()}
+    for m, c in rows:
+        if not m or not c:
+            continue
+        if _norm_text_key(getattr(m, "concept", "")) in vset:
+            candidates.append((m, c))
+
+    if not candidates:
+        return None, None
+
+    def key(item):
+        m, c = item
+        sd = getattr(c, "signed_date", None)
+        ca = getattr(c, "created_at", None)
+        ma = getattr(m, "created_at", None)
+        # signed_date puede ser None: lo mandamos al final.
+        sd_sort = sd or date.min
+        return (sd_sort, ca or datetime.min, ma or datetime.min)
+
+    candidates.sort(key=key, reverse=True)
+    return candidates[0]
 
 
 @app.post("/artistas/<artist_id>/contracts/create", endpoint="artist_contract_create")
@@ -1680,6 +1756,60 @@ def discografica_song_detail(song_id):
     current_year = today_local().year
     default_copyright = f"© ℗ {current_year} PIES compañía discográfica SL"
 
+    # =====================
+    # TAB: ROYALTIES
+    # =====================
+    royalties_artist = None
+    royalty_other_beneficiaries = []
+
+    if tab == "royalties":
+        # Beneficiario artista (auto según contratos)
+        if primary_artist:
+            if bool(getattr(s, "is_catalog", False)):
+                concept_label = "Catálogo"
+                concept_variants = ["catálogo", "catalogo"]
+            else:
+                if bool(getattr(s, "is_distribution", False)):
+                    concept_label = "Distribución"
+                    concept_variants = ["distribución", "distribucion"]
+                else:
+                    concept_label = "Discográfico"
+                    concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
+
+            m, c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants)
+            if m:
+                base = _norm_contract_base(getattr(m, "base", None))
+                royalties_artist = {
+                    "artist_name": (primary_artist.name or "").strip(),
+                    "artist_photo": primary_artist.photo_url,
+                    "pct": float(getattr(m, "pct_artist", 0) or 0),
+                    "base": base,
+                    "profit_scope": _norm_profit_scope(getattr(m, "profit_scope", None)) if base == "PROFIT" else None,
+                    "concept": concept_label,
+                    "contract_name": getattr(c, "name", None) if c else None,
+                    "found": True,
+                }
+            else:
+                royalties_artist = {
+                    "artist_name": (primary_artist.name or "").strip(),
+                    "artist_photo": primary_artist.photo_url,
+                    "pct": 0.0,
+                    "base": "GROSS",
+                    "profit_scope": None,
+                    "concept": concept_label,
+                    "contract_name": None,
+                    "found": False,
+                }
+
+        # Otros beneficiarios (manuales)
+        royalty_other_beneficiaries = (
+            session_db.query(SongRoyaltyBeneficiary)
+            .options(joinedload(SongRoyaltyBeneficiary.promoter))
+            .filter(SongRoyaltyBeneficiary.song_id == s.id)
+            .order_by(SongRoyaltyBeneficiary.created_at.asc())
+            .all()
+        )
+
     session_db.close()
     return render_template(
         "song_detail.html",
@@ -1692,6 +1822,8 @@ def discografica_song_detail(song_id):
         isrc_codes=isrc_codes,
         days_remaining=days_remaining,
         default_copyright=default_copyright,
+        royalties_artist=royalties_artist,
+        royalty_other_beneficiaries=royalty_other_beneficiaries,
     )
 
 
@@ -2150,6 +2282,204 @@ def discografica_song_set_link(song_id):
         session_db.close()
 
     return redirect(url_for("discografica_song_detail", song_id=song_id))
+
+
+# =====================
+# DISCOGRÁFICA: ROYALTIES (beneficiarios)
+# =====================
+
+
+@app.get("/api/promoters/<pid>", endpoint="api_get_promoter")
+@admin_required
+def api_get_promoter(pid):
+    """Devuelve datos completos de un tercero (promoter) para rellenar modales."""
+
+    session_db = db()
+    try:
+        p = session_db.get(Promoter, to_uuid(pid))
+        if not p:
+            return jsonify({"error": "Tercero no encontrado."}), 404
+
+        return jsonify(
+            {
+                "id": str(p.id),
+                "nick": (p.nick or "").strip(),
+                "logo_url": p.logo_url,
+                "tax_id": (p.tax_id or "").strip(),
+                "contact_email": (p.contact_email or "").strip(),
+                "contact_phone": (p.contact_phone or "").strip(),
+            }
+        )
+    finally:
+        session_db.close()
+
+
+@app.get("/api/song_royalty_beneficiaries/<beneficiary_id>", endpoint="api_get_song_royalty_beneficiary")
+@admin_required
+def api_get_song_royalty_beneficiary(beneficiary_id):
+    """Devuelve datos de un beneficiario de royalties (incluye datos del tercero)."""
+
+    session_db = db()
+    try:
+        b = (
+            session_db.query(SongRoyaltyBeneficiary)
+            .options(joinedload(SongRoyaltyBeneficiary.promoter))
+            .filter(SongRoyaltyBeneficiary.id == to_uuid(beneficiary_id))
+            .first()
+        )
+        if not b:
+            return jsonify({"error": "Beneficiario no encontrado."}), 404
+
+        p = b.promoter
+        return jsonify(
+            {
+                "id": str(b.id),
+                "song_id": str(b.song_id),
+                "pct": float(getattr(b, "pct", 0) or 0),
+                "base": (b.base or "GROSS").upper(),
+                "profit_scope": (b.profit_scope or "").upper(),
+                "promoter": {
+                    "id": str(p.id) if p else "",
+                    "nick": (p.nick or "").strip() if p else "",
+                    "logo_url": getattr(p, "logo_url", None) if p else None,
+                    "tax_id": (getattr(p, "tax_id", "") or "").strip() if p else "",
+                    "contact_email": (getattr(p, "contact_email", "") or "").strip() if p else "",
+                    "contact_phone": (getattr(p, "contact_phone", "") or "").strip() if p else "",
+                },
+            }
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/canciones/<song_id>/royalties/beneficiaries/save", endpoint="discografica_song_royalty_beneficiary_save")
+@admin_required
+def discografica_song_royalty_beneficiary_save(song_id):
+    """Crea o edita un beneficiario de royalties (otros beneficiarios).
+
+    Recibe multipart/form-data (FormData) desde el modal.
+    """
+
+    if not can_edit_catalogs():
+        return jsonify({"error": "No tienes permisos para editar beneficiarios."}), 403
+
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            return jsonify({"error": "Canción no encontrada."}), 404
+
+        beneficiary_id = (request.form.get("beneficiary_id") or "").strip() or None
+        promoter_id = (request.form.get("promoter_id") or "").strip() or None
+
+        # Datos del tercero
+        nick = (request.form.get("nick") or "").strip()
+        tax_id = (request.form.get("tax_id") or "").strip()
+        contact_email = (request.form.get("contact_email") or "").strip()
+        contact_phone = (request.form.get("contact_phone") or "").strip()
+
+        # Porcentaje / base
+        pct = _parse_pct(request.form.get("pct"))
+        base = _norm_contract_base(request.form.get("base"))
+        profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+
+        # Foto/logo (opcional)
+        photo = request.files.get("photo") or request.files.get("logo")
+
+        # --- Resolver tercero ---
+        p = None
+
+        # Si no viene promoter_id, intentamos resolver por nick (evita duplicados si no seleccionan del typeahead)
+        if not promoter_id and nick:
+            p = (
+                session_db.query(Promoter)
+                .filter(func.lower(Promoter.nick) == nick.lower())
+                .first()
+            )
+            if p:
+                promoter_id = str(p.id)
+
+        if promoter_id:
+            p = session_db.get(Promoter, to_uuid(promoter_id))
+            if not p:
+                return jsonify({"error": "Tercero no encontrado."}), 404
+        else:
+            if not nick:
+                return jsonify({"error": "El nombre del tercero (Nick) es obligatorio."}), 400
+            p = Promoter(nick=nick)
+            session_db.add(p)
+            session_db.flush()
+
+        # Actualizamos datos del tercero (si vienen)
+        if nick:
+            p.nick = nick
+        p.tax_id = tax_id or p.tax_id
+        p.contact_email = contact_email or p.contact_email
+        p.contact_phone = contact_phone or p.contact_phone
+
+        if photo and getattr(photo, "filename", ""):
+            p.logo_url = upload_image(photo, "promoters")
+
+        # Validación: si faltan datos, obligar a completarlos desde el modal
+        missing = []
+        if not (p.nick or "").strip():
+            missing.append("Nick")
+        if not (p.tax_id or "").strip():
+            missing.append("CIF/DNI")
+        if not (p.contact_email or "").strip():
+            missing.append("Email")
+        if not (p.contact_phone or "").strip():
+            missing.append("Teléfono")
+        if missing:
+            return jsonify({"error": "Faltan datos del tercero: " + ", ".join(missing)}), 400
+
+        # --- Resolver beneficiario ---
+        b = None
+        if beneficiary_id:
+            b = session_db.get(SongRoyaltyBeneficiary, to_uuid(beneficiary_id))
+            if not b or b.song_id != sid:
+                return jsonify({"error": "Beneficiario no encontrado para esta canción."}), 404
+
+        # Si el usuario cambia el tercero en edición, comprobamos duplicados
+        if b and b.promoter_id != p.id:
+            existing = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .filter(SongRoyaltyBeneficiary.song_id == sid)
+                .filter(SongRoyaltyBeneficiary.promoter_id == p.id)
+                .filter(SongRoyaltyBeneficiary.id != b.id)
+                .first()
+            )
+            if existing:
+                return jsonify({"error": "Ya existe este beneficiario en la canción."}), 400
+
+        if not b:
+            # Evita duplicados (song_id, promoter_id)
+            b = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .filter(SongRoyaltyBeneficiary.song_id == sid)
+                .filter(SongRoyaltyBeneficiary.promoter_id == p.id)
+                .first()
+            )
+            if not b:
+                b = SongRoyaltyBeneficiary(song_id=sid, promoter_id=p.id)
+                session_db.add(b)
+
+        b.promoter_id = p.id
+        b.pct = pct
+        b.base = base
+        b.profit_scope = profit_scope
+        b.updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+
+        session_db.commit()
+        return jsonify({"ok": True, "id": str(b.id), "promoter_id": str(p.id)})
+
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"error": str(e)}), 400
+
+    finally:
+        session_db.close()
 
 
 # ---------- CANCIONES (LEGACY) ----------
@@ -2622,8 +2952,14 @@ def promoters_view():
         nick = request.form.get("nick","").strip()
         logo = request.files.get("logo")
         try:
-            logo_url = upload_png(logo, "promoters") if logo else None
-            p = Promoter(nick=nick, logo_url=logo_url)
+            logo_url = upload_image(logo, "promoters") if (logo and getattr(logo, "filename", "")) else None
+            p = Promoter(
+                nick=nick,
+                logo_url=logo_url,
+                tax_id=(request.form.get("tax_id") or "").strip() or None,
+                contact_email=(request.form.get("contact_email") or "").strip() or None,
+                contact_phone=(request.form.get("contact_phone") or "").strip() or None,
+            )
             session.add(p)
             session.commit()
             flash("Promotor creado.", "success")
@@ -2650,7 +2986,7 @@ def promoter_update(pid):
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
-            p.logo_url = upload_png(logo, "promoters")
+            p.logo_url = upload_image(logo, "promoters")
         session.commit()
         flash("Promotor actualizado.", "success")
     except Exception as e:
@@ -3866,13 +4202,28 @@ def api_create_promoter():
         if not nick:
             return jsonify({"error": "El nombre del tercero es obligatorio."}), 400
 
-        logo = request.files.get("logo")
-        logo_url = upload_png(logo, "promoters") if logo and getattr(logo, "filename", "") else None
+        logo = request.files.get("logo") or request.files.get("photo")
+        logo_url = upload_image(logo, "promoters") if logo and getattr(logo, "filename", "") else None
 
-        p = Promoter(nick=nick, logo_url=logo_url)
+        p = Promoter(
+            nick=nick,
+            logo_url=logo_url,
+            tax_id=(request.form.get("tax_id") or "").strip() or None,
+            contact_email=(request.form.get("contact_email") or "").strip() or None,
+            contact_phone=(request.form.get("contact_phone") or "").strip() or None,
+        )
         session.add(p)
         session.commit()
-        return jsonify({"id": str(p.id), "label": p.nick, "logo_url": p.logo_url})
+        return jsonify(
+            {
+                "id": str(p.id),
+                "label": p.nick,
+                "logo_url": p.logo_url,
+                "tax_id": (p.tax_id or ""),
+                "contact_email": (p.contact_email or ""),
+                "contact_phone": (p.contact_phone or ""),
+            }
+        )
 
     except Exception as e:
         session.rollback()

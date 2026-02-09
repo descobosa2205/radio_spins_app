@@ -317,6 +317,25 @@
                   </div>
                 </div>
 
+                <div class="col-12">
+                  <label class="form-label">Tipo</label>
+                  <div class="d-flex gap-3 flex-wrap">
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="ownership_type" id="songTypeOwnEdit" value="own" {% if not song.is_distribution %}checked{% endif %}>
+                      <label class="form-check-label" for="songTypeOwnEdit">Propia</label>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="radio" name="ownership_type" id="songTypeDistEdit" value="distribution" {% if song.is_distribution %}checked{% endif %}>
+                      <label class="form-check-label" for="songTypeDistEdit">Distribución</label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12 col-md-6 master-ownership-wrap">
+                  <label class="form-label">Propiedad master (%)</label>
+                  <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="{{ song.master_ownership_pct if song.master_ownership_pct is not none else 100 }}">
+                </div>
+
                 <div class="col-12 col-md-6">
                   <label class="form-label">Timing (mm:ss)</label>
                   <input name="duration" class="form-control" placeholder="03:21"
@@ -621,12 +640,6 @@
           </div>
         </div>
 
-        <div class="card mt-3">
-          <div class="card-body">
-            <h6 class="mb-2">Notas</h6>
-            <div class="text-muted small">Los enlaces de Spotify/Apple/Amazon/TikTok/YouTube se añaden pulsando los iconos grises.</div>
-          </div>
-        </div>
       </div>
     </div>
 

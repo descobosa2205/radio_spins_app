@@ -21,12 +21,13 @@ from flask import (
     send_from_directory,
     send_file,
 )
-from sqlalchemy import func, text
+from sqlalchemy import func, text, or_
 
 from werkzeug.security import check_password_hash, generate_password_hash
 import calendar as _cal
 from urllib.parse import quote_plus
 from urllib.request import Request, urlopen
+from decimal import Decimal, InvalidOperation
 
 # PDF (informe de ventas)
 try:
@@ -1241,11 +1242,13 @@ def discografica_view():
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
 
     artist_blocks = []
+    song_audio_isrc_map = {}
     isrc_artist_blocks = []
     isrc_years = []
     isrc_config = None
     isrc_artist_settings = {}
     isrc_contract_artists = []
+    isrc_filter_artists = []
 
     if section == "canciones":
         for a in artists:
@@ -1260,6 +1263,21 @@ def discografica_view():
                 _ = s.artists
             artist_blocks.append((a, songs))
 
+        # Prefetch ISRC AUDIO principal por canción (song_isrc_codes),
+        # para mostrarlo en el repertorio.
+        all_song_ids = [s.id for _, ss in artist_blocks for s in (ss or [])]
+        if all_song_ids:
+            rows = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                .filter(SongISRCCode.song_id.in_(all_song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                .all()
+            )
+            for sid, code in rows:
+                if sid and code:
+                    song_audio_isrc_map[sid] = code
+
     if section == "isrc":
         # filtros
         f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
@@ -1269,54 +1287,118 @@ def discografica_view():
         except Exception:
             f_year = None
 
-        # años disponibles (release_date)
+        # Solo mostramos repertorio ISRC de canciones que tengan ISRC
+        # y cumplan: master_ownership_pct > 1% o es distribución.
+        ownership_cond = (
+            (func.coalesce(Song.master_ownership_pct, 0) > 1)
+            | (func.coalesce(Song.is_distribution, False) == True)  # noqa: E712
+        )
+
+        # años disponibles (release_date) SOLO de canciones con ISRC y filtro de propiedad
         years_rows = (
             session_db.query(func.extract("year", Song.release_date).label("y"))
+            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+            .filter(ownership_cond)
             .distinct()
             .order_by(func.extract("year", Song.release_date).desc())
             .all()
         )
         isrc_years = [int(r.y) for r in years_rows if r and r.y]
 
-        if isrc_tab == "repertorio":
-            # Construimos el repertorio agrupado por artista, pero mostrando ISRC Audio + Video
-            # y permitiendo filtros.
-            artists_iter = [a for a in artists if (not f_artist_id) or a.id == f_artist_id]
+        # Artistas con canciones con ISRC (y filtro de propiedad)
+        arows = (
+            session_db.query(SongArtist.artist_id)
+            .join(Song, Song.id == SongArtist.song_id)
+            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+            .filter(ownership_cond)
+            .distinct()
+            .all()
+        )
+        a_set = {r.artist_id for r in arows if r and r.artist_id}
+        isrc_filter_artists = [a for a in artists if a.id in a_set]
 
-            # Cargamos todas las canciones de los artistas seleccionados
-            songs_by_artist = {}
+        if isrc_tab == "repertorio":
+            # Repertorio ISRC agrupado por artista.
+            # - Solo canciones con ISRC
+            # - Solo si master_ownership_pct > 1% o es distribución
+            # - Ordenado por código ISRC (más actual -> más antiguo)
+
+            artists_iter = [a for a in isrc_filter_artists if (not f_artist_id) or a.id == f_artist_id]
+
+            # subquery: máximo código por canción (para ordenar por ISRC)
+            max_code_sq = (
+                session_db.query(
+                    SongISRCCode.song_id.label("song_id"),
+                    func.max(SongISRCCode.code).label("max_code"),
+                )
+                .group_by(SongISRCCode.song_id)
+                .subquery()
+            )
+
+            songs_by_artist: dict = {}
+            all_song_ids: list = []
             for a in artists_iter:
                 q = (
                     session_db.query(Song)
                     .join(SongArtist, Song.id == SongArtist.song_id)
+                    .join(max_code_sq, max_code_sq.c.song_id == Song.id)
                     .filter(SongArtist.artist_id == a.id)
+                    .filter(ownership_cond)
                 )
                 if f_year:
                     q = q.filter(func.extract("year", Song.release_date) == f_year)
-                songs = q.order_by(Song.release_date.desc()).all()
-                songs_by_artist[a.id] = songs
 
-            # Prefetch ISRCs primarios para las canciones cargadas
-            song_ids = [s.id for sl in songs_by_artist.values() for s in sl]
-            code_map = {}  # (song_id, kind) -> code
-            if song_ids:
+                songs = q.order_by(max_code_sq.c.max_code.desc()).all()
+                songs_by_artist[a.id] = songs
+                all_song_ids.extend([s.id for s in songs])
+
+            # Prefetch TODOS los ISRCs (incl. subproductos), ordenados por código desc
+            codes_by_song = {}
+            if all_song_ids:
                 rows = (
                     session_db.query(SongISRCCode)
-                    .filter(SongISRCCode.song_id.in_(song_ids))
-                    .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                    .filter(SongISRCCode.song_id.in_(all_song_ids))
+                    .order_by(SongISRCCode.code.desc())
                     .all()
                 )
                 for r in rows:
-                    code_map[(r.song_id, (r.kind or "").upper())] = r.code
+                    codes_by_song.setdefault(r.song_id, []).append(r)
 
             for a in artists_iter:
                 songs = songs_by_artist.get(a.id) or []
-                # Enriquecemos con códigos
                 enriched = []
                 for s in songs:
-                    audio = code_map.get((s.id, "AUDIO"))
-                    video = code_map.get((s.id, "VIDEO"))
-                    enriched.append((s, audio, video))
+                    codes = codes_by_song.get(s.id) or []
+
+                    def _split(kind: str):
+                        kind = (kind or "").upper()
+                        prim = None
+                        subs = []
+                        for c in codes:
+                            if (c.kind or "").upper() != kind:
+                                continue
+                            if c.is_primary and prim is None:
+                                prim = c
+                            elif not c.is_primary:
+                                subs.append(c)
+                        return prim, subs
+
+                    audio_p, audio_subs = _split("AUDIO")
+                    video_p, video_subs = _split("VIDEO")
+
+                    # key de orden (max code ya viene por query, pero lo guardamos)
+                    max_code = codes[0].code if codes else None
+                    enriched.append(
+                        {
+                            "song": s,
+                            "audio_primary": audio_p.code if audio_p else None,
+                            "video_primary": video_p.code if video_p else None,
+                            "audio_subs": [(c.code, c.subproduct_name) for c in audio_subs],
+                            "video_subs": [(c.code, c.subproduct_name) for c in video_subs],
+                            "max_code": max_code,
+                        }
+                    )
+
                 isrc_artist_blocks.append((a, enriched))
 
         else:
@@ -1357,9 +1439,11 @@ def discografica_view():
         section=section,
         artists=artists,
         artist_blocks=artist_blocks,
+        song_audio_isrc_map=song_audio_isrc_map,
         # ISRC
         isrc_tab=isrc_tab,
         isrc_artist_blocks=isrc_artist_blocks,
+        isrc_filter_artists=isrc_filter_artists,
         isrc_years=isrc_years,
         isrc_config=isrc_config,
         isrc_artist_settings=isrc_artist_settings,
@@ -1460,6 +1544,24 @@ def discografica_song_create():
     artist_id = to_uuid((request.form.get("artist_id") or "").strip())
     is_catalog = bool(request.form.get("is_catalog"))
 
+    ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
+    is_distribution = ownership_type == "distribution"
+    master_pct_raw = (request.form.get("master_ownership_pct") or "").strip()
+
+    master_pct = None
+    if is_distribution:
+        master_pct = Decimal("0")
+    else:
+        try:
+            master_pct = Decimal(master_pct_raw) if master_pct_raw else Decimal("100")
+        except (InvalidOperation, ValueError):
+            master_pct = Decimal("100")
+        # acotar
+        if master_pct < 0:
+            master_pct = Decimal("0")
+        if master_pct > 100:
+            master_pct = Decimal("100")
+
     if not title:
         flash("El nombre de la canción es obligatorio.", "warning")
         return redirect(url_for("discografica_view", section="canciones"))
@@ -1478,6 +1580,8 @@ def discografica_song_create():
             collaborator=collaborator,
             release_date=release_date,
             is_catalog=is_catalog,
+            is_distribution=is_distribution,
+            master_ownership_pct=master_pct,
         )
         session_db.add(s)
         session_db.flush()  # para obtener s.id
@@ -1673,6 +1777,24 @@ def discografica_song_info_update(song_id):
             s.release_date = parse_date(rd)
 
         s.is_catalog = bool(request.form.get("is_catalog"))
+
+        # Propiedad / distribución
+        ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
+        s.is_distribution = ownership_type == "distribution"
+
+        master_pct_raw = (request.form.get("master_ownership_pct") or "").strip()
+        if s.is_distribution:
+            s.master_ownership_pct = Decimal("0")
+        else:
+            try:
+                mp = Decimal(master_pct_raw) if master_pct_raw else Decimal("100")
+            except (InvalidOperation, ValueError):
+                mp = Decimal("100")
+            if mp < 0:
+                mp = Decimal("0")
+            if mp > 100:
+                mp = Decimal("100")
+            s.master_ownership_pct = mp
 
         # Portada
         cover = request.files.get("cover")
@@ -1886,6 +2008,11 @@ def discografica_song_isrc_add(song_id):
             sequence_num=seq,
         )
         session_db.add(rec)
+
+        # Mantener compatibilidad: guardar el ISRC principal de AUDIO en songs.isrc
+        if kind == "AUDIO" and is_primary:
+            s.isrc = code
+
         session_db.commit()
         flash("ISRC añadido.", "success")
     except Exception as e:
@@ -1907,7 +2034,25 @@ def discografica_song_isrc_delete(song_id, code_id):
     try:
         rec = session_db.get(SongISRCCode, to_uuid(code_id))
         if rec:
+            was_primary_audio = (rec.kind or "").upper() == "AUDIO" and bool(rec.is_primary)
+            sid = rec.song_id
+
             session_db.delete(rec)
+            session_db.flush()
+
+            # Mantener compatibilidad: actualizar songs.isrc si borramos el principal de AUDIO
+            if was_primary_audio and sid:
+                s = session_db.get(Song, sid)
+                if s:
+                    other = (
+                        session_db.query(SongISRCCode)
+                        .filter(SongISRCCode.song_id == sid)
+                        .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                        .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                        .first()
+                    )
+                    s.isrc = other.code if other else None
+
             session_db.commit()
             flash("ISRC eliminado.", "success")
     except Exception as e:

@@ -139,6 +139,12 @@ class Song(Base):
     # Si la canción forma parte del catálogo (histórico)
     is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
 
+    # Propiedad del master / distribución
+    # - is_distribution: True si es una canción distribuida (no propia)
+    # - master_ownership_pct: % de propiedad del master (0-100). Por defecto 100.
+    is_distribution = Column(Boolean, nullable=False, server_default=text("false"))
+    master_ownership_pct = Column(Numeric, nullable=False, server_default=text("100"))
+
     # ISRC principal (legacy / compat)
     isrc = Column(Text)
 
@@ -1035,6 +1041,8 @@ def ensure_isrc_and_song_detail_schema():
             ADD COLUMN IF NOT EXISTS duration_seconds integer,
             ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
             ADD COLUMN IF NOT EXISTS recording_date date,
+            ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS master_ownership_pct numeric NOT NULL DEFAULT 100,
             ADD COLUMN IF NOT EXISTS bpm integer,
             ADD COLUMN IF NOT EXISTS genre text,
             ADD COLUMN IF NOT EXISTS copyright_text text,

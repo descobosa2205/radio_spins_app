@@ -180,6 +180,31 @@ function initIsrcModalControls(){
   apply();
 }
 
+function initSongOwnershipControls(){
+  // Oculta / muestra el % de propiedad del master dependiendo de si la canción
+  // es "Propia" o "Distribución".
+  document.querySelectorAll('form').forEach((form) => {
+    const radios = form.querySelectorAll('input[name="ownership_type"]');
+    const wrap = form.querySelector('.master-ownership-wrap');
+    if (!radios || radios.length === 0 || !wrap) return;
+
+    const pctInput = wrap.querySelector('input[name="master_ownership_pct"]');
+
+    const apply = () => {
+      const dist = form.querySelector('input[name="ownership_type"][value="distribution"]');
+      const isDist = !!(dist && dist.checked);
+      wrap.style.display = isDist ? 'none' : '';
+      if (pctInput) {
+        pctInput.disabled = isDist;
+        if (isDist) pctInput.value = pctInput.value || '0';
+      }
+    };
+
+    radios.forEach((r) => r.addEventListener('change', apply));
+    apply();
+  });
+}
+
 async function openChart(songId, stationId){
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
@@ -225,6 +250,7 @@ $(function(){
   initBootstrapTooltips();
   initDynamicRows();
   initIsrcModalControls();
+  initSongOwnershipControls();
 });
 
 async function openSalesChart(concertId){

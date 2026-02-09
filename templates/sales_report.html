@@ -137,19 +137,21 @@
               </div>
 
               <!-- MÉTRICAS -->
-              <div class="row row-cols-2 row-cols-md-6 g-2 text-center mt-2">
-                <div><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold">{{ today_sold|k }}</div></div>
-                <div><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
-                <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
-                <div><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
-                <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>{% if CAN_VIEW_ECON %}
-                <div><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
-                <div><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>{% endif %}
+              <div class="metrics-inline mt-2">
+                <div class="metric"><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold">{{ today_sold|k }}</div></div>
+                <div class="metric"><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
+                <div class="metric"><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
+                <div class="metric"><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
+                <div class="metric"><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+                {% if CAN_VIEW_ECON %}
+                  <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
+                  <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
+                {% endif %}
 
                 {% if c.break_even_ticket and c.break_even_ticket > 0 %}
                   {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
                   {% set reached = total >= c.break_even_ticket %}
-                  <div>
+                  <div class="metric">
                     <small class="text-muted d-block">Punto de empate</small>
                     <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">
                       {{ c.break_even_ticket|k }} ({{ '%.0f' % be_pct }}%)

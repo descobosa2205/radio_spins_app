@@ -273,3 +273,26 @@ button.song-status-item:focus {
   object-fit: cover !important;
   flex: 0 0 auto;
 }
+
+/* =========================================================
+   Reporte de ventas: métricas en una sola línea
+   ========================================================= */
+
+.metrics-inline{
+  display: flex;
+  flex-wrap: nowrap;
+  gap: .75rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: .25rem;
+}
+
+.metrics-inline .metric{
+  flex: 0 0 auto;
+  min-width: 110px;
+  text-align: center;
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 12px;
+  background: #fff;
+  padding: .5rem .65rem;
+}

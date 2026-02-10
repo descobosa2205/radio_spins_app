@@ -205,6 +205,197 @@ function initSongOwnershipControls(){
   });
 }
 
+function initEditorialTab(){
+  const modalEl = document.getElementById('editorialShareModal');
+  const dataEl = document.getElementById('editorialData');
+  if (!modalEl || !dataEl || typeof initTypeahead !== 'function' || !window.bootstrap) return;
+
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const total = parseFloat(dataEl.dataset.total || '0') || 0;
+
+  const titleEl = document.getElementById('editorialShareModalTitle');
+  const shareIdEl = document.getElementById('editorialShareId');
+  const promoterSearchEl = document.getElementById('editorialPromoterSearch');
+  const promoterIdEl = document.getElementById('editorialPromoterId');
+  const firstNameEl = document.getElementById('editorialFirstName');
+  const lastNameEl = document.getElementById('editorialLastName');
+  const emailEl = document.getElementById('editorialEmail');
+  const phoneEl = document.getElementById('editorialPhone');
+  const publisherInputEl = document.getElementById('editorialPublisherInput');
+  const publisherIdEl = document.getElementById('editorialPublisherId');
+  const roleEl = document.getElementById('editorialRole');
+  const pctEl = document.getElementById('editorialPct');
+  const pctHelpEl = document.getElementById('editorialPctHelp');
+
+  const btnAdd = document.getElementById('btnAddEditorialShare');
+  const btnShowNewPublisher = document.getElementById('btnShowNewPublisher');
+  const newPublisherWrap = document.getElementById('newPublisherWrap');
+  const newPublisherName = document.getElementById('newPublisherName');
+  const newPublisherLogo = document.getElementById('newPublisherLogo');
+  const btnCancelNewPublisher = document.getElementById('btnCancelNewPublisher');
+  const btnCreateNewPublisher = document.getElementById('btnCreateNewPublisher');
+  const newPublisherError = document.getElementById('newPublisherError');
+
+  // Typeaheads
+  initTypeahead('editorialPromoterSearch', 'editorialPromoterId', '/api/search/promoters');
+  initTypeahead('editorialPublisherInput', 'editorialPublisherId', '/api/search/publishing_companies');
+
+  function showPublisherError(msg){
+    if (!newPublisherError) return;
+    newPublisherError.textContent = msg || '';
+    newPublisherError.style.display = msg ? '' : 'none';
+  }
+
+  function resetNewPublisherUI(){
+    if (newPublisherWrap) newPublisherWrap.style.display = 'none';
+    if (newPublisherName) newPublisherName.value = '';
+    if (newPublisherLogo) newPublisherLogo.value = '';
+    showPublisherError('');
+  }
+
+  function updatePctHelp(currentPct){
+    if (!pctHelpEl) return;
+    const cur = parseFloat(currentPct || '0') || 0;
+    const available = Math.max(0, 100 - (total - cur));
+    pctHelpEl.textContent = `Disponible: ${available.toFixed(2)}% (total actual: ${total.toFixed(2)}%)`;
+  }
+
+  function setAddMode(){
+    modalEl.dataset.mode = 'add';
+    if (titleEl) titleEl.textContent = 'Añadir autor/compositor';
+    if (shareIdEl) shareIdEl.value = '';
+    if (promoterSearchEl) promoterSearchEl.value = '';
+    if (promoterIdEl) promoterIdEl.value = '';
+    if (firstNameEl) firstNameEl.value = '';
+    if (lastNameEl) lastNameEl.value = '';
+    if (emailEl) emailEl.value = '';
+    if (phoneEl) phoneEl.value = '';
+    if (publisherInputEl) publisherInputEl.value = '';
+    if (publisherIdEl) publisherIdEl.value = '';
+    if (roleEl) roleEl.value = 'AUTHOR';
+    if (pctEl) pctEl.value = '';
+    updatePctHelp(0);
+    resetNewPublisherUI();
+  }
+
+  async function fillFromPromoterId(pid){
+    if (!pid) return;
+    try {
+      const r = await fetch(`/api/promoters/${encodeURIComponent(pid)}`);
+      if (!r.ok) return;
+      const js = await r.json();
+      if (js.error) return;
+
+      if (firstNameEl && !firstNameEl.value) firstNameEl.value = js.first_name || '';
+      if (lastNameEl && !lastNameEl.value) lastNameEl.value = js.last_name || '';
+      if (emailEl && !emailEl.value) emailEl.value = js.contact_email || '';
+      if (phoneEl && !phoneEl.value) phoneEl.value = js.contact_phone || '';
+
+      if (publisherInputEl && !publisherInputEl.value) publisherInputEl.value = js.publishing_company_name || '';
+      if (publisherIdEl && !publisherIdEl.value) publisherIdEl.value = js.publishing_company_id || '';
+    } catch (_) {}
+  }
+
+  if (btnAdd) btnAdd.addEventListener('click', setAddMode);
+
+  // Si el usuario vuelve a escribir, asumimos que cambia de tercero
+  if (promoterSearchEl && promoterIdEl){
+    promoterSearchEl.addEventListener('input', () => {
+      promoterIdEl.value = '';
+    });
+    promoterSearchEl.addEventListener('change', () => {
+      setTimeout(() => fillFromPromoterId(promoterIdEl.value), 0);
+    });
+  }
+
+  // Si el usuario vuelve a escribir editorial, limpiamos id
+  if (publisherInputEl && publisherIdEl){
+    publisherInputEl.addEventListener('input', () => {
+      publisherIdEl.value = '';
+    });
+  }
+
+  // Editar share existente
+  document.querySelectorAll('.btn-edit-editorial[data-share-id]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const shareId = btn.getAttribute('data-share-id');
+      const currentPct = btn.getAttribute('data-current-pct') || '0';
+      updatePctHelp(currentPct);
+
+      try {
+        const r = await fetch(`/api/song_editorial_shares/${encodeURIComponent(shareId)}`);
+        if (!r.ok) throw new Error('No se pudo cargar');
+        const js = await r.json();
+        if (js.error) throw new Error(js.error);
+
+        modalEl.dataset.mode = 'edit';
+        if (titleEl) titleEl.textContent = 'Editar autor/compositor';
+
+        if (shareIdEl) shareIdEl.value = js.id || '';
+        if (promoterIdEl) promoterIdEl.value = (js.promoter && js.promoter.id) ? js.promoter.id : '';
+        if (promoterSearchEl) promoterSearchEl.value = (js.promoter && js.promoter.nick) ? js.promoter.nick : '';
+
+        if (firstNameEl) firstNameEl.value = (js.promoter && js.promoter.first_name) ? js.promoter.first_name : '';
+        if (lastNameEl) lastNameEl.value = (js.promoter && js.promoter.last_name) ? js.promoter.last_name : '';
+        if (emailEl) emailEl.value = (js.promoter && js.promoter.contact_email) ? js.promoter.contact_email : '';
+        if (phoneEl) phoneEl.value = (js.promoter && js.promoter.contact_phone) ? js.promoter.contact_phone : '';
+
+        if (publisherIdEl) publisherIdEl.value = (js.promoter && js.promoter.publishing_company_id) ? js.promoter.publishing_company_id : '';
+        if (publisherInputEl) publisherInputEl.value = (js.promoter && js.promoter.publishing_company_name) ? js.promoter.publishing_company_name : '';
+
+        if (roleEl) roleEl.value = (js.role || 'AUTHOR');
+        if (pctEl) pctEl.value = (js.pct != null) ? js.pct : '';
+
+        resetNewPublisherUI();
+        modal.show();
+      } catch (e) {
+        // Silencioso: el servidor ya mostrará flash en el submit si falla
+        console.error(e);
+      }
+    });
+  });
+
+  // Crear editorial en el propio modal
+  if (btnShowNewPublisher && newPublisherWrap){
+    btnShowNewPublisher.addEventListener('click', () => {
+      newPublisherWrap.style.display = '';
+      showPublisherError('');
+      if (newPublisherName) newPublisherName.focus();
+    });
+  }
+  if (btnCancelNewPublisher){
+    btnCancelNewPublisher.addEventListener('click', resetNewPublisherUI);
+  }
+  if (btnCreateNewPublisher){
+    btnCreateNewPublisher.addEventListener('click', async () => {
+      const name = (newPublisherName && newPublisherName.value || '').trim();
+      if (!name){
+        showPublisherError('El nombre de la editorial es obligatorio.');
+        return;
+      }
+
+      try {
+        const fd = new FormData();
+        fd.append('name', name);
+        if (newPublisherLogo && newPublisherLogo.files && newPublisherLogo.files[0]){
+          fd.append('logo', newPublisherLogo.files[0]);
+        }
+        const r = await fetch('/api/publishing_companies/create', { method: 'POST', body: fd });
+        const js = await r.json();
+        if (!r.ok || js.error){
+          showPublisherError(js.error || 'Error creando la editorial.');
+          return;
+        }
+        if (publisherInputEl) publisherInputEl.value = js.label || name;
+        if (publisherIdEl) publisherIdEl.value = js.id || '';
+        resetNewPublisherUI();
+      } catch (e) {
+        showPublisherError('Error creando la editorial.');
+      }
+    });
+  }
+}
+
 async function openChart(songId, stationId){
   const metaResp = await fetch(`/api/song_meta?song_id=${songId}`);
   const meta = await metaResp.json();
@@ -251,6 +442,7 @@ $(function(){
   initDynamicRows();
   initIsrcModalControls();
   initSongOwnershipControls();
+  initEditorialTab();
 });
 
 async function openSalesChart(concertId){

@@ -707,320 +707,209 @@
       </div>
     {% endif %}
 
-  {% elif tab == 'royalties' %}
+  {% elif tab == 'editorial' %}
 
-    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
       <div>
-        <h5 class="m-0">Royalties</h5>
-        <div class="text-muted">Listado de beneficiarios de royalties para esta canción.</div>
+        <h5 class="m-0">Editorial</h5>
+        <div class="text-muted small">
+          Autores (letra) y compositores (música). La suma de porcentajes nunca puede superar el 100%.
+        </div>
       </div>
+      {% if CAN_EDIT_CATALOGS %}
+        <button class="btn btn-primary" id="btnAddEditorialShare" data-bs-toggle="modal" data-bs-target="#editorialShareModal">
+          <i class="fa fa-plus"></i> Añadir autor/compositor
+        </button>
+      {% endif %}
     </div>
 
-    <div class="row g-3">
-
-      <!-- ARTISTA (auto) -->
-      <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Artista</div>
-              {% if royalties_artist and royalties_artist.concept %}
-                <span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>
-              {% endif %}
+    <div id="editorialData" class="mt-3" data-total="{{ editorial_total_pct or 0 }}">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="m-0">Listado</h6>
+            <div class="text-muted small">
+              Total asignado: <strong>{{ editorial_total_pct or 0 }}%</strong>
+              · Restante: <strong>{{ editorial_remaining_pct or 0 }}%</strong>
             </div>
+          </div>
 
-            {% if royalties_artist %}
-              <div class="d-flex align-items-center justify-content-between gap-3 mt-3 flex-wrap">
-                <div class="d-flex align-items-center gap-2">
-                  <img src="{{ royalties_artist.artist_photo or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+          {% if editorial_shares and (editorial_shares|length) > 0 %}
+            <div class="list-group mt-3">
+              {% for sh in editorial_shares %}
+                <div class="list-group-item d-flex justify-content-between align-items-start flex-wrap gap-2">
                   <div>
-                    <div class="fw-semibold">{{ royalties_artist.artist_name }}</div>
-                    {% if not royalties_artist.found %}
-                      <div class="small text-danger">No se encontró compromiso en contratos para este concepto. Se muestra 0%.</div>
-                    {% endif %}
-                  </div>
-                </div>
-
-                <div class="text-end">
-                  <div class="h5 m-0">{{ '%.2f'|format(royalties_artist.pct) }}%</div>
-                  <div class="small text-muted">
-                    {% set b = (royalties_artist.base or 'GROSS') %}
-                    {% if b == 'GROSS' %}Bruto{% elif b == 'NET' %}Neto{% else %}Sobre beneficio{% endif %}
-                    {% if b == 'PROFIT' %}
-                      — {% if (royalties_artist.profit_scope or '') == 'CONCEPT_PLUS_GENERAL' %}Concepto + general{% else %}Solo concepto{% endif %}
-                    {% endif %}
-                  </div>
-                </div>
-              </div>
-            {% else %}
-              <div class="text-muted mt-2">Sin artista asociado.</div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <!-- TERCEROS BENEFICIARIOS (placeholder) -->
-      <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Terceros beneficiarios</div>
-              <span class="badge text-bg-secondary">Pendiente</span>
-            </div>
-            <div class="text-muted mt-2">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- OTROS BENEFICIARIOS -->
-      <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-              <div class="fw-semibold">Otros beneficiarios</div>
-              {% if CAN_EDIT_CATALOGS %}
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openRoyaltyBeneficiaryAdd()">
-                  <i class="fa fa-plus"></i>
-                </button>
-              {% endif %}
-            </div>
-
-            {% if not royalty_other_beneficiaries or (royalty_other_beneficiaries|length) == 0 %}
-              <div class="text-muted">No hay otros beneficiarios todavía.</div>
-            {% else %}
-              <div class="list-group">
-                {% for b in royalty_other_beneficiaries %}
-                  <div class="list-group-item d-flex align-items-center justify-content-between flex-wrap gap-3">
-                    <div class="d-flex align-items-center gap-2">
-                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or url_for('static', filename='img/default_promoter.png') }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
-                      <div>
-                        <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
-                        <div class="small text-muted">
-                          {% if b.promoter and b.promoter.tax_id %}{{ b.promoter.tax_id }}{% endif %}
-                          {% if b.promoter and b.promoter.contact_email %}{% if b.promoter.tax_id %} · {% endif %}{{ b.promoter.contact_email }}{% endif %}
-                          {% if b.promoter and b.promoter.contact_phone %}{% if b.promoter.tax_id or b.promoter.contact_email %} · {% endif %}{{ b.promoter.contact_phone }}{% endif %}
-                        </div>
-                      </div>
+                    <div class="fw-semibold">{{ sh.full_name }}</div>
+                    <div class="small text-muted">
+                      Editorial: {{ sh.publisher_name or '—' }}
+                      {% if sh.contact_email %} · {{ sh.contact_email }}{% endif %}
+                      {% if sh.contact_phone %} · {{ sh.contact_phone }}{% endif %}
                     </div>
-
-                    <div class="text-end">
-                      <div class="fw-semibold">{{ '%.2f'|format(b.pct or 0) }}%</div>
-                      <div class="small text-muted">
-                        {% set bb = (b.base or 'GROSS') %}
-                        {% if bb == 'GROSS' %}Bruto{% elif bb == 'NET' %}Neto{% else %}Sobre beneficio{% endif %}
-                        {% if bb == 'PROFIT' %}
-                          — {% if (b.profit_scope or '') == 'CONCEPT_PLUS_GENERAL' %}Concepto + general{% else %}Solo concepto{% endif %}
-                        {% endif %}
-                      </div>
-                    </div>
+                  </div>
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if sh.role == 'AUTHOR' %}
+                      <span class="badge text-bg-info">Autor (Letra)</span>
+                    {% else %}
+                      <span class="badge text-bg-info">Compositor (Música)</span>
+                    {% endif %}
+                    <span class="badge text-bg-dark">{{ sh.pct }}%</span>
 
                     {% if CAN_EDIT_CATALOGS %}
-                      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openRoyaltyBeneficiaryEdit('{{ b.id }}')">
+                      <button type="button"
+                              class="btn btn-sm btn-outline-secondary btn-edit-editorial"
+                              data-share-id="{{ sh.id }}"
+                              data-current-pct="{{ sh.pct }}">
                         <i class="fa fa-pen"></i> Editar
                       </button>
                     {% endif %}
                   </div>
-                {% endfor %}
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted mt-3">Aún no hay autores/compositores añadidos.</div>
+          {% endif %}
+
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="m-0">Declaración de obra (PDF)</h6>
+            {% if song.work_declaration_url %}
+              <a class="btn btn-outline-primary btn-sm" href="{{ song.work_declaration_url }}" target="_blank">
+                <i class="fa fa-file-pdf"></i> Ver PDF
+              </a>
+            {% endif %}
+          </div>
+
+          {% if song.work_declaration_uploaded_at %}
+            <div class="text-muted small mt-2">Subida: {{ song.work_declaration_uploaded_at.strftime('%d/%m/%Y') }}</div>
+          {% endif %}
+
+          {% if CAN_EDIT_CATALOGS %}
+            <form method="post" action="{{ url_for('discografica_song_declaration_upload', song_id=song.id) }}" enctype="multipart/form-data" class="mt-3 d-flex gap-2 flex-wrap align-items-end">
+              <div class="flex-grow-1" style="min-width: 260px;">
+                <label class="form-label">Subir PDF</label>
+                <input class="form-control" type="file" name="declaration_pdf" accept="application/pdf" required>
               </div>
+              <button class="btn btn-primary"><i class="fa fa-upload"></i> Subir</button>
+            </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <h6 class="m-0">SGAE</h6>
+            {% if status.sgae_done %}
+              <span class="badge text-bg-success">Registrado en SGAE · {{ status.sgae_updated_at.strftime('%d/%m/%Y') if status.sgae_updated_at else '' }}</span>
+            {% else %}
+              {% if CAN_EDIT_CATALOGS %}
+                <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
+                  <button class="btn btn-success"><i class="fa fa-check"></i> Marcar como registrado</button>
+                </form>
+              {% else %}
+                <span class="text-muted">Pendiente</span>
+              {% endif %}
             {% endif %}
           </div>
         </div>
       </div>
-
     </div>
 
     {% if CAN_EDIT_CATALOGS %}
-      <!-- Modal: añadir/editar beneficiario -->
-      <div class="modal fade" id="royaltyBeneficiaryModal" tabindex="-1" aria-hidden="true">
+      <!-- Modal: Añadir / editar autor-compositor -->
+      <div class="modal fade" id="editorialShareModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
-          <form class="modal-content" id="royaltyBeneficiaryForm" data-save-url="{{ url_for('discografica_song_royalty_beneficiary_save', song_id=song.id) }}" onsubmit="return submitRoyaltyBeneficiary(event);" enctype="multipart/form-data">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_song_editorial_share_save', song_id=song.id) }}">
             <div class="modal-header">
-              <h5 class="modal-title" id="royaltyBeneficiaryModalTitle">Añadir beneficiario</h5>
+              <h5 class="modal-title" id="editorialShareModalTitle">Añadir autor/compositor</h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-              <input type="hidden" name="beneficiary_id" id="royBen_id">
-              <input type="hidden" name="promoter_id" id="royBen_promoter_id">
+              <input type="hidden" name="share_id" id="editorialShareId">
+              <input type="hidden" name="promoter_id" id="editorialPromoterId">
+              <input type="hidden" name="publishing_company_id" id="editorialPublisherId">
 
               <div class="row g-2">
                 <div class="col-12">
-                  <label class="form-label">Buscar tercero (se autocompleta al escribir)</label>
-                  <input type="text" class="form-control" id="royBen_promoter_search" placeholder="Escribe para buscar..." autocomplete="off">
-                  <div class="form-text">Si no existe, pulsa “Nuevo tercero” y completa los datos.</div>
+                  <label class="form-label">Buscar tercero existente (opcional)</label>
+                  <input class="form-control" id="editorialPromoterSearch" placeholder="Escribe para buscar...">
+                  <div class="form-text">Si seleccionas uno existente, se rellenarán los datos. Si no, se creará uno nuevo al guardar.</div>
                 </div>
 
                 <div class="col-12 col-md-6">
-                  <label class="form-label">Foto (opcional)</label>
-                  <input type="file" class="form-control" name="photo" id="royBen_photo" accept="image/*">
+                  <label class="form-label">Nombre</label>
+                  <input class="form-control" name="first_name" id="editorialFirstName" required>
                 </div>
                 <div class="col-12 col-md-6">
-                  <label class="form-label">Nick: Nombre y apellidos / empresa</label>
-                  <input type="text" class="form-control" name="nick" id="royBen_nick" required>
+                  <label class="form-label">Apellidos</label>
+                  <input class="form-control" name="last_name" id="editorialLastName" required>
                 </div>
 
-                <div class="col-12 col-md-4">
-                  <label class="form-label">CIF / DNI</label>
-                  <input type="text" class="form-control" name="tax_id" id="royBen_tax_id" required>
-                </div>
-                <div class="col-12 col-md-4">
-                  <label class="form-label">Mail de contacto</label>
-                  <input type="email" class="form-control" name="contact_email" id="royBen_email" required>
-                </div>
-                <div class="col-12 col-md-4">
-                  <label class="form-label">Teléfono</label>
-                  <input type="text" class="form-control" name="contact_phone" id="royBen_phone" required>
+                <div class="col-12">
+                  <label class="form-label">Compañía editorial</label>
+                  <input class="form-control" id="editorialPublisherInput" name="publishing_company_name" placeholder="Escribe para buscar o crear..." required>
+                  <div class="d-flex justify-content-end mt-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="btnShowNewPublisher">
+                      <i class="fa fa-plus"></i> Nueva editorial
+                    </button>
+                  </div>
+
+                  <div class="border rounded p-2 mt-2" id="newPublisherWrap" style="display:none;">
+                    <div class="row g-2">
+                      <div class="col-12 col-md-8">
+                        <label class="form-label">Nombre editorial</label>
+                        <input class="form-control" id="newPublisherName" placeholder="Nombre">
+                      </div>
+                      <div class="col-12 col-md-4">
+                        <label class="form-label">Logo (opcional)</label>
+                        <input type="file" class="form-control" id="newPublisherLogo" accept="image/*">
+                      </div>
+                      <div class="col-12 d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="btnCancelNewPublisher">Cancelar</button>
+                        <button type="button" class="btn btn-sm btn-primary" id="btnCreateNewPublisher">Crear</button>
+                      </div>
+                      <div class="col-12">
+                        <div class="small text-danger" id="newPublisherError" style="display:none;"></div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <hr class="mt-3 mb-2">
-
-                <div class="col-12 col-md-4">
-                  <label class="form-label">% Royalties</label>
-                  <input type="number" step="0.01" min="0" max="100" class="form-control" name="pct" id="royBen_pct" required>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Email de contacto</label>
+                  <input class="form-control" type="email" name="contact_email" id="editorialEmail" placeholder="correo@...">
                 </div>
-                <div class="col-12 col-md-4">
-                  <label class="form-label">Base</label>
-                  <select name="base" id="royBen_base" class="form-select">
-                    <option value="GROSS">Bruto</option>
-                    <option value="NET">Neto</option>
-                    <option value="PROFIT">Sobre beneficio</option>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Teléfono de contacto</label>
+                  <input class="form-control" name="contact_phone" id="editorialPhone" placeholder="+34 ...">
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Tipo</label>
+                  <select class="form-select" name="role" id="editorialRole" required>
+                    <option value="AUTHOR">Autor (Letra)</option>
+                    <option value="COMPOSER">Compositor (Música)</option>
                   </select>
                 </div>
-                <div class="col-12 col-md-4" id="royBen_profit_scope_wrap" style="display:none;">
-                  <label class="form-label">Beneficio</label>
-                  <select name="profit_scope" id="royBen_profit_scope" class="form-select">
-                    <option value="CONCEPT_ONLY">Solo concepto</option>
-                    <option value="CONCEPT_PLUS_GENERAL">Concepto + general</option>
-                  </select>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Porcentaje</label>
+                  <input class="form-control" type="number" min="0" max="100" step="0.01" name="pct" id="editorialPct" required>
+                  <div class="form-text" id="editorialPctHelp"></div>
                 </div>
-
               </div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-              <button type="button" class="btn btn-outline-primary" onclick="royBenNewPromoter()"><i class="fa fa-user-plus"></i> Nuevo tercero</button>
               <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </div>
           </form>
         </div>
       </div>
-
-      <script>
-        let _royBenModal;
-
-        function royBenBaseVisibility(){
-          const base = document.getElementById('royBen_base')?.value;
-          const wrap = document.getElementById('royBen_profit_scope_wrap');
-          if(!wrap) return;
-          wrap.style.display = (base === 'PROFIT') ? '' : 'none';
-        }
-
-        function royBenReset(){
-          document.getElementById('royBen_id').value = '';
-          document.getElementById('royBen_promoter_id').value = '';
-          document.getElementById('royBen_promoter_search').value = '';
-          document.getElementById('royBen_photo').value = '';
-          document.getElementById('royBen_nick').value = '';
-          document.getElementById('royBen_tax_id').value = '';
-          document.getElementById('royBen_email').value = '';
-          document.getElementById('royBen_phone').value = '';
-          document.getElementById('royBen_pct').value = '';
-          document.getElementById('royBen_base').value = 'GROSS';
-          document.getElementById('royBen_profit_scope').value = 'CONCEPT_ONLY';
-          royBenBaseVisibility();
-        }
-
-        function openRoyaltyBeneficiaryAdd(){
-          royBenReset();
-          document.getElementById('royaltyBeneficiaryModalTitle').textContent = 'Añadir beneficiario';
-          _royBenModal = new bootstrap.Modal(document.getElementById('royaltyBeneficiaryModal'));
-          _royBenModal.show();
-        }
-
-        async function openRoyaltyBeneficiaryEdit(id){
-          royBenReset();
-          const res = await fetch(`/api/song_royalty_beneficiaries/${encodeURIComponent(id)}`);
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok){ alert(data.error || 'Error cargando beneficiario'); return; }
-
-          document.getElementById('royaltyBeneficiaryModalTitle').textContent = 'Editar beneficiario';
-          document.getElementById('royBen_id').value = data.id || '';
-          document.getElementById('royBen_pct').value = (data.pct ?? '');
-          document.getElementById('royBen_base').value = (data.base || 'GROSS');
-          document.getElementById('royBen_profit_scope').value = (data.profit_scope || 'CONCEPT_ONLY');
-
-          if(data.promoter){
-            document.getElementById('royBen_promoter_id').value = data.promoter.id || '';
-            document.getElementById('royBen_promoter_search').value = data.promoter.nick || '';
-            document.getElementById('royBen_nick').value = data.promoter.nick || '';
-            document.getElementById('royBen_tax_id').value = data.promoter.tax_id || '';
-            document.getElementById('royBen_email').value = data.promoter.contact_email || '';
-            document.getElementById('royBen_phone').value = data.promoter.contact_phone || '';
-          }
-
-          royBenBaseVisibility();
-          _royBenModal = new bootstrap.Modal(document.getElementById('royaltyBeneficiaryModal'));
-          _royBenModal.show();
-        }
-
-        async function royBenLoadPromoterIfSelected(){
-          const pid = document.getElementById('royBen_promoter_id').value;
-          if(!pid) return;
-          const res = await fetch(`/api/promoters/${encodeURIComponent(pid)}`);
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok){ return; }
-
-          document.getElementById('royBen_nick').value = data.nick || '';
-          document.getElementById('royBen_tax_id').value = data.tax_id || '';
-          document.getElementById('royBen_email').value = data.contact_email || '';
-          document.getElementById('royBen_phone').value = data.contact_phone || '';
-        }
-
-        function royBenNewPromoter(){
-          // Forzar modo "nuevo": vaciamos id, pero preservamos texto de búsqueda como sugerencia.
-          const typed = (document.getElementById('royBen_promoter_search').value || '').trim();
-          document.getElementById('royBen_promoter_id').value = '';
-          document.getElementById('royBen_nick').value = typed;
-          document.getElementById('royBen_tax_id').value = '';
-          document.getElementById('royBen_email').value = '';
-          document.getElementById('royBen_phone').value = '';
-          document.getElementById('royBen_photo').value = '';
-        }
-
-        async function submitRoyaltyBeneficiary(ev){
-          ev.preventDefault();
-          const form = document.getElementById('royaltyBeneficiaryForm');
-          const url = form.dataset.saveUrl;
-
-          const fd = new FormData(form);
-
-          const res = await fetch(url, { method:'POST', body: fd });
-          const data = await res.json().catch(()=>({}));
-          if(!res.ok){
-            alert(data.error || 'Error guardando beneficiario');
-            return false;
-          }
-          window.location.reload();
-          return false;
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-          // Autocompletado terceros
-          if (typeof initTypeahead === 'function') {
-            initTypeahead('royBen_promoter_search', 'royBen_promoter_id', '/api/search/promoters');
-          }
-          const search = document.getElementById('royBen_promoter_search');
-          if (search) {
-            search.addEventListener('change', () => setTimeout(royBenLoadPromoterIfSelected, 50));
-            search.addEventListener('blur', () => setTimeout(royBenLoadPromoterIfSelected, 50));
-          }
-
-          const baseSel = document.getElementById('royBen_base');
-          if (baseSel) {
-            baseSel.addEventListener('change', royBenBaseVisibility);
-            royBenBaseVisibility();
-          }
-        });
-      </script>
     {% endif %}
 
   {% else %}

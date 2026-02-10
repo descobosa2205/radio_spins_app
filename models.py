@@ -179,6 +179,11 @@ class Song(Base):
     youtube_url = Column(Text)
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
+
+    # Editorial
+    work_declaration_url = Column(Text)
+    work_declaration_uploaded_at = Column(DateTime(timezone=True))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artists = relationship("Artist", secondary="songs_artists", back_populates="songs")
@@ -351,51 +356,22 @@ class Promoter(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     nick = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    # Datos de contacto / fiscales (para royalties y otros usos)
-    tax_id = Column(Text)  # CIF / DNI
+    # Datos ampliados (autores / beneficiarios / etc.)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    tax_id = Column(Text)
     contact_email = Column(Text)
     contact_phone = Column(Text)
 
-
-class SongRoyaltyBeneficiary(Base):
-    """Beneficiarios de royalties por canción (otros beneficiarios).
-
-    Nota:
-    - El artista principal se calcula automáticamente en la UI según contratos.
-    - Aquí guardamos únicamente beneficiarios adicionales (terceros/otros).
-    """
-
-    __tablename__ = "song_royalty_beneficiaries"
-
-    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    song_id = Column(
+    publishing_company_id = Column(
         PGUUID(as_uuid=True),
-        ForeignKey("songs.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("publishing_companies.id", ondelete="SET NULL"),
     )
-    promoter_id = Column(
-        PGUUID(as_uuid=True),
-        ForeignKey("promoters.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-
-    pct = Column(Numeric, nullable=False, server_default=text("0"))
-    # GROSS | NET | PROFIT
-    base = Column(Text, nullable=False, server_default=text("'GROSS'"))
-    # Si base == PROFIT: CONCEPT_ONLY | CONCEPT_PLUS_GENERAL
-    profit_scope = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    song = relationship("Song")
-    promoter = relationship("Promoter")
-
-    __table_args__ = (
-        UniqueConstraint("song_id", "promoter_id", name="uq_song_royalty_beneficiary"),
-    )
+    publishing_company = relationship("PublishingCompany")
 
 
 class Venue(Base):
@@ -416,6 +392,48 @@ class GroupCompany(Base):
     logo_url = Column(Text)
     tax_info = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class PublishingCompany(Base):
+    """Compañías editoriales (copyright publishing)."""
+
+    __tablename__ = "publishing_companies"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False, unique=True)
+    logo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongEditorialShare(Base):
+    """Autores/compositores por canción (derechos de autor)."""
+
+    __tablename__ = "song_editorial_shares"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    # AUTHOR (letra) | COMPOSER (música)
+    role = Column(Text, nullable=False)
+    pct = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        UniqueConstraint("song_id", "promoter_id", "role", name="uq_song_editorial_share"),
+    )
 
 
 class Concert(Base):
@@ -1119,54 +1137,80 @@ def ensure_isrc_and_song_detail_schema():
             conn.exec_driver_sql(s)
 
 
-def ensure_song_royalties_schema():
-    """Asegura el esquema necesario para la pestaña de Royalties por canción.
+def ensure_editorial_schema():
+    """Asegura el esquema necesario para la pestaña Editorial (autores/compositores).
 
-    - Ampliamos `promoters` (terceros) con datos fiscales y de contacto.
-    - Creamos `song_royalty_beneficiaries` para guardar beneficiarios adicionales.
-
-    Lo hacemos sin Alembic (DDL idempotente).
+    Incluye:
+    - publishing_companies
+    - ampliación de campos en promoters
+    - song_editorial_shares
+    - declaración de obra (PDF) en songs
     """
 
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
 
-        # Datos extra en terceros (promoters)
+        # Tabla de editoriales
         """
-        ALTER TABLE IF EXISTS promoters
-            ADD COLUMN IF NOT EXISTS tax_id text,
-            ADD COLUMN IF NOT EXISTS contact_email text,
-            ADD COLUMN IF NOT EXISTS contact_phone text;
+        CREATE TABLE IF NOT EXISTS publishing_companies (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL UNIQUE,
+            logo_url text,
+            created_at timestamptz DEFAULT now()
+        );
         """,
 
-        # Beneficiarios adicionales por canción
+        # Campos ampliados en terceros
         """
-        CREATE TABLE IF NOT EXISTS song_royalty_beneficiaries (
+        ALTER TABLE IF EXISTS promoters
+            ADD COLUMN IF NOT EXISTS first_name text,
+            ADD COLUMN IF NOT EXISTS last_name text,
+            ADD COLUMN IF NOT EXISTS tax_id text,
+            ADD COLUMN IF NOT EXISTS contact_email text,
+            ADD COLUMN IF NOT EXISTS contact_phone text,
+            ADD COLUMN IF NOT EXISTS publishing_company_id uuid;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE table_schema='public'
+                  AND table_name='promoters'
+                  AND constraint_name='promoters_publishing_company_id_fkey'
+            ) THEN
+                ALTER TABLE promoters
+                    ADD CONSTRAINT promoters_publishing_company_id_fkey
+                    FOREIGN KEY (publishing_company_id)
+                    REFERENCES publishing_companies(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+
+        # Tabla de shares editoriales por canción
+        """
+        CREATE TABLE IF NOT EXISTS song_editorial_shares (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
             promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE RESTRICT,
+            role text NOT NULL,
             pct numeric NOT NULL DEFAULT 0,
-            base text NOT NULL DEFAULT 'GROSS',
-            profit_scope text,
             created_at timestamptz DEFAULT now(),
             updated_at timestamptz DEFAULT now(),
-
-            CONSTRAINT chk_srb_pct CHECK (pct >= 0 AND pct <= 100),
-            CONSTRAINT chk_srb_base CHECK (base IN ('GROSS','NET','PROFIT')),
-            CONSTRAINT chk_srb_profit_scope CHECK (
-                profit_scope IS NULL
-                OR profit_scope IN ('CONCEPT_ONLY','CONCEPT_PLUS_GENERAL')
-            ),
-            CONSTRAINT uq_song_royalty_beneficiary UNIQUE (song_id, promoter_id)
+            CONSTRAINT chk_ses_pct CHECK (pct >= 0 AND pct <= 100),
+            CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER')),
+            CONSTRAINT uq_song_editorial_share UNIQUE (song_id, promoter_id, role)
         );
         """,
+        'CREATE INDEX IF NOT EXISTS idx_song_editorial_shares_song_id ON song_editorial_shares(song_id);',
+
+        # Declaración de obra en songs
         """
-        CREATE INDEX IF NOT EXISTS idx_song_royalty_beneficiaries_song_id
-        ON song_royalty_beneficiaries(song_id);
-        """,
-        """
-        CREATE INDEX IF NOT EXISTS idx_song_royalty_beneficiaries_promoter_id
-        ON song_royalty_beneficiaries(promoter_id);
+        ALTER TABLE IF EXISTS songs
+            ADD COLUMN IF NOT EXISTS work_declaration_url text,
+            ADD COLUMN IF NOT EXISTS work_declaration_uploaded_at timestamptz;
         """,
     ]
 

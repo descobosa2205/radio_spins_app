@@ -2,14 +2,14 @@
 {% block content %}
 <div class="d-flex align-items-center justify-content-between mb-3">
   <h4 class="mb-0">Terceros</h4>
-  {% if CAN_EDIT_CATALOGS %}
+  {% if CAN_EDIT_SONGS_PROMOTERS %}
     <span class="badge text-bg-primary">Edición</span>
   {% else %}
     <span class="badge text-bg-secondary">Lectura</span>
   {% endif %}
 </div>
 
-{% if CAN_EDIT_CATALOGS %}
+{% if CAN_EDIT_SONGS_PROMOTERS %}
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
@@ -36,13 +36,13 @@
         <tr>
           <th style="width:64px">Logo</th>
           <th>Nombre</th>
-          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
+          {% if CAN_EDIT_SONGS_PROMOTERS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
         </tr>
       </thead>
       <tbody>
       {% for p in promoters %}
         <tr>
-          {% if CAN_EDIT_CATALOGS %}
+          {% if CAN_EDIT_SONGS_PROMOTERS %}
             <form method="post" enctype="multipart/form-data" action="{{ url_for('promoter_update', pid=p.id) }}">
               <td>
                 {% if p.logo_url %}

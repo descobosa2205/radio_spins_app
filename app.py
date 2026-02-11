@@ -262,22 +262,22 @@ def require_login():
 # ---------- Roles / permisos ----------
 # role: 1,2,3,4,10 (10 = master)
 ROLE_LABELS = {
-    1: "Acceso lectura (sin economía / sin edición)",
-    2: "Radios (edición tocadas)",
-    3: "Ventas (edición + economía)",
-    4: "Lectura total (incluye economía, sin edición)",
-    5: "Conciertos + Catálogos (ventas sin economía, radio lectura)",
-    6: "Conciertos + Catálogos (ventas con economía, radio lectura)",
+    1: "Acceso lectura",
+    2: "Radios + discográfica",
+    3: "Ventas",
+    4: "Lectura total",
+    5: "Conciertos + Catálogos",
+    6: "Conciertos + Catálogos",
     10: "Master",
 }
 
 ROLE_WELCOME = {
-    1: "Bienvenido. Estás en modo lectura (sin datos económicos) y sin permisos de edición.",
-    2: "Bienvenido. Puedes editar tocadas de radio. Ventas en modo lectura (sin datos económicos).",
+    1: "Bienvenido. Estás en modo lectura y sin permisos de edición.",
+    2: "Bienvenido. Puedes editar tocadas de radio y discográfica.",
     3: "Bienvenido. Puedes editar ventas y ver la parte económica. Radios en modo lectura.",
-    4: "Bienvenido. Puedes ver toda la información (incluida la económica) en modo lectura.",
-    5: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas sin economía. Radios en modo lectura.",
-    6: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas en modo lectura con economía. Radios en modo lectura.",
+    4: "Bienvenido. Puedes ver toda la información en modo lectura.",
+    5: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas y Radios en modo lectura.",
+    6: "Bienvenido. Puedes editar conciertos y bases de datos (artistas/recintos/proveedores). Ventas y Radios en modo lectura.",
     10: "Bienvenido. Acceso master: puedes ver y modificar toda la información.",
 }
 
@@ -346,6 +346,21 @@ def can_edit_catalogs() -> bool:
     # Roles que pueden modificar catálogos/bases de datos (artistas, recintos, empresas, etc.)
     return current_role() in (5, 6, 10)
 
+def can_edit_songs_promoters() -> bool:
+    """Permiso: editar base de datos de canciones y terceros (promotores).
+
+    Requisito: el rol 2 debe poder modificar Canciones y Terceros sin dar acceso
+    al resto de bases de datos.
+    """
+    return current_role() in (2, 5, 6, 10)
+
+
+def can_edit_discografica() -> bool:
+    """Permiso: editar la sección Discográfica (fichas de canción, ISRC, royalties, editorial)."""
+    return current_role() in (2, 5, 6, 10)
+
+
+
 
 def can_edit_artists_stations() -> bool:
     """Permiso específico: artistas + emisoras.
@@ -411,15 +426,21 @@ def enforce_role_permissions():
                 return forbid("Tu usuario no tiene permisos para modificar artistas/emisoras.")
             return
 
+        # - Canciones + Terceros (promotores): permitido también a rol 2
+        if path.startswith(("/canciones", "/promotores")):
+            if not (is_master() or can_edit_songs_promoters()):
+                return forbid("Tu usuario no tiene permisos para modificar canciones/terceros.")
+            return
+
         # - Resto de catálogos
-        if path.startswith(("/canciones", "/promotores", "/recintos", "/ticketeras", "/empresas", "/editoriales")):
+        if path.startswith(("/recintos", "/ticketeras", "/empresas", "/editoriales")):
             if not (is_master() or can_edit_catalogs()):
                 return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
             return
 
         # Discográfica (ficha de canción, ISRC, etc.)
         if path.startswith("/discografica"):
-            if not (is_master() or can_edit_catalogs()):
+            if not (is_master() or can_edit_discografica()):
                 return forbid("Tu usuario no tiene permisos para modificar datos en Discográfica.")
             return
 
@@ -431,7 +452,12 @@ def enforce_role_permissions():
                     return forbid("Tu usuario no tiene permisos para modificar artistas.")
                 return
 
-            if path.startswith(("/api/venues", "/api/promoters", "/api/ticketers", "/api/companies", "/api/publishing_companies")):
+            if path.startswith("/api/promoters"):
+                if not (is_master() or can_edit_songs_promoters() or can_edit_catalogs() or can_edit_concerts()):
+                    return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
+                return
+
+            if path.startswith(("/api/venues", "/api/ticketers", "/api/companies", "/api/publishing_companies")):
                 if not (is_master() or can_edit_catalogs() or can_edit_concerts()):
                     return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
                 return
@@ -560,6 +586,8 @@ def inject_globals():
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        CAN_EDIT_SONGS_PROMOTERS=can_edit_songs_promoters(),
+        CAN_EDIT_DISCOGRAFICA=can_edit_discografica(),
         CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
     )
@@ -1538,7 +1566,7 @@ def discografica_view():
 def discografica_isrc_config_update():
     """Guardar configuración global de ISRC (país + matrices audio/video)."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar la configuración ISRC.")
 
     country_code = (request.form.get("country_code") or "ES").strip().upper()[:2] or "ES"
@@ -1581,7 +1609,7 @@ def discografica_isrc_config_update():
 def discografica_isrc_artist_set(artist_id):
     """Guardar número matriz ISRC del artista (2 dígitos)."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar ISRC por artista.")
 
     matrix = (request.form.get("artist_matrix") or "").strip()
@@ -1615,7 +1643,7 @@ def discografica_isrc_artist_set(artist_id):
 @app.post("/discografica/canciones/create")
 @admin_required
 def discografica_song_create():
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para añadir canciones.")
 
     title = (request.form.get("title") or "").strip()
@@ -1878,7 +1906,7 @@ def discografica_song_detail(song_id):
 def discografica_song_editorial_share_save(song_id):
     """Crea/edita un autor/compositor de la pestaña Editorial."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar la pestaña Editorial.")
 
     session_db = db()
@@ -2011,7 +2039,7 @@ def discografica_song_editorial_share_save(song_id):
 def discografica_song_editorial_share_delete(song_id, share_id):
     """Elimina un autor/compositor de la pestaña Editorial."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para eliminar autores/compositores.")
 
     session_db = db()
@@ -2037,7 +2065,7 @@ def discografica_song_editorial_share_delete(song_id, share_id):
 @app.post("/discografica/canciones/<song_id>/editorial/declaration/upload")
 @admin_required
 def discografica_song_declaration_upload(song_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para subir documentos.")
 
     session_db = db()
@@ -2070,7 +2098,7 @@ def discografica_song_declaration_upload(song_id):
 @app.post("/discografica/canciones/<song_id>/editorial/sgae/register")
 @admin_required
 def discografica_song_sgae_register(song_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para actualizar SGAE.")
 
     session_db = db()
@@ -2106,7 +2134,7 @@ def discografica_song_sgae_register(song_id):
 def discografica_song_status_toggle(song_id):
     """Toggle de iconos de estado (excepto portada, que es automática)."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para actualizar estados.")
 
     key = (request.form.get("key") or "").strip().lower()
@@ -2162,7 +2190,7 @@ def discografica_song_status_toggle(song_id):
 def discografica_song_info_update(song_id):
     """Actualiza la pestaña Información de la ficha de canción."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar la ficha de la canción.")
 
     session_db = db()
@@ -2338,7 +2366,7 @@ def _generate_isrc(session_db, *, kind: str, artist_id, country: str, matrix: st
 @app.post("/discografica/canciones/<song_id>/isrc/add")
 @admin_required
 def discografica_song_isrc_add(song_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para añadir ISRC.")
 
     kind = (request.form.get("kind") or "AUDIO").strip().upper()
@@ -2433,7 +2461,7 @@ def discografica_song_isrc_add(song_id):
 @app.post("/discografica/canciones/<song_id>/isrc/delete/<code_id>")
 @admin_required
 def discografica_song_isrc_delete(song_id, code_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para eliminar ISRC.")
 
     session_db = db()
@@ -2473,7 +2501,7 @@ def discografica_song_isrc_delete(song_id, code_id):
 @app.post("/discografica/canciones/<song_id>/update")
 @admin_required
 def discografica_song_update(song_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar canciones.")
 
     session_db = db()
@@ -2512,7 +2540,7 @@ def discografica_song_update(song_id):
 @app.post("/discografica/canciones/<song_id>/set_link")
 @admin_required
 def discografica_song_set_link(song_id):
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para editar enlaces.")
 
     platform = (request.form.get("platform") or "").strip().lower()
@@ -2634,7 +2662,7 @@ def discografica_song_royalty_beneficiary_save(song_id):
     Recibe multipart/form-data (FormData) desde el modal.
     """
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return jsonify({"error": "No tienes permisos para editar beneficiarios."}), 403
 
     session_db = db()
@@ -2695,20 +2723,17 @@ def discografica_song_royalty_beneficiary_save(song_id):
         if photo and getattr(photo, "filename", ""):
             p.logo_url = upload_image(photo, "promoters")
 
-        # Validación: si faltan datos, obligar a completarlos desde el modal
+        # Validación: solo obligatorios Nick + Email (CIF/DNI y Teléfono opcionales)
         missing = []
         if not (p.nick or "").strip():
             missing.append("Nick")
-        if not (p.tax_id or "").strip():
-            missing.append("CIF/DNI")
         if not (p.contact_email or "").strip():
             missing.append("Email")
-        if not (p.contact_phone or "").strip():
-            missing.append("Teléfono")
         if missing:
             return jsonify({"error": "Faltan datos del tercero: " + ", ".join(missing)}), 400
 
-        # --- Resolver beneficiario ---
+
+# --- Resolver beneficiario ---
         b = None
         if beneficiary_id:
             b = session_db.get(SongRoyaltyBeneficiary, to_uuid(beneficiary_id))
@@ -2763,7 +2788,7 @@ def discografica_song_royalty_beneficiary_save(song_id):
 def discografica_song_royalty_beneficiary_delete(song_id, beneficiary_id):
     """Elimina un 'otro beneficiario' de Royalties (no borra el tercero)."""
 
-    if not can_edit_catalogs():
+    if not can_edit_discografica():
         return forbid("No tienes permisos para eliminar beneficiarios.")
 
     session_db = db()

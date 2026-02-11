@@ -96,7 +96,7 @@
         <div class="text-muted small">Vista por defecto (solo lectura). Edita para completar campos.</div>
       </div>
       <div class="d-flex gap-2">
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           {% if edit %}
             <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">
               Cancelar edición
@@ -123,7 +123,7 @@
         </span>
 
         <!-- Materiales -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="materials">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -142,7 +142,7 @@
         {% endif %}
 
         <!-- Contrato producción -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="production_contract">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -162,7 +162,7 @@
 
         <!-- Contrato colaboración (solo si hay colaboradores) -->
         {% if has_collabs %}
-          {% if CAN_EDIT_CATALOGS %}
+          {% if CAN_EDIT_DISCOGRAFICA %}
             <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
               <input type="hidden" name="key" value="collaboration_contract">
               <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -182,7 +182,7 @@
         {% endif %}
 
         <!-- AGEDI -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="agedi">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -201,7 +201,7 @@
         {% endif %}
 
         <!-- SGAE -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="sgae">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -220,7 +220,7 @@
         {% endif %}
 
         <!-- RITMONET -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="ritmonet">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -239,7 +239,7 @@
         {% endif %}
 
         <!-- Distribuida -->
-        {% if CAN_EDIT_CATALOGS %}
+        {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
             <input type="hidden" name="key" value="distributed">
             <input type="hidden" name="next" value="{{ request.full_path }}">
@@ -279,7 +279,7 @@
 
       <div class="col-12 col-lg-7">
 
-        {% if edit and CAN_EDIT_CATALOGS %}
+        {% if edit and CAN_EDIT_DISCOGRAFICA %}
           <form class="card" method="post" action="{{ url_for('discografica_song_info_update', song_id=song.id) }}" enctype="multipart/form-data">
             <div class="card-body">
               <h6 class="mb-3">Editar información</h6>
@@ -586,7 +586,7 @@
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center">
               <h6 class="m-0">ISRC</h6>
-              {% if CAN_EDIT_CATALOGS %}
+              {% if CAN_EDIT_DISCOGRAFICA %}
                 <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addIsrcModal">
                   <i class="fa fa-plus"></i>
                 </button>
@@ -622,7 +622,7 @@
                             {% endif %}
                           </td>
                           <td class="text-end">
-                            {% if CAN_EDIT_CATALOGS %}
+                            {% if CAN_EDIT_DISCOGRAFICA %}
                               <form method="post" action="{{ url_for('discografica_song_isrc_delete', song_id=song.id, code_id=c.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este ISRC?');">
                                 <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
                               </form>
@@ -643,7 +643,7 @@
       </div>
     </div>
 
-    {% if CAN_EDIT_CATALOGS %}
+    {% if CAN_EDIT_DISCOGRAFICA %}
       <!-- Modal añadir ISRC -->
       <div class="modal fade" id="addIsrcModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -778,7 +778,7 @@
           <div class="card-body">
             <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
               <div class="fw-semibold">Otros beneficiarios</div>
-              {% if CAN_EDIT_CATALOGS %}
+              {% if CAN_EDIT_DISCOGRAFICA %}
                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="openRoyaltyBeneficiaryAdd()">
                   <i class="fa fa-plus"></i>
                 </button>
@@ -814,7 +814,7 @@
                       </div>
                     </div>
 
-                    {% if CAN_EDIT_CATALOGS %}
+                    {% if CAN_EDIT_DISCOGRAFICA %}
                       <div class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openRoyaltyBeneficiaryEdit('{{ b.id }}')">
                           <i class="fa fa-pen"></i> Editar
@@ -840,7 +840,7 @@
 
     </div>
 
-    {% if CAN_EDIT_CATALOGS %}
+    {% if CAN_EDIT_DISCOGRAFICA %}
       <!-- Modal: añadir/editar beneficiario -->
       <div class="modal fade" id="royaltyBeneficiaryModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -870,16 +870,16 @@
                 </div>
 
                 <div class="col-12 col-md-4">
-                  <label class="form-label">CIF / DNI</label>
-                  <input type="text" class="form-control" name="tax_id" id="royBen_tax_id" required>
+                  <label class="form-label">CIF / DNI <span class="text-muted">(opcional)</span></label>
+                  <input type="text" class="form-control" name="tax_id" id="royBen_tax_id">
                 </div>
                 <div class="col-12 col-md-4">
                   <label class="form-label">Mail de contacto</label>
                   <input type="email" class="form-control" name="contact_email" id="royBen_email" required>
                 </div>
                 <div class="col-12 col-md-4">
-                  <label class="form-label">Teléfono</label>
-                  <input type="text" class="form-control" name="contact_phone" id="royBen_phone" required>
+                  <label class="form-label">Teléfono <span class="text-muted">(opcional)</span></label>
+                  <input type="text" class="form-control" name="contact_phone" id="royBen_phone">
                 </div>
 
                 <hr class="mt-3 mb-2">
@@ -1043,7 +1043,7 @@
           Autores (letra) y compositores (música). La suma de porcentajes nunca puede superar el 100%.
         </div>
       </div>
-      {% if CAN_EDIT_CATALOGS %}
+      {% if CAN_EDIT_DISCOGRAFICA %}
         <button class="btn btn-primary" id="btnAddEditorialShare" data-bs-toggle="modal" data-bs-target="#editorialShareModal">
           <i class="fa fa-plus"></i> Añadir autor/compositor
         </button>
@@ -1081,7 +1081,7 @@
                     {% endif %}
                     <span class="badge text-bg-dark">{{ sh.pct }}%</span>
 
-                    {% if CAN_EDIT_CATALOGS %}
+                    {% if CAN_EDIT_DISCOGRAFICA %}
                       <div class="d-flex gap-2 align-items-center">
                         <button type="button"
                                 class="btn btn-sm btn-outline-secondary btn-edit-editorial"
@@ -1126,7 +1126,7 @@
             <div class="text-muted small mt-2">Subida: {{ song.work_declaration_uploaded_at.strftime('%d/%m/%Y') }}</div>
           {% endif %}
 
-          {% if CAN_EDIT_CATALOGS %}
+          {% if CAN_EDIT_DISCOGRAFICA %}
             <form method="post" action="{{ url_for('discografica_song_declaration_upload', song_id=song.id) }}" enctype="multipart/form-data" class="mt-3 d-flex gap-2 flex-wrap align-items-end">
               <div class="flex-grow-1" style="min-width: 260px;">
                 <label class="form-label">Subir PDF</label>
@@ -1145,7 +1145,7 @@
             {% if status.sgae_done %}
               <span class="badge text-bg-success">Registrado en SGAE · {{ status.sgae_updated_at.strftime('%d/%m/%Y') if status.sgae_updated_at else '' }}</span>
             {% else %}
-              {% if CAN_EDIT_CATALOGS %}
+              {% if CAN_EDIT_DISCOGRAFICA %}
                 <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
                   <button class="btn btn-success"><i class="fa fa-check"></i> Marcar como registrado</button>
                 </form>
@@ -1158,7 +1158,7 @@
       </div>
     </div>
 
-    {% if CAN_EDIT_CATALOGS %}
+    {% if CAN_EDIT_DISCOGRAFICA %}
       <!-- Modal: Añadir / editar autor-compositor -->
       <div class="modal fade" id="editorialShareModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -1260,7 +1260,7 @@
         <h5 class="m-0">{{ ns.lbl }}</h5>
         <div class="text-muted">Próximamente estará disponible, estamos trabajando en ello!!!.</div>
       </div>
-      {% if CAN_EDIT_CATALOGS %}
+      {% if CAN_EDIT_DISCOGRAFICA %}
         <button class="btn btn-outline-secondary" disabled><i class="fa fa-edit"></i> Editar</button>
       {% endif %}
     </div>
@@ -1269,7 +1269,7 @@
 </div>
 
 <!-- Modal: añadir enlace de plataforma -->
-{% if CAN_EDIT_CATALOGS %}
+{% if CAN_EDIT_DISCOGRAFICA %}
 <div class="modal fade" id="songLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('discografica_song_set_link', song_id=song.id) }}">

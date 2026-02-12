@@ -6,20 +6,33 @@ function enableFormEdit(btn){
 }
 
 function initSelect2(){
-  $('.select-artists').select2({
-    width: '100%',
-    templateResult: function (data) {
-      if (!data.id) return data.text;
-      const photo = $(data.element).data('photo');
-      const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
-      return $(`<span>${img}${data.text}</span>`);
-    },
-    templateSelection: function (data) {
-      const photo = $(data.element).data('photo');
-      const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
-      return $(`<span>${img}${data.text}</span>`);
-    },
-    escapeMarkup: function (m) { return m; }
+  // Select2: soporta selects en página y dentro de modales Bootstrap.
+  // Si no configuramos dropdownParent en modales, el desplegable puede quedar detrás (z-index).
+  $('.select-artists').each(function(){
+    const $el = $(this);
+    // Evitar doble inicialización
+    if ($el.hasClass('select2-hidden-accessible')) return;
+
+    const $modal = $el.closest('.modal');
+
+    const opts = {
+      width: '100%',
+      ...( $modal.length ? { dropdownParent: $modal } : {} ),
+      templateResult: function (data) {
+        if (!data.id) return data.text;
+        const photo = $(data.element).data('photo');
+        const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        return $(`<span>${img}${data.text}</span>`);
+      },
+      templateSelection: function (data) {
+        const photo = $(data.element).data('photo');
+        const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        return $(`<span>${img}${data.text}</span>`);
+      },
+      escapeMarkup: function (m) { return m; }
+    };
+
+    $el.select2(opts);
   });
 }
 

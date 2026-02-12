@@ -167,6 +167,11 @@ button.song-status-item:focus {
 .select2-container--default .select2-results__option--highlighted[aria-selected] {
   background-color: var(--brand-primary);
 }
+
+/* Select2 en modales Bootstrap: asegurar el desplegable por encima del modal */
+.select2-container--open {
+  z-index: 1060;
+}
 .btn-primary, .bg-primary { background-color: var(--brand-primary); border-color: var(--brand-primary); }
 .btn-outline-primary { color: var(--brand-primary); border-color: var(--brand-primary); }
 .btn-outline-primary:hover { background-color: var(--brand-primary); border-color: var(--brand-primary); }

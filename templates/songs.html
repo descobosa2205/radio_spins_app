@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
-{% if CAN_EDIT_SONGS_PROMOTERS %}
+{% if CAN_EDIT_CATALOGS %}
 <h4 class="mb-3">Canciones</h4>
 
 <div class="card mb-4">
@@ -13,11 +13,14 @@
       <div class="col-md-4">
         <label class="form-label">Artista(s)</label>
         <select name="artist_ids[]" class="form-select select-artists" multiple required>
-          {% for a in artists %}
+          {% for a in create_artists %}
           <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
           {% endfor %}
         </select>
         <small class="text-muted">Puedes seleccionar más de uno.</small>
+        {% if not create_artists or (create_artists|length)==0 %}
+        <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
+        {% endif %}
       </div>
       <div class="col-md-4">
         <label class="form-label">Artista colaborador (opcional)</label>

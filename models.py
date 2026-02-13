@@ -707,10 +707,29 @@ class ConcertTicketerTicketType(Base):
 
     __tablename__ = "concert_ticketer_ticket_types"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
-    ticketer_id = Column(PGUUID(as_uuid=True), ForeignKey("ticketers.id", ondelete="CASCADE"), nullable=False)
-    ticket_type_id = Column(PGUUID(as_uuid=True), ForeignKey("concert_ticket_types.id", ondelete="CASCADE"), nullable=False)
+    # ⚠️ IMPORTANTE (fix 2026-02-13):
+    # Esta tabla se crea en la migración con PRIMARY KEY compuesto
+    # (concert_id, ticketer_id, ticket_type_id) y NO tiene columna "id".
+    # Si el modelo declara un id, SQLAlchemy intentará hacer SELECT ... .id
+    # y fallará con "column ... id does not exist".
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    ticketer_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("ticketers.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    ticket_type_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concert_ticket_types.id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
 
     qty_for_sale = Column(Integer, nullable=False, server_default=text("0"))
     price_gross = Column(Numeric, nullable=False, server_default=text("0"))
@@ -721,9 +740,8 @@ class ConcertTicketerTicketType(Base):
     ticketer = relationship("Ticketer")
     ticket_type = relationship("ConcertTicketType")
 
-    __table_args__ = (
-        UniqueConstraint("concert_id", "ticketer_id", "ticket_type_id", name="uq_concert_ticketer_ticket_type"),
-    )
+    # La PK ya garantiza unicidad. No añadimos UniqueConstraint extra.
+    __table_args__ = ()
 
 
 class TicketSaleDetail(Base):

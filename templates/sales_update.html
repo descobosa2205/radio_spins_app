@@ -61,7 +61,8 @@
                   <i class="fa-solid fa-gear"></i>
                 </button>
 
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit', cid=c.id) }}" title="Editar concierto">
+                {# En esta app el endpoint real es concert_edit_view (no concert_edit). #}
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=c.id) }}" title="Editar concierto">
                   <i class="fa-solid fa-pen"></i>
                 </a>
               </div>

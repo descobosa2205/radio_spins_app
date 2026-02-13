@@ -301,3 +301,13 @@ button.song-status-item:focus {
   background: #fff;
   padding: .5rem .65rem;
 }
+
+
+/* --- Ventas: estados visuales en /ventas (actualizar ventas) --- */
+.sales-card.sales-card-pending {
+  background: #fff7d6; /* amarillo clarito */
+}
+.sales-card.sales-card-never {
+  background: #ffe0e0; /* rojo clarito */
+}
+/* .sales-card-updated: sin cambios (como estaba) */

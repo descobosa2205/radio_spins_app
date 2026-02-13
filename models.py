@@ -680,12 +680,49 @@ class ConcertTicketer(Base):
     # (Si no se configura, puede quedar a 0; la UI permite establecerlo.)
     capacity_for_sale = Column(Integer, nullable=False, server_default=text("0"))
 
+    # --- Rebate (ingreso adicional NO incluido en ventas) ---
+    # FIXED: importe fijo por entrada (bruto, IVA 21% incluido)
+    # PERCENT: % sobre base de ingresos SIN IVA de esa ticketera
+    rebate_mode = Column(Text)  # FIXED | PERCENT
+    rebate_fixed_gross = Column(Numeric)  # bruto con IVA incluido (21%)
+    rebate_pct = Column(Numeric)  # porcentaje (0..100)
+    rebate_updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     ticketer = relationship("Ticketer")
 
     __table_args__ = (
         UniqueConstraint("concert_id", "ticketer_id", name="uq_concert_ticketer"),
+    )
+
+
+
+class ConcertTicketerTicketType(Base):
+    """Configuración por ticketera y tipo de entrada (aforo + precio).
+
+    - qty_for_sale: cuántas entradas de ese tipo se venden por esa ticketera (cupo).
+    - price_gross: precio bruto por entrada (incluye IVA y SGAE).
+    """
+
+    __tablename__ = "concert_ticketer_ticket_types"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    ticketer_id = Column(PGUUID(as_uuid=True), ForeignKey("ticketers.id", ondelete="CASCADE"), nullable=False)
+    ticket_type_id = Column(PGUUID(as_uuid=True), ForeignKey("concert_ticket_types.id", ondelete="CASCADE"), nullable=False)
+
+    qty_for_sale = Column(Integer, nullable=False, server_default=text("0"))
+    price_gross = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    ticketer = relationship("Ticketer")
+    ticket_type = relationship("ConcertTicketType")
+
+    __table_args__ = (
+        UniqueConstraint("concert_id", "ticketer_id", "ticket_type_id", name="uq_concert_ticketer_ticket_type"),
     )
 
 
@@ -706,6 +743,11 @@ class TicketSaleDetail(Base):
     )
 
     qty = Column(Integer, nullable=False, server_default=text("0"))
+
+    # Precio unitario BRUTO usado para este registro (incluye IVA y SGAE).
+    # Se guarda para que cambios posteriores en configuración no alteren históricos.
+    unit_price_gross = Column(Numeric, nullable=False, server_default=text("0"))
+
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     ticketer = relationship("Ticketer")

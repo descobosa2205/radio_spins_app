@@ -146,6 +146,7 @@
                 {% if CAN_VIEW_ECON %}
                   <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
                   <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
+                  <div class="metric"><small class="text-muted d-block">Rebate neto</small><div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0) or 0)|eur }}</div></div>
                 {% endif %}
 
                 {% if c.break_even_ticket and c.break_even_ticket > 0 %}

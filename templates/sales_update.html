@@ -21,16 +21,13 @@
   </div>
 </div>
 
-<div class="alert alert-info">
-  <strong>Consejo:</strong> Es recomendable actualizar las ventas a diario. Los eventos pendientes se resaltan en <span class="badge bg-warning text-dark">amarillo</span> (con datos previos) o <span class="badge bg-danger">rojo</span> (sin datos previos).
-</div>
 
 {% for sale_type in order %}
   {% set concerts = sections.get(sale_type, []) %}
   {% if concerts and concerts|length %}
     <h4 class="mt-4">{{ titles.get(sale_type, sale_type) }}</h4>
 
-    <div class="row row-cols-1 row-cols-md-2 row-cols-xl-3 g-3">
+    <div class="row g-2">
       {% for c in concerts %}
         {% set sold_total = totals.get(c.id, 0) %}
         {% set sold_today = today_map.get(c.id, 0) %}
@@ -40,109 +37,101 @@
         {% set updated_last = last_map.get(c.id) %}
         {% set card_state = "sales-card-updated" if updated_last == day else ("sales-card-pending" if updated_last else "sales-card-never") %}
 
-        <div class="col">
-          <div class="card shadow-sm h-100 sales-card {{ card_state }}" id="concert-{{ c.id }}">
-            <div class="card-header d-flex justify-content-between align-items-start gap-2">
-              <div class="me-auto">
-                <div class="fw-bold">{{ c.artist.name if c.artist else 'Sin artista' }}</div>
-                <div class="text-muted small">
-                  {{ c.date.strftime('%d/%m/%Y') if c.date else '' }}
-                  {% if c.venue %} · {{ c.venue.name }}{% endif %}
-                  {% if c.venue and c.venue.municipality %} · {{ c.venue.municipality }}{% endif %}
-                </div>
-              </div>
-
-              <div class="d-flex align-items-center gap-1">
-                <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#salesUpdateModal-{{ c.id }}">
-                  <i class="fa-solid fa-pen-to-square me-1"></i> Actualizar ventas
-                </button>
-
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#cfgModal-{{ c.id }}" title="Configuración de ventas">
-                  <i class="fa-solid fa-gear"></i>
-                </button>
-
-                {# En esta app el endpoint real es concert_edit_view (no concert_edit). #}
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=c.id) }}" title="Editar concierto">
-                  <i class="fa-solid fa-pen"></i>
-                </a>
-              </div>
-            </div>
-
-            <div class="card-body">
-              <div class="d-flex flex-wrap gap-2 mb-2">
-                {% if updated_last == day %}
-                  <span class="badge text-bg-success">Actualizado hoy</span>
-                {% elif updated_last %}
-                  <span class="badge text-bg-warning text-dark">Pendiente (última: {{ updated_last.strftime('%d/%m/%Y') }})</span>
-                {% else %}
-                  <span class="badge text-bg-danger">Pendiente (sin datos)</span>
-                {% endif %}
-
-                {% if c.sale_start_date %}
-                  <span class="badge text-bg-light border">Salida: {{ c.sale_start_date.strftime('%d/%m/%Y') }}</span>
-                {% endif %}
-
-                {% if c.sold_out %}
-                  <span class="badge bg-dark">SOLD OUT</span>
-                {% endif %}
-              </div>
-
-              <div class="row g-2">
-                <div class="col-6">
-                  <div class="small text-muted">Vendidas (total)</div>
-                  <div class="fw-bold">{{ sold_total }}</div>
-                </div>
-                <div class="col-6">
-                  <div class="small text-muted">Vendidas (hoy)</div>
-                  <div class="fw-bold">{{ sold_today }}</div>
-                </div>
-                <div class="col-6">
-                  <div class="small text-muted">Aforo a la venta</div>
-                  <div class="fw-bold">{{ cap }}</div>
-                </div>
-                <div class="col-6">
-                  <div class="small text-muted">% venta</div>
-                  <div class="fw-bold">{{ "%.1f"|format(pct) }}%</div>
-                </div>
-                <div class="col-12">
-                  <div class="small text-muted">Pendientes</div>
-                  <div class="fw-bold">{{ pending if pending > 0 else 0 }}</div>
-                </div>
-              </div>
-
-              {% if CAN_VIEW_ECON %}
-                <hr>
-                <div class="row g-2">
-                  <div class="col-6">
-                    <div class="small text-muted">Bruto</div>
-                    <div class="fw-bold">{{ "%.2f"|format(gross_map.get(c.id, 0.0) or 0.0) }} €</div>
-                  </div>
-                  <div class="col-6">
-                    <div class="small text-muted">Neto</div>
-                    <div class="fw-bold">{{ "%.2f"|format(net_map.get(c.id, 0.0) or 0.0) }} €</div>
-                  </div>
-                  <div class="col-12">
-                    <div class="small text-muted">Rebate neto</div>
-                    <div class="fw-bold">{{ "%.2f"|format(rebate_net_map.get(c.id, 0.0) or 0.0) }} €</div>
-                  </div>
-                </div>
-              {% endif %}
-            </div>
-
-            <div class="card-footer d-flex justify-content-between align-items-center">
-              <form method="post" action="{{ url_for('sales_toggle_soldout', cid=c.id) }}">
-                <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                <button class="btn btn-sm btn-outline-dark" type="submit">
-                  {% if c.sold_out %}Quitar SOLD OUT{% else %}Marcar SOLD OUT{% endif %}
-                </button>
-              </form>
-
-              {% if CAN_VIEW_ECON %}
-                <small class="text-muted">Por vender: {{ "%.2f"|format(remaining_gross_map.get(c.id, 0.0) or 0.0) }} €</small>
-              {% endif %}
-            </div>
+<div class="col-12">
+  <div class="card shadow-sm sales-card {{ card_state }}" id="concert-{{ c.id }}">
+    <div class="card-body py-2">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div class="me-auto">
+          <div class="fw-bold">{{ c.artist.name if c.artist else 'Sin artista' }}</div>
+          <div class="text-muted small">
+            {{ c.date.strftime('%d/%m/%Y') if c.date else '' }}
+            {% if c.venue %} · {{ c.venue.name }}{% endif %}
+            {% if c.venue and c.venue.municipality %} · {{ c.venue.municipality }}{% endif %}
           </div>
         </div>
+
+        <div class="d-flex align-items-center gap-1">
+          <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#salesUpdateModal-{{ c.id }}">
+            <i class="fa-solid fa-pen-to-square me-1"></i> Actualizar ventas
+          </button>
+
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#cfgModal-{{ c.id }}" title="Configuración de ventas">
+            <i class="fa-solid fa-gear"></i>
+          </button>
+
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=c.id) }}" title="Editar concierto">
+            <i class="fa-solid fa-pen"></i>
+          </a>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-2">
+        <div class="d-flex flex-wrap gap-2">
+          {% if updated_last == day %}
+            <span class="badge text-bg-success">Actualizado hoy</span>
+          {% elif updated_last %}
+            <span class="badge text-bg-warning text-dark">Pendiente (última: {{ updated_last.strftime('%d/%m/%Y') }})</span>
+          {% else %}
+            <span class="badge text-bg-danger">Pendiente (sin datos)</span>
+          {% endif %}
+
+          {% if c.sale_start_date %}
+            <span class="badge text-bg-light border">Salida: {{ c.sale_start_date.strftime('%d/%m/%Y') }}</span>
+          {% endif %}
+
+          {% if c.sold_out %}
+            <span class="badge bg-dark">SOLD OUT</span>
+          {% endif %}
+        </div>
+
+        <form method="post" action="{{ url_for('sales_toggle_soldout', cid=c.id) }}" class="m-0">
+          <input type="hidden" name="day" value="{{ day.isoformat() }}">
+          <button class="btn btn-sm btn-outline-dark" type="submit">
+            {% if c.sold_out %}Quitar SOLD OUT{% else %}Marcar SOLD OUT{% endif %}
+          </button>
+        </form>
+      </div>
+
+      <div class="metrics-inline mt-2">
+        <div class="metric">
+          <small class="text-muted d-block">Vendidas hoy</small>
+          <div class="fw-semibold">{{ sold_today }}</div>
+        </div>
+        <div class="metric">
+          <small class="text-muted d-block">% venta</small>
+          <div class="fw-semibold">{{ "%.1f"|format(pct) }}%</div>
+        </div>
+        <div class="metric">
+          <small class="text-muted d-block">Vendidas total</small>
+          <div class="fw-semibold">{{ sold_total }}</div>
+        </div>
+        <div class="metric">
+          <small class="text-muted d-block">Aforo a la venta</small>
+          <div class="fw-semibold">{{ cap }}</div>
+        </div>
+        <div class="metric">
+          <small class="text-muted d-block">Pendientes</small>
+          <div class="fw-semibold">{{ pending if pending > 0 else 0 }}</div>
+        </div>
+
+        {% if CAN_VIEW_ECON %}
+          <div class="metric">
+            <small class="text-muted d-block">Bruto</small>
+            <div class="fw-semibold">{{ (gross_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+          </div>
+          <div class="metric">
+            <small class="text-muted d-block">Neto</small>
+            <div class="fw-semibold">{{ (net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+          </div>
+          <div class="metric">
+            <small class="text-muted d-block">Rebate neto</small>
+            <div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
 
         {# ---------------- MODAL: ACTUALIZAR VENTAS ---------------- #}
         <div class="modal fade" id="salesUpdateModal-{{ c.id }}" tabindex="-1" aria-hidden="true">
@@ -208,6 +197,7 @@
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
+                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
                         </div>
@@ -218,12 +208,7 @@
                               · Rebate neto: {{ "%.2f"|format(rebate_net_by_ticketer_map.get(c.id, {}).get(tid, 0.0) or 0.0) }} €
                             </span>
                           {% endif %}
-                          {% if has_today %}
-                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="enableEdit('{{ c.id }}','{{ tid }}')">
-                              <i class="fa-solid fa-pen me-1"></i> Editar
-                            </button>
-                          {% endif %}
-                        </div>
+</div>
                       </div>
 
                       <div class="card-body">
@@ -266,7 +251,7 @@
                                         step="1"
                                         name="qty_{{ tt.id }}"
                                         value="{{ today_val }}"
-                                        {% if has_today %}readonly{% endif %}
+                                        
                                       >
                                     </td>
                                     <td class="text-end">{{ sold_acum }}</td>
@@ -279,12 +264,10 @@
                             </table>
                           </div>
 
-                          <div class="d-flex gap-2 justify-content-end">
-                            <button id="save-{{ c.id }}-{{ tid }}" class="btn btn-sm btn-primary" type="submit" {% if has_today %}style="display:none"{% endif %}>
+                          <div class="d-flex gap-2 justify-content-end">                            <button id="save-{{ c.id }}-{{ tid }}" class="btn btn-sm btn-primary" type="submit">
                               <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
                             </button>
-                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-dismiss="modal">Cerrar</button>
-                          </div>
+</div>
                         </form>
 
                       </div>
@@ -474,16 +457,16 @@
                   <h6 class="mb-0">Ticketeras</h6>
                   <form class="d-flex gap-2" method="post" action="{{ url_for('sales_ticketer_add', cid=c.id) }}">
                     <input type="hidden" name="day" value="{{ day.isoformat() }}">
-                    <select class="form-select form-select-sm" name="ticketer_id" style="min-width:220px">
+                    <select class="form-select form-select-sm select-with-thumbs" name="ticketer_id" style="min-width:220px">
                       <option value="">— Selecciona —</option>
                       {% for t in all_ticketers %}
-                        <option value="{{ t.id }}">{{ t.name }}</option>
+                        <option value="{{ t.id }}" data-photo="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}">{{ t.name }}</option>
                       {% endfor %}
                     </select>
                     <button class="btn btn-sm btn-outline-primary" type="submit">
                       <i class="fa-solid fa-plus me-1"></i> Añadir
                     </button>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#newTicketerModal">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openNewTicketerModal('{{ c.id }}')">
                       Nueva
                     </button>
                   </form>
@@ -497,14 +480,16 @@
                   {% for ct in c.ticketers %}
                     {% set tid = ct.ticketer_id %}
                     {% set tcap = ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) %}
+                    {% set is_open_tick = (open_cfg == c.id|string and open_ticketer == tid|string) %}
                     <div class="accordion-item">
                       <h2 class="accordion-header" id="tickh-{{ c.id }}-{{ tid }}">
-                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#tickc-{{ c.id }}-{{ tid }}" aria-expanded="false" aria-controls="tickc-{{ c.id }}-{{ tid }}">
+                        <button class="accordion-button {% if not is_open_tick %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#tickc-{{ c.id }}-{{ tid }}" aria-expanded="{% if is_open_tick %}true{% else %}false{% endif %}" aria-controls="tickc-{{ c.id }}-{{ tid }}">
+                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" class="station-logo me-2" style="width:20px;height:20px;object-fit:contain;" alt="">
                           <strong class="me-2">{{ ct.ticketer.name }}</strong>
                           <span class="text-muted small">Aforo a la venta: {{ tcap }}</span>
                         </button>
                       </h2>
-                      <div id="tickc-{{ c.id }}-{{ tid }}" class="accordion-collapse collapse" aria-labelledby="tickh-{{ c.id }}-{{ tid }}" data-bs-parent="#ticketersAcc-{{ c.id }}">
+                      <div id="tickc-{{ c.id }}-{{ tid }}" class="accordion-collapse collapse {% if is_open_tick %}show{% endif %}" aria-labelledby="tickh-{{ c.id }}-{{ tid }}" data-bs-parent="#ticketersAcc-{{ c.id }}">
                         <div class="accordion-body">
 
                           <div class="d-flex justify-content-end mb-2">
@@ -566,7 +551,7 @@
                             </div>
                             <div class="d-flex gap-2">
                               {% if ct.rebate_mode %}
-                                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#rebateModal-{{ c.id }}-{{ tid }}">
+                                <button class="btn btn-sm btn-outline-primary" type="button" onclick="openRebateModal('{{ c.id }}','{{ tid }}')">
                                   Editar rebate
                                 </button>
                                 <form method="post" action="{{ url_for('sales_ticketer_rebate_delete', cid=c.id, tid=tid) }}" onsubmit="return confirm('¿Eliminar rebate?')">
@@ -574,7 +559,7 @@
                                   <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
                                 </form>
                               {% else %}
-                                <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#rebateModal-{{ c.id }}-{{ tid }}">
+                                <button class="btn btn-sm btn-outline-primary" type="button" onclick="openRebateModal('{{ c.id }}','{{ tid }}')">
                                   Añadir rebate
                                 </button>
                               {% endif %}
@@ -602,7 +587,10 @@
                       <div class="modal-dialog">
                         <div class="modal-content">
                           <div class="modal-header">
-                            <h5 class="modal-title">Configurar rebate — {{ ct.ticketer.name }}</h5>
+                            <h5 class="modal-title d-flex align-items-center gap-2">
+                              <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:20px;height:20px;object-fit:contain;" alt="">
+                              <span>Configurar rebate — {{ ct.ticketer.name }}</span>
+                            </h5>
                             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                           </div>
                           <div class="modal-body">
@@ -680,9 +668,9 @@
 
           <div class="mb-3">
             <label class="form-label">Artistas</label>
-            <select class="form-select" name="artist_ids" multiple size="6">
+            <select class="form-select select-artists" name="artist_ids" multiple>
               {% for a in report_artists %}
-                <option value="{{ a.id }}" selected>{{ a.name }}</option>
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" selected>{{ a.name }}</option>
               {% endfor %}
             </select>
             <div class="form-text">Por defecto se incluyen todos los artistas visibles en este día.</div>
@@ -791,16 +779,55 @@
 </div>
 
 <script>
-  // Mantener la lógica de "Editar" para ticketeras ya actualizadas hoy
-  function enableEdit(concert_id, ticketer_id) {
-    const prefix = 'qty-' + concert_id + '-' + ticketer_id + '-';
-    document.querySelectorAll('[id^="' + prefix + '"]').forEach((inp) => {
-      inp.removeAttribute('readonly');
-      inp.classList.add('border-warning');
+
+// Abrir modal de rebate sin "congelar" la pantalla (Bootstrap no soporta modales anidados)
+function openRebateModal(concertId, ticketerId) {
+  const cfgEl = document.getElementById('cfgModal-' + concertId);
+  const rebateEl = document.getElementById('rebateModal-' + concertId + '-' + ticketerId);
+  if (!cfgEl || !rebateEl) return;
+
+  const cfgModal = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
+  cfgModal.hide();
+
+  cfgEl.addEventListener('hidden.bs.modal', function _once() {
+    cfgEl.removeEventListener('hidden.bs.modal', _once);
+    const rebateModal = bootstrap.Modal.getInstance(rebateEl) || new bootstrap.Modal(rebateEl);
+    rebateModal.show();
+  });
+
+  rebateEl.addEventListener('hidden.bs.modal', function _once2() {
+    rebateEl.removeEventListener('hidden.bs.modal', _once2);
+    // Reabrimos configuración (si el usuario canceló/cerro)
+    const cfgModal2 = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
+    cfgModal2.show();
+  });
+}
+
+// Abrir modal "Nueva ticketera" sin anidar modales y conservando el concierto activo
+function openNewTicketerModal(concertId) {
+  const cfgEl = document.getElementById('cfgModal-' + concertId);
+  const ntEl = document.getElementById('newTicketerModal');
+  const form = document.getElementById('newTicketerForm');
+  if (!ntEl || !form) return;
+
+  form.dataset.concertId = concertId || '';
+
+  // Si venimos desde un modal de configuración, lo ocultamos primero
+  if (cfgEl) {
+    const cfgModal = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
+    cfgModal.hide();
+    cfgEl.addEventListener('hidden.bs.modal', function _once() {
+      cfgEl.removeEventListener('hidden.bs.modal', _once);
+      (bootstrap.Modal.getInstance(ntEl) || new bootstrap.Modal(ntEl)).show();
     });
-    const saveBtn = document.getElementById('save-' + concert_id + '-' + ticketer_id);
-    if (saveBtn) saveBtn.style.display = 'inline-block';
+    ntEl.addEventListener('hidden.bs.modal', function _once2() {
+      ntEl.removeEventListener('hidden.bs.modal', _once2);
+      (bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl)).show();
+    });
+  } else {
+    (bootstrap.Modal.getInstance(ntEl) || new bootstrap.Modal(ntEl)).show();
   }
+}
 
   function toggleRebateFields(concert_id, ticketer_id) {
     const sel = document.getElementById('rebateModeSel-' + concert_id + '-' + ticketer_id);
@@ -831,8 +858,14 @@
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || "Error creando ticketera");
 
-      // Recargar página para que el selector se actualice (manteniendo el día)
-      window.location.href = "{{ url_for('sales_update_view', d=day.isoformat()) }}";
+      // Recargar página para que el selector se actualice (manteniendo el día y reabriendo configuración)
+      const baseUrl = "{{ url_for('sales_update_view', d=day.isoformat()) }}";
+      const cid = (form.dataset.concertId || "").trim();
+      let url = baseUrl;
+      if (cid) {
+        url += (url.includes("?") ? "&" : "?") + "open_cfg=" + encodeURIComponent(cid);
+      }
+      window.location.href = url;
     } catch (err) {
       alert(err.message || err);
     }
@@ -841,9 +874,18 @@
   // Reabrir modales tras POST (para que no "salte" de pantalla)
   document.addEventListener('DOMContentLoaded', function () {
     const openCfg = "{{ open_cfg }}";
+    const openTicketer = "{{ open_ticketer }}";
     if (openCfg) {
       const el = document.getElementById('cfgModal-' + openCfg);
-      if (el) new bootstrap.Modal(el).show();
+      if (el) {
+        el.addEventListener('shown.bs.modal', function() {
+          if (openTicketer) {
+            const acc = document.getElementById('tickh-' + openCfg + '-' + openTicketer);
+            if (acc) acc.scrollIntoView({behavior: 'smooth', block: 'start'});
+          }
+        }, {once: true});
+        new bootstrap.Modal(el).show();
+      }
     }
 
     const openSales = "{{ open_sales }}";

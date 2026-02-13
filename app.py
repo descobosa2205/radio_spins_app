@@ -5528,6 +5528,7 @@ def sales_update_view():
             next_day=next_day,
             open_cfg=(request.args.get("open_cfg") or ""),
             open_sales=(request.args.get("open_sales") or ""),
+            open_ticketer=(request.args.get("open_ticketer") or ""),
             sections=sections,
             order=SALES_SECTION_ORDER,
             titles=SALES_SECTION_TITLE,
@@ -5828,7 +5829,7 @@ def sales_ticketer_add(cid):
 
     day = request.form.get("day") or request.args.get("day")
     return redirect(
-        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        url_for("sales_update_view", d=day, open_cfg=cid, open_ticketer=ticketer_id) + f"#concert-{cid}"
         if day
         else (request.referrer or url_for("sales_update_view"))
     )
@@ -5892,7 +5893,7 @@ def sales_ticketer_update(cid, tid):
 
     day = request.form.get("day") or request.args.get("day")
     return redirect(
-        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        url_for("sales_update_view", d=day, open_cfg=cid, open_ticketer=tid) + f"#concert-{cid}"
         if day
         else (request.referrer or url_for("sales_update_view"))
     )
@@ -5966,7 +5967,7 @@ def sales_ticketer_allocations_save(cid, tid):
 
     day = request.form.get("day") or request.args.get("day")
     return redirect(
-        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        url_for("sales_update_view", d=day, open_cfg=cid, open_ticketer=tid) + f"#concert-{cid}"
         if day
         else (request.referrer or url_for("sales_update_view"))
     )
@@ -6021,7 +6022,7 @@ def sales_ticketer_rebate_save(cid, tid):
 
     day = request.form.get("day") or request.args.get("day")
     return redirect(
-        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        url_for("sales_update_view", d=day, open_cfg=cid, open_ticketer=tid) + f"#concert-{cid}"
         if day
         else (request.referrer or url_for("sales_update_view"))
     )
@@ -6054,7 +6055,7 @@ def sales_ticketer_rebate_delete(cid, tid):
 
     day = request.form.get("day") or request.args.get("day")
     return redirect(
-        url_for("sales_update_view", d=day, open_cfg=cid) + f"#concert-{cid}"
+        url_for("sales_update_view", d=day, open_cfg=cid, open_ticketer=tid) + f"#concert-{cid}"
         if day
         else (request.referrer or url_for("sales_update_view"))
     )
@@ -6178,11 +6179,17 @@ def sales_ticketer_day_save(cid, tid):
 
 # ------------- REPORTE DE VENTAS (PUBLIC Y ADMIN) -----------
 
-def concerts_for_report(session, day: date, past: bool = False):
+def concerts_for_report(session, day: date, past: bool = False, promoter_id=None, artist_id=None, company_id=None):
     """
-    - Próximos: fecha >= (hoy-2)
-    - Anteriores: fecha < (hoy-2)
-    Precarga TODAS las relaciones usadas en la plantilla para evitar lazy-load.
+    Devuelve conciertos para el reporte de ventas, precargando TODAS las relaciones usadas en la plantilla.
+
+    - Próximos: fecha >= (día-2)
+    - Anteriores: fecha < (día-2)
+
+    Filtros opcionales:
+      - promoter_id: conciertos vendidos por ese promotor o con participación de promotor.
+      - company_id: conciertos EMPRESA (empresa/grupo o facturación) o con participación de empresa.
+      - artist_id: filtra por artista.
     """
     cutoff = day - timedelta(days=2)
 
@@ -6192,7 +6199,7 @@ def concerts_for_report(session, day: date, past: bool = False):
             # entidades directas de la tarjeta
             joinedload(Concert.artist),
             joinedload(Concert.venue),
-            joinedload(Concert.promoter),        # VENDIDO
+            joinedload(Concert.promoter),          # VENDIDO
             joinedload(Concert.group_company),
             joinedload(Concert.billing_company),   # EMPRESA
             # colecciones y sus relaciones anidadas (participaciones)
@@ -6201,16 +6208,51 @@ def concerts_for_report(session, day: date, past: bool = False):
             joinedload(Concert.sales_config),
             selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer),
         )
+        # Solo los tipos con ventas (excluye "GRATUITO")
+        .filter(Concert.sale_type.in_(SALES_SECTION_ORDER))
     )
-
-    # Solo los tipos con ventas (excluye "GRATUITO").
-    q = q.filter(Concert.sale_type.in_(SALES_SECTION_ORDER))
 
     if past:
         q = q.filter(Concert.date < cutoff)
     else:
         q = q.filter(Concert.date >= cutoff)
-    return q.order_by(Concert.date.asc()).all()
+
+    concerts = q.order_by(Concert.date.asc()).all()
+
+    def _safe_uuid(x):
+        try:
+            return to_uuid(x) if x else None
+        except Exception:
+            return None
+
+    pid = _safe_uuid(promoter_id)
+    aid = _safe_uuid(artist_id)
+    cid = _safe_uuid(company_id)
+
+    if aid:
+        concerts = [c for c in concerts if c.artist_id == aid]
+
+    if pid:
+        def _has_promoter(c):
+            if c.promoter_id == pid:
+                return True
+            for s in (c.promoter_shares or []):
+                if s.promoter_id == pid:
+                    return True
+            return False
+        concerts = [c for c in concerts if _has_promoter(c)]
+
+    if cid:
+        def _has_company(c):
+            if c.group_company_id == cid or getattr(c, "billing_company_id", None) == cid:
+                return True
+            for s in (c.company_shares or []):
+                if s.company_id == cid:
+                    return True
+            return False
+        concerts = [c for c in concerts if _has_company(c)]
+
+    return concerts
 
 def build_sales_report_context(day: date, *, past=False, promoter_id=None, artist_id=None, company_id=None):
     session = db()

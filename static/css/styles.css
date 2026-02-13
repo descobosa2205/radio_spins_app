@@ -302,12 +302,18 @@ button.song-status-item:focus {
   padding: .5rem .65rem;
 }
 
+/* === Ventas: resaltado de estado en listado === */
+.sales-card-updated {
+  background-color: #ffffff;
+  border-left: 4px solid #2ecc71;
+}
 
-/* --- Ventas: estados visuales en /ventas (actualizar ventas) --- */
-.sales-card.sales-card-pending {
-  background: #fff7d6; /* amarillo clarito */
+.sales-card-pending {
+  background-color: #fff8d6; /* amarillo clarito */
+  border-left: 4px solid #f0c419;
 }
-.sales-card.sales-card-never {
-  background: #ffe0e0; /* rojo clarito */
+
+.sales-card-never {
+  background-color: #ffe1e1; /* rojo clarito */
+  border-left: 4px solid #e74c3c;
 }
-/* .sales-card-updated: sin cambios (como estaba) */

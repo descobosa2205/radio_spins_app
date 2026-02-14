@@ -36,6 +36,7 @@
         {% set pending = (cap - sold_total) if cap and cap > 0 else 0 %}
         {% set updated_last = last_map.get(c.id) %}
         {% set card_state = "sales-card-updated" if updated_last == day else ("sales-card-pending" if updated_last else "sales-card-never") %}
+        {% set has_rebate_cfg = (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
 
 <div class="col-12">
   <div class="card shadow-sm sales-card {{ card_state }}" id="concert-{{ c.id }}">
@@ -57,6 +58,17 @@
 
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#cfgModal-{{ c.id }}" title="Configuración de ventas">
             <i class="fa-solid fa-gear"></i>
+          </button>
+
+          {% if CAN_VIEW_ECON %}
+            <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
+               href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
+              <i class="fa fa-file-lines"></i>
+            </a>
+          {% endif %}
+          <button type="button" class="btn btn-sm btn-outline-primary" title="Evolución"
+                  onclick="openSalesChart('{{ c.id }}')">
+            <i class="fa fa-chart-line"></i>
           </button>
 
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=c.id) }}" title="Editar concierto">
@@ -123,10 +135,12 @@
             <small class="text-muted d-block">Neto</small>
             <div class="fw-semibold">{{ (net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
           </div>
-          <div class="metric">
-            <small class="text-muted d-block">Rebate neto</small>
-            <div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
-          </div>
+          {% if has_rebate_cfg %}
+            <div class="metric">
+              <small class="text-muted d-block">Rebate neto</small>
+              <div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0.0) or 0.0)|eur }}</div>
+            </div>
+          {% endif %}
         {% endif %}
       </div>
     </div>
@@ -184,7 +198,9 @@
                       {% if CAN_VIEW_ECON %}
                         <div class="ms-auto"><strong>Bruto:</strong> {{ "%.2f"|format(gross_map.get(c.id, 0.0) or 0.0) }} €</div>
                         <div><strong>Neto:</strong> {{ "%.2f"|format(net_map.get(c.id, 0.0) or 0.0) }} €</div>
+                        {% if has_rebate_cfg %}
                         <div><strong>Rebate neto:</strong> {{ "%.2f"|format(rebate_net_map.get(c.id, 0.0) or 0.0) }} €</div>
+                      {% endif %}
                       {% endif %}
                     </div>
                   </div>
@@ -197,7 +213,7 @@
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
+                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
                         </div>
@@ -205,7 +221,7 @@
                           {% if CAN_VIEW_ECON %}
                             <span class="text-muted small">
                               Bruto (acum): {{ "%.2f"|format(ticketer_totals_map.get(c.id, {}).get(tid, {}).get('gross', 0.0) or 0.0) }} €
-                              · Rebate neto: {{ "%.2f"|format(rebate_net_by_ticketer_map.get(c.id, {}).get(tid, 0.0) or 0.0) }} €
+                              {% if ct.rebate_mode %}· Rebate neto: {{ "%.2f"|format(rebate_net_by_ticketer_map.get(c.id, {}).get(tid, 0.0) or 0.0) }} €{% endif %}
                             </span>
                           {% endif %}
 </div>
@@ -460,7 +476,7 @@
                     <select class="form-select form-select-sm select-with-thumbs" name="ticketer_id" style="min-width:220px">
                       <option value="">— Selecciona —</option>
                       {% for t in all_ticketers %}
-                        <option value="{{ t.id }}" data-photo="{{ t.logo_url or url_for('static', filename='img/ticketer_default.png') }}">{{ t.name }}</option>
+                        <option value="{{ t.id }}" data-photo="{{ t.logo_url or url_for('static', filename='img/default_promoter.png') }}">{{ t.name }}</option>
                       {% endfor %}
                     </select>
                     <button class="btn btn-sm btn-outline-primary" type="submit">
@@ -484,7 +500,7 @@
                     <div class="accordion-item">
                       <h2 class="accordion-header" id="tickh-{{ c.id }}-{{ tid }}">
                         <button class="accordion-button {% if not is_open_tick %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#tickc-{{ c.id }}-{{ tid }}" aria-expanded="{% if is_open_tick %}true{% else %}false{% endif %}" aria-controls="tickc-{{ c.id }}-{{ tid }}">
-                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" class="station-logo me-2" style="width:20px;height:20px;object-fit:contain;" alt="">
+                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}" class="station-logo me-2" style="width:20px;height:20px;object-fit:contain;" alt="">
                           <strong class="me-2">{{ ct.ticketer.name }}</strong>
                           <span class="text-muted small">Aforo a la venta: {{ tcap }}</span>
                         </button>
@@ -551,7 +567,16 @@
                             </div>
                             <div class="d-flex gap-2">
                               {% if ct.rebate_mode %}
-                                <button class="btn btn-sm btn-outline-primary" type="button" onclick="openRebateModal('{{ c.id }}','{{ tid }}')">
+                                <button class="btn btn-sm btn-outline-primary" type="button"
+                                        onclick="openRebateModal(this)"
+                                        data-concert-id="{{ c.id }}"
+                                        data-ticketer-id="{{ tid }}"
+                                        data-action="{{ url_for('sales_ticketer_rebate_save', cid=c.id, tid=tid) }}"
+                                        data-ticketer-name="{{ ct.ticketer.name }}"
+                                        data-ticketer-logo="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}"
+                                        data-rebate-mode="{{ ct.rebate_mode or '' }}"
+                                        data-rebate-fixed="{{ '%.2f'|format(ct.rebate_fixed_gross or 0.0) }}"
+                                        data-rebate-pct="{{ '%.2f'|format(ct.rebate_pct or 0.0) }}">
                                   Editar rebate
                                 </button>
                                 <form method="post" action="{{ url_for('sales_ticketer_rebate_delete', cid=c.id, tid=tid) }}" onsubmit="return confirm('¿Eliminar rebate?')">
@@ -559,7 +584,16 @@
                                   <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
                                 </form>
                               {% else %}
-                                <button class="btn btn-sm btn-outline-primary" type="button" onclick="openRebateModal('{{ c.id }}','{{ tid }}')">
+                                <button class="btn btn-sm btn-outline-primary" type="button"
+                                        onclick="openRebateModal(this)"
+                                        data-concert-id="{{ c.id }}"
+                                        data-ticketer-id="{{ tid }}"
+                                        data-action="{{ url_for('sales_ticketer_rebate_save', cid=c.id, tid=tid) }}"
+                                        data-ticketer-name="{{ ct.ticketer.name }}"
+                                        data-ticketer-logo="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}"
+                                        data-rebate-mode="{{ ct.rebate_mode or '' }}"
+                                        data-rebate-fixed="{{ '%.2f'|format(ct.rebate_fixed_gross or 0.0) }}"
+                                        data-rebate-pct="{{ '%.2f'|format(ct.rebate_pct or 0.0) }}">
                                   Añadir rebate
                                 </button>
                               {% endif %}
@@ -581,56 +615,6 @@
                         </div>
                       </div>
                     </div>
-
-                    {# Modal rebate (por ticketera) #}
-                    <div class="modal fade" id="rebateModal-{{ c.id }}-{{ tid }}" tabindex="-1" aria-hidden="true">
-                      <div class="modal-dialog">
-                        <div class="modal-content">
-                          <div class="modal-header">
-                            <h5 class="modal-title d-flex align-items-center gap-2">
-                              <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/ticketer_default.png') }}" style="width:20px;height:20px;object-fit:contain;" alt="">
-                              <span>Configurar rebate — {{ ct.ticketer.name }}</span>
-                            </h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-                          </div>
-                          <div class="modal-body">
-                            <form method="post" action="{{ url_for('sales_ticketer_rebate_save', cid=c.id, tid=tid) }}">
-                              <input type="hidden" name="day" value="{{ day.isoformat() }}">
-
-                              <div class="mb-2">
-                                <label class="form-label">Tipo de rebate</label>
-                                <select class="form-select" name="rebate_mode" id="rebateModeSel-{{ c.id }}-{{ tid }}" onchange="toggleRebateFields('{{ c.id }}','{{ tid }}')">
-                                  <option value="">— Sin rebate —</option>
-                                  <option value="FIXED" {% if ct.rebate_mode == 'FIXED' %}selected{% endif %}>Importe fijo por entrada vendida (bruto, IVA 21% incluido)</option>
-                                  <option value="PERCENT" {% if ct.rebate_mode == 'PERCENT' %}selected{% endif %}>Porcentaje sobre ingresos base (sin IVA)</option>
-                                </select>
-                              </div>
-
-                              <div class="mb-2" id="rebateFixedWrap-{{ c.id }}-{{ tid }}">
-                                <label class="form-label">Importe fijo por entrada (bruto)</label>
-                                <input class="form-control" type="number" step="0.01" min="0" name="rebate_fixed_gross" value="{{ "%.2f"|format(ct.rebate_fixed_gross or 0.0) }}">
-                              </div>
-
-                              <div class="mb-2" id="rebatePctWrap-{{ c.id }}-{{ tid }}">
-                                <label class="form-label">Porcentaje (%)</label>
-                                <input class="form-control" type="number" step="0.01" min="0" max="100" name="rebate_pct" value="{{ "%.2f"|format(ct.rebate_pct or 0.0) }}">
-                              </div>
-
-                              <div class="d-flex justify-content-end gap-2">
-                                <button class="btn btn-primary" type="submit">Guardar</button>
-                                <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
-                              </div>
-                            </form>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <script>
-                      document.addEventListener('DOMContentLoaded', function() {
-                        toggleRebateFields('{{ c.id }}','{{ tid }}');
-                      });
-                    </script>
 
                   {% endfor %}
                 </div>
@@ -778,30 +762,147 @@
   </div>
 </div>
 
+{# ---------------- MODAL: REBATE (GLOBAL) ---------------- #}
+<div class="modal fade" id="rebateModalGlobal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title d-flex align-items-center gap-2">
+          <img id="rebateModalLogo" src="{{ url_for('static', filename='img/default_promoter.png') }}" style="width:20px;height:20px;object-fit:contain;" alt="">
+          <span id="rebateModalTitle">Configurar rebate</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <form method="post" id="rebateModalForm" action="">
+          <input type="hidden" name="day" value="{{ day.isoformat() }}">
+
+          <div class="mb-2">
+            <label class="form-label">Tipo de rebate</label>
+            <select class="form-select" name="rebate_mode" id="rebateModeSel" onchange="toggleRebateFields()">
+              <option value="">— Sin rebate —</option>
+              <option value="FIXED">Importe fijo por entrada vendida (bruto, IVA 21% incluido)</option>
+              <option value="PERCENT">Porcentaje sobre ingresos base (sin IVA)</option>
+            </select>
+          </div>
+
+          <div class="mb-2" id="rebateFixedWrap">
+            <label class="form-label">Importe fijo por entrada (bruto)</label>
+            <input class="form-control" type="number" step="0.01" min="0" name="rebate_fixed_gross" id="rebateFixedInput" value="0">
+          </div>
+
+          <div class="mb-2" id="rebatePctWrap">
+            <label class="form-label">Porcentaje (%)</label>
+            <input class="form-control" type="number" step="0.01" min="0" max="100" name="rebate_pct" id="rebatePctInput" value="0">
+          </div>
+
+          <div class="d-flex justify-content-end gap-2">
+            <button class="btn btn-primary" type="submit">Guardar</button>
+            <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button>
+          </div>
+
+          <div class="form-text mt-2">
+            El rebate se calcula y muestra como ingreso separado en <strong>neto</strong> (sin IVA 21%).
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 
 // Abrir modal de rebate sin "congelar" la pantalla (Bootstrap no soporta modales anidados)
-function openRebateModal(concertId, ticketerId) {
-  const cfgEl = document.getElementById('cfgModal-' + concertId);
-  const rebateEl = document.getElementById('rebateModal-' + concertId + '-' + ticketerId);
-  if (!cfgEl || !rebateEl) return;
+function openRebateModal(btn) {
+  if (!btn) return;
 
-  const cfgModal = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
-  cfgModal.hide();
+  const concertId = (btn.dataset.concertId || '').trim();
+  const ticketerId = (btn.dataset.ticketerId || '').trim();
+  const action = (btn.dataset.action || '').trim();
+  const ticketerName = (btn.dataset.ticketerName || '').trim();
+  const ticketerLogo = (btn.dataset.ticketerLogo || '').trim();
+  const mode = (btn.dataset.rebateMode || '').toUpperCase();
+  const fixed = (btn.dataset.rebateFixed || '0').trim();
+  const pct = (btn.dataset.rebatePct || '0').trim();
 
-  cfgEl.addEventListener('hidden.bs.modal', function _once() {
-    cfgEl.removeEventListener('hidden.bs.modal', _once);
-    const rebateModal = bootstrap.Modal.getInstance(rebateEl) || new bootstrap.Modal(rebateEl);
+  const rebateEl = document.getElementById('rebateModalGlobal');
+  const formEl = document.getElementById('rebateModalForm');
+  const titleEl = document.getElementById('rebateModalTitle');
+  const logoEl = document.getElementById('rebateModalLogo');
+  const sel = document.getElementById('rebateModeSel');
+  const fixedInput = document.getElementById('rebateFixedInput');
+  const pctInput = document.getElementById('rebatePctInput');
+
+  if (!rebateEl || !formEl || !sel) return;
+
+  // Guardamos a qué modal de configuración debemos volver
+  rebateEl.dataset.returnConcertId = concertId;
+  rebateEl.dataset.returnTicketerId = ticketerId;
+
+  if (action) formEl.action = action;
+  if (titleEl) titleEl.textContent = 'Configurar rebate — ' + (ticketerName || 'Ticketera');
+  if (logoEl && ticketerLogo) {
+    logoEl.src = ticketerLogo;
+    logoEl.alt = ticketerName;
+  }
+
+  // Valores
+  sel.value = mode || '';
+  if (fixedInput) fixedInput.value = fixed;
+  if (pctInput) pctInput.value = pct;
+  toggleRebateFields();
+
+  const rebateModal = bootstrap.Modal.getInstance(rebateEl) || new bootstrap.Modal(rebateEl);
+  const cfgEl = concertId ? document.getElementById('cfgModal-' + concertId) : null;
+
+  if (cfgEl) {
+    const cfgModal = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
+    cfgModal.hide();
+    cfgEl.addEventListener('hidden.bs.modal', function _once() {
+      cfgEl.removeEventListener('hidden.bs.modal', _once);
+      rebateModal.show();
+    }, { once: true });
+  } else {
     rebateModal.show();
-  });
-
-  rebateEl.addEventListener('hidden.bs.modal', function _once2() {
-    rebateEl.removeEventListener('hidden.bs.modal', _once2);
-    // Reabrimos configuración (si el usuario canceló/cerro)
-    const cfgModal2 = bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl);
-    cfgModal2.show();
-  });
+  }
 }
+
+function toggleRebateFields() {
+  const sel = document.getElementById('rebateModeSel');
+  const fixedWrap = document.getElementById('rebateFixedWrap');
+  const pctWrap = document.getElementById('rebatePctWrap');
+  if (!sel) return;
+  const v = (sel.value || '').toUpperCase();
+  if (fixedWrap) fixedWrap.style.display = (v === 'FIXED') ? 'block' : 'none';
+  if (pctWrap) pctWrap.style.display = (v === 'PERCENT') ? 'block' : 'none';
+}
+
+// Al cerrar el modal de rebate, reabrimos la configuración del concierto y hacemos scroll a la ticketera
+document.addEventListener('DOMContentLoaded', function () {
+  const rebateEl = document.getElementById('rebateModalGlobal');
+  if (rebateEl) {
+    rebateEl.addEventListener('hidden.bs.modal', function () {
+      const cid = (rebateEl.dataset.returnConcertId || '').trim();
+      const tid = (rebateEl.dataset.returnTicketerId || '').trim();
+      if (!cid) return;
+      const cfgEl = document.getElementById('cfgModal-' + cid);
+      if (!cfgEl) return;
+
+      cfgEl.addEventListener('shown.bs.modal', function _onceShow() {
+        cfgEl.removeEventListener('shown.bs.modal', _onceShow);
+        if (tid) {
+          const acc = document.getElementById('tickh-' + cid + '-' + tid);
+          if (acc) acc.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, { once: true });
+
+      (bootstrap.Modal.getInstance(cfgEl) || new bootstrap.Modal(cfgEl)).show();
+    });
+  }
+
+  // Estado inicial de campos
+  toggleRebateFields();
+});
 
 // Abrir modal "Nueva ticketera" sin anidar modales y conservando el concierto activo
 function openNewTicketerModal(concertId) {
@@ -828,18 +929,6 @@ function openNewTicketerModal(concertId) {
     (bootstrap.Modal.getInstance(ntEl) || new bootstrap.Modal(ntEl)).show();
   }
 }
-
-  function toggleRebateFields(concert_id, ticketer_id) {
-    const sel = document.getElementById('rebateModeSel-' + concert_id + '-' + ticketer_id);
-    const fixedWrap = document.getElementById('rebateFixedWrap-' + concert_id + '-' + ticketer_id);
-    const pctWrap = document.getElementById('rebatePctWrap-' + concert_id + '-' + ticketer_id);
-
-    if (!sel) return;
-    const v = (sel.value || '').toUpperCase();
-
-    if (fixedWrap) fixedWrap.style.display = (v === 'FIXED') ? 'block' : 'none';
-    if (pctWrap) pctWrap.style.display = (v === 'PERCENT') ? 'block' : 'none';
-  }
 
   // Crear ticketera (AJAX)
   const newTicketerForm = document.getElementById('newTicketerForm');

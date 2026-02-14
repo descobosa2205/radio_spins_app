@@ -359,6 +359,18 @@ def can_edit_artists_stations() -> bool:
 def can_edit_sales() -> bool:
     return current_role() in (3, 10)
 
+def can_view_sales_report() -> bool:
+    """Permiso para generar/ver reportes de ventas.
+
+    En la app hay dos pantallas relacionadas:
+    - /ventas (actualizar ventas) -> requiere can_edit_sales()
+    - /ventas/reporte (reporte) -> visible para más roles pero sin economía según permisos
+
+    Este helper lo usamos para endpoints de informe/pdfs relacionados con ventas.
+    """
+    return can_edit_sales() or is_master()
+
+
 def is_master() -> bool:
     return current_role() == 10
 
@@ -561,6 +573,7 @@ def inject_globals():
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        CAN_EDIT_DISCOGRAFICA=can_edit_catalogs(),
         CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
     )
@@ -6727,6 +6740,12 @@ def sales_update_report_pdf():
 
             rebate_net_map[cid2] = total_rebate_net
 
+        # Para mostrar rebate neto solo en conciertos con rebate configurado
+        rebate_cfg_map = {
+            c.id: any(((getattr(ct, 'rebate_mode', None) or '').strip()) for ct in (c.ticketers or []))
+            for c in concerts
+        }
+
         # Secciones (para encabezados)
         sections = {k: [] for k in SALES_SECTION_ORDER}
         for c in concerts:
@@ -6763,7 +6782,7 @@ def sales_update_report_pdf():
             "pending": ("Pendientes", lambda c: str(_pending_for(c))),
             "gross": ("Bruto", lambda c: _fmt_money_eur(float(gross_map.get(c.id, 0.0) or 0.0))),
             "net": ("Neto", lambda c: _fmt_money_eur(float(net_map.get(c.id, 0.0) or 0.0))),
-            "rebate_net": ("Rebate neto", lambda c: _fmt_money_eur(float(rebate_net_map.get(c.id, 0.0) or 0.0))),
+            "rebate_net": ("Rebate neto", lambda c: (_fmt_money_eur(float(rebate_net_map.get(c.id, 0.0) or 0.0)) if rebate_cfg_map.get(c.id) else "")),
             "updated": ("Actualizado", lambda c: _updated_for(c)),
         }
 
@@ -6797,7 +6816,7 @@ def sales_update_report_pdf():
         from reportlab.lib.styles import getSampleStyleSheet
         from reportlab.lib.units import cm
 
-        buf = io.BytesIO()
+        buf = BytesIO()
         doc = SimpleDocTemplate(
             buf,
             pagesize=landscape(A4),

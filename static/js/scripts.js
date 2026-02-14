@@ -15,18 +15,24 @@ function initSelect2(){
 
     const $modal = $el.closest('.modal');
 
+    const isSquare = $el.hasClass('select-with-thumbs') && !$el.hasClass('select-artists');
+
     const opts = {
       width: '100%',
       ...( $modal.length ? { dropdownParent: $modal } : {} ),
       templateResult: function (data) {
         if (!data.id) return data.text;
         const photo = $(data.element).data('photo');
-        const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
+        const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;
         return $(`<span>${img}${data.text}</span>`);
       },
       templateSelection: function (data) {
         const photo = $(data.element).data('photo');
-        const img = photo ? `<img class="thumb" src="${photo}" />` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
+        const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+        const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;
         return $(`<span>${img}${data.text}</span>`);
       },
       escapeMarkup: function (m) { return m; }

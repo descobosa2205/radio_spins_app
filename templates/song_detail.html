@@ -680,11 +680,11 @@
                   <label class="form-label">¿Cómo quieres añadirlo?</label>
                   <div class="d-flex gap-3 flex-wrap">
                     <div class="form-check">
-                      <input class="form-check-input" type="radio" name="mode" id="modeGenerate" value="generate" checked>
+                      <input class="form-check-input" type="radio" name="mode" id="modeGenerate" value="generate" checked onchange="window.applyIsrcModalControls && window.applyIsrcModalControls()">
                       <label class="form-check-label" for="modeGenerate">Generar nuevo</label>
                     </div>
                     <div class="form-check">
-                      <input class="form-check-input" type="radio" name="mode" id="modeManual" value="manual">
+                      <input class="form-check-input" type="radio" name="mode" id="modeManual" value="manual" onchange="window.applyIsrcModalControls && window.applyIsrcModalControls()">
                       <label class="form-check-label" for="modeManual">Introducir a mano</label>
                     </div>
                   </div>
@@ -693,7 +693,7 @@
 
                 <div class="col-12" id="isrcManualWrap" style="display:none;">
                   <label class="form-label">Código ISRC</label>
-                  <input name="code" class="form-control" placeholder="ES-270-26-01001">
+                  <input name="code" class="form-control" placeholder="ES-270-26-01001" autocomplete="off">
                 </div>
 
               </div>
@@ -705,6 +705,64 @@
           </form>
         </div>
       </div>
+
+      {#
+        Fallback JS: el input de ISRC manual debe aparecer al seleccionar "Introducir a mano".
+        Esto evita depender de que scripts.js se ejecute correctamente (p.ej. si falla otro init).
+      #}
+      <script>
+        (function(){
+          function applyIsrcModalControls(){
+            try {
+              var primarySel = document.getElementById('isrcPrimarySelect');
+              var subWrap = document.getElementById('isrcSubproductWrap');
+              var manualWrap = document.getElementById('isrcManualWrap');
+              var modeManual = document.getElementById('modeManual');
+              var codeInput = manualWrap ? manualWrap.querySelector('input[name="code"]') : null;
+
+              if (subWrap && primarySel){
+                subWrap.style.display = (primarySel.value === 'subproduct') ? '' : 'none';
+              }
+
+              var isManual = !!(modeManual && modeManual.checked);
+              if (manualWrap) manualWrap.style.display = isManual ? '' : 'none';
+
+              // Si no es manual, deshabilitamos el input para que no se envíe accidentalmente.
+              if (codeInput){
+                codeInput.disabled = !isManual;
+                codeInput.required = isManual;
+                if (isManual) {
+                  // Enfocar el campo cuando se elige manual
+                  setTimeout(function(){ try { codeInput.focus(); } catch(_e){} }, 0);
+                }
+              }
+            } catch (e) {
+              // Nunca romper la página por un fallo en este control
+              if (window.console && console.warn) console.warn('applyIsrcModalControls error', e);
+            }
+          }
+
+          // Exponer a window para poder usarlo en onchange inline.
+          window.applyIsrcModalControls = applyIsrcModalControls;
+
+          // Reaplicar al abrir el modal.
+          document.addEventListener('shown.bs.modal', function(ev){
+            if (ev && ev.target && ev.target.id === 'addIsrcModal') applyIsrcModalControls();
+          });
+
+          // Reaplicar en cambios relevantes (por si no se usan los onchange inline)
+          document.addEventListener('change', function(ev){
+            var t = ev && ev.target;
+            if (!t) return;
+            if (t.id === 'isrcPrimarySelect' || t.id === 'modeManual' || t.id === 'modeGenerate' || t.name === 'mode') {
+              applyIsrcModalControls();
+            }
+          });
+
+          // Estado inicial
+          applyIsrcModalControls();
+        })();
+      </script>
     {% endif %}
 
   {% elif tab == 'royalties' %}

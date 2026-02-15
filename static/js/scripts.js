@@ -685,3 +685,83 @@ async function openSalesChart(concertId){
     alert("No se pudo abrir el gráfico: " + (err && err.message ? err.message : err));
   }
 }
+// =========================
+// Discográfica > Royalties
+// =========================
+
+function _royaltyStatusMeta(status){
+  const s = (status || '').toUpperCase();
+  if (s === 'SENT') return {label: 'Enviada', color: 'primary'};
+  if (s === 'INVOICED') return {label: 'Facturada', color: 'warning'};
+  if (s === 'PAID') return {label: 'Pagado', color: 'success'};
+  return {label: 'Generada', color: 'secondary'};
+}
+
+async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey){
+  try {
+    const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`;
+
+    const r = await fetch(url);
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || 'No se pudo generar el PDF');
+    }
+
+    const blob = await r.blob();
+    const objUrl = window.URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `liquidacion_royalties_${semesterKey}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(objUrl);
+
+    // Recargar para que aparezca la etiqueta de estado (Generada)
+    setTimeout(() => { window.location.reload(); }, 250);
+
+  } catch (err) {
+    console.error(err);
+    alert('Error al generar la liquidación: ' + (err && err.message ? err.message : err));
+  }
+}
+
+async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
+  try {
+    const r = await fetch('/discografica/royalties/liquidacion/status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, bid, s: semesterKey, status })
+    });
+
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || 'No se pudo actualizar el estado');
+    }
+
+    const js = await r.json();
+    if (!js || !js.ok) throw new Error('Respuesta inválida');
+
+    const meta = _royaltyStatusMeta(js.status);
+    const wrap = document.getElementById(`royLiqBadgeWrap_${kind}_${bid}`);
+    if (wrap) {
+      // Si hay badge dropdown ya renderizado, actualizamos el botón.
+      const btn = wrap.querySelector('button.badge');
+      if (btn) {
+        btn.textContent = meta.label;
+        btn.className = btn.className
+          .replace(/text-bg-\w+/g, '')
+          .trim() + ` text-bg-${meta.color}`;
+      } else {
+        // Si no existe (por ejemplo, aún no estaba generada), montamos uno mínimo
+        wrap.innerHTML = `<span class="badge rounded-pill text-bg-${meta.color}">${meta.label}</span>`;
+      }
+    }
+
+  } catch (err) {
+    console.error(err);
+    alert('Error al actualizar estado: ' + (err && err.message ? err.message : err));
+  }
+}

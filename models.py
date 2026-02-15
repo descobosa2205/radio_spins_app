@@ -512,6 +512,47 @@ class SongRevenueEntry(Base):
     )
 
 
+
+
+class RoyaltyLiquidation(Base):
+    """Estado de liquidaciones de royalties por beneficiario y periodo.
+
+    Guardamos un registro por beneficiario (artista o tercero) y semestre,
+    para poder marcar: Generada -> Enviada -> Facturada -> Pagado.
+
+    beneficiary_kind: 'ARTIST' | 'PROMOTER'
+    beneficiary_id: UUID del beneficiario (Artist.id o Promoter.id)
+
+    Nota: no imponemos FK doble; se valida en aplicación.
+    """
+
+    __tablename__ = "royalty_liquidations"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+
+    beneficiary_kind = Column(Text, nullable=False)  # ARTIST | PROMOTER
+    beneficiary_id = Column(PGUUID(as_uuid=True), nullable=False)
+
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+
+    status = Column(Text, nullable=False, server_default=text("'GENERATED'"))
+
+    generated_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint(
+            "beneficiary_kind",
+            "beneficiary_id",
+            "period_start",
+            name="uq_royalty_liquidations_key",
+        ),
+        Index("idx_royalty_liquidations_period", "period_start"),
+        Index("idx_royalty_liquidations_beneficiary", "beneficiary_kind", "beneficiary_id"),
+    )
+
+
 class Concert(Base):
     __tablename__ = "concerts"
 
@@ -1461,6 +1502,57 @@ def ensure_ingresos_schema():
         """
         CREATE INDEX IF NOT EXISTS idx_song_revenue_entries_period
         ON song_revenue_entries(period_type, period_start);
+        """,
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
+
+
+def ensure_royalty_liquidations_schema():
+    """Asegura el esquema necesario para la pestaña Royalties (liquidaciones por semestre)."""
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        """
+        CREATE TABLE IF NOT EXISTS royalty_liquidations (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+            beneficiary_kind text NOT NULL,
+            beneficiary_id uuid NOT NULL,
+
+            period_start date NOT NULL,
+            period_end date NOT NULL,
+
+            status text NOT NULL DEFAULT 'GENERATED',
+
+            generated_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+
+            CONSTRAINT chk_roy_liq_kind CHECK (beneficiary_kind IN ('ARTIST','PROMOTER')),
+            CONSTRAINT chk_roy_liq_status CHECK (status IN ('GENERATED','SENT','INVOICED','PAID'))
+        );
+        """,
+
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_royalty_liquidations_key
+        ON royalty_liquidations(beneficiary_kind, beneficiary_id, period_start);
+        """,
+
+        """
+        CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_period
+        ON royalty_liquidations(period_start);
+        """,
+
+        """
+        CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_beneficiary
+        ON royalty_liquidations(beneficiary_kind, beneficiary_id);
         """,
     ]
 

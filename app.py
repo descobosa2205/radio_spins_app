@@ -7,6 +7,7 @@ import unicodedata
 from pathlib import Path
 from io import BytesIO
 from functools import wraps
+from contextlib import contextmanager
 from zoneinfo import ZoneInfo
 from sqlalchemy.orm import selectinload, joinedload
 from flask import (
@@ -51,6 +52,7 @@ from models import (
     ensure_song_royalties_schema,
     ensure_editorial_schema,
     ensure_ingresos_schema,
+    ensure_royalty_liquidations_schema,
     SessionLocal,
     User,
     Artist,
@@ -73,6 +75,7 @@ from models import (
     PublishingCompany,
     SongEditorialShare,
     SongRevenueEntry,
+    RoyaltyLiquidation,
     Venue,
     Concert,
     TicketSale,
@@ -106,6 +109,7 @@ ensure_isrc_and_song_detail_schema()
 ensure_song_royalties_schema()
 ensure_editorial_schema()
 ensure_ingresos_schema()
+ensure_royalty_liquidations_schema()
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -164,6 +168,23 @@ def get_day(param: str = "d") -> date:
 # ---------- helpers ----------
 def db():
     return SessionLocal()
+
+
+@contextmanager
+def get_db():
+    """Context manager para sesiones de base de datos (SessionLocal).
+
+    Evita duplicar try/finally de close().
+    """
+    session_db = db()
+    try:
+        yield session_db
+    finally:
+        try:
+            session_db.close()
+        except Exception:
+            pass
+
 
 def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
@@ -1512,6 +1533,13 @@ def discografica_view():
 
     income_artist_blocks: list[tuple] = []
 
+    # Context (solo se usa cuando section == 'royalties')
+    royalty_period_label = ""
+    royalty_semester_key = ""
+    royalty_semester_tabs: list[dict] = []
+    royalty_beneficiaries_artists: list[dict] = []
+    royalty_beneficiaries_others: list[dict] = []
+
     # Para redirecciones tras POST
     income_next_url = request.full_path.rstrip("?")
 
@@ -1572,6 +1600,315 @@ def discografica_view():
             for sid, code in rows:
                 if sid and code:
                     song_audio_isrc_map[sid] = code
+
+
+    if section == "royalties":
+        # Subpestañas por semestres (igual que Ingresos)
+        today = today_local()
+        parsed_sem = _parse_semester_key((request.args.get("s") or "").strip())
+        if parsed_sem is None:
+            # Semestre anterior "cerrado"
+            if today.month <= 6:
+                sem_year, sem_half = today.year - 1, 2
+            else:
+                sem_year, sem_half = today.year, 1
+        else:
+            sem_year, sem_half = parsed_sem
+
+        royalty_semester_key = _semester_key(sem_year, sem_half)
+        sem_start, sem_end = _semester_range(sem_year, sem_half)
+        royalty_period_label = _semester_label(sem_year, sem_half)
+
+        # Tabs semestrales (últimos 12 desde el seleccionado)
+        royalty_semester_tabs = []
+        for i in range(12):
+            y, h = _add_semesters(sem_year, sem_half, -i)
+            k = _semester_key(y, h)
+            royalty_semester_tabs.append(
+                {
+                    "key": k,
+                    "label": _semester_label(y, h),
+                    "is_active": k == royalty_semester_key,
+                    "url": url_for("discografica_view", section="royalties", s=k),
+                }
+            )
+
+        # Meses dentro del semestre (para sumar si no hay fila SEMESTER)
+        month_starts = []
+        cursor = date(sem_start.year, sem_start.month, 1)
+        for _ in range(6):
+            month_starts.append(cursor)
+            cursor = _add_months(cursor, 1)
+
+        # Canciones con ingresos en el semestre (SEMESTER o suma de meses)
+        sem_song_ids = [
+            sid
+            for (sid,) in (
+                session_db.query(SongRevenueEntry.song_id)
+                .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+                .filter(SongRevenueEntry.period_start == sem_start)
+                .distinct()
+                .all()
+            )
+            if sid
+        ]
+        month_song_ids = [
+            sid
+            for (sid,) in (
+                session_db.query(SongRevenueEntry.song_id)
+                .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+                .filter(SongRevenueEntry.period_start.in_(month_starts))
+                .distinct()
+                .all()
+            )
+            if sid
+        ]
+        song_ids = sorted(set(sem_song_ids + month_song_ids))
+
+        songs = []
+        if song_ids:
+            songs = (
+                session_db.query(Song)
+                .options(selectinload(Song.artists))
+                .filter(Song.id.in_(song_ids))
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+
+        # Ingresos agregados por canción
+        sem_totals = {
+            sid: (Decimal(g or 0), Decimal(n or 0))
+            for sid, g, n in (
+                session_db.query(
+                    SongRevenueEntry.song_id,
+                    func.sum(SongRevenueEntry.gross),
+                    func.sum(SongRevenueEntry.net),
+                )
+                .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+                .filter(SongRevenueEntry.period_start == sem_start)
+                .group_by(SongRevenueEntry.song_id)
+                .all()
+            )
+            if sid
+        }
+
+        month_totals = {
+            sid: (Decimal(g or 0), Decimal(n or 0))
+            for sid, g, n in (
+                session_db.query(
+                    SongRevenueEntry.song_id,
+                    func.sum(SongRevenueEntry.gross),
+                    func.sum(SongRevenueEntry.net),
+                )
+                .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+                .filter(SongRevenueEntry.period_start.in_(month_starts))
+                .group_by(SongRevenueEntry.song_id)
+                .all()
+            )
+            if sid
+        }
+
+        gross_map = {}
+        net_map = {}
+        for sid in song_ids:
+            if sid in sem_totals:
+                g, n = sem_totals[sid]
+            else:
+                g, n = month_totals.get(sid, (Decimal(0), Decimal(0)))
+            gross_map[sid] = float(g or 0)
+            net_map[sid] = float(n or 0)
+
+        # Intérpretes por canción
+        interp_map = {sid: [] for sid in song_ids}
+        if song_ids:
+            rows = (
+                session_db.query(SongInterpreter)
+                .filter(SongInterpreter.song_id.in_(song_ids))
+                .order_by(SongInterpreter.song_id, SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+                .all()
+            )
+            for r in rows:
+                if r.song_id in interp_map and r.name:
+                    interp_map[r.song_id].append(r.name)
+
+        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+
+        # ISRC AUDIO principal por canción
+        isrc_map = {}
+        if song_ids:
+            rows = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                .all()
+            )
+            for sid, code in rows:
+                if sid and code:
+                    isrc_map[sid] = code
+
+        # Beneficiarios adicionales (terceros)
+        extra_benef_rows = []
+        if song_ids:
+            extra_benef_rows = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .options(joinedload(SongRoyaltyBeneficiary.promoter))
+                .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
+                .all()
+            )
+
+        # Liquidaciones existentes (estado)
+        liq_rows = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .all()
+        )
+        liq_map = {(r.beneficiary_kind, str(r.beneficiary_id)): r for r in liq_rows if r}
+
+        def liq_meta(status: str | None):
+            s = (status or "GENERATED").upper()
+            if s == "SENT":
+                return ("Enviada", "primary")
+            if s == "INVOICED":
+                return ("Facturada", "warning")
+            if s == "PAID":
+                return ("Pagado", "success")
+            return ("Generada", "secondary")
+
+        # Acumulador por beneficiario
+        ben_map = {}
+
+        def ensure_benef(kind: str, bid: str, name: str, photo_url: str | None, kind_label: str):
+            key = (kind, bid)
+            if key not in ben_map:
+                ben_map[key] = {
+                    "kind": kind,
+                    "id": bid,
+                    "name": name,
+                    "photo_url": photo_url,
+                    "kind_label": kind_label,
+                    "songs": [],
+                    "total_amount": 0.0,
+                    "liquidation_status": None,
+                    "liquidation_label": None,
+                    "liquidation_color": None,
+                }
+            return ben_map[key]
+
+        # 1) Beneficiarios artistas (principal por canción)
+        for s in songs:
+            primary_artist = s.artists[0] if getattr(s, 'artists', None) else None
+            if not primary_artist:
+                continue
+
+            # Concepto según tipo de canción
+            if s.is_distribution:
+                concept_variants = ["distribución", "distribucion"]
+                kind_label = "Artista (Distribución)"
+            elif s.is_catalog:
+                concept_variants = ["catálogo", "catalogo"]
+                kind_label = "Artista (Catálogo)"
+            else:
+                concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
+                kind_label = "Artista (Discográfica)"
+
+            m, _c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants)
+            pct = float(getattr(m, "pct_artist", 0) or 0) if m else 0.0
+            base = _norm_contract_base(getattr(m, "base", "GROSS") or "GROSS") if m else "GROSS"
+
+            g = gross_map.get(s.id, 0.0)
+            n = net_map.get(s.id, 0.0)
+            base_income = n if base in ("NET", "PROFIT") else g
+            amount = float(base_income) * (pct / 100.0)
+
+            # Excluir canciones sin ingresos (evita listados enormes con 0)
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+
+            b = ensure_benef("ARTIST", str(primary_artist.id), primary_artist.name, getattr(primary_artist, "photo_url", None), "Artista")
+            b["songs"].append(
+                {
+                    "song_id": str(s.id),
+                    "cover_url": s.cover_url,
+                    "title": s.title,
+                    "interpreters": (interpreters_str.get(s.id) or "").strip() or ", ".join([a.name for a in getattr(s, 'artists', [])]) or "",
+                    "isrc": isrc_map.get(s.id) or s.isrc,
+                    "release_date": s.release_date.strftime("%d/%m/%Y") if s.release_date else "",
+                    "income": base_income,
+                    "pct": pct,
+                    "amount": amount,
+                }
+            )
+            b["total_amount"] += amount
+
+        # 2) Beneficiarios adicionales (terceros)
+        for r in extra_benef_rows:
+            p = getattr(r, "promoter", None)
+            if not p:
+                continue
+            song_id = getattr(r, "song_id", None)
+            if not song_id:
+                continue
+
+            base = (getattr(r, "base", "GROSS") or "GROSS").strip().upper()
+            if base not in ("GROSS", "NET", "PROFIT"):
+                base = "GROSS"
+            pct = float(getattr(r, "pct", 0) or 0)
+
+            g = gross_map.get(song_id, 0.0)
+            n = net_map.get(song_id, 0.0)
+            base_income = n if base in ("NET", "PROFIT") else g
+            amount = float(base_income) * (pct / 100.0)
+
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+
+            # Song meta (lo buscamos en 'songs' si está; si no, lo cargamos)
+            song_obj = next((x for x in songs if x.id == song_id), None)
+            if not song_obj:
+                song_obj = session_db.get(Song, song_id)
+                if song_obj:
+                    _ = song_obj.artists
+
+            if not song_obj:
+                continue
+
+            b = ensure_benef("PROMOTER", str(p.id), (p.nick or (p.first_name or "") + " " + (p.last_name or "")).strip() or "Beneficiario", getattr(p, "logo_url", None), "Beneficiario")
+            b["songs"].append(
+                {
+                    "song_id": str(song_obj.id),
+                    "cover_url": song_obj.cover_url,
+                    "title": song_obj.title,
+                    "interpreters": (interpreters_str.get(song_obj.id) or "").strip() or ", ".join([a.name for a in getattr(song_obj, 'artists', [])]) or "",
+                    "isrc": isrc_map.get(song_obj.id) or song_obj.isrc,
+                    "release_date": song_obj.release_date.strftime("%d/%m/%Y") if song_obj.release_date else "",
+                    "income": base_income,
+                    "pct": pct,
+                    "amount": amount,
+                }
+            )
+            b["total_amount"] += amount
+
+        # Enlazar estado de liquidación
+        for (k, bid), b in ben_map.items():
+            rec = liq_map.get((k, bid))
+            if rec:
+                b["liquidation_status"] = getattr(rec, "status", None)
+                lbl, col = liq_meta(b["liquidation_status"])
+                b["liquidation_label"] = lbl
+                b["liquidation_color"] = col
+
+        # Ordenación (artistas primero)
+        royalty_beneficiaries_artists = [b for (k, _bid), b in ben_map.items() if k == "ARTIST" and (b.get('songs') or [])]
+        royalty_beneficiaries_others = [b for (k, _bid), b in ben_map.items() if k == "PROMOTER" and (b.get('songs') or [])]
+
+        royalty_beneficiaries_artists.sort(key=lambda x: (x.get('name') or '').lower())
+        royalty_beneficiaries_others.sort(key=lambda x: (x.get('name') or '').lower())
+
+        # Ordenar canciones dentro de cada beneficiario por título
+        for b in royalty_beneficiaries_artists + royalty_beneficiaries_others:
+            b["songs"].sort(key=lambda x: (x.get('title') or '').lower())
+
 
 
     if section == "ingresos":
@@ -2073,6 +2410,12 @@ def discografica_view():
         income_report_semesters=income_report_semesters,
         income_report_months_selected=income_report_months_selected,
         income_report_semesters_selected=income_report_semesters_selected,
+        # Royalties
+        royalty_period_label=royalty_period_label,
+        royalty_semester_key=royalty_semester_key,
+        royalty_semester_tabs=royalty_semester_tabs,
+        royalty_beneficiaries_artists=royalty_beneficiaries_artists,
+        royalty_beneficiaries_others=royalty_beneficiaries_others,
     )
 
 
@@ -2847,6 +3190,455 @@ def discografica_income_report_pdf():
         mimetype="application/pdf",
         headers={"Content-Disposition": f"inline; filename={filename}"},
     )
+
+
+
+@app.get("/discografica/royalties/liquidacion/pdf")
+@admin_required
+def discografica_royalties_liquidation_pdf():
+    """Genera y descarga la Liquidación de Royalties (PDF) para un beneficiario y semestre.
+
+    Query params:
+    - kind: ARTIST | PROMOTER
+    - bid: UUID del beneficiario
+    - s: semestre (YYYY-S1 / YYYY-S2)
+
+    Al generar, se crea/actualiza el registro en royalty_liquidations con estado GENERATED.
+    """
+
+    kind = (request.args.get("kind") or "").strip().upper()
+    bid_raw = (request.args.get("bid") or "").strip()
+    sem_key = (request.args.get("s") or "").strip()
+
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        abort(400)
+    sem_year, sem_half = parsed_sem
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+
+    if kind not in ("ARTIST", "PROMOTER"):
+        abort(400)
+
+    try:
+        bid = uuid.UUID(bid_raw)
+    except Exception:
+        abort(400)
+
+    from io import BytesIO
+    from urllib.request import urlopen
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    def _fetch_img(url: str, w: float, h: float):
+        if not url:
+            return ""
+        try:
+            with urlopen(url, timeout=6) as resp:
+                data = resp.read()
+            bio = BytesIO(data)
+            img = Image(bio, width=w, height=h)
+            img.hAlign = "LEFT"
+            return img
+        except Exception:
+            return ""
+
+    def _song_kind(song: Song) -> str:
+        if song.is_distribution:
+            return "distribucion"
+        if song.is_catalog:
+            return "catalogo"
+        return "discografica"
+
+    def _concept_variants(song: Song) -> list[str]:
+        k = _song_kind(song)
+        if k == "distribucion":
+            return ["distribución", "distribucion"]
+        if k == "catalogo":
+            return ["catálogo", "catalogo"]
+        return ["discográfico", "discografico", "discográfica", "discografica"]
+
+    def _clean_filename(s: str) -> str:
+        s = (s or "").strip()
+        allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ "
+        s = "".join(ch for ch in s if ch in allowed)
+        s = "_".join([p for p in s.split() if p])
+        return s or "beneficiario"
+
+    # Meses dentro del semestre (para sumar si no hay fila SEMESTER)
+    month_starts = []
+    cursor = date(sem_start.year, sem_start.month, 1)
+    for _ in range(6):
+        month_starts.append(cursor)
+        cursor = _add_months(cursor, 1)
+
+    with get_db() as session_db:
+        # Beneficiario
+        if kind == "ARTIST":
+            ben = session_db.get(Artist, bid)
+            if not ben:
+                abort(404)
+            ben_name = ben.name
+            ben_photo = getattr(ben, "photo_url", None)
+        else:
+            ben = session_db.get(Promoter, bid)
+            if not ben:
+                abort(404)
+            ben_name = (ben.nick or (ben.first_name or "") + " " + (ben.last_name or "")).strip() or "Beneficiario"
+            ben_photo = getattr(ben, "logo_url", None)
+
+        # Canciones del beneficiario
+        songs: list[Song] = []
+        if kind == "ARTIST":
+            songs = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .filter(SongArtist.artist_id == bid)
+                .options(selectinload(Song.artists))
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+        else:
+            sids = [
+                sid
+                for (sid,) in (
+                    session_db.query(SongRoyaltyBeneficiary.song_id)
+                    .filter(SongRoyaltyBeneficiary.promoter_id == bid)
+                    .distinct()
+                    .all()
+                )
+                if sid
+            ]
+            if sids:
+                songs = (
+                    session_db.query(Song)
+                    .options(selectinload(Song.artists))
+                    .filter(Song.id.in_(sids))
+                    .order_by(Song.release_date.desc())
+                    .all()
+                )
+
+        song_ids = [s.id for s in songs]
+
+        # Ingresos agregados por canción (semestre: usa SEMESTER si existe, si no suma meses)
+        sem_totals = {}
+        month_totals = {}
+        if song_ids:
+            sem_totals = {
+                sid: (Decimal(g or 0), Decimal(n or 0))
+                for sid, g, n in (
+                    session_db.query(
+                        SongRevenueEntry.song_id,
+                        func.sum(SongRevenueEntry.gross),
+                        func.sum(SongRevenueEntry.net),
+                    )
+                    .filter(SongRevenueEntry.song_id.in_(song_ids))
+                    .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+                    .filter(SongRevenueEntry.period_start == sem_start)
+                    .group_by(SongRevenueEntry.song_id)
+                    .all()
+                )
+                if sid
+            }
+
+            month_totals = {
+                sid: (Decimal(g or 0), Decimal(n or 0))
+                for sid, g, n in (
+                    session_db.query(
+                        SongRevenueEntry.song_id,
+                        func.sum(SongRevenueEntry.gross),
+                        func.sum(SongRevenueEntry.net),
+                    )
+                    .filter(SongRevenueEntry.song_id.in_(song_ids))
+                    .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+                    .filter(SongRevenueEntry.period_start.in_(month_starts))
+                    .group_by(SongRevenueEntry.song_id)
+                    .all()
+                )
+                if sid
+            }
+
+        gross_map = {}
+        net_map = {}
+        for sid in song_ids:
+            if sid in sem_totals:
+                g, n = sem_totals[sid]
+            else:
+                g, n = month_totals.get(sid, (Decimal(0), Decimal(0)))
+            gross_map[sid] = float(g or 0)
+            net_map[sid] = float(n or 0)
+
+        # Intérpretes
+        interp_map = {sid: [] for sid in song_ids}
+        if song_ids:
+            rows = (
+                session_db.query(SongInterpreter)
+                .filter(SongInterpreter.song_id.in_(song_ids))
+                .order_by(SongInterpreter.song_id, SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+                .all()
+            )
+            for r in rows:
+                if r.song_id in interp_map and r.name:
+                    interp_map[r.song_id].append(r.name)
+        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+
+        # ISRC AUDIO principal
+        isrc_map = {}
+        if song_ids:
+            rows = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                .all()
+            )
+            for sid, code in rows:
+                if sid and code:
+                    isrc_map[sid] = code
+
+        # Para PROMOTER: pct/base por canción (se asume 1 fila por canción y beneficiario)
+        prom_pct_base = {}
+        if kind == "PROMOTER" and song_ids:
+            rows = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .filter(SongRoyaltyBeneficiary.promoter_id == bid)
+                .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
+                .all()
+            )
+            for r in rows:
+                prom_pct_base[r.song_id] = (float(getattr(r, 'pct', 0) or 0), (getattr(r, 'base', 'GROSS') or 'GROSS').strip().upper())
+
+        # Construimos filas
+        rows = []
+        total_amount = 0.0
+
+        for s in songs:
+            g = gross_map.get(s.id, 0.0)
+            n = net_map.get(s.id, 0.0)
+
+            # Excluir canciones sin ingresos
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+
+            if kind == "ARTIST":
+                m, _c = _pick_artist_commitment(session_db, bid, _concept_variants(s))
+                pct = float(getattr(m, 'pct_artist', 0) or 0) if m else 0.0
+                base = _norm_contract_base(getattr(m, 'base', 'GROSS') or 'GROSS') if m else 'GROSS'
+            else:
+                pct, base = prom_pct_base.get(s.id, (0.0, 'GROSS'))
+                base = (base or 'GROSS').upper()
+
+            if base not in ('GROSS','NET','PROFIT'):
+                base = 'GROSS'
+
+            income = n if base in ('NET','PROFIT') else g
+            amount = float(income) * (float(pct) / 100.0)
+            total_amount += amount
+
+            rows.append(
+                {
+                    'cover_url': s.cover_url,
+                    'title': s.title,
+                    'interpreters': (interpreters_str.get(s.id) or '').strip() or ", ".join([a.name for a in getattr(s, 'artists', [])]) or "",
+                    'isrc': isrc_map.get(s.id) or s.isrc,
+                    'release_date': s.release_date.strftime('%d/%m/%Y') if s.release_date else '',
+                    'income': float(income or 0),
+                    'pct': float(pct or 0),
+                    'amount': float(amount or 0),
+                }
+            )
+
+        # Upsert liquidación (si existe, mantenemos status; si no existe, queda GENERATED)
+        now_dt = datetime.now(TZ_MADRID)
+        rec = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+            .filter(RoyaltyLiquidation.beneficiary_id == bid)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .first()
+        )
+
+        if rec:
+            rec.period_end = sem_end
+            rec.generated_at = now_dt
+            rec.updated_at = now_dt
+            if not getattr(rec, 'status', None):
+                rec.status = 'GENERATED'
+        else:
+            rec = RoyaltyLiquidation(
+                beneficiary_kind=kind,
+                beneficiary_id=bid,
+                period_start=sem_start,
+                period_end=sem_end,
+                status='GENERATED',
+                generated_at=now_dt,
+                updated_at=now_dt,
+            )
+            session_db.add(rec)
+
+        session_db.commit()
+
+        # ---------------- PDF ----------------
+        buf = BytesIO()
+        doc = SimpleDocTemplate(
+            buf,
+            pagesize=landscape(A4),
+            leftMargin=1.2 * cm,
+            rightMargin=1.2 * cm,
+            topMargin=1.0 * cm,
+            bottomMargin=1.0 * cm,
+        )
+        styles = getSampleStyleSheet()
+
+        story = []
+
+        # Logo PIES (local) + título
+        try:
+            import os
+            logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
+            logo = Image(logo_path, width=3.2 * cm, height=1.3 * cm)
+        except Exception:
+            logo = ''
+
+        title = Paragraph("<b>Liquidación de Royalties</b>", styles['Title'])
+        header = Table([[logo, title]], colWidths=[4.0 * cm, None])
+        header.setStyle(
+            TableStyle(
+                [
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(header)
+
+        story.append(Spacer(1, 6))
+
+        period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
+        info = Paragraph(
+            f"<b>Beneficiario:</b> {ben_name}<br/><b>Periodo:</b> {period_str}",
+            styles['Normal'],
+        )
+        story.append(info)
+        story.append(Spacer(1, 10))
+
+        # Tabla canciones
+        def eur(v):
+            try:
+                return f"{float(v):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+            except Exception:
+                return "0,00 €"
+
+        data = [["", "Canción", "ISRC", "Publicación", "Ingreso", "%", "A facturar"]]
+
+        for r in rows:
+            cover = _fetch_img(r.get('cover_url') or "", 0.9 * cm, 0.9 * cm)
+            title_cell = Paragraph(
+                f"<b>{(r.get('title') or '').replace('<','').replace('>','')}</b><br/><font size=8>{(r.get('interpreters') or '').replace('<','').replace('>','')}</font>",
+                styles['Normal'],
+            )
+            data.append(
+                [
+                    cover,
+                    title_cell,
+                    r.get('isrc') or "",
+                    r.get('release_date') or "",
+                    eur(r.get('income') or 0),
+                    f"{float(r.get('pct') or 0):.2f}%",
+                    eur(r.get('amount') or 0),
+                ]
+            )
+
+        tbl = Table(data, colWidths=[1.2 * cm, None, 4.0 * cm, 2.6 * cm, 3.0 * cm, 1.6 * cm, 3.0 * cm])
+        tbl.setStyle(
+            TableStyle(
+                [
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('FONTSIZE', (0, 0), (-1, 0), 9),
+                    ('GRID', (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
+                    ('FONTSIZE', (0, 1), (-1, -1), 8),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.Color(0.98, 0.98, 0.98)]),
+                ]
+            )
+        )
+        story.append(tbl)
+
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(f"<b>Total a facturar:</b> {eur(total_amount)}", styles['Normal']))
+
+        doc.build(story)
+        buf.seek(0)
+
+        fname = f"Liquidacion_Royalties_{_clean_filename(ben_name)}_{sem_key}.pdf"
+        return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=fname)
+
+
+@app.post("/discografica/royalties/liquidacion/status")
+@admin_required
+def discografica_royalties_liquidation_status():
+    """Actualiza el estado de una liquidación (Generada/Enviada/Facturada/Pagado)."""
+
+    data = request.get_json(silent=True) or {}
+    kind = (data.get('kind') or '').strip().upper()
+    bid_raw = (data.get('bid') or '').strip()
+    sem_key = (data.get('s') or '').strip()
+    status = (data.get('status') or '').strip().upper()
+
+    if kind not in ('ARTIST','PROMOTER'):
+        abort(400)
+
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        abort(400)
+    sem_year, sem_half = parsed_sem
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+
+    allowed = {'GENERATED','SENT','INVOICED','PAID'}
+    if status not in allowed:
+        abort(400)
+
+    try:
+        bid = uuid.UUID(bid_raw)
+    except Exception:
+        abort(400)
+
+    now_dt = datetime.now(TZ_MADRID)
+
+    with get_db() as session_db:
+        rec = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+            .filter(RoyaltyLiquidation.beneficiary_id == bid)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .first()
+        )
+        if not rec:
+            rec = RoyaltyLiquidation(
+                beneficiary_kind=kind,
+                beneficiary_id=bid,
+                period_start=sem_start,
+                period_end=sem_end,
+                status=status,
+                generated_at=now_dt,
+                updated_at=now_dt,
+            )
+            session_db.add(rec)
+        else:
+            rec.status = status
+            rec.period_end = sem_end
+            rec.updated_at = now_dt
+
+        session_db.commit()
+
+    return jsonify({'ok': True, 'status': status})
 
 @app.get("/discografica/canciones/<song_id>")
 @admin_required

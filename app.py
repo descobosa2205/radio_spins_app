@@ -50,6 +50,7 @@ from models import (
     ensure_isrc_and_song_detail_schema,
     ensure_song_royalties_schema,
     ensure_editorial_schema,
+    ensure_ingresos_schema,
     SessionLocal,
     User,
     Artist,
@@ -71,6 +72,7 @@ from models import (
     SongRoyaltyBeneficiary,
     PublishingCompany,
     SongEditorialShare,
+    SongRevenueEntry,
     Venue,
     Concert,
     TicketSale,
@@ -103,6 +105,7 @@ ensure_isrc_and_song_detail_schema()
 ensure_isrc_and_song_detail_schema()
 ensure_song_royalties_schema()
 ensure_editorial_schema()
+ensure_ingresos_schema()
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -1347,6 +1350,136 @@ def station_delete(station_id):
 # ---------- DISCOGRÁFICA ----------
 
 
+
+
+# -------------------------------
+# Discográfica > Ingresos helpers
+# -------------------------------
+
+SPANISH_MONTH_ABBR = [
+    "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+    "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
+]
+
+
+def _month_start(d: date) -> date:
+    return date(d.year, d.month, 1)
+
+
+def _add_months(d: date, delta_months: int) -> date:
+    """Return first day of month shifted by delta_months."""
+    y = d.year + (d.month - 1 + delta_months) // 12
+    m = (d.month - 1 + delta_months) % 12 + 1
+    return date(y, m, 1)
+
+
+def _month_end(d: date) -> date:
+    """Last day of the month containing d."""
+    start = _month_start(d)
+    nxt = _add_months(start, 1)
+    return nxt - timedelta(days=1)
+
+
+def _month_key(d: date) -> str:
+    return f"{d.year:04d}-{d.month:02d}"
+
+
+def _parse_month_key(key: str) -> date | None:
+    try:
+        y_s, m_s = (key or "").split("-")
+        y, m = int(y_s), int(m_s)
+        if not (1 <= m <= 12):
+            return None
+        return date(y, m, 1)
+    except Exception:
+        return None
+
+
+def _month_label(d: date) -> str:
+    return f"{SPANISH_MONTH_ABBR[d.month - 1]} {d.year}"
+
+
+def _semester_key(year: int, half: int) -> str:
+    return f"{year:04d}-S{half}"
+
+
+def _parse_semester_key(key: str) -> tuple[int, int] | None:
+    try:
+        y_s, h_s = (key or "").split("-")
+        year = int(y_s)
+        if not h_s.upper().startswith("S"):
+            return None
+        half = int(h_s[1:])
+        if half not in (1, 2):
+            return None
+        return year, half
+    except Exception:
+        return None
+
+
+def _semester_range(year: int, half: int) -> tuple[date, date]:
+    if half == 1:
+        return date(year, 1, 1), date(year, 6, 30)
+    return date(year, 7, 1), date(year, 12, 31)
+
+
+def _add_semesters(year: int, half: int, delta: int) -> tuple[int, int]:
+    # Represent semester index as year*2 + (half-1)
+    idx = year * 2 + (half - 1) + delta
+    new_year = idx // 2
+    new_half = (idx % 2) + 1
+    return new_year, new_half
+
+
+def _semester_label(year: int, half: int) -> str:
+    if half == 1:
+        return f"S1 {year} (Ene-Jun)"
+    return f"S2 {year} (Jul-Dic)"
+
+
+def _norm_isrc(val: str | None) -> str:
+    if not val:
+        return ""
+    s = str(val).strip().upper()
+    # Keep only alphanumerics
+    return "".join(ch for ch in s if ch.isalnum())
+
+
+def _parse_money_decimal(val: str | None) -> Decimal:
+    """Parse user/csv money-like strings to Decimal (robust for ES/EN formats)."""
+    if val is None:
+        return Decimal("0")
+    s = str(val).strip()
+    if not s:
+        return Decimal("0")
+
+    # remove currency symbols/spaces
+    for ch in ("€", "$", "£"):
+        s = s.replace(ch, "")
+    s = s.replace(" ", "")
+
+    # Detect thousands/decimal separators
+    if "," in s and "." in s:
+        # If dot appears before comma => ES (1.234,56)
+        if s.find(".") < s.find(","):
+            s = s.replace(".", "")
+            s = s.replace(",", ".")
+        else:
+            # EN (1,234.56)
+            s = s.replace(",", "")
+    elif "," in s and "." not in s:
+        # ES decimal comma
+        s = s.replace(",", ".")
+
+    # Any remaining thousands separators
+    # (keep last dot as decimal)
+    try:
+        return Decimal(s)
+    except Exception:
+        # fallback: strip anything weird
+        cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "." or ch == "-")
+        return Decimal(cleaned or "0")
+
 @app.get("/discografica")
 @admin_required
 def discografica_view():
@@ -1356,10 +1489,38 @@ def discografica_view():
     - Canciones (Repertorio)
     - Royalties (próximamente)
     - Editorial (próximamente)
-    - Ingresos (próximamente)
+    - Ingresos
     """
 
     section = (request.args.get("section") or "canciones").lower().strip()
+
+    # Context (solo se usa cuando section == 'ingresos')
+    income_view = request.args.get("view") or "month"  # 'month' | 'semester'
+    if income_view not in ("month", "semester"):
+        income_view = "month"
+
+    income_period_label = ""
+    income_period_type = "MONTH"
+    income_period_key = ""
+    income_period_start_iso = ""
+
+    income_month_tabs: list[dict] = []
+    income_month_prev_url: str | None = None
+    income_month_next_url: str | None = None
+
+    income_semester_tabs: list[dict] = []
+
+    income_artist_blocks: list[tuple] = []
+
+    # Para redirecciones tras POST
+    income_next_url = request.full_path.rstrip("?")
+
+    # Opciones para el modal del informe
+    income_report_months: list[dict] = []
+    income_report_semesters: list[dict] = []
+    income_report_months_selected: list[str] = []
+    income_report_semesters_selected: list[str] = []
+
     if section not in ("canciones", "royalties", "editorial", "ingresos", "isrc"):
         section = "canciones"
 
@@ -1411,6 +1572,334 @@ def discografica_view():
             for sid, code in rows:
                 if sid and code:
                     song_audio_isrc_map[sid] = code
+
+
+    if section == "ingresos":
+        # 1) Selección de periodos (meses / semestres)
+        today = today_local()
+        current_month_start = date(today.year, today.month, 1)
+        prev_month_start = _add_months(current_month_start, -1)
+
+        # Mes seleccionado (YYYY-MM)
+        sel_month_start = _parse_month_key((request.args.get("m") or "").strip()) or prev_month_start
+        if sel_month_start > prev_month_start:
+            sel_month_start = prev_month_start
+        sel_month_key = _month_key(sel_month_start)
+
+        # Cursor para pestañas de meses (ventana de 12)
+        cursor_start = _parse_month_key((request.args.get("mc") or "").strip()) or sel_month_start
+        if cursor_start > prev_month_start:
+            cursor_start = prev_month_start
+        cursor_key = _month_key(cursor_start)
+
+        # Semestre seleccionado (YYYY-S1 / YYYY-S2)
+        parsed_sem = _parse_semester_key((request.args.get("s") or "").strip())
+        if parsed_sem is None:
+            # Semestre anterior "cerrado"
+            if today.month <= 6:
+                sem_year, sem_half = today.year - 1, 2
+            else:
+                sem_year, sem_half = today.year, 1
+        else:
+            sem_year, sem_half = parsed_sem
+        sem_key = _semester_key(sem_year, sem_half)
+        sem_start, sem_end = _semester_range(sem_year, sem_half)
+
+        # 2) Construcción de pestañas
+        # Meses (12 últimos meses, empezando desde el cursor)
+        income_month_tabs = []
+        for i in range(12):
+            d = _add_months(cursor_start, -i)
+            key = _month_key(d)
+            income_month_tabs.append(
+                {
+                    "key": key,
+                    "label": _month_label(d),
+                    "is_active": key == sel_month_key,
+                    "url": url_for(
+                        "discografica_view",
+                        section="ingresos",
+                        view="month",
+                        m=key,
+                        mc=cursor_key,
+                        s=sem_key,
+                    ),
+                }
+            )
+
+        # Flechas meses
+        left_cursor = _add_months(cursor_start, -1)
+        income_month_prev_url = url_for(
+            "discografica_view",
+            section="ingresos",
+            view="month",
+            m=_month_key(left_cursor),
+            mc=_month_key(left_cursor),
+            s=sem_key,
+        )
+        if cursor_start < prev_month_start:
+            right_cursor = _add_months(cursor_start, 1)
+            income_month_next_url = url_for(
+                "discografica_view",
+                section="ingresos",
+                view="month",
+                m=_month_key(right_cursor),
+                mc=_month_key(right_cursor),
+                s=sem_key,
+            )
+        else:
+            income_month_next_url = None
+
+        # Semestres (últimos 12 semestres desde el seleccionado)
+        income_semester_tabs = []
+        for i in range(12):
+            y, h = _add_semesters(sem_year, sem_half, -i)
+            k = _semester_key(y, h)
+            income_semester_tabs.append(
+                {
+                    "key": k,
+                    "label": _semester_label(y, h),
+                    "is_active": k == sem_key,
+                    "url": url_for(
+                        "discografica_view",
+                        section="ingresos",
+                        view="semester",
+                        s=k,
+                        m=sel_month_key,
+                        mc=cursor_key,
+                    ),
+                }
+            )
+
+        # 3) Periodo activo (el que se está mostrando en el listado)
+        if income_view == "semester":
+            income_period_type = "SEMESTER"
+            income_period_key = sem_key
+            period_start = sem_start
+            period_end = sem_end
+            income_period_label = _semester_label(sem_year, sem_half)
+            income_period_start_iso = period_start.isoformat()
+            income_report_semesters_selected = [sem_key]
+        else:
+            income_period_type = "MONTH"
+            income_period_key = sel_month_key
+            period_start = sel_month_start
+            period_end = _month_end(sel_month_start)
+            income_period_label = _month_label(sel_month_start)
+            income_period_start_iso = period_start.isoformat()
+            income_report_months_selected = [sel_month_key]
+
+        # 4) Opciones para informe (últimos 24 meses / 12 semestres)
+        income_report_months = [
+            {"key": _month_key(_add_months(prev_month_start, -i)), "label": _month_label(_add_months(prev_month_start, -i))}
+            for i in range(24)
+        ]
+
+        base_sem_year, base_sem_half = (today.year - 1, 2) if today.month <= 6 else (today.year, 1)
+        income_report_semesters = [
+            {
+                "key": _semester_key(*_add_semesters(base_sem_year, base_sem_half, -i)),
+                "label": _semester_label(*_add_semesters(base_sem_year, base_sem_half, -i)),
+            }
+            for i in range(12)
+        ]
+
+        # 5) Canciones publicadas hasta el fin del periodo (ordenadas por artista)
+        tmp_blocks: list[tuple[Artist, list[Song]]] = []
+        for a in artists:
+            songs = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .filter(SongArtist.artist_id == a.id)
+                .filter(Song.release_date <= period_end)
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+            for s in songs:
+                _ = s.artists
+            if songs:
+                tmp_blocks.append((a, songs))
+
+        all_song_ids = [s.id for _, ss in tmp_blocks for s in (ss or [])]
+
+        # Prefetch intérpretes (si no hay, usamos artistas del tema)
+        interpreters_by_song: dict[str, list[str]] = {}
+        if all_song_ids:
+            irows = (
+                session_db.query(SongInterpreter.song_id, SongInterpreter.name)
+                .filter(SongInterpreter.song_id.in_(all_song_ids))
+                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.position.asc(), SongInterpreter.name.asc())
+                .all()
+            )
+            for sid, name in irows:
+                if sid and name:
+                    interpreters_by_song.setdefault(str(sid), []).append(name)
+
+        # Prefetch ISRC principal (AUDIO) o fallback a Song.isrc
+        isrc_by_song: dict[str, str] = {}
+        if all_song_ids:
+            r_isrc = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code, SongISRCCode.is_primary)
+                .filter(SongISRCCode.song_id.in_(all_song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.desc())
+                .all()
+            )
+            for sid, code, _prim in r_isrc:
+                sid_s = str(sid)
+                if sid_s not in isrc_by_song and code:
+                    isrc_by_song[sid_s] = code
+
+        # Prefetch ingresos
+        entries_by_song_period: dict[tuple[str, str, date], list[SongRevenueEntry]] = {}
+        sem_month_starts: list[date] = []
+        if income_view == "semester":
+            sem_month_starts = [_add_months(date(sem_start.year, sem_start.month, 1), i) for i in range(6)]
+
+        if all_song_ids:
+            if income_view == "month":
+                q = (
+                    session_db.query(SongRevenueEntry)
+                    .filter(SongRevenueEntry.song_id.in_(all_song_ids))
+                    .filter(SongRevenueEntry.period_type == "MONTH")
+                    .filter(SongRevenueEntry.period_start == period_start)
+                )
+            else:
+                q = (
+                    session_db.query(SongRevenueEntry)
+                    .filter(SongRevenueEntry.song_id.in_(all_song_ids))
+                    .filter(
+                        or_(
+                            and_(SongRevenueEntry.period_type == "SEMESTER", SongRevenueEntry.period_start == sem_start),
+                            and_(SongRevenueEntry.period_type == "MONTH", SongRevenueEntry.period_start.in_(sem_month_starts)),
+                        )
+                    )
+                )
+
+            erows = q.order_by(SongRevenueEntry.is_base.desc(), SongRevenueEntry.created_at.asc()).all()
+            for e in erows:
+                entries_by_song_period.setdefault((str(e.song_id), e.period_type, e.period_start), []).append(e)
+
+        def _money_input(v: Decimal | None) -> str:
+            if v is None:
+                return ""
+            try:
+                return str(Decimal(v).quantize(Decimal("0.01")))
+            except Exception:
+                return str(v)
+
+        # 6) Construimos bloques enriquecidos para la plantilla
+        income_artist_blocks = []
+        for a, songs in tmp_blocks:
+            rows = []
+            for s in songs:
+                sid = str(s.id)
+
+                # intérpretes
+                inames = interpreters_by_song.get(sid)
+                if not inames:
+                    inames = [ar.name for ar in (s.artists or []) if ar and ar.name]
+                interpreters_str = ", ".join(inames) if inames else ""
+
+                # isrc
+                isrc = isrc_by_song.get(sid) or (s.isrc or "")
+
+                # entradas del periodo
+                if income_view == "month":
+                    entries = entries_by_song_period.get((sid, "MONTH", period_start), [])
+                    base = next((x for x in entries if x.is_base), None)
+                    extras = [x for x in entries if not x.is_base]
+
+                    total_gross = sum((Decimal(x.gross or 0) for x in entries), Decimal("0"))
+                    total_net = sum((Decimal(x.net or 0) for x in entries), Decimal("0"))
+
+                    status = {"label": "Completo" if entries else "Sin datos", "class": "text-bg-success" if entries else "text-bg-danger"}
+
+                    rows.append(
+                        {
+                            "song": s,
+                            "cover_url": s.cover_url,
+                            "interpreters": interpreters_str,
+                            "isrc": isrc,
+                            "status": status,
+                            "base_entry_id": str(base.id) if base else "",
+                            "base_gross": _money_input(base.gross) if base else "",
+                            "base_net": _money_input(base.net) if base else "",
+                            "extra_entries": [
+                                {"id": str(x.id), "name": x.name, "gross": x.gross or 0, "net": x.net or 0}
+                                for x in extras
+                            ],
+                            "show_total": len(extras) > 0,
+                            "total_gross": total_gross,
+                            "total_net": total_net,
+                            "semester_sum_gross": Decimal("0"),
+                            "semester_sum_net": Decimal("0"),
+                            "semester_missing_months": None,
+                            "semester_has_manual": False,
+                        }
+                    )
+
+                else:
+                    sem_entries = entries_by_song_period.get((sid, "SEMESTER", sem_start), [])
+                    base = next((x for x in sem_entries if x.is_base), None)
+                    extras = [x for x in sem_entries if not x.is_base]
+
+                    # suma de meses
+                    months_with_data = 0
+                    sum_gross = Decimal("0")
+                    sum_net = Decimal("0")
+                    for ms in sem_month_starts:
+                        mentries = entries_by_song_period.get((sid, "MONTH", ms), [])
+                        if mentries:
+                            months_with_data += 1
+                        sum_gross += sum((Decimal(x.gross or 0) for x in mentries), Decimal("0"))
+                        sum_net += sum((Decimal(x.net or 0) for x in mentries), Decimal("0"))
+
+                    missing = 6 - months_with_data
+
+                    # estado
+                    if months_with_data == 0 and not sem_entries:
+                        status = {"label": "Sin datos", "class": "text-bg-danger"}
+                    elif missing == 0:
+                        status = {"label": "Completo", "class": "text-bg-success"}
+                    else:
+                        status = {"label": "Incompleto", "class": "text-bg-warning"}
+
+                    display_gross = base.gross if base else sum_gross
+                    display_net = base.net if base else sum_net
+
+                    extras_gross = sum((Decimal(x.gross or 0) for x in extras), Decimal("0"))
+                    extras_net = sum((Decimal(x.net or 0) for x in extras), Decimal("0"))
+
+                    # Total mostrado (base manual o auto + extras) solo cuando hay más de un ingreso (extras).
+                    total_gross = Decimal(display_gross or 0) + extras_gross
+                    total_net = Decimal(display_net or 0) + extras_net
+
+                    rows.append(
+                        {
+                            "song": s,
+                            "cover_url": s.cover_url,
+                            "interpreters": interpreters_str,
+                            "isrc": isrc,
+                            "status": status,
+                            "base_entry_id": str(base.id) if base else "",
+                            "base_gross": _money_input(display_gross),
+                            "base_net": _money_input(display_net),
+                            "extra_entries": [
+                                {"id": str(x.id), "name": x.name, "gross": x.gross or 0, "net": x.net or 0}
+                                for x in extras
+                            ],
+                            "show_total": len(extras) > 0,
+                            "total_gross": total_gross,
+                            "total_net": total_net,
+                            "semester_sum_gross": sum_gross,
+                            "semester_sum_net": sum_net,
+                            "semester_missing_months": missing,
+                            "semester_has_manual": bool(base),
+                        }
+                    )
+
+            income_artist_blocks.append((a, rows))
 
     if section == "isrc":
         # filtros
@@ -1568,6 +2057,22 @@ def discografica_view():
         isrc_contract_artists=isrc_contract_artists,
         selected_artist_id=str(f_artist_id) if section == "isrc" and 'f_artist_id' in locals() and f_artist_id else "",
         selected_year=str(f_year) if section == "isrc" and 'f_year' in locals() and f_year else "",
+        # Ingresos
+        income_view=income_view,
+        income_period_label=income_period_label,
+        income_period_type=income_period_type,
+        income_period_key=income_period_key,
+        income_period_start_iso=income_period_start_iso,
+        income_month_tabs=income_month_tabs,
+        income_month_prev_url=income_month_prev_url,
+        income_month_next_url=income_month_next_url,
+        income_semester_tabs=income_semester_tabs,
+        income_artist_blocks=income_artist_blocks,
+        income_next_url=income_next_url,
+        income_report_months=income_report_months,
+        income_report_semesters=income_report_semesters,
+        income_report_months_selected=income_report_months_selected,
+        income_report_semesters_selected=income_report_semesters_selected,
     )
 
 
@@ -1726,6 +2231,622 @@ def discografica_song_create():
     finally:
         session_db.close()
 
+
+
+
+# -------------------------------
+# Discográfica > Ingresos endpoints
+# -------------------------------
+
+
+@app.post("/discografica/ingresos/entry/save")
+@admin_required
+def discografica_income_entry_save():
+    """Crea/actualiza un ingreso (base o extra) para una canción y un periodo."""
+
+    with get_db() as session_db:
+        entry_id = (request.form.get("entry_id") or "").strip()
+        song_id = (request.form.get("song_id") or "").strip()
+        period_type = (request.form.get("period_type") or "").strip().upper()
+        period_start_iso = (request.form.get("period_start") or "").strip()
+        is_base = (request.form.get("is_base") or "0").strip() in ("1", "true", "True")
+        name = (request.form.get("name") or "").strip() or None
+        gross = _parse_money_decimal(request.form.get("gross"))
+        net = _parse_money_decimal(request.form.get("net"))
+        next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
+
+        try:
+            sid = uuid.UUID(song_id)
+        except Exception:
+            flash("ID de canción inválido.", "danger")
+            return redirect(next_url)
+
+        try:
+            ps = datetime.fromisoformat(period_start_iso).date()
+        except Exception:
+            flash("Periodo inválido.", "danger")
+            return redirect(next_url)
+
+        if period_type not in ("MONTH", "SEMESTER"):
+            flash("Tipo de periodo inválido.", "danger")
+            return redirect(next_url)
+
+        # Calcular fin de periodo
+        if period_type == "MONTH":
+            pe = _month_end(ps)
+        else:
+            # El start viene ya como inicio del semestre
+            if ps.month <= 6:
+                pe = date(ps.year, 6, 30)
+            else:
+                pe = date(ps.year, 12, 31)
+
+        # Update existing entry
+        if entry_id:
+            try:
+                eid = uuid.UUID(entry_id)
+            except Exception:
+                flash("ID de ingreso inválido.", "danger")
+                return redirect(next_url)
+
+            entry = session_db.query(SongRevenueEntry).filter(SongRevenueEntry.id == eid).one_or_none()
+            if not entry:
+                flash("Ingreso no encontrado.", "warning")
+                return redirect(next_url)
+
+            if str(entry.song_id) != str(sid):
+                flash("El ingreso no corresponde a esta canción.", "danger")
+                return redirect(next_url)
+
+            # No permitimos convertir base<->extra aquí
+            if not entry.is_base:
+                entry.name = name
+            entry.gross = gross
+            entry.net = net
+            entry.updated_at = func.now()
+            session_db.commit()
+            flash("Ingreso actualizado.", "success")
+            return redirect(next_url)
+
+        # Upsert base / create extra
+        if is_base:
+            base = (
+                session_db.query(SongRevenueEntry)
+                .filter(SongRevenueEntry.song_id == sid)
+                .filter(SongRevenueEntry.period_type == period_type)
+                .filter(SongRevenueEntry.period_start == ps)
+                .filter(SongRevenueEntry.is_base.is_(True))
+                .one_or_none()
+            )
+            if base:
+                base.gross = gross
+                base.net = net
+                base.period_end = pe
+                base.updated_at = func.now()
+            else:
+                base = SongRevenueEntry(
+                    song_id=sid,
+                    period_type=period_type,
+                    period_start=ps,
+                    period_end=pe,
+                    is_base=True,
+                    name=None,
+                    gross=gross,
+                    net=net,
+                )
+                session_db.add(base)
+            session_db.commit()
+            flash("Ingresos guardados.", "success")
+            return redirect(next_url)
+
+        # Extra
+        if not name:
+            flash("El nombre del ingreso es obligatorio.", "danger")
+            return redirect(next_url)
+
+        extra = SongRevenueEntry(
+            song_id=sid,
+            period_type=period_type,
+            period_start=ps,
+            period_end=pe,
+            is_base=False,
+            name=name,
+            gross=gross,
+            net=net,
+        )
+        session_db.add(extra)
+        session_db.commit()
+        flash("Ingreso añadido.", "success")
+        return redirect(next_url)
+
+
+@app.post("/discografica/ingresos/entry/<entry_id>/delete")
+@admin_required
+def discografica_income_entry_delete(entry_id):
+    next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
+    try:
+        eid = uuid.UUID(entry_id)
+    except Exception:
+        flash("ID de ingreso inválido.", "danger")
+        return redirect(next_url)
+
+    with get_db() as session_db:
+        entry = session_db.query(SongRevenueEntry).filter(SongRevenueEntry.id == eid).one_or_none()
+        if not entry:
+            flash("Ingreso no encontrado.", "warning")
+            return redirect(next_url)
+
+        session_db.delete(entry)
+        session_db.commit()
+        flash("Ingreso eliminado.", "success")
+        return redirect(next_url)
+
+
+@app.post("/discografica/ingresos/upload")
+@admin_required
+def discografica_income_upload_csv():
+    """Importa ingresos desde CSV (por ISRC) para el periodo actual.
+
+    - Se selecciona la columna ISRC del CSV.
+    - Se selecciona la columna de importes.
+    - amount_kind determina si ese importe actualiza NET o GROSS.
+
+    Si el mismo ISRC aparece varias veces, se suma.
+    Si se sube un segundo archivo del mismo periodo, se actualiza (no se suma sobre el valor ya guardado).
+    """
+
+    next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
+    artist_id = (request.form.get("artist_id") or "").strip()
+    period_type = (request.form.get("period_type") or "").strip().upper()
+    period_start_iso = (request.form.get("period_start") or "").strip()
+
+    isrc_col = (request.form.get("isrc_col") or "").strip()
+    track_col = (request.form.get("track_col") or "").strip()
+    amount_col = (request.form.get("amount_col") or "").strip()
+    amount_kind = (request.form.get("amount_kind") or "net").strip().lower()  # 'net' | 'gross'
+
+    f = request.files.get("csv_file")
+    if not f:
+        flash("No se ha recibido ningún archivo CSV.", "danger")
+        return redirect(next_url)
+
+    try:
+        aid = uuid.UUID(artist_id)
+    except Exception:
+        flash("Artista inválido.", "danger")
+        return redirect(next_url)
+
+    try:
+        ps = datetime.fromisoformat(period_start_iso).date()
+    except Exception:
+        flash("Periodo inválido.", "danger")
+        return redirect(next_url)
+
+    if period_type not in ("MONTH", "SEMESTER"):
+        flash("Tipo de periodo inválido.", "danger")
+        return redirect(next_url)
+
+    # Rango del periodo
+    if period_type == "MONTH":
+        pe = _month_end(ps)
+    else:
+        if ps.month <= 6:
+            pe = date(ps.year, 6, 30)
+        else:
+            pe = date(ps.year, 12, 31)
+
+    # Parse CSV con pandas
+    try:
+        import pandas as pd
+    except Exception:
+        flash("Falta la dependencia pandas para importar CSV.", "danger")
+        return redirect(next_url)
+
+    try:
+        content = f.read()
+        try:
+            decoded = content.decode("utf-8-sig")
+        except Exception:
+            decoded = content.decode("latin-1")
+
+        # Delimiter guess: ; vs ,
+        first_line = (decoded.splitlines() or [""])[0]
+        sep = ";" if first_line.count(";") > first_line.count(",") else ","
+
+        from io import StringIO
+
+        df = pd.read_csv(StringIO(decoded), sep=sep)
+    except Exception as e:
+        flash(f"Error leyendo CSV: {e}", "danger")
+        return redirect(next_url)
+
+    # Validación columnas
+    for col in (track_col, isrc_col, amount_col):
+        if col not in df.columns:
+            flash(f"La columna '{col}' no existe en el CSV.", "danger")
+            return redirect(next_url)
+
+    # Normalizamos y sumamos por ISRC
+    df["__isrc"] = df[isrc_col].astype(str).map(_norm_isrc)
+    df["__amount"] = df[amount_col].apply(lambda x: _parse_money_decimal(x))
+
+    # remove empty ISRC
+    df = df[df["__isrc"].astype(bool)]
+
+    amount_by_isrc: dict[str, Decimal] = {}
+    for isrc, grp in df.groupby("__isrc"):
+        amount_by_isrc[str(isrc)] = sum((Decimal(x) for x in grp["__amount"].tolist()), Decimal("0"))
+
+    # Canciones del artista (publicadas hasta el fin del periodo)
+    with get_db() as session_db:
+        song_ids = (
+            session_db.query(Song.id)
+            .join(SongArtist, Song.id == SongArtist.song_id)
+            .filter(SongArtist.artist_id == aid)
+            .filter(Song.release_date <= pe)
+            .all()
+        )
+        song_ids = [row[0] for row in song_ids]
+
+        if not song_ids:
+            flash("Este artista no tiene canciones para este periodo.", "warning")
+            return redirect(next_url)
+
+        # ISRC map (normalizado) -> song_id (del artista)
+        isrc_map: dict[str, uuid.UUID] = {}
+
+        songs = session_db.query(Song.id, Song.isrc).filter(Song.id.in_(song_ids)).all()
+        for sid, code in songs:
+            c = _norm_isrc(code)
+            if c:
+                isrc_map.setdefault(c, sid)
+
+        codes = (
+            session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+            .filter(SongISRCCode.song_id.in_(song_ids))
+            .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+            .all()
+        )
+        for sid, code in codes:
+            c = _norm_isrc(code)
+            if c:
+                isrc_map.setdefault(c, sid)
+
+        bases = (
+            session_db.query(SongRevenueEntry)
+            .filter(SongRevenueEntry.song_id.in_(song_ids))
+            .filter(SongRevenueEntry.period_type == period_type)
+            .filter(SongRevenueEntry.period_start == ps)
+            .filter(SongRevenueEntry.is_base.is_(True))
+            .all()
+        )
+        base_by_song = {str(b.song_id): b for b in bases}
+
+        updated = 0
+        not_found: list[tuple[str, str]] = []
+
+        for sid in song_ids:
+            sid_s = str(sid)
+
+            # ISRC(s) de la canción
+            song_isrcs = set()
+            song_row = next((r for r in songs if r[0] == sid), None)
+            if song_row and song_row[1]:
+                song_isrcs.add(_norm_isrc(song_row[1]))
+            for csid, ccode in codes:
+                if csid == sid and ccode:
+                    song_isrcs.add(_norm_isrc(ccode))
+
+            amount = Decimal("0")
+            for c in song_isrcs:
+                if c in amount_by_isrc:
+                    amount += amount_by_isrc[c]
+
+            base = base_by_song.get(sid_s)
+            if not base:
+                base = SongRevenueEntry(
+                    song_id=sid,
+                    period_type=period_type,
+                    period_start=ps,
+                    period_end=pe,
+                    is_base=True,
+                    name=None,
+                    gross=Decimal("0"),
+                    net=Decimal("0"),
+                )
+                session_db.add(base)
+                base_by_song[sid_s] = base
+
+            if amount_kind == "gross":
+                base.gross = amount
+            else:
+                base.net = amount
+            base.period_end = pe
+            base.updated_at = func.now()
+            updated += 1
+
+        # Avisos por ISRC del archivo que no corresponden al artista
+        for _, row in df.iterrows():
+            isrc = str(row.get("__isrc") or "")
+            if not isrc:
+                continue
+            if isrc not in isrc_map:
+                track = str(row.get(track_col) or "")
+                not_found.append((track, isrc))
+
+        session_db.commit()
+
+    if not_found:
+        preview = not_found[:15]
+        more = len(not_found) - len(preview)
+        msg = "; ".join([f"{t} ({i})" for t, i in preview if t or i])
+        if more > 0:
+            msg += f" … (+{more} más)"
+        flash(f"Aviso: ISRC no encontrados en la base de datos del artista: {msg}", "warning")
+
+    flash(f"CSV importado. Canciones actualizadas: {updated}.", "success")
+    return redirect(next_url)
+
+
+@app.get("/discografica/ingresos/informe/pdf")
+@admin_required
+def discografica_income_report_pdf():
+    """Genera PDF A4 horizontal con el informe de ingresos según filtros."""
+
+    artist_ids = request.args.getlist("artist_ids")
+    months = request.args.getlist("months")
+    semesters = request.args.getlist("semesters")
+    kinds = request.args.getlist("kinds")
+
+    allowed_kinds = {"discografica", "catalogo", "distribucion"}
+    kinds = [k for k in kinds if k in allowed_kinds]
+    if not kinds:
+        kinds = ["discografica", "catalogo", "distribucion"]
+
+    month_starts: list[date] = []
+    sem_starts: list[date] = []
+
+    for m in months:
+        d = _parse_month_key(m)
+        if d:
+            month_starts.append(d)
+
+    for s in semesters:
+        parsed = _parse_semester_key(s)
+        if parsed:
+            y, h = parsed
+            ss, _se = _semester_range(y, h)
+            sem_starts.append(ss)
+
+    if not month_starts and not sem_starts:
+        today = today_local()
+        prev = _add_months(date(today.year, today.month, 1), -1)
+        month_starts = [prev]
+
+    period_filters: list[tuple[str, date]] = [("MONTH", d) for d in month_starts] + [("SEMESTER", d) for d in sem_starts]
+
+    from io import BytesIO
+    from urllib.request import urlopen
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    def _fetch_img(url: str, w: float, h: float):
+        if not url:
+            return ""
+        try:
+            with urlopen(url, timeout=5) as resp:
+                data = resp.read()
+            bio = BytesIO(data)
+            img = Image(bio, width=w, height=h)
+            img.hAlign = "LEFT"
+            return img
+        except Exception:
+            return ""
+
+    def _song_kind(song: Song) -> str:
+        if song.is_distribution:
+            return "distribucion"
+        if song.is_catalog:
+            return "catalogo"
+        return "discografica"
+
+    # Query
+    with get_db() as session_db:
+        if artist_ids:
+            try:
+                aids = [uuid.UUID(x) for x in artist_ids]
+            except Exception:
+                aids = []
+        else:
+            aids = []
+
+        if aids:
+            artists = session_db.query(Artist).filter(Artist.id.in_(aids)).order_by(Artist.name.asc()).all()
+        else:
+            artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+
+        report_blocks = []
+
+        for a in artists:
+            songs = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .filter(SongArtist.artist_id == a.id)
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+            songs = [s for s in songs if _song_kind(s) in kinds]
+            if not songs:
+                continue
+
+            song_ids = [s.id for s in songs]
+
+            inter = (
+                session_db.query(SongInterpreter.song_id, SongInterpreter.name)
+                .filter(SongInterpreter.song_id.in_(song_ids))
+                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.position.asc())
+                .all()
+            )
+            inter_map: dict[str, list[str]] = {}
+            for sid, name in inter:
+                if sid and name:
+                    inter_map.setdefault(str(sid), []).append(name)
+
+            codes = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code, SongISRCCode.is_primary)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.desc())
+                .all()
+            )
+            isrc_map: dict[str, str] = {}
+            for sid, code, _p in codes:
+                sid_s = str(sid)
+                if sid_s not in isrc_map and code:
+                    isrc_map[sid_s] = code
+
+            q = session_db.query(SongRevenueEntry).filter(SongRevenueEntry.song_id.in_(song_ids))
+            ors = [and_(SongRevenueEntry.period_type == pt, SongRevenueEntry.period_start == ps) for pt, ps in period_filters]
+            if ors:
+                q = q.filter(or_(*ors))
+            entries = q.all()
+
+            sums: dict[str, tuple[Decimal, Decimal]] = {str(s.id): (Decimal("0"), Decimal("0")) for s in songs}
+            for e in entries:
+                sid_s = str(e.song_id)
+                g, n = sums.get(sid_s, (Decimal("0"), Decimal("0")))
+                g += Decimal(e.gross or 0)
+                n += Decimal(e.net or 0)
+                sums[sid_s] = (g, n)
+
+            rows = []
+            artist_total_g = Decimal("0")
+            artist_total_n = Decimal("0")
+
+            for s in songs:
+                sid_s = str(s.id)
+                g, n = sums.get(sid_s, (Decimal("0"), Decimal("0")))
+                artist_total_g += g
+                artist_total_n += n
+
+                interpreters = inter_map.get(sid_s)
+                if not interpreters:
+                    _ = s.artists
+                    interpreters = [ar.name for ar in (s.artists or []) if ar and ar.name]
+
+                rows.append(
+                    {
+                        "song": s,
+                        "cover": s.cover_url,
+                        "title": s.title,
+                        "interpreters": ", ".join(interpreters) if interpreters else "",
+                        "isrc": isrc_map.get(sid_s) or (s.isrc or ""),
+                        "kind": _song_kind(s),
+                        "gross": g,
+                        "net": n,
+                    }
+                )
+
+            report_blocks.append((a, artist_total_g, artist_total_n, rows))
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=1.2 * cm,
+        rightMargin=1.2 * cm,
+        topMargin=1.0 * cm,
+        bottomMargin=1.0 * cm,
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    story.append(Paragraph("<b>Informe de ingresos</b>", styles["Title"]))
+
+    p_labels = []
+    for d in month_starts:
+        p_labels.append(_month_label(d))
+    for d in sem_starts:
+        half = 1 if d.month == 1 else 2
+        p_labels.append(_semester_label(d.year, half))
+
+    story.append(Paragraph("Periodo: " + ", ".join(p_labels), styles["Normal"]))
+    story.append(Spacer(1, 0.4 * cm))
+
+    if not report_blocks:
+        story.append(Paragraph("No hay datos para los filtros seleccionados.", styles["Normal"]))
+    else:
+        for artist, tg, tn, rows in report_blocks:
+            img = _fetch_img(artist.photo_url or "", 1.2 * cm, 1.2 * cm)
+            hdr = Table(
+                [[img, Paragraph(f"<b>{artist.name}</b><br/>Total bruto: {tg:.2f} € &nbsp;&nbsp; Total neto: {tn:.2f} €", styles["Normal"]) ]],
+                colWidths=[1.4 * cm, 24 * cm],
+            )
+            hdr.setStyle(
+                TableStyle(
+                    [
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(hdr)
+
+            data = [["", "Canción", "Intérpretes", "ISRC", "Tipo", "Bruto", "Neto"]]
+            for r in rows:
+                cover = _fetch_img(r["cover"] or "", 1.0 * cm, 1.0 * cm)
+                kind_label = {
+                    "discografica": "Discográfica",
+                    "catalogo": "Catálogo",
+                    "distribucion": "Distribución",
+                }.get(r["kind"], r["kind"])
+                data.append(
+                    [
+                        cover,
+                        r["title"],
+                        r["interpreters"],
+                        r["isrc"],
+                        kind_label,
+                        f"{r['gross']:.2f} €",
+                        f"{r['net']:.2f} €",
+                    ]
+                )
+
+            tbl = Table(
+                data,
+                colWidths=[1.2 * cm, 6.5 * cm, 6.8 * cm, 3.2 * cm, 2.8 * cm, 3.0 * cm, 3.0 * cm],
+            )
+            tbl.setStyle(
+                TableStyle(
+                    [
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (-2, 1), (-1, -1), "RIGHT"),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                    ]
+                )
+            )
+            story.append(tbl)
+            story.append(Spacer(1, 0.6 * cm))
+
+    doc.build(story)
+    pdf = buf.getvalue()
+    buf.close()
+
+    filename = f"informe_ingresos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    return Response(
+        pdf,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": f"inline; filename={filename}"},
+    )
 
 @app.get("/discografica/canciones/<song_id>")
 @admin_required

@@ -326,3 +326,17 @@ button.song-status-item:focus {
   background-color: #ffe1e1; /* rojo clarito */
   border-left: 4px solid #e74c3c;
 }
+
+/* Discográfica > Ingresos */
+.cover-square {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,.08);
+  background: #fff;
+}
+
+.income-table td {
+  vertical-align: middle;
+}

@@ -1,0 +1,440 @@
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <div>
+    <div class="fw-semibold">Periodo seleccionado: {{ income_period_label }}</div>
+    <div class="text-muted small">Puedes añadir ingresos brutos/netos por periodo o importarlos por CSV (por ISRC).</div>
+  </div>
+  <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#incomeReportModal">
+    <i class="fa fa-file-pdf"></i> Generar informe
+  </button>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <a class="btn btn-sm btn-outline-secondary {% if not income_month_prev_url %}disabled{% endif %}"
+         href="{{ income_month_prev_url or '#' }}"
+         title="Meses anteriores">
+        <i class="fa fa-chevron-left"></i>
+      </a>
+
+      <ul class="nav nav-pills flex-wrap gap-1 mb-0">
+        {% for m in income_month_tabs %}
+          <li class="nav-item">
+            <a class="nav-link py-1 px-2 {% if income_view=='month' and m.is_active %}active{% endif %}"
+               href="{{ m.url }}">
+              {{ m.label }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <a class="btn btn-sm btn-outline-secondary {% if not income_month_next_url %}disabled{% endif %}"
+         href="{{ income_month_next_url or '#' }}"
+         title="Meses posteriores">
+        <i class="fa fa-chevron-right"></i>
+      </a>
+    </div>
+
+    <hr class="my-3">
+
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <ul class="nav nav-pills flex-wrap gap-1 mb-0">
+        {% for s in income_semester_tabs %}
+          <li class="nav-item">
+            <a class="nav-link py-1 px-2 {% if income_view=='semester' and s.is_active %}active{% endif %}"
+               href="{{ s.url }}">
+              {{ s.label }}
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+  </div>
+</div>
+
+{% if not income_artist_blocks or (income_artist_blocks|length) == 0 %}
+  <div class="text-muted">No hay artistas/canciones para este periodo.</div>
+{% else %}
+  {% for artist, rows in income_artist_blocks %}
+    <div class="mb-4">
+      <div class="d-flex align-items-center justify-content-between gap-2 mb-2 flex-wrap">
+        <div class="d-flex align-items-center gap-2">
+          <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+          <h5 class="m-0">{{ artist.name }}</h5>
+        </div>
+
+        <button class="btn btn-sm btn-outline-secondary btn-income-upload"
+                data-bs-toggle="modal" data-bs-target="#incomeUploadModal"
+                data-artist-id="{{ artist.id }}"
+                data-artist-name="{{ artist.name }}"
+                data-artist-photo="{{ artist.photo_url or '' }}"
+                data-period-type="{{ income_period_type }}"
+                data-period-start="{{ income_period_start_iso }}">
+          <i class="fa fa-upload"></i> Subir ingresos (CSV)
+        </button>
+      </div>
+
+      {% if not rows or (rows|length) == 0 %}
+        <div class="text-muted small">Este artista no tiene canciones publicadas para este periodo.</div>
+      {% else %}
+        <div class="table-responsive bg-white border rounded">
+          <table class="table table-hover align-middle mb-0 income-table">
+            <thead class="table-light">
+              <tr>
+                <th style="width:72px;">Portada</th>
+                <th>Canción</th>
+                <th>Intérpretes</th>
+                <th class="text-nowrap">ISRC</th>
+                <th class="text-nowrap">Estado</th>
+                <th class="text-nowrap" style="width:150px;">Bruto</th>
+                <th class="text-nowrap" style="width:150px;">Neto</th>
+                <th style="width:90px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+
+              {% for r in rows %}
+                {% set s = r.song %}
+
+                {# Form invisible para guardar la línea base #}
+                <form id="income-base-{{ s.id }}-{{ income_period_type }}-{{ income_period_start_iso }}" method="post" action="{{ url_for('discografica_income_entry_save') }}">
+                  <input type="hidden" name="song_id" value="{{ s.id }}">
+                  <input type="hidden" name="period_type" value="{{ income_period_type }}">
+                  <input type="hidden" name="period_start" value="{{ income_period_start_iso }}">
+                  <input type="hidden" name="is_base" value="1">
+                  {% if r.base_entry_id %}
+                    <input type="hidden" name="entry_id" value="{{ r.base_entry_id }}">
+                  {% endif %}
+                  <input type="hidden" name="next" value="{{ income_next_url }}">
+                </form>
+
+                <tr>
+                  <td>
+                    <img src="{{ r.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  </td>
+                  <td>
+                    <div class="fw-semibold">{{ s.title }}</div>
+
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                      {% if s.is_distribution %}
+                        <span class="badge text-bg-info">Distribución</span>
+                      {% elif s.is_catalog %}
+                        <span class="badge text-bg-secondary">Catálogo</span>
+                      {% else %}
+                        <span class="badge text-bg-dark">Discográfica</span>
+                      {% endif %}
+
+                      {% if income_view=='semester' and r.semester_missing_months is not none %}
+                        <span class="badge text-bg-light text-muted">Meses con datos: {{ 6 - r.semester_missing_months }}/6</span>
+                      {% endif %}
+                    </div>
+
+                    {% if income_view=='semester' %}
+                      <div class="small text-muted mt-1">
+                        Suma meses: <span class="text-nowrap">{{ r.semester_sum_gross|eur }}</span> / <span class="text-nowrap">{{ r.semester_sum_net|eur }}</span>
+                        {% if r.semester_has_manual %}
+                          <span class="ms-1 badge text-bg-light text-muted">Manual</span>
+                        {% else %}
+                          <span class="ms-1 badge text-bg-light text-muted">Auto</span>
+                        {% endif %}
+                      </div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <span class="text-muted">{{ r.interpreters or '—' }}</span>
+                  </td>
+                  <td>
+                    <span class="text-muted">{{ r.isrc or '—' }}</span>
+                  </td>
+                  <td>
+                    <span class="badge {{ r.status.class }}">{{ r.status.label }}</span>
+                  </td>
+                  <td>
+                    <input name="gross" form="income-base-{{ s.id }}-{{ income_period_type }}-{{ income_period_start_iso }}"
+                           class="form-control form-control-sm text-end"
+                           value="{{ r.base_gross }}"
+                           placeholder="0,00">
+                  </td>
+                  <td>
+                    <input name="net" form="income-base-{{ s.id }}-{{ income_period_type }}-{{ income_period_start_iso }}"
+                           class="form-control form-control-sm text-end"
+                           value="{{ r.base_net }}"
+                           placeholder="0,00">
+                  </td>
+                  <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary" type="submit"
+                            form="income-base-{{ s.id }}-{{ income_period_type }}-{{ income_period_start_iso }}"
+                            title="Guardar">
+                      <i class="fa fa-save"></i>
+                    </button>
+
+                    <button type="button" class="btn btn-sm btn-outline-secondary btn-income-add" data-bs-toggle="modal" data-bs-target="#incomeEntryModal"
+                            title="Añadir ingreso"
+                            data-song-id="{{ s.id }}"
+                            data-song-title="{{ s.title|e }}"
+                            data-period-type="{{ income_period_type }}"
+                            data-period-start="{{ income_period_start_iso }}">
+                      <i class="fa fa-plus"></i>
+                    </button>
+                  </td>
+                </tr>
+
+                {% if r.extra_entries and (r.extra_entries|length) > 0 %}
+                  {% for e in r.extra_entries %}
+                    <tr class="table-light">
+                      <td></td>
+                      <td colspan="3">
+                        <div class="small fw-semibold">{{ e.name }}</div>
+                      </td>
+                      <td></td>
+                      <td class="text-end small">{{ e.gross|eur }}</td>
+                      <td class="text-end small">{{ e.net|eur }}</td>
+                      <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-outline-secondary btn-income-edit" data-bs-toggle="modal" data-bs-target="#incomeEntryModal"
+                                title="Editar"
+                                data-entry-id="{{ e.id }}"
+                                data-song-title="{{ s.title|e }}"
+                                data-name="{{ e.name|e }}"
+                                data-gross="{{ e.gross }}"
+                                data-net="{{ e.net }}"
+                                data-period-type="{{ income_period_type }}"
+                                data-period-start="{{ income_period_start_iso }}">
+                          <i class="fa fa-pen"></i>
+                        </button>
+
+                        <form method="post" action="{{ url_for('discografica_income_entry_delete', entry_id=e.id) }}" class="d-inline">
+                          <input type="hidden" name="next" value="{{ income_next_url }}">
+                          <button class="btn btn-sm btn-outline-danger" title="Eliminar">
+                            <i class="fa fa-trash"></i>
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% endif %}
+
+                {% if r.show_total %}
+                  <tr class="table-secondary">
+                    <td></td>
+                    <td colspan="4" class="text-end small fw-semibold">Total</td>
+                    <td class="text-end small fw-semibold">{{ r.total_gross|eur }}</td>
+                    <td class="text-end small fw-semibold">{{ r.total_net|eur }}</td>
+                    <td></td>
+                  </tr>
+                {% endif %}
+
+              {% endfor %}
+
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+  {% endfor %}
+{% endif %}
+
+
+<!-- Modal: Añadir / Editar ingreso extra -->
+<div class="modal fade" id="incomeEntryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_income_entry_save') }}">
+      <div class="modal-header">
+        <h5 class="modal-title" id="incomeEntryModalTitle">Añadir ingreso</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="entry_id" id="incomeEntryId">
+        <input type="hidden" name="song_id" id="incomeSongId" required>
+        <input type="hidden" name="period_type" id="incomePeriodType" required>
+        <input type="hidden" name="period_start" id="incomePeriodStart" required>
+        <input type="hidden" name="is_base" value="0">
+        <input type="hidden" name="next" value="{{ income_next_url }}">
+
+        <div class="mb-2">
+          <div class="small text-muted">Canción</div>
+          <div class="fw-semibold" id="incomeSongTitle">—</div>
+        </div>
+
+        <div class="mb-2">
+          <label class="form-label">Nombre del ingreso</label>
+          <input class="form-control" name="name" id="incomeName" placeholder="Ej: Spotify, YouTube, Sincronización…" required>
+        </div>
+
+        <div class="row g-2">
+          <div class="col-6">
+            <label class="form-label">Bruto</label>
+            <input class="form-control text-end" name="gross" id="incomeGross" placeholder="0,00">
+          </div>
+          <div class="col-6">
+            <label class="form-label">Neto</label>
+            <input class="form-control text-end" name="net" id="incomeNet" placeholder="0,00">
+          </div>
+        </div>
+
+        <div class="small text-muted mt-2">Si subes varios archivos del mismo periodo, se actualizan los datos (no se suman).</div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" type="submit">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Modal: Subir ingresos CSV -->
+<div class="modal fade" id="incomeUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_income_upload_csv') }}" enctype="multipart/form-data">
+      <div class="modal-header">
+        <h5 class="modal-title">Subir ingresos (CSV)</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" id="incomeUploadArtistPhoto" class="artist-avatar" alt="">
+          <div>
+            <div class="fw-semibold" id="incomeUploadArtistName">—</div>
+            <div class="small text-muted">Periodo: {{ income_period_label }}</div>
+          </div>
+        </div>
+
+        <input type="hidden" name="artist_id" id="incomeUploadArtistId" required>
+        <input type="hidden" name="period_type" id="incomeUploadPeriodType" required>
+        <input type="hidden" name="period_start" id="incomeUploadPeriodStart" required>
+        <input type="hidden" name="next" value="{{ income_next_url }}">
+
+        <div class="row g-2">
+          <div class="col-12">
+            <label class="form-label">Archivo CSV</label>
+            <input class="form-control" type="file" name="csv_file" id="incomeUploadFile" accept=".csv,text/csv" required>
+            <div class="small text-muted mt-1">Al seleccionar el archivo, se cargarán las columnas para que puedas elegir ISRC e importes.</div>
+          </div>
+
+          <div class="col-12 col-md-4">
+            <label class="form-label">Columna Track (para avisos)</label>
+            <select class="form-select" name="track_col" id="incomeUploadTrackCol" required>
+              <option value="">Selecciona…</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Columna ISRC</label>
+            <select class="form-select" name="isrc_col" id="incomeUploadIsrcCol" required>
+              <option value="">Selecciona…</option>
+            </select>
+          </div>
+          <div class="col-12 col-md-4">
+            <label class="form-label">Columna de importes</label>
+            <select class="form-select" name="amount_col" id="incomeUploadAmountCol" required>
+              <option value="">Selecciona…</option>
+            </select>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Esos importes son…</label>
+            <div class="d-flex gap-3 flex-wrap">
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtNet" value="net" checked>
+                <label class="form-check-label" for="incomeAmtNet">Neto</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtGross" value="gross">
+                <label class="form-check-label" for="incomeAmtGross">Bruto</label>
+              </div>
+            </div>
+            <div class="small text-muted">Se actualizará el campo correspondiente (neto o bruto) para este periodo. Si el mismo ISRC aparece varias veces, se suman sus importes.</div>
+          </div>
+
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary" type="submit">
+          <i class="fa fa-upload"></i> Importar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+<!-- Modal: Generar informe ingresos -->
+<div class="modal fade" id="incomeReportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <form class="modal-content" method="get" action="{{ url_for('discografica_income_report_pdf') }}" target="_blank">
+      <div class="modal-header">
+        <h5 class="modal-title">Informe de ingresos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="row g-3">
+          <div class="col-12 col-lg-5">
+            <label class="form-label">Artistas</label>
+            <select name="artist_ids" class="form-select select-artists" multiple>
+              {% for a in artists %}
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" selected>{{ a.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="small text-muted mt-1">Por defecto están todos activos.</div>
+          </div>
+
+          <div class="col-12 col-lg-7">
+            <div class="row g-2">
+              <div class="col-12 col-md-6">
+                <label class="form-label">Meses</label>
+                <select class="form-select" name="months" multiple size="8">
+                  {% for m in income_report_months %}
+                    <option value="{{ m.key }}" {% if m.key in income_report_months_selected %}selected{% endif %}>{{ m.label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Semestres</label>
+                <select class="form-select" name="semesters" multiple size="8">
+                  {% for s in income_report_semesters %}
+                    <option value="{{ s.key }}" {% if s.key in income_report_semesters_selected %}selected{% endif %}>{{ s.label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12">
+                <div class="small text-muted">Puedes elegir uno o varios meses, o uno o varios semestres.</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12">
+            <label class="form-label">Tipo de canción</label>
+            <div class="d-flex gap-3 flex-wrap">
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="kindDisc" name="kinds" value="discografica" checked>
+                <label class="form-check-label" for="kindDisc">Discográfica</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="kindCat" name="kinds" value="catalogo" checked>
+                <label class="form-check-label" for="kindCat">Catálogo</label>
+              </div>
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" id="kindDist" name="kinds" value="distribucion" checked>
+                <label class="form-check-label" for="kindDist">Distribución</label>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+        <button class="btn btn-primary" type="submit">
+          <i class="fa fa-file-pdf"></i> Generar PDF
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+

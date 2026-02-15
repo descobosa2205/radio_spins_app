@@ -11,6 +11,7 @@ from sqlalchemy import (
     func,
     text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from sqlalchemy.dialects.postgresql import UUID as PGUUID, JSONB
@@ -472,6 +473,42 @@ class SongEditorialShare(Base):
 
     __table_args__ = (
         UniqueConstraint("song_id", "promoter_id", "role", name="uq_song_editorial_share"),
+    )
+
+
+class SongRevenueEntry(Base):
+    """Ingresos (bruto/neto) por canción y periodo (mes o semestre).
+
+    - period_type: 'MONTH' | 'SEMESTER'
+    - period_start / period_end: rango del periodo
+    - is_base: True para la fila principal (sin nombre), False para filas extra con nombre
+
+    NOTA: El índice único (con COALESCE(name,'')) se crea vía migración/ensure_schema.
+    """
+
+    __tablename__ = "song_revenue_entries"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+
+    period_type = Column(Text, nullable=False)  # MONTH | SEMESTER
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+
+    is_base = Column(Boolean, nullable=False, server_default=text("true"))
+    name = Column(Text)
+
+    gross = Column(Numeric, nullable=False, server_default=text("0"))
+    net = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    song = relationship("Song")
+
+    __table_args__ = (
+        Index("idx_song_revenue_entries_song_period", "song_id", "period_type", "period_start"),
+        Index("idx_song_revenue_entries_period", "period_type", "period_start"),
     )
 
 
@@ -1378,6 +1415,62 @@ def ensure_song_royalties_schema():
             if not s:
                 continue
             conn.exec_driver_sql(s)
+
+
+def ensure_ingresos_schema():
+    """Asegura el esquema necesario para la pestaña de Ingresos (discográfica).
+
+    - song_revenue_entries: ingresos por canción y periodo (mes/semestre)
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        """
+        CREATE TABLE IF NOT EXISTS song_revenue_entries (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+
+            period_type text NOT NULL,
+            period_start date NOT NULL,
+            period_end date NOT NULL,
+
+            is_base boolean NOT NULL DEFAULT true,
+            name text,
+
+            gross numeric NOT NULL DEFAULT 0,
+            net numeric NOT NULL DEFAULT 0,
+
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+
+            CONSTRAINT chk_song_revenue_period_type CHECK (period_type IN ('MONTH','SEMESTER'))
+        );
+        """,
+
+        # Índice único: evita duplicar base y también evita nombres duplicados (por periodo)
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_song_revenue_entry_key
+        ON song_revenue_entries(song_id, period_type, period_start, is_base, COALESCE(name,''));
+        """,
+
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_revenue_entries_song_period
+        ON song_revenue_entries(song_id, period_type, period_start);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_song_revenue_entries_period
+        ON song_revenue_entries(period_type, period_start);
+        """,
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
 
 
 def init_db():

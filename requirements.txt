@@ -6,3 +6,4 @@ supabase==2.6.0
 Werkzeug==3.0.4
 gunicorn==21.2.0
 reportlab>=4.0.0
+pandas==2.2.2

@@ -85,6 +85,20 @@ function initArtistContractControls(){
 function initClickableRows(){
   document.querySelectorAll('.clickable-row[data-href]').forEach((row) => {
     row.addEventListener('click', (e) => {
+      // Si el click viene de un control interactivo dentro de la fila, no navegamos.
+      // (por ejemplo botones, inputs, selects, enlaces…)
+      try {
+        if (e && e.target && e.target.closest && e.target.closest('a,button,input,select,textarea,label')) return;
+      } catch (_) {}
+      const href = row.getAttribute('data-href');
+      if (href) window.location.href = href;
+    });
+
+    // Accesibilidad: Enter / Space abre igual.
+    row.addEventListener('keydown', (e) => {
+      if (!e) return;
+      const key = e.key || '';
+      if (key !== 'Enter' && key !== ' ') return;
       const href = row.getAttribute('data-href');
       if (href) window.location.href = href;
     });
@@ -585,7 +599,8 @@ function initIncomeModals() {
         if (!f) return;
 
         const txt = await f.text();
-        const firstLine = (txt.split(/?
+        const firstLine = (txt.split(/
+?
 /)[0] || '').trim();
         if (!firstLine) return;
 
@@ -620,17 +635,21 @@ function initIncomeModals() {
   }
 }
 
+// IMPORTANTE:
+// Si cualquier inicializador lanza excepción, se cortaba el resto y algunas
+// interacciones (p.ej. abrir ficha de canción al clickar una fila) dejaban de funcionar.
+// Aislamos cada init con try/catch para que no "rompa" el resto de la página.
 $(function(){
-  initSelect2();
-  initIncomeModals();
-  initArtistContractControls();
-  initClickableRows();
-  initSongLinkModal();
-  initBootstrapTooltips();
-  initDynamicRows();
-  initIsrcModalControls();
-  initSongOwnershipControls();
-  initEditorialTab();
+  try { initSelect2(); } catch (e) { console.error('initSelect2', e); }
+  try { initIncomeModals(); } catch (e) { console.error('initIncomeModals', e); }
+  try { initArtistContractControls(); } catch (e) { console.error('initArtistContractControls', e); }
+  try { initClickableRows(); } catch (e) { console.error('initClickableRows', e); }
+  try { initSongLinkModal(); } catch (e) { console.error('initSongLinkModal', e); }
+  try { initBootstrapTooltips(); } catch (e) { console.error('initBootstrapTooltips', e); }
+  try { initDynamicRows(); } catch (e) { console.error('initDynamicRows', e); }
+  try { initIsrcModalControls(); } catch (e) { console.error('initIsrcModalControls', e); }
+  try { initSongOwnershipControls(); } catch (e) { console.error('initSongOwnershipControls', e); }
+  try { initEditorialTab(); } catch (e) { console.error('initEditorialTab', e); }
 });
 
 async function openSalesChart(concertId){

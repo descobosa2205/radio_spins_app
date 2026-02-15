@@ -552,7 +552,12 @@
           </thead>
           <tbody>
             {% for s in songs %}
-              <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}">
+              <tr class="clickable-row"
+                  role="button"
+                  tabindex="0"
+                  data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
+                  onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
+                  onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
                 <td>
                   <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
                 </td>

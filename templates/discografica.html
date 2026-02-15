@@ -81,7 +81,18 @@
               </thead>
               <tbody>
                 {% for s in songs %}
-                  <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}">
+                  {#
+                    IMPORTANTE:
+                    - Antes dependíamos solo de JS (initClickableRows) para navegar.
+                    - Si por cualquier motivo el JS no carga o falla, el click no hace nada.
+                    - Añadimos fallback inline (onclick) para que la ficha siempre abra.
+                  #}
+                  <tr class="clickable-row"
+                      role="button"
+                      tabindex="0"
+                      data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
+                      onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
+                      onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
                     <td>
                       <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
                     </td>
@@ -287,7 +298,12 @@
                     {% set audio_subs = item.audio_subs or [] %}
                     {% set video_subs = item.video_subs or [] %}
 
-                    <tr class="clickable-row" data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}">
+                  <tr class="clickable-row"
+                      role="button"
+                      tabindex="0"
+                      data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}"
+                      onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}';"
+                      onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}'; }">
                       <td>
                         <div class="fw-semibold">{{ s.title }}</div>
                         {% if s.is_catalog %}

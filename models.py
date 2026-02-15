@@ -1117,40 +1117,60 @@ def ensure_artist_feature_schema():
             conn.exec_driver_sql(s)
 
 
+
 def ensure_discografica_schema():
     """Asegura columnas nuevas en `songs` para la pestaña Discográfica.
 
-    Lo hacemos sin Alembic, usando DDL idempotente (IF NOT EXISTS) para:
-    - is_catalog
-    - isrc
-    - enlaces plataformas
+    IMPORTANTE:
+    - En producción (Render/Gunicorn) no debemos ejecutar ALTERs innecesarios en cada arranque,
+      porque pueden bloquear `songs` y disparar `statement_timeout`.
+    - Por eso aquí solo alteramos si realmente faltan columnas.
+    - Los índices se dejan a migraciones (o a mantenimiento manual), no al arranque.
     """
 
-    stmts = [
-        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
-
-        # Campos nuevos en songs
-        """
-        ALTER TABLE IF EXISTS songs
-            ADD COLUMN IF NOT EXISTS is_catalog boolean NOT NULL DEFAULT false,
-            ADD COLUMN IF NOT EXISTS isrc text,
-            ADD COLUMN IF NOT EXISTS spotify_url text,
-            ADD COLUMN IF NOT EXISTS apple_music_url text,
-            ADD COLUMN IF NOT EXISTS amazon_music_url text,
-            ADD COLUMN IF NOT EXISTS tiktok_url text,
-            ADD COLUMN IF NOT EXISTS youtube_url text;
-        """,
-
-        'CREATE INDEX IF NOT EXISTS idx_songs_release_date ON songs(release_date DESC);',
-        'CREATE INDEX IF NOT EXISTS idx_songs_isrc ON songs(isrc);',
-    ]
+    required_cols = {
+        "is_catalog": "boolean NOT NULL DEFAULT false",
+        "isrc": "text",
+        "spotify_url": "text",
+        "apple_music_url": "text",
+        "amazon_music_url": "text",
+        "tiktok_url": "text",
+        "youtube_url": "text",
+    }
 
     with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+        # Evita esperas largas por locks en arranque
+        try:
+            conn.exec_driver_sql("SET LOCAL lock_timeout = '2s';")
+        except Exception:
+            pass
+
+        conn.exec_driver_sql('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
+
+        # Si la tabla no existe todavía, no hacemos nada más.
+        exists = conn.exec_driver_sql(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema='public' AND table_name='songs' "
+            "LIMIT 1;"
+        ).fetchone()
+        if not exists:
+            return
+
+        existing = {
+            r[0]
+            for r in conn.exec_driver_sql(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name='songs';"
+            ).fetchall()
+        }
+
+        missing = [c for c in required_cols.keys() if c not in existing]
+        if not missing:
+            return
+
+        parts = [f"ADD COLUMN IF NOT EXISTS {c} {required_cols[c]}" for c in missing]
+        stmt = "ALTER TABLE songs\n    " + ",\n    ".join(parts) + ";"
+        conn.exec_driver_sql(stmt)
 
 
 def ensure_isrc_and_song_detail_schema():
@@ -1275,23 +1295,50 @@ def ensure_isrc_and_song_detail_schema():
 
         # Campos extra en songs
         """
-        ALTER TABLE IF EXISTS songs
-            ADD COLUMN IF NOT EXISTS version text,
-            ADD COLUMN IF NOT EXISTS duration_seconds integer,
-            ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
-            ADD COLUMN IF NOT EXISTS recording_date date,
-            ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
-            ADD COLUMN IF NOT EXISTS master_ownership_pct numeric NOT NULL DEFAULT 100,
-            ADD COLUMN IF NOT EXISTS bpm integer,
-            ADD COLUMN IF NOT EXISTS genre text,
-            ADD COLUMN IF NOT EXISTS copyright_text text,
-            ADD COLUMN IF NOT EXISTS recording_engineer text,
-            ADD COLUMN IF NOT EXISTS mixing_engineer text,
-            ADD COLUMN IF NOT EXISTS mastering_engineer text,
-            ADD COLUMN IF NOT EXISTS studio text,
-            ADD COLUMN IF NOT EXISTS producers jsonb,
-            ADD COLUMN IF NOT EXISTS arrangers jsonb,
-            ADD COLUMN IF NOT EXISTS musicians jsonb;
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'songs'
+            ) THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='version')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='duration_seconds')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='tiktok_start_seconds')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='recording_date')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='is_distribution')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='master_ownership_pct')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='bpm')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='genre')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='copyright_text')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='recording_engineer')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='mixing_engineer')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='mastering_engineer')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='studio')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='producers')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='arrangers')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='musicians')
+                THEN
+                    ALTER TABLE songs
+                        ADD COLUMN IF NOT EXISTS version text,
+                        ADD COLUMN IF NOT EXISTS duration_seconds integer,
+                        ADD COLUMN IF NOT EXISTS tiktok_start_seconds integer,
+                        ADD COLUMN IF NOT EXISTS recording_date date,
+                        ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
+                        ADD COLUMN IF NOT EXISTS master_ownership_pct numeric NOT NULL DEFAULT 100,
+                        ADD COLUMN IF NOT EXISTS bpm integer,
+                        ADD COLUMN IF NOT EXISTS genre text,
+                        ADD COLUMN IF NOT EXISTS copyright_text text,
+                        ADD COLUMN IF NOT EXISTS recording_engineer text,
+                        ADD COLUMN IF NOT EXISTS mixing_engineer text,
+                        ADD COLUMN IF NOT EXISTS mastering_engineer text,
+                        ADD COLUMN IF NOT EXISTS studio text,
+                        ADD COLUMN IF NOT EXISTS producers jsonb,
+                        ADD COLUMN IF NOT EXISTS arrangers jsonb,
+                        ADD COLUMN IF NOT EXISTS musicians jsonb;
+                END IF;
+            END IF;
+        END$$;
         """,
 
         # Backfill: crear estado para canciones existentes si no existe
@@ -1385,9 +1432,22 @@ def ensure_editorial_schema():
 
         # Declaración de obra en songs
         """
-        ALTER TABLE IF EXISTS songs
-            ADD COLUMN IF NOT EXISTS work_declaration_url text,
-            ADD COLUMN IF NOT EXISTS work_declaration_uploaded_at timestamptz;
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name = 'songs'
+            ) THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='work_declaration_url')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='work_declaration_uploaded_at')
+                THEN
+                    ALTER TABLE songs
+                        ADD COLUMN IF NOT EXISTS work_declaration_url text,
+                        ADD COLUMN IF NOT EXISTS work_declaration_uploaded_at timestamptz;
+                END IF;
+            END IF;
+        END$$;
         """,
     ]
 

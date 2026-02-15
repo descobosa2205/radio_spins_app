@@ -102,14 +102,26 @@ app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
-ensure_artist_feature_schema()
-ensure_discografica_schema()
-ensure_isrc_and_song_detail_schema()
-ensure_isrc_and_song_detail_schema()
-ensure_song_royalties_schema()
-ensure_editorial_schema()
-ensure_ingresos_schema()
-ensure_royalty_liquidations_schema()
+# IMPORTANTE: esto debe ser "best-effort" para no romper el arranque si la BBDD
+# está ocupada (locks) o tiene `statement_timeout` bajo.
+def _safe_ensure(fn, name: str):
+    try:
+        fn()
+    except Exception as e:
+        # No interrumpir el arranque por DDL idempotente.
+        print(f"[schema] Aviso: no se pudo ejecutar {name}: {e}")
+
+for _fn, _name in [
+    (ensure_artist_feature_schema, "ensure_artist_feature_schema"),
+    (ensure_discografica_schema, "ensure_discografica_schema"),
+    (ensure_isrc_and_song_detail_schema, "ensure_isrc_and_song_detail_schema"),
+    (ensure_song_royalties_schema, "ensure_song_royalties_schema"),
+    (ensure_editorial_schema, "ensure_editorial_schema"),
+    (ensure_ingresos_schema, "ensure_ingresos_schema"),
+    (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
+]:
+    _safe_ensure(_fn, _name)
+
 
 SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {
@@ -2065,7 +2077,7 @@ def discografica_view():
             irows = (
                 session_db.query(SongInterpreter.song_id, SongInterpreter.name)
                 .filter(SongInterpreter.song_id.in_(all_song_ids))
-                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.position.asc(), SongInterpreter.name.asc())
+                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc(), SongInterpreter.name.asc())
                 .all()
             )
             for sid, name in irows:
@@ -3031,7 +3043,7 @@ def discografica_income_report_pdf():
             inter = (
                 session_db.query(SongInterpreter.song_id, SongInterpreter.name)
                 .filter(SongInterpreter.song_id.in_(song_ids))
-                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.position.asc())
+                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc(), SongInterpreter.name.asc())
                 .all()
             )
             inter_map: dict[str, list[str]] = {}

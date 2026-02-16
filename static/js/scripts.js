@@ -593,15 +593,14 @@ function initIncomeModals() {
       if (amountColEl) amountColEl.innerHTML = '<option value="">Selecciona…</option>';
     });
 
-    if (fileEl) {
+    // Solo necesitamos leer cabeceras si el modal tiene selects de columnas.
+    if (fileEl && (trackColEl || isrcColEl || amountColEl)) {
       fileEl.addEventListener('change', async () => {
         const f = fileEl.files && fileEl.files[0];
         if (!f) return;
 
         const txt = await f.text();
-        const firstLine = (txt.split(/
-?
-/)[0] || '').trim();
+        const firstLine = (txt.split(/\r?\n/)[0] || '').trim();
         if (!firstLine) return;
 
         const delimiter = _detectCsvDelimiter(firstLine);

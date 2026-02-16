@@ -311,37 +311,32 @@
           <div class="col-12">
             <label class="form-label">Archivo CSV</label>
             <input class="form-control" type="file" name="csv_file" id="incomeUploadFile" accept=".csv,text/csv" required>
-            <div class="small text-muted mt-1">Al seleccionar el archivo, se cargarán las columnas para que puedas elegir ISRC e importes.</div>
+            <div class="small text-muted mt-1">
+              Se usarán automáticamente las columnas <span class="text-nowrap">Track</span>, <span class="text-nowrap">ISRC</span> y
+              <span class="text-nowrap">Net Revenue</span> (o <span class="text-nowrap">Gross Revenue</span> si seleccionas <strong>Bruto</strong>).
+            </div>
           </div>
 
-          <div class="col-12 col-md-4">
-            <label class="form-label">Columna Track (para avisos)</label>
-            <select class="form-select" name="track_col" id="incomeUploadTrackCol" required>
-              <option value="">Selecciona…</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-4">
-            <label class="form-label">Columna ISRC</label>
-            <select class="form-select" name="isrc_col" id="incomeUploadIsrcCol" required>
-              <option value="">Selecciona…</option>
-            </select>
-          </div>
-          <div class="col-12 col-md-4">
-            <label class="form-label">Columna de importes</label>
-            <select class="form-select" name="amount_col" id="incomeUploadAmountCol" required>
-              <option value="">Selecciona…</option>
-            </select>
-          </div>
+          {#
+            IMPORTANTE:
+            - No mostramos selects de columnas para evitar errores.
+            - El backend existente espera estos campos; los enviamos fijos.
+          #}
+          <input type="hidden" name="track_col" value="Track">
+          <input type="hidden" name="isrc_col" value="ISRC">
+          <input type="hidden" name="amount_col" id="incomeUploadAmountColFixed" value="Net Revenue">
 
           <div class="col-12">
             <label class="form-label">Esos importes son…</label>
             <div class="d-flex gap-3 flex-wrap">
               <div class="form-check">
-                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtNet" value="net" checked>
+                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtNet" value="net" checked
+                       onchange="document.getElementById('incomeUploadAmountColFixed').value='Net Revenue'">
                 <label class="form-check-label" for="incomeAmtNet">Neto</label>
               </div>
               <div class="form-check">
-                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtGross" value="gross">
+                <input class="form-check-input" type="radio" name="amount_kind" id="incomeAmtGross" value="gross"
+                       onchange="document.getElementById('incomeUploadAmountColFixed').value='Gross Revenue'">
                 <label class="form-check-label" for="incomeAmtGross">Bruto</label>
               </div>
             </div>
@@ -360,6 +355,21 @@
     </form>
   </div>
 </div>
+
+<script>
+  // Asegura que al abrir el modal quede en NET por defecto y el amount_col fijo en Net Revenue.
+  // (evita que se quede seleccionado "Bruto" de una importación anterior.)
+  document.addEventListener('DOMContentLoaded', function(){
+    const modal = document.getElementById('incomeUploadModal');
+    if (!modal) return;
+    modal.addEventListener('show.bs.modal', function(){
+      const net = document.getElementById('incomeAmtNet');
+      const hidden = document.getElementById('incomeUploadAmountColFixed');
+      if (net) net.checked = true;
+      if (hidden) hidden.value = 'Net Revenue';
+    });
+  });
+</script>
 
 
 <!-- Modal: Generar informe ingresos -->

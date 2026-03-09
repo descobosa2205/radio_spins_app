@@ -127,6 +127,9 @@ class ArtistContractCommitment(Base):
     # Si base == PROFIT: CONCEPT_ONLY | CONCEPT_PLUS_GENERAL
     profit_scope = Column(Text)
 
+    # Alcance temporal/material del compromiso a futuro.
+    material_scope = Column(Text, nullable=False, server_default=text("'ALL_MATERIALS'"))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     contract = relationship("ArtistContract", back_populates="commitments")
@@ -591,6 +594,9 @@ class Concert(Base):
 
     # Empresa que factura (empresa del grupo)
     billing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+
+    # Hashtags / concepto / gira (multi-valor)
+    hashtags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     # Estado: HABLADO | RESERVADO | CONFIRMADO
     status = Column(Text, nullable=False, server_default=text("'HABLADO'"))
@@ -1622,6 +1628,75 @@ def ensure_royalty_liquidations_schema():
             if not s:
                 continue
             conn.exec_driver_sql(s)
+
+
+def ensure_concerts_schema_enhancements():
+    """Asegura mejoras de conciertos sin Alembic."""
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        """
+        ALTER TABLE IF EXISTS concerts
+            ADD COLUMN IF NOT EXISTS hashtags jsonb NOT NULL DEFAULT '[]'::jsonb;
+        """,
+
+        """
+        UPDATE concerts
+           SET billing_company_id = COALESCE(billing_company_id, group_company_id)
+         WHERE billing_company_id IS NULL
+           AND group_company_id IS NOT NULL;
+        """,
+
+        """
+        ALTER TABLE IF EXISTS artist_contract_commitments
+            ADD COLUMN IF NOT EXISTS material_scope text NOT NULL DEFAULT 'ALL_MATERIALS';
+        """,
+
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                  FROM information_schema.table_constraints
+                 WHERE table_schema='public'
+                   AND table_name='concerts'
+                   AND constraint_name='concerts_sale_type_check'
+            ) THEN
+                ALTER TABLE concerts DROP CONSTRAINT concerts_sale_type_check;
+            END IF;
+        EXCEPTION WHEN undefined_table THEN
+            NULL;
+        END $$;
+        """,
+
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                  FROM information_schema.tables
+                 WHERE table_schema='public' AND table_name='concerts'
+            ) THEN
+                BEGIN
+                    ALTER TABLE concerts
+                        ADD CONSTRAINT concerts_sale_type_check
+                        CHECK (sale_type = ANY (ARRAY['EMPRESA'::text, 'VENDIDO'::text, 'PARTICIPADOS'::text, 'CADIZ'::text, 'GRATUITO'::text, 'GIRAS_COMPRADAS'::text]));
+                EXCEPTION WHEN duplicate_object THEN
+                    NULL;
+                END;
+            END IF;
+        END $$;
+        """,
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
 
 
 

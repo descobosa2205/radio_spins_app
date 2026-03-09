@@ -53,6 +53,7 @@ from models import (
     ensure_editorial_schema,
     ensure_ingresos_schema,
     ensure_royalty_liquidations_schema,
+    ensure_concerts_schema_enhancements,
     SessionLocal,
     User,
     Artist,
@@ -119,32 +120,31 @@ for _fn, _name in [
     (ensure_editorial_schema, "ensure_editorial_schema"),
     (ensure_ingresos_schema, "ensure_ingresos_schema"),
     (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
+    (ensure_concerts_schema_enhancements, "ensure_concerts_schema_enhancements"),
 ]:
     _safe_ensure(_fn, _name)
 
 
-SALES_SECTION_ORDER = ["EMPRESA", "PARTICIPADOS", "CADIZ", "VENDIDO"]
-SALES_SECTION_TITLE = {
+CONCERT_SALE_TYPE_LABELS = {
     "EMPRESA": "Conciertos — Empresa",
+    "GRATUITO": "Conciertos — Gratuitos",
+    "GIRAS_COMPRADAS": "Giras compradas",
     "PARTICIPADOS": "Conciertos — Participados",
     "CADIZ": "Cádiz Music Stadium",
     "VENDIDO": "Conciertos — Vendidos",
 }
+
+SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
+SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
 
 # Tipos de concierto disponibles en la app.
 # NOTA: "GRATUITO" NO debe aparecer en actualización/reporte de ventas.
-CONCERT_SALE_TYPES_ALL = ["EMPRESA", "GRATUITO", "PARTICIPADOS", "CADIZ", "VENDIDO"]
+CONCERT_SALE_TYPES_ALL = ["EMPRESA", "GRATUITO", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 CONCERT_SALE_TYPES_ALL_SET = set(CONCERT_SALE_TYPES_ALL)
 
 # Secciones SOLO para la pantalla de Conciertos (incluye gratuitos).
-CONCERTS_SECTION_ORDER = ["EMPRESA", "GRATUITO", "PARTICIPADOS", "CADIZ", "VENDIDO"]
-CONCERTS_SECTION_TITLE = {
-    "EMPRESA": "Conciertos — Empresa",
-    "GRATUITO": "Conciertos — Gratuitos",
-    "PARTICIPADOS": "Conciertos — Participados",
-    "CADIZ": "Cádiz Music Stadium",
-    "VENDIDO": "Conciertos — Vendidos",
-}
+CONCERTS_SECTION_ORDER = list(CONCERT_SALE_TYPES_ALL)
+CONCERTS_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in CONCERTS_SECTION_ORDER}
 
 # Conceptos por defecto para compromisos de contratos a nivel artista.
 # Se muestran como sugerencias al añadir filas (no como catálogo editable).
@@ -815,6 +815,19 @@ def artist_detail_view(artist_id):
             .all()
         )
 
+        contract_commitments_payload = []
+        for contract in contracts:
+            for commitment in getattr(contract, "commitments", []) or []:
+                contract_commitments_payload.append({
+                    "id": str(commitment.id),
+                    "concept": getattr(commitment, "concept", "") or "",
+                    "pct_artist": str(getattr(commitment, "pct_artist", 0) or 0),
+                    "pct_office": str(getattr(commitment, "pct_office", 0) or 0),
+                    "base": getattr(commitment, "base", None) or "GROSS",
+                    "profit_scope": getattr(commitment, "profit_scope", None) or "CONCEPT_ONLY",
+                    "material_scope": getattr(commitment, "material_scope", None) or "ALL_MATERIALS",
+                })
+
         # Conciertos del artista (solo lectura) + filtros
         f_statuses_raw = request.args.getlist("status") or []
         f_when_raw = request.args.getlist("when") or []
@@ -864,6 +877,7 @@ def artist_detail_view(artist_id):
             contracts=contracts,
             songs=songs,
             default_concepts=ARTIST_CONTRACT_DEFAULT_CONCEPTS,
+            contract_commitments_payload=contract_commitments_payload,
             concerts_sections=concerts_sections,
             concerts_order=CONCERTS_SECTION_ORDER,
             concerts_titles=CONCERTS_SECTION_TITLE,
@@ -1030,15 +1044,81 @@ def _norm_text_key(v: str) -> str:
     return v
 
 
-def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[str]):
+def _norm_material_scope(v: str | None) -> str:
+    v = (v or "").strip().upper()
+    return v if v in ("ALL_MATERIALS", "ONLY_NEW_MATERIALS") else "ALL_MATERIALS"
+
+
+def _norm_concert_tag(v: str | None) -> str:
+    raw = (v or "").strip()
+    raw = raw.lstrip('#').strip()
+    raw = " ".join(raw.split())
+    return raw
+
+
+def _dedupe_concert_tags(values) -> list[str]:
+    out = []
+    seen = set()
+    for raw in (values or []):
+        tag = _norm_concert_tag(raw)
+        key = _norm_text_key(tag)
+        if not tag or not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(tag)
+    return out
+
+
+def _concert_tags(concert: Concert | None) -> list[str]:
+    if not concert:
+        return []
+    raw = getattr(concert, "hashtags", None)
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return _dedupe_concert_tags(raw)
+    if isinstance(raw, str):
+        return _dedupe_concert_tags([x for x in raw.split(',') if x])
+    return []
+
+
+def _concert_tags_display(concert: Concert | None) -> list[str]:
+    return [f"#{tag}" for tag in _concert_tags(concert)]
+
+
+def _concert_matches_any_tag(concert: Concert | None, tags: list[str] | None) -> bool:
+    selected = {_norm_text_key(_norm_concert_tag(x)) for x in (tags or []) if _norm_concert_tag(x)}
+    if not selected:
+        return True
+    own = {_norm_text_key(x) for x in _concert_tags(concert)}
+    return bool(selected & own)
+
+
+def _collect_all_concert_tags(session_db) -> list[str]:
+    values = []
+    try:
+        rows = session_db.query(Concert.hashtags).all()
+    except Exception:
+        rows = []
+    for (raw,) in rows:
+        if isinstance(raw, list):
+            values.extend(raw)
+        elif isinstance(raw, str):
+            values.extend([x for x in raw.split(',') if x])
+    return sorted(_dedupe_concert_tags(values), key=lambda x: _norm_text_key(x))
+
+
+def _sale_type_label(value: str | None) -> str:
+    key = (value or "").strip().upper()
+    return CONCERT_SALE_TYPE_LABELS.get(key, key or "—")
+
+
+def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[str], material_date: date | None = None, as_of_date: date | None = None):
     """Devuelve el compromiso de contrato más reciente para un concepto.
 
-    - concept_variants: lista de strings (ya normalizados con _norm_text_key)
-
-    Estrategia de selección:
-    1) Filtramos compromisos del artista cuyo concepto normalizado coincide con alguna variante.
-    2) Elegimos el más reciente según:
-       signed_date DESC (NULLS LAST) -> created_at DESC -> commitment.created_at DESC
+    Además de escoger por fecha de contrato/creación, soporta el alcance
+    `material_scope` para distinguir si un nuevo porcentaje afecta también a
+    materiales ya existentes o solo a materiales nuevos.
     """
 
     rows = (
@@ -1048,28 +1128,49 @@ def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[
         .all()
     )
 
-    candidates = []
     vset = {(_norm_text_key(x) or "") for x in (concept_variants or []) if (x or "").strip()}
+    candidates = []
     for m, c in rows:
         if not m or not c:
             continue
-        if _norm_text_key(getattr(m, "concept", "")) in vset:
-            candidates.append((m, c))
+        if _norm_text_key(getattr(m, "concept", "")) not in vset:
+            continue
+
+        signed_date = getattr(c, "signed_date", None)
+        contract_created = getattr(c, "created_at", None)
+        commitment_created = getattr(m, "created_at", None)
+
+        effective_date = signed_date
+        if effective_date is None and contract_created is not None:
+            try:
+                effective_date = contract_created.date()
+            except Exception:
+                effective_date = None
+        if effective_date is None and commitment_created is not None:
+            try:
+                effective_date = commitment_created.date()
+            except Exception:
+                effective_date = None
+
+        if as_of_date and effective_date and effective_date > as_of_date:
+            continue
+
+        material_scope = _norm_material_scope(getattr(m, "material_scope", None))
+        if material_scope == "ONLY_NEW_MATERIALS" and material_date and effective_date and material_date < effective_date:
+            continue
+
+        candidates.append((m, c, effective_date, contract_created, commitment_created))
 
     if not candidates:
         return None, None
 
     def key(item):
-        m, c = item
-        sd = getattr(c, "signed_date", None)
-        ca = getattr(c, "created_at", None)
-        ma = getattr(m, "created_at", None)
-        # signed_date puede ser None: lo mandamos al final.
-        sd_sort = sd or date.min
-        return (sd_sort, ca or datetime.min, ma or datetime.min)
+        _m, _c, effective_date, contract_created, commitment_created = item
+        return (effective_date or date.min, contract_created or datetime.min, commitment_created or datetime.min)
 
     candidates.sort(key=key, reverse=True)
-    return candidates[0]
+    chosen, contract, *_ = candidates[0]
+    return chosen, contract
 
 
 
@@ -1222,6 +1323,7 @@ def artist_commitment_add(contract_id):
 
         base = _norm_contract_base(request.form.get("base"))
         profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+        material_scope = _norm_material_scope(request.form.get("material_scope"))
 
         m = ArtistContractCommitment(
             contract_id=c.id,
@@ -1230,6 +1332,7 @@ def artist_commitment_add(contract_id):
             pct_office=_parse_pct(request.form.get("pct_office")),
             base=base,
             profit_scope=profit_scope,
+            material_scope=material_scope,
         )
         session_db.add(m)
         session_db.commit()
@@ -1264,12 +1367,14 @@ def artist_commitment_update(commitment_id):
 
         base = _norm_contract_base(request.form.get("base"))
         profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+        material_scope = _norm_material_scope(request.form.get("material_scope") or getattr(m, "material_scope", None))
 
         m.concept = concept
         m.pct_artist = _parse_pct(request.form.get("pct_artist"))
         m.pct_office = _parse_pct(request.form.get("pct_office"))
         m.base = base
         m.profit_scope = profit_scope
+        m.material_scope = material_scope
 
         session_db.commit()
         flash("Compromiso actualizado.", "success")
@@ -1552,6 +1657,8 @@ def discografica_view():
     income_semester_tabs: list[dict] = []
 
     income_artist_blocks: list[tuple] = []
+    editorial_pending_songs: list[Song] = []
+    editorial_registered_songs: list[Song] = []
 
     # Context (solo se usa cuando section == 'royalties')
     royalty_period_label = ""
@@ -1604,7 +1711,8 @@ def discografica_view():
             )
             for s in songs:
                 _ = s.artists
-            artist_blocks.append((a, songs))
+            if songs:
+                artist_blocks.append((a, songs))
 
         # Prefetch ISRC AUDIO principal por canción (song_isrc_codes),
         # para mostrarlo en el repertorio.
@@ -1620,6 +1728,53 @@ def discografica_view():
             for sid, code in rows:
                 if sid and code:
                     song_audio_isrc_map[sid] = code
+
+
+    if section == "editorial":
+        plataforma = (
+            session_db.query(PublishingCompany)
+            .filter(func.lower(PublishingCompany.name) == "plataforma musical")
+            .first()
+        )
+        plataforma_id = getattr(plataforma, "id", None)
+
+        if plataforma_id:
+            song_rows = (
+                session_db.query(Song)
+                .join(SongEditorialShare, SongEditorialShare.song_id == Song.id)
+                .join(Promoter, Promoter.id == SongEditorialShare.promoter_id)
+                .filter(Promoter.publishing_company_id == plataforma_id)
+                .options(selectinload(Song.artists))
+                .order_by(Song.release_date.desc(), Song.title.asc())
+                .all()
+            )
+
+            dedup = []
+            seen = set()
+            for song in song_rows:
+                if not song or song.id in seen:
+                    continue
+                seen.add(song.id)
+                dedup.append(song)
+
+            status_map = {}
+            if dedup:
+                status_map = {
+                    row.song_id: row
+                    for row in (
+                        session_db.query(SongStatus)
+                        .filter(SongStatus.song_id.in_([s.id for s in dedup]))
+                        .all()
+                    )
+                    if row and row.song_id
+                }
+
+            for song in dedup:
+                setattr(song, "editorial_artists_str", ", ".join([a.name for a in getattr(song, "artists", [])]) or "—")
+                setattr(song, "editorial_registered", bool(getattr(status_map.get(song.id), "sgae_done", False)))
+
+            editorial_pending_songs = [s for s in dedup if not getattr(s, "editorial_registered", False)]
+            editorial_registered_songs = [s for s in dedup if getattr(s, "editorial_registered", False)]
 
 
     if section == "royalties":
@@ -1832,7 +1987,7 @@ def discografica_view():
                 concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
                 kind_label = "Artista (Discográfica)"
 
-            m, _c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants)
+            m, _c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants, material_date=getattr(s, "release_date", None), as_of_date=sem_end)
             pct = float(getattr(m, "pct_artist", 0) or 0) if m else 0.0
             base = _norm_contract_base(getattr(m, "base", "GROSS") or "GROSS") if m else "GROSS"
 
@@ -2404,6 +2559,8 @@ def discografica_view():
         contract_artists=contract_artists,
         artist_blocks=artist_blocks,
         song_audio_isrc_map=song_audio_isrc_map,
+        editorial_pending_songs=editorial_pending_songs,
+        editorial_registered_songs=editorial_registered_songs,
         # ISRC
         isrc_tab=isrc_tab,
         isrc_artist_blocks=isrc_artist_blocks,
@@ -3444,7 +3601,7 @@ def discografica_royalties_liquidation_pdf():
                 continue
 
             if kind == "ARTIST":
-                m, _c = _pick_artist_commitment(session_db, bid, _concept_variants(s))
+                m, _c = _pick_artist_commitment(session_db, bid, _concept_variants(s), material_date=getattr(s, "release_date", None), as_of_date=sem_end)
                 pct = float(getattr(m, 'pct_artist', 0) or 0) if m else 0.0
                 base = _norm_contract_base(getattr(m, 'base', 'GROSS') or 'GROSS') if m else 'GROSS'
             else:
@@ -3736,6 +3893,8 @@ def discografica_song_detail(song_id):
     # =====================
     royalties_artist = None
     royalty_other_beneficiaries = []
+    radio_total_spins = 0
+    radio_station_rows = []
 
     if tab == "royalties":
         # Beneficiario artista (auto según contratos)
@@ -3751,7 +3910,7 @@ def discografica_song_detail(song_id):
                     concept_label = "Discográfico"
                     concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
 
-            m, c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants)
+            m, c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants, material_date=getattr(s, "release_date", None), as_of_date=today_local())
             if m:
                 base = _norm_contract_base(getattr(m, "base", None))
                 royalties_artist = {
@@ -3784,6 +3943,39 @@ def discografica_song_detail(song_id):
             .order_by(SongRoyaltyBeneficiary.created_at.asc())
             .all()
         )
+
+    if tab == "radio":
+        radio_total_spins = int(
+            session_db.query(func.coalesce(func.sum(Play.spins), 0))
+            .filter(Play.song_id == s.id)
+            .scalar()
+            or 0
+        )
+
+        rows = (
+            session_db.query(
+                RadioStation.id,
+                RadioStation.name,
+                RadioStation.logo_url,
+                func.coalesce(func.sum(Play.spins), 0).label("total_spins"),
+            )
+            .join(Play, Play.station_id == RadioStation.id)
+            .filter(Play.song_id == s.id)
+            .group_by(RadioStation.id, RadioStation.name, RadioStation.logo_url)
+            .order_by(text("total_spins DESC"), RadioStation.name.asc())
+            .all()
+        )
+
+        radio_station_rows = [
+            {
+                "station_id": str(station_id),
+                "name": name,
+                "logo_url": logo_url,
+                "total_spins": int(total_spins or 0),
+            }
+            for station_id, name, logo_url, total_spins in rows
+        ]
+
 
     # Editorial (solo si se pide esa pestaña)
     editorial_shares = []
@@ -3836,6 +4028,8 @@ def discografica_song_detail(song_id):
         default_copyright=default_copyright,
         royalties_artist=royalties_artist,
         royalty_other_beneficiaries=royalty_other_beneficiaries,
+        radio_total_spins=radio_total_spins,
+        radio_station_rows=radio_station_rows,
         editorial_shares=editorial_shares,
         editorial_total_pct=round(editorial_total_pct, 2),
         editorial_remaining_pct=round(max(0.0, 100.0 - editorial_total_pct), 2),
@@ -4853,6 +5047,7 @@ def song_update(song_id):
 @admin_required
 def song_delete(song_id):
     session_db = db()
+    next_url = (request.form.get("next") or "").strip()
     try:
         s = session_db.get(Song, to_uuid(song_id))
         if s:
@@ -4864,7 +5059,7 @@ def song_delete(song_id):
         flash(f"Error eliminando: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("songs_view"))
+    return redirect(safe_next_or(next_url or url_for("songs_view")))
 
 # ---------- TOCADAS (ADMIN) ----------
 @app.route("/tocadas")
@@ -5967,21 +6162,21 @@ def concerts_page():
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
         promoters = s.query(Promoter).order_by(Promoter.nick.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        all_concert_tags = _collect_all_concert_tags(s)
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
 
         active_tab = (request.args.get("tab") or "vista").lower()
         if active_tab not in ("vista", "alta"):
             active_tab = "vista"
 
-        # UI limpia: si el rol no puede crear/editar conciertos, nunca mostramos la pestaña "alta".
         if active_tab == "alta" and not can_edit_concerts() and not is_master():
             active_tab = "vista"
 
-        # ---------------- filtros (solo afectan a la vista) ----------------
         f_artist_ids_raw = request.args.getlist("artist") or []
         f_sale_types_raw = request.args.getlist("type") or []
         f_statuses_raw = request.args.getlist("status") or []
-        # Filtro temporal (pasados / futuros). Por defecto: futuros.
         f_when_raw = request.args.getlist("when") or []
+        f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
 
         f_artist_ids = []
         for x in f_artist_ids_raw:
@@ -5996,11 +6191,9 @@ def concerts_page():
         f_sale_types = [(x or "").strip().upper() for x in f_sale_types_raw if (x or "").strip()]
         f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
 
-        # when: {PAST, FUTURE}
         f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
         allowed_when = {"PAST", "FUTURE"}
         f_when = {x for x in f_when if x in allowed_when}
-        # Por defecto, si no viene nada, mostramos FUTUROS.
         if not f_when:
             f_when = {"FUTURE"}
 
@@ -6010,7 +6203,6 @@ def concerts_page():
         f_sale_types = [x for x in f_sale_types if x in allowed_sale_types]
         f_statuses = [x for x in f_statuses if x in allowed_statuses]
 
-        # ---------------- POST: crear concierto ----------------
         if request.method == "POST":
             try:
                 sale_type = (request.form.get("sale_type") or "EMPRESA").strip().upper()
@@ -6022,35 +6214,30 @@ def concerts_page():
                     raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
 
                 be_val = _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
-
                 promoter_raw = (request.form.get("promoter_id") or "").strip()
-                group_company_raw = (request.form.get("group_company_id") or "").strip()
                 billing_company_raw = (request.form.get("billing_company_id") or "").strip()
+                concert_tags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
 
                 c = Concert(
                     date=parse_date(request.form.get("date") or ""),
                     festival_name=(request.form.get("festival_name") or "").strip() or None,
                     venue_id=to_uuid(venue_raw),
                     sale_type=sale_type,
-                    promoter_id=(to_uuid(promoter_raw) if sale_type == "VENDIDO" and promoter_raw else None),
-                    group_company_id=(to_uuid(group_company_raw) if sale_type in ("EMPRESA", "GRATUITO") and group_company_raw else None),
+                    promoter_id=(to_uuid(promoter_raw) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") and promoter_raw else None),
+                    group_company_id=None,
                     billing_company_id=(to_uuid(billing_company_raw) if billing_company_raw else None),
                     artist_id=to_uuid((request.form.get("artist_id") or "").strip()),
                     capacity=int(request.form.get("capacity") or 0),
                     sale_start_date=parse_date(request.form.get("sale_start_date") or ""),
-                    # En "GRATUITO" no existe punto de empate.
                     break_even_ticket=(None if sale_type in ("VENDIDO", "GRATUITO") else be_val),
                     sold_out=False,
                     status=_norm_status(request.form.get("status")),
+                    hashtags=concert_tags,
                 )
-
-                if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
-                    c.billing_company_id = c.group_company_id
 
                 s.add(c)
                 s.flush()
 
-                # colaboradores / participaciones (opcionales)
                 if sale_type != "VENDIDO":
                     p_rows = _parse_share_rows(
                         request.form.getlist("promoter_share_id[]"),
@@ -6085,7 +6272,6 @@ def concerts_page():
                     _replace_concert_company_shares(s, c.id, [])
                     _replace_concert_zone_agents(s, c.id, [])
 
-                # cachés (opcional)
                 cache_rows = _parse_cache_rows(
                     request.form.getlist("cache_kind[]"),
                     request.form.getlist("cache_concept[]"),
@@ -6101,19 +6287,14 @@ def concerts_page():
                 )
                 _replace_concert_caches(s, c.id, cache_rows)
 
-                # contratos + notas contratación
                 _add_contracts_from_request(s, c.id)
                 _add_concert_notes_from_request(s, c.id)
-
-                # equipamiento
                 _upsert_equipment_from_request(s, c.id)
                 _add_equipment_docs_from_request(s, c.id)
                 _add_equipment_notes_from_request(s, c.id)
 
                 s.commit()
                 flash("Concierto creado.", "success")
-                # Volver a la vista asegurando que el concierto queda visible
-                # según el filtro pasados/futuros.
                 target_when = "PAST" if (c.date and c.date < today_local()) else "FUTURE"
                 return redirect(url_for("concerts_view", tab="vista", when=target_when) + f"#concert-{c.id}")
 
@@ -6122,7 +6303,6 @@ def concerts_page():
                 flash(f"Error creando concierto: {e}", "danger")
                 return redirect(url_for("concerts_view", tab="alta"))
 
-        # ---------------- GET: vista ----------------
         q = (
             s.query(Concert)
             .options(
@@ -6140,6 +6320,7 @@ def concerts_page():
                 selectinload(Concert.equipment),
                 selectinload(Concert.equipment_documents),
                 selectinload(Concert.equipment_notes),
+                selectinload(Concert.ticket_types),
             )
         )
 
@@ -6150,7 +6331,6 @@ def concerts_page():
         if f_statuses:
             q = q.filter(Concert.status.in_(f_statuses))
 
-        # Fecha: pasados/futuros
         today = today_local()
         want_past = "PAST" in f_when
         want_future = "FUTURE" in f_when
@@ -6160,6 +6340,12 @@ def concerts_page():
             q = q.filter(Concert.date >= today)
 
         concerts = q.order_by(Concert.date.asc()).all()
+        if f_concert_tags:
+            concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
+
+        for c in concerts:
+            setattr(c, "tags_clean", _concert_tags(c))
+            setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
 
         sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
@@ -6179,6 +6365,9 @@ def concerts_page():
             sections=sections,
             order=CONCERTS_SECTION_ORDER,
             titles=CONCERTS_SECTION_TITLE,
+            type_choices=type_choices,
+            all_concert_tags=all_concert_tags,
+            f_concert_tags=f_concert_tags,
             f_artist_ids=[str(x) for x in f_artist_ids],
             f_sale_types=f_sale_types,
             f_statuses=f_statuses,
@@ -6188,6 +6377,82 @@ def concerts_page():
         s.close()
 
 
+
+
+# ---------- FICHA CONCIERTO ----------
+@app.get("/conciertos/<cid>", endpoint="concert_detail_view")
+@admin_required
+def concert_detail_view(cid):
+    session = db()
+    try:
+        c = (
+            session.query(Concert)
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                joinedload(Concert.promoter),
+                joinedload(Concert.group_company),
+                joinedload(Concert.billing_company),
+                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+                selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
+                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+                selectinload(Concert.caches),
+                selectinload(Concert.contracts),
+                selectinload(Concert.notes),
+                selectinload(Concert.equipment),
+                selectinload(Concert.equipment_documents),
+                selectinload(Concert.equipment_notes),
+                selectinload(Concert.ticket_types),
+                selectinload(Concert.ticketers).joinedload(ConcertTicketer.ticketer),
+                joinedload(Concert.sales_config),
+            )
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not c:
+            flash("Concierto no encontrado.", "warning")
+            return redirect(url_for("concerts_view", tab="vista"))
+
+        setattr(c, "tags_clean", _concert_tags(c))
+        setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+
+        today = today_local()
+        totals_map, today_map, last_map, gross_map, gross_today_map = sales_maps_unified(session, today, [c.id])
+        capacity_sale = _concert_capacity_from_ticket_types(c)
+        sold_total = int(totals_map.get(c.id, 0) or 0)
+        sold_today = int(today_map.get(c.id, 0) or 0)
+        gross_total = float(gross_map.get(c.id, 0.0) or 0.0)
+        gross_today = float(gross_today_map.get(c.id, 0.0) or 0.0)
+        sales_pct = round((sold_total * 100.0 / capacity_sale), 1) if capacity_sale else 0.0
+        remaining_tickets = max(0, int(capacity_sale or 0) - sold_total)
+
+        sales_cfg = getattr(c, "sales_config", None)
+        vat_pct = float(getattr(sales_cfg, "vat_pct", 0) or 0) if sales_cfg else 0.0
+        sgae_pct = float(getattr(sales_cfg, "sgae_pct", 0) or 0) if sales_cfg else 0.0
+        net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
+
+        tab = (request.args.get("tab") or "general").strip().lower()
+        if tab not in {"general"}:
+            tab = "general"
+
+        return render_template(
+            "concert_detail.html",
+            concert=c,
+            tab=tab,
+            today=today,
+            capacity_sale=capacity_sale,
+            sold_total=sold_total,
+            sold_today=sold_today,
+            gross_total=gross_total,
+            gross_today=gross_today,
+            sales_pct=sales_pct,
+            remaining_tickets=remaining_tickets,
+            last_sales_day=last_map.get(c.id),
+            net_breakdown=net_breakdown,
+            sale_type_label=_sale_type_label(c.sale_type),
+        )
+    finally:
+        session.close()
 
 
 # ---------- EDITAR (vista dedicada) ----------
@@ -6206,7 +6471,6 @@ def concert_edit_view(cid):
                 joinedload(Concert.promoter),
                 joinedload(Concert.group_company),
                 joinedload(Concert.billing_company),
-            joinedload(Concert.billing_company),
                 selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
                 selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
                 selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
@@ -6216,10 +6480,6 @@ def concert_edit_view(cid):
                 selectinload(Concert.equipment),
                 selectinload(Concert.equipment_documents),
                 selectinload(Concert.equipment_notes),
-            selectinload(Concert.notes),
-            selectinload(Concert.equipment),
-            selectinload(Concert.equipment_documents),
-            selectinload(Concert.equipment_notes),
             )
             .filter(Concert.id == to_uuid(cid))
             .first()
@@ -6228,19 +6488,26 @@ def concert_edit_view(cid):
             flash("Concierto no encontrado.", "warning")
             return redirect(url_for("concerts_view", tab="vista"))
 
+        setattr(c, "tags_clean", _concert_tags(c))
+        setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+
         artists = session.query(Artist).order_by(Artist.name.asc()).all()
         venues = session.query(Venue).order_by(Venue.name.asc()).all()
         promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
         companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        all_concert_tags = _collect_all_concert_tags(session)
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
 
         return render_template(
             "concert_edit.html",
-            concert=c,   # ✅ esto arregla el template
-            c=c,         # (lo dejo también por compatibilidad si lo usas en otras partes)
+            concert=c,
+            c=c,
             artists=artists,
             venues=venues,
             promoters=promoters,
             companies=companies,
+            all_concert_tags=all_concert_tags,
+            type_choices=type_choices,
         )
 
     finally:
@@ -6258,10 +6525,6 @@ def concert_update_handler(cid):
         session.close()
         return redirect(url_for("concerts_view", tab="vista"))
 
-    # Para el redirect final: aseguramos que el concierto queda visible
-    # en la vista (pasados/futuros).
-    target_when = "FUTURE"
-
     try:
         sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
         if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
@@ -6277,24 +6540,14 @@ def concert_update_handler(cid):
         c.sale_type = sale_type
         c.artist_id = to_uuid(request.form["artist_id"])
         c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
-        if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
-            c.billing_company_id = c.group_company_id
         c.capacity = int(request.form.get("capacity") or 0)
         c.sale_start_date = parse_date(request.form["sale_start_date"])
-        # En "GRATUITO" no existe punto de empate.
         c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
         c.status = _norm_status(request.form.get("status"))
+        c.group_company_id = None
+        c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
+        c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
 
-        # principal según tipo
-        c.group_company_id = to_uuid(request.form.get("group_company_id") or None) if sale_type in ("EMPRESA", "GRATUITO") else None
-        c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type == "VENDIDO" else None
-
-        # Si es EMPRESA y no han seleccionado empresa que factura, usar la misma de gestión
-        if sale_type in ("EMPRESA", "GRATUITO") and not c.billing_company_id:
-            c.billing_company_id = c.group_company_id
-
-        # --- replace relaciones ---
-        # En VENDIDO no hay colaboradores
         if sale_type != "VENDIDO":
             p_rows = _parse_share_rows(
                 request.form.getlist("promoter_share_id[]"),
@@ -6329,7 +6582,6 @@ def concert_update_handler(cid):
             _replace_concert_company_shares(session, c.id, [])
             _replace_concert_zone_agents(session, c.id, [])
 
-        # cachés (reemplazamos todas las filas)
         cache_rows = _parse_cache_rows(
             request.form.getlist("cache_kind[]"),
             request.form.getlist("cache_concept[]"),
@@ -6345,25 +6597,14 @@ def concert_update_handler(cid):
         )
         _replace_concert_caches(session, c.id, cache_rows)
 
-        # contratos (solo añadimos nuevos)
         _add_contracts_from_request(session, c.id)
-
-        # notas contratación (solo añadimos nuevas)
         _add_concert_notes_from_request(session, c.id)
-
-        # equipamiento (actualiza resumen + añade docs/notas nuevas)
         _upsert_equipment_from_request(session, c.id)
         _add_equipment_docs_from_request(session, c.id)
         _add_equipment_notes_from_request(session, c.id)
 
         session.commit()
         flash("Concierto actualizado.", "success")
-
-        # Decide a qué filtro volver (pasados/futuros) según la nueva fecha.
-        if c.date and c.date < today_local():
-            target_when = "PAST"
-        else:
-            target_when = "FUTURE"
 
     except Exception as e:
         session.rollback()
@@ -6372,7 +6613,7 @@ def concert_update_handler(cid):
     finally:
         session.close()
 
-    return redirect(url_for("concerts_view", tab="vista", when=target_when) + f"#concert-{cid}")
+    return redirect(url_for("concert_detail_view", cid=cid))
 
 
 # ---------- BORRAR ----------
@@ -9509,15 +9750,16 @@ def _cache_summary(cache_rows: list) -> str:
 
 
 def _promoter_display(concert: Concert):
-    """
-    Promotora(logo) en cuadrantes:
-    - si hay promoter -> ese
-    - si no, si hay group_company -> esa
-    """
+    """Promotora/empresa principal visible en cuadrantes."""
     if getattr(concert, "promoter", None):
         return (
             getattr(concert.promoter, "logo_url", None),
             getattr(concert.promoter, "nick", None),
+        )
+    if getattr(concert, "billing_company", None):
+        return (
+            getattr(concert.billing_company, "logo_url", None),
+            getattr(concert.billing_company, "name", None),
         )
     if getattr(concert, "group_company", None):
         return (
@@ -9564,23 +9806,14 @@ def api_geocode():
 @app.get("/cuadrantes", endpoint="quadrantes_view")
 @admin_required
 def quadrantes_view():
-    """
-    Vista Cuadrantes:
-      - selector múltiple de artistas
-      - calendario anual con días marcados por número de evento
-      - mapa con chinchetas (número) geocodificando ciudades de recintos
-      - resumen agrupado por artista (numeración reinicia por artista)
-      - filtro de estado
-      - control de contenido (mostrar/ocultar campos) y exportación por impresión
-      - exportable a PDF via window.print()
-    """
+    """Vista Cuadrantes."""
     session_db = db()
     try:
-        # 1) Artistas para selector
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        all_concert_tags = _collect_all_concert_tags(session_db)
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
 
-        # 2) Selección
-        raw_ids = request.args.getlist("artist_id")  # ?artist_id=...&artist_id=...
+        raw_ids = request.args.getlist("artist_id")
         selected_uuids = []
         for rid in raw_ids:
             try:
@@ -9590,13 +9823,11 @@ def quadrantes_view():
             except Exception:
                 pass
 
-        # 3) Año
         try:
             year = int(request.args.get("year") or today_local().year)
         except Exception:
             year = today_local().year
 
-        # años disponibles (selector)
         years_rows = (
             session_db.query(func.extract("year", Concert.date))
             .distinct()
@@ -9607,10 +9838,8 @@ def quadrantes_view():
         if not year_options:
             year_options = [today_local().year]
 
-        # 4) Calendario anual
         months = _build_year_calendar(year)
 
-        # 5) Filtros (estado + tipo)
         allowed_status = {"HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
         if not f_statuses:
@@ -9620,12 +9849,11 @@ def quadrantes_view():
         f_sale_types_raw = request.args.getlist("type") or []
         f_sale_types = [(t or "").strip().upper() for t in f_sale_types_raw if (t or "").strip()]
         f_sale_types = [t for t in f_sale_types if t in allowed_types]
-        # Por defecto: todos los tipos.
         if not f_sale_types:
             f_sale_types = list(CONCERT_SALE_TYPES_ALL)
 
-        # 6) Contenido (mostrar/ocultar). Para permitir desmarcar, usamos
-        #    checkbox + input hidden (0/1) y leemos con getlist.
+        f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
+
         def _flag(name: str, default: bool = True) -> bool:
             vals = request.args.getlist(name)
             if not vals:
@@ -9634,7 +9862,6 @@ def quadrantes_view():
 
         show_calendar = _flag("show_calendar", True)
         show_map = _flag("show_map", True)
-
         show_date = _flag("show_date", True)
         show_festival = _flag("show_festival", True)
         show_sale_type = _flag("show_sale_type", True)
@@ -9646,11 +9873,12 @@ def quadrantes_view():
         show_cache = _flag("show_cache", True)
         show_equipment = _flag("show_equipment", True)
         show_promoter = _flag("show_promoter", True)
+        show_hashtag = _flag("show_hashtag", True)
 
         selected_artists = []
-        events_by_artist = []   # lista derecha, agrupada
-        events_flat = []        # para JS (mapa)
-        marks_by_date = {}      # YYYY-MM-DD -> list[{n,status,artist_color,...}]
+        events_by_artist = []
+        events_flat = []
+        marks_by_date = {}
 
         if selected_uuids:
             selected_artists = (
@@ -9667,6 +9895,7 @@ def quadrantes_view():
                     joinedload(Concert.venue),
                     joinedload(Concert.promoter),
                     joinedload(Concert.group_company),
+                    joinedload(Concert.billing_company),
                 )
                 .filter(Concert.artist_id.in_(selected_uuids))
                 .filter(func.extract("year", Concert.date) == year)
@@ -9675,9 +9904,11 @@ def quadrantes_view():
                 .all()
             )
 
+            if f_concert_tags:
+                concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
+
             concert_ids = [c.id for c in concerts]
 
-            # cachés (si existe tabla)
             caches_map = {}
             if concert_ids and _table_exists(session_db, "public.concert_caches"):
                 try:
@@ -9691,21 +9922,18 @@ def quadrantes_view():
                 except Exception:
                     caches_map = {}
 
-            # Paleta de colores para diferenciar artistas (borde). Se usa en mapa+calendario
-            # cuando hay más de un artista seleccionado.
             palette = [
-                "#0d6efd",  # bootstrap primary
-                "#198754",  # success
-                "#6f42c1",  # purple
-                "#fd7e14",  # orange
-                "#d63384",  # pink
-                "#20c997",  # teal
-                "#0dcaf0",  # cyan
-                "#dc3545",  # danger
+                "#0d6efd",
+                "#198754",
+                "#6f42c1",
+                "#fd7e14",
+                "#d63384",
+                "#20c997",
+                "#0dcaf0",
+                "#dc3545",
             ]
             artist_color = {str(a.id): palette[i % len(palette)] for i, a in enumerate(selected_artists)}
 
-            # Equipamiento (para filtro y para mostrar en resumen)
             equip_ids = set()
             try:
                 if concert_ids and _table_exists(session_db, "public.concert_equipments"):
@@ -9732,7 +9960,6 @@ def quadrantes_view():
             except Exception:
                 equip_ids = set()
 
-            # 1) Construimos eventos por artista aplicando filtros (sin numeración todavía)
             per_artist = {str(a.id): [] for a in selected_artists}
 
             for c in concerts:
@@ -9742,13 +9969,12 @@ def quadrantes_view():
 
                 has_cache = bool(caches_map.get(c.id))
                 has_equip = (c.id in equip_ids)
-
                 cap = int(c.capacity or 0)
-
                 dstr = c.date.isoformat()
                 v = c.venue
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
                 pro_logo, pro_name = _promoter_display(c)
+                tags_clean = _concert_tags(c)
 
                 aid = str(c.artist_id) if c.artist_id else ""
                 if not aid:
@@ -9764,6 +9990,7 @@ def quadrantes_view():
                     "artist_color": artist_color.get(aid, "#0d6efd"),
                     "festival_name": (c.festival_name or ""),
                     "sale_type": (c.sale_type or ""),
+                    "sale_type_label": _sale_type_label(c.sale_type),
                     "status": st,
                     "province": (v.province or "") if v else "",
                     "municipality": (v.municipality or "") if v else "",
@@ -9774,9 +10001,10 @@ def quadrantes_view():
                     "has_equipment": has_equip,
                     "promoter_name": pro_name or "",
                     "promoter_logo": pro_logo or "",
+                    "hashtags": tags_clean,
+                    "hashtags_text": " · ".join([f"#{x}" for x in tags_clean]),
                 })
 
-            # 2) Numeración por artista + marks + lista agrupada
             for a in selected_artists:
                 aid = str(a.id)
                 evs = sorted(per_artist.get(aid, []), key=lambda x: x.get("date") or "")
@@ -9813,13 +10041,11 @@ def quadrantes_view():
             marks_by_date=marks_by_date,
             events_by_artist=events_by_artist,
             events=events_flat,
-
-            # filtros (para mantener UI)
+            type_choices=type_choices,
+            all_concert_tags=all_concert_tags,
+            f_concert_tags=f_concert_tags,
             f_statuses=f_statuses,
             f_sale_types=f_sale_types,
-            # (el resto de filtros se eliminan de esta pantalla)
-
-            # contenido
             show_calendar=show_calendar,
             show_map=show_map,
             show_date=show_date,
@@ -9833,6 +10059,7 @@ def quadrantes_view():
             show_cache=show_cache,
             show_equipment=show_equipment,
             show_promoter=show_promoter,
+            show_hashtag=show_hashtag,
         )
 
     finally:

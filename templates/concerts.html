@@ -56,40 +56,27 @@
       </div>
 
       <!-- TIPOS (checkboxes) -->
-      <div class="col-md-4">
+      <div class="col-md-5">
         <label class="form-label">Tipos</label>
         <div class="d-flex flex-wrap gap-2">
           {% set T = f_sale_types or [] %}
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="EMPRESA"
-                  {% if "EMPRESA" in T %}checked{% endif %}>
-            Conciertos — Empresa
-          </label>
-
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="GRATUITO"
-                  {% if "GRATUITO" in T %}checked{% endif %}>
-            Conciertos — Gratuitos
-          </label>
-
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="PARTICIPADOS"
-                  {% if "PARTICIPADOS" in T %}checked{% endif %}>
-            Conciertos — Participados
-          </label>
-
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="CADIZ"
-                  {% if "CADIZ" in T %}checked{% endif %}>
-            Cádiz Music Stadium
-          </label>
-
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="VENDIDO"
-                  {% if "VENDIDO" in T %}checked{% endif %}>
-            Conciertos — Vendidos
-          </label>
+          {% for value, label in type_choices %}
+            <label class="btn btn-outline-secondary btn-sm">
+              <input class="form-check-input me-1" type="checkbox" name="type" value="{{ value }}"
+                    {% if value in T %}checked{% endif %}>
+              {{ label }}
+            </label>
+          {% endfor %}
         </div>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label mb-1">#</label>
+        <select name="concert_tag" class="form-select" multiple>
+          {% for tag in all_concert_tags %}
+            <option value="{{ tag }}" {% if tag in (f_concert_tags or []) %}selected{% endif %}>#{{ tag }}</option>
+          {% endfor %}
+        </select>
       </div>
 
       <!-- ESTADO (checkboxes) -->
@@ -155,7 +142,7 @@
         <summary class="h6 mb-2">{{ titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
 
         {% for c in group %}
-          <div class="card mb-2" id="concert-{{ c.id }}">
+          <div class="card mb-2 clickable-row" id="concert-{{ c.id }}" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
             <div class="card-body">
 
               <div class="d-flex justify-content-between gap-3">
@@ -177,6 +164,10 @@
                       {% if c.festival_name %}
                         <span class="badge badge-festival">{{ c.festival_name }}</span>
                       {% endif %}
+
+                      {% for tag in (c.tags_clean or c.hashtags or []) %}
+                        <span class="badge text-bg-light border">#{{ tag }}</span>
+                      {% endfor %}
 
                       {% if c.venue %}
                         <span class="text-muted">{{ c.venue.province }}</span>
@@ -246,24 +237,14 @@
                       </details>
                     {% endif %}
 
-                    <!-- tipo de concierto (sin la palabra "Tipo") -->
+                    <!-- tipo de concierto -->
                     <div class="mt-2">
-                      {% if c.sale_type == 'EMPRESA' %}
-                        <span class="badge rounded-pill text-bg-primary">A Empresa</span>
-                      {% elif c.sale_type == 'GRATUITO' %}
-                        <span class="badge rounded-pill text-bg-primary">Gratuito</span>
-                      {% elif c.sale_type == 'PARTICIPADOS' %}
-                        <span class="badge rounded-pill text-bg-primary">Participado</span>
-                      {% elif c.sale_type == 'VENDIDO' %}
-                        <span class="badge rounded-pill text-bg-primary">Vendido</span>
-                        {% if c.promoter %}
-                          <span class="ms-2 d-inline-flex align-items-center gap-2">
-                            <img src="{{ c.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
-                            <span class="small fw-semibold">{{ c.promoter.nick }}</span>
-                          </span>
-                        {% endif %}
-                      {% elif c.sale_type == 'CADIZ' %}
-                        <span class="badge rounded-pill text-bg-primary">Cádiz Music Stadium</span>
+                      <span class="badge rounded-pill text-bg-primary">{{ c.sale_type_label or c.sale_type }}</span>
+                      {% if c.promoter %}
+                        <span class="ms-2 d-inline-flex align-items-center gap-2">
+                          <img src="{{ c.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
+                          <span class="small fw-semibold">{{ c.promoter.nick }}</span>
+                        </span>
                       {% endif %}
                     </div>
 
@@ -688,23 +669,13 @@
           </select>
         </div>
 
-        <!-- 4ª fila: Tipo + (empresa gestiona / promotor) + Punto empate -->
+        <!-- 4ª fila: Tipo + promotor + punto empate -->
         <div class="col-12 col-md-4">
           <label class="form-label">Tipo de concierto</label>
           <select name="sale_type" class="form-select" id="sale_type_select">
-            <option value="EMPRESA">Empresa</option>
-            <option value="GRATUITO">Gratuito</option>
-            <option value="VENDIDO">Vendido</option>
-            <option value="PARTICIPADOS">Participado</option>
-            <option value="CADIZ">Cádiz Music Stadium</option>
-          </select>
-        </div>
-
-        <div class="col-12 col-md-4" id="company_single_wrap">
-          <label class="form-label">Empresa del grupo que lo gestiona</label>
-          <select name="group_company_id" class="form-select" id="group_company_select">
-            <option value="">—</option>
-            {% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}
+            {% for value, label in type_choices %}
+              <option value="{{ value }}">{{ label }}</option>
+            {% endfor %}
           </select>
         </div>
 
@@ -724,6 +695,23 @@
         <div class="col-12 col-md-4" id="break_even_wrap">
           <label class="form-label">Punto de empate <small class="text-muted">(opcional)</small></label>
           <input type="number" name="break_even_ticket" class="form-control" min="0" placeholder="Vacío = sin punto">
+        </div>
+
+        <div class="col-12">
+          <label class="form-label"># / gira / concepto</label>
+          <div class="input-group">
+            <input id="concertTagInputCreate" class="form-control" list="concertTagOptionsCreate" placeholder="Escribe un # y pulsa Añadir">
+            <button type="button" class="btn btn-outline-secondary" onclick="window.concertTagManagers && window.concertTagManagers.create && window.concertTagManagers.create.addFromInput()">Añadir</button>
+          </div>
+          <datalist id="concertTagOptionsCreate">
+            {% for tag in all_concert_tags %}
+              <option value="#{{ tag }}"></option>
+              <option value="{{ tag }}"></option>
+            {% endfor %}
+          </datalist>
+          <div class="form-text">Puedes añadir más de un #. Si no existe, se crea al guardar.</div>
+          <div id="concertTagChipsCreate" class="d-flex flex-wrap gap-2 mt-2"></div>
+          <div id="concertTagHiddenCreate"></div>
         </div>
 
         <div class="col-12 d-flex justify-content-end mt-2">
@@ -998,45 +986,18 @@
   // ----------------------- SALE TYPE TOGGLES -----------------------
   function applySaleTypeVisibility(){
     const v = document.getElementById('sale_type_select')?.value || 'EMPRESA';
-    const companyWrap = document.getElementById('company_single_wrap');
     const promoterWrap = document.getElementById('promoter_single_wrap');
     const breakEvenWrap = document.getElementById('break_even_wrap');
     const collabBlock = document.getElementById('collab_block');
     const commBlock = document.getElementById('comm_block');
     const equipBlock = document.getElementById('equipment_block');
+    const needsPromoter = ['VENDIDO','GRATUITO','GIRAS_COMPRADAS'].includes(v);
 
-    if (v === 'EMPRESA') {
-      companyWrap.style.display = '';
-      promoterWrap.style.display = 'none';
-      if (breakEvenWrap) breakEvenWrap.style.display = '';
-      if (collabBlock) collabBlock.style.display = '';
-      if (commBlock) commBlock.style.display = '';
-      if (equipBlock) equipBlock.style.display = '';
-    } else if (v === 'GRATUITO') {
-      // GRATUITO: se gestiona por empresa pero no hay punto de empate.
-      companyWrap.style.display = '';
-      promoterWrap.style.display = 'none';
-      if (breakEvenWrap) breakEvenWrap.style.display = 'none';
-      if (collabBlock) collabBlock.style.display = '';
-      if (commBlock) commBlock.style.display = '';
-      if (equipBlock) equipBlock.style.display = '';
-    } else if (v === 'VENDIDO') {
-      companyWrap.style.display = 'none';
-      promoterWrap.style.display = '';
-      // En vendido: sin punto de empate y sin colaboradores/comisionistas
-      if (breakEvenWrap) breakEvenWrap.style.display = 'none';
-      if (collabBlock) collabBlock.style.display = 'none';
-      if (commBlock) commBlock.style.display = 'none';
-      if (equipBlock) equipBlock.style.display = '';
-    } else {
-      // PARTICIPADOS / CADIZ
-      companyWrap.style.display = 'none';
-      promoterWrap.style.display = 'none';
-      if (breakEvenWrap) breakEvenWrap.style.display = '';
-      if (collabBlock) collabBlock.style.display = '';
-      if (commBlock) commBlock.style.display = '';
-      if (equipBlock) equipBlock.style.display = '';
-    }
+    if (promoterWrap) promoterWrap.style.display = needsPromoter ? '' : 'none';
+    if (breakEvenWrap) breakEvenWrap.style.display = ['VENDIDO','GRATUITO'].includes(v) ? 'none' : '';
+    if (collabBlock) collabBlock.style.display = (v === 'VENDIDO') ? 'none' : '';
+    if (commBlock) commBlock.style.display = (v === 'VENDIDO') ? 'none' : '';
+    if (equipBlock) equipBlock.style.display = '';
   }
 
   document.addEventListener('DOMContentLoaded', () => {
@@ -1046,15 +1007,13 @@
       applySaleTypeVisibility();
     }
 
-    // Empresa que factura: si es EMPRESA y está vacío, copiar la gestora
-    const groupSel = document.getElementById('group_company_select');
-    const billSel  = document.getElementById('billing_company_select');
-    if (groupSel && billSel) {
-      groupSel.addEventListener('change', () => {
-        const saleType = document.getElementById('sale_type_select')?.value;
-        if ((saleType === 'EMPRESA' || saleType === 'GRATUITO') && !billSel.value) {
-          billSel.value = groupSel.value;
-        }
+    if (window.initConcertTagManager) {
+      window.concertTagManagers = window.concertTagManagers || {};
+      window.concertTagManagers.create = window.initConcertTagManager({
+        inputId: 'concertTagInputCreate',
+        chipsId: 'concertTagChipsCreate',
+        hiddenId: 'concertTagHiddenCreate',
+        initialTags: []
       });
     }
 

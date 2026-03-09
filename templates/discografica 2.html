@@ -47,7 +47,7 @@
       </li>
     </ul>
 
-    {% if CAN_EDIT_DISCOGRAFICA %}
+    {% if CAN_EDIT_CATALOGS %}
       <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
         <i class="fa fa-plus"></i> Añadir canción
       </button>
@@ -131,7 +131,7 @@
     {% endfor %}
   {% endif %}
 
-  {% if CAN_EDIT_DISCOGRAFICA %}
+  {% if CAN_EDIT_CATALOGS %}
   <!-- Modal: añadir canción -->
   <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -209,119 +209,6 @@
 {% elif section == 'royalties' %}
 
   {% include 'discografica_royalties.html' %}
-
-{% elif section == 'editorial' %}
-
-  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-    <div>
-      <h5 class="m-0">Editorial</h5>
-      <div class="text-muted small">Canciones con autores o compositores cuya compañía editorial es Plataforma Musical.</div>
-    </div>
-  </div>
-
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h6 class="m-0">Pendientes de registrar en SGAE</h6>
-        <span class="badge text-bg-warning">{{ editorial_pending_songs|length }}</span>
-      </div>
-
-      {% if editorial_pending_songs and (editorial_pending_songs|length) > 0 %}
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width:72px;">Portada</th>
-                <th>Canción</th>
-                <th>Artistas</th>
-                <th class="text-nowrap">Publicación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for s in editorial_pending_songs %}
-                <tr class="clickable-row"
-                    role="button"
-                    tabindex="0"
-                    data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
-                    onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
-                    onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
-                  <td>
-                    <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
-                  </td>
-                  <td>
-                    <div class="fw-semibold">{{ s.title }}</div>
-                    <div class="text-muted small">No registrada en SGAE</div>
-                  </td>
-                  <td>{{ s.editorial_artists_str or '—' }}</td>
-                  <td>
-                    {% if s.release_date %}
-                      {{ s.release_date.strftime('%d/%m/%Y') }}
-                    {% else %}
-                      <span class="text-muted">—</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% else %}
-        <div class="text-muted">No hay canciones pendientes de registrar en SGAE para Plataforma Musical.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h6 class="m-0">Repertorio editorial registrado</h6>
-        <span class="badge text-bg-success">{{ editorial_registered_songs|length }}</span>
-      </div>
-
-      {% if editorial_registered_songs and (editorial_registered_songs|length) > 0 %}
-        <div class="table-responsive">
-          <table class="table table-hover align-middle mb-0">
-            <thead class="table-light">
-              <tr>
-                <th style="width:72px;">Portada</th>
-                <th>Canción</th>
-                <th>Artistas</th>
-                <th class="text-nowrap">Publicación</th>
-              </tr>
-            </thead>
-            <tbody>
-              {% for s in editorial_registered_songs %}
-                <tr class="clickable-row"
-                    role="button"
-                    tabindex="0"
-                    data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
-                    onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
-                    onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
-                  <td>
-                    <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
-                  </td>
-                  <td>
-                    <div class="fw-semibold">{{ s.title }}</div>
-                    <div class="text-muted small">Registrada en SGAE</div>
-                  </td>
-                  <td>{{ s.editorial_artists_str or '—' }}</td>
-                  <td>
-                    {% if s.release_date %}
-                      {{ s.release_date.strftime('%d/%m/%Y') }}
-                    {% else %}
-                      <span class="text-muted">—</span>
-                    {% endif %}
-                  </td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      {% else %}
-        <div class="text-muted">Todavía no hay canciones registradas en SGAE para Plataforma Musical.</div>
-      {% endif %}
-    </div>
-  </div>
 
 {% elif section == 'ingresos' %}
 
@@ -490,18 +377,18 @@
         <form class="row g-2" method="post" action="{{ url_for('discografica_isrc_config_update') }}">
           <div class="col-12 col-md-2">
             <label class="form-label">País</label>
-            <input name="country_code" class="form-control" maxlength="2" value="{{ (isrc_config.country_code if isrc_config else 'ES') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            <input name="country_code" class="form-control" maxlength="2" value="{{ (isrc_config.country_code if isrc_config else 'ES') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
           </div>
           <div class="col-12 col-md-5">
             <label class="form-label">Matriz audio (3 dígitos)</label>
-            <input name="audio_matrix" class="form-control" value="{{ (isrc_config.audio_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            <input name="audio_matrix" class="form-control" value="{{ (isrc_config.audio_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
           </div>
           <div class="col-12 col-md-5">
             <label class="form-label">Matriz vídeo (3 dígitos)</label>
-            <input name="video_matrix" class="form-control" value="{{ (isrc_config.video_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            <input name="video_matrix" class="form-control" value="{{ (isrc_config.video_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
           </div>
           <div class="col-12 d-grid mt-1">
-            {% if CAN_EDIT_DISCOGRAFICA %}
+            {% if CAN_EDIT_CATALOGS %}
               <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración</button>
             {% else %}
               <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
@@ -529,8 +416,8 @@
                     <div class="fw-semibold">{{ a.name }}</div>
                     <div class="small text-muted">Matriz artista (2 dígitos)</div>
                   </div>
-                  <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-                  {% if CAN_EDIT_DISCOGRAFICA %}
+                  <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_CATALOGS %}disabled{% endif %}>
+                  {% if CAN_EDIT_CATALOGS %}
                     <button class="btn btn-outline-primary"><i class="fa fa-save"></i></button>
                   {% endif %}
                 </form>

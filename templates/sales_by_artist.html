@@ -20,7 +20,7 @@
   {% set reached = (be and total >= be) %}
   {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
 
-  <div class="card mb-2">
+  <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
     <div class="card-body py-3">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center flex-wrap gap-3">
@@ -57,6 +57,11 @@
             <span class="badge bg-light text-dark">—</span>
           {% endif %}
         </div>
+      </div>
+      <div class="text-end mt-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">
+          <i class="fa fa-eye"></i> Ficha
+        </a>
       </div>
     </div>
   </div>
@@ -76,7 +81,7 @@
   {% set reached = (be and total >= be) %}
   {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
 
-  <div class="card mb-2">
+  <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
     <div class="card-body py-3">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
         <div class="d-flex align-items-center flex-wrap gap-3">
@@ -113,6 +118,11 @@
             <span class="badge bg-light text-dark">—</span>
           {% endif %}
         </div>
+      </div>
+      <div class="text-end mt-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">
+          <i class="fa fa-eye"></i> Ficha
+        </a>
       </div>
     </div>
   </div>

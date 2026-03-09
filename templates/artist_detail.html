@@ -299,8 +299,14 @@
                   <tbody>
 
                     {% for m in c.commitments %}
-                      <form id="commit-update-{{ m.id }}" method="post" action="{{ url_for('artist_commitment_update', commitment_id=m.id) }}">
+                      <form id="commit-update-{{ m.id }}"
+                            method="post"
+                            action="{{ url_for('artist_commitment_update', commitment_id=m.id) }}"
+                            class="commitment-impact-form"
+                            data-default-scope="{{ (m.material_scope or 'ALL_MATERIALS') }}"
+                            data-existing-commitments="{{ (contract_commitments_payload|rejectattr('id', 'equalto', m.id|string)|list)|tojson|forceescape }}">
                         <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                        <input type="hidden" name="material_scope" value="{{ m.material_scope or 'ALL_MATERIALS' }}">
                       </form>
                       <form id="commit-delete-{{ m.id }}" method="post" action="{{ url_for('artist_commitment_delete', commitment_id=m.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');">
                         <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
@@ -312,6 +318,13 @@
                       <tr class="commitment-row">
                         <td>
                           <input form="commit-update-{{ m.id }}" name="concept" class="form-control form-control-sm" value="{{ m.concept }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %} required>
+                          <div class="form-text">
+                            {% if (m.material_scope or 'ALL_MATERIALS') == 'ONLY_NEW_MATERIALS' %}
+                              Solo materiales nuevos desde la fecha del contrato.
+                            {% else %}
+                              Desde ahora sobre todos los materiales.
+                            {% endif %}
+                          </div>
                         </td>
                         <td>
                           <input form="commit-update-{{ m.id }}" name="pct_artist" type="number" step="0.01" min="0" max="100" class="form-control form-control-sm text-end" value="{{ m.pct_artist }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
@@ -350,8 +363,13 @@
                     {% if CAN_EDIT_ARTISTS_STATIONS %}
                       <tr>
                         <td colspan="6">
-                          <form method="post" action="{{ url_for('artist_commitment_add', contract_id=c.id) }}" class="row g-2 align-items-end">
+                          <form method="post"
+                                action="{{ url_for('artist_commitment_add', contract_id=c.id) }}"
+                                class="row g-2 align-items-end commitment-impact-form"
+                                data-default-scope="ALL_MATERIALS"
+                                data-existing-commitments="{{ (contract_commitments_payload or [])|tojson|forceescape }}">
                             <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+                            <input type="hidden" name="material_scope" value="ALL_MATERIALS">
 
                             <div class="col-12 col-lg-4">
                               <label class="form-label">Añadir compromiso</label>
@@ -464,7 +482,7 @@
           <summary class="h6 mb-2">{{ concerts_titles[key] }} <span class="text-muted">({{ group|length }})</span></summary>
 
           {% for c in group %}
-            <div class="card mb-2">
+            <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
               <div class="card-body">
 
                 <div class="d-flex justify-content-between gap-3">
@@ -494,7 +512,13 @@
                       </div>
 
                       <div class="d-flex flex-wrap gap-2 mt-1">
-                        <span class="badge text-bg-light border">Tipo: <strong>{{ c.sale_type }}</strong></span>
+                        <span class="badge text-bg-light border">Tipo: <strong>{{ concerts_titles.get(c.sale_type, c.sale_type) }}</strong></span>
+
+                        {% if c.hashtags %}
+                          {% for tag in c.hashtags %}
+                            <span class="badge text-bg-light border">#{{ tag }}</span>
+                          {% endfor %}
+                        {% endif %}
 
                         {% if c.capacity is not none %}
                           <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>

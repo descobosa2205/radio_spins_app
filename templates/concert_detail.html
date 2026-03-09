@@ -1,0 +1,412 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a href="{{ url_for('concerts_view') }}" class="btn btn-outline-secondary">
+      <i class="fa fa-arrow-left"></i> Volver a conciertos
+    </a>
+    <a href="{{ url_for('concert_edit_view', cid=concert.id) }}" class="btn btn-primary">
+      <i class="fa fa-pen"></i> Editar concierto
+    </a>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div class="d-flex gap-3 flex-grow-1">
+        <img src="{{ concert.artist.photo_url if concert.artist else url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+
+        <div class="flex-grow-1">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <h3 class="m-0">{{ concert.artist.name if concert.artist else 'Sin artista' }}</h3>
+            <span class="badge text-bg-light border">{{ concert.sale_type_label or concert.sale_type }}</span>
+            {% set st = (concert.status or 'HABLADO')|upper %}
+            <span class="badge status-pill {% if st=='HABLADO' %}status-hablado{% elif st=='RESERVADO' %}status-reservado{% else %}status-confirmado{% endif %}">
+              {{ st.title() }}
+            </span>
+            {% if concert.sold_out %}
+              <span class="badge bg-dark">SOLD OUT</span>
+            {% endif %}
+          </div>
+
+          <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+            {% if concert.date %}
+              <span class="text-muted">{{ concert.date.strftime('%d/%m/%Y') }}</span>
+            {% endif %}
+            {% if concert.festival_name %}
+              <span class="badge badge-festival">{{ concert.festival_name }}</span>
+            {% endif %}
+            {% if concert.venue %}
+              <span class="badge badge-venue">{{ concert.venue.name }}</span>
+              {% if concert.venue.municipality %}<span class="municipio-strong">{{ concert.venue.municipality }}</span>{% endif %}
+              {% if concert.venue.province %}<span class="text-muted">{{ concert.venue.province }}</span>{% endif %}
+            {% endif %}
+          </div>
+
+          <div class="d-flex flex-wrap gap-2">
+            {% for tag in (concert.tags_clean or concert.hashtags or []) %}
+              <span class="badge text-bg-light border">#{{ tag }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+      <div>
+        <h5 class="m-0">Estado de venta</h5>
+        <div class="text-muted small">Seguimiento visual de la venta de entradas.</div>
+      </div>
+      <div class="text-end">
+        <div class="fw-semibold">{{ sold_total|k }} / {{ capacity_sale|k }}</div>
+        <div class="text-muted small">{{ '%.1f'|format(sales_pct or 0) }}%</div>
+      </div>
+    </div>
+
+    <div class="progress mb-3" role="progressbar" aria-valuenow="{{ sales_pct|round(0)|int }}" aria-valuemin="0" aria-valuemax="100" style="height: 18px;">
+      <div class="progress-bar" style="width: {{ sales_pct if sales_pct <= 100 else 100 }}%;"></div>
+    </div>
+
+    <div class="row g-2">
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Vendidas hoy</div>
+          <div class="fw-semibold">{{ sold_today|k }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Vendidas total</div>
+          <div class="fw-semibold">{{ sold_total|k }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Pendientes</div>
+          <div class="fw-semibold">{{ remaining_tickets|k }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Bruto total</div>
+          <div class="fw-semibold">{{ gross_total|eur }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Bruto hoy</div>
+          <div class="fw-semibold">{{ gross_today|eur }}</div>
+        </div>
+      </div>
+      <div class="col-6 col-lg-2">
+        <div class="border rounded p-2 h-100">
+          <div class="text-muted small">Última actualización</div>
+          <div class="fw-semibold">{{ last_sales_day.strftime('%d/%m/%Y') if last_sales_day else '—' }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs">
+  <li class="nav-item">
+    <a class="nav-link active" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Información general</a>
+  </li>
+</ul>
+
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+  <div class="row g-3">
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-3">Datos de contratación</h6>
+          <table class="table table-sm mb-0">
+            <tbody>
+              <tr><th style="width: 220px;">Artista</th><td>{{ concert.artist.name if concert.artist else '—' }}</td></tr>
+              <tr><th>Fecha</th><td>{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }}</td></tr>
+              <tr><th>Tipo de concierto</th><td>{{ concert.sale_type_label or concert.sale_type }}</td></tr>
+              <tr><th>Estado</th><td>{{ concert.status or '—' }}</td></tr>
+              {% if concert.festival_name %}<tr><th>Festival</th><td>{{ concert.festival_name }}</td></tr>{% endif %}
+              {% if concert.venue %}
+                <tr><th>Recinto</th><td>{{ concert.venue.name }}</td></tr>
+                <tr><th>Municipio</th><td>{{ concert.venue.municipality or '—' }}</td></tr>
+                <tr><th>Provincia</th><td>{{ concert.venue.province or '—' }}</td></tr>
+                {% if concert.venue.address %}<tr><th>Dirección</th><td>{{ concert.venue.address }}</td></tr>{% endif %}
+              {% endif %}
+              <tr><th>Empresa que factura</th><td>{{ concert.billing_company.name if concert.billing_company else '—' }}</td></tr>
+              <tr><th>Promotor principal</th><td>{{ concert.promoter.nick if concert.promoter else '—' }}</td></tr>
+              <tr><th>Salida a la venta</th><td>{{ concert.sale_start_date.strftime('%d/%m/%Y') if concert.sale_start_date else '—' }}</td></tr>
+              <tr><th>Aforo</th><td>{{ concert.capacity|k }}</td></tr>
+              {% if concert.break_even_ticket and concert.sale_type not in ['VENDIDO', 'GRATUITO'] %}
+                <tr><th>Punto de empate</th><td>{{ concert.break_even_ticket|k }}</td></tr>
+              {% endif %}
+              {% if concert.tags_clean or concert.hashtags %}
+                <tr>
+                  <th>#</th>
+                  <td>
+                    {% for tag in (concert.tags_clean or concert.hashtags or []) %}
+                      <span class="badge text-bg-light border me-1">#{{ tag }}</span>
+                    {% endfor %}
+                  </td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-3">Ventas y configuración</h6>
+          <table class="table table-sm mb-0">
+            <tbody>
+              <tr><th style="width: 220px;">Aforo a la venta</th><td>{{ capacity_sale|k }}</td></tr>
+              <tr><th>Vendidas total</th><td>{{ sold_total|k }}</td></tr>
+              <tr><th>Vendidas hoy</th><td>{{ sold_today|k }}</td></tr>
+              <tr><th>Pendientes</th><td>{{ remaining_tickets|k }}</td></tr>
+              <tr><th>Bruto total</th><td>{{ gross_total|eur }}</td></tr>
+              <tr><th>Base sin IVA</th><td>{{ net_breakdown.base_no_vat|eur }}</td></tr>
+              <tr><th>IVA ({{ vat_pct }}%)</th><td>{{ net_breakdown.vat_amount|eur }}</td></tr>
+              <tr><th>SGAE ({{ sgae_pct }}%)</th><td>{{ net_breakdown.sgae_amount|eur }}</td></tr>
+              <tr><th>Neto estimado</th><td>{{ net_breakdown.net|eur }}</td></tr>
+            </tbody>
+          </table>
+
+          {% if concert.ticket_types or concert.ticketers %}
+            <hr>
+          {% endif %}
+
+          {% if concert.ticket_types %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-2">Tipos de entrada</div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Tipo</th>
+                      <th class="text-end">Aforo</th>
+                      <th class="text-end">Precio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for tt in concert.ticket_types %}
+                      <tr>
+                        <td>{{ tt.name }}</td>
+                        <td class="text-end">{{ tt.qty_for_sale|k }}</td>
+                        <td class="text-end">{{ tt.price|eur }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          {% endif %}
+
+          {% if concert.ticketers %}
+            <div>
+              <div class="fw-semibold mb-2">Ticketeras</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% for ct in concert.ticketers %}
+                  <span class="badge text-bg-light border">
+                    {{ ct.ticketer.name if ct.ticketer else 'Ticketera' }}
+                    {% if ct.capacity_for_sale %} · {{ ct.capacity_for_sale|k }}{% endif %}
+                  </span>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-3">Participaciones, cachés y comisiones</h6>
+
+          {% if concert.company_shares %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-2">Empresas del grupo</div>
+              <div class="list-group">
+                {% for row in concert.company_shares %}
+                  <div class="list-group-item d-flex justify-content-between gap-2 flex-wrap">
+                    <div>{{ row.company.name if row.company else '—' }}</div>
+                    <div class="text-muted">
+                      {% if row.pct %}{{ row.pct }}% {{ 'neto' if row.pct_base == 'NET' else 'bruto' }}{% elif row.amount %}{{ row.amount|eur }} {{ 'neto' if row.amount_base == 'NET' else 'bruto' }}{% else %}—{% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if concert.promoter_shares %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-2">Promotores participantes</div>
+              <div class="list-group">
+                {% for row in concert.promoter_shares %}
+                  <div class="list-group-item d-flex justify-content-between gap-2 flex-wrap">
+                    <div>{{ row.promoter.nick if row.promoter else '—' }}</div>
+                    <div class="text-muted">
+                      {% if row.pct %}{{ row.pct }}% {{ 'neto' if row.pct_base == 'NET' else 'bruto' }}{% elif row.amount %}{{ row.amount|eur }} {{ 'neto' if row.amount_base == 'NET' else 'bruto' }}{% else %}—{% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if concert.zone_agents %}
+            <div class="mb-3">
+              <div class="fw-semibold mb-2">Promotores de zona</div>
+              <div class="list-group">
+                {% for row in concert.zone_agents %}
+                  <div class="list-group-item">
+                    <div class="d-flex justify-content-between gap-2 flex-wrap">
+                      <div class="fw-semibold">{{ row.promoter.nick if row.promoter else '—' }}</div>
+                      <div class="text-muted">
+                        {% if row.commission_type == 'AMOUNT' %}
+                          {{ row.commission_amount|eur }} {{ 'neto' if row.commission_amount_base == 'NET' else 'bruto' }}
+                        {% else %}
+                          {{ row.commission_pct or 0 }}% {{ 'neto' if row.commission_base == 'NET' else 'bruto' }}
+                        {% endif %}
+                      </div>
+                    </div>
+                    {% if row.concept %}<div class="small text-muted">{{ row.concept }}</div>{% endif %}
+                    {% if row.exempt_amount %}<div class="small text-muted">Exento: {{ row.exempt_amount|eur }}</div>{% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if concert.caches %}
+            <div>
+              <div class="fw-semibold mb-2">Cachés</div>
+              <div class="list-group">
+                {% for row in concert.caches %}
+                  <div class="list-group-item d-flex justify-content-between gap-2 flex-wrap">
+                    <div>
+                      {% if row.kind == 'FIXED' %}
+                        Fijo
+                      {% elif row.kind == 'VARIABLE' %}
+                        Variable
+                      {% else %}
+                        {{ row.concept or 'Otro concepto' }}
+                      {% endif %}
+                    </div>
+                    <div class="text-muted">
+                      {% if row.amount %}{{ row.amount|eur }} {{ 'neto' if row.amount_base == 'NET' else 'bruto' }}{% elif row.pct %}{{ row.pct }}% {{ 'neto' if row.pct_base == 'NET' else 'bruto' }}{% else %}—{% endif %}
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+
+          {% if (not concert.company_shares) and (not concert.promoter_shares) and (not concert.zone_agents) and (not concert.caches) %}
+            <div class="text-muted">No hay participaciones, cachés ni comisiones registradas.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-3">Contratos, notas y equipamiento</h6>
+
+          <div class="mb-3">
+            <div class="fw-semibold mb-2">Contratos adjuntos</div>
+            {% if concert.contracts %}
+              <div class="list-group">
+                {% for doc in concert.contracts %}
+                  <a class="list-group-item list-group-item-action d-flex justify-content-between gap-2 flex-wrap" href="{{ doc.pdf_url }}" target="_blank">
+                    <span>{{ doc.concept or doc.original_name or 'Contrato' }}</span>
+                    <span class="text-muted small">{{ doc.uploaded_at.strftime('%d/%m/%Y') if doc.uploaded_at else '' }}</span>
+                  </a>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted">No hay contratos subidos.</div>
+            {% endif %}
+          </div>
+
+          <div class="mb-3">
+            <div class="fw-semibold mb-2">Notas</div>
+            {% if concert.notes %}
+              <div class="list-group">
+                {% for note in concert.notes %}
+                  <div class="list-group-item">
+                    {% if note.title %}<div class="fw-semibold">{{ note.title }}</div>{% endif %}
+                    <div>{{ note.body }}</div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted">No hay notas registradas.</div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="fw-semibold mb-2">Equipamiento</div>
+            {% if concert.equipment or concert.equipment_documents or concert.equipment_notes %}
+              {% if concert.equipment and concert.equipment.included %}
+                <div class="mb-2">
+                  {% for item in concert.equipment.included %}
+                    <span class="badge text-bg-light border me-1 mb-1">{{ item }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              {% if concert.equipment and concert.equipment.other %}
+                <div class="small mb-2"><strong>Otros:</strong> {{ concert.equipment.other }}</div>
+              {% endif %}
+              {% if concert.equipment %}
+                <div class="small text-muted mb-2">
+                  {% if concert.equipment.covered_by_promoter %}
+                    Lo cubre el promotor
+                    {% if concert.equipment.covered_mode == 'AMOUNT' and concert.equipment.covered_amount %}
+                      · {{ concert.equipment.covered_amount|eur }}
+                    {% elif concert.equipment.covered_mode == 'RIDER' %}
+                      · Según rider
+                    {% endif %}
+                  {% else %}
+                    No cubierto por promotor
+                  {% endif %}
+                </div>
+              {% endif %}
+
+              {% if concert.equipment_documents %}
+                <div class="list-group mb-2">
+                  {% for doc in concert.equipment_documents %}
+                    <a class="list-group-item list-group-item-action" href="{{ doc.pdf_url }}" target="_blank">{{ doc.concept or doc.original_name or 'Documento' }}</a>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+              {% if concert.equipment_notes %}
+                <div class="list-group">
+                  {% for note in concert.equipment_notes %}
+                    <div class="list-group-item">{{ note.body }}</div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% else %}
+              <div class="text-muted">No hay información de equipamiento todavía.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

@@ -43,44 +43,246 @@ function initSelect2(){
 }
 
 function initArtistContractControls(){
-  // Habilita / deshabilita la selección de "beneficio" según la base.
+  function normalizeConcept(value){
+    return String(value || '')
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .trim()
+      .toUpperCase();
+  }
+
+  function normalizePct(value){
+    const raw = String(value ?? '').trim().replace(',', '.');
+    if (!raw) return '0';
+    const num = Number(raw);
+    return Number.isFinite(num) ? String(num) : raw;
+  }
+
+  function normalizeConfig(values){
+    const base = String(values.base || 'GROSS').trim().toUpperCase() || 'GROSS';
+    return {
+      pct_artist: normalizePct(values.pct_artist),
+      pct_office: normalizePct(values.pct_office),
+      base,
+      profit_scope: base === 'PROFIT' ? String(values.profit_scope || 'CONCEPT_ONLY').trim().toUpperCase() : ''
+    };
+  }
+
+  function configsDiffer(a, b){
+    const aa = normalizeConfig(a || {});
+    const bb = normalizeConfig(b || {});
+    return aa.pct_artist !== bb.pct_artist
+      || aa.pct_office !== bb.pct_office
+      || aa.base !== bb.base
+      || aa.profit_scope !== bb.profit_scope;
+  }
+
+  function ensureScopeModal(){
+    let modalEl = document.getElementById('contractScopeModal');
+    if (modalEl) return modalEl;
+
+    modalEl = document.createElement('div');
+    modalEl.className = 'modal fade';
+    modalEl.id = 'contractScopeModal';
+    modalEl.tabIndex = -1;
+    modalEl.setAttribute('aria-hidden', 'true');
+    modalEl.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Aplicación del nuevo porcentaje</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-2">Se ha detectado un cambio de porcentaje o base para este concepto respecto a contratos anteriores.</p>
+            <p class="text-muted small mb-0">Los ingresos ya generados antes de la fecha del nuevo contrato no se modificarán.</p>
+          </div>
+          <div class="modal-footer flex-column align-items-stretch gap-2">
+            <button type="button" class="btn btn-primary" data-scope="ALL_MATERIALS">Aplicar desde ahora a todos los materiales</button>
+            <button type="button" class="btn btn-outline-primary" data-scope="ONLY_NEW_MATERIALS">Aplicar solo a materiales nuevos desde esta fecha</button>
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modalEl);
+    return modalEl;
+  }
+
+  function showScopeChooser(form, hiddenInput){
+    const modalEl = ensureScopeModal();
+    const modal = new bootstrap.Modal(modalEl);
+
+    const cleanup = () => {
+      modalEl.querySelectorAll('[data-scope]').forEach((btn) => {
+        btn.replaceWith(btn.cloneNode(true));
+      });
+    };
+
+    modalEl.querySelectorAll('[data-scope]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        hiddenInput.value = btn.dataset.scope || 'ALL_MATERIALS';
+        form.dataset.scopeResolved = '1';
+        modal.hide();
+        setTimeout(() => form.requestSubmit ? form.requestSubmit() : form.submit(), 0);
+      }, { once: true });
+    });
+
+    modalEl.addEventListener('hidden.bs.modal', () => {
+      cleanup();
+    }, { once: true });
+
+    modal.show();
+  }
+
+  function applyBaseVisibility(baseSel, profitSel, wrap){
+    if (!baseSel || !profitSel) return;
+    const isProfit = (baseSel.value || '').toUpperCase() === 'PROFIT';
+    profitSel.disabled = !isProfit;
+    if (wrap) wrap.classList.toggle('opacity-50', !isProfit);
+  }
+
   document.querySelectorAll('.commitment-row').forEach((row) => {
     const baseSel = row.querySelector('.commitment-base');
     const profitSel = row.querySelector('.commitment-profit-scope');
     const wrap = row.querySelector('.profit-scope-wrap') || profitSel?.parentElement;
-    if (!baseSel || !profitSel) return;
-    // Si la fila viene en modo lectura (disabled), no hacemos nada.
-    if (baseSel.disabled) return;
-
-    const apply = () => {
-      const isProfit = (baseSel.value || '').toUpperCase() === 'PROFIT';
-      profitSel.disabled = !isProfit;
-      if (wrap) {
-        wrap.classList.toggle('opacity-50', !isProfit);
-      }
-    };
-
+    if (!baseSel || !profitSel || baseSel.disabled) return;
+    const apply = () => applyBaseVisibility(baseSel, profitSel, wrap);
     baseSel.addEventListener('change', apply);
     apply();
   });
 
-  // Formularios de "añadir fila" (no están dentro de .commitment-row)
   document.querySelectorAll('form .commitment-base').forEach((baseSel) => {
     const form = baseSel.closest('form');
     if (!form) return;
     const profitSel = form.querySelector('.commitment-profit-scope');
     const wrap = form.querySelector('.profit-scope-wrap') || profitSel?.parentElement;
-    if (!profitSel) return;
-    if (baseSel.disabled) return;
-    const apply = () => {
-      const isProfit = (baseSel.value || '').toUpperCase() === 'PROFIT';
-      profitSel.disabled = !isProfit;
-      if (wrap) wrap.classList.toggle('opacity-50', !isProfit);
-    };
+    if (!profitSel || baseSel.disabled) return;
+    const apply = () => applyBaseVisibility(baseSel, profitSel, wrap);
     baseSel.addEventListener('change', apply);
     apply();
   });
+
+  document.querySelectorAll('form.commitment-impact-form').forEach((form) => {
+    const hiddenScope = form.querySelector('input[name="material_scope"]');
+    const conceptEl = form.querySelector('[name="concept"]');
+    const pctArtistEl = form.querySelector('[name="pct_artist"]');
+    const pctOfficeEl = form.querySelector('[name="pct_office"]');
+    const baseEl = form.querySelector('[name="base"]');
+    const profitScopeEl = form.querySelector('[name="profit_scope"]');
+    if (!hiddenScope || !conceptEl || !pctArtistEl || !pctOfficeEl || !baseEl) return;
+
+    form.addEventListener('submit', (ev) => {
+      if (form.dataset.scopeResolved === '1') {
+        delete form.dataset.scopeResolved;
+        return;
+      }
+
+      const concept = normalizeConcept(conceptEl.value);
+      if (!concept) return;
+
+      let existing = [];
+      try {
+        existing = JSON.parse(form.dataset.existingCommitments || '[]');
+      } catch (_e) {
+        existing = [];
+      }
+
+      const comparable = existing.filter((item) => normalizeConcept(item && item.concept) === concept);
+      if (!comparable.length) {
+        hiddenScope.value = hiddenScope.value || form.dataset.defaultScope || 'ALL_MATERIALS';
+        return;
+      }
+
+      const submitted = {
+        pct_artist: pctArtistEl.value,
+        pct_office: pctOfficeEl.value,
+        base: baseEl.value,
+        profit_scope: profitScopeEl ? profitScopeEl.value : ''
+      };
+
+      const hasDifferent = comparable.some((item) => configsDiffer(submitted, item || {}));
+      if (!hasDifferent) {
+        hiddenScope.value = hiddenScope.value || form.dataset.defaultScope || 'ALL_MATERIALS';
+        return;
+      }
+
+      ev.preventDefault();
+      showScopeChooser(form, hiddenScope);
+    });
+  });
 }
+
+function initConcertTagManager(opts){
+  const input = document.getElementById(opts.inputId);
+  const chipsWrap = document.getElementById(opts.chipsId);
+  const hiddenWrap = document.getElementById(opts.hiddenId);
+  if (!input || !chipsWrap || !hiddenWrap) return null;
+
+  const normalizeTag = (value) => String(value || '')
+    .trim()
+    .replace(/^#+/, '')
+    .replace(/\s+/g, ' ');
+
+  const values = [];
+
+  function sync(){
+    chipsWrap.innerHTML = '';
+    hiddenWrap.innerHTML = '';
+
+    values.forEach((tag, idx) => {
+      const chip = document.createElement('span');
+      chip.className = 'badge rounded-pill text-bg-light border d-inline-flex align-items-center gap-2 me-2 mb-2';
+      chip.innerHTML = `<span>#${tag}</span><button type="button" class="btn btn-sm p-0 border-0 bg-transparent text-danger" aria-label="Eliminar"><i class="fa fa-times"></i></button>`;
+      chip.querySelector('button').addEventListener('click', () => {
+        values.splice(idx, 1);
+        sync();
+      });
+      chipsWrap.appendChild(chip);
+
+      const hidden = document.createElement('input');
+      hidden.type = 'hidden';
+      hidden.name = 'concert_tags[]';
+      hidden.value = tag;
+      hiddenWrap.appendChild(hidden);
+    });
+  }
+
+  function addTag(raw){
+    const tag = normalizeTag(raw);
+    if (!tag) return false;
+    const exists = values.some((v) => v.localeCompare(tag, 'es', { sensitivity: 'accent' }) === 0);
+    if (exists) return false;
+    values.push(tag);
+    sync();
+    return true;
+  }
+
+  function addFromInput(){
+    if (!input) return;
+    addTag(input.value);
+    input.value = '';
+    input.focus();
+  }
+
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' || ev.key === ',') {
+      ev.preventDefault();
+      addFromInput();
+    }
+  });
+
+  (opts.initialTags || []).forEach(addTag);
+  sync();
+
+  return {
+    addTag,
+    addFromInput,
+    getTags: () => values.slice(),
+  };
+}
+window.initConcertTagManager = initConcertTagManager;
+window.concertTagManagers = window.concertTagManagers || {};
 
 function initClickableRows(){
   document.querySelectorAll('.clickable-row[data-href]').forEach((row) => {

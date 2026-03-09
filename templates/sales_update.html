@@ -60,6 +60,9 @@
             <i class="fa-solid fa-gear"></i>
           </button>
 
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}" title="Ficha del concierto">
+            <i class="fa fa-eye"></i>
+          </a>
           {% if CAN_VIEW_ECON %}
             <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
                href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">

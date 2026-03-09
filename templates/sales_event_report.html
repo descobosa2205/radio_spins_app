@@ -12,6 +12,9 @@
   </div>
 
   <div class="d-flex gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id) }}">
+      <i class="fa fa-eye"></i> Abrir ficha
+    </a>
     <a class="btn btn-outline-secondary" target="_blank" href="{{ pdf_url }}">
       <i class="fa fa-file-pdf"></i> Exportar PDF
     </a>

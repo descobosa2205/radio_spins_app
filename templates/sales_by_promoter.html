@@ -37,7 +37,7 @@
           {% set be_pct = ((be / c.capacity) * 100) if (be and c.capacity) else 0 %}
           {% set reached = (be and total >= be) %}
 
-          <div class="card mb-2">
+          <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
             <div class="card-body py-3">
               <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                 <div class="d-flex align-items-center flex-wrap gap-3">
@@ -71,7 +71,10 @@
                 </div>
               </div>
 
-              <div class="text-end mt-2">
+              <div class="text-end mt-2 d-flex justify-content-end gap-2 flex-wrap">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">
+                  <i class="fa fa-eye"></i> Ficha
+                </a>
                 <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSalesChart('{{ c.id }}')">
                   <i class="fa fa-chart-line"></i> Evolución
                 </button>

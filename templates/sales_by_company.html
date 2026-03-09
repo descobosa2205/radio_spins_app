@@ -31,7 +31,7 @@
           {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
           {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
           {% set days_left = (c.date - day).days %}
-          <div class="card mb-2">
+          <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
             <div class="card-body py-3">
               <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
                 <div class="d-flex align-items-center flex-wrap gap-3">
@@ -49,6 +49,11 @@
                 <div><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
                 <div><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
                 <div><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+              </div>
+              <div class="text-end mt-2">
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">
+                  <i class="fa fa-eye"></i> Ficha
+                </a>
               </div>
             </div>
           </div>

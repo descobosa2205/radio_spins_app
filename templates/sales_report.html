@@ -53,7 +53,7 @@
           {% set is_today = (updated_last == day) %}
           {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
 
-          <div class="card mb-2">
+          <div class="card mb-2 clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
             <div class="card-body py-3">
 
               <!-- CABECERA -->
@@ -93,10 +93,11 @@
 
                 <!-- Logos (empresa / participaciones / promotor) -->
                 <div class="d-flex align-items-center gap-2 flex-wrap">
-                  {% if c.sale_type == 'EMPRESA' and c.group_company %}
-                    <a href="{{ url_for('sales_report_by_company', gid=c.group_company_id) }}"
-                       class="logo-chip" title="{{ c.group_company.name }}">
-                      <img src="{{ c.group_company.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                  {% if c.sale_type == 'EMPRESA' and (c.billing_company or c.group_company) %}
+                    {% set billing = c.billing_company or c.group_company %}
+                    <a href="{{ url_for('sales_report_by_company', gid=billing.id) }}"
+                       class="logo-chip" title="{{ billing.name }}">
+                      <img src="{{ billing.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
                     </a>
                   {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
                     {% for s in c.company_shares %}

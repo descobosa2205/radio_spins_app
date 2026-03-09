@@ -354,27 +354,22 @@
         <label class="form-label mb-1">Tipos</label>
         {% set T = f_sale_types or [] %}
         <div class="d-flex flex-wrap gap-2">
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="EMPRESA" {% if 'EMPRESA' in T %}checked{% endif %}>
-            Empresa
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="GRATUITO" {% if 'GRATUITO' in T %}checked{% endif %}>
-            Gratuito
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="PARTICIPADOS" {% if 'PARTICIPADOS' in T %}checked{% endif %}>
-            Participado
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="CADIZ" {% if 'CADIZ' in T %}checked{% endif %}>
-            Cádiz Music Stadium
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="type" value="VENDIDO" {% if 'VENDIDO' in T %}checked{% endif %}>
-            Vendido
-          </label>
+          {% for value, label in type_choices %}
+            <label class="btn btn-outline-secondary btn-sm">
+              <input class="form-check-input me-1" type="checkbox" name="type" value="{{ value }}" {% if value in T %}checked{% endif %}>
+              {{ label }}
+            </label>
+          {% endfor %}
         </div>
+      </div>
+
+      <div class="col-12 col-lg-6 mt-2">
+        <label class="form-label mb-1"># / gira / concepto</label>
+        <select name="concert_tag" class="form-select" multiple>
+          {% for tag in all_concert_tags %}
+            <option value="{{ tag }}" {% if tag in (f_concert_tags or []) %}selected{% endif %}>#{{ tag }}</option>
+          {% endfor %}
+        </select>
       </div>
     </div>
 
@@ -450,6 +445,11 @@
           <input class="form-check-input me-1" type="checkbox" name="show_promoter" value="1" {% if show_promoter %}checked{% endif %}>
           Promotora
         </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_hashtag" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_hashtag" value="1" {% if show_hashtag %}checked{% endif %}>
+          #
+        </label>
 
       </div>
     </div>
@@ -509,6 +509,7 @@
                     {% if show_date %}<th>Fecha</th>{% endif %}
                     {% if show_festival %}<th>Festival</th>{% endif %}
                     {% if show_sale_type %}<th>Tipo</th>{% endif %}
+                    {% if show_hashtag %}<th>#</th>{% endif %}
                     {% if show_province %}<th>Provincia</th>{% endif %}
                     {% if show_municipality %}<th>Municipio</th>{% endif %}
                     {% if show_venue %}<th>Recinto</th>{% endif %}
@@ -523,14 +524,15 @@
                   {% for e in g.events %}
                     {% set st = (e.status or 'HABLADO') %}
                     {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
-                    <tr>
+                    <tr class="clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=e.concert_id) }}">
                       <td>
                         <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
                       </td>
 
                       {% if show_date %}<td>{{ e.date_es }}</td>{% endif %}
                       {% if show_festival %}<td>{{ e.festival_name or '' }}</td>{% endif %}
-                      {% if show_sale_type %}<td>{{ e.sale_type or '' }}</td>{% endif %}
+                      {% if show_sale_type %}<td>{{ e.sale_type_label or e.sale_type or '' }}</td>{% endif %}
+                      {% if show_hashtag %}<td>{{ e.hashtags_text or '—' }}</td>{% endif %}
                       {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
                       {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
                       {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
@@ -724,10 +726,31 @@
     });
   }
 
+  function escapeHtml(value){
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function offsetCoords(lat, lng, total, index){
+    if (!total || total <= 1) return { lat, lng };
+    const angle = (2 * Math.PI * index) / total;
+    const radiusMeters = total <= 6 ? 140 : 190;
+    const dx = Math.cos(angle) * radiusMeters;
+    const dy = Math.sin(angle) * radiusMeters;
+    const dLat = dy / 111320;
+    const dLng = dx / (111320 * Math.max(Math.cos(lat * Math.PI / 180), 0.2));
+    return { lat: lat + dLat, lng: lng + dLng };
+  }
+
   (async function initMap(){
     const el = document.getElementById("quad-map");
     if (!el) return;
 
+    const detailBase = "{{ url_for('concert_detail_view', cid='__CID__') }}";
     const map = L.map("quad-map", {scrollWheelZoom: false}).setView([40.4168, -3.7038], 6);
     window.__quadMap = map;
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -735,35 +758,51 @@
       attribution: "&copy; OpenStreetMap"
     }).addTo(map);
 
-    // Al cambiar el layout (resumen arriba + mapa abajo) Leaflet a veces necesita recalcular tamaños.
-    // Esto evita que salga "encogido" o con tiles mal colocadas.
     setTimeout(() => {
       try { map.invalidateSize(); } catch(e) {}
     }, 250);
 
-    const bounds = [];
-
+    const geocodedEvents = [];
     for (const e of EVENTS){
       const city = e.municipality || "";
       const prov = e.province || "";
       if (!city) continue;
-
       const coords = await geocodeCity(city, prov);
       if (!coords) continue;
-
-      const m = L.marker([coords.lat, coords.lng], {icon: eventIcon(e.n, e.status, e.artist_color)}).addTo(map);
-
-      const html = `
-        <div style="min-width:220px">
-          <div><b>${(e.artist_name || "")} · Evento ${e.n}</b></div>
-          <div>${e.date_es || ""}</div>
-          <div>${(e.venue_name||"")} — ${city}${prov ? ", " + prov : ""}</div>
-        </div>
-      `;
-      m.bindPopup(html);
-
-      bounds.push([coords.lat, coords.lng]);
+      geocodedEvents.push({ ...e, lat: coords.lat, lng: coords.lng });
     }
+
+    const grouped = {};
+    geocodedEvents.forEach((e) => {
+      const key = `${Number(e.lat).toFixed(5)}|${Number(e.lng).toFixed(5)}`;
+      grouped[key] = grouped[key] || [];
+      grouped[key].push(e);
+    });
+
+    const bounds = [];
+    Object.values(grouped).forEach((group) => {
+      group.forEach((e, idx) => {
+        const pos = offsetCoords(Number(e.lat), Number(e.lng), group.length, idx);
+        const marker = L.marker([pos.lat, pos.lng], {icon: eventIcon(e.n, e.status, e.artist_color)}).addTo(map);
+        const detailUrl = detailBase.replace('__CID__', e.concert_id || '');
+        const tags = e.hashtags_text ? `<div class="small text-muted">${escapeHtml(e.hashtags_text)}</div>` : '';
+        const saleType = e.sale_type_label ? `<div class="small text-muted">${escapeHtml(e.sale_type_label)}</div>` : '';
+        const promoter = e.promoter_name ? `<div class="small text-muted">${escapeHtml(e.promoter_name)}</div>` : '';
+        const html = `
+          <div style="min-width:240px">
+            <div><b>${escapeHtml(e.artist_name || '')} · Evento ${escapeHtml(e.n || '')}</b></div>
+            <div>${escapeHtml(e.date_es || '')}</div>
+            <div>${escapeHtml(e.venue_name || '')} — ${escapeHtml(e.municipality || '')}${e.province ? ', ' + escapeHtml(e.province) : ''}</div>
+            ${saleType}
+            ${tags}
+            ${promoter}
+            <div class="mt-2"><a class="btn btn-sm btn-outline-primary" href="${detailUrl}">Abrir ficha</a></div>
+          </div>
+        `;
+        marker.bindPopup(html);
+        bounds.push([pos.lat, pos.lng]);
+      });
+    });
 
     if (bounds.length){
       map.fitBounds(bounds, {padding: [20, 20]});

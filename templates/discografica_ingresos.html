@@ -8,6 +8,123 @@
   </button>
 </div>
 
+{% if income_upload_report %}
+  {% set rpt = income_upload_report %}
+  {% set sum = rpt.summary or {} %}
+  <div class="card border-0 shadow-sm mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+        <div>
+          <div class="fw-semibold">Resultado de la última importación</div>
+          <div class="small text-muted">Periodo {{ rpt.period_label }} · Campo {{ rpt.amount_kind_label }}</div>
+        </div>
+        {% if sum.conflicts_pending %}
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <span class="badge text-bg-warning">{{ sum.conflicts_pending }} pendientes de decidir</span>
+            {% if income_import_review and income_import_review.conflicts %}
+              <button class="btn btn-sm btn-outline-warning" type="button" data-bs-toggle="modal" data-bs-target="#incomeImportConflictModal">Revisar diferencias</button>
+            {% endif %}
+          </div>
+        {% elif sum.unmatched_rows %}
+          <span class="badge text-bg-warning">{{ sum.unmatched_rows }} ISRC sin match</span>
+        {% else %}
+          <span class="badge text-bg-success">Importación procesada</span>
+        {% endif %}
+      </div>
+
+      <div class="row g-2 small mb-3">
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Filas CSV</div><div class="fw-semibold">{{ sum.rows_total or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Canciones con match</div><div class="fw-semibold">{{ sum.matched_songs or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Creadas</div><div class="fw-semibold">{{ sum.created or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Actualizadas</div><div class="fw-semibold">{{ sum.updated or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Sin cambios</div><div class="fw-semibold">{{ sum.unchanged or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Sin match</div><div class="fw-semibold">{{ sum.unmatched_rows or 0 }}</div></div></div>
+        {% if sum.replaced or sum.kept %}
+          <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Reemplazadas</div><div class="fw-semibold">{{ sum.replaced or 0 }}</div></div></div>
+          <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Mantenidas</div><div class="fw-semibold">{{ sum.kept or 0 }}</div></div></div>
+        {% endif %}
+      </div>
+
+      {% if rpt.applied_songs %}
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Canción</th>
+                <th>Artistas</th>
+                <th class="text-nowrap">ISRC</th>
+                <th class="text-nowrap text-end">Importe</th>
+                <th class="text-nowrap">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in rpt.applied_songs %}
+                <tr>
+                  <td class="fw-semibold">{{ item.song_title or '—' }}</td>
+                  <td>{{ item.artists_label or '—' }}</td>
+                  <td class="text-muted">{{ item.display_isrc or '—' }}</td>
+                  <td class="text-end">{{ item.amount|eur }}</td>
+                  <td>
+                    {% if item.action == 'created' %}
+                      <span class="badge text-bg-success">Creado</span>
+                    {% elif item.action == 'replaced' %}
+                      <span class="badge text-bg-warning">Reemplazado</span>
+                    {% elif item.action == 'kept' %}
+                      <span class="badge text-bg-secondary">Mantenido</span>
+                    {% elif item.action == 'unchanged' %}
+                      <span class="badge text-bg-light text-dark">Sin cambios</span>
+                    {% else %}
+                      <span class="badge text-bg-primary">Actualizado</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
+      {% if rpt.unmatched_rows %}
+        <div class="border rounded p-3 bg-light-subtle">
+          <div class="fw-semibold mb-2">ISRC sin relación en la base de datos</div>
+          <div class="small text-muted mb-2">Estas filas no bloquean la importación del resto. Se muestran completas para que podáis corregir el repertorio.</div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th class="text-nowrap">Fila</th>
+                  <th class="text-nowrap">ISRC</th>
+                  <th>Canción CSV</th>
+                  <th>Artista CSV</th>
+                  <th>Motivo</th>
+                  <th>Datos completos</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in rpt.unmatched_rows %}
+                  <tr>
+                    <td>{{ row.row_number }}</td>
+                    <td class="text-muted">{{ row.isrc or '—' }}</td>
+                    <td>{{ row.track or '—' }}</td>
+                    <td>{{ row.primary_artist or '—' }}</td>
+                    <td>{{ row.reason }}</td>
+                    <td style="min-width:280px;">
+                      <details>
+                        <summary class="small">Ver fila completa</summary>
+                        <pre class="small mb-0 mt-2" style="white-space:pre-wrap;">{{ row.row_json }}</pre>
+                      </details>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
 <div class="card mb-3">
   <div class="card-body">
 
@@ -195,6 +312,7 @@
                         <button type="button" class="btn btn-sm btn-outline-secondary btn-income-edit" data-bs-toggle="modal" data-bs-target="#incomeEntryModal"
                                 title="Editar"
                                 data-entry-id="{{ e.id }}"
+                                data-song-id="{{ s.id }}"
                                 data-song-title="{{ s.title|e }}"
                                 data-name="{{ e.name|e }}"
                                 data-gross="{{ e.gross }}"
@@ -295,14 +413,14 @@
       <div class="modal-body">
 
         <div class="d-flex align-items-center gap-2 mb-3">
-          <img src="{{ url_for('static', filename='img/logo.png') }}" id="incomeUploadArtistPhoto" class="artist-avatar" alt="">
+          <img src="{{ url_for('static', filename='img/logo.png') }}" data-default-src="{{ url_for('static', filename='img/logo.png') }}" id="incomeUploadArtistPhoto" class="artist-avatar" alt="">
           <div>
             <div class="fw-semibold" id="incomeUploadArtistName">—</div>
             <div class="small text-muted">Periodo: {{ income_period_label }}</div>
           </div>
         </div>
 
-        <input type="hidden" name="artist_id" id="incomeUploadArtistId" required>
+        <input type="hidden" name="artist_id" id="incomeUploadArtistId">
         <input type="hidden" name="period_type" id="incomeUploadPeriodType" required>
         <input type="hidden" name="period_start" id="incomeUploadPeriodStart" required>
         <input type="hidden" name="next" value="{{ income_next_url }}">
@@ -368,6 +486,77 @@
       if (net) net.checked = true;
       if (hidden) hidden.value = 'Net Revenue';
     });
+  });
+</script>
+
+
+{% if income_import_review and income_import_review.conflicts %}
+<div class="modal fade" id="incomeImportConflictModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_income_upload_resolve') }}">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title">Hay importes ya cargados para este periodo</h5>
+          <div class="small text-muted">Periodo {{ income_import_review.period_label }} · Campo {{ income_import_review.amount_kind_label }}</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="review_token" value="{{ request.args.get('import_review') or '' }}">
+        <input type="hidden" name="next" value="{{ income_next_url }}">
+
+        <div class="alert alert-warning">
+          Estas canciones ya tienen un importe distinto cargado en este periodo. Elige si quieres <strong>reemplazar</strong> por lo nuevo del CSV o <strong>mantener</strong> lo anterior.
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead class="table-light">
+              <tr>
+                <th>Canción</th>
+                <th>Artistas</th>
+                <th class="text-nowrap">ISRC match</th>
+                <th class="text-nowrap text-end">Actual</th>
+                <th class="text-nowrap text-end">Nuevo CSV</th>
+                <th class="text-nowrap">Filas CSV</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in income_import_review.conflicts %}
+                <tr>
+                  <td>
+                    <div class="fw-semibold">{{ item.song_title or '—' }}</div>
+                    {% if item.source_tracks %}
+                      <div class="small text-muted">{{ item.source_tracks|join(', ') }}</div>
+                    {% endif %}
+                  </td>
+                  <td>{{ item.artists_label or '—' }}</td>
+                  <td class="text-muted">{{ (item.matched_isrcs or [])|join(', ') or '—' }}</td>
+                  <td class="text-end">{{ item.existing_value|eur }}</td>
+                  <td class="text-end">{{ item.new_value|eur }}</td>
+                  <td>{{ item.row_count or 0 }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <button class="btn btn-outline-secondary" type="submit" name="strategy" value="keep">Mantener lo anterior</button>
+        <button class="btn btn-primary" type="submit" name="strategy" value="replace">Reemplazar por lo nuevo</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<script>
+  document.addEventListener('DOMContentLoaded', function(){
+    const conflictModal = document.getElementById('incomeImportConflictModal');
+    if (conflictModal) {
+      const bsModal = bootstrap.Modal.getOrCreateInstance(conflictModal);
+      bsModal.show();
+    }
   });
 </script>
 

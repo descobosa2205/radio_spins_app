@@ -1,6 +1,7 @@
 from datetime import date, timedelta, datetime
 from uuid import UUID
 import uuid as _uuid
+import uuid
 import json
 import csv
 import unicodedata
@@ -23,13 +24,14 @@ from flask import (
     send_from_directory,
     send_file,
 )
-from sqlalchemy import func, text, or_
+from sqlalchemy import func, text, or_, and_
 
 from werkzeug.security import check_password_hash, generate_password_hash
 import calendar as _cal
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from decimal import Decimal, InvalidOperation
+from collections import defaultdict
 
 # PDF (informe de ventas)
 try:
@@ -1599,6 +1601,9 @@ def _parse_money_decimal(val: str | None) -> Decimal:
     if not s:
         return Decimal("0")
 
+    if s.lower() in ("nan", "none", "null", "na"):
+        return Decimal("0")
+
     # remove currency symbols/spaces
     for ch in ("€", "$", "£"):
         s = s.replace(ch, "")
@@ -1620,11 +1625,302 @@ def _parse_money_decimal(val: str | None) -> Decimal:
     # Any remaining thousands separators
     # (keep last dot as decimal)
     try:
-        return Decimal(s)
+        dec = Decimal(s)
+        return dec if dec.is_finite() else Decimal("0")
     except Exception:
         # fallback: strip anything weird
         cleaned = "".join(ch for ch in s if ch.isdigit() or ch == "." or ch == "-")
-        return Decimal(cleaned or "0")
+        dec = Decimal(cleaned or "0")
+        return dec if dec.is_finite() else Decimal("0")
+
+
+def _money_norm(val) -> Decimal:
+    try:
+        dec = Decimal(val or 0)
+    except Exception:
+        dec = Decimal("0")
+    if not dec.is_finite():
+        return Decimal("0")
+    try:
+        return dec.quantize(Decimal("0.01"))
+    except Exception:
+        return dec
+
+
+def _money_equal(a, b) -> bool:
+    return _money_norm(a) == _money_norm(b)
+
+
+def _clean_csv_cell(val) -> str:
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if s.lower() in ("nan", "none", "null"):
+        return ""
+    return s
+
+
+def _income_import_store_dir() -> Path:
+    base = Path("/tmp/radio_spins_app_income_imports")
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+    # limpieza best-effort
+    try:
+        now_ts = datetime.utcnow().timestamp()
+        for p in base.glob("*.json"):
+            try:
+                if (now_ts - p.stat().st_mtime) > (48 * 3600):
+                    p.unlink(missing_ok=True)
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    return base
+
+
+def _save_income_import_payload(payload: dict, prefix: str = "income") -> str:
+    token = f"{prefix}_{_uuid.uuid4().hex}"
+    path = _income_import_store_dir() / f"{token}.json"
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(payload, fh, ensure_ascii=False, indent=2)
+    return token
+
+
+def _load_income_import_payload(token: str | None) -> dict | None:
+    token = (token or "").strip()
+    if not token:
+        return None
+    if not all(ch.isalnum() or ch in ("_", "-") for ch in token):
+        return None
+
+    path = _income_import_store_dir() / f"{token}.json"
+    if not path.exists():
+        return None
+
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _delete_income_import_payload(token: str | None) -> None:
+    token = (token or "").strip()
+    if not token:
+        return
+    if not all(ch.isalnum() or ch in ("_", "-") for ch in token):
+        return
+    try:
+        (_income_import_store_dir() / f"{token}.json").unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
+def _update_url_query(url: str | None, updates: dict[str, object]) -> str:
+    raw = (url or "").strip() or url_for("discografica_view", section="ingresos")
+    parsed = urlsplit(raw)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+    for key, value in (updates or {}).items():
+        if value is None or value == "":
+            query.pop(key, None)
+        else:
+            query[str(key)] = str(value)
+
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query, doseq=True), parsed.fragment))
+
+
+def _infer_income_period_from_url(next_url: str | None) -> tuple[str | None, date | None]:
+    raw = (next_url or "").strip()
+    if not raw:
+        return None, None
+
+    try:
+        query = parse_qs(urlsplit(raw).query or "", keep_blank_values=True)
+    except Exception:
+        return None, None
+
+    view = ((query.get("view") or ["month"])[0] or "month").strip().lower()
+    if view == "semester":
+        parsed_sem = _parse_semester_key(((query.get("s") or [""])[0] or "").strip())
+        if parsed_sem:
+            year, half = parsed_sem
+            sem_start, _ = _semester_range(year, half)
+            return "SEMESTER", sem_start
+
+    month_start = _parse_month_key(((query.get("m") or [""])[0] or "").strip())
+    if month_start:
+        return "MONTH", month_start
+
+    return None, None
+
+
+def _serialize_income_song_meta(session_db, song_ids: list[str]) -> dict[str, dict]:
+    if not song_ids:
+        return {}
+
+    uuids = []
+    for sid in song_ids:
+        try:
+            uuids.append(uuid.UUID(str(sid)))
+        except Exception:
+            continue
+
+    if not uuids:
+        return {}
+
+    meta: dict[str, dict] = {}
+    song_rows = (
+        session_db.query(Song.id, Song.title, Song.release_date, Song.isrc)
+        .filter(Song.id.in_(uuids))
+        .all()
+    )
+    for sid, title, release_date, legacy_isrc in song_rows:
+        meta[str(sid)] = {
+            "song_id": str(sid),
+            "song_title": title or "",
+            "release_date": release_date.isoformat() if release_date else "",
+            "display_isrc": _norm_isrc(legacy_isrc),
+            "artists": [],
+            "artists_label": "",
+            "all_isrcs": [],
+        }
+
+    artist_rows = (
+        session_db.query(SongArtist.song_id, Artist.name)
+        .join(Artist, Artist.id == SongArtist.artist_id)
+        .filter(SongArtist.song_id.in_(uuids))
+        .order_by(Artist.name.asc())
+        .all()
+    )
+    for sid, artist_name in artist_rows:
+        item = meta.get(str(sid))
+        if item and artist_name:
+            item.setdefault("artists", []).append(artist_name)
+
+    code_rows = (
+        session_db.query(SongISRCCode.song_id, SongISRCCode.code, SongISRCCode.is_primary)
+        .filter(SongISRCCode.song_id.in_(uuids))
+        .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.asc())
+        .all()
+    )
+    for sid, code, is_primary in code_rows:
+        item = meta.get(str(sid))
+        if not item:
+            continue
+        norm_code = _norm_isrc(code)
+        if not norm_code:
+            continue
+        if norm_code not in item["all_isrcs"]:
+            item["all_isrcs"].append(norm_code)
+        if is_primary and not item.get("display_isrc"):
+            item["display_isrc"] = norm_code
+
+    for item in meta.values():
+        if not item.get("display_isrc") and item.get("all_isrcs"):
+            item["display_isrc"] = item["all_isrcs"][0]
+        item["artists_label"] = ", ".join(item.get("artists") or [])
+
+    return meta
+
+
+def _apply_income_import_items(session_db, items: list[dict], period_type: str, period_start: date, period_end: date, amount_kind: str, strategy: str = "replace") -> dict:
+    result = {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "kept": 0,
+        "replaced": 0,
+        "actions": [],
+    }
+    if not items:
+        return result
+
+    song_ids = []
+    for item in items:
+        try:
+            song_ids.append(uuid.UUID(str(item.get("song_id") or "")))
+        except Exception:
+            continue
+
+    if not song_ids:
+        return result
+
+    existing_rows = (
+        session_db.query(SongRevenueEntry)
+        .filter(SongRevenueEntry.song_id.in_(song_ids))
+        .filter(SongRevenueEntry.period_type == period_type)
+        .filter(SongRevenueEntry.period_start == period_start)
+        .filter(SongRevenueEntry.is_base.is_(True))
+        .all()
+    )
+    existing_by_song = {str(row.song_id): row for row in existing_rows}
+
+    for item in items:
+        sid = str(item.get("song_id") or "")
+        amount = _money_norm(item.get("new_value") or item.get("amount") or 0)
+        if not sid:
+            continue
+
+        entry = existing_by_song.get(sid)
+        field_name = "gross" if amount_kind == "gross" else "net"
+        existing_value = _money_norm(getattr(entry, field_name, 0) if entry else 0)
+        action = None
+
+        if entry and strategy == "keep" and not _money_equal(existing_value, amount):
+            result["kept"] += 1
+            action = "kept"
+        else:
+            if not entry:
+                try:
+                    song_uuid = uuid.UUID(sid)
+                except Exception:
+                    continue
+                entry = SongRevenueEntry(
+                    song_id=song_uuid,
+                    period_type=period_type,
+                    period_start=period_start,
+                    period_end=period_end,
+                    is_base=True,
+                    name=None,
+                    gross=Decimal("0"),
+                    net=Decimal("0"),
+                )
+                session_db.add(entry)
+                existing_by_song[sid] = entry
+                result["created"] += 1
+                action = "created"
+            else:
+                if strategy == "replace" and not _money_equal(existing_value, amount):
+                    result["replaced"] += 1
+                    action = "replaced"
+                elif _money_equal(existing_value, amount):
+                    result["unchanged"] += 1
+                    action = "unchanged"
+                else:
+                    result["updated"] += 1
+                    action = "updated"
+
+            if strategy != "keep" or not _money_equal(existing_value, amount):
+                setattr(entry, field_name, amount)
+                entry.period_end = period_end
+                entry.updated_at = func.now()
+                if action not in ("created", "replaced", "unchanged"):
+                    action = "updated"
+
+        result["actions"].append(
+            {
+                **item,
+                "existing_value": str(existing_value),
+                "new_value": str(amount),
+                "action": action or "updated",
+            }
+        )
+
+    return result
 
 @app.get("/discografica")
 @admin_required
@@ -1668,13 +1964,15 @@ def discografica_view():
     royalty_beneficiaries_others: list[dict] = []
 
     # Para redirecciones tras POST
-    income_next_url = request.full_path.rstrip("?")
+    income_next_url = _update_url_query(request.full_path.rstrip("?"), {"upload_report": None, "import_review": None})
 
     # Opciones para el modal del informe
     income_report_months: list[dict] = []
     income_report_semesters: list[dict] = []
     income_report_months_selected: list[str] = []
     income_report_semesters_selected: list[str] = []
+    income_upload_report = None
+    income_import_review = None
 
     if section not in ("canciones", "royalties", "editorial", "ingresos", "isrc"):
         section = "canciones"
@@ -1683,6 +1981,10 @@ def discografica_view():
     isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
     if isrc_tab not in ("repertorio", "configurador"):
         isrc_tab = "repertorio"
+
+    if section == "ingresos":
+        income_upload_report = _load_income_import_payload(request.args.get("upload_report"))
+        income_import_review = _load_income_import_payload(request.args.get("import_review"))
 
     session_db = db()
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
@@ -2583,6 +2885,8 @@ def discografica_view():
         income_semester_tabs=income_semester_tabs,
         income_artist_blocks=income_artist_blocks,
         income_next_url=income_next_url,
+        income_upload_report=income_upload_report,
+        income_import_review=income_import_review,
         income_report_months=income_report_months,
         income_report_semesters=income_report_semesters,
         income_report_months_selected=income_report_months_selected,
@@ -2766,7 +3070,7 @@ def discografica_income_entry_save():
 
     with get_db() as session_db:
         entry_id = (request.form.get("entry_id") or "").strip()
-        song_id = (request.form.get("song_id") or "").strip()
+        song_id_raw = (request.form.get("song_id") or "").strip()
         period_type = (request.form.get("period_type") or "").strip().upper()
         period_start_iso = (request.form.get("period_start") or "").strip()
         is_base = (request.form.get("is_base") or "0").strip() in ("1", "true", "True")
@@ -2775,33 +3079,7 @@ def discografica_income_entry_save():
         net = _parse_money_decimal(request.form.get("net"))
         next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
 
-        try:
-            sid = uuid.UUID(song_id)
-        except Exception:
-            flash("ID de canción inválido.", "danger")
-            return redirect(next_url)
-
-        try:
-            ps = datetime.fromisoformat(period_start_iso).date()
-        except Exception:
-            flash("Periodo inválido.", "danger")
-            return redirect(next_url)
-
-        if period_type not in ("MONTH", "SEMESTER"):
-            flash("Tipo de periodo inválido.", "danger")
-            return redirect(next_url)
-
-        # Calcular fin de periodo
-        if period_type == "MONTH":
-            pe = _month_end(ps)
-        else:
-            # El start viene ya como inicio del semestre
-            if ps.month <= 6:
-                pe = date(ps.year, 6, 30)
-            else:
-                pe = date(ps.year, 12, 31)
-
-        # Update existing entry
+        entry = None
         if entry_id:
             try:
                 eid = uuid.UUID(entry_id)
@@ -2814,6 +3092,59 @@ def discografica_income_entry_save():
                 flash("Ingreso no encontrado.", "warning")
                 return redirect(next_url)
 
+        sid = None
+        if song_id_raw:
+            try:
+                sid = uuid.UUID(song_id_raw)
+            except Exception:
+                sid = None
+
+        if sid is None and entry is not None:
+            sid = entry.song_id
+
+        if sid is None:
+            flash("ID de canción inválido.", "danger")
+            return redirect(next_url)
+
+        ps = None
+        if period_start_iso:
+            try:
+                ps = datetime.fromisoformat(period_start_iso).date()
+            except Exception:
+                ps = None
+
+        if (not period_type or period_type not in ("MONTH", "SEMESTER")) and entry is not None:
+            period_type = entry.period_type
+
+        if ps is None and entry is not None:
+            ps = entry.period_start
+
+        if ps is None:
+            inferred_type, inferred_start = _infer_income_period_from_url(next_url)
+            if period_type not in ("MONTH", "SEMESTER"):
+                period_type = inferred_type or period_type
+            if ps is None:
+                ps = inferred_start
+
+        if period_type not in ("MONTH", "SEMESTER"):
+            flash("Tipo de periodo inválido.", "danger")
+            return redirect(next_url)
+
+        if ps is None:
+            flash("Periodo inválido.", "danger")
+            return redirect(next_url)
+
+        # Calcular fin de periodo
+        if period_type == "MONTH":
+            pe = _month_end(ps)
+        else:
+            if ps.month <= 6:
+                pe = date(ps.year, 6, 30)
+            else:
+                pe = date(ps.year, 12, 31)
+
+        # Update existing entry
+        if entry is not None:
             if str(entry.song_id) != str(sid):
                 flash("El ingreso no corresponde a esta canción.", "danger")
                 return redirect(next_url)
@@ -2823,6 +3154,9 @@ def discografica_income_entry_save():
                 entry.name = name
             entry.gross = gross
             entry.net = net
+            entry.period_type = period_type
+            entry.period_start = ps
+            entry.period_end = pe
             entry.updated_at = func.now()
             session_db.commit()
             flash("Ingreso actualizado.", "success")
@@ -2905,57 +3239,64 @@ def discografica_income_entry_delete(entry_id):
 @app.post("/discografica/ingresos/upload")
 @admin_required
 def discografica_income_upload_csv():
-    """Importa ingresos desde CSV (por ISRC) para el periodo actual.
-
-    - Se selecciona la columna ISRC del CSV.
-    - Se selecciona la columna de importes.
-    - amount_kind determina si ese importe actualiza NET o GROSS.
-
-    Si el mismo ISRC aparece varias veces, se suma.
-    Si se sube un segundo archivo del mismo periodo, se actualiza (no se suma sobre el valor ya guardado).
-    """
+    """Importa ingresos desde CSV priorizando siempre el emparejado por ISRC."""
 
     next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
-    artist_id = (request.form.get("artist_id") or "").strip()
+    artist_id_raw = (request.form.get("artist_id") or "").strip()
     period_type = (request.form.get("period_type") or "").strip().upper()
     period_start_iso = (request.form.get("period_start") or "").strip()
 
     isrc_col = (request.form.get("isrc_col") or "").strip()
     track_col = (request.form.get("track_col") or "").strip()
     amount_col = (request.form.get("amount_col") or "").strip()
-    amount_kind = (request.form.get("amount_kind") or "net").strip().lower()  # 'net' | 'gross'
+    amount_kind = (request.form.get("amount_kind") or "net").strip().lower()
 
     f = request.files.get("csv_file")
     if not f:
         flash("No se ha recibido ningún archivo CSV.", "danger")
         return redirect(next_url)
 
-    try:
-        aid = uuid.UUID(artist_id)
-    except Exception:
-        flash("Artista inválido.", "danger")
-        return redirect(next_url)
+    artist_id = None
+    if artist_id_raw:
+        try:
+            artist_id = str(uuid.UUID(artist_id_raw))
+        except Exception:
+            # El artista es solo contexto visual; la importación real va por ISRC.
+            artist_id = None
+
+    if period_type not in ("MONTH", "SEMESTER"):
+        inferred_type, inferred_start = _infer_income_period_from_url(next_url)
+        period_type = inferred_type or period_type
+        if not period_start_iso and inferred_start:
+            period_start_iso = inferred_start.isoformat()
 
     try:
         ps = datetime.fromisoformat(period_start_iso).date()
     except Exception:
-        flash("Periodo inválido.", "danger")
-        return redirect(next_url)
+        ps = None
 
     if period_type not in ("MONTH", "SEMESTER"):
         flash("Tipo de periodo inválido.", "danger")
         return redirect(next_url)
 
+    if ps is None:
+        flash("Periodo inválido.", "danger")
+        return redirect(next_url)
+
+    if amount_kind not in ("net", "gross"):
+        amount_kind = "net"
+
     # Rango del periodo
     if period_type == "MONTH":
         pe = _month_end(ps)
+        period_label = _month_label(ps)
     else:
         if ps.month <= 6:
             pe = date(ps.year, 6, 30)
         else:
             pe = date(ps.year, 12, 31)
+        period_label = _semester_label(ps.year, 1 if ps.month <= 6 else 2)
 
-    # Parse CSV con pandas
     try:
         import pandas as pd
     except Exception:
@@ -2969,7 +3310,6 @@ def discografica_income_upload_csv():
         except Exception:
             decoded = content.decode("latin-1")
 
-        # Delimiter guess: ; vs ,
         first_line = (decoded.splitlines() or [""])[0]
         sep = ";" if first_line.count(";") > first_line.count(",") else ","
 
@@ -2980,132 +3320,325 @@ def discografica_income_upload_csv():
         flash(f"Error leyendo CSV: {e}", "danger")
         return redirect(next_url)
 
-    # Validación columnas
     for col in (track_col, isrc_col, amount_col):
         if col not in df.columns:
             flash(f"La columna '{col}' no existe en el CSV.", "danger")
             return redirect(next_url)
 
-    # Normalizamos y sumamos por ISRC
-    df["__isrc"] = df[isrc_col].astype(str).map(_norm_isrc)
-    df["__amount"] = df[amount_col].apply(lambda x: _parse_money_decimal(x))
+    df["__row_number"] = range(2, len(df) + 2)
+    df["__isrc"] = df[isrc_col].map(_clean_csv_cell).map(_norm_isrc)
+    df["__amount"] = df[amount_col].apply(_parse_money_decimal).map(_money_norm)
 
-    # remove empty ISRC
-    df = df[df["__isrc"].astype(bool)]
-
-    amount_by_isrc: dict[str, Decimal] = {}
-    for isrc, grp in df.groupby("__isrc"):
-        amount_by_isrc[str(isrc)] = sum((Decimal(x) for x in grp["__amount"].tolist()), Decimal("0"))
-
-    # Canciones del artista (publicadas hasta el fin del periodo)
     with get_db() as session_db:
-        song_ids = (
-            session_db.query(Song.id)
-            .join(SongArtist, Song.id == SongArtist.song_id)
-            .filter(SongArtist.artist_id == aid)
-            .filter(Song.release_date <= pe)
-            .all()
-        )
-        song_ids = [row[0] for row in song_ids]
+        song_rows = session_db.query(Song.id, Song.title, Song.release_date, Song.isrc).all()
+        isrc_to_song: dict[str, str] = {}
+        ambiguous_isrcs: dict[str, set[str]] = defaultdict(set)
+        song_ids_seen: set[str] = set()
 
-        if not song_ids:
-            flash("Este artista no tiene canciones para este periodo.", "warning")
-            return redirect(next_url)
-
-        # ISRC map (normalizado) -> song_id (del artista)
-        isrc_map: dict[str, uuid.UUID] = {}
-
-        songs = session_db.query(Song.id, Song.isrc).filter(Song.id.in_(song_ids)).all()
-        for sid, code in songs:
-            c = _norm_isrc(code)
-            if c:
-                isrc_map.setdefault(c, sid)
-
-        codes = (
-            session_db.query(SongISRCCode.song_id, SongISRCCode.code)
-            .filter(SongISRCCode.song_id.in_(song_ids))
-            .filter(func.upper(SongISRCCode.kind) == "AUDIO")
-            .all()
-        )
-        for sid, code in codes:
-            c = _norm_isrc(code)
-            if c:
-                isrc_map.setdefault(c, sid)
-
-        bases = (
-            session_db.query(SongRevenueEntry)
-            .filter(SongRevenueEntry.song_id.in_(song_ids))
-            .filter(SongRevenueEntry.period_type == period_type)
-            .filter(SongRevenueEntry.period_start == ps)
-            .filter(SongRevenueEntry.is_base.is_(True))
-            .all()
-        )
-        base_by_song = {str(b.song_id): b for b in bases}
-
-        updated = 0
-        not_found: list[tuple[str, str]] = []
-
-        for sid in song_ids:
-            sid_s = str(sid)
-
-            # ISRC(s) de la canción
-            song_isrcs = set()
-            song_row = next((r for r in songs if r[0] == sid), None)
-            if song_row and song_row[1]:
-                song_isrcs.add(_norm_isrc(song_row[1]))
-            for csid, ccode in codes:
-                if csid == sid and ccode:
-                    song_isrcs.add(_norm_isrc(ccode))
-
-            amount = Decimal("0")
-            for c in song_isrcs:
-                if c in amount_by_isrc:
-                    amount += amount_by_isrc[c]
-
-            base = base_by_song.get(sid_s)
-            if not base:
-                base = SongRevenueEntry(
-                    song_id=sid,
-                    period_type=period_type,
-                    period_start=ps,
-                    period_end=pe,
-                    is_base=True,
-                    name=None,
-                    gross=Decimal("0"),
-                    net=Decimal("0"),
-                )
-                session_db.add(base)
-                base_by_song[sid_s] = base
-
-            if amount_kind == "gross":
-                base.gross = amount
+        def _register_isrc(code_val, sid_val):
+            norm_code = _norm_isrc(code_val)
+            sid_s = str(sid_val)
+            if not norm_code:
+                return
+            if norm_code in ambiguous_isrcs:
+                ambiguous_isrcs[norm_code].add(sid_s)
+                return
+            current = isrc_to_song.get(norm_code)
+            if current and current != sid_s:
+                ambiguous_isrcs[norm_code].update({current, sid_s})
+                isrc_to_song.pop(norm_code, None)
             else:
-                base.net = amount
-            base.period_end = pe
-            base.updated_at = func.now()
-            updated += 1
+                isrc_to_song[norm_code] = sid_s
 
-        # Avisos por ISRC del archivo que no corresponden al artista
+        for sid, _title, _release_date, legacy_isrc in song_rows:
+            song_ids_seen.add(str(sid))
+            _register_isrc(legacy_isrc, sid)
+
+        code_rows = session_db.query(SongISRCCode.song_id, SongISRCCode.code).all()
+        for sid, code in code_rows:
+            song_ids_seen.add(str(sid))
+            _register_isrc(code, sid)
+
+        aggregated_by_song: dict[str, dict] = {}
+        unmatched_rows: list[dict] = []
+
         for _, row in df.iterrows():
-            isrc = str(row.get("__isrc") or "")
-            if not isrc:
-                continue
-            if isrc not in isrc_map:
-                track = str(row.get(track_col) or "")
-                not_found.append((track, isrc))
+            row_number = int(row.get("__row_number") or 0)
+            raw_row = {col: _clean_csv_cell(row.get(col)) for col in df.columns if not str(col).startswith("__")}
+            norm_isrc = str(row.get("__isrc") or "")
+            amount = _money_norm(row.get("__amount") or 0)
+            track_name = _clean_csv_cell(row.get(track_col))
+            primary_artist_name = _clean_csv_cell(row.get("Primary Artist"))
 
+            if not norm_isrc:
+                unmatched_rows.append(
+                    {
+                        "row_number": row_number,
+                        "isrc": "",
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "reason": "Fila sin ISRC.",
+                        "row": raw_row,
+                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
+                    }
+                )
+                continue
+
+            if norm_isrc in ambiguous_isrcs:
+                unmatched_rows.append(
+                    {
+                        "row_number": row_number,
+                        "isrc": norm_isrc,
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "reason": "ISRC asociado a más de una canción en la base de datos.",
+                        "row": raw_row,
+                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
+                    }
+                )
+                continue
+
+            song_id = isrc_to_song.get(norm_isrc)
+            if not song_id:
+                unmatched_rows.append(
+                    {
+                        "row_number": row_number,
+                        "isrc": norm_isrc,
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "reason": "ISRC no encontrado o no relacionado con ninguna canción.",
+                        "row": raw_row,
+                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
+                    }
+                )
+                continue
+
+            bucket = aggregated_by_song.setdefault(
+                song_id,
+                {
+                    "song_id": song_id,
+                    "amount": Decimal("0"),
+                    "matched_isrcs": set(),
+                    "source_tracks": set(),
+                    "rows": [],
+                },
+            )
+            bucket["amount"] += amount
+            bucket["matched_isrcs"].add(norm_isrc)
+            if track_name:
+                bucket["source_tracks"].add(track_name)
+            bucket["rows"].append(
+                {
+                    "row_number": row_number,
+                    "isrc": norm_isrc,
+                    "track": track_name,
+                    "primary_artist": primary_artist_name,
+                    "amount": str(amount),
+                }
+            )
+
+        matched_song_ids = list(aggregated_by_song.keys())
+        song_meta = _serialize_income_song_meta(session_db, matched_song_ids)
+
+        existing_entries = []
+        if matched_song_ids:
+            existing_entries = (
+                session_db.query(SongRevenueEntry)
+                .filter(SongRevenueEntry.song_id.in_([uuid.UUID(sid) for sid in matched_song_ids]))
+                .filter(SongRevenueEntry.period_type == period_type)
+                .filter(SongRevenueEntry.period_start == ps)
+                .filter(SongRevenueEntry.is_base.is_(True))
+                .all()
+            )
+        existing_by_song = {str(row.song_id): row for row in existing_entries}
+
+        immediate_items = []
+        conflict_items = []
+        unchanged_count = 0
+
+        for sid, bucket in aggregated_by_song.items():
+            meta = song_meta.get(sid) or {"song_title": "", "artists_label": "", "display_isrc": "", "all_isrcs": []}
+            amount = _money_norm(bucket.get("amount") or 0)
+            existing_entry = existing_by_song.get(sid)
+            existing_value = _money_norm(getattr(existing_entry, "gross" if amount_kind == "gross" else "net", 0) if existing_entry else 0)
+            item = {
+                "song_id": sid,
+                "song_title": meta.get("song_title") or "",
+                "artists_label": meta.get("artists_label") or "",
+                "display_isrc": meta.get("display_isrc") or "",
+                "matched_isrcs": sorted(bucket.get("matched_isrcs") or []),
+                "source_tracks": sorted(bucket.get("source_tracks") or []),
+                "row_count": len(bucket.get("rows") or []),
+                "rows": bucket.get("rows") or [],
+                "new_value": str(amount),
+                "existing_value": str(existing_value),
+            }
+            if existing_entry and not _money_equal(existing_value, amount):
+                conflict_items.append(item)
+            elif existing_entry and _money_equal(existing_value, amount):
+                immediate_items.append(item)
+                unchanged_count += 1
+            else:
+                immediate_items.append(item)
+
+        apply_result = _apply_income_import_items(
+            session_db,
+            immediate_items,
+            period_type=period_type,
+            period_start=ps,
+            period_end=pe,
+            amount_kind=amount_kind,
+            strategy="replace",
+        )
         session_db.commit()
 
-    if not_found:
-        preview = not_found[:15]
-        more = len(not_found) - len(preview)
-        msg = "; ".join([f"{t} ({i})" for t, i in preview if t or i])
-        if more > 0:
-            msg += f" … (+{more} más)"
-        flash(f"Aviso: ISRC no encontrados en la base de datos del artista: {msg}", "warning")
+        amount_kind_label = "Bruto" if amount_kind == "gross" else "Neto"
+        applied_songs = []
+        for action_item in apply_result.get("actions") or []:
+            applied_songs.append(
+                {
+                    "song_id": action_item.get("song_id") or "",
+                    "song_title": action_item.get("song_title") or "",
+                    "artists_label": action_item.get("artists_label") or "",
+                    "display_isrc": action_item.get("display_isrc") or "",
+                    "amount": action_item.get("new_value") or "0.00",
+                    "action": action_item.get("action") or "updated",
+                }
+            )
 
-    flash(f"CSV importado. Canciones actualizadas: {updated}.", "success")
-    return redirect(next_url)
+        report_payload = {
+            "kind": "income_upload_report",
+            "generated_at": datetime.utcnow().isoformat(),
+            "artist_id": artist_id or "",
+            "period_type": period_type,
+            "period_start": ps.isoformat(),
+            "period_end": pe.isoformat(),
+            "period_label": period_label,
+            "amount_kind": amount_kind,
+            "amount_kind_label": amount_kind_label,
+            "summary": {
+                "rows_total": int(len(df.index)),
+                "matched_songs": len(matched_song_ids),
+                "created": int(apply_result.get("created") or 0),
+                "updated": int(apply_result.get("updated") or 0),
+                "unchanged": int(apply_result.get("unchanged") or 0),
+                "replaced": 0,
+                "kept": 0,
+                "conflicts_pending": len(conflict_items),
+                "unmatched_rows": len(unmatched_rows),
+            },
+            "applied_songs": applied_songs,
+            "unmatched_rows": unmatched_rows,
+        }
+
+        report_token = _save_income_import_payload(report_payload, prefix="income_report")
+
+        if conflict_items:
+            review_payload = {
+                "kind": "income_import_review",
+                "generated_at": datetime.utcnow().isoformat(),
+                "next_url": next_url,
+                "period_type": period_type,
+                "period_start": ps.isoformat(),
+                "period_end": pe.isoformat(),
+                "period_label": period_label,
+                "amount_kind": amount_kind,
+                "amount_kind_label": amount_kind_label,
+                "report_base": report_payload,
+                "conflicts": conflict_items,
+            }
+            review_token = _save_income_import_payload(review_payload, prefix="income_review")
+            flash(
+                f"Importación parcial procesada. {len(conflict_items)} canciones tienen un importe distinto y necesitan confirmación.",
+                "warning",
+            )
+            return redirect(_update_url_query(next_url, {"upload_report": report_token, "import_review": review_token}))
+
+    flash(
+        f"CSV procesado por ISRC. Canciones con match: {report_payload['summary']['matched_songs']}. Filas sin match: {report_payload['summary']['unmatched_rows']}.",
+        "success" if report_payload["summary"]["matched_songs"] else "warning",
+    )
+    return redirect(_update_url_query(next_url, {"upload_report": report_token}))
+
+
+@app.post("/discografica/ingresos/upload/resolve")
+@admin_required
+def discografica_income_upload_resolve():
+    next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
+    review_token = (request.form.get("review_token") or "").strip()
+    strategy = (request.form.get("strategy") or "keep").strip().lower()
+    if strategy not in ("keep", "replace"):
+        strategy = "keep"
+
+    payload = _load_income_import_payload(review_token)
+    if not payload:
+        flash("La revisión de importación ya no está disponible.", "warning")
+        return redirect(next_url)
+
+    try:
+        period_start = datetime.fromisoformat(payload.get("period_start") or "").date()
+    except Exception:
+        flash("No se pudo recuperar el periodo de la importación pendiente.", "danger")
+        return redirect(next_url)
+
+    try:
+        period_end = datetime.fromisoformat(payload.get("period_end") or "").date()
+    except Exception:
+        if period_start.month <= 6 and payload.get("period_type") == "SEMESTER":
+            period_end = date(period_start.year, 6, 30)
+        elif payload.get("period_type") == "SEMESTER":
+            period_end = date(period_start.year, 12, 31)
+        else:
+            period_end = _month_end(period_start)
+
+    conflicts = payload.get("conflicts") or []
+    amount_kind = (payload.get("amount_kind") or "net").lower()
+    period_type = (payload.get("period_type") or "MONTH").upper()
+
+    with get_db() as session_db:
+        apply_result = _apply_income_import_items(
+            session_db,
+            conflicts,
+            period_type=period_type,
+            period_start=period_start,
+            period_end=period_end,
+            amount_kind=amount_kind,
+            strategy=strategy,
+        )
+        session_db.commit()
+
+    report_payload = payload.get("report_base") or {}
+    summary = report_payload.setdefault("summary", {})
+    summary["replaced"] = int(apply_result.get("replaced") or 0)
+    summary["kept"] = int(apply_result.get("kept") or 0)
+    summary["created"] = int(summary.get("created") or 0) + int(apply_result.get("created") or 0)
+    summary["updated"] = int(summary.get("updated") or 0) + int(apply_result.get("updated") or 0)
+    summary["unchanged"] = int(summary.get("unchanged") or 0) + int(apply_result.get("unchanged") or 0)
+    summary["conflicts_pending"] = 0
+
+    applied_songs = report_payload.setdefault("applied_songs", [])
+    for action_item in apply_result.get("actions") or []:
+        applied_songs.append(
+            {
+                "song_id": action_item.get("song_id") or "",
+                "song_title": action_item.get("song_title") or "",
+                "artists_label": action_item.get("artists_label") or "",
+                "display_isrc": action_item.get("display_isrc") or "",
+                "amount": action_item.get("new_value") or "0.00",
+                "action": action_item.get("action") or strategy,
+            }
+        )
+
+    report_payload["resolved_at"] = datetime.utcnow().isoformat()
+    report_payload["resolution"] = strategy
+    report_token = _save_income_import_payload(report_payload, prefix="income_report")
+    _delete_income_import_payload(review_token)
+
+    flash(
+        "Se han reemplazado los importes conflictivos por los valores del CSV." if strategy == "replace" else "Se han mantenido los importes anteriores en las canciones conflictivas.",
+        "success",
+    )
+    return redirect(_update_url_query(next_url, {"upload_report": report_token, "import_review": None}))
 
 
 @app.get("/discografica/ingresos/informe/pdf")
@@ -5699,6 +6232,7 @@ def api_create_ticketer():
 # -------------- CONCIERTOS --------------
 
 from decimal import Decimal, InvalidOperation
+from collections import defaultdict
 
 
 def _parse_optional_decimal(value: str | None) -> Decimal | None:

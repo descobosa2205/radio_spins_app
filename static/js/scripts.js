@@ -769,70 +769,39 @@ function initIncomeModals() {
     const artistPhotoEl = document.getElementById('incomeUploadArtistPhoto');
     const periodTypeEl = document.getElementById('incomeUploadPeriodType');
     const periodStartEl = document.getElementById('incomeUploadPeriodStart');
-
     const fileEl = document.getElementById('incomeUploadFile');
-    const trackColEl = document.getElementById('incomeUploadTrackCol');
-    const isrcColEl = document.getElementById('incomeUploadIsrcCol');
-    const amountColEl = document.getElementById('incomeUploadAmountCol');
-
-    uploadModalEl.addEventListener('show.bs.modal', (ev) => {
-      const btn = ev.relatedTarget;
-      if (!btn) return;
-
-      if (artistIdEl) artistIdEl.value = btn.dataset.artistId || '';
-      if (artistNameEl) artistNameEl.textContent = btn.dataset.artistName || '—';
-      if (artistPhotoEl) {
-        const p = btn.dataset.artistPhoto || '';
-        if (p) artistPhotoEl.src = p;
-      }
-      if (periodTypeEl) periodTypeEl.value = btn.dataset.periodType || '';
-      if (periodStartEl) periodStartEl.value = btn.dataset.periodStart || '';
-
-      // reset
-      if (fileEl) fileEl.value = '';
-      if (trackColEl) trackColEl.innerHTML = '<option value="">Selecciona…</option>';
-      if (isrcColEl) isrcColEl.innerHTML = '<option value="">Selecciona…</option>';
-      if (amountColEl) amountColEl.innerHTML = '<option value="">Selecciona…</option>';
-    });
-
-    // Solo necesitamos leer cabeceras si el modal tiene selects de columnas.
-    if (fileEl && (trackColEl || isrcColEl || amountColEl)) {
-      fileEl.addEventListener('change', async () => {
-        const f = fileEl.files && fileEl.files[0];
-        if (!f) return;
-
-        const txt = await f.text();
-        const firstLine = (txt.split(/\r?\n/)[0] || '').trim();
-        if (!firstLine) return;
-
-        const delimiter = _detectCsvDelimiter(firstLine);
-        const cols = _splitCsvHeader(firstLine, delimiter);
-
-        _populateSelectOptions(trackColEl, cols, ['track', 'title', 'song']);
-        _populateSelectOptions(isrcColEl, cols, ['isrc']);
-        _populateSelectOptions(amountColEl, cols, ['net revenue', 'gross revenue', 'revenue', 'amount']);
-      });
-    }
-
-    // When switching net/gross, try to auto-pick column
+    const amountColEl = document.getElementById('incomeUploadAmountColFixed');
     const netRadio = document.getElementById('incomeAmtNet');
     const grossRadio = document.getElementById('incomeAmtGross');
 
-    function _autoPickAmountCol(kind) {
-      if (!amountColEl) return;
-      const cols = Array.from(amountColEl.options).map(o => o.value).filter(Boolean);
-      if (!cols.length) return;
-      if (kind === 'net') {
-        const hit = cols.find(c => c.toLowerCase().includes('net'));
-        if (hit) amountColEl.value = hit;
-      } else {
-        const hit = cols.find(c => c.toLowerCase().includes('gross'));
-        if (hit) amountColEl.value = hit;
-      }
-    }
+    uploadModalEl.addEventListener('show.bs.modal', (ev) => {
+      const btn = ev.relatedTarget;
+      const fallbackPhoto = artistPhotoEl ? (artistPhotoEl.getAttribute('data-default-src') || artistPhotoEl.src) : '';
 
-    if (netRadio) netRadio.addEventListener('change', () => _autoPickAmountCol('net'));
-    if (grossRadio) grossRadio.addEventListener('change', () => _autoPickAmountCol('gross'));
+      if (artistIdEl) artistIdEl.value = (btn && btn.dataset.artistId) ? btn.dataset.artistId : '';
+      if (artistNameEl) artistNameEl.textContent = (btn && btn.dataset.artistName) ? btn.dataset.artistName : 'Importación por ISRC';
+      if (artistPhotoEl) {
+        const p = (btn && btn.dataset.artistPhoto) ? btn.dataset.artistPhoto : '';
+        artistPhotoEl.src = p || fallbackPhoto;
+      }
+      if (periodTypeEl) periodTypeEl.value = (btn && btn.dataset.periodType) ? btn.dataset.periodType : (periodTypeEl.value || '');
+      if (periodStartEl) periodStartEl.value = (btn && btn.dataset.periodStart) ? btn.dataset.periodStart : (periodStartEl.value || '');
+
+      if (fileEl) fileEl.value = '';
+      if (netRadio) netRadio.checked = true;
+      if (amountColEl) amountColEl.value = 'Net Revenue';
+    });
+
+    if (netRadio && amountColEl) {
+      netRadio.addEventListener('change', () => {
+        if (netRadio.checked) amountColEl.value = 'Net Revenue';
+      });
+    }
+    if (grossRadio && amountColEl) {
+      grossRadio.addEventListener('change', () => {
+        if (grossRadio.checked) amountColEl.value = 'Gross Revenue';
+      });
+    }
   }
 }
 

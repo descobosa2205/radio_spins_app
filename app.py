@@ -23,6 +23,7 @@ from flask import (
     session,
     send_from_directory,
     send_file,
+    Response,
 )
 from sqlalchemy import func, text, or_, and_
 
@@ -490,7 +491,17 @@ def enforce_role_permissions():
                     return forbid("Tu usuario no tiene permisos para modificar artistas.")
                 return
 
-            if path.startswith(("/api/venues", "/api/promoters", "/api/ticketers", "/api/companies", "/api/publishing_companies")):
+            if path.startswith("/api/promoters"):
+                if not (is_master() or can_edit_catalogs() or can_edit_concerts() or can_edit_discografica()):
+                    return forbid("Tu usuario no tiene permisos para modificar terceros.")
+                return
+
+            if path.startswith("/api/publishing_companies"):
+                if not (is_master() or can_edit_catalogs() or can_edit_discografica()):
+                    return forbid("Tu usuario no tiene permisos para modificar editoriales.")
+                return
+
+            if path.startswith(("/api/venues", "/api/ticketers", "/api/companies")):
                 if not (is_master() or can_edit_catalogs() or can_edit_concerts()):
                     return forbid("Tu usuario no tiene permisos para modificar bases de datos en esta sección.")
                 return
@@ -619,6 +630,7 @@ def inject_globals():
         CAN_EDIT_SALES=can_edit_sales(),
         CAN_EDIT_CONCERTS=can_edit_concerts(),
         CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        CAN_EDIT_SONGS_PROMOTERS=(can_edit_catalogs() or can_edit_discografica()),
         CAN_EDIT_DISCOGRAFICA=can_edit_discografica(),
         CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
@@ -3641,15 +3653,25 @@ def discografica_income_upload_resolve():
     return redirect(_update_url_query(next_url, {"upload_report": report_token, "import_review": None}))
 
 
-@app.get("/discografica/ingresos/informe/pdf")
+@app.route("/discografica/ingresos/informe/pdf", methods=["GET", "POST"])
 @admin_required
 def discografica_income_report_pdf():
-    """Genera PDF A4 horizontal con el informe de ingresos según filtros."""
+    """Genera un PDF ligero del informe de ingresos.
 
-    artist_ids = request.args.getlist("artist_ids")
-    months = request.args.getlist("months")
-    semesters = request.args.getlist("semesters")
-    kinds = request.args.getlist("kinds")
+    Cambios importantes:
+    - admite GET y POST (evita URLs gigantes cuando hay muchos artistas)
+    - agrega ingresos en consultas agrupadas, sin N+1 por artista
+    - no descarga imágenes remotas durante el render del PDF
+    - pinta el documento con canvas página a página para no retener toda la
+      estructura del informe en memoria
+    """
+
+    params = request.form if request.method == "POST" else request.args
+
+    artist_ids = params.getlist("artist_ids")
+    months = params.getlist("months")
+    semesters = params.getlist("semesters")
+    kinds = params.getlist("kinds")
 
     allowed_kinds = {"discografica", "catalogo", "distribucion"}
     kinds = [k for k in kinds if k in allowed_kinds]
@@ -3678,225 +3700,305 @@ def discografica_income_report_pdf():
 
     period_filters: list[tuple[str, date]] = [("MONTH", d) for d in month_starts] + [("SEMESTER", d) for d in sem_starts]
 
-    from io import BytesIO
-    from urllib.request import urlopen
-
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.units import cm
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-    from reportlab.lib.styles import getSampleStyleSheet
-
-    def _fetch_img(url: str, w: float, h: float):
-        if not url:
-            return ""
-        try:
-            with urlopen(url, timeout=5) as resp:
-                data = resp.read()
-            bio = BytesIO(data)
-            img = Image(bio, width=w, height=h)
-            img.hAlign = "LEFT"
-            return img
-        except Exception:
-            return ""
-
-    def _song_kind(song: Song) -> str:
-        if song.is_distribution:
+    def _song_kind_from_flags(is_distribution: bool, is_catalog: bool) -> str:
+        if is_distribution:
             return "distribucion"
-        if song.is_catalog:
+        if is_catalog:
             return "catalogo"
         return "discografica"
 
-    # Query
-    with get_db() as session_db:
-        if artist_ids:
+    def _kind_filter_expr(selected_kinds: list[str]):
+        clauses = []
+        if "distribucion" in selected_kinds:
+            clauses.append(Song.is_distribution.is_(True))
+        if "catalogo" in selected_kinds:
+            clauses.append(and_(Song.is_distribution.is_(False), Song.is_catalog.is_(True)))
+        if "discografica" in selected_kinds:
+            clauses.append(and_(Song.is_distribution.is_(False), or_(Song.is_catalog.is_(False), Song.is_catalog.is_(None))))
+        if not clauses:
+            return None
+        return or_(*clauses)
+
+    def _parse_artist_ids(raw_ids: list[str]) -> list[uuid.UUID]:
+        parsed: list[uuid.UUID] = []
+        for raw in raw_ids or []:
             try:
-                aids = [uuid.UUID(x) for x in artist_ids]
+                parsed.append(uuid.UUID(str(raw)))
             except Exception:
-                aids = []
-        else:
-            aids = []
-
-        if aids:
-            artists = session_db.query(Artist).filter(Artist.id.in_(aids)).order_by(Artist.name.asc()).all()
-        else:
-            artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
-
-        report_blocks = []
-
-        for a in artists:
-            songs = (
-                session_db.query(Song)
-                .join(SongArtist, Song.id == SongArtist.song_id)
-                .filter(SongArtist.artist_id == a.id)
-                .order_by(Song.release_date.desc())
-                .all()
-            )
-            songs = [s for s in songs if _song_kind(s) in kinds]
-            if not songs:
                 continue
+        return parsed
 
-            song_ids = [s.id for s in songs]
+    selected_artist_ids = _parse_artist_ids(artist_ids)
+    kind_expr = _kind_filter_expr(kinds)
 
-            inter = (
+    with get_db() as session_db:
+        pair_query = (
+            session_db.query(
+                Artist.id.label("artist_id"),
+                Artist.name.label("artist_name"),
+                Song.id.label("song_id"),
+                Song.title.label("song_title"),
+                Song.release_date.label("release_date"),
+                Song.is_distribution.label("is_distribution"),
+                Song.is_catalog.label("is_catalog"),
+                Song.isrc.label("song_isrc"),
+            )
+            .join(SongArtist, SongArtist.artist_id == Artist.id)
+            .join(Song, Song.id == SongArtist.song_id)
+        )
+
+        if selected_artist_ids:
+            pair_query = pair_query.filter(Artist.id.in_(selected_artist_ids))
+        if kind_expr is not None:
+            pair_query = pair_query.filter(kind_expr)
+
+        period_ors = [and_(SongRevenueEntry.period_type == pt, SongRevenueEntry.period_start == ps) for pt, ps in period_filters]
+        if period_ors:
+            revenue_song_ids = (
+                session_db.query(SongRevenueEntry.song_id)
+                .filter(or_(*period_ors))
+                .distinct()
+                .subquery()
+            )
+            pair_query = pair_query.filter(Song.id.in_(session_db.query(revenue_song_ids.c.song_id)))
+
+        pair_rows = (
+            pair_query
+            .order_by(Artist.name.asc(), Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+
+        if pair_rows:
+            song_ids = list({row.song_id for row in pair_rows if row.song_id})
+        else:
+            song_ids = []
+
+        interpreter_map: dict[str, list[str]] = defaultdict(list)
+        fallback_artist_names: dict[str, list[str]] = defaultdict(list)
+        for row in pair_rows:
+            sid_s = str(row.song_id)
+            if row.artist_name and row.artist_name not in fallback_artist_names[sid_s]:
+                fallback_artist_names[sid_s].append(row.artist_name)
+
+        if song_ids:
+            inter_rows = (
                 session_db.query(SongInterpreter.song_id, SongInterpreter.name)
                 .filter(SongInterpreter.song_id.in_(song_ids))
-                .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc(), SongInterpreter.name.asc())
+                .order_by(
+                    SongInterpreter.song_id.asc(),
+                    SongInterpreter.is_main.desc(),
+                    SongInterpreter.created_at.asc(),
+                    SongInterpreter.name.asc(),
+                )
                 .all()
             )
-            inter_map: dict[str, list[str]] = {}
-            for sid, name in inter:
-                if sid and name:
-                    inter_map.setdefault(str(sid), []).append(name)
+            for sid, name in inter_rows:
+                sid_s = str(sid)
+                clean_name = (name or "").strip()
+                if clean_name and clean_name not in interpreter_map[sid_s]:
+                    interpreter_map[sid_s].append(clean_name)
 
-            codes = (
+            isrc_map: dict[str, str] = {}
+            code_rows = (
                 session_db.query(SongISRCCode.song_id, SongISRCCode.code, SongISRCCode.is_primary)
                 .filter(SongISRCCode.song_id.in_(song_ids))
                 .filter(func.upper(SongISRCCode.kind) == "AUDIO")
-                .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.desc())
+                .order_by(SongISRCCode.song_id.asc(), SongISRCCode.is_primary.desc(), SongISRCCode.code.asc())
                 .all()
             )
-            isrc_map: dict[str, str] = {}
-            for sid, code, _p in codes:
+            for sid, code, _is_primary in code_rows:
                 sid_s = str(sid)
-                if sid_s not in isrc_map and code:
-                    isrc_map[sid_s] = code
+                clean_code = (code or "").strip()
+                if clean_code and sid_s not in isrc_map:
+                    isrc_map[sid_s] = clean_code
 
-            q = session_db.query(SongRevenueEntry).filter(SongRevenueEntry.song_id.in_(song_ids))
-            ors = [and_(SongRevenueEntry.period_type == pt, SongRevenueEntry.period_start == ps) for pt, ps in period_filters]
-            if ors:
-                q = q.filter(or_(*ors))
-            entries = q.all()
-
-            sums: dict[str, tuple[Decimal, Decimal]] = {str(s.id): (Decimal("0"), Decimal("0")) for s in songs}
-            for e in entries:
-                sid_s = str(e.song_id)
-                g, n = sums.get(sid_s, (Decimal("0"), Decimal("0")))
-                g += Decimal(e.gross or 0)
-                n += Decimal(e.net or 0)
-                sums[sid_s] = (g, n)
-
-            rows = []
-            artist_total_g = Decimal("0")
-            artist_total_n = Decimal("0")
-
-            for s in songs:
-                sid_s = str(s.id)
-                g, n = sums.get(sid_s, (Decimal("0"), Decimal("0")))
-                artist_total_g += g
-                artist_total_n += n
-
-                interpreters = inter_map.get(sid_s)
-                if not interpreters:
-                    _ = s.artists
-                    interpreters = [ar.name for ar in (s.artists or []) if ar and ar.name]
-
-                rows.append(
-                    {
-                        "song": s,
-                        "cover": s.cover_url,
-                        "title": s.title,
-                        "interpreters": ", ".join(interpreters) if interpreters else "",
-                        "isrc": isrc_map.get(sid_s) or (s.isrc or ""),
-                        "kind": _song_kind(s),
-                        "gross": g,
-                        "net": n,
-                    }
+            sums_map: dict[str, tuple[Decimal, Decimal]] = {}
+            sums_query = (
+                session_db.query(
+                    SongRevenueEntry.song_id,
+                    func.coalesce(func.sum(SongRevenueEntry.gross), 0),
+                    func.coalesce(func.sum(SongRevenueEntry.net), 0),
                 )
+                .filter(SongRevenueEntry.song_id.in_(song_ids))
+            )
+            if period_ors:
+                sums_query = sums_query.filter(or_(*period_ors))
+            sums_query = sums_query.group_by(SongRevenueEntry.song_id)
 
-            report_blocks.append((a, artist_total_g, artist_total_n, rows))
+            for sid, gross_sum, net_sum in sums_query.all():
+                sums_map[str(sid)] = (Decimal(gross_sum or 0), Decimal(net_sum or 0))
+        else:
+            isrc_map = {}
+            sums_map = {}
 
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=landscape(A4),
-        leftMargin=1.2 * cm,
-        rightMargin=1.2 * cm,
-        topMargin=1.0 * cm,
-        bottomMargin=1.0 * cm,
-    )
+        report_blocks: list[dict] = []
+        block_index: dict[str, dict] = {}
+        for row in pair_rows:
+            artist_key = str(row.artist_id)
+            block = block_index.get(artist_key)
+            if block is None:
+                block = {
+                    "artist_name": (row.artist_name or "").strip() or "Sin artista",
+                    "gross": Decimal("0"),
+                    "net": Decimal("0"),
+                    "rows": [],
+                }
+                block_index[artist_key] = block
+                report_blocks.append(block)
 
-    styles = getSampleStyleSheet()
-    story = []
+            sid_s = str(row.song_id)
+            gross_value, net_value = sums_map.get(sid_s, (Decimal("0"), Decimal("0")))
+            block["gross"] += gross_value
+            block["net"] += net_value
 
-    story.append(Paragraph("<b>Informe de ingresos</b>", styles["Title"]))
+            interpreters = interpreter_map.get(sid_s) or fallback_artist_names.get(sid_s) or []
+            block["rows"].append(
+                {
+                    "title": (row.song_title or "").strip(),
+                    "interpreters": ", ".join(interpreters),
+                    "isrc": isrc_map.get(sid_s) or ((row.song_isrc or "").strip()),
+                    "kind": _song_kind_from_flags(bool(row.is_distribution), bool(row.is_catalog)),
+                    "gross": gross_value,
+                    "net": net_value,
+                }
+            )
 
-    p_labels = []
+    from io import BytesIO
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    kind_labels = {
+        "discografica": "Discográfica",
+        "catalogo": "Catálogo",
+        "distribucion": "Distribución",
+    }
+
+    period_labels = []
     for d in month_starts:
-        p_labels.append(_month_label(d))
+        period_labels.append(_month_label(d))
     for d in sem_starts:
         half = 1 if d.month == 1 else 2
-        p_labels.append(_semester_label(d.year, half))
+        period_labels.append(_semester_label(d.year, half))
+    period_text = ", ".join(period_labels) if period_labels else "Sin periodo"
 
-    story.append(Paragraph("Periodo: " + ", ".join(p_labels), styles["Normal"]))
-    story.append(Spacer(1, 0.4 * cm))
+    buf = BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=landscape(A4))
+    page_width, page_height = landscape(A4)
+
+    left = 1.2 * cm
+    right = page_width - (1.2 * cm)
+    top = page_height - (1.0 * cm)
+    bottom = 1.0 * cm
+    row_h = 12
+
+    col_widths = [6.4 * cm, 7.4 * cm, 3.2 * cm, 3.2 * cm, 3.0 * cm, 3.0 * cm]
+    col_titles = ["Canción", "Intérpretes", "ISRC", "Tipo", "Bruto", "Neto"]
+    col_starts = [left]
+    for width in col_widths[:-1]:
+        col_starts.append(col_starts[-1] + width)
+
+    def _truncate(value: str, max_width: float, font_name: str = "Helvetica", font_size: int = 8) -> str:
+        txt = (value or "").strip()
+        if not txt:
+            return ""
+        if stringWidth(txt, font_name, font_size) <= max_width:
+            return txt
+        ellipsis = "…"
+        while txt and stringWidth(txt + ellipsis, font_name, font_size) > max_width:
+            txt = txt[:-1]
+        return (txt + ellipsis) if txt else ellipsis
+
+    def _draw_page_header() -> float:
+        y = top
+        pdf.setFont("Helvetica-Bold", 15)
+        pdf.drawString(left, y, "Informe de ingresos")
+        y -= 14
+        pdf.setFont("Helvetica", 9)
+        pdf.drawString(left, y, f"Periodo: {period_text}")
+        y -= 8
+        pdf.setStrokeColor(colors.lightgrey)
+        pdf.line(left, y, right, y)
+        return y - 10
+
+    def _draw_table_header(y: float) -> float:
+        pdf.setFillColor(colors.black)
+        pdf.setFont("Helvetica-Bold", 8.5)
+        for x, title, width in zip(col_starts, col_titles, col_widths):
+            if title in ("Bruto", "Neto"):
+                pdf.drawRightString(x + width - 2, y, title)
+            else:
+                pdf.drawString(x, y, title)
+        y -= 4
+        pdf.setStrokeColor(colors.grey)
+        pdf.line(left, y, right, y)
+        return y - 9
+
+    y = _draw_page_header()
 
     if not report_blocks:
-        story.append(Paragraph("No hay datos para los filtros seleccionados.", styles["Normal"]))
+        pdf.setFont("Helvetica", 10)
+        pdf.drawString(left, y, "No hay datos para los filtros seleccionados.")
     else:
-        for artist, tg, tn, rows in report_blocks:
-            img = _fetch_img(artist.photo_url or "", 1.2 * cm, 1.2 * cm)
-            hdr = Table(
-                [[img, Paragraph(f"<b>{artist.name}</b><br/>Total bruto: {tg:.2f} € &nbsp;&nbsp; Total neto: {tn:.2f} €", styles["Normal"]) ]],
-                colWidths=[1.4 * cm, 24 * cm],
-            )
-            hdr.setStyle(
-                TableStyle(
-                    [
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-                    ]
-                )
-            )
-            story.append(hdr)
+        for block in report_blocks:
+            artist_name = block["artist_name"]
+            artist_gross = block["gross"]
+            artist_net = block["net"]
+            rows = block["rows"]
 
-            data = [["", "Canción", "Intérpretes", "ISRC", "Tipo", "Bruto", "Neto"]]
-            for r in rows:
-                cover = _fetch_img(r["cover"] or "", 1.0 * cm, 1.0 * cm)
-                kind_label = {
-                    "discografica": "Discográfica",
-                    "catalogo": "Catálogo",
-                    "distribucion": "Distribución",
-                }.get(r["kind"], r["kind"])
-                data.append(
-                    [
-                        cover,
-                        r["title"],
-                        r["interpreters"],
-                        r["isrc"],
-                        kind_label,
-                        f"{r['gross']:.2f} €",
-                        f"{r['net']:.2f} €",
-                    ]
-                )
+            if y < bottom + 32:
+                pdf.showPage()
+                y = _draw_page_header()
 
-            tbl = Table(
-                data,
-                colWidths=[1.2 * cm, 6.5 * cm, 6.8 * cm, 3.2 * cm, 2.8 * cm, 3.0 * cm, 3.0 * cm],
-            )
-            tbl.setStyle(
-                TableStyle(
-                    [
-                        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                        ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                        ("ALIGN", (-2, 1), (-1, -1), "RIGHT"),
-                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
-                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-                    ]
-                )
-            )
-            story.append(tbl)
-            story.append(Spacer(1, 0.6 * cm))
+            pdf.setFont("Helvetica-Bold", 10.5)
+            pdf.drawString(left, y, artist_name)
+            pdf.drawRightString(right, y, f"Bruto {artist_gross:.2f} €   Neto {artist_net:.2f} €")
+            y -= 12
+            y = _draw_table_header(y)
 
-    doc.build(story)
-    pdf = buf.getvalue()
+            row_index = 0
+            for row in rows:
+                if y < bottom + row_h:
+                    pdf.showPage()
+                    y = _draw_page_header()
+                    pdf.setFont("Helvetica-Bold", 10)
+                    pdf.drawString(left, y, f"{artist_name} (cont.)")
+                    pdf.drawRightString(right, y, f"Bruto {artist_gross:.2f} €   Neto {artist_net:.2f} €")
+                    y -= 12
+                    y = _draw_table_header(y)
+
+                if row_index % 2 == 0:
+                    pdf.setFillColorRGB(0.97, 0.97, 0.97)
+                    pdf.rect(left - 2, y - 3, right - left + 4, row_h, fill=1, stroke=0)
+                pdf.setFillColor(colors.black)
+                pdf.setFont("Helvetica", 8)
+                values = [
+                    _truncate(row["title"], col_widths[0] - 4),
+                    _truncate(row["interpreters"], col_widths[1] - 4),
+                    _truncate(row["isrc"], col_widths[2] - 4),
+                    _truncate(kind_labels.get(row["kind"], row["kind"]), col_widths[3] - 4),
+                    f"{row['gross']:.2f} €",
+                    f"{row['net']:.2f} €",
+                ]
+                for idx, (x, width, value) in enumerate(zip(col_starts, col_widths, values)):
+                    if idx >= 4:
+                        pdf.drawRightString(x + width - 2, y, value)
+                    else:
+                        pdf.drawString(x, y, value)
+                y -= row_h
+                row_index += 1
+
+            y -= 8
+
+    pdf.save()
+    pdf_value = buf.getvalue()
     buf.close()
 
     filename = f"informe_ingresos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     return Response(
-        pdf,
+        pdf_value,
         mimetype="application/pdf",
         headers={"Content-Disposition": f"inline; filename={filename}"},
     )
@@ -7271,7 +7373,9 @@ def api_create_promoter():
         return jsonify(
             {
                 "id": str(p.id),
+                "nick": p.nick,
                 "label": p.nick,
+                "text": p.nick,
                 "logo_url": p.logo_url,
                 "tax_id": (p.tax_id or ""),
                 "contact_email": (p.contact_email or ""),

@@ -564,7 +564,7 @@
 <!-- Modal: Generar informe ingresos -->
 <div class="modal fade" id="incomeReportModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered">
-    <form class="modal-content" method="get" action="{{ url_for('discografica_income_report_pdf') }}" target="_blank">
+    <form class="modal-content" method="post" action="{{ url_for('discografica_income_report_pdf') }}" target="_blank">
       <div class="modal-header">
         <h5 class="modal-title">Informe de ingresos</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -576,10 +576,10 @@
             <label class="form-label">Artistas</label>
             <select name="artist_ids" class="form-select select-artists" multiple>
               {% for a in artists %}
-                <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" selected>{{ a.name }}</option>
+                <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
               {% endfor %}
             </select>
-            <div class="small text-muted mt-1">Por defecto están todos activos.</div>
+            <div class="small text-muted mt-1">Si no seleccionas ninguno, el informe incluirá todos los artistas.</div>
           </div>
 
           <div class="col-12 col-lg-7">

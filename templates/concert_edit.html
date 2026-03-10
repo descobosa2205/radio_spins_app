@@ -55,8 +55,8 @@
     <input type="number" name="capacity" class="form-control" required min="0" value="{{ concert.capacity or 0 }}">
   </div>
   <div class="col-md-2">
-    <label class="form-label">Salida a la venta</label>
-    <input type="date" name="sale_start_date" class="form-control" required value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+    <label class="form-label">Salida a la venta <small class="text-muted">(opcional en gratuitos)</small></label>
+    <input type="date" name="sale_start_date" id="sale_start_date_edit" class="form-control" required value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
   </div>
   <div class="col-md-3">
     <label class="form-label">Empresa que factura</label>
@@ -367,10 +367,12 @@
 
       {% set eq = concert.equipment %}
 
-      {# UI simplificada: solo 2 opciones #}
+      {# UI simplificada: 3 opciones #}
       {% set eq_option = '' %}
       {% if eq %}
-        {% if eq.covered_by_promoter %}
+        {% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}
+          {% set eq_option = 'FESTIVAL_RIDER' %}
+        {% elif eq.covered_by_promoter %}
           {% set eq_option = 'PROMOTER' %}
         {% elif eq.included or eq.other %}
           {% set eq_option = 'INCLUDED' %}
@@ -389,6 +391,11 @@
           <div class="form-check">
             <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_promoter" value="PROMOTER" {% if eq_option=='PROMOTER' %}checked{% endif %}>
             <label class="form-check-label" for="equipment_option_promoter">Promotor cubre equipos</label>
+          </div>
+
+          <div class="form-check">
+            <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_festival_rider" value="FESTIVAL_RIDER" {% if eq_option=='FESTIVAL_RIDER' %}checked{% endif %}>
+            <label class="form-check-label" for="equipment_option_festival_rider">Rider de festival</label>
           </div>
 
           <div class="form-text">Si no marcas nada, se considera que no hay información de equipamiento.</div>
@@ -545,10 +552,12 @@
 
   function updateSaleTypeUI(){
     const v = document.getElementById('sale_type_select').value;
+    const saleStartInput = document.getElementById('sale_start_date_edit');
     document.getElementById('promoter_single_wrap').style.display = ['VENDIDO','GRATUITO','GIRAS_COMPRADAS'].includes(v) ? 'block' : 'none';
     document.getElementById('break_even_wrap').style.display = (v === 'VENDIDO' || v === 'GRATUITO') ? 'none' : 'block';
     document.getElementById('collab_block').style.display = (v === 'VENDIDO') ? 'none' : 'block';
     document.getElementById('zone_block').style.display = (v === 'VENDIDO') ? 'none' : 'block';
+    if (saleStartInput) saleStartInput.required = (v !== 'GRATUITO');
   }
 
   function onZoneModeChange(sel){

@@ -326,7 +326,9 @@
                         <div class="small text-muted">Equipamiento</div>
                         <div class="small">
                           {% if c.equipment %}
-                            {% if c.equipment.covered_by_promoter %}
+                            {% if c.equipment.covered_by_promoter and c.equipment.covered_mode == 'RIDER' %}
+                              <div><strong>Rider de festival</strong></div>
+                            {% elif c.equipment.covered_by_promoter %}
                               <div><strong>Promotor cubre equipos</strong></div>
                             {% elif c.equipment.included or c.equipment.other %}
                               <div><strong>Equipos incluidos</strong></div>
@@ -657,8 +659,8 @@
         </div>
 
         <div class="col-12 col-md-2">
-          <label class="form-label">Salida a la venta</label>
-          <input type="date" name="sale_start_date" class="form-control" required>
+          <label class="form-label">Salida a la venta <small class="text-muted">(opcional en gratuitos)</small></label>
+          <input type="date" name="sale_start_date" id="sale_start_date_create" class="form-control" required>
         </div>
 
         <div class="col-12 col-md-2">
@@ -790,6 +792,10 @@
                 <div class="form-check">
                   <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_promoter_create" value="PROMOTER">
                   <label class="form-check-label" for="equipment_option_promoter_create">Promotor cubre equipos</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="equipment_option" id="equipment_option_festival_rider_create" value="FESTIVAL_RIDER">
+                  <label class="form-check-label" for="equipment_option_festival_rider_create">Rider de festival</label>
                 </div>
                 <div class="form-text">Solo una opción. Si no marcas nada, no se guardará equipamiento.</div>
               </div>
@@ -991,13 +997,16 @@
     const collabBlock = document.getElementById('collab_block');
     const commBlock = document.getElementById('comm_block');
     const equipBlock = document.getElementById('equipment_block');
+    const saleStartInput = document.getElementById('sale_start_date_create');
     const needsPromoter = ['VENDIDO','GRATUITO','GIRAS_COMPRADAS'].includes(v);
+    const saleStartOptional = (v === 'GRATUITO');
 
     if (promoterWrap) promoterWrap.style.display = needsPromoter ? '' : 'none';
     if (breakEvenWrap) breakEvenWrap.style.display = ['VENDIDO','GRATUITO'].includes(v) ? 'none' : '';
     if (collabBlock) collabBlock.style.display = (v === 'VENDIDO') ? 'none' : '';
     if (commBlock) commBlock.style.display = (v === 'VENDIDO') ? 'none' : '';
     if (equipBlock) equipBlock.style.display = '';
+    if (saleStartInput) saleStartInput.required = !saleStartOptional;
   }
 
   document.addEventListener('DOMContentLoaded', () => {

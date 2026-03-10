@@ -215,6 +215,22 @@ def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
+def parse_optional_date(value: str | None):
+    raw = (value or "").strip()
+    if not raw:
+        return None
+    return parse_date(raw)
+
+
+def parse_concert_sale_start_date(value: str | None, sale_type: str) -> date | None:
+    raw = (value or "").strip()
+    if raw:
+        return parse_date(raw)
+    if (sale_type or "").strip().upper() == "GRATUITO":
+        return None
+    raise ValueError("La fecha de salida a la venta es obligatoria salvo en conciertos gratuitos.")
+
+
 def parse_timecode_to_seconds(value: str | None) -> int | None:
     """Convierte un timecode tipo "mm:ss" o "ss" a segundos.
 
@@ -6694,9 +6710,10 @@ def _upsert_equipment_from_request(session, concert_id):
     """Upsert del resumen de equipamiento.
 
     Nuevo comportamiento (2026-01):
-    - UI simplificada: solo 2 opciones mutuamente excluyentes:
-        * equipment_option=INCLUDED  -> Equipos incluidos
-        * equipment_option=PROMOTER  -> Promotor cubre equipos
+    - UI simplificada: 3 opciones mutuamente excluyentes:
+        * equipment_option=INCLUDED        -> Equipos incluidos
+        * equipment_option=PROMOTER        -> Promotor cubre equipos
+        * equipment_option=FESTIVAL_RIDER  -> Rider de festival
       (opcional: si no se marca nada, se elimina el resumen)
 
     - Se mantiene compatibilidad con el formulario legacy para no romper despliegues antiguos:
@@ -6707,7 +6724,7 @@ def _upsert_equipment_from_request(session, concert_id):
 
     # 1) Nuevo formulario
     opt = (request.form.get("equipment_option") or "").strip().upper()
-    if opt in ("INCLUDED", "PROMOTER"):
+    if opt in ("INCLUDED", "PROMOTER", "FESTIVAL_RIDER"):
         if not eq:
             eq = ConcertEquipment(concert_id=concert_id)
             session.add(eq)
@@ -6717,6 +6734,12 @@ def _upsert_equipment_from_request(session, concert_id):
             eq.covered_mode = None
             eq.covered_amount = None
             # limpiamos para evitar listados antiguos
+            eq.included = None
+            eq.other = None
+        elif opt == "FESTIVAL_RIDER":
+            eq.covered_by_promoter = True
+            eq.covered_mode = "RIDER"
+            eq.covered_amount = None
             eq.included = None
             eq.other = None
         else:
@@ -6872,7 +6895,7 @@ def concerts_page():
                     billing_company_id=(to_uuid(billing_company_raw) if billing_company_raw else None),
                     artist_id=to_uuid((request.form.get("artist_id") or "").strip()),
                     capacity=int(request.form.get("capacity") or 0),
-                    sale_start_date=parse_date(request.form.get("sale_start_date") or ""),
+                    sale_start_date=parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type),
                     break_even_ticket=(None if sale_type in ("VENDIDO", "GRATUITO") else be_val),
                     sold_out=False,
                     status=_norm_status(request.form.get("status")),
@@ -7187,7 +7210,7 @@ def concert_update_handler(cid):
         requested_capacity = max(0, int(request.form.get("capacity") or 0))
         previous_effective_capacity = _concert_capacity_from_ticket_types(c)
         c.capacity = requested_capacity
-        c.sale_start_date = parse_date(request.form["sale_start_date"])
+        c.sale_start_date = parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type)
         c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
         c.status = _norm_status(request.form.get("status"))
         c.group_company_id = None
@@ -7317,17 +7340,26 @@ def concert_delete_handler(cid):
 def api_create_venue():
     session_db = db()
     try:
-        name = (request.form.get("name") or "").strip()
+        payload = request.get_json(silent=True) if request.is_json else None
+        payload = payload or request.form
+
+        name = (payload.get("name") or "").strip()
         if not name:
             return jsonify({"error": "El nombre del recinto es obligatorio."}), 400
 
-        municipality = (request.form.get("municipality") or "").strip() or None
-        province = (request.form.get("province") or "").strip() or None
+        municipality = (payload.get("municipality") or "").strip() or None
+        province = (payload.get("province") or "").strip() or None
+
+        covered_value = payload.get("covered")
+        if isinstance(covered_value, bool):
+            covered = covered_value
+        else:
+            covered = str(covered_value or "").strip().lower() in ("1", "true", "yes", "on", "si", "sí")
 
         v = Venue(
             name=name,
-            covered=(request.form.get("covered") == "on"),
-            address=(request.form.get("address") or "").strip() or None,
+            covered=covered,
+            address=(payload.get("address") or "").strip() or None,
             municipality=municipality,
             province=province,
         )

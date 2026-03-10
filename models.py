@@ -578,8 +578,8 @@ class Concert(Base):
     # Aforo a la venta
     capacity = Column(Integer, nullable=False)
 
-    # Fecha salida a la venta
-    sale_start_date = Column(Date, nullable=False)
+    # Fecha salida a la venta (opcional en conciertos gratuitos)
+    sale_start_date = Column(Date, nullable=True)
 
     # Punto de empate (OPCIONAL)
     break_even_ticket = Column(Integer, nullable=True)
@@ -1684,6 +1684,11 @@ def ensure_concerts_schema_enhancements():
         EXCEPTION WHEN undefined_table THEN
             NULL;
         END $$;
+        """,
+
+        """
+        ALTER TABLE IF EXISTS concerts
+            ALTER COLUMN sale_start_date DROP NOT NULL;
         """,
 
         """

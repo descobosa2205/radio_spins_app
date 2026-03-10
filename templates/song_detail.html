@@ -1138,8 +1138,10 @@
                   <div class="d-flex align-items-center gap-2 flex-wrap">
                     {% if sh.role == 'AUTHOR' %}
                       <span class="badge text-bg-info">Autor (Letra)</span>
-                    {% else %}
+                    {% elif sh.role == 'COMPOSER' %}
                       <span class="badge text-bg-info">Compositor (Música)</span>
+                    {% else %}
+                      <span class="badge text-bg-info">Autor y compositor (Letra y música)</span>
                     {% endif %}
                     <span class="badge text-bg-dark">{{ sh.pct }}%</span>
 
@@ -1236,18 +1238,23 @@
 
               <div class="row g-2">
                 <div class="col-12">
-                  <label class="form-label">Buscar tercero existente (opcional)</label>
-                  <input class="form-control" id="editorialPromoterSearch" placeholder="Escribe para buscar...">
-                  <div class="form-text">Si seleccionas uno existente, se rellenarán los datos. Si no, se creará uno nuevo al guardar.</div>
+                  <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                    <label class="form-label m-0">Buscar autor/compositor existente</label>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="editorialCreateNewPromoter">
+                      <i class="fa fa-plus"></i> Crear nuevo
+                    </button>
+                  </div>
+                  <input class="form-control mt-2" id="editorialPromoterSearch" placeholder="Escribe para buscar...">
+                  <div class="form-text">Si seleccionas uno existente, sus datos se cargarán automáticamente. Si no existe, puedes crearlo aquí mismo.</div>
                 </div>
 
                 <div class="col-12 col-md-6">
-                  <label class="form-label">Nombre</label>
-                  <input class="form-control" name="first_name" id="editorialFirstName" required>
+                  <label class="form-label">Nombre <small class="text-muted">(opcional)</small></label>
+                  <input class="form-control" name="first_name" id="editorialFirstName">
                 </div>
                 <div class="col-12 col-md-6">
-                  <label class="form-label">Apellidos</label>
-                  <input class="form-control" name="last_name" id="editorialLastName" required>
+                  <label class="form-label">Apellidos <small class="text-muted">(opcional)</small></label>
+                  <input class="form-control" name="last_name" id="editorialLastName">
                 </div>
 
                 <div class="col-12">
@@ -1294,6 +1301,7 @@
                   <select class="form-select" name="role" id="editorialRole" required>
                     <option value="AUTHOR">Autor (Letra)</option>
                     <option value="COMPOSER">Compositor (Música)</option>
+                    <option value="AUTHOR_COMPOSER">Autor y compositor (Letra y música)</option>
                   </select>
                 </div>
                 <div class="col-12 col-md-6">

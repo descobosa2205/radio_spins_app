@@ -463,6 +463,7 @@ function initEditorialTab(){
   const pctHelpEl = document.getElementById('editorialPctHelp');
 
   const btnAdd = document.getElementById('btnAddEditorialShare');
+  const btnCreateNewPromoter = document.getElementById('editorialCreateNewPromoter');
   const btnShowNewPublisher = document.getElementById('btnShowNewPublisher');
   const newPublisherWrap = document.getElementById('newPublisherWrap');
   const newPublisherName = document.getElementById('newPublisherName');
@@ -521,17 +522,28 @@ function initEditorialTab(){
       const js = await r.json();
       if (js.error) return;
 
-      if (firstNameEl && !firstNameEl.value) firstNameEl.value = js.first_name || '';
-      if (lastNameEl && !lastNameEl.value) lastNameEl.value = js.last_name || '';
-      if (emailEl && !emailEl.value) emailEl.value = js.contact_email || '';
-      if (phoneEl && !phoneEl.value) phoneEl.value = js.contact_phone || '';
+      if (firstNameEl) firstNameEl.value = js.first_name || '';
+      if (lastNameEl) lastNameEl.value = js.last_name || '';
+      if (emailEl) emailEl.value = js.contact_email || '';
+      if (phoneEl) phoneEl.value = js.contact_phone || '';
 
-      if (publisherInputEl && !publisherInputEl.value) publisherInputEl.value = js.publishing_company_name || '';
-      if (publisherIdEl && !publisherIdEl.value) publisherIdEl.value = js.publishing_company_id || '';
+      if (publisherInputEl) publisherInputEl.value = js.publishing_company_name || '';
+      if (publisherIdEl) publisherIdEl.value = js.publishing_company_id || '';
     } catch (_) {}
   }
 
+  function switchToNewPromoter(){
+    if (promoterSearchEl) promoterSearchEl.value = '';
+    if (promoterIdEl) promoterIdEl.value = '';
+    if (firstNameEl) firstNameEl.value = '';
+    if (lastNameEl) lastNameEl.value = '';
+    if (emailEl) emailEl.value = '';
+    if (phoneEl) phoneEl.value = '';
+    if (firstNameEl) firstNameEl.focus();
+  }
+
   if (btnAdd) btnAdd.addEventListener('click', setAddMode);
+  if (btnCreateNewPromoter) btnCreateNewPromoter.addEventListener('click', switchToNewPromoter);
 
   // Si el usuario vuelve a escribir, asumimos que cambia de tercero
   if (promoterSearchEl && promoterIdEl){

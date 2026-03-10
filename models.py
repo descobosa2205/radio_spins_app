@@ -465,7 +465,7 @@ class SongEditorialShare(Base):
         nullable=False,
     )
 
-    # AUTHOR (letra) | COMPOSER (música)
+    # AUTHOR (letra) | COMPOSER (música) | AUTHOR_COMPOSER (letra y música)
     role = Column(Text, nullable=False)
     pct = Column(Numeric, nullable=False, server_default=text("0"))
 
@@ -1430,11 +1430,27 @@ def ensure_editorial_schema():
             created_at timestamptz DEFAULT now(),
             updated_at timestamptz DEFAULT now(),
             CONSTRAINT chk_ses_pct CHECK (pct >= 0 AND pct <= 100),
-            CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER')),
+            CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER','AUTHOR_COMPOSER')),
             CONSTRAINT uq_song_editorial_share UNIQUE (song_id, promoter_id, role)
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_song_editorial_shares_song_id ON song_editorial_shares(song_id);',
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='song_editorial_shares'
+            ) THEN
+                ALTER TABLE song_editorial_shares DROP CONSTRAINT IF EXISTS chk_ses_role;
+                ALTER TABLE song_editorial_shares
+                    ADD CONSTRAINT chk_ses_role CHECK (role IN ('AUTHOR','COMPOSER','AUTHOR_COMPOSER'));
+            END IF;
+        EXCEPTION
+            WHEN duplicate_object THEN NULL;
+        END $$;
+        """,
 
         # Declaración de obra en songs
         """

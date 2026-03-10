@@ -4698,8 +4698,8 @@ def discografica_song_editorial_share_save(song_id):
         contact_phone = (request.form.get("contact_phone") or "").strip() or None
 
         role = (request.form.get("role") or "").strip().upper()
-        if role not in ("AUTHOR", "COMPOSER"):
-            flash("Tipo no válido (Autor/Compositor).", "warning")
+        if role not in ("AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"):
+            flash("Tipo no válido (Autor/Compositor/Autor y compositor).", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
 
         pct = _parse_pct(request.form.get("pct"))
@@ -5374,14 +5374,22 @@ def api_get_promoter(pid):
         if not p:
             return jsonify({"error": "Tercero no encontrado."}), 404
 
+        pub = None
+        if getattr(p, "publishing_company_id", None):
+            pub = session_db.get(PublishingCompany, p.publishing_company_id)
+
         return jsonify(
             {
                 "id": str(p.id),
                 "nick": (p.nick or "").strip(),
                 "logo_url": p.logo_url,
                 "tax_id": (p.tax_id or "").strip(),
+                "first_name": (p.first_name or "").strip(),
+                "last_name": (p.last_name or "").strip(),
                 "contact_email": (p.contact_email or "").strip(),
                 "contact_phone": (p.contact_phone or "").strip(),
+                "publishing_company_id": str(pub.id) if pub else "",
+                "publishing_company_name": (pub.name or "") if pub else "",
             }
         )
     finally:
@@ -7176,7 +7184,9 @@ def concert_update_handler(cid):
         c.sale_type = sale_type
         c.artist_id = to_uuid(request.form["artist_id"])
         c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
-        c.capacity = int(request.form.get("capacity") or 0)
+        requested_capacity = max(0, int(request.form.get("capacity") or 0))
+        previous_effective_capacity = _concert_capacity_from_ticket_types(c)
+        c.capacity = requested_capacity
         c.sale_start_date = parse_date(request.form["sale_start_date"])
         c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
         c.status = _norm_status(request.form.get("status"))
@@ -7238,6 +7248,9 @@ def concert_update_handler(cid):
         _upsert_equipment_from_request(session, c.id)
         _add_equipment_docs_from_request(session, c.id)
         _add_equipment_notes_from_request(session, c.id)
+
+        if requested_capacity != previous_effective_capacity:
+            _sync_concert_capacity_after_manual_edit(session, c.id, requested_capacity)
 
         session.commit()
         flash("Concierto actualizado.", "success")
@@ -8020,6 +8033,96 @@ def _sales_net_breakdown(gross: float, vat_pct: float, sgae_pct: float) -> dict:
         "sgae_amount": sgae_amount,
         "net": net,
     }
+
+
+def _redistribute_integer_amounts(amounts: list[int], new_total: int) -> list[int]:
+    """Reparte un total entero preservando, en lo posible, el peso relativo de cada valor."""
+    try:
+        target = max(0, int(new_total or 0))
+    except Exception:
+        target = 0
+
+    base = [max(0, int(a or 0)) for a in (amounts or [])]
+    if not base:
+        return []
+
+    current_total = sum(base)
+    if current_total <= 0:
+        out = [0 for _ in base]
+        if out:
+            out[0] = target
+        return out
+
+    scaled = [(a * target) / current_total for a in base]
+    floors = [int(v) for v in scaled]
+    remainder = target - sum(floors)
+
+    order = sorted(
+        range(len(base)),
+        key=lambda i: ((scaled[i] - floors[i]), base[i], -i),
+        reverse=True,
+    )
+    for idx in order[:max(0, remainder)]:
+        floors[idx] += 1
+    return floors
+
+
+def _sync_concert_capacity_after_manual_edit(session_db, concert_id, new_total: int) -> None:
+    """Si el concierto usa tipos de entrada, adapta sus cupos al nuevo aforo manual.
+
+    Esto evita que al editar el aforo del concierto parezca que el cambio no se ha guardado
+    porque otras pantallas calculan el aforo efectivo como la suma de los tipos de entrada.
+    """
+    try:
+        ticket_types = (
+            session_db.query(ConcertTicketType)
+            .filter(ConcertTicketType.concert_id == concert_id)
+            .order_by(ConcertTicketType.created_at.asc(), ConcertTicketType.id.asc())
+            .all()
+        )
+        if not ticket_types:
+            return
+
+        target_total = max(0, int(new_total or 0))
+        resized = _redistribute_integer_amounts([int(getattr(tt, "qty_for_sale", 0) or 0) for tt in ticket_types], target_total)
+        for tt, qty in zip(ticket_types, resized):
+            tt.qty_for_sale = int(qty or 0)
+            tt.updated_at = func.now()
+
+        alloc_rows = (
+            session_db.query(ConcertTicketerTicketType)
+            .filter(ConcertTicketerTicketType.concert_id == concert_id)
+            .order_by(ConcertTicketerTicketType.ticketer_id.asc(), ConcertTicketerTicketType.ticket_type_id.asc())
+            .all()
+        )
+        if alloc_rows:
+            rows_by_type = defaultdict(list)
+            for row in alloc_rows:
+                rows_by_type[row.ticket_type_id].append(row)
+
+            for tt in ticket_types:
+                rows = rows_by_type.get(tt.id) or []
+                if not rows:
+                    continue
+                new_allocs = _redistribute_integer_amounts(
+                    [int(getattr(r, "qty_for_sale", 0) or 0) for r in rows],
+                    int(getattr(tt, "qty_for_sale", 0) or 0),
+                )
+                for row, qty in zip(rows, new_allocs):
+                    row.qty_for_sale = int(qty or 0)
+                    row.updated_at = func.now()
+
+            ticketer_totals = defaultdict(int)
+            for row in alloc_rows:
+                ticketer_totals[row.ticketer_id] += int(getattr(row, "qty_for_sale", 0) or 0)
+
+            ticketers = session_db.query(ConcertTicketer).filter(ConcertTicketer.concert_id == concert_id).all()
+            for ct in ticketers:
+                ct.capacity_for_sale = int(ticketer_totals.get(ct.ticketer_id, 0) or 0)
+
+        session_db.flush()
+    except Exception:
+        return
 
 
 def _concert_capacity_from_ticket_types(concert: Concert) -> int:
@@ -10297,18 +10400,41 @@ def api_search_promoters():
     q = (request.args.get("q") or "").strip()
     session = db()
     try:
-        query = session.query(Promoter)
+        query = session.query(Promoter).options(joinedload(Promoter.publishing_company))
         if q:
             like = f"%{q}%"
             query = query.filter(
                 (Promoter.nick.ilike(like))
                 | (Promoter.first_name.ilike(like))
                 | (Promoter.last_name.ilike(like))
+                | (Promoter.contact_email.ilike(like))
+                | (Promoter.contact_phone.ilike(like))
             )
         promoters = query.order_by(Promoter.nick.asc()).limit(20).all()
-        return jsonify([
-            {"id": str(p.id), "label": p.nick} for p in promoters
-        ])
+
+        out = []
+        for p in promoters:
+            first_name = (p.first_name or "").strip()
+            last_name = (p.last_name or "").strip()
+            full_name = " ".join([x for x in [first_name, last_name] if x]).strip()
+            nick = (p.nick or "").strip()
+            label = full_name or nick or (p.contact_email or "").strip() or (p.contact_phone or "").strip() or "Sin nombre"
+            if full_name and nick and nick.lower() != full_name.lower():
+                label = f"{full_name} — {nick}"
+
+            pub = p.publishing_company
+            out.append({
+                "id": str(p.id),
+                "label": label,
+                "nick": nick,
+                "first_name": first_name,
+                "last_name": last_name,
+                "contact_email": (p.contact_email or "").strip(),
+                "contact_phone": (p.contact_phone or "").strip(),
+                "publishing_company_id": str(pub.id) if pub else "",
+                "publishing_company_name": (pub.name or "") if pub else "",
+            })
+        return jsonify(out)
     finally:
         session.close()
 

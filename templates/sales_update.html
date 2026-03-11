@@ -35,7 +35,8 @@
         {% set pct = (sold_total / cap * 100) if cap and cap > 0 else 0 %}
         {% set pending = (cap - sold_total) if cap and cap > 0 else 0 %}
         {% set updated_last = last_map.get(c.id) %}
-        {% set card_state = "sales-card-updated" if updated_last == day else ("sales-card-pending" if updated_last else "sales-card-never") %}
+        {% set soldout = c.sold_out or (cap and sold_total >= cap) %}
+        {% set card_state = "sales-card-soldout" if soldout else ("sales-card-updated" if updated_last == day else ("sales-card-pending" if updated_last else "sales-card-never")) %}
         {% set has_rebate_cfg = (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
 
 <div class="col-12">
@@ -87,15 +88,15 @@
           {% elif updated_last %}
             <span class="badge text-bg-warning text-dark">Pendiente (última: {{ updated_last.strftime('%d/%m/%Y') }})</span>
           {% else %}
-            <span class="badge text-bg-danger">Pendiente (sin datos)</span>
+            <span class="badge badge-status-no-data">Sin datos</span>
           {% endif %}
 
           {% if c.sale_start_date %}
             <span class="badge text-bg-light border">Salida: {{ c.sale_start_date.strftime('%d/%m/%Y') }}</span>
           {% endif %}
 
-          {% if c.sold_out %}
-            <span class="badge bg-dark">SOLD OUT</span>
+          {% if soldout %}
+            <span class="badge badge-status-soldout">SOLD OUT</span>
           {% endif %}
         </div>
 

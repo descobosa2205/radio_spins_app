@@ -323,8 +323,27 @@ button.song-status-item:focus {
 }
 
 .sales-card-never {
-  background-color: #ffe1e1; /* rojo clarito */
-  border-left: 4px solid #e74c3c;
+  background-color: #e8f1ff; /* azul clarito */
+  border-left: 4px solid #0d6efd;
+}
+
+.sales-card-soldout {
+  background-color: #fde8e8; /* rojo clarito */
+  border-left: 4px solid #dc3545;
+}
+
+.badge-status-soldout {
+  background-color: #dc3545 !important;
+  color: #fff !important;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.badge-status-no-data {
+  background-color: #0d6efd !important;
+  color: #fff !important;
+  font-weight: 600;
 }
 
 /* Discográfica > Ingresos */

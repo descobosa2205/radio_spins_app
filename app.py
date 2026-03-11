@@ -9370,12 +9370,90 @@ def sales_report_by_company(gid):
     return render_template("sales_report.html", **ctx)
 
 
+def _concert_is_soldout_for_sales(concert, sold_total=0, capacity=None):
+    try:
+        sold_total = int(sold_total or 0)
+    except Exception:
+        sold_total = 0
+
+    try:
+        capacity_value = int((getattr(concert, "capacity", 0) if capacity is None else capacity) or 0)
+    except Exception:
+        capacity_value = 0
+
+    return bool(getattr(concert, "sold_out", False) or (capacity_value > 0 and sold_total >= capacity_value))
+
+
+def _sales_pdf_logo_path():
+    candidates = [
+        Path(app.root_path) / "static" / "img" / "logo_33_producciones.png",
+        Path(app.root_path) / "static" / "img" / "logo_33.png",
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return str(candidate)
+    return None
+
+
+def _draw_sales_pdf_logo(canvas, doc):
+    logo_path = _sales_pdf_logo_path()
+    if not logo_path:
+        return
+
+    try:
+        from reportlab.lib.utils import ImageReader
+
+        image = ImageReader(logo_path)
+        iw, ih = image.getSize()
+        max_w = 96.0
+        max_h = 24.0
+        scale = min(max_w / float(iw or 1), max_h / float(ih or 1))
+        width = max(1.0, float(iw) * scale)
+        height = max(1.0, float(ih) * scale)
+        x = float(getattr(doc, "leftMargin", 18) or 18)
+        y = float(doc.pagesize[1]) - height - 10.0
+
+        canvas.saveState()
+        canvas.drawImage(image, x, y, width=width, height=height, mask="auto")
+        canvas.restoreState()
+    except Exception:
+        pass
+
+
+
+def _sales_pdf_clean_text(value, max_chars=None):
+    text = " ".join(str(value or "").split())
+    if max_chars and len(text) > max_chars:
+        text = text[: max_chars - 1].rstrip() + "…"
+    return text
+
+
+
+def _sales_pdf_scaled_widths(widths, available_width):
+    total = float(sum(widths) or 0)
+    if total <= 0 or available_width <= 0:
+        return list(widths)
+    if total <= available_width:
+        return list(widths)
+
+    scale = float(available_width) / total
+    return [w * scale for w in widths]
+
+
+
+def _sales_pdf_body_font_size(ncols):
+    if ncols >= 13:
+        return 6.0
+    if ncols >= 11:
+        return 6.4
+    if ncols >= 9:
+        return 6.8
+    return 7.0
+
+
 @app.get("/ventas/reporte/pdf", endpoint="sales_report_pdf")
 def sales_report_pdf():
-    """Informe genérico de ventas en formato tabla (A4 apaisado).
-
-    Muestra una "foto" del estado de ventas en el momento de generación.
-    """
+    """Informe genérico de ventas en formato tabla (A4 apaisado)."""
     if not REPORTLAB_AVAILABLE:
         flash("ReportLab no está instalado en el servidor. No se puede generar PDF.", "danger")
         return redirect(request.referrer or url_for("sales_report_view"))
@@ -9396,59 +9474,24 @@ def sales_report_pdf():
 
     show_econ = can_view_economics()
 
-    # Estilos y utilidades para que la tabla no se salga de márgenes en A4 apaisado.
-    # (En ReportLab, si la tabla es más ancha que el frame y está centrada, se recorta
-    # por ambos lados. Aquí forzamos anchos más ajustados + wrap en texto.)
     from xml.sax.saxutils import escape as _xml_escape
     from reportlab.lib.styles import ParagraphStyle
 
-    def _fmt_int_es(n: int) -> str:
+    def _fmt_int_es(n):
         try:
             return f"{int(n):,}".replace(",", ".")
         except Exception:
             return "0"
-
-    # BytesIO ya se importa arriba con: `from io import BytesIO`
-    # (evita NameError por usar el módulo `io` sin importarlo).
-    buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=landscape(A4),
-        leftMargin=18,
-        rightMargin=18,
-        topMargin=18,
-        bottomMargin=18,
-        title="Informe genérico de ventas",
-    )
-    styles = getSampleStyleSheet()
-    tbl_txt = ParagraphStyle(
-        "tbl_txt",
-        parent=styles["Normal"],
-        fontName="Helvetica",
-        fontSize=7,
-        leading=8,
-    )
-
-    def _p(s: str) -> Paragraph:
-        return Paragraph(_xml_escape(str(s or "")), tbl_txt)
-    story = []
-
-    title = f"Informe genérico de ventas — {day.strftime('%d/%m/%Y')}"
-    story.append(Paragraph(title, styles["Title"]))
-    story.append(Paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]))
-    story.append(Spacer(1, 10))
 
     totals = ctx.get("totals", {})
     today_map = ctx.get("today_map", {})
     last_map = ctx.get("last_map", {})
     gross_map = ctx.get("gross_map", {})
     net_map = ctx.get("net_map", {})
-
     sections = ctx.get("sections", {})
     titles = ctx.get("titles", {})
 
-    # Columnas
-    base_header = [
+    header_labels = [
         "Fecha",
         "Artista",
         "Ciudad",
@@ -9456,93 +9499,152 @@ def sales_report_pdf():
         "Recinto",
         "Hoy",
         "Total",
-        "%",
+        "% venta",
         "Aforo",
         "Pend.",
         "Act.",
     ]
+    base_widths = [46, 128, 78, 50, 134, 36, 48, 44, 50, 52, 54]
     if show_econ:
-        base_header += ["Bruto", "Neto"]
+        header_labels += ["Bruto", "Neto"]
+        base_widths += [70, 70]
 
-    # Anchos para A4 apaisado (ajustados a márgenes). Los textos (artista/ciudad/prov/recinto)
-    # irán con wrap si no caben.
-    col_widths = [40, 110, 70, 45, 140, 32, 45, 30, 45, 45, 40]
-    if show_econ:
-        col_widths += [60, 60]
+    ncols = len(header_labels)
+    body_font = _sales_pdf_body_font_size(ncols)
 
-    # Si por cualquier motivo el total supera el ancho útil del documento, escalamos.
-    try:
-        avail_w = float(doc.width)
-        total_w = float(sum(col_widths))
-        if total_w > 0 and total_w > avail_w:
-            scale = avail_w / total_w
-            col_widths = [w * scale for w in col_widths]
-    except Exception:
-        pass
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=18,
+        rightMargin=18,
+        topMargin=46,
+        bottomMargin=20,
+        title="Informe genérico de ventas",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "sales_report_pdf_title",
+        parent=styles["Title"],
+        fontName="Helvetica-Bold",
+        fontSize=15,
+        leading=17,
+        spaceAfter=0,
+    )
+    meta_style = ParagraphStyle(
+        "sales_report_pdf_meta",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=8,
+        leading=10,
+        textColor=colors.HexColor("#6c757d"),
+    )
+    body_style = ParagraphStyle(
+        "sales_report_pdf_body",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=body_font,
+        leading=body_font + 1.25,
+        wordWrap="CJK",
+        splitLongWords=True,
+    )
+    header_style = ParagraphStyle(
+        "sales_report_pdf_header",
+        parent=body_style,
+        fontName="Helvetica-Bold",
+    )
 
-    for key, lista in sections.items():
+    def _max_chars(width, lines=2):
+        approx_per_line = max(8, int(width / max(body_font * 0.58, 1.0)))
+        return approx_per_line * lines
+
+    col_widths = _sales_pdf_scaled_widths(base_widths, doc.width)
+
+    def _cell(text_value, col_idx, lines=1):
+        cleaned = _sales_pdf_clean_text(text_value, _max_chars(col_widths[col_idx], lines))
+        return Paragraph(_xml_escape(cleaned), body_style)
+
+    def _artist_cell(concert, sold_total, cap, col_idx):
+        name = _sales_pdf_clean_text(concert.artist.name if concert.artist else "-", _max_chars(col_widths[col_idx], 2))
+        html = _xml_escape(name)
+        if _concert_is_soldout_for_sales(concert, sold_total, cap):
+            html += "<br/><font color='#c62828'><b>SOLD OUT</b></font>"
+        return Paragraph(html, body_style)
+
+    story = []
+    title = f"Informe genérico de ventas — {day.strftime('%d/%m/%Y')}"
+    generated = datetime.now(tz=TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+    story.append(Paragraph(title, title_style))
+    story.append(Paragraph(f"Generado: {generated}", meta_style))
+    story.append(Spacer(1, 10))
+
+    has_rows = False
+    header_row = [Paragraph(_xml_escape(label), header_style) for label in header_labels]
+
+    for key in SALES_SECTION_ORDER:
+        lista = sections.get(key, []) or []
         if not lista:
             continue
+
+        has_rows = True
         story.append(Paragraph(titles.get(key, key), styles["Heading2"]))
+        data = [header_row]
 
-        data = [base_header]
-        for c in lista:
-            cid = c.id
-            total = int(totals.get(cid, 0) or 0)
-            cap = int(getattr(c, "capacity", 0) or 0)
-            pct = (total / cap * 100.0) if cap else 0.0
-            pending = max(0, cap - total) if cap else 0
-            today_sold = int(today_map.get(cid, 0) or 0)
+        for concert in lista:
+            cid = concert.id
+            sold_total = int(totals.get(cid, 0) or 0)
+            capacity = int(getattr(concert, "capacity", 0) or 0)
+            pct = (sold_total / capacity * 100.0) if capacity else 0.0
+            pending = max(0, capacity - sold_total) if capacity else 0
+            sold_today = int(today_map.get(cid, 0) or 0)
             updated_last = last_map.get(cid)
-            updated_s = updated_last.strftime("%d/%m") if updated_last else "-"
-
-            v = c.venue
-            city = (v.municipality or "") if v else ""
-            prov = (v.province or "") if v else ""
-            venue = (v.name or "") if v else ""
+            updated_str = updated_last.strftime("%d/%m") if updated_last else "-"
+            venue = concert.venue
 
             row = [
-                (c.date.strftime("%d/%m") if c.date else "-"),
-                _p(c.artist.name if c.artist else "-"),
-                _p(city),
-                _p(prov),
-                _p(venue),
-                _fmt_int_es(today_sold),
-                _fmt_int_es(total),
-                f"{pct:.1f}",
-                _fmt_int_es(cap),
-                _fmt_int_es(pending),
-                updated_s,
+                _cell(concert.date.strftime("%d/%m") if concert.date else "-", 0),
+                _artist_cell(concert, sold_total, capacity, 1),
+                _cell((venue.municipality if venue else "") or "", 2, lines=2),
+                _cell((venue.province if venue else "") or "", 3, lines=2),
+                _cell((venue.name if venue else "") or "", 4, lines=2),
+                Paragraph(_fmt_int_es(sold_today), body_style),
+                Paragraph(_fmt_int_es(sold_total), body_style),
+                Paragraph(f"{pct:.1f}%", body_style),
+                Paragraph(_fmt_int_es(capacity), body_style),
+                Paragraph(_fmt_int_es(pending), body_style),
+                _cell(updated_str, 10),
             ]
             if show_econ:
-                gross = float(gross_map.get(cid, 0.0) or 0.0)
-                net = float(net_map.get(cid, 0.0) or 0.0)
-                row += [_fmt_money_eur(gross), _fmt_money_eur(net)]
+                row += [
+                    Paragraph(_xml_escape(_fmt_money_eur(float(gross_map.get(cid, 0.0) or 0.0))), body_style),
+                    Paragraph(_xml_escape(_fmt_money_eur(float(net_map.get(cid, 0.0) or 0.0))), body_style),
+                ]
             data.append(row)
 
-        tbl = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
-        tbl.setStyle(
-            TableStyle(
-                [
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
-                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                    ("FONTNAME", (0, 0), (-1, -1), "Helvetica"),
-                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                    ("FONTSIZE", (0, 0), (-1, -1), 7),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                    ("TOPPADDING", (0, 0), (-1, -1), 2),
-                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-                    ("ALIGN", (5, 1), (-1, -1), "RIGHT"),
-                ]
-            )
+        table = Table(data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+        table_style = TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.black),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                ("TOPPADDING", (0, 0), (-1, -1), 2),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ("ALIGN", (0, 0), (0, -1), "CENTER"),
+            ]
         )
-        story.append(tbl)
-        story.append(Spacer(1, 12))
+        for col_idx in range(5, len(header_labels)):
+            table_style.add("ALIGN", (col_idx, 1), (col_idx, -1), "RIGHT")
+        table.setStyle(table_style)
+        story.append(table)
+        story.append(Spacer(1, 10))
 
-    doc.build(story)
+    if not has_rows:
+        story.append(Paragraph("No hay conciertos para los filtros seleccionados.", styles["Normal"]))
+
+    doc.build(story, onFirstPage=_draw_sales_pdf_logo, onLaterPages=_draw_sales_pdf_logo)
     buf.seek(0)
 
     suffix = "anteriores" if past else "reporte"
@@ -9561,7 +9663,6 @@ def sales_update_report_pdf():
     try:
         day = get_day("d")
 
-        # Campos seleccionados (si no vienen, por defecto todos)
         selected_fields = request.args.getlist("fields") or []
         default_fields = [
             "date",
@@ -9582,11 +9683,9 @@ def sales_update_report_pdf():
         if not selected_fields:
             selected_fields = default_fields
 
-        # Si el usuario no puede ver economía, quitamos campos económicos
         if not can_view_economics():
             selected_fields = [f for f in selected_fields if f not in ("gross", "net", "rebate_net")]
 
-        # Filtro artistas (si viene vacío => todos)
         artist_ids = [a for a in request.args.getlist("artist_ids") if a]
         artist_uuid_set = set()
         for a in artist_ids:
@@ -9613,7 +9712,6 @@ def sales_update_report_pdf():
         concerts = concerts_q.order_by(Concert.date.asc()).all()
         concert_ids = [c.id for c in concerts]
 
-        # Aforo a la venta (si hay tipos)
         if concert_ids:
             cap_rows = (
                 session_db.query(
@@ -9633,7 +9731,6 @@ def sales_update_report_pdf():
         totals, today_map, last_map, gross_map, _gross_today = sales_maps_unified(session_db, day, concert_ids)
         capacity_map = {c.id: _concert_capacity_from_ticket_types(c) for c in concerts}
 
-        # Neto
         net_map = {}
         for c in concerts:
             gross = float(gross_map.get(c.id, 0.0) or 0.0)
@@ -9641,7 +9738,6 @@ def sales_update_report_pdf():
             sgae = float(getattr(c.sales_config, "sgae_pct", 0) or 0) if getattr(c, "sales_config", None) else 0.0
             net_map[c.id] = float(_sales_net_breakdown(gross, vat, sgae).get("net") or 0.0)
 
-        # Rebate neto
         ticketer_totals_map = {}
         rebate_net_map = {}
         if concert_ids:
@@ -9687,13 +9783,11 @@ def sales_update_report_pdf():
 
             rebate_net_map[cid2] = total_rebate_net
 
-        # Para mostrar rebate neto solo en conciertos con rebate configurado
         rebate_cfg_map = {
             c.id: any(((getattr(ct, 'rebate_mode', None) or '').strip()) for ct in (c.ticketers or []))
             for c in concerts
         }
 
-        # Secciones (para encabezados)
         sections = {k: [] for k in SALES_SECTION_ORDER}
         for c in concerts:
             if c.sale_type in sections:
@@ -9701,7 +9795,6 @@ def sales_update_report_pdf():
         for k in sections:
             sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
-        # Field defs
         def _pct_for(c):
             cap = float(capacity_map.get(c.id, c.capacity or 0) or 0)
             sold = float(totals.get(c.id, 0) or 0)
@@ -9737,30 +9830,24 @@ def sales_update_report_pdf():
         if not selected_fields:
             selected_fields = ["date", "artist"]
 
-        cols = [field_defs[f][0] for f in selected_fields]
-        ncols = len(cols)
+        soldout_exists = any(
+            _concert_is_soldout_for_sales(c, totals.get(c.id, 0), capacity_map.get(c.id, c.capacity or 0))
+            for c in concerts
+        )
+        render_fields = list(selected_fields)
+        inject_status_col = soldout_exists and ("artist" not in render_fields)
+        if inject_status_col:
+            render_fields.append("__status")
 
-        table_data = [cols]
-        section_rows = []
-        for sale_type in SALES_SECTION_ORDER:
-            items = sections.get(sale_type, []) or []
-            if not items:
-                continue
+        field_defs_render = dict(field_defs)
+        if inject_status_col:
+            field_defs_render["__status"] = (
+                "Estado",
+                lambda c: ("SOLD OUT" if _concert_is_soldout_for_sales(c, totals.get(c.id, 0), capacity_map.get(c.id, c.capacity or 0)) else ""),
+            )
 
-            section_rows.append(len(table_data))
-            table_data.append([SALES_SECTION_TITLE.get(sale_type, sale_type)] + [""] * (ncols - 1))
-
-            for c in items:
-                row = [str(field_defs[f][1](c)) for f in selected_fields]
-                if len(row) < ncols:
-                    row += [""] * (ncols - len(row))
-                table_data.append(row)
-
-        # PDF (A4 horizontal)
-        from reportlab.lib.pagesizes import A4, landscape
-        from reportlab.lib import colors
-        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-        from reportlab.lib.styles import getSampleStyleSheet
+        from xml.sax.saxutils import escape as _xml_escape
+        from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import cm
 
         buf = BytesIO()
@@ -9769,57 +9856,147 @@ def sales_update_report_pdf():
             pagesize=landscape(A4),
             leftMargin=1.0 * cm,
             rightMargin=1.0 * cm,
-            topMargin=1.0 * cm,
+            topMargin=1.7 * cm,
             bottomMargin=1.0 * cm,
+            title="Reporte de ventas",
         )
-
         styles = getSampleStyleSheet()
-        story = []
-
-        story.append(Paragraph(f"Reporte de ventas — {day.strftime('%d/%m/%Y')}", styles["Title"]))
-        story.append(Spacer(1, 0.2 * cm))
-
-        usable_w = doc.pagesize[0] - doc.leftMargin - doc.rightMargin
-        col_w = usable_w / float(ncols)
-        col_widths = [col_w] * ncols
-
-        tbl = Table(table_data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
-        ts = TableStyle(
-            [
-                ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 3),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 3),
-                ("TOPPADDING", (0, 0), (-1, -1), 2),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-            ]
+        title_style = ParagraphStyle(
+            "sales_update_pdf_title",
+            parent=styles["Title"],
+            fontName="Helvetica-Bold",
+            fontSize=15,
+            leading=17,
+            spaceAfter=0,
+        )
+        meta_style = ParagraphStyle(
+            "sales_update_pdf_meta",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor("#6c757d"),
+        )
+        ncols = max(1, len(render_fields))
+        body_font = _sales_pdf_body_font_size(ncols)
+        body_style = ParagraphStyle(
+            "sales_update_pdf_body",
+            parent=styles["Normal"],
+            fontName="Helvetica",
+            fontSize=body_font,
+            leading=body_font + 1.25,
+            wordWrap="CJK",
+            splitLongWords=True,
+        )
+        header_style = ParagraphStyle(
+            "sales_update_pdf_header",
+            parent=body_style,
+            fontName="Helvetica-Bold",
         )
 
-        # Encabezados de sección
-        for ridx in section_rows:
-            ts.add("SPAN", (0, ridx), (-1, ridx))
-            ts.add("BACKGROUND", (0, ridx), (-1, ridx), colors.whitesmoke)
-            ts.add("FONTNAME", (0, ridx), (-1, ridx), "Helvetica-Bold")
-            ts.add("ALIGN", (0, ridx), (-1, ridx), "LEFT")
+        width_map = {
+            "date": 54,
+            "artist": 140,
+            "city": 84,
+            "province": 66,
+            "venue": 136,
+            "sold_total": 52,
+            "sold_today": 46,
+            "capacity": 56,
+            "pct": 46,
+            "pending": 58,
+            "gross": 72,
+            "net": 72,
+            "rebate_net": 76,
+            "updated": 68,
+            "__status": 62,
+        }
+        col_widths = _sales_pdf_scaled_widths([width_map.get(field, 60) for field in render_fields], doc.width)
 
-        tbl.setStyle(ts)
-        story.append(tbl)
+        def _max_chars(width, lines=2):
+            approx_per_line = max(8, int(width / max(body_font * 0.58, 1.0)))
+            return approx_per_line * lines
 
+        def _make_cell(field_name, concert, col_idx):
+            raw = str(field_defs_render[field_name][1](concert) or "")
+            width = col_widths[col_idx]
+
+            if field_name == "__status":
+                if raw:
+                    return Paragraph("<font color='#c62828'><b>SOLD OUT</b></font>", body_style)
+                return Paragraph("", body_style)
+
+            if field_name == "artist":
+                name = _sales_pdf_clean_text(raw, _max_chars(width, 2))
+                html = _xml_escape(name)
+                if _concert_is_soldout_for_sales(concert, totals.get(concert.id, 0), capacity_map.get(concert.id, concert.capacity or 0)):
+                    html += "<br/><font color='#c62828'><b>SOLD OUT</b></font>"
+                return Paragraph(html, body_style)
+
+            line_count = 3 if field_name == "venue" else (2 if field_name in ("city", "province") else 1)
+            cleaned = _sales_pdf_clean_text(raw, _max_chars(width, line_count))
+            return Paragraph(_xml_escape(cleaned), body_style)
+
+        story = []
         generated = datetime.now(tz=TZ_MADRID).strftime("%d/%m/%Y %H:%M")
+        story.append(Paragraph(f"Reporte de ventas — {day.strftime('%d/%m/%Y')}", title_style))
+        story.append(Paragraph(f"Generado: {generated}", meta_style))
         story.append(Spacer(1, 0.25 * cm))
-        story.append(Paragraph(f"Generado: {generated}", styles["Normal"]))
 
-        doc.build(story)
+        if not concerts:
+            story.append(Paragraph("No hay conciertos para los filtros seleccionados.", styles["Normal"]))
+        else:
+            cols = [field_defs_render[f][0] for f in render_fields]
+            table_data = [[Paragraph(_xml_escape(col), header_style) for col in cols]]
+            section_rows = []
+            for sale_type in SALES_SECTION_ORDER:
+                items = sections.get(sale_type, []) or []
+                if not items:
+                    continue
+
+                section_rows.append(len(table_data))
+                table_data.append([Paragraph(_xml_escape(SALES_SECTION_TITLE.get(sale_type, sale_type)), header_style)] + [""] * (len(cols) - 1))
+
+                for concert in items:
+                    row = [_make_cell(field_name, concert, idx) for idx, field_name in enumerate(render_fields)]
+                    table_data.append(row)
+
+            table = Table(table_data, colWidths=col_widths, repeatRows=1, hAlign="LEFT")
+            table_style = TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.whitesmoke),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.grey),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 3),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+                    ("TOPPADDING", (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]
+            )
+
+            for row_idx in section_rows:
+                table_style.add("SPAN", (0, row_idx), (-1, row_idx))
+                table_style.add("BACKGROUND", (0, row_idx), (-1, row_idx), colors.whitesmoke)
+                table_style.add("ALIGN", (0, row_idx), (-1, row_idx), "LEFT")
+
+            numeric_fields = {"sold_total", "sold_today", "capacity", "pct", "pending", "gross", "net", "rebate_net"}
+            center_fields = {"date", "updated", "__status"}
+            for col_idx, field_name in enumerate(render_fields):
+                if field_name in numeric_fields:
+                    table_style.add("ALIGN", (col_idx, 1), (col_idx, -1), "RIGHT")
+                elif field_name in center_fields:
+                    table_style.add("ALIGN", (col_idx, 1), (col_idx, -1), "CENTER")
+
+            table.setStyle(table_style)
+            story.append(table)
+
+        doc.build(story, onFirstPage=_draw_sales_pdf_logo, onLaterPages=_draw_sales_pdf_logo)
         buf.seek(0)
 
         filename = f"reporte_ventas_{day.isoformat()}.pdf"
         return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name=filename)
     finally:
         session_db.close()
-
 
 
 # ------------- INFORME DE VENTAS POR EVENTO (ADMIN) -----------

@@ -26,7 +26,6 @@ from flask import (
     send_from_directory,
     send_file,
     Response,
-    has_request_context,
 )
 from sqlalchemy import func, text, or_, and_
 
@@ -722,7 +721,6 @@ def admin_login():
                         session_db.commit()
 
                 session["user_id"] = str(user.id)
-                session["user_email"] = (getattr(user, "email", None) or email or '').strip().lower()
                 session["role"] = int(getattr(user, "role", 10) or 10)
                 flash(ROLE_WELCOME.get(session["role"], "Bienvenido."), "success")
                 return redirect(nxt)
@@ -748,7 +746,6 @@ def admin_login():
                 session_db.commit()
 
                 session["user_id"] = str(user.id)
-                session["user_email"] = (getattr(user, "email", None) or email or '').strip().lower()
                 session["role"] = role
                 flash(ROLE_WELCOME.get(role, "Bienvenido."), "success")
                 return redirect(nxt)
@@ -762,7 +759,6 @@ def admin_login():
 @app.get("/logout")
 def admin_logout():
     session.pop("user_id", None)
-    session.pop("user_email", None)
     session.pop("role", None)
     flash("Sesión cerrada.", "success")
     return redirect(url_for("landing"))
@@ -1405,44 +1401,8 @@ def _smtp_enabled() -> bool:
     return bool((os.getenv('SMTP_HOST') or '').strip())
 
 
-def _sanitize_email_header_value(value: str | None) -> str:
-    return ' '.join(((value or '').replace('\r', ' ').replace('\n', ' ')).split()).strip()
-
-
-def _current_request_reply_to_email() -> str | None:
-    if not has_request_context():
-        return None
-
-    cached = _sanitize_email_header_value(session.get('user_email'))
-    if cached and '@' in cached:
-        return cached
-
-    user_id = (session.get('user_id') or '').strip()
-    if not user_id:
-        return None
-
-    session_db = db()
-    try:
-        user = session_db.get(User, to_uuid(user_id))
-        email = _sanitize_email_header_value(getattr(user, 'email', None))
-        if email and '@' in email:
-            session['user_email'] = email
-            return email
-        return None
-    except Exception:
-        return None
-    finally:
-        session_db.close()
-
-
-def _send_optional_email(
-    to_email: str,
-    subject: str,
-    html_body: str,
-    text_body: str | None = None,
-    reply_to: str | None = None,
-) -> tuple[bool, str | None]:
-    to_email = _sanitize_email_header_value(to_email)
+def _send_optional_email(to_email: str, subject: str, html_body: str, text_body: str | None = None) -> tuple[bool, str | None]:
+    to_email = (to_email or '').strip()
     if not to_email:
         return False, 'No se indicó email destino.'
     host = (os.getenv('SMTP_HOST') or '').strip()
@@ -1452,19 +1412,15 @@ def _send_optional_email(
     port = int((os.getenv('SMTP_PORT') or '587').strip() or '587')
     username = (os.getenv('SMTP_USERNAME') or '').strip()
     password = (os.getenv('SMTP_PASSWORD') or '').strip()
-    sender = _sanitize_email_header_value((os.getenv('SMTP_FROM_EMAIL') or username or '').strip())
-    sender_name = _sanitize_email_header_value((os.getenv('SMTP_FROM_NAME') or 'Radio Spins App').strip())
+    sender = (os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
+    sender_name = (os.getenv('SMTP_FROM_NAME') or 'Radio Spins App').strip()
     use_ssl = _truthy(os.getenv('SMTP_SSL'))
     use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
-
-    resolved_reply_to = _sanitize_email_header_value(reply_to) or _current_request_reply_to_email()
 
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = f'{sender_name} <{sender}>' if sender else sender_name
     msg['To'] = to_email
-    if resolved_reply_to and '@' in resolved_reply_to:
-        msg['Reply-To'] = resolved_reply_to
     msg.set_content(text_body or 'Este mensaje contiene una versión HTML del contenido.')
     msg.add_alternative(html_body, subtype='html')
 
@@ -13091,17 +13047,23 @@ def concert_contract_public_form(token):
     try:
         sheet = (
             session.query(ConcertContractSheet)
-            .options(
-                joinedload(ConcertContractSheet.concert).joinedload(Concert.artist),
-                joinedload(ConcertContractSheet.concert).joinedload(Concert.venue),
-                joinedload(ConcertContractSheet.concert).joinedload(Concert.billing_company),
-            )
             .filter(ConcertContractSheet.public_token == (token or '').strip())
             .first()
         )
         if not sheet:
             abort(404)
-        concert = sheet.concert
+        concert = (
+            session.query(Concert)
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                joinedload(Concert.billing_company),
+            )
+            .filter(Concert.id == sheet.concert_id)
+            .first()
+        )
+        if not concert:
+            abort(404)
         if request.method == 'POST':
             if not _contract_sheet_can_submit(sheet):
                 flash('Esta ficha ya no admite más envíos.', 'warning')

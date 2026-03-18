@@ -739,6 +739,7 @@ class Concert(Base):
         "ConcertContractSheet",
         uselist=False,
         cascade="all, delete-orphan",
+        back_populates="concert",
     )
     artwork_request = relationship(
         "ConcertArtworkRequest",
@@ -1094,6 +1095,8 @@ class ConcertContractSheet(Base):
     accepted_at = Column(DateTime(timezone=True))
     rejected_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert", back_populates="contract_sheet")
 
 
 class ConcertArtworkRequest(Base):

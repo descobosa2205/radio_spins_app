@@ -1142,6 +1142,8 @@ class ConcertArtworkAsset(Base):
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -2141,10 +2143,18 @@ def ensure_concert_artwork_schema():
             file_url text NOT NULL,
             original_name text,
             mime_type text,
+            is_archived boolean NOT NULL DEFAULT false,
+            archived_at timestamptz,
             created_at timestamptz DEFAULT now()
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_request_id ON concert_artwork_assets(artwork_request_id);',
+        """
+        ALTER TABLE IF EXISTS concert_artwork_assets
+            ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_is_archived ON concert_artwork_assets(is_archived);',
     ]
 
     with engine.begin() as conn:

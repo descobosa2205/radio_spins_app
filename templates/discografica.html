@@ -274,7 +274,7 @@
         <a class="nav-link {% if editorial_tab=='pendientes' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='pendientes') }}">Pendientes de registro <span class="badge text-bg-warning ms-1">{{ editorial_pending_songs|length }}</span></a>
       </li>
       <li class="nav-item">
-        <a class="nav-link {% if editorial_tab=='repertorio' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='repertorio') }}">Repertorio <span class="badge text-bg-success ms-1">{{ editorial_registered_songs|length }}</span></a>
+        <a class="nav-link {% if editorial_tab=='repertorio' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='repertorio') }}">Repertorio</a>
       </li>
     </ul>
   </div>

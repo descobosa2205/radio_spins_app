@@ -224,28 +224,37 @@
         <h5 class="mb-0">Cartelería</h5>
         <div class="text-muted small">Gestiona si los carteles los hace el promotor o el equipo interno, y comparte los formatos cuando estén subidos.</div>
       </div>
-      {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
+      <div class="d-flex gap-2 align-items-center flex-wrap">
+        {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
+        {% if artwork_request and CAN_EDIT_CONCERTS %}
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}">Editar solicitud</a>
+        {% endif %}
+      </div>
     </div>
 
     {% if artwork_request and artwork_needs_refresh %}
       <div class="alert alert-warning">
-        Los datos del concierto han cambiado desde la última solicitud o subida de cartelería. Revisa fecha, recinto y horarios antes de compartir los materiales.
+        Los datos del concierto han cambiado desde la última solicitud o subida de cartelería. Al volver a solicitar se archivarán los formatos actuales como <strong>Cartel Antiguo</strong> y se reenviará la petición a diseño.
       </div>
     {% endif %}
 
-    {% if not artwork_request %}
+    {% if not artwork_request or artwork_edit %}
       <div class="card">
         <div class="card-body">
+          {% if artwork_request and artwork_edit %}
+            <div class="alert alert-light border mb-3">Al guardar esta edición se enviará una nueva solicitud a diseño y los formatos actuales pasarán a <strong>Carteles antiguos</strong>.</div>
+          {% endif %}
           <form method="post" action="{{ url_for('concert_artwork_save', cid=concert.id) }}" class="row g-3" id="artworkRequestForm">
+            {% if artwork_request %}<input type="hidden" name="force_resend" value="1">{% endif %}
             <div class="col-12">
               <label class="form-label fw-semibold">¿Quién hace los carteles?</label>
               <div class="d-flex flex-wrap gap-3">
                 <label class="form-check-label border rounded px-3 py-2">
-                  <input class="form-check-input me-2" type="radio" name="handled_by" value="OURS" checked>
+                  <input class="form-check-input me-2" type="radio" name="handled_by" value="OURS" {% if not artwork_request or artwork_request.handled_by == 'OURS' %}checked{% endif %}>
                   Nosotros
                 </label>
                 <label class="form-check-label border rounded px-3 py-2">
-                  <input class="form-check-input me-2" type="radio" name="handled_by" value="PROMOTER">
+                  <input class="form-check-input me-2" type="radio" name="handled_by" value="PROMOTER" {% if artwork_request and artwork_request.handled_by == 'PROMOTER' %}checked{% endif %}>
                   Promotor
                 </label>
               </div>
@@ -255,12 +264,12 @@
               <div class="row g-3">
                 <div class="col-12 col-xl-6">
                   <label class="form-label">Logos que deben incluirse</label>
-                  <textarea class="form-control" name="logo_notes" rows="3" placeholder="Notas sobre logos, orden, tamaño, versiones, etc."></textarea>
+                  <textarea class="form-control" name="logo_notes" rows="3" placeholder="Notas sobre logos, orden, tamaño, versiones, etc.">{{ artwork_request.logo_notes if artwork_request else '' }}</textarea>
                   <div class="mt-2 row g-2">
                     {% for co in artwork_companies %}
                       <div class="col-12 col-md-6">
                         <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
-                          <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}">
+                          <input class="form-check-input" type="checkbox" name="group_company_ids[]" value="{{ co.id }}" {% if (co.id|string) in artwork_company_ids %}checked{% endif %}>
                           <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
                           <span>{{ co.name }}</span>
                         </label>
@@ -274,28 +283,31 @@
                     {% for ticketer in artwork_ticketers %}
                       <div class="col-12 col-md-6">
                         <label class="border rounded p-2 d-flex gap-2 align-items-center w-100">
-                          <input class="form-check-input" type="checkbox" name="ticketer_ids[]" value="{{ ticketer.id }}">
+                          <input class="form-check-input" type="checkbox" name="ticketer_ids[]" value="{{ ticketer.id }}" {% if (ticketer.id|string) in artwork_ticketer_ids %}checked{% endif %}>
                           <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:36px;height:36px;object-fit:contain;">
                           <span>{{ ticketer.name }}</span>
                         </label>
                       </div>
                     {% endfor %}
                   </div>
-                  <textarea class="form-control mt-2" name="ticketer_notes" rows="3" placeholder="Añade otras notas para las ticketeras"></textarea>
+                  <textarea class="form-control mt-2" name="ticketer_notes" rows="3" placeholder="Añade otras notas para las ticketeras">{{ artwork_request.ticketer_notes if artwork_request else '' }}</textarea>
                 </div>
                 <div class="col-12 col-xl-8">
                   <label class="form-label">Otras notas</label>
-                  <textarea class="form-control" name="other_notes" rows="3" placeholder="Indicaciones adicionales para diseño, copys, tamaños, prioridades, etc."></textarea>
+                  <textarea class="form-control" name="other_notes" rows="3" placeholder="Indicaciones adicionales para diseño, copys, tamaños, prioridades, etc.">{{ artwork_request.other_notes if artwork_request else '' }}</textarea>
                 </div>
                 <div class="col-12 col-xl-4">
                   <label class="form-label">Fecha máxima de entrega</label>
-                  <input type="date" class="form-control" name="delivery_deadline">
+                  <input type="date" class="form-control" name="delivery_deadline" value="{{ artwork_request.delivery_deadline.isoformat() if artwork_request and artwork_request.delivery_deadline else '' }}">
                 </div>
               </div>
             </div>
 
             <div class="col-12 d-flex justify-content-end gap-2">
-              <button class="btn btn-primary">Guardar / solicitar</button>
+              {% if artwork_request and artwork_edit %}
+                <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cancelar</a>
+              {% endif %}
+              <button class="btn btn-primary">{% if artwork_request and artwork_edit %}Guardar y reenviar solicitud{% else %}Guardar / solicitar{% endif %}</button>
             </div>
           </form>
         </div>
@@ -305,7 +317,12 @@
         <div class="col-12 col-xl-5">
           <div class="card h-100">
             <div class="card-body">
-              <h6 class="mb-3">Solicitud</h6>
+              <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="mb-0">Solicitud</h6>
+                {% if CAN_EDIT_CONCERTS %}
+                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria', edit_artwork=1) }}">Editar solicitud</a>
+                {% endif %}
+              </div>
               <table class="table table-sm mb-0">
                 <tbody>
                   <tr><th style="width:220px;">Quién hace los carteles</th><td>{{ 'Nosotros' if artwork_request.handled_by == 'OURS' else 'Promotor' }}</td></tr>
@@ -379,36 +396,90 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
             <h6 class="mb-0">Formatos subidos</h6>
-            {% if artwork_assets %}<span class="badge text-bg-primary">{{ artwork_assets|length }} formato(s)</span>{% endif %}
+            {% if current_artwork_assets %}<span class="badge text-bg-primary">{{ current_artwork_assets|length }} formato(s)</span>{% endif %}
           </div>
-          {% if artwork_assets %}
-            <div class="table-responsive">
-              <table class="table align-middle mb-0">
-                <thead class="table-light"><tr><th>Formato</th><th>Archivo</th><th>Subido</th><th class="text-end">Acciones</th></tr></thead>
-                <tbody>
-                  {% for asset in artwork_assets %}
-                    <tr>
-                      <td class="fw-semibold">{{ asset.format_label }}</td>
-                      <td>{{ asset.original_name or asset.format_label }}</td>
-                      <td>{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</td>
-                      <td class="text-end">
-                        <div class="btn-group">
-                          <a class="btn btn-sm btn-outline-secondary" href="{{ asset.file_url }}" target="_blank">Descargar</a>
-                          <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
-                          <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
-                            <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
-                            <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
-                          </ul>
-                        </div>
-                      </td>
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
+          {% if current_artwork_assets %}
+            <div class="row g-3">
+              {% for asset in current_artwork_assets %}
+                <div class="col-12 col-xl-6">
+                  <div class="border rounded p-3 h-100">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <div>
+                        <div class="fw-semibold">{{ asset.format_label }}</div>
+                        <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
+                        <div class="small text-muted mt-1">{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</div>
+                      </div>
+                      <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
+                          {% if CAN_EDIT_CONCERTS %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                              <form method="post" action="{{ url_for('concert_artwork_asset_delete', cid=concert.id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este formato?');">
+                                <button type="submit" class="dropdown-item text-danger">Eliminar</button>
+                              </form>
+                            </li>
+                          {% endif %}
+                        </ul>
+                      </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-3 flex-wrap">
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a>
+                      <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
             </div>
           {% else %}
-            <div class="text-muted">Todavía no se ha subido ningún formato.</div>
+            <div class="text-muted">Todavía no se ha subido ningún formato nuevo.</div>
+          {% endif %}
+
+          {% if archived_artwork_assets %}
+            <hr>
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+              <h6 class="mb-0">Carteles antiguos</h6>
+              <span class="badge text-bg-light border">{{ archived_artwork_assets|length }} archivo(s)</span>
+            </div>
+            <div class="row g-3">
+              {% for asset in archived_artwork_assets %}
+                <div class="col-12 col-xl-6">
+                  <div class="border rounded p-3 h-100 bg-light-subtle">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <div>
+                        <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">
+                          {{ asset.format_label }}
+                          <span class="badge text-bg-secondary">Cartel Antiguo</span>
+                        </div>
+                        <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
+                        <div class="small text-muted mt-1">Archivado {{ (asset.archived_at or asset.created_at).strftime('%d/%m/%Y %H:%M') if (asset.archived_at or asset.created_at) else '—' }}</div>
+                      </div>
+                      <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
+                          {% if CAN_EDIT_CONCERTS %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                              <form method="post" action="{{ url_for('concert_artwork_asset_delete', cid=concert.id, asset_id=asset.id) }}" onsubmit="return confirm('¿Eliminar este formato antiguo?');">
+                                <button type="submit" class="dropdown-item text-danger">Eliminar</button>
+                              </form>
+                            </li>
+                          {% endif %}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
           {% endif %}
         </div>
       </div>
@@ -471,6 +542,8 @@
         <div class="text-muted small">
           {% if contract_sheet_status == 'NONE' %}
             Todavía no se ha solicitado ninguna ficha de contratación.
+          {% elif contract_sheet_status == 'DRAFT' %}
+            Ficha interna en preparación. Puedes completarla manualmente.
           {% elif contract_sheet_status == 'REQUESTED' %}
             Ficha solicitada al promotor y pendiente de envío.
           {% elif contract_sheet_status == 'RECEIVED' %}
@@ -487,10 +560,10 @@
           {% if contract_sheet_status == 'RECEIVED' %}
             <a class="btn btn-primary btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Aceptar ficha</a>
           {% endif %}
-          {% if contract_sheet_status in ['RECEIVED', 'ACCEPTED', 'REJECTED'] %}
+          {% if contract_sheet_status in ['DRAFT', 'RECEIVED', 'ACCEPTED', 'REJECTED'] %}
             <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}">Editar ficha</a>
           {% endif %}
-          {% if contract_sheet_status == 'ACCEPTED' %}
+          {% if contract_sheet_status in ['DRAFT', 'ACCEPTED', 'RECEIVED', 'REJECTED'] %}
             <a class="btn btn-outline-primary btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank">Imprimir ficha PDF</a>
           {% endif %}
         </div>

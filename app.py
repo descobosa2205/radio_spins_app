@@ -42,8 +42,9 @@ from collections import defaultdict
 try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
     from reportlab.graphics.shapes import Drawing, PolyLine, Line
 
     REPORTLAB_AVAILABLE = True
@@ -1243,7 +1244,7 @@ def _contract_sheet_can_submit(sheet: ConcertContractSheet | None) -> bool:
     if not sheet:
         return False
     st = _contract_sheet_status(sheet)
-    if st in ('ACCEPTED',):
+    if st in ('ACCEPTED', 'DRAFT'):
         return False
     if st == 'REJECTED':
         return bool(getattr(sheet, 'allow_resubmission', False))
@@ -1254,6 +1255,8 @@ def _contract_sheet_can_submit(sheet: ConcertContractSheet | None) -> bool:
 
 def _contract_sheet_badge(sheet: ConcertContractSheet | None):
     st = _contract_sheet_status(sheet)
+    if st == 'DRAFT':
+        return {'label': 'Ficha interna', 'class': 'bg-light text-dark border'}
     if st == 'RECEIVED':
         return {'label': 'Ficha de contratación recibida', 'class': 'bg-info text-dark'}
     if st == 'REJECTED':
@@ -1263,6 +1266,84 @@ def _contract_sheet_badge(sheet: ConcertContractSheet | None):
     if st == 'REQUESTED':
         return {'label': 'Ficha solicitada', 'class': 'bg-secondary'}
     return None
+
+
+def _ensure_internal_contract_sheet(session_db, concert: Concert | None) -> ConcertContractSheet | None:
+    if not concert:
+        return None
+    sheet = getattr(concert, 'contract_sheet', None)
+    if sheet:
+        return sheet
+    now = datetime.now(ZoneInfo('Europe/Madrid'))
+    sheet = ConcertContractSheet(
+        concert_id=concert.id,
+        public_token=uuid.uuid4().hex,
+        status='DRAFT',
+        request_payload={'source': 'DIRECT'},
+        data={},
+        requested_at=now,
+        updated_at=now,
+    )
+    session_db.add(sheet)
+    session_db.flush()
+    concert.contract_sheet = sheet
+    return sheet
+
+
+def _concert_cache_summary(concert: Concert | None) -> str | None:
+    if not concert:
+        return None
+    rows = []
+    for row in (getattr(concert, 'caches', None) or []):
+        concept = (getattr(row, 'concept', None) or '').strip()
+        kind = (getattr(row, 'kind', None) or '').strip().upper()
+        label = concept or {'FIXED': 'Caché fijo', 'VARIABLE': 'Caché variable', 'OTHER': 'Otro caché'}.get(kind, 'Caché')
+        amount = getattr(row, 'amount', None)
+        pct = getattr(row, 'pct', None)
+        bits = [label]
+        if amount not in (None, ''):
+            try:
+                bits.append(_fmt_money_eur(float(amount or 0)))
+            except Exception:
+                bits.append(str(amount))
+        if pct not in (None, ''):
+            bits.append(f"{pct}% {getattr(row, 'pct_base', None) or 'GROSS'}")
+        rows.append(' · '.join([x for x in bits if x]))
+    return ' | '.join(rows) if rows else None
+
+
+def _concert_contract_sheet_seed(concert: Concert | None) -> dict:
+    if not concert:
+        return {}
+    billing_company = getattr(concert, 'billing_company', None)
+    promoter_company = getattr(concert, 'promoter_company', None)
+    ticketer_names = []
+    for row in (getattr(concert, 'ticketers', None) or []):
+        ticketer = getattr(row, 'ticketer', None)
+        name = (getattr(ticketer, 'name', None) or '').strip()
+        if name:
+            ticketer_names.append(name)
+    return {
+        'gala_date': concert.date.isoformat() if getattr(concert, 'date', None) else '',
+        'gala_municipality': _concert_city(concert),
+        'gala_province': _concert_province_value(concert),
+        'gala_venue': _concert_venue_name(concert),
+        'gala_venue_address': _concert_venue_address(concert),
+        'gala_postal_code': (getattr(concert, 'manual_postal_code', None) or '').strip(),
+        'gala_show_time': (getattr(concert, 'show_time', None) or '').strip(),
+        'gala_doors_time': (getattr(concert, 'doors_time', None) or '').strip(),
+        'gala_capacity': str(getattr(concert, 'capacity', None)) if getattr(concert, 'capacity', None) not in (None, '') and not getattr(concert, 'no_capacity', False) else '',
+        'company_legal_name': (getattr(billing_company, 'name', None) or '').strip(),
+        'company_tax_id': (getattr(billing_company, 'tax_info', None) or '').strip(),
+        'local_legal_name': (getattr(promoter_company, 'legal_name', None) or '').strip(),
+        'local_tax_id': (getattr(promoter_company, 'tax_id', None) or '').strip(),
+        'local_address': (getattr(promoter_company, 'fiscal_address', None) or '').strip(),
+        'economics_cache': _concert_cache_summary(concert) or '',
+        'show_types': [_sale_type_label(getattr(concert, 'sale_type', None))] if getattr(concert, 'sale_type', None) else [],
+        'ticketing_points_of_sale': ', '.join(ticketer_names),
+        'promotion_announcement_date': concert.announcement_date.isoformat() if getattr(concert, 'announcement_date', None) else '',
+        'promotion_sale_date': concert.sale_start_date.isoformat() if getattr(concert, 'sale_start_date', None) else '',
+    }
 
 
 def _serialize_promoter_company(row: PromoterCompany | None) -> dict:
@@ -1404,6 +1485,78 @@ def _concert_artwork_snapshot(concert: Concert | None) -> dict:
         'show_time': '' if getattr(concert, 'show_time_tbc', False) else ((getattr(concert, 'show_time', None) or '').strip()),
         'doors_time': '' if getattr(concert, 'doors_time_tbc', False) else ((getattr(concert, 'doors_time', None) or '').strip()),
     }
+
+
+def _archive_current_artwork_assets(row: ConcertArtworkRequest | None):
+    if not row:
+        return 0
+    now = datetime.now(ZoneInfo('Europe/Madrid'))
+    archived = 0
+    for asset in list(getattr(row, 'assets', None) or []):
+        if bool(getattr(asset, 'is_archived', False)):
+            continue
+        asset.is_archived = True
+        asset.archived_at = now
+        archived += 1
+    return archived
+
+
+def _build_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, selected_company_names: list[str], selected_ticketer_names: list[str], upload_url: str, is_update: bool = False) -> tuple[str, str, str]:
+    logo_html = ''
+    if concert.billing_company and getattr(concert.billing_company, 'logo_url', None):
+        logo_html = f'<div style="margin-bottom:20px;"><img src="{concert.billing_company.logo_url}" style="max-height:64px;max-width:220px;"></div>'
+    artist_photo = ''
+    if concert.artist and getattr(concert.artist, 'photo_url', None):
+        artist_photo = f'<img src="{concert.artist.photo_url}" style="width:74px;height:74px;object-fit:cover;border-radius:50%;">'
+    deadline_txt = row.delivery_deadline.strftime('%d/%m/%Y') if row.delivery_deadline else 'Sin fecha máxima indicada'
+    logos_txt = ', '.join(selected_company_names) if selected_company_names else 'No se han marcado logos de empresas del grupo'
+    ticketers_txt = ', '.join(selected_ticketer_names) if selected_ticketer_names else 'No se han marcado ticketeras'
+    mod_html = '<p><span style="display:inline-block;background:#f59e0b;color:#111827;padding:4px 10px;border-radius:999px;font-weight:700;">MODIFICACIONES</span></p>' if is_update else ''
+    mod_text = 'Solicitud actualizada de cartelería' if is_update else 'Solicitud de cartelería'
+    html_body = (
+        f'<div style="font-family:Arial,sans-serif;color:#1f2937;">{logo_html}'
+        f'<h2 style="margin:0 0 16px;">Solicitud de cartelería</h2>{mod_html}'
+        f'<div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;">'
+        f'<div style="display:flex;gap:16px;align-items:center;"><div>{artist_photo}</div><div>'
+        f'<div style="font-size:18px;font-weight:700;">{concert.artist.name if concert.artist else "Concierto"}</div>'
+        f'<div>Fecha: {concert.date.strftime("%d/%m/%Y") if concert.date else "—"}</div>'
+        f'<div>{_concert_venue_name(concert) or "Recinto pendiente"}</div>'
+        f'<div>{_concert_city(concert)} {("· " + _concert_province_value(concert)) if _concert_province_value(concert) else ""}</div>'
+        f'<div>Hora show: {concert.show_time or ("TBC" if concert.show_time_tbc else "—")}</div>'
+        f'<div>Hora puertas: {concert.doors_time or ("TBC" if concert.doors_time_tbc else "—")}</div>'
+        f'</div></div></div>'
+        f'<p><strong>Logos empresas del grupo:</strong> {logos_txt}</p>'
+        f'<p><strong>Notas de logos:</strong> {row.logo_notes or "—"}</p>'
+        f'<p><strong>Ticketeras:</strong> {ticketers_txt}</p>'
+        f'<p><strong>Notas de ticketeras:</strong> {row.ticketer_notes or "—"}</p>'
+        f'<p><strong>Otras notas:</strong> {row.other_notes or "—"}</p>'
+        f'<p><strong>Fecha máxima de entrega:</strong> {deadline_txt}</p>'
+        f'<p><a href="{upload_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Subir carteles</a></p>'
+        f'</div>'
+    )
+    subject = f"{mod_text} · {concert.artist.name if concert.artist else 'concierto'}"
+    return subject, html_body, upload_url
+
+
+def _send_artwork_request_email(concert: Concert, row: ConcertArtworkRequest, is_update: bool = False) -> tuple[bool, str | None]:
+    temp_session = db()
+    try:
+        all_companies = {str(x.id): x for x in temp_session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()}
+        all_ticketers = {str(x.id): x for x in temp_session.query(Ticketer).order_by(Ticketer.name.asc()).all()}
+    finally:
+        temp_session.close()
+    selected_company_names = [all_companies[x].name for x in (row.group_company_ids or []) if x in all_companies]
+    selected_ticketer_names = [all_ticketers[x].name for x in (row.ticketer_ids or []) if x in all_ticketers]
+    upload_url = _external_url_for('concert_artwork_public_upload', token=row.public_token)
+    subject, html_body, text_body = _build_artwork_request_email(
+        concert,
+        row,
+        selected_company_names,
+        selected_ticketer_names,
+        upload_url,
+        is_update=is_update,
+    )
+    return _send_optional_email('grafico@33producciones.es', subject, html_body, text_body=text_body)
 
 
 def _artwork_request_status(row: ConcertArtworkRequest | None) -> str:
@@ -3711,8 +3864,7 @@ def discografica_view():
             # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
             isrc_contract_artists = contract_artists
 
-    session_db.close()
-    return render_template(
+    response = render_template(
         "discografica.html",
         section=section,
         artists=artists,
@@ -3759,6 +3911,8 @@ def discografica_view():
         royalty_beneficiaries_artists=royalty_beneficiaries_artists,
         royalty_beneficiaries_others=royalty_beneficiaries_others,
     )
+    session_db.close()
+    return response
 
 
 @app.post("/discografica/isrc/config/update")
@@ -5655,9 +5809,7 @@ def discografica_song_detail(song_id):
                 "pct": pct_val,
             })
 
-    session_db.expunge_all()
-    session_db.close()
-    return render_template(
+    response = render_template(
         "song_detail.html",
         song=s,
         primary_artist=primary_artist,
@@ -5687,6 +5839,8 @@ def discografica_song_detail(song_id):
         song_income_total_net=song_income_total_net,
         song_income_entries=song_income_entries,
     )
+    session_db.close()
+    return response
 
 
 
@@ -8172,6 +8326,7 @@ def concert_detail_view(cid):
                 selectinload(Concert.caches),
                 selectinload(Concert.contracts),
                 selectinload(Concert.contract_sheet),
+                selectinload(Concert.artwork_request).selectinload(ConcertArtworkRequest.assets),
                 selectinload(Concert.notes),
                 selectinload(Concert.equipment),
                 selectinload(Concert.equipment_documents),
@@ -8210,6 +8365,9 @@ def concert_detail_view(cid):
             tab = "general"
 
         sheet = c.contract_sheet
+        if tab == 'ficha' and not sheet:
+            sheet = _ensure_internal_contract_sheet(session, c)
+            session.flush()
         contract_sheet_data = _contract_sheet_prefill(c, sheet) if sheet else {}
         contract_sheet_sections = _contract_sheet_sections(contract_sheet_data) if sheet else []
         invitation_rows = list(getattr(c, 'invitations_json', None) or [])
@@ -8227,10 +8385,13 @@ def concert_detail_view(cid):
         if artwork_request:
             artwork_request.needs_refresh = bool(artwork_needs_refresh or getattr(artwork_request, 'needs_refresh', False))
         artwork_assets = list(getattr(artwork_request, 'assets', None) or []) if artwork_request else []
+        current_artwork_assets = sorted([x for x in artwork_assets if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True)
+        archived_artwork_assets = sorted([x for x in artwork_assets if bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'archived_at', None) or getattr(x, 'created_at', None) or datetime.min, reverse=True)
         artwork_company_ids = set(str(x) for x in ((artwork_request.group_company_ids if artwork_request else None) or []))
         artwork_ticketer_ids = set(str(x) for x in ((artwork_request.ticketer_ids if artwork_request else None) or []))
         artwork_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         artwork_ticketers = session.query(Ticketer).order_by(Ticketer.name.asc()).all()
+        artwork_edit = _truthy(request.args.get('edit_artwork'))
 
         return render_template(
             "concert_detail.html",
@@ -8260,11 +8421,14 @@ def concert_detail_view(cid):
             artwork_request=artwork_request,
             artwork_badge=_artwork_request_badge(artwork_request, c),
             artwork_assets=artwork_assets,
+            current_artwork_assets=current_artwork_assets,
+            archived_artwork_assets=archived_artwork_assets,
             artwork_companies=artwork_companies,
             artwork_ticketers=artwork_ticketers,
             artwork_company_ids=artwork_company_ids,
             artwork_ticketer_ids=artwork_ticketer_ids,
             artwork_needs_refresh=artwork_needs_refresh,
+            artwork_edit=artwork_edit,
             location_summary=_concert_location_summary(c),
             artwork_upload_url=_external_url_for('concert_artwork_public_upload', token=artwork_request.public_token) if artwork_request else None,
         )
@@ -8306,6 +8470,8 @@ def concert_artwork_save(cid):
             session.flush()
 
         now = datetime.now(ZoneInfo('Europe/Madrid'))
+        was_requested = bool(getattr(row, 'requested_at', None) or getattr(row, 'uploaded_at', None))
+        force_resend = _truthy(request.form.get('force_resend'))
         row.handled_by = handled_by
         row.updated_at = now
 
@@ -8329,30 +8495,18 @@ def concert_artwork_save(cid):
         row.ticketer_notes = (request.form.get('ticketer_notes') or '').strip() or None
         row.other_notes = (request.form.get('other_notes') or '').strip() or None
         row.delivery_deadline = parse_optional_date(request.form.get('delivery_deadline'))
+        send_as_update = bool(force_resend or was_requested or getattr(row, 'needs_refresh', False) or _artwork_request_has_event_changes(row, concert))
+        if send_as_update:
+            _archive_current_artwork_assets(row)
         row.status = 'REQUESTED'
         row.requested_at = now
         row.event_snapshot = _concert_artwork_snapshot(concert)
         row.needs_refresh = False
         session.commit()
 
-        all_companies = {str(x.id): x for x in session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()}
-        all_ticketers = {str(x.id): x for x in session.query(Ticketer).order_by(Ticketer.name.asc()).all()}
-        selected_company_names = [all_companies[x].name for x in (row.group_company_ids or []) if x in all_companies]
-        selected_ticketer_names = [all_ticketers[x].name for x in (row.ticketer_ids or []) if x in all_ticketers]
-        upload_url = _external_url_for('concert_artwork_public_upload', token=row.public_token)
-        logo_html = ''
-        if concert.billing_company and getattr(concert.billing_company, 'logo_url', None):
-            logo_html = f'<div style="margin-bottom:20px;"><img src="{concert.billing_company.logo_url}" style="max-height:64px;max-width:220px;"></div>'
-        artist_photo = ''
-        if concert.artist and getattr(concert.artist, 'photo_url', None):
-            artist_photo = f'<img src="{concert.artist.photo_url}" style="width:74px;height:74px;object-fit:cover;border-radius:50%;">'
-        deadline_txt = row.delivery_deadline.strftime('%d/%m/%Y') if row.delivery_deadline else 'Sin fecha máxima indicada'
-        logos_txt = ', '.join(selected_company_names) if selected_company_names else 'No se han marcado logos de empresas del grupo'
-        ticketers_txt = ', '.join(selected_ticketer_names) if selected_ticketer_names else 'No se han marcado ticketeras'
-        html_body = f'''<div style="font-family:Arial,sans-serif;color:#1f2937;">{logo_html}<h2 style="margin:0 0 16px;">Solicitud de cartelería</h2><div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;"><div style="display:flex;gap:16px;align-items:center;"><div>{artist_photo}</div><div><div style="font-size:18px;font-weight:700;">{concert.artist.name if concert.artist else 'Concierto'}</div><div>Fecha: {concert.date.strftime('%d/%m/%Y') if concert.date else '—'}</div><div>{_concert_venue_name(concert) or 'Recinto pendiente'}</div><div>{_concert_city(concert)} {('· ' + _concert_province_value(concert)) if _concert_province_value(concert) else ''}</div><div>Hora show: {concert.show_time or ('TBC' if concert.show_time_tbc else '—')}</div></div></div></div><p><strong>Logos empresas del grupo:</strong> {logos_txt}</p><p><strong>Notas de logos:</strong> {row.logo_notes or '—'}</p><p><strong>Ticketeras:</strong> {ticketers_txt}</p><p><strong>Notas de ticketeras:</strong> {row.ticketer_notes or '—'}</p><p><strong>Otras notas:</strong> {row.other_notes or '—'}</p><p><strong>Fecha máxima de entrega:</strong> {deadline_txt}</p><p><a href="{upload_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Subir carteles</a></p></div>'''
-        ok, error = _send_optional_email('grafico@33producciones.es', f'Solicitud cartelería · {concert.artist.name if concert.artist else "concierto"}', html_body, text_body=upload_url)
+        ok, error = _send_artwork_request_email(concert, row, is_update=send_as_update)
         if ok:
-            flash('Solicitud de cartelería enviada a grafico@33producciones.es.', 'success')
+            flash('Solicitud de cartelería reenviada a grafico@33producciones.es.' if send_as_update else 'Solicitud de cartelería enviada a grafico@33producciones.es.', 'success')
         else:
             flash(f'Cartelería guardada, pero no se pudo enviar el correo automáticamente: {error}', 'warning')
         return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
@@ -8404,6 +8558,8 @@ def concert_artwork_public_upload(token):
                 if not file_url:
                     continue
                 for existing in list(row.assets or []):
+                    if bool(getattr(existing, 'is_archived', False)):
+                        continue
                     if (existing.format_label or '').strip().lower() == label.lower():
                         session.delete(existing)
                 session.add(ConcertArtworkAsset(
@@ -8434,11 +8590,79 @@ def concert_artwork_public_upload(token):
             artwork_badge=_artwork_request_badge(row, concert),
             selected_companies=selected_companies,
             selected_ticketers=selected_ticketers,
-            artwork_assets=list(row.assets or []),
+            artwork_assets=sorted([x for x in (row.assets or []) if not bool(getattr(x, 'is_archived', False))], key=lambda x: getattr(x, 'created_at', None) or datetime.min, reverse=True),
             upload_action=url_for('concert_artwork_public_upload', token=token),
         )
     finally:
         session.close()
+
+
+
+
+@app.get('/conciertos/<cid>/carteleria/assets/<asset_id>/download', endpoint='concert_artwork_asset_download')
+@admin_required
+def concert_artwork_asset_download(cid, asset_id):
+    session = db()
+    try:
+        asset = (
+            session.query(ConcertArtworkAsset)
+            .join(ConcertArtworkRequest, ConcertArtworkRequest.id == ConcertArtworkAsset.artwork_request_id)
+            .filter(ConcertArtworkRequest.concert_id == to_uuid(cid), ConcertArtworkAsset.id == to_uuid(asset_id))
+            .first()
+        )
+        if not asset:
+            flash('Formato no encontrado.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        filename = (asset.original_name or asset.format_label or 'carteleria').strip()
+        mimetype = (asset.mime_type or '').strip() or 'application/octet-stream'
+        try:
+            req = Request(asset.file_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urlopen(req, timeout=25) as resp:
+                content = resp.read()
+                guessed = getattr(resp, 'headers', {}).get_content_type() if getattr(resp, 'headers', None) else None
+                if guessed:
+                    mimetype = guessed
+            return send_file(BytesIO(content), mimetype=mimetype, as_attachment=True, download_name=filename)
+        except Exception as exc:
+            flash(f'No se pudo descargar el formato: {exc}', 'danger')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+    finally:
+        session.close()
+
+
+@app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/delete', endpoint='concert_artwork_asset_delete')
+@admin_required
+def concert_artwork_asset_delete(cid, asset_id):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para eliminar formatos de cartelería.')
+    session = db()
+    try:
+        asset = (
+            session.query(ConcertArtworkAsset)
+            .join(ConcertArtworkRequest, ConcertArtworkRequest.id == ConcertArtworkAsset.artwork_request_id)
+            .filter(ConcertArtworkRequest.concert_id == to_uuid(cid), ConcertArtworkAsset.id == to_uuid(asset_id))
+            .first()
+        )
+        if not asset:
+            flash('Formato no encontrado.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        request_row = session.get(ConcertArtworkRequest, asset.artwork_request_id)
+        was_current = not bool(getattr(asset, 'is_archived', False))
+        session.delete(asset)
+        session.flush()
+        if request_row and was_current:
+            remaining_current = [x for x in (request_row.assets or []) if not bool(getattr(x, 'is_archived', False)) and getattr(x, 'id', None) != getattr(asset, 'id', None)]
+            if not remaining_current and _artwork_request_status(request_row) == 'UPLOADED':
+                request_row.status = 'REQUESTED'
+                request_row.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session.commit()
+        flash('Formato eliminado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error eliminando el formato: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
 
 
 @app.post('/conciertos/<cid>/pagos/<int:payment_idx>/factura', endpoint='concert_payment_upload_invoice')
@@ -8662,15 +8886,38 @@ def concert_update_handler(cid):
         if requested_capacity != previous_effective_capacity:
             _sync_concert_capacity_after_manual_edit(session, c.id, requested_capacity)
 
+        artwork_resend = False
+        artwork_row = getattr(c, 'artwork_request', None)
+
         session.flush()
         try:
             session.expire(c, ['venue'])
         except Exception:
             pass
-        _sync_artwork_request_refresh_flag(c)
+        if artwork_row and (getattr(artwork_row, 'handled_by', None) or 'OURS').strip().upper() == 'OURS':
+            if _artwork_request_has_event_changes(artwork_row, c):
+                _archive_current_artwork_assets(artwork_row)
+                now = datetime.now(ZoneInfo('Europe/Madrid'))
+                artwork_row.status = 'REQUESTED'
+                artwork_row.requested_at = now
+                artwork_row.updated_at = now
+                artwork_row.needs_refresh = False
+                artwork_row.event_snapshot = _concert_artwork_snapshot(c)
+                artwork_resend = True
+            else:
+                _sync_artwork_request_refresh_flag(c)
+        else:
+            _sync_artwork_request_refresh_flag(c)
 
         session.commit()
-        flash("Concierto actualizado.", "success")
+        if artwork_resend and artwork_row:
+            ok, error = _send_artwork_request_email(c, artwork_row, is_update=True)
+            if ok:
+                flash('Concierto actualizado. Se ha reenviado la solicitud de cartelería por cambios en fecha/recinto/horarios.', 'success')
+            else:
+                flash(f'Concierto actualizado, pero no se pudo reenviar la solicitud de cartelería: {error}', 'warning')
+        else:
+            flash("Concierto actualizado.", "success")
 
     except Exception as e:
         session.rollback()
@@ -12176,7 +12423,7 @@ def _parse_hashtag_text(raw: str | None) -> list[str]:
 def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None = None) -> dict:
     payload = dict(getattr(sheet, 'request_payload', {}) or {})
     data = dict(getattr(sheet, 'data', {}) or {})
-    merged = {**payload, **data}
+    merged = {**_concert_contract_sheet_seed(concert), **payload, **data}
     if not merged.get('gala_date') and getattr(concert, 'date', None):
         merged['gala_date'] = concert.date.isoformat()
     if not merged.get('gala_municipality'):
@@ -12297,7 +12544,7 @@ def _contract_sheet_sections(data: dict | None) -> list[dict]:
         {
             'title': 'Datos de ticketing',
             'rows': [
-                ('¿Hay M&G?', 'Sí' if _truthy(data.get('ticketing_has_mg')) else 'No'),
+                ('¿Hay M&G?', ('Sí' if _truthy(data.get('ticketing_has_mg')) else 'No') if data.get('ticketing_has_mg') not in (None, '', []) else None),
                 ('Puntos de venta', data.get('ticketing_points_of_sale')),
                 ('Entradas a la venta (total)', total_sale or None),
                 ('Invitaciones totales', total_invites or None),
@@ -12781,6 +13028,7 @@ def concert_wizard_create():
         _upsert_equipment_from_request(session, concert.id)
         _add_equipment_docs_from_request(session, concert.id)
         _add_equipment_notes_from_request(session, concert.id)
+        _ensure_internal_contract_sheet(session, concert)
 
         session.commit()
         flash('Concierto creado correctamente.', 'success')
@@ -12962,10 +13210,10 @@ def concert_contract_sheet_edit(cid):
             .filter(Concert.id == to_uuid(cid))
             .first()
         )
-        if not concert or not concert.contract_sheet:
+        if not concert:
             flash('No hay ficha de contratación para este concierto.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
-        sheet = concert.contract_sheet
+        sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
         if request.method == 'POST':
             sheet.data = _parse_contract_sheet_form(request.form)
             sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
@@ -13002,50 +13250,72 @@ def concert_contract_sheet_pdf(cid):
             .filter(Concert.id == to_uuid(cid))
             .first()
         )
-        if not concert or not concert.contract_sheet:
+        if not concert:
             flash('No hay ficha de contratación para este concierto.', 'warning')
             return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
-        sheet = concert.contract_sheet
+        sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session, concert)
         data = _contract_sheet_prefill(concert, sheet)
         buf = BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
         styles = getSampleStyleSheet()
-        story = [
-            Paragraph('Ficha de contratación', styles['Title']),
-            Spacer(1, 8),
+        title_style = ParagraphStyle('ContractSheetTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=20, leading=24)
+        meta_style = ParagraphStyle('ContractSheetMeta', parent=styles['Normal'], alignment=TA_RIGHT, fontSize=8, textColor=colors.HexColor('#6b7280'))
+        story = []
+        logo_cell = ''
+        logo_url = (getattr(getattr(concert, 'billing_company', None), 'logo_url', None) or '').strip()
+        if logo_url:
+            try:
+                req = Request(logo_url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urlopen(req, timeout=25) as resp:
+                    img_bytes = resp.read()
+                logo_cell = RLImage(BytesIO(img_bytes), width=120, height=48)
+                logo_cell.hAlign = 'LEFT'
+            except Exception:
+                logo_cell = ''
+        generated_txt = datetime.now(ZoneInfo('Europe/Madrid')).strftime('%d/%m/%Y %H:%M')
+        header = Table(
+            [[logo_cell, Paragraph('Ficha de contratación', title_style), Paragraph(f'Generado el {generated_txt}', meta_style)]],
+            colWidths=[130, 260, 130],
+        )
+        header.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('ALIGN', (0, 0), (0, 0), 'LEFT'),
+            ('ALIGN', (1, 0), (1, 0), 'CENTER'),
+            ('ALIGN', (2, 0), (2, 0), 'RIGHT'),
+        ]))
+        story.extend([
+            header,
+            Spacer(1, 12),
             Paragraph(f"Artista: {concert.artist.name if concert.artist else '—'}", styles['Normal']),
             Paragraph(f"Fecha concierto: {concert.date.strftime('%d/%m/%Y') if concert.date else '—'}", styles['Normal']),
             Spacer(1, 12),
-        ]
+        ])
         for section in _contract_sheet_sections(data):
             story.append(Paragraph(section['title'], styles['Heading2']))
             rows = [['Campo', 'Valor']]
             for label, value in section.get('rows') or []:
-                if value in (None, '', []):
-                    continue
-                rows.append([label, str(value)])
-            if len(rows) > 1:
-                table = Table(rows, colWidths=[170, 330])
-                table.setStyle(TableStyle([
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
-                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fafafa')]),
-                ]))
-                story.append(table)
-                story.append(Spacer(1, 10))
+                rows.append([label, '' if value in (None, '', []) else str(value)])
+            table = Table(rows, colWidths=[170, 330])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fafafa')]),
+            ]))
+            story.append(table)
+            story.append(Spacer(1, 10))
             ticket_rows = section.get('ticket_rows') or []
             if ticket_rows:
                 trows = [['Tipo', 'Entradas venta', 'Importe', 'Inv. totales', 'Inv. artista']]
                 for row in ticket_rows:
                     trows.append([
                         str(row.get('name') or ''),
-                        str(row.get('qty_for_sale') or 0),
-                        str(row.get('amount') or 0),
-                        str(row.get('invites_total') or 0),
-                        str(row.get('invites_artist') or 0),
+                        str(row.get('qty_for_sale') or ''),
+                        str(row.get('amount') or ''),
+                        str(row.get('invites_total') or ''),
+                        str(row.get('invites_artist') or ''),
                     ])
                 t = Table(trows, colWidths=[150, 90, 70, 90, 90])
                 t.setStyle(TableStyle([

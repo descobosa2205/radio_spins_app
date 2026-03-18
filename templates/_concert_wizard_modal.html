@@ -1,0 +1,816 @@
+<div class="modal fade" id="concertWizardModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable modal-fullscreen-lg-down">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-1">Alta de concierto</h5>
+          <div class="text-muted small">Nuevo flujo guiado para crear conciertos o solicitar ficha de contratación.</div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form method="post" action="{{ url_for('concert_wizard_create') }}" enctype="multipart/form-data" id="concertWizardForm">
+        <div class="modal-body">
+          <input type="hidden" name="wizard_mode" id="wizard_mode" value="direct">
+
+          <div class="d-flex flex-wrap gap-2 mb-3" id="wizardStepPills"></div>
+
+          <section class="wizard-step" data-step="1" data-mode="any">
+            <div class="card border-0 bg-light">
+              <div class="card-body">
+                <h6 class="mb-3">¿Tienes los detalles del concierto?</h6>
+                <div class="row g-3">
+                  <div class="col-md-6">
+                    <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
+                      <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="direct" checked>
+                      <span>
+                        <span class="fw-semibold d-block">Sí, ya tengo los datos</span>
+                        <span class="text-muted small">Crear el concierto completo con el nuevo asistente.</span>
+                      </span>
+                    </label>
+                  </div>
+                  <div class="col-md-6">
+                    <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
+                      <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="request_sheet">
+                      <span>
+                        <span class="fw-semibold d-block">Necesito solicitar ficha de contratación</span>
+                        <span class="text-muted small">Se creará el concierto en borrador y se enviará un enlace al promotor.</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="2" data-mode="any">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <h6 class="mb-3">Empresa del grupo que factura</h6>
+                    <div class="row g-2">
+                      {% for co in companies %}
+                        <div class="col-md-6">
+                          <label class="border rounded p-2 d-flex gap-2 align-items-center h-100 w-100">
+                            <input class="form-check-input" type="radio" name="billing_company_id" value="{{ co.id }}" {% if loop.first %}checked{% endif %}>
+                            <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:contain;border-radius:8px;">
+                            <span class="fw-semibold small">{{ co.name }}</span>
+                          </label>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <h6 class="mb-3">Artista</h6>
+                    <div class="input-group">
+                      <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required>
+                        <option value="">—</option>
+                        {% for a in artists %}
+                          <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+                        {% endfor %}
+                      </select>
+                      <button type="button" class="btn btn-outline-secondary" onclick="openArtistModal('wizard_artist_id')"><i class="fa fa-plus"></i></button>
+                    </div>
+                    <div class="form-text">Puedes añadir un artista nuevo desde el botón +.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="3" data-mode="any">
+            <div class="row g-3">
+              <div class="col-lg-4">
+                <label class="form-label">Fecha del concierto</label>
+                <input type="date" class="form-control" name="date" id="wizard_date" required>
+                <div class="form-text">Fecha obligatoria en ambos flujos.</div>
+              </div>
+              <div class="col-lg-8">
+                <label class="form-label">Nombre del festival / evento</label>
+                <input type="text" class="form-control" name="festival_name" placeholder="Festival / nombre interno">
+              </div>
+
+              <div class="col-12">
+                <div class="border rounded p-3">
+                  <div class="d-flex justify-content-between align-items-center gap-2 mb-3">
+                    <div>
+                      <div class="fw-semibold">Recinto y localización</div>
+                      <div class="text-muted small">Si conoces el recinto, selecciónalo. Si no, indica al menos municipio y provincia.</div>
+                    </div>
+                    <div class="form-check form-switch m-0">
+                      <input class="form-check-input" type="checkbox" id="wizard_knows_venue" checked>
+                      <label class="form-check-label small" for="wizard_knows_venue">Conozco el recinto</label>
+                    </div>
+                  </div>
+
+                  <div class="row g-3" id="wizardVenueKnownWrap">
+                    <div class="col-lg-8">
+                      <label class="form-label">Buscar recinto</label>
+                      <div class="input-group">
+                        <input id="wizard_venue_search" class="form-control" placeholder="Escribe para buscar...">
+                        <button type="button" class="btn btn-outline-secondary" onclick="openVenueModal('wizard_venue_search','wizard_venue_id')"><i class="fa fa-plus"></i></button>
+                      </div>
+                      <input type="hidden" name="venue_id" id="wizard_venue_id">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">Nombre manual del recinto <span class="text-muted">(opcional)</span></label>
+                      <input class="form-control" name="manual_venue_name" placeholder="Solo si aún no existe o quieres dejarlo indicado">
+                    </div>
+                  </div>
+
+                  <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;">
+                    <div class="col-lg-6">
+                      <label class="form-label">Municipio</label>
+                      <input class="form-control" name="manual_municipality" id="wizard_manual_municipality" placeholder="Municipio">
+                    </div>
+                    <div class="col-lg-6">
+                      <label class="form-label">Provincia</label>
+                      <input class="form-control" name="manual_province" id="wizard_manual_province" placeholder="Provincia">
+                    </div>
+                  </div>
+
+                  <div class="row g-3 mt-0">
+                    <div class="col-lg-6">
+                      <label class="form-label">Dirección</label>
+                      <input class="form-control" name="manual_venue_address" placeholder="Dirección del recinto">
+                    </div>
+                    <div class="col-lg-3">
+                      <label class="form-label">Código postal</label>
+                      <input class="form-control" name="manual_postal_code" placeholder="CP">
+                    </div>
+                    <div class="col-lg-3 direct-only" data-mode="direct">
+                      <label class="form-label">Hora del show</label>
+                      <div class="input-group">
+                        <input class="form-control" name="show_time" placeholder="22:00">
+                        <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="show_time_tbc"> <span class="ms-2 small">TBC</span></div>
+                      </div>
+                    </div>
+                    <div class="col-lg-3 direct-only" data-mode="direct">
+                      <label class="form-label">Apertura de puertas</label>
+                      <div class="input-group">
+                        <input class="form-control" name="doors_time" placeholder="20:30">
+                        <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="doors_time_tbc"> <span class="ms-2 small">TBC</span></div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="alert alert-warning mt-3 mb-0 d-none" id="wizardArtistConflict"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="4" data-mode="request_sheet">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <label class="form-label">Tipo de concierto</label>
+                <select name="sale_type" class="form-select">
+                  {% for value, label in type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-6">
+                <label class="form-label">Email del promotor</label>
+                <input type="email" class="form-control" name="promoter_email" placeholder="promotor@email.com">
+              </div>
+              <div class="col-12">
+                <label class="form-label"># / gira / conjunto de eventos</label>
+                <input class="form-control" list="wizardTagOptions" name="wizard_hashtags_text" placeholder="#verano, #gira2026, festival x">
+                <div class="form-text">Puedes poner varios separados por coma. Si no existe uno similar, se creará.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="4" data-mode="direct">
+            <div class="row g-3">
+              <div class="col-lg-4">
+                <label class="form-label">Tipo de concierto</label>
+                <select name="sale_type" class="form-select">
+                  {% for value, label in type_choices %}
+                    <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">Promotor</label>
+                <div class="input-group">
+                  <select name="promoter_id" id="wizard_promoter_id" class="form-select third-party-select">
+                    <option value="">—</option>
+                    {% for p in promoters %}
+                      <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/default_promoter.png') }}">{{ p.nick }}</option>
+                    {% endfor %}
+                  </select>
+                  <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select', selectId:'wizard_promoter_id'})"><i class="fa fa-plus"></i></button>
+                </div>
+              </div>
+              <div class="col-lg-4">
+                <label class="form-label">Sociedad del promotor</label>
+                <select name="promoter_company_id" id="wizard_promoter_company_id" class="form-select">
+                  <option value="">—</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="5" data-mode="direct">
+            <div class="row g-3">
+              <div class="col-12">
+                <div class="border rounded p-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Socios o colaboradores</h6>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPartnerRow()"><i class="fa fa-plus"></i> Agregar socio</button>
+                  </div>
+                  <div class="text-muted small mb-2">Selecciona el tercero, la sociedad y el porcentaje que le corresponde.</div>
+                  <div id="wizardPartnerRows"></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="border rounded p-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Comisionistas</h6>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddZoneRow()"><i class="fa fa-plus"></i> Agregar comisionista</button>
+                  </div>
+                  <div class="text-muted small mb-2">Puedes indicar importe fijo o porcentaje sobre bruto, neto o beneficio de empresa.</div>
+                  <div id="wizardZoneRows"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="6" data-mode="direct">
+            <div class="row g-3">
+              <div class="col-lg-4">
+                <div class="border rounded p-3 h-100">
+                  <h6 class="mb-3">Venta de entradas y aforo</h6>
+                  <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="wizard_has_ticket_sales" checked>
+                    <label class="form-check-label" for="wizard_has_ticket_sales">Hay venta de entradas</label>
+                  </div>
+                  <div id="wizardTicketSalesWrap">
+                    <label class="form-label">Aforo a la venta</label>
+                    <input type="number" min="0" class="form-control mb-3" name="capacity" placeholder="Aforo a la venta">
+                    <label class="form-label">Fecha de salida a la venta</label>
+                    <div class="input-group">
+                      <input type="date" class="form-control" name="sale_start_date">
+                      <div class="input-group-text"><input class="form-check-input mt-0" type="checkbox" name="sale_start_tbc"> <span class="ms-2 small">TBC</span></div>
+                    </div>
+                  </div>
+                  <div id="wizardNoCapacityWrap" style="display:none;">
+                    <div class="form-check mb-2">
+                      <input class="form-check-input" type="checkbox" name="no_capacity" id="wizard_no_capacity" checked>
+                      <label class="form-check-label" for="wizard_no_capacity">Sin aforo</label>
+                    </div>
+                    <label class="form-label">Aforo del recinto</label>
+                    <input type="number" min="0" class="form-control" name="capacity" placeholder="Aforo total si se conoce">
+                  </div>
+                </div>
+              </div>
+              <div class="col-lg-8">
+                <div class="border rounded p-3 h-100">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Cachés</h6>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addCacheRow('wizardCaches')"><i class="fa fa-plus"></i> Añadir caché</button>
+                  </div>
+                  <div id="wizardCaches"></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <div class="border rounded p-3">
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Formas de pago</h6>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddPaymentRow()"><i class="fa fa-plus"></i> Añadir pago</button>
+                  </div>
+                  <div id="wizardPaymentRows"></div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="wizard-step" data-step="7" data-mode="direct">
+            <div class="row g-3">
+              <div class="col-lg-6">
+                <div class="border rounded p-3 h-100">
+                  <h6 class="mb-3">Equipamiento</h6>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_included" value="INCLUDED">
+                    <label class="form-check-label" for="wizard_equipment_option_included">Equipos incluidos</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_promoter" value="PROMOTER">
+                    <label class="form-check-label" for="wizard_equipment_option_promoter">Promotor cubre equipos</label>
+                  </div>
+                  <div class="form-check mb-3">
+                    <input class="form-check-input" type="radio" name="equipment_option" id="wizard_equipment_option_rider" value="FESTIVAL_RIDER">
+                    <label class="form-check-label" for="wizard_equipment_option_rider">Rider del festival</label>
+                  </div>
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+                    <div class="fw-semibold">Documentos / riders</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentDocRow('wizardEquipmentDocs')"><i class="fa fa-plus"></i></button>
+                  </div>
+                  <div id="wizardEquipmentDocs"></div>
+                  <div class="d-flex justify-content-between align-items-center mb-2 mt-3">
+                    <div class="fw-semibold">Notas de equipamiento</div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="addEquipmentNoteRow('wizardEquipmentNotes')"><i class="fa fa-plus"></i></button>
+                  </div>
+                  <div id="wizardEquipmentNotes"></div>
+                </div>
+              </div>
+              <div class="col-lg-6">
+                <div class="border rounded p-3 h-100">
+                  <h6 class="mb-3"># / gira / conjunto de eventos</h6>
+                  <input class="form-control mb-3" list="wizardTagOptions" name="wizard_hashtags_text" placeholder="#verano, #gira2026, festival x">
+                  <datalist id="wizardTagOptions">
+                    {% for tag in all_concert_tags %}
+                      <option value="#{{ tag }}"></option>
+                      <option value="{{ tag }}"></option>
+                    {% endfor %}
+                  </datalist>
+
+                  <div class="border-top pt-3 mt-3">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                      <h6 class="mb-0">Invitaciones</h6>
+                      <button type="button" class="btn btn-sm btn-outline-primary" onclick="wizardAddInvitationRow()"><i class="fa fa-plus"></i> Añadir categoría</button>
+                    </div>
+                    <div id="wizardInvitationRows"></div>
+                  </div>
+
+                  <div class="border-top pt-3 mt-3">
+                    <h6 class="mb-3">Anuncio</h6>
+                    <div class="form-check mb-2">
+                      <input class="form-check-input" type="checkbox" name="do_not_announce" id="wizard_do_not_announce">
+                      <label class="form-check-label" for="wizard_do_not_announce">No anunciar</label>
+                    </div>
+                    <label class="form-label">Fecha de anuncio</label>
+                    <input type="date" class="form-control" name="announcement_date">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+        <div class="modal-footer d-flex justify-content-between">
+          <button type="button" class="btn btn-outline-secondary" id="wizardPrevBtn">Anterior</button>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="wizardNextBtn">Siguiente</button>
+            <button type="submit" class="btn btn-primary d-none" id="wizardSubmitBtn">Finalizar</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+  window.promotersPayload = {{ promoters_payload|tojson }};
+  window.artistCreateTargetSelectId = 'wizard_artist_id';
+
+  function getPromoterDataById(id){
+    return (window.promotersPayload || []).find(p => String(p.id) === String(id));
+  }
+
+  function buildPromoterOptions(selectedId){
+    const items = window.promotersPayload || [];
+    let html = '<option value="">—</option>';
+    items.forEach(p => {
+      const selected = String(p.id) === String(selectedId || '') ? 'selected' : '';
+      const logo = p.logo_url || '{{ url_for("static", filename="img/default_promoter.png") }}';
+      html += `<option value="${p.id}" data-logo="${logo}">${p.nick || '—'}</option>`;
+    });
+    return html;
+  }
+
+  function fillPromoterCompanySelect(promoterId, selectEl, selectedCompanyId){
+    if(!selectEl) return;
+    const promoter = getPromoterDataById(promoterId);
+    const companies = (promoter && promoter.companies) ? promoter.companies : [];
+    let html = '<option value="">—</option>';
+    companies.forEach(c => {
+      const selected = String(c.id) === String(selectedCompanyId || '') ? 'selected' : '';
+      html += `<option value="${c.id}" ${selected}>${c.legal_name || 'Sociedad'}</option>`;
+    });
+    selectEl.innerHTML = html;
+    selectEl.closest('.company-select-wrap')?.classList.toggle('d-none', companies.length === 0);
+  }
+
+  function ensureSelect2(el){
+    if(window.jQuery && jQuery.fn.select2 && el){
+      jQuery(el).select2({width:'100%'});
+    }
+  }
+
+  function wizardAddPartnerRow(prefill){
+    const c = document.getElementById('wizardPartnerRows');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-lg-4">
+          <label class="form-label">Tercero</label>
+          <select name="wizard_partner_promoter_id[]" class="form-select third-party-select wizard-partner-promoter">${buildPromoterOptions(prefill?.promoter_id)}</select>
+        </div>
+        <div class="col-lg-4 company-select-wrap d-none">
+          <label class="form-label">Sociedad</label>
+          <select name="wizard_partner_company_id[]" class="form-select wizard-partner-company"></select>
+        </div>
+        <div class="col-lg-2">
+          <label class="form-label">%</label>
+          <input type="number" step="0.01" name="wizard_partner_pct[]" class="form-control" value="${prefill?.pct || ''}" placeholder="0">
+        </div>
+        <div class="col-lg-1">
+          <label class="form-label">Base</label>
+          <select name="wizard_partner_base[]" class="form-select">
+            <option value="GROSS">Bruto</option>
+            <option value="NET">Neto</option>
+            <option value="PROFIT">Beneficio</option>
+          </select>
+        </div>
+        <div class="col-lg-1 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+        </div>
+      </div>`;
+    c.appendChild(row);
+    const promoterSelect = row.querySelector('.wizard-partner-promoter');
+    const companySelect = row.querySelector('.wizard-partner-company');
+    promoterSelect.addEventListener('change', ()=> fillPromoterCompanySelect(promoterSelect.value, companySelect));
+    fillPromoterCompanySelect(promoterSelect.value, companySelect, prefill?.company_id || '');
+    row.querySelector('select[name="wizard_partner_base[]"]').value = prefill?.base || 'GROSS';
+    ensureSelect2(promoterSelect);
+  }
+
+  function wizardAddZoneRow(prefill){
+    const c = document.getElementById('wizardZoneRows');
+    const row = document.createElement('div');
+    row.className = 'border rounded p-2 mb-2';
+    row.innerHTML = `
+      <div class="row g-2 align-items-end">
+        <div class="col-lg-4">
+          <label class="form-label">Comisionista</label>
+          <select name="wizard_zone_promoter_id[]" class="form-select third-party-select wizard-zone-promoter">${buildPromoterOptions(prefill?.promoter_id)}</select>
+        </div>
+        <div class="col-lg-3 company-select-wrap d-none">
+          <label class="form-label">Sociedad</label>
+          <select name="wizard_zone_company_id[]" class="form-select wizard-zone-company"></select>
+        </div>
+        <div class="col-lg-2">
+          <label class="form-label">Tipo</label>
+          <select name="wizard_zone_mode[]" class="form-select wizard-zone-mode">
+            <option value="PERCENT">% variable</option>
+            <option value="FIXED">Importe fijo</option>
+          </select>
+        </div>
+        <div class="col-lg-1 zone-pct-wrap">
+          <label class="form-label">%</label>
+          <input type="number" step="0.01" name="wizard_zone_pct[]" class="form-control" value="${prefill?.pct || ''}">
+        </div>
+        <div class="col-lg-2 zone-base-wrap">
+          <label class="form-label">Base</label>
+          <select name="wizard_zone_base[]" class="form-select">
+            <option value="GROSS">Bruto</option>
+            <option value="NET">Neto</option>
+            <option value="PROFIT">Beneficio</option>
+          </select>
+        </div>
+        <div class="col-lg-2 zone-amount-wrap d-none">
+          <label class="form-label">Importe</label>
+          <input type="number" step="0.01" name="wizard_zone_amount[]" class="form-control" value="${prefill?.amount || ''}">
+        </div>
+        <div class="col-lg-10">
+          <label class="form-label">Concepto</label>
+          <input type="text" name="wizard_zone_concept[]" class="form-control" value="${prefill?.concept || ''}" placeholder="Concepto / motivo">
+        </div>
+        <div class="col-lg-2 d-grid">
+          <label class="form-label">&nbsp;</label>
+          <button type="button" class="btn btn-outline-danger" onclick="this.closest('.border').remove()"><i class="fa fa-trash"></i></button>
+        </div>
+      </div>`;
+    c.appendChild(row);
+    const promoterSelect = row.querySelector('.wizard-zone-promoter');
+    const companySelect = row.querySelector('.wizard-zone-company');
+    promoterSelect.addEventListener('change', ()=> fillPromoterCompanySelect(promoterSelect.value, companySelect));
+    fillPromoterCompanySelect(promoterSelect.value, companySelect, prefill?.company_id || '');
+    const modeSel = row.querySelector('.wizard-zone-mode');
+    const pctWrap = row.querySelector('.zone-pct-wrap');
+    const baseWrap = row.querySelector('.zone-base-wrap');
+    const amountWrap = row.querySelector('.zone-amount-wrap');
+    function applyMode(){
+      const fixed = modeSel.value === 'FIXED';
+      pctWrap.classList.toggle('d-none', fixed);
+      baseWrap.classList.toggle('d-none', fixed);
+      amountWrap.classList.toggle('d-none', !fixed);
+    }
+    modeSel.addEventListener('change', applyMode);
+    modeSel.value = prefill?.mode || 'PERCENT';
+    row.querySelector('select[name="wizard_zone_base[]"]').value = prefill?.base || 'GROSS';
+    applyMode();
+    ensureSelect2(promoterSelect);
+  }
+
+  function wizardAddPaymentRow(prefill){
+    const c = document.getElementById('wizardPaymentRows');
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-lg-4"><label class="form-label">Concepto</label><input name="payment_concept[]" class="form-control" value="${prefill?.concept || ''}"></div>
+      <div class="col-lg-3"><label class="form-label">Importe</label><input type="number" step="0.01" name="payment_amount[]" class="form-control" value="${prefill?.amount || ''}"></div>
+      <div class="col-lg-3"><label class="form-label">Fecha límite</label><input type="date" name="payment_due_date[]" class="form-control" value="${prefill?.due_date || ''}"></div>
+      <div class="col-lg-1"><input type="hidden" name="payment_cache_ref[]" value=""></div>
+      <div class="col-lg-2 d-grid"><label class="form-label">&nbsp;</label><button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button></div>`;
+    c.appendChild(row);
+  }
+
+  function wizardAddInvitationRow(prefill){
+    const c = document.getElementById('wizardInvitationRows');
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-end mb-2';
+    row.innerHTML = `
+      <div class="col-lg-5"><label class="form-label">Categoría</label><input name="invitation_category[]" class="form-control" value="${prefill?.category || ''}" placeholder="General / backstage / ..."></div>
+      <div class="col-lg-2"><label class="form-label">Artista</label><input type="number" min="0" name="invitation_artist_qty[]" class="form-control" value="${prefill?.artist_qty || ''}"></div>
+      <div class="col-lg-2"><label class="form-label">Oficina</label><input type="number" min="0" name="invitation_office_qty[]" class="form-control" value="${prefill?.office_qty || ''}"></div>
+      <div class="col-lg-3 d-grid"><label class="form-label">&nbsp;</label><button type="button" class="btn btn-outline-danger" onclick="this.closest('.row').remove()"><i class="fa fa-trash"></i></button></div>`;
+    c.appendChild(row);
+  }
+
+  function overrideCreateApis(){
+    const defaultPromoterLogo = '{{ url_for("static", filename="img/default_promoter.png") }}';
+
+    window.openArtistModal = function(selectId){
+      window.artistCreateTargetSelectId = selectId || window.artistCreateTargetSelectId || 'wizard_artist_id';
+      const m = new bootstrap.Modal(document.getElementById('artistCreateModal'));
+      m.show();
+    };
+
+    window.submitNewVenue = async function(ev){
+      ev.preventDefault();
+      const targetInputId = document.getElementById('venueCreate_target_input').value;
+      const targetHiddenId = document.getElementById('venueCreate_target_hidden').value;
+      const payload = {
+        name: document.getElementById('venue_new_name').value.trim(),
+        address: document.getElementById('venue_new_address').value.trim(),
+        municipality: document.getElementById('venue_new_municipality').value.trim(),
+        province: document.getElementById('venue_new_province').value.trim(),
+        covered: document.getElementById('venue_new_covered').value === 'true'
+      };
+      let res = await fetch('/api/venues/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+      let data = await res.json();
+      if(res.status === 409 && data.similar && data.similar.length){
+        const first = data.similar[0];
+        const useExisting = confirm(`Parece que ya existe un recinto similar: ${first.label}.\n\nAceptar = seleccionar existente\nCancelar = crear uno nuevo`);
+        if(useExisting){
+          document.getElementById(targetInputId).value = first.label || payload.name;
+          document.getElementById(targetHiddenId).value = first.id;
+          bootstrap.Modal.getInstance(document.getElementById('venueCreateModal')).hide();
+          return false;
+        }
+        payload.force_new = true;
+        res = await fetch('/api/venues/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        data = await res.json();
+      }
+      if(!res.ok){ alert(data.error || 'Error creando recinto'); return false; }
+      document.getElementById(targetInputId).value = data.label || data.name;
+      document.getElementById(targetHiddenId).value = data.id;
+      bootstrap.Modal.getInstance(document.getElementById('venueCreateModal')).hide();
+      return false;
+    };
+
+    window.submitNewPromoter = async function(ev){
+      ev.preventDefault();
+      const selectId = document.getElementById('promoterCreate_select_id').value;
+      const fd = new FormData();
+      fd.append('nick', document.getElementById('promoter_new_nick').value.trim());
+      const f = document.getElementById('promoter_new_logo').files[0];
+      if(f) fd.append('logo', f);
+      let res = await fetch('/api/promoters/create', { method:'POST', body: fd });
+      let data = await res.json();
+      if(res.status === 409 && data.similar && data.similar.length){
+        const first = data.similar[0];
+        const useExisting = confirm(`Ya existe un tercero similar: ${first.label}.\n\nAceptar = seleccionar existente\nCancelar = crear uno nuevo`);
+        if(useExisting){
+          if(selectId){
+            const sel = document.getElementById(selectId);
+            const exists = Array.from(sel.options).find(o => o.value === first.id);
+            if(exists){ sel.value = first.id; }
+            if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+          }
+          bootstrap.Modal.getInstance(document.getElementById('promoterCreateModal')).hide();
+          return false;
+        }
+        fd.append('force_new', '1');
+        res = await fetch('/api/promoters/create', { method:'POST', body: fd });
+        data = await res.json();
+      }
+      if(!res.ok){ alert(data.error || 'Error creando tercero'); return false; }
+      window.promotersPayload.push({id:data.id, nick:data.nick, logo_url:data.logo_url || defaultPromoterLogo, companies:data.companies || []});
+      document.querySelectorAll('select.third-party-select, .wizard-partner-promoter, .wizard-zone-promoter').forEach(sel => {
+        if(Array.from(sel.options).some(o => o.value === data.id)) return;
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = data.nick;
+        opt.dataset.logo = data.logo_url || defaultPromoterLogo;
+        sel.appendChild(opt);
+      });
+      if(selectId){
+        const sel = document.getElementById(selectId);
+        sel.value = data.id;
+        if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+        if(sel.id === 'wizard_promoter_id'){
+          fillPromoterCompanySelect(data.id, document.getElementById('wizard_promoter_company_id'));
+        }
+      }
+      bootstrap.Modal.getInstance(document.getElementById('promoterCreateModal')).hide();
+      return false;
+    };
+
+    window.submitNewArtist = async function(ev){
+      ev.preventDefault();
+      const fd = new FormData();
+      fd.append('name', document.getElementById('artist_new_name').value.trim());
+      const f = document.getElementById('artist_new_photo').files[0];
+      if(f) fd.append('photo', f);
+      let res = await fetch('/api/artists/create', { method:'POST', body: fd });
+      let data = await res.json();
+      if(res.status === 409 && data.similar && data.similar.length){
+        const first = data.similar[0];
+        const useExisting = confirm(`Ya existe un artista similar: ${first.label}.\n\nAceptar = seleccionar existente\nCancelar = crear uno nuevo`);
+        const targetId = window.artistCreateTargetSelectId || 'wizard_artist_id';
+        if(useExisting){
+          const sel = document.getElementById(targetId) || document.querySelector('select[name="artist_id"]');
+          if(sel){
+            const exists = Array.from(sel.options).find(o => o.value === first.id);
+            if(exists){ sel.value = first.id; }
+            if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+          }
+          bootstrap.Modal.getInstance(document.getElementById('artistCreateModal')).hide();
+          return false;
+        }
+        fd.append('force_new', '1');
+        res = await fetch('/api/artists/create', { method:'POST', body: fd });
+        data = await res.json();
+      }
+      if(!res.ok){ alert(data.error || 'Error creando artista'); return false; }
+      const targetId = window.artistCreateTargetSelectId || 'wizard_artist_id';
+      const sel = document.getElementById(targetId) || document.querySelector('select[name="artist_id"]');
+      if(sel){
+        const opt = document.createElement('option');
+        opt.value = data.id;
+        opt.textContent = data.name || data.label;
+        opt.dataset.photo = data.photo_url || '{{ url_for("static", filename="img/logo.png") }}';
+        sel.appendChild(opt);
+        sel.value = data.id;
+        if(window.jQuery && jQuery.fn.select2){ jQuery(sel).trigger('change'); }
+      }
+      bootstrap.Modal.getInstance(document.getElementById('artistCreateModal')).hide();
+      return false;
+    };
+  }
+
+  (function(){
+    overrideCreateApis();
+
+    const modalEl = document.getElementById('concertWizardModal');
+    const form = document.getElementById('concertWizardForm');
+    const stepPills = document.getElementById('wizardStepPills');
+    const prevBtn = document.getElementById('wizardPrevBtn');
+    const nextBtn = document.getElementById('wizardNextBtn');
+    const submitBtn = document.getElementById('wizardSubmitBtn');
+    const modeInput = document.getElementById('wizard_mode');
+    const modeChoices = document.querySelectorAll('input[name="wizard_mode_choice"]');
+    const mainPromoterSelect = document.getElementById('wizard_promoter_id');
+    const mainPromoterCompany = document.getElementById('wizard_promoter_company_id');
+    const knowsVenue = document.getElementById('wizard_knows_venue');
+    const venueKnownWrap = document.getElementById('wizardVenueKnownWrap');
+    const venueManualWrap = document.getElementById('wizardVenueManualWrap');
+    const hasTicketSales = document.getElementById('wizard_has_ticket_sales');
+    const ticketSalesWrap = document.getElementById('wizardTicketSalesWrap');
+    const noCapacityWrap = document.getElementById('wizardNoCapacityWrap');
+    const conflictBox = document.getElementById('wizardArtistConflict');
+    let currentStep = 1;
+
+    function stepSequence(){
+      return modeInput.value === 'request_sheet' ? [1,2,3,4] : [1,2,3,4,5,6,7];
+    }
+
+    function renderStepPills(){
+      const seq = stepSequence();
+      stepPills.innerHTML = seq.map((s, idx) => `<span class="badge ${s===currentStep ? 'bg-primary' : 'text-bg-light border'}">Paso ${idx+1}</span>`).join('');
+    }
+
+    function showStep(step){
+      currentStep = step;
+      const seq = stepSequence();
+      document.querySelectorAll('.wizard-step').forEach(el => {
+        const modes = (el.dataset.mode || 'any').split(',');
+        const visibleForMode = modes.includes('any') || modes.includes(modeInput.value);
+        const stepMatch = Number(el.dataset.step) === step;
+        el.classList.toggle('d-none', !(visibleForMode && stepMatch));
+      });
+      renderStepPills();
+      prevBtn.classList.toggle('d-none', step === seq[0]);
+      const isLast = step === seq[seq.length - 1];
+      nextBtn.classList.toggle('d-none', isLast);
+      submitBtn.classList.toggle('d-none', !isLast);
+    }
+
+    function syncMode(){
+      const checked = document.querySelector('input[name="wizard_mode_choice"]:checked');
+      modeInput.value = checked ? checked.value : 'direct';
+      document.querySelectorAll('.direct-only').forEach(el => {
+        el.classList.toggle('d-none', modeInput.value !== 'direct');
+      });
+      showStep(1);
+    }
+
+    function toggleVenueKnown(){
+      const known = knowsVenue.checked;
+      venueKnownWrap.style.display = known ? '' : 'none';
+      venueManualWrap.style.display = known ? 'none' : '';
+      if(!known){ document.getElementById('wizard_venue_id').value = ''; document.getElementById('wizard_venue_search').value = ''; }
+    }
+
+    function toggleTicketSales(){
+      const yes = hasTicketSales.checked;
+      ticketSalesWrap.style.display = yes ? '' : 'none';
+      noCapacityWrap.style.display = yes ? 'none' : '';
+    }
+
+    async function checkArtistConflict(){
+      const artistId = document.getElementById('wizard_artist_id').value;
+      const dateVal = document.getElementById('wizard_date').value;
+      conflictBox.classList.add('d-none');
+      conflictBox.innerHTML = '';
+      if(!artistId || !dateVal || modeInput.value !== 'direct') return;
+      const res = await fetch(`/api/concerts/check-artist-conflict?artist_id=${encodeURIComponent(artistId)}&date=${encodeURIComponent(dateVal)}`);
+      if(!res.ok) return;
+      const rows = await res.json();
+      if(!rows.length) return;
+      const txt = rows.map(r => r.summary || 'Evento').join('<br>');
+      conflictBox.innerHTML = `<strong>Ese día el artista ya tiene eventos:</strong><br>${txt}`;
+      conflictBox.classList.remove('d-none');
+      const keep = confirm(`Ese día el artista ya tiene ${rows.length} evento(s).\n\nAceptar = mantener la fecha nueva\nCancelar = borrar la fecha y cambiarla`);
+      if(!keep){ document.getElementById('wizard_date').value = ''; }
+    }
+
+    function validateStep(step){
+      if(step === 2){
+        if(!document.getElementById('wizard_artist_id').value){ alert('Debes seleccionar un artista.'); return false; }
+      }
+      if(step === 3){
+        if(!document.getElementById('wizard_date').value){ alert('Debes indicar la fecha del concierto.'); return false; }
+        if(!document.getElementById('wizard_venue_id').value && !document.querySelector('input[name="manual_municipality"]').value.trim() && !document.querySelector('input[name="manual_province"]').value.trim()){
+          alert('Indica un recinto o al menos municipio y provincia.');
+          return false;
+        }
+      }
+      if(step === 4 && modeInput.value === 'request_sheet'){
+        const email = form.querySelector('input[name="promoter_email"]').value.trim();
+        if(!email){ alert('Debes indicar el email del promotor.'); return false; }
+      }
+      return true;
+    }
+
+    prevBtn.addEventListener('click', ()=> {
+      const seq = stepSequence();
+      const idx = seq.indexOf(currentStep);
+      if(idx > 0) showStep(seq[idx - 1]);
+    });
+    nextBtn.addEventListener('click', ()=> {
+      if(!validateStep(currentStep)) return;
+      const seq = stepSequence();
+      const idx = seq.indexOf(currentStep);
+      if(idx < seq.length - 1) showStep(seq[idx + 1]);
+    });
+
+    modeChoices.forEach(el => el.addEventListener('change', syncMode));
+    knowsVenue?.addEventListener('change', toggleVenueKnown);
+    hasTicketSales?.addEventListener('change', toggleTicketSales);
+    mainPromoterSelect?.addEventListener('change', ()=> fillPromoterCompanySelect(mainPromoterSelect.value, mainPromoterCompany));
+    document.getElementById('wizard_artist_id')?.addEventListener('change', checkArtistConflict);
+    document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);
+    modalEl?.addEventListener('shown.bs.modal', ()=> {
+      syncMode();
+      toggleVenueKnown();
+      toggleTicketSales();
+      fillPromoterCompanySelect(mainPromoterSelect?.value, mainPromoterCompany);
+      initVenueTypeahead('wizard_venue_search', 'wizard_venue_id');
+      if(!document.getElementById('wizardPartnerRows').children.length) wizardAddPartnerRow();
+      if(!document.getElementById('wizardZoneRows').children.length) wizardAddZoneRow();
+      if(!document.getElementById('wizardPaymentRows').children.length) wizardAddPaymentRow();
+      if(!document.getElementById('wizardInvitationRows').children.length) wizardAddInvitationRow();
+    });
+
+    form.addEventListener('submit', (ev)=> {
+      if(!validateStep(currentStep)){
+        ev.preventDefault();
+      }
+    });
+
+    syncMode();
+    toggleVenueKnown();
+    toggleTicketSales();
+  })();
+</script>

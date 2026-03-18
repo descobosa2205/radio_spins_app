@@ -1,0 +1,131 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:1100px;">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:18px;border:1px solid #eee;background:#fff;">
+        <div class="flex-grow-1">
+          <div class="fw-semibold text-uppercase text-muted small">Solicitud ficha de contratación</div>
+          <h3 class="mb-1">{{ concert.artist.name if concert.artist else 'Concierto' }}</h3>
+          <div class="text-muted">
+            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
+            {% if concert.venue and concert.venue.municipality %} · {{ concert.venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
+            {% if concert.venue and concert.venue.province %} · {{ concert.venue.province }}{% elif concert.manual_province %} · {{ concert.manual_province }}{% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if submitted %}
+      <div class="alert alert-success">La ficha se ha enviado correctamente. Ya no se puede volver a acceder a esta versión del formulario.</div>
+    {% elif not can_submit and public_mode %}
+      <div class="alert alert-warning">Este formulario ya no está disponible para nuevos envíos.</div>
+      {% if sheet and sheet.rejection_reason %}<div class="alert alert-light border">Motivo último rechazo: {{ sheet.rejection_reason }}</div>{% endif %}
+    {% endif %}
+
+    <form method="post" action="{{ form_action }}" class="card shadow-sm" {% if not can_submit and public_mode %}style="pointer-events:none;opacity:.75;"{% endif %}>
+      <div class="card-body">
+        <div class="row g-4">
+          <div class="col-12"><h5 class="mb-0">Datos de la gala</h5></div>
+          <div class="col-md-4"><label class="form-label">Municipio</label><input class="form-control" name="gala_municipality" value="{{ data.gala_municipality or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Provincia</label><input class="form-control" name="gala_province" value="{{ data.gala_province or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Fecha</label><input class="form-control" name="gala_date" value="{{ data.gala_date or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Recinto</label><input class="form-control" name="gala_venue" value="{{ data.gala_venue or '' }}"></div>
+          <div class="col-md-5"><label class="form-label">Dirección del recinto</label><input class="form-control" name="gala_venue_address" value="{{ data.gala_venue_address or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Código postal</label><input class="form-control" name="gala_postal_code" value="{{ data.gala_postal_code or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Hora del show</label><input class="form-control" name="gala_show_time" value="{{ data.gala_show_time or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Hora apertura puertas</label><input class="form-control" name="gala_doors_time" value="{{ data.gala_doors_time or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Aforo</label><input class="form-control" name="gala_capacity" value="{{ data.gala_capacity or '' }}"></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos de la empresa</h5></div>
+          <div class="col-md-4"><label class="form-label">Razón social</label><input class="form-control" name="company_legal_name" value="{{ data.company_legal_name or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">CIF</label><input class="form-control" name="company_tax_id" value="{{ data.company_tax_id or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Representante</label><input class="form-control" name="company_representative" value="{{ data.company_representative or '' }}"></div>
+          <div class="col-md-8"><label class="form-label">Dirección</label><input class="form-control" name="company_address" value="{{ data.company_address or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">DNI representante</label><input class="form-control" name="company_representative_dni" value="{{ data.company_representative_dni or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Municipio</label><input class="form-control" name="company_municipality" value="{{ data.company_municipality or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Provincia</label><input class="form-control" name="company_province" value="{{ data.company_province or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Código postal</label><input class="form-control" name="company_postal_code" value="{{ data.company_postal_code or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Teléfono</label><input class="form-control" name="company_phone" value="{{ data.company_phone or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Email</label><input class="form-control" name="company_email" value="{{ data.company_email or '' }}"></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos de producción local</h5></div>
+          <div class="col-md-4"><label class="form-label">Razón social</label><input class="form-control" name="local_legal_name" value="{{ data.local_legal_name or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">CIF</label><input class="form-control" name="local_tax_id" value="{{ data.local_tax_id or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Representante</label><input class="form-control" name="local_representative" value="{{ data.local_representative or '' }}"></div>
+          <div class="col-md-8"><label class="form-label">Dirección</label><input class="form-control" name="local_address" value="{{ data.local_address or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">DNI representante</label><input class="form-control" name="local_representative_dni" value="{{ data.local_representative_dni or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Municipio</label><input class="form-control" name="local_municipality" value="{{ data.local_municipality or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Provincia</label><input class="form-control" name="local_province" value="{{ data.local_province or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Código postal</label><input class="form-control" name="local_postal_code" value="{{ data.local_postal_code or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Teléfono</label><input class="form-control" name="local_phone" value="{{ data.local_phone or '' }}"></div>
+          <div class="col-md-2"><label class="form-label">Email</label><input class="form-control" name="local_email" value="{{ data.local_email or '' }}"></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos producción técnica</h5></div>
+          <div class="col-md-3"><label class="form-label">Responsable</label><input class="form-control" name="technical_responsible" value="{{ data.technical_responsible or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Teléfono</label><input class="form-control" name="technical_phone" value="{{ data.technical_phone or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Email</label><input class="form-control" name="technical_email" value="{{ data.technical_email or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Móvil</label><input class="form-control" name="technical_mobile" value="{{ data.technical_mobile or '' }}"></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos económicos</h5></div>
+          <div class="col-md-6"><label class="form-label">Caché</label><textarea class="form-control" rows="2" name="economics_cache">{{ data.economics_cache or '' }}</textarea></div>
+          <div class="col-md-6"><label class="form-label">Reparto de taquilla</label><textarea class="form-control" rows="2" name="economics_box_office_split">{{ data.economics_box_office_split or '' }}</textarea></div>
+          <div class="col-12"><label class="form-label">Observaciones</label><textarea class="form-control" rows="3" name="economics_notes">{{ data.economics_notes or '' }}</textarea></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos del show</h5></div>
+          <div class="col-md-4"><label class="form-label">Formato</label><input class="form-control" name="show_format" value="{{ data.show_format or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Duración</label><input class="form-control" name="show_duration" value="{{ data.show_duration or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Tipos de concierto</label>
+            <select class="form-select" name="show_types[]" multiple size="6">
+              {% for opt in ['Outdoor','Indoor','Empresa','Gratuito','Con entrada','Festival'] %}
+                <option value="{{ opt }}" {% if opt in (data.show_types or []) %}selected{% endif %}>{{ opt }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-12"><label class="form-label">Observaciones</label><textarea class="form-control" rows="3" name="show_notes">{{ data.show_notes or '' }}</textarea></div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Datos de ticketing</h5></div>
+          <div class="col-md-3"><label class="form-label">¿Hay M&amp;G?</label><select class="form-select" name="ticketing_has_mg"><option value="0" {% if not data.ticketing_has_mg %}selected{% endif %}>No</option><option value="1" {% if data.ticketing_has_mg %}selected{% endif %}>Sí</option></select></div>
+          <div class="col-md-9"><label class="form-label">Puntos de venta</label><input class="form-control" name="ticketing_points_of_sale" value="{{ data.ticketing_points_of_sale or '' }}"></div>
+          <div class="col-12">
+            <label class="form-label">Entradas</label>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle" id="sheetTicketTable">
+                <thead class="table-light"><tr><th>Tipo de entrada</th><th>Cantidad</th><th>Importe</th><th>Inv. totales</th><th>Inv. artista</th></tr></thead>
+                <tbody>
+                  {% set ticket_rows = data.ticket_types if data.ticket_types else [{'name':'','qty_for_sale':'','amount':'','invites_total':'','invites_artist':''}] %}
+                  {% for row in ticket_rows %}
+                    <tr>
+                      <td><input class="form-control" name="ticket_type_name[]" value="{{ row.name or '' }}"></td>
+                      <td><input class="form-control" name="ticket_type_qty[]" value="{{ row.qty_for_sale or '' }}"></td>
+                      <td><input class="form-control" name="ticket_type_amount[]" value="{{ row.amount or '' }}"></td>
+                      <td><input class="form-control" name="ticket_type_invites_total[]" value="{{ row.invites_total or '' }}"></td>
+                      <td><input class="form-control" name="ticket_type_invites_artist[]" value="{{ row.invites_artist or '' }}"></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="col-12 pt-2"><h5 class="mb-0">Promoción</h5></div>
+          <div class="col-md-6"><label class="form-label">Acciones</label><textarea class="form-control" rows="3" name="promotion_actions">{{ data.promotion_actions or '' }}</textarea></div>
+          <div class="col-md-6"><label class="form-label">Responsable de promoción</label><input class="form-control" name="promotion_responsible" value="{{ data.promotion_responsible or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Teléfono</label><input class="form-control" name="promotion_phone" value="{{ data.promotion_phone or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Email</label><input class="form-control" name="promotion_email" value="{{ data.promotion_email or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Móvil</label><input class="form-control" name="promotion_mobile" value="{{ data.promotion_mobile or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Fecha de anuncio</label><input class="form-control" name="promotion_announcement_date" value="{{ data.promotion_announcement_date or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Fecha salida a la venta</label><input class="form-control" name="promotion_sale_date" value="{{ data.promotion_sale_date or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Logotipos en cartel</label><input class="form-control" name="promotion_poster_logos" value="{{ data.promotion_poster_logos or '' }}"></div>
+        </div>
+      </div>
+      <div class="card-footer d-flex justify-content-end gap-2">
+        {% if not public_mode %}<a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Volver</a>{% endif %}
+        {% if can_submit or not public_mode %}<button class="btn btn-primary">{% if admin_mode %}Guardar cambios{% else %}Enviar ficha{% endif %}</button>{% endif %}
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

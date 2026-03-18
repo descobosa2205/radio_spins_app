@@ -1,4 +1,6 @@
 from datetime import date, timedelta, datetime
+import os
+import smtplib
 from uuid import UUID
 import uuid as _uuid
 import uuid
@@ -32,6 +34,8 @@ import calendar as _cal
 from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode
 from urllib.request import Request, urlopen
 from decimal import Decimal, InvalidOperation
+from email.message import EmailMessage
+from difflib import SequenceMatcher
 from collections import defaultdict
 
 # PDF (informe de ventas)
@@ -57,6 +61,7 @@ from models import (
     ensure_ingresos_schema,
     ensure_royalty_liquidations_schema,
     ensure_concerts_schema_enhancements,
+    ensure_third_party_and_contract_sheet_schema,
     SessionLocal,
     User,
     Artist,
@@ -75,6 +80,8 @@ from models import (
     Play,
     SongWeekInfo,
     Promoter,
+    PromoterCompany,
+    PromoterContact,
     SongRoyaltyBeneficiary,
     PublishingCompany,
     SongEditorialShare,
@@ -89,6 +96,7 @@ from models import (
     ConcertZoneAgent,
     ConcertCache,
     ConcertContract,
+    ConcertContractSheet,
     ConcertNote,
     ConcertEquipment,
     ConcertEquipmentDocument,
@@ -124,6 +132,7 @@ for _fn, _name in [
     (ensure_ingresos_schema, "ensure_ingresos_schema"),
     (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
     (ensure_concerts_schema_enhancements, "ensure_concerts_schema_enhancements"),
+    (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
 ]:
     _safe_ensure(_fn, _name)
 
@@ -304,7 +313,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form"}
     if request.endpoint in allowed:
         return
 
@@ -675,7 +684,7 @@ def admin_login():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
@@ -769,7 +778,7 @@ def artists_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -863,7 +872,7 @@ def artist_detail_view(artist_id):
         f_when_raw = request.args.getlist("when") or []
 
         f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
-        allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
+        allowed_statuses = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [x for x in f_statuses if x in allowed_statuses]
 
         f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
@@ -1136,6 +1145,449 @@ def _collect_all_concert_tags(session_db) -> list[str]:
         elif isinstance(raw, str):
             values.extend([x for x in raw.split(',') if x])
     return sorted(_dedupe_concert_tags(values), key=lambda x: _norm_text_key(x))
+
+
+def _truthy(val) -> bool:
+    if isinstance(val, bool):
+        return val
+    return str(val or '').strip().lower() in ('1', 'true', 'yes', 'on', 'si', 'sí')
+
+
+def _similarity_score(a: str | None, b: str | None) -> float:
+    ak = _norm_text_key(a or '')
+    bk = _norm_text_key(b or '')
+    if not ak or not bk:
+        return 0.0
+    if ak == bk:
+        return 1.0
+    if ak in bk or bk in ak:
+        return 0.92
+    return SequenceMatcher(None, ak, bk).ratio()
+
+
+def _concert_city(concert: Concert | None) -> str:
+    if not concert:
+        return ''
+    if getattr(concert, 'venue', None) and getattr(concert.venue, 'municipality', None):
+        return (concert.venue.municipality or '').strip()
+    return (getattr(concert, 'manual_municipality', None) or '').strip()
+
+
+def _concert_province_value(concert: Concert | None) -> str:
+    if not concert:
+        return ''
+    if getattr(concert, 'venue', None) and getattr(concert.venue, 'province', None):
+        return (concert.venue.province or '').strip()
+    return (getattr(concert, 'manual_province', None) or '').strip()
+
+
+def _concert_venue_name(concert: Concert | None) -> str:
+    if not concert:
+        return ''
+    if getattr(concert, 'venue', None) and getattr(concert.venue, 'name', None):
+        return (concert.venue.name or '').strip()
+    return (getattr(concert, 'manual_venue_name', None) or '').strip()
+
+
+def _concert_venue_address(concert: Concert | None) -> str:
+    if not concert:
+        return ''
+    if getattr(concert, 'venue', None) and getattr(concert.venue, 'address', None):
+        return (concert.venue.address or '').strip()
+    return (getattr(concert, 'manual_venue_address', None) or '').strip()
+
+
+def _concert_location_summary(concert: Concert | None) -> str:
+    parts = [x for x in [_concert_venue_name(concert), _concert_city(concert), _concert_province_value(concert)] if x]
+    return ' · '.join(parts)
+
+
+def _announcement_state(concert: Concert | None, today: date | None = None) -> str:
+    if not concert:
+        return 'NONE'
+    today = today or today_local()
+    if _truthy(getattr(concert, 'do_not_announce', False)):
+        return 'NO_ANNOUNCE'
+    ad = getattr(concert, 'announcement_date', None)
+    if not ad:
+        return 'NONE'
+    return 'ANNOUNCED' if ad <= today else 'UPCOMING'
+
+
+def _announcement_badge(concert: Concert | None, today: date | None = None):
+    state = _announcement_state(concert, today)
+    ad = getattr(concert, 'announcement_date', None) if concert else None
+    if state == 'NO_ANNOUNCE':
+        return {'state': state, 'label': 'No anunciar', 'class': 'bg-danger'}
+    if state == 'UPCOMING' and ad:
+        return {'state': state, 'label': f'Anunciar: {ad.strftime("%d/%m/%Y")}', 'class': 'bg-warning text-dark'}
+    return None
+
+
+def _contract_sheet_status(sheet: ConcertContractSheet | None) -> str:
+    if not sheet:
+        return 'NONE'
+    return (sheet.status or 'REQUESTED').strip().upper() or 'REQUESTED'
+
+
+def _contract_sheet_can_submit(sheet: ConcertContractSheet | None) -> bool:
+    if not sheet:
+        return False
+    st = _contract_sheet_status(sheet)
+    if st in ('ACCEPTED',):
+        return False
+    if st == 'REJECTED':
+        return bool(getattr(sheet, 'allow_resubmission', False))
+    if st == 'RECEIVED':
+        return False
+    return True
+
+
+def _contract_sheet_badge(sheet: ConcertContractSheet | None):
+    st = _contract_sheet_status(sheet)
+    if st == 'RECEIVED':
+        return {'label': 'Ficha de contratación recibida', 'class': 'bg-info text-dark'}
+    if st == 'REJECTED':
+        return {'label': 'Ficha rechazada', 'class': 'bg-danger'}
+    if st == 'ACCEPTED':
+        return {'label': 'Ficha aceptada', 'class': 'bg-success'}
+    if st == 'REQUESTED':
+        return {'label': 'Ficha solicitada', 'class': 'bg-secondary'}
+    return None
+
+
+def _serialize_promoter_company(row: PromoterCompany | None) -> dict:
+    if not row:
+        return {}
+    return {
+        'id': str(row.id),
+        'legal_name': (row.legal_name or '').strip(),
+        'tax_id': (row.tax_id or '').strip(),
+        'fiscal_address': (row.fiscal_address or '').strip(),
+    }
+
+
+def _serialize_promoter_contact(row: PromoterContact | None) -> dict:
+    if not row:
+        return {}
+    return {
+        'id': str(row.id),
+        'title': (row.title or '').strip(),
+        'first_name': (row.first_name or '').strip(),
+        'last_name': (row.last_name or '').strip(),
+        'email': (row.email or '').strip(),
+        'phone': (row.phone or '').strip(),
+        'mobile': (row.mobile or '').strip(),
+    }
+
+
+def _contact_display_name(contact: PromoterContact | None) -> str:
+    if not contact:
+        return ''
+    return ' '.join([x for x in [(contact.first_name or '').strip(), (contact.last_name or '').strip()] if x]).strip()
+
+
+def _contact_share_text(contact: PromoterContact | None, promoter: Promoter | None = None) -> str:
+    if not contact:
+        return ''
+    lines = []
+    if promoter and getattr(promoter, 'nick', None):
+        lines.append(f'Tercero: {promoter.nick}')
+    if getattr(contact, 'title', None):
+        lines.append(f'Título: {contact.title}')
+    name = _contact_display_name(contact)
+    if name:
+        lines.append(f'Contacto: {name}')
+    if getattr(contact, 'email', None):
+        lines.append(f'Email: {contact.email}')
+    if getattr(contact, 'phone', None):
+        lines.append(f'Teléfono fijo: {contact.phone}')
+    if getattr(contact, 'mobile', None):
+        lines.append(f'Teléfono móvil: {contact.mobile}')
+    return '\n'.join(lines)
+
+
+def _smtp_enabled() -> bool:
+    return bool((os.getenv('SMTP_HOST') or '').strip())
+
+
+def _send_optional_email(to_email: str, subject: str, html_body: str, text_body: str | None = None) -> tuple[bool, str | None]:
+    to_email = (to_email or '').strip()
+    if not to_email:
+        return False, 'No se indicó email destino.'
+    host = (os.getenv('SMTP_HOST') or '').strip()
+    if not host:
+        return False, 'SMTP_HOST no configurado.'
+
+    port = int((os.getenv('SMTP_PORT') or '587').strip() or '587')
+    username = (os.getenv('SMTP_USERNAME') or '').strip()
+    password = (os.getenv('SMTP_PASSWORD') or '').strip()
+    sender = (os.getenv('SMTP_FROM_EMAIL') or username or '').strip()
+    sender_name = (os.getenv('SMTP_FROM_NAME') or 'Radio Spins App').strip()
+    use_ssl = _truthy(os.getenv('SMTP_SSL'))
+    use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
+
+    msg = EmailMessage()
+    msg['Subject'] = subject
+    msg['From'] = f'{sender_name} <{sender}>' if sender else sender_name
+    msg['To'] = to_email
+    msg.set_content(text_body or 'Este mensaje contiene una versión HTML del contenido.')
+    msg.add_alternative(html_body, subtype='html')
+
+    try:
+        if use_ssl:
+            with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(msg)
+        else:
+            with smtplib.SMTP(host, port, timeout=20) as smtp:
+                if use_tls:
+                    smtp.starttls()
+                if username:
+                    smtp.login(username, password)
+                smtp.send_message(msg)
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _external_url_for(endpoint: str, **values) -> str:
+    base = request.url_root.rstrip('/')
+    return base + url_for(endpoint, **values)
+
+
+def _parse_invitation_rows(form) -> list[dict]:
+    rows = []
+    cats = form.getlist('invitation_category[]')
+    artist_qtys = form.getlist('invitation_artist_qty[]')
+    office_qtys = form.getlist('invitation_office_qty[]')
+    for i, cat in enumerate(cats or []):
+        cat = (cat or '').strip()
+        if not cat:
+            continue
+        artist_qty = _parse_optional_positive_int((artist_qtys[i] if i < len(artist_qtys) else '') or '') or 0
+        office_qty = _parse_optional_positive_int((office_qtys[i] if i < len(office_qtys) else '') or '') or 0
+        rows.append({'category': cat, 'artist_qty': artist_qty, 'office_qty': office_qty, 'total_qty': artist_qty + office_qty})
+    return rows
+
+
+def _parse_payment_terms_rows(form) -> list[dict]:
+    rows = []
+    concepts = form.getlist('payment_concept[]')
+    amounts = form.getlist('payment_amount[]')
+    due_dates = form.getlist('payment_due_date[]')
+    cache_refs = form.getlist('payment_cache_ref[]')
+    for i, concept in enumerate(concepts or []):
+        concept = (concept or '').strip()
+        amount = _parse_optional_decimal(amounts[i] if i < len(amounts) else None)
+        due_date = parse_optional_date(due_dates[i] if i < len(due_dates) else None)
+        cache_ref = (cache_refs[i] if i < len(cache_refs) else '').strip() or None
+        if not concept and not amount and not due_date:
+            continue
+        rows.append({
+            'concept': concept or 'Pago',
+            'amount': float(amount or 0),
+            'due_date': due_date.isoformat() if due_date else None,
+            'cache_ref': cache_ref,
+        })
+    return rows
+
+
+def _parse_contract_sheet_form(form) -> dict:
+    payload = {
+        'gala_municipality': (form.get('gala_municipality') or '').strip(),
+        'gala_province': (form.get('gala_province') or '').strip(),
+        'gala_date': (form.get('gala_date') or '').strip(),
+        'gala_venue': (form.get('gala_venue') or '').strip(),
+        'gala_venue_address': (form.get('gala_venue_address') or '').strip(),
+        'gala_postal_code': (form.get('gala_postal_code') or '').strip(),
+        'gala_show_time': (form.get('gala_show_time') or '').strip(),
+        'gala_doors_time': (form.get('gala_doors_time') or '').strip(),
+        'gala_capacity': (form.get('gala_capacity') or '').strip(),
+        'company_legal_name': (form.get('company_legal_name') or '').strip(),
+        'company_tax_id': (form.get('company_tax_id') or '').strip(),
+        'company_address': (form.get('company_address') or '').strip(),
+        'company_municipality': (form.get('company_municipality') or '').strip(),
+        'company_province': (form.get('company_province') or '').strip(),
+        'company_postal_code': (form.get('company_postal_code') or '').strip(),
+        'company_representative': (form.get('company_representative') or '').strip(),
+        'company_representative_dni': (form.get('company_representative_dni') or '').strip(),
+        'company_email': (form.get('company_email') or '').strip(),
+        'company_phone': (form.get('company_phone') or '').strip(),
+        'local_legal_name': (form.get('local_legal_name') or '').strip(),
+        'local_tax_id': (form.get('local_tax_id') or '').strip(),
+        'local_address': (form.get('local_address') or '').strip(),
+        'local_municipality': (form.get('local_municipality') or '').strip(),
+        'local_province': (form.get('local_province') or '').strip(),
+        'local_postal_code': (form.get('local_postal_code') or '').strip(),
+        'local_representative': (form.get('local_representative') or '').strip(),
+        'local_representative_dni': (form.get('local_representative_dni') or '').strip(),
+        'local_email': (form.get('local_email') or '').strip(),
+        'local_phone': (form.get('local_phone') or '').strip(),
+        'technical_responsible': (form.get('technical_responsible') or '').strip(),
+        'technical_phone': (form.get('technical_phone') or '').strip(),
+        'technical_email': (form.get('technical_email') or '').strip(),
+        'technical_mobile': (form.get('technical_mobile') or '').strip(),
+        'economics_cache': (form.get('economics_cache') or '').strip(),
+        'economics_box_office_split': (form.get('economics_box_office_split') or '').strip(),
+        'economics_notes': (form.get('economics_notes') or '').strip(),
+        'show_format': (form.get('show_format') or '').strip(),
+        'show_duration': (form.get('show_duration') or '').strip(),
+        'show_notes': (form.get('show_notes') or '').strip(),
+        'show_types': [x for x in (form.getlist('show_types[]') or []) if (x or '').strip()],
+        'ticketing_has_mg': _truthy(form.get('ticketing_has_mg')),
+        'ticketing_points_of_sale': (form.get('ticketing_points_of_sale') or '').strip(),
+        'promotion_actions': (form.get('promotion_actions') or '').strip(),
+        'promotion_responsible': (form.get('promotion_responsible') or '').strip(),
+        'promotion_phone': (form.get('promotion_phone') or '').strip(),
+        'promotion_email': (form.get('promotion_email') or '').strip(),
+        'promotion_mobile': (form.get('promotion_mobile') or '').strip(),
+        'promotion_announcement_date': (form.get('promotion_announcement_date') or '').strip(),
+        'promotion_sale_date': (form.get('promotion_sale_date') or '').strip(),
+        'promotion_poster_logos': (form.get('promotion_poster_logos') or '').strip(),
+    }
+    ticket_types = []
+    tt_names = form.getlist('ticket_type_name[]')
+    tt_qtys = form.getlist('ticket_type_qty[]')
+    tt_amounts = form.getlist('ticket_type_amount[]')
+    invite_total = form.getlist('ticket_type_invites_total[]')
+    invite_artist = form.getlist('ticket_type_invites_artist[]')
+    for i, name in enumerate(tt_names or []):
+        name = (name or '').strip()
+        if not name:
+            continue
+        ticket_types.append({
+            'name': name,
+            'qty_for_sale': _parse_optional_positive_int((tt_qtys[i] if i < len(tt_qtys) else '') or '') or 0,
+            'amount': float(_parse_optional_decimal(tt_amounts[i] if i < len(tt_amounts) else None) or 0),
+            'invites_total': _parse_optional_positive_int((invite_total[i] if i < len(invite_total) else '') or '') or 0,
+            'invites_artist': _parse_optional_positive_int((invite_artist[i] if i < len(invite_artist) else '') or '') or 0,
+        })
+    payload['ticket_types'] = ticket_types
+    return payload
+
+
+def _sheet_merge_candidates(data: dict) -> dict:
+    return {
+        'date': (data.get('gala_date') or '').strip() or None,
+        'manual_municipality': (data.get('gala_municipality') or '').strip() or None,
+        'manual_province': (data.get('gala_province') or '').strip() or None,
+        'manual_venue_name': (data.get('gala_venue') or '').strip() or None,
+        'manual_venue_address': (data.get('gala_venue_address') or '').strip() or None,
+        'manual_postal_code': (data.get('gala_postal_code') or '').strip() or None,
+        'show_time': (data.get('gala_show_time') or '').strip() or None,
+        'doors_time': (data.get('gala_doors_time') or '').strip() or None,
+        'capacity': (data.get('gala_capacity') or '').strip() or None,
+        'announcement_date': (data.get('promotion_announcement_date') or '').strip() or None,
+        'sale_start_date': (data.get('promotion_sale_date') or '').strip() or None,
+    }
+
+
+def _prepare_contract_sheet_merge(concert: Concert, data: dict) -> tuple[list[dict], list[dict]]:
+    auto_updates = []
+    conflicts = []
+    candidates = _sheet_merge_candidates(data or {})
+    current_values = {
+        'date': concert.date.isoformat() if getattr(concert, 'date', None) else None,
+        'manual_municipality': _concert_city(concert) or None,
+        'manual_province': _concert_province_value(concert) or None,
+        'manual_venue_name': _concert_venue_name(concert) or None,
+        'manual_venue_address': _concert_venue_address(concert) or None,
+        'manual_postal_code': (getattr(concert, 'manual_postal_code', None) or '').strip() or None,
+        'show_time': (getattr(concert, 'show_time', None) or '').strip() or None,
+        'doors_time': (getattr(concert, 'doors_time', None) or '').strip() or None,
+        'capacity': str(getattr(concert, 'capacity', None)) if getattr(concert, 'capacity', None) is not None else None,
+        'announcement_date': concert.announcement_date.isoformat() if getattr(concert, 'announcement_date', None) else None,
+        'sale_start_date': concert.sale_start_date.isoformat() if getattr(concert, 'sale_start_date', None) else None,
+    }
+    labels = {
+        'date': 'Fecha',
+        'manual_municipality': 'Municipio',
+        'manual_province': 'Provincia',
+        'manual_venue_name': 'Recinto',
+        'manual_venue_address': 'Dirección recinto',
+        'manual_postal_code': 'Código postal',
+        'show_time': 'Hora del show',
+        'doors_time': 'Hora apertura puertas',
+        'capacity': 'Aforo',
+        'announcement_date': 'Fecha de anuncio',
+        'sale_start_date': 'Fecha salida a la venta',
+    }
+    for field, new_value in candidates.items():
+        if new_value in (None, ''):
+            continue
+        current_value = current_values.get(field)
+        if current_value in (None, ''):
+            auto_updates.append({'field': field, 'label': labels.get(field, field), 'value': new_value})
+        elif str(current_value).strip() != str(new_value).strip():
+            conflicts.append({'field': field, 'label': labels.get(field, field), 'current': current_value, 'incoming': new_value})
+    return auto_updates, conflicts
+
+
+def _apply_contract_sheet_merge(concert: Concert, updates: list[dict], decisions: dict[str, str] | None = None):
+    decisions = decisions or {}
+    applied = []
+    for item in updates or []:
+        field = item['field']
+        value = item['value']
+        if decisions.get(field, 'replace') == 'keep':
+            continue
+        if field in ('date', 'announcement_date', 'sale_start_date') and value:
+            try:
+                value = parse_date(value)
+            except Exception:
+                continue
+        elif field == 'capacity':
+            try:
+                value = max(0, int(value))
+            except Exception:
+                continue
+        setattr(concert, field, value)
+        if field == 'show_time' and value:
+            concert.show_time_tbc = False
+        if field == 'doors_time' and value:
+            concert.doors_time_tbc = False
+        if field == 'sale_start_date' and value:
+            concert.sale_start_tbc = False
+        if field == 'capacity' and value is not None:
+            concert.no_capacity = False
+        if field == 'announcement_date' and value:
+            concert.do_not_announce = False
+        applied.append(item['label'])
+    if any(x['field'] in ('manual_venue_name', 'manual_venue_address', 'manual_municipality', 'manual_province') for x in (updates or [])):
+        concert.venue_id = None
+    return applied
+
+
+def _build_similarity_payload(rows, key_getter, label_getter, extra_getter=None, threshold: float = 0.72):
+    out = []
+    seen = set()
+    for row in rows or []:
+        key = key_getter(row)
+        score = _similarity_score(key, label_getter({'query': key}) if isinstance(label_getter, dict) else None)
+        score = score  # placeholder to keep signature compatibility if ever reused
+    return out
+
+
+def _build_similarity_rows(query: str, rows: list[dict], threshold: float = 0.72) -> list[dict]:
+    query = (query or '').strip()
+    out = []
+    seen = set()
+    for row in rows or []:
+        label = (row.get('label') or '').strip()
+        score = _similarity_score(query, label)
+        if score < threshold:
+            continue
+        rid = row.get('id')
+        if rid in seen:
+            continue
+        seen.add(rid)
+        row = dict(row)
+        row['score'] = round(score, 4)
+        out.append(row)
+    out.sort(key=lambda x: (-x.get('score', 0), x.get('label') or ''))
+    return out[:5]
 
 
 def _sale_type_label(value: str | None) -> str:
@@ -1462,7 +1914,7 @@ def stations_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         name = request.form.get("name", "").strip()
@@ -5633,7 +6085,7 @@ def songs_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         title = request.form.get("title", "").strip()
@@ -6079,7 +6531,7 @@ def promoters_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         nick = request.form.get("nick","").strip()
@@ -6111,23 +6563,30 @@ def promoters_view():
 def promoter_update(pid):
     session = db()
     p = session.get(Promoter, to_uuid(pid))
+    next_url = (request.form.get("next") or "").strip() or url_for("promoters_view")
     if not p:
         flash("Promotor no encontrado.", "warning")
         session.close()
-        return redirect(url_for("promoters_view"))
+        return redirect(next_url)
     p.nick = request.form.get("nick", p.nick).strip()
+    p.tax_id = (request.form.get("tax_id") or p.tax_id or "").strip() or None
+    p.contact_email = (request.form.get("contact_email") or p.contact_email or "").strip() or None
+    p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
             p.logo_url = upload_image(logo, "promoters")
         session.commit()
-        flash("Promotor actualizado.", "success")
+        flash("Tercero actualizado.", "success")
     except Exception as e:
         session.rollback()
         flash(f"Error actualizando: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("promoters_view"))
+    return redirect(next_url)
+
+@app.post("/promotores/<pid>/delete")
+
 
 @app.post("/promotores/<pid>/delete")
 @admin_required
@@ -6164,7 +6623,7 @@ def venues_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         name = request.form.get("name","").strip()
@@ -6358,6 +6817,8 @@ def api_create_ticketer():
 # -------------- CONCIERTOS --------------
 
 from decimal import Decimal, InvalidOperation
+from email.message import EmailMessage
+from difflib import SequenceMatcher
 from collections import defaultdict
 
 
@@ -6389,12 +6850,14 @@ def _parse_optional_int(value: str | None, *, min_v: int | None = None, max_v: i
 
 
 def _norm_base(val: str | None) -> str | None:
-    """Normaliza base a GROSS/NET. Vacío -> None."""
+    """Normaliza base a GROSS/NET/PROFIT. Vacío -> None."""
     v = (val or "").strip().upper()
     if not v:
         return None
     if v in ("NET", "NETO"):
         return "NET"
+    if v in ("PROFIT", "BENEFIT", "BENEFICIO", "EMPRESA"):
+        return "PROFIT"
     if v in ("GROSS", "BRUTO"):
         return "GROSS"
     # fallback
@@ -6403,7 +6866,7 @@ def _norm_base(val: str | None) -> str | None:
 
 def _norm_status(val: str | None) -> str:
     v = (val or "").strip().upper()
-    if v in ("CONFIRMADO", "RESERVADO", "HABLADO"):
+    if v in ("BORRADOR", "CONFIRMADO", "RESERVADO", "HABLADO"):
         return v
     return "HABLADO"
 
@@ -6442,10 +6905,13 @@ def _replace_concert_promoter_shares(session, concert_id, rows):
     session.query(ConcertPromoterShare).filter_by(concert_id=concert_id).delete(synchronize_session=False)
     session.flush()
     for r in rows:
+        promoter_id = to_uuid(r["id"])
+        promoter_company_id = to_uuid(r.get("company_id") or None)
         session.add(
             ConcertPromoterShare(
                 concert_id=concert_id,
-                promoter_id=to_uuid(r["id"]),
+                promoter_id=promoter_id,
+                promoter_company_id=promoter_company_id,
                 pct=r["pct"],
                 pct_base=r["pct_base"],
                 amount=r["amount"],
@@ -6536,6 +7002,7 @@ def _replace_concert_zone_agents(session, concert_id, rows):
             ConcertZoneAgent(
                 concert_id=concert_id,
                 promoter_id=to_uuid(r["id"]),
+                promoter_company_id=to_uuid(r.get("company_id") or None),
                 commission_type=r["commission_type"],
                 commission_pct=r["commission_pct"],
                 commission_base=r["commission_base"],
@@ -6827,7 +7294,7 @@ def concerts_page():
     try:
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         venues = s.query(Venue).order_by(Venue.name.asc()).all()
-        promoters = s.query(Promoter).order_by(Promoter.nick.asc()).all()
+        promoters = s.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         all_concert_tags = _collect_all_concert_tags(s)
         type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
@@ -6843,6 +7310,7 @@ def concerts_page():
         f_sale_types_raw = request.args.getlist("type") or []
         f_statuses_raw = request.args.getlist("status") or []
         f_when_raw = request.args.getlist("when") or []
+        f_announcements_raw = request.args.getlist('announcement') or []
         f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
 
         f_artist_ids = []
@@ -6857,6 +7325,7 @@ def concerts_page():
 
         f_sale_types = [(x or "").strip().upper() for x in f_sale_types_raw if (x or "").strip()]
         f_statuses = [(x or "").strip().upper() for x in f_statuses_raw if (x or "").strip()]
+        f_announcements = [(x or '').strip().upper() for x in f_announcements_raw if (x or '').strip()]
 
         f_when = {(x or "").strip().upper() for x in f_when_raw if (x or "").strip()}
         allowed_when = {"PAST", "FUTURE"}
@@ -6865,10 +7334,12 @@ def concerts_page():
             f_when = {"FUTURE"}
 
         allowed_sale_types = CONCERT_SALE_TYPES_ALL_SET
-        allowed_statuses = {"HABLADO", "RESERVADO", "CONFIRMADO"}
+        allowed_statuses = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
+        allowed_announcements = {'NO_ANNOUNCE', 'UPCOMING', 'ANNOUNCED', 'NONE'}
 
         f_sale_types = [x for x in f_sale_types if x in allowed_sale_types]
         f_statuses = [x for x in f_statuses if x in allowed_statuses]
+        f_announcements = [x for x in f_announcements if x in allowed_announcements]
 
         if request.method == "POST":
             try:
@@ -6976,13 +7447,17 @@ def concerts_page():
                 joinedload(Concert.artist),
                 joinedload(Concert.venue),
                 joinedload(Concert.promoter),
+                joinedload(Concert.promoter_company),
                 joinedload(Concert.group_company),
                 joinedload(Concert.billing_company),
                 selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter_company),
                 selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
                 selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter_company),
                 selectinload(Concert.caches),
                 selectinload(Concert.contracts),
+                selectinload(Concert.contract_sheet),
                 selectinload(Concert.notes),
                 selectinload(Concert.equipment),
                 selectinload(Concert.equipment_documents),
@@ -7009,10 +7484,17 @@ def concerts_page():
         concerts = q.order_by(Concert.date.asc()).all()
         if f_concert_tags:
             concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
+        if f_announcements:
+            concerts = [c for c in concerts if _announcement_state(c, today) in f_announcements]
 
         for c in concerts:
             setattr(c, "tags_clean", _concert_tags(c))
             setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
+            setattr(c, 'announcement_badge', _announcement_badge(c, today))
+            setattr(c, 'announcement_state', _announcement_state(c, today))
+            setattr(c, 'contract_sheet_badge', _contract_sheet_badge(getattr(c, 'contract_sheet', None)))
+            setattr(c, 'contract_sheet_status', _contract_sheet_status(getattr(c, 'contract_sheet', None)))
+            setattr(c, 'location_summary', _concert_location_summary(c))
 
         sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
@@ -7021,12 +7503,23 @@ def concerts_page():
         for k in sections:
             sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
+        promoters_payload = [
+            {
+                'id': str(p.id),
+                'nick': (p.nick or '').strip(),
+                'logo_url': (p.logo_url or '').strip(),
+                'companies': [_serialize_promoter_company(x) for x in (p.companies or [])],
+            }
+            for p in promoters
+        ]
+
         return render_template(
             "concerts.html",
             active_tab=active_tab,
             artists=artists,
             venues=venues,
             promoters=promoters,
+            promoters_payload=promoters_payload,
             companies=companies,
             concerts=concerts,
             sections=sections,
@@ -7039,6 +7532,7 @@ def concerts_page():
             f_sale_types=f_sale_types,
             f_statuses=f_statuses,
             f_when=sorted(list(f_when)),
+            f_announcements=f_announcements,
         )
     finally:
         s.close()
@@ -7058,13 +7552,17 @@ def concert_detail_view(cid):
                 joinedload(Concert.artist),
                 joinedload(Concert.venue),
                 joinedload(Concert.promoter),
+                joinedload(Concert.promoter_company),
                 joinedload(Concert.group_company),
                 joinedload(Concert.billing_company),
                 selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
+                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter_company),
                 selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
                 selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
+                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter_company),
                 selectinload(Concert.caches),
                 selectinload(Concert.contracts),
+                selectinload(Concert.contract_sheet),
                 selectinload(Concert.notes),
                 selectinload(Concert.equipment),
                 selectinload(Concert.equipment_documents),
@@ -7099,8 +7597,20 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general"}:
+        if tab not in {"general", "invitations", "ficha"}:
             tab = "general"
+
+        sheet = c.contract_sheet
+        contract_sheet_data = _contract_sheet_prefill(c, sheet) if sheet else {}
+        contract_sheet_sections = _contract_sheet_sections(contract_sheet_data) if sheet else []
+        invitation_rows = list(getattr(c, 'invitations_json', None) or [])
+        invitation_totals = {
+            'artist': sum(int(x.get('artist_qty') or 0) for x in invitation_rows),
+            'office': sum(int(x.get('office_qty') or 0) for x in invitation_rows),
+        }
+        invitation_totals['total'] = invitation_totals['artist'] + invitation_totals['office']
+        payment_terms = list(getattr(c, 'payment_terms_json', None) or [])
+        payment_pending = sum(float(x.get('amount') or 0) for x in payment_terms)
 
         return render_template(
             "concert_detail.html",
@@ -7117,9 +7627,20 @@ def concert_detail_view(cid):
             last_sales_day=last_map.get(c.id),
             net_breakdown=net_breakdown,
             sale_type_label=_sale_type_label(c.sale_type),
+            announcement_badge=_announcement_badge(c, today),
+            contract_sheet_badge=_contract_sheet_badge(sheet),
+            contract_sheet_status=_contract_sheet_status(sheet),
+            contract_sheet_data=contract_sheet_data,
+            contract_sheet_sections=contract_sheet_sections,
+            invitation_rows=invitation_rows,
+            invitation_totals=invitation_totals,
+            payment_terms=payment_terms,
+            payment_pending=payment_pending,
+            location_summary=_concert_location_summary(c),
         )
     finally:
         session.close()
+
 
 
 # ---------- EDITAR (vista dedicada) ----------
@@ -7349,6 +7870,8 @@ def api_create_venue():
 
         municipality = (payload.get("municipality") or "").strip() or None
         province = (payload.get("province") or "").strip() or None
+        address = (payload.get("address") or "").strip() or None
+        force_new = _truthy(payload.get("force_new"))
 
         covered_value = payload.get("covered")
         if isinstance(covered_value, bool):
@@ -7356,10 +7879,28 @@ def api_create_venue():
         else:
             covered = str(covered_value or "").strip().lower() in ("1", "true", "yes", "on", "si", "sí")
 
+        rows = []
+        for row in session_db.query(Venue).order_by(Venue.name.asc()).all():
+            label = (row.name or '').strip()
+            if row.municipality or row.province:
+                label = f"{label} — {(row.municipality or '').strip()} ({(row.province or '').strip()})".strip()
+            rows.append({"id": str(row.id), "label": label, "name": (row.name or '').strip()})
+
+        exact = None
+        for row in session_db.query(Venue).all():
+            if _norm_text_key(row.name or '') == _norm_text_key(name) and (_norm_text_key(row.municipality or '') == _norm_text_key(municipality or '') or not municipality):
+                exact = row
+                break
+        similar = _build_similarity_rows(name, rows, threshold=0.76)
+        if exact and not force_new:
+            similar = [{"id": str(exact.id), "label": f"{(exact.name or '').strip()} — {(exact.municipality or '').strip()} ({(exact.province or '').strip()})".strip(), "score": 1.0}]
+        if similar and not force_new:
+            return jsonify({"error": "Parece que ya existe un recinto similar.", "similar": similar}), 409
+
         v = Venue(
             name=name,
             covered=covered,
-            address=(payload.get("address") or "").strip() or None,
+            address=address,
             municipality=municipality,
             province=province,
         )
@@ -7382,7 +7923,7 @@ def api_create_venue():
             "municipality": mun,
             "province": prov,
             "label": text_label,
-            "text": text_label,   # ✅ CLAVE para Select2
+            "text": text_label,
         })
 
     except Exception as e:
@@ -7391,6 +7932,9 @@ def api_create_venue():
 
     finally:
         session_db.close()
+
+@app.post("/api/promoters/create", endpoint="api_create_promoter")
+
 
 
 
@@ -7402,6 +7946,21 @@ def api_create_promoter():
         nick = (request.form.get("nick") or "").strip()
         if not nick:
             return jsonify({"error": "El nombre del tercero es obligatorio."}), 400
+
+        force_new = _truthy(request.form.get("force_new"))
+        rows = []
+        for row in session.query(Promoter).order_by(Promoter.nick.asc()).all():
+            rows.append({
+                "id": str(row.id),
+                "label": (row.nick or '').strip(),
+                "logo_url": (row.logo_url or '').strip(),
+            })
+        similar = _build_similarity_rows(nick, rows, threshold=0.76)
+        exact = session.query(Promoter).filter(func.lower(Promoter.nick) == nick.lower()).first()
+        if exact and not force_new:
+            similar = [{"id": str(exact.id), "label": (exact.nick or '').strip(), "score": 1.0, "logo_url": (exact.logo_url or '').strip()}]
+        if similar and not force_new:
+            return jsonify({"error": "Ya existe un tercero similar.", "similar": similar}), 409
 
         logo = request.files.get("logo") or request.files.get("photo")
         logo_url = upload_image(logo, "promoters") if logo and getattr(logo, "filename", "") else None
@@ -7425,6 +7984,7 @@ def api_create_promoter():
                 "tax_id": (p.tax_id or ""),
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
+                "companies": [],
             }
         )
 
@@ -7435,13 +7995,21 @@ def api_create_promoter():
     finally:
         session.close()
 
+@app.get("/api/promoters/<promoter_id>", endpoint="api_promoter_detail")
+
+
 
 @app.get("/api/promoters/<promoter_id>", endpoint="api_promoter_detail")
 @admin_required
 def api_promoter_detail(promoter_id):
     session_db = db()
     try:
-        p = session_db.get(Promoter, to_uuid(promoter_id))
+        p = (
+            session_db.query(Promoter)
+            .options(selectinload(Promoter.companies), selectinload(Promoter.contacts))
+            .filter(Promoter.id == to_uuid(promoter_id))
+            .first()
+        )
         if not p:
             return jsonify({"error": "not found"}), 404
         pub = None
@@ -7458,9 +8026,14 @@ def api_promoter_detail(promoter_id):
             "publishing_company_id": str(pub.id) if pub else "",
             "publishing_company_name": (pub.name or "") if pub else "",
             "logo_url": (p.logo_url or ""),
+            "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
+            "contacts": [_serialize_promoter_contact(x) for x in (p.contacts or [])],
         })
     finally:
         session_db.close()
+
+@app.get("/api/search/publishing_companies", endpoint="api_search_publishing_companies")
+
 
 
 @app.get("/api/search/publishing_companies", endpoint="api_search_publishing_companies")
@@ -7560,13 +8133,24 @@ def api_create_artist():
         if not name:
             return jsonify({"error": "El nombre del artista es obligatorio."}), 400
 
+        force_new = _truthy(request.form.get("force_new"))
+        rows = []
+        for row in session.query(Artist).order_by(Artist.name.asc()).all():
+            rows.append({"id": str(row.id), "label": (row.name or '').strip(), "photo_url": (row.photo_url or '').strip()})
+        exact = session.query(Artist).filter(func.lower(Artist.name) == name.lower()).first()
+        similar = _build_similarity_rows(name, rows, threshold=0.78)
+        if exact and not force_new:
+            similar = [{"id": str(exact.id), "label": (exact.name or '').strip(), "score": 1.0, "photo_url": (exact.photo_url or '').strip()}]
+        if similar and not force_new:
+            return jsonify({"error": "Ya existe un artista similar.", "similar": similar}), 409
+
         photo = request.files.get("photo")
         photo_url = upload_png(photo, "artists") if photo and getattr(photo, "filename", "") else None
 
         a = Artist(name=name, photo_url=photo_url)
         session.add(a)
         session.commit()
-        return jsonify({"id": str(a.id), "label": a.name, "photo_url": a.photo_url})
+        return jsonify({"id": str(a.id), "label": a.name, "text": a.name, "name": a.name, "photo_url": a.photo_url})
 
     except Exception as e:
         session.rollback()
@@ -7574,6 +8158,9 @@ def api_create_artist():
 
     finally:
         session.close()
+
+# ----------- API: cambio rápido de estado (vista conciertos) -----------
+
 
 
 # ----------- API: cambio rápido de estado (vista conciertos) -----------
@@ -7731,7 +8318,7 @@ def companies_view():
 
     # sanitizar
     f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("HABLADO", "RESERVADO", "CONFIRMADO")]
+    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
 
     if request.method == "POST":
         name = request.form.get("name","").strip()
@@ -10606,10 +11193,13 @@ def api_search_venues():
 
 @app.get("/api/search/promoters", endpoint="api_search_promoters")
 def api_search_promoters():
-    q = (request.args.get("q") or "").strip()
+    q = (request.args.get("q") or request.args.get("term") or "").strip()
     session = db()
     try:
-        query = session.query(Promoter).options(joinedload(Promoter.publishing_company))
+        query = session.query(Promoter).options(
+            joinedload(Promoter.publishing_company),
+            selectinload(Promoter.companies),
+        )
         if q:
             like = f"%{q}%"
             query = query.filter(
@@ -10618,6 +11208,15 @@ def api_search_promoters():
                 | (Promoter.last_name.ilike(like))
                 | (Promoter.contact_email.ilike(like))
                 | (Promoter.contact_phone.ilike(like))
+                | Promoter.id.in_(
+                    session.query(PromoterCompany.promoter_id).filter(
+                        or_(
+                            PromoterCompany.legal_name.ilike(like),
+                            PromoterCompany.tax_id.ilike(like),
+                            PromoterCompany.fiscal_address.ilike(like),
+                        )
+                    )
+                )
             )
         promoters = query.order_by(Promoter.nick.asc()).limit(20).all()
 
@@ -10627,14 +11226,12 @@ def api_search_promoters():
             last_name = (p.last_name or "").strip()
             full_name = " ".join([x for x in [first_name, last_name] if x]).strip()
             nick = (p.nick or "").strip()
-            label = full_name or nick or (p.contact_email or "").strip() or (p.contact_phone or "").strip() or "Sin nombre"
-            if full_name and nick and nick.lower() != full_name.lower():
-                label = f"{full_name} — {nick}"
-
+            label = nick or full_name or (p.contact_email or "").strip() or (p.contact_phone or "").strip() or "Sin nombre"
             pub = p.publishing_company
             out.append({
                 "id": str(p.id),
                 "label": label,
+                "text": label,
                 "nick": nick,
                 "first_name": first_name,
                 "last_name": last_name,
@@ -10642,10 +11239,916 @@ def api_search_promoters():
                 "contact_phone": (p.contact_phone or "").strip(),
                 "publishing_company_id": str(pub.id) if pub else "",
                 "publishing_company_name": (pub.name or "") if pub else "",
+                "logo_url": (p.logo_url or ""),
+                "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
             })
         return jsonify(out)
     finally:
         session.close()
+
+
+
+def _parse_hashtag_text(raw: str | None) -> list[str]:
+    raw = (raw or '').replace('\n', ',').replace(';', ',')
+    parts = []
+    for chunk in raw.split(','):
+        chunk = (chunk or '').strip()
+        if not chunk:
+            continue
+        if ' ' in chunk and chunk.count('#') <= 1 and ',' not in chunk:
+            parts.extend([x for x in chunk.split() if x.strip()])
+        else:
+            parts.append(chunk)
+    return _dedupe_concert_tags(parts)
+
+
+def _contract_sheet_prefill(concert: Concert, sheet: ConcertContractSheet | None = None) -> dict:
+    payload = dict(getattr(sheet, 'request_payload', {}) or {})
+    data = dict(getattr(sheet, 'data', {}) or {})
+    merged = {**payload, **data}
+    if not merged.get('gala_date') and getattr(concert, 'date', None):
+        merged['gala_date'] = concert.date.isoformat()
+    if not merged.get('gala_municipality'):
+        merged['gala_municipality'] = _concert_city(concert)
+    if not merged.get('gala_province'):
+        merged['gala_province'] = _concert_province_value(concert)
+    if not merged.get('gala_venue'):
+        merged['gala_venue'] = _concert_venue_name(concert)
+    if not merged.get('gala_venue_address'):
+        merged['gala_venue_address'] = _concert_venue_address(concert)
+    if not merged.get('gala_postal_code'):
+        merged['gala_postal_code'] = (getattr(concert, 'manual_postal_code', None) or '').strip()
+    if not merged.get('gala_show_time'):
+        merged['gala_show_time'] = (getattr(concert, 'show_time', None) or '').strip()
+    if not merged.get('gala_doors_time'):
+        merged['gala_doors_time'] = (getattr(concert, 'doors_time', None) or '').strip()
+    if not merged.get('gala_capacity') and getattr(concert, 'capacity', None):
+        merged['gala_capacity'] = str(concert.capacity)
+    if not merged.get('promotion_announcement_date') and getattr(concert, 'announcement_date', None):
+        merged['promotion_announcement_date'] = concert.announcement_date.isoformat()
+    if not merged.get('promotion_sale_date') and getattr(concert, 'sale_start_date', None):
+        merged['promotion_sale_date'] = concert.sale_start_date.isoformat()
+    if 'ticket_types' not in merged:
+        merged['ticket_types'] = []
+    return merged
+
+
+def _contract_sheet_sections(data: dict | None) -> list[dict]:
+    data = data or {}
+    tickets = data.get('ticket_types') or []
+    total_sale = sum(int(x.get('qty_for_sale') or 0) for x in tickets)
+    total_invites = sum(int(x.get('invites_total') or 0) for x in tickets)
+    total_artist = sum(int(x.get('invites_artist') or 0) for x in tickets)
+    return [
+        {
+            'title': 'Datos de la gala',
+            'rows': [
+                ('Municipio', data.get('gala_municipality')),
+                ('Provincia', data.get('gala_province')),
+                ('Fecha', data.get('gala_date')),
+                ('Recinto', data.get('gala_venue')),
+                ('Dirección del recinto', data.get('gala_venue_address')),
+                ('Código postal', data.get('gala_postal_code')),
+                ('Hora del show', data.get('gala_show_time')),
+                ('Hora apertura de puertas', data.get('gala_doors_time')),
+                ('Aforo', data.get('gala_capacity')),
+            ],
+        },
+        {
+            'title': 'Datos de la empresa',
+            'rows': [
+                ('Razón social', data.get('company_legal_name')),
+                ('CIF', data.get('company_tax_id')),
+                ('Dirección', data.get('company_address')),
+                ('Municipio', data.get('company_municipality')),
+                ('Provincia', data.get('company_province')),
+                ('Código postal', data.get('company_postal_code')),
+                ('Representante', data.get('company_representative')),
+                ('DNI representante', data.get('company_representative_dni')),
+                ('Email', data.get('company_email')),
+                ('Teléfono', data.get('company_phone')),
+            ],
+        },
+        {
+            'title': 'Datos de producción local',
+            'rows': [
+                ('Razón social', data.get('local_legal_name')),
+                ('CIF', data.get('local_tax_id')),
+                ('Dirección', data.get('local_address')),
+                ('Municipio', data.get('local_municipality')),
+                ('Provincia', data.get('local_province')),
+                ('Código postal', data.get('local_postal_code')),
+                ('Representante', data.get('local_representative')),
+                ('DNI representante', data.get('local_representative_dni')),
+                ('Email', data.get('local_email')),
+                ('Teléfono', data.get('local_phone')),
+            ],
+        },
+        {
+            'title': 'Datos producción técnica',
+            'rows': [
+                ('Responsable', data.get('technical_responsible')),
+                ('Teléfono', data.get('technical_phone')),
+                ('Email', data.get('technical_email')),
+                ('Móvil', data.get('technical_mobile')),
+            ],
+        },
+        {
+            'title': 'Datos económicos',
+            'rows': [
+                ('Caché', data.get('economics_cache')),
+                ('Reparto de taquilla', data.get('economics_box_office_split')),
+                ('Observaciones', data.get('economics_notes')),
+            ],
+        },
+        {
+            'title': 'Datos del show',
+            'rows': [
+                ('Formato', data.get('show_format')),
+                ('Tipo de concierto', ', '.join(data.get('show_types') or [])),
+                ('Duración', data.get('show_duration')),
+                ('Observaciones', data.get('show_notes')),
+            ],
+        },
+        {
+            'title': 'Promoción',
+            'rows': [
+                ('Acciones', data.get('promotion_actions')),
+                ('Responsable de promoción', data.get('promotion_responsible')),
+                ('Teléfono', data.get('promotion_phone')),
+                ('Email', data.get('promotion_email')),
+                ('Móvil', data.get('promotion_mobile')),
+                ('Fecha de anuncio', data.get('promotion_announcement_date')),
+                ('Fecha salida a la venta', data.get('promotion_sale_date')),
+                ('Logotipos en cartel', data.get('promotion_poster_logos')),
+            ],
+        },
+        {
+            'title': 'Datos de ticketing',
+            'rows': [
+                ('¿Hay M&G?', 'Sí' if _truthy(data.get('ticketing_has_mg')) else 'No'),
+                ('Puntos de venta', data.get('ticketing_points_of_sale')),
+                ('Entradas a la venta (total)', total_sale or None),
+                ('Invitaciones totales', total_invites or None),
+                ('Invitaciones para artista', total_artist or None),
+            ],
+            'ticket_rows': tickets,
+        },
+    ]
+
+
+@app.get('/promotores/<pid>', endpoint='promoter_detail_view')
+@admin_required
+def promoter_detail_view(pid):
+    session = db()
+    try:
+        promoter = (
+            session.query(Promoter)
+            .options(selectinload(Promoter.companies), selectinload(Promoter.contacts))
+            .filter(Promoter.id == to_uuid(pid))
+            .first()
+        )
+        if not promoter:
+            flash('Tercero no encontrado.', 'warning')
+            return redirect(url_for('promoters_view'))
+        tab = (request.args.get('tab') or 'general').strip().lower()
+        if tab not in {'general', 'contactos'}:
+            tab = 'general'
+        grouped = defaultdict(list)
+        for contact in promoter.contacts or []:
+            key = (contact.title or 'Sin título').strip() or 'Sin título'
+            grouped[key].append(contact)
+        return render_template(
+            'promoter_detail.html',
+            promoter=promoter,
+            tab=tab,
+            contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
+        )
+    finally:
+        session.close()
+
+
+@app.post('/promotores/<pid>/sociedades/create', endpoint='promoter_company_create')
+@admin_required
+def promoter_company_create(pid):
+    session = db()
+    try:
+        promoter = session.get(Promoter, to_uuid(pid))
+        if not promoter:
+            flash('Tercero no encontrado.', 'warning')
+            return redirect(url_for('promoters_view'))
+        legal_name = (request.form.get('legal_name') or '').strip()
+        if not legal_name:
+            flash('Debes indicar el nombre social.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        company = PromoterCompany(
+            promoter_id=promoter.id,
+            legal_name=legal_name,
+            tax_id=(request.form.get('tax_id') or '').strip() or None,
+            fiscal_address=(request.form.get('fiscal_address') or '').strip() or None,
+        )
+        session.add(company)
+        session.commit()
+        flash('Sociedad añadida.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error creando sociedad: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+
+
+@app.post('/promotores/<pid>/sociedades/<company_id>/update', endpoint='promoter_company_update')
+@admin_required
+def promoter_company_update(pid, company_id):
+    session = db()
+    try:
+        company = session.get(PromoterCompany, to_uuid(company_id))
+        if not company or str(company.promoter_id) != str(pid):
+            flash('Sociedad no encontrada.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        company.legal_name = (request.form.get('legal_name') or company.legal_name or '').strip()
+        company.tax_id = (request.form.get('tax_id') or '').strip() or None
+        company.fiscal_address = (request.form.get('fiscal_address') or '').strip() or None
+        company.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session.commit()
+        flash('Sociedad actualizada.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error actualizando sociedad: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+
+
+@app.post('/promotores/<pid>/sociedades/<company_id>/delete', endpoint='promoter_company_delete')
+@admin_required
+def promoter_company_delete(pid, company_id):
+    session = db()
+    try:
+        company = session.get(PromoterCompany, to_uuid(company_id))
+        if company and str(company.promoter_id) == str(pid):
+            session.delete(company)
+            session.commit()
+            flash('Sociedad eliminada.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error eliminando sociedad: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+
+
+@app.post('/promotores/<pid>/contactos/create', endpoint='promoter_contact_create')
+@admin_required
+def promoter_contact_create(pid):
+    session = db()
+    try:
+        promoter = session.get(Promoter, to_uuid(pid))
+        if not promoter:
+            flash('Tercero no encontrado.', 'warning')
+            return redirect(url_for('promoters_view'))
+        title = (request.form.get('title') or '').strip()
+        first_name = (request.form.get('first_name') or '').strip()
+        if not title or not first_name:
+            flash('Título y nombre son obligatorios.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
+        contact = PromoterContact(
+            promoter_id=promoter.id,
+            title=title,
+            first_name=first_name,
+            last_name=(request.form.get('last_name') or '').strip() or None,
+            email=(request.form.get('email') or '').strip() or None,
+            phone=(request.form.get('phone') or '').strip() or None,
+            mobile=(request.form.get('mobile') or '').strip() or None,
+        )
+        session.add(contact)
+        session.commit()
+        flash('Contacto añadido.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error creando contacto: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
+
+
+@app.post('/promotores/<pid>/contactos/<contact_id>/update', endpoint='promoter_contact_update')
+@admin_required
+def promoter_contact_update(pid, contact_id):
+    session = db()
+    try:
+        contact = session.get(PromoterContact, to_uuid(contact_id))
+        if not contact or str(contact.promoter_id) != str(pid):
+            flash('Contacto no encontrado.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
+        contact.title = (request.form.get('title') or contact.title or '').strip()
+        contact.first_name = (request.form.get('first_name') or contact.first_name or '').strip()
+        contact.last_name = (request.form.get('last_name') or '').strip() or None
+        contact.email = (request.form.get('email') or '').strip() or None
+        contact.phone = (request.form.get('phone') or '').strip() or None
+        contact.mobile = (request.form.get('mobile') or '').strip() or None
+        contact.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+        session.commit()
+        flash('Contacto actualizado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error actualizando contacto: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
+
+
+@app.post('/promotores/<pid>/contactos/<contact_id>/delete', endpoint='promoter_contact_delete')
+@admin_required
+def promoter_contact_delete(pid, contact_id):
+    session = db()
+    try:
+        contact = session.get(PromoterContact, to_uuid(contact_id))
+        if contact and str(contact.promoter_id) == str(pid):
+            session.delete(contact)
+            session.commit()
+            flash('Contacto eliminado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error eliminando contacto: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='contactos'))
+
+
+@app.get('/promotores/contactos/<contact_id>/share/<channel>', endpoint='promoter_contact_share')
+@admin_required
+def promoter_contact_share(contact_id, channel):
+    session = db()
+    try:
+        contact = session.get(PromoterContact, to_uuid(contact_id))
+        if not contact:
+            flash('Contacto no encontrado.', 'warning')
+            return redirect(url_for('promoters_view'))
+        promoter = session.get(Promoter, contact.promoter_id)
+        body = _contact_share_text(contact, promoter)
+        subject = quote_plus(f'Contacto {promoter.nick if promoter else "tercero"}')
+        encoded = quote_plus(body)
+        channel = (channel or '').strip().lower()
+        if channel == 'mail':
+            return redirect(f'mailto:?subject={subject}&body={encoded}')
+        if channel == 'sms':
+            return redirect(f'sms:?body={encoded}')
+        return redirect(f'https://wa.me/?text={encoded}')
+    finally:
+        session.close()
+
+
+@app.get('/api/concerts/check-artist-conflict', endpoint='api_concert_artist_conflicts')
+@admin_required
+def api_concert_artist_conflicts():
+    session = db()
+    try:
+        artist_id = to_uuid((request.args.get('artist_id') or '').strip())
+        event_date = parse_date((request.args.get('date') or '').strip())
+        exclude_id_raw = (request.args.get('exclude_id') or '').strip() or None
+        query = (
+            session.query(Concert)
+            .options(joinedload(Concert.venue))
+            .filter(Concert.artist_id == artist_id)
+            .filter(Concert.date == event_date)
+        )
+        if exclude_id_raw:
+            try:
+                query = query.filter(Concert.id != to_uuid(exclude_id_raw))
+            except Exception:
+                pass
+        rows = query.order_by(Concert.created_at.asc()).all()
+        return jsonify([
+            {
+                'id': str(c.id),
+                'festival_name': (c.festival_name or '').strip(),
+                'venue_name': _concert_venue_name(c),
+                'municipality': _concert_city(c),
+                'province': _concert_province_value(c),
+                'summary': ' · '.join([x for x in [c.festival_name or 'Evento', _concert_venue_name(c), _concert_city(c), _concert_province_value(c)] if x]),
+            }
+            for c in rows
+        ])
+    except Exception as exc:
+        return jsonify({'error': str(exc)}), 400
+    finally:
+        session.close()
+
+
+def _parse_wizard_promoter_share_rows(form) -> list[dict]:
+    rows = []
+    ids = form.getlist('wizard_partner_promoter_id[]')
+    company_ids = form.getlist('wizard_partner_company_id[]')
+    pcts = form.getlist('wizard_partner_pct[]')
+    bases = form.getlist('wizard_partner_base[]')
+    for i, raw_id in enumerate(ids or []):
+        raw_id = (raw_id or '').strip()
+        if not raw_id:
+            continue
+        pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
+        if pct is None:
+            continue
+        rows.append({
+            'id': raw_id,
+            'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
+            'pct': pct,
+            'pct_base': _norm_base(bases[i] if i < len(bases) else None),
+            'amount': None,
+            'amount_base': None,
+        })
+    dedup = {}
+    for row in rows:
+        dedup[(row['id'], row.get('company_id') or '')] = row
+    return list(dedup.values())
+
+
+def _parse_wizard_zone_rows(form) -> list[dict]:
+    rows = []
+    ids = form.getlist('wizard_zone_promoter_id[]')
+    company_ids = form.getlist('wizard_zone_company_id[]')
+    modes = form.getlist('wizard_zone_mode[]')
+    amounts = form.getlist('wizard_zone_amount[]')
+    pcts = form.getlist('wizard_zone_pct[]')
+    bases = form.getlist('wizard_zone_base[]')
+    concepts = form.getlist('wizard_zone_concept[]')
+    for i, raw_id in enumerate(ids or []):
+        raw_id = (raw_id or '').strip()
+        if not raw_id:
+            continue
+        mode = (modes[i] if i < len(modes) else 'PERCENT').strip().upper()
+        if mode not in {'PERCENT', 'FIXED'}:
+            mode = 'PERCENT'
+        if mode == 'FIXED':
+            amount = _parse_optional_decimal(amounts[i] if i < len(amounts) else None)
+            if amount is None:
+                continue
+            rows.append({
+                'id': raw_id,
+                'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
+                'commission_type': 'AMOUNT',
+                'commission_pct': None,
+                'commission_base': None,
+                'commission_amount': amount,
+                'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
+                'exempt_amount': None,
+            })
+        else:
+            pct = _parse_optional_decimal(pcts[i] if i < len(pcts) else None)
+            if pct is None:
+                continue
+            rows.append({
+                'id': raw_id,
+                'company_id': (company_ids[i] if i < len(company_ids) else '').strip() or None,
+                'commission_type': 'PERCENT',
+                'commission_pct': pct,
+                'commission_base': _norm_base(bases[i] if i < len(bases) else None),
+                'commission_amount': None,
+                'concept': (concepts[i] if i < len(concepts) else '').strip() or None,
+                'exempt_amount': None,
+            })
+    return rows
+
+
+@app.post('/conciertos/wizard/create', endpoint='concert_wizard_create')
+@admin_required
+def concert_wizard_create():
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para crear conciertos.')
+    session = db()
+    try:
+        mode = (request.form.get('wizard_mode') or 'direct').strip().lower()
+        artist_id_raw = (request.form.get('artist_id') or '').strip()
+        if not artist_id_raw:
+            raise ValueError('Debes seleccionar un artista.')
+        artist_id = to_uuid(artist_id_raw)
+        event_date = parse_date(request.form.get('date') or '')
+        sale_type = (request.form.get('sale_type') or 'EMPRESA').strip().upper()
+        if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
+            sale_type = 'EMPRESA'
+        hashtags = _parse_hashtag_text(request.form.get('wizard_hashtags_text'))
+        billing_company_id = to_uuid((request.form.get('billing_company_id') or '').strip() or None)
+        festival_name = (request.form.get('festival_name') or '').strip() or None
+        venue_id = to_uuid((request.form.get('venue_id') or '').strip() or None)
+        manual_venue_name = (request.form.get('manual_venue_name') or '').strip() or None
+        manual_venue_address = (request.form.get('manual_venue_address') or '').strip() or None
+        manual_municipality = (request.form.get('manual_municipality') or '').strip() or None
+        manual_province = (request.form.get('manual_province') or '').strip() or None
+        manual_postal_code = (request.form.get('manual_postal_code') or '').strip() or None
+        if not (venue_id or manual_municipality or manual_province):
+            raise ValueError('Debes indicar recinto o al menos municipio y provincia.')
+
+        if mode == 'request_sheet':
+            promoter_email = (request.form.get('promoter_email') or '').strip()
+            if not promoter_email:
+                raise ValueError('Debes indicar el email del promotor.')
+            concert = Concert(
+                date=event_date,
+                festival_name=festival_name,
+                venue_id=venue_id,
+                sale_type=sale_type,
+                artist_id=artist_id,
+                capacity=0,
+                no_capacity=True,
+                sale_start_date=None,
+                sale_start_tbc=True,
+                break_even_ticket=None,
+                sold_out=False,
+                group_company_id=None,
+                billing_company_id=billing_company_id,
+                hashtags=hashtags,
+                status='BORRADOR',
+                manual_venue_name=manual_venue_name,
+                manual_venue_address=manual_venue_address,
+                manual_municipality=manual_municipality,
+                manual_province=manual_province,
+                manual_postal_code=manual_postal_code,
+            )
+            session.add(concert)
+            session.flush()
+            artist = session.get(Artist, artist_id)
+            sheet = ConcertContractSheet(
+                concert_id=concert.id,
+                public_token=uuid.uuid4().hex,
+                promoter_email=promoter_email,
+                status='REQUESTED',
+                request_payload={
+                    'artist_name': (artist.name if artist else ''),
+                    'gala_date': event_date.isoformat() if event_date else '',
+                    'gala_venue': _concert_venue_name(concert),
+                    'gala_municipality': _concert_city(concert),
+                    'gala_province': _concert_province_value(concert),
+                    'hashtags': hashtags,
+                    'sale_type': sale_type,
+                },
+            )
+            session.add(sheet)
+            session.commit()
+            concert = session.get(Concert, concert.id)
+            sheet = session.query(ConcertContractSheet).filter(ConcertContractSheet.concert_id == concert.id).first()
+            company = session.get(GroupCompany, billing_company_id) if billing_company_id else None
+            form_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
+            logo_html = ''
+            if company and company.logo_url:
+                logo_html = f'<div style="margin-bottom:20px;"><img src="{company.logo_url}" style="max-height:64px;max-width:220px;"></div>'
+            photo_html = ''
+            if artist and artist.photo_url:
+                photo_html = f'<img src="{artist.photo_url}" style="width:70px;height:70px;object-fit:cover;border-radius:50%;">'
+            html_body = f'''<div style="font-family:Arial,sans-serif;color:#1f2937;">{logo_html}<h2 style="margin:0 0 16px;">Solicitud ficha de contratación</h2><div style="border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:18px;"><div style="display:flex;gap:16px;align-items:center;"><div>{photo_html}</div><div><div style="font-size:18px;font-weight:700;">{artist.name if artist else ''}</div><div>Fecha: {event_date.strftime('%d/%m/%Y')}</div><div>{_concert_venue_name(concert) or 'Recinto pendiente'}</div><div>{_concert_city(concert)} {('· ' + _concert_province_value(concert)) if _concert_province_value(concert) else ''}</div></div></div></div><p>Puedes cumplimentar la ficha de contratación desde este enlace:</p><p><a href="{form_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Cumplimentar ficha de contratación</a></p><p style="color:#6b7280;font-size:13px;">Si el enlace deja de estar disponible es porque la ficha ya fue enviada o cerrada.</p></div>'''
+            ok, error = _send_optional_email(promoter_email, 'Solicitud ficha de contratación', html_body, text_body=form_url)
+            if ok:
+                flash('Concierto creado en borrador y ficha de contratación enviada al promotor.', 'success')
+            else:
+                flash(f'Concierto creado en borrador. No se pudo enviar el correo automáticamente: {error}', 'warning')
+            return redirect(url_for('concert_detail_view', cid=concert.id, tab='ficha'))
+
+        promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
+        promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
+        no_capacity = _truthy(request.form.get('no_capacity'))
+        sale_start_tbc = _truthy(request.form.get('sale_start_tbc'))
+        show_time_tbc = _truthy(request.form.get('show_time_tbc'))
+        doors_time_tbc = _truthy(request.form.get('doors_time_tbc'))
+        do_not_announce = _truthy(request.form.get('do_not_announce'))
+        capacity = 0 if no_capacity else (_parse_optional_positive_int(request.form.get('capacity')) or 0)
+        announcement_date = None if do_not_announce else parse_optional_date(request.form.get('announcement_date'))
+        sale_start_date = None if sale_start_tbc else parse_optional_date(request.form.get('sale_start_date'))
+
+        concert = Concert(
+            date=event_date,
+            festival_name=festival_name,
+            venue_id=venue_id,
+            sale_type=sale_type,
+            promoter_id=promoter_id,
+            promoter_company_id=promoter_company_id,
+            artist_id=artist_id,
+            capacity=capacity,
+            no_capacity=no_capacity,
+            sale_start_date=sale_start_date,
+            sale_start_tbc=sale_start_tbc,
+            break_even_ticket=None,
+            sold_out=False,
+            group_company_id=None,
+            billing_company_id=billing_company_id,
+            hashtags=hashtags,
+            status='HABLADO',
+            manual_venue_name=manual_venue_name,
+            manual_venue_address=manual_venue_address,
+            manual_municipality=manual_municipality,
+            manual_province=manual_province,
+            manual_postal_code=manual_postal_code,
+            show_time=(request.form.get('show_time') or '').strip() or None,
+            doors_time=(request.form.get('doors_time') or '').strip() or None,
+            show_time_tbc=show_time_tbc,
+            doors_time_tbc=doors_time_tbc,
+            invitations_json=_parse_invitation_rows(request.form),
+            payment_terms_json=_parse_payment_terms_rows(request.form),
+            announcement_date=announcement_date,
+            do_not_announce=do_not_announce,
+        )
+        session.add(concert)
+        session.flush()
+
+        _replace_concert_promoter_shares(session, concert.id, _parse_wizard_promoter_share_rows(request.form))
+        _replace_concert_zone_agents(session, concert.id, _parse_wizard_zone_rows(request.form))
+        _replace_concert_company_shares(session, concert.id, [])
+
+        cache_rows = _parse_cache_rows(
+            request.form.getlist('cache_kind[]'),
+            request.form.getlist('cache_concept[]'),
+            request.form.getlist('cache_amount[]'),
+            request.form.getlist('cache_var_mode[]'),
+            request.form.getlist('cache_var_option[]'),
+            request.form.getlist('cache_from_ticket[]'),
+            request.form.getlist('cache_min_tickets[]'),
+            request.form.getlist('cache_min_revenue[]'),
+            request.form.getlist('cache_pct[]'),
+            request.form.getlist('cache_pct_base[]'),
+            request.form.getlist('cache_ticket_type[]'),
+        )
+        _replace_concert_caches(session, concert.id, cache_rows)
+        _upsert_equipment_from_request(session, concert.id)
+        _add_equipment_docs_from_request(session, concert.id)
+        _add_equipment_notes_from_request(session, concert.id)
+
+        session.commit()
+        flash('Concierto creado correctamente.', 'success')
+        return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error creando concierto: {exc}', 'danger')
+        return redirect(url_for('concerts_view', tab='vista'))
+    finally:
+        session.close()
+
+
+@app.route('/ficha-contratacion/<token>', methods=['GET', 'POST'], endpoint='concert_contract_public_form')
+def concert_contract_public_form(token):
+    session = db()
+    try:
+        sheet = (
+            session.query(ConcertContractSheet)
+            .options(
+                joinedload(ConcertContractSheet.concert).joinedload(Concert.artist),
+                joinedload(ConcertContractSheet.concert).joinedload(Concert.venue),
+                joinedload(ConcertContractSheet.concert).joinedload(Concert.billing_company),
+            )
+            .filter(ConcertContractSheet.public_token == (token or '').strip())
+            .first()
+        )
+        if not sheet:
+            abort(404)
+        concert = sheet.concert
+        if request.method == 'POST':
+            if not _contract_sheet_can_submit(sheet):
+                flash('Esta ficha ya no admite más envíos.', 'warning')
+                return redirect(url_for('concert_contract_public_form', token=token))
+            data = _parse_contract_sheet_form(request.form)
+            sheet.data = data
+            sheet.status = 'RECEIVED'
+            sheet.submitted_at = datetime.now(ZoneInfo('Europe/Madrid'))
+            sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+            sheet.allow_resubmission = False
+            session.commit()
+            return render_template(
+                'concert_contract_public.html',
+                concert=concert,
+                sheet=sheet,
+                data=data,
+                submitted=True,
+                can_submit=False,
+                public_mode=True,
+                form_action=url_for('concert_contract_public_form', token=token),
+            )
+        data = _contract_sheet_prefill(concert, sheet)
+        can_submit = _contract_sheet_can_submit(sheet)
+        return render_template(
+            'concert_contract_public.html',
+            concert=concert,
+            sheet=sheet,
+            data=data,
+            submitted=False,
+            can_submit=can_submit,
+            public_mode=True,
+            form_action=url_for('concert_contract_public_form', token=token),
+        )
+    finally:
+        session.close()
+
+
+@app.route('/conciertos/<cid>/ficha-contratacion/revisar', methods=['GET', 'POST'], endpoint='concert_contract_sheet_review')
+@admin_required
+def concert_contract_sheet_review(cid):
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(
+                joinedload(Concert.artist),
+                joinedload(Concert.venue),
+                selectinload(Concert.contract_sheet),
+            )
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert or not concert.contract_sheet:
+            flash('No hay ficha de contratación para este concierto.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        sheet = concert.contract_sheet
+        auto_updates, conflicts = _prepare_contract_sheet_merge(concert, sheet.data or {})
+        if request.method == 'POST':
+            updates = list(auto_updates)
+            for item in conflicts:
+                updates.append({'field': item['field'], 'label': item['label'], 'value': item['incoming']})
+            decisions = {}
+            for item in conflicts:
+                decisions[item['field']] = (request.form.get(f'decision_{item["field"]}') or 'keep').strip().lower()
+            applied = _apply_contract_sheet_merge(concert, updates, decisions)
+            sheet.status = 'ACCEPTED'
+            sheet.allow_resubmission = False
+            now = datetime.now(ZoneInfo('Europe/Madrid'))
+            sheet.accepted_at = now
+            sheet.reviewed_at = now
+            sheet.updated_at = now
+            sheet.merge_log = list(sheet.merge_log or []) + [{
+                'at': now.isoformat(),
+                'applied': applied,
+                'decisions': decisions,
+            }]
+            session.commit()
+            if applied:
+                flash('Ficha aceptada. Se completaron automáticamente: ' + ', '.join(applied), 'success')
+            else:
+                flash('Ficha aceptada.', 'success')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        return render_template(
+            'concert_contract_merge.html',
+            concert=concert,
+            sheet=sheet,
+            auto_updates=auto_updates,
+            conflicts=conflicts,
+        )
+    finally:
+        session.close()
+
+
+@app.post('/conciertos/<cid>/ficha-contratacion/rechazar', endpoint='concert_contract_sheet_reject')
+@admin_required
+def concert_contract_sheet_reject(cid):
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(selectinload(Concert.contract_sheet), joinedload(Concert.artist))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert or not concert.contract_sheet:
+            flash('No hay ficha de contratación para este concierto.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        reason = (request.form.get('reason') or '').strip()
+        if not reason:
+            flash('Debes indicar el motivo del rechazo.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        sheet = concert.contract_sheet
+        now = datetime.now(ZoneInfo('Europe/Madrid'))
+        sheet.status = 'REJECTED'
+        sheet.rejection_reason = reason
+        sheet.allow_resubmission = True
+        sheet.rejected_at = now
+        sheet.reviewed_at = now
+        sheet.updated_at = now
+        session.commit()
+        form_url = _external_url_for('concert_contract_public_form', token=sheet.public_token)
+        html_body = f'''<div style="font-family:Arial,sans-serif;color:#1f2937;"><h2>Solicitud de subsanación de ficha de contratación</h2><p>La ficha enviada para <strong>{concert.artist.name if concert.artist else 'el concierto'}</strong> necesita correcciones.</p><p><strong>Motivo:</strong><br>{reason}</p><p><a href="{form_url}" style="display:inline-block;background:#0d6efd;color:#fff;padding:10px 16px;border-radius:8px;text-decoration:none;">Subsanar ficha</a></p></div>'''
+        ok, error = _send_optional_email(sheet.promoter_email or '', 'Subsanación ficha de contratación', html_body, text_body=form_url)
+        if ok:
+            flash('Ficha rechazada y solicitud de subsanación enviada.', 'warning')
+        else:
+            flash(f'Ficha rechazada. No se pudo enviar el correo automáticamente: {error}', 'warning')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error rechazando ficha: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+
+
+@app.route('/conciertos/<cid>/ficha-contratacion/editar', methods=['GET', 'POST'], endpoint='concert_contract_sheet_edit')
+@admin_required
+def concert_contract_sheet_edit(cid):
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(selectinload(Concert.contract_sheet), joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert or not concert.contract_sheet:
+            flash('No hay ficha de contratación para este concierto.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        sheet = concert.contract_sheet
+        if request.method == 'POST':
+            sheet.data = _parse_contract_sheet_form(request.form)
+            sheet.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
+            if sheet.status == 'REQUESTED':
+                sheet.status = 'RECEIVED'
+            session.commit()
+            flash('Ficha actualizada.', 'success')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        return render_template(
+            'concert_contract_public.html',
+            concert=concert,
+            sheet=sheet,
+            data=_contract_sheet_prefill(concert, sheet),
+            submitted=False,
+            can_submit=True,
+            public_mode=False,
+            admin_mode=True,
+            form_action=url_for('concert_contract_sheet_edit', cid=cid),
+        )
+    finally:
+        session.close()
+
+
+@app.get('/conciertos/<cid>/ficha-contratacion/pdf', endpoint='concert_contract_sheet_pdf')
+@admin_required
+def concert_contract_sheet_pdf(cid):
+    if not REPORTLAB_AVAILABLE:
+        return abort(503)
+    session = db()
+    try:
+        concert = (
+            session.query(Concert)
+            .options(selectinload(Concert.contract_sheet), joinedload(Concert.artist))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert or not concert.contract_sheet:
+            flash('No hay ficha de contratación para este concierto.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ficha'))
+        sheet = concert.contract_sheet
+        data = _contract_sheet_prefill(concert, sheet)
+        buf = BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
+        styles = getSampleStyleSheet()
+        story = [
+            Paragraph('Ficha de contratación', styles['Title']),
+            Spacer(1, 8),
+            Paragraph(f"Artista: {concert.artist.name if concert.artist else '—'}", styles['Normal']),
+            Paragraph(f"Fecha concierto: {concert.date.strftime('%d/%m/%Y') if concert.date else '—'}", styles['Normal']),
+            Spacer(1, 12),
+        ]
+        for section in _contract_sheet_sections(data):
+            story.append(Paragraph(section['title'], styles['Heading2']))
+            rows = [['Campo', 'Valor']]
+            for label, value in section.get('rows') or []:
+                if value in (None, '', []):
+                    continue
+                rows.append([label, str(value)])
+            if len(rows) > 1:
+                table = Table(rows, colWidths=[170, 330])
+                table.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')),
+                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+                    ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fafafa')]),
+                ]))
+                story.append(table)
+                story.append(Spacer(1, 10))
+            ticket_rows = section.get('ticket_rows') or []
+            if ticket_rows:
+                trows = [['Tipo', 'Entradas venta', 'Importe', 'Inv. totales', 'Inv. artista']]
+                for row in ticket_rows:
+                    trows.append([
+                        str(row.get('name') or ''),
+                        str(row.get('qty_for_sale') or 0),
+                        str(row.get('amount') or 0),
+                        str(row.get('invites_total') or 0),
+                        str(row.get('invites_artist') or 0),
+                    ])
+                t = Table(trows, colWidths=[150, 90, 70, 90, 90])
+                t.setStyle(TableStyle([
+                    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#e5e7eb')),
+                    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1d5db')),
+                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ]))
+                story.append(t)
+                story.append(Spacer(1, 10))
+        doc.build(story)
+        buf.seek(0)
+        filename = f"ficha_contratacion_{(concert.artist.name if concert.artist else 'concierto').replace(' ', '_')}.pdf"
+        return send_file(buf, mimetype='application/pdf', as_attachment=False, download_name=filename)
+    finally:
+        session.close()
+
+# =========================
+# CUADRANTES
+# =========================
+
 
 # =========================
 # CUADRANTES
@@ -10813,10 +12316,10 @@ def quadrantes_view():
 
         months = _build_year_calendar(year)
 
-        allowed_status = {"HABLADO", "RESERVADO", "CONFIRMADO"}
+        allowed_status = {"BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"}
         f_statuses = [s for s in request.args.getlist("status") if s in allowed_status]
         if not f_statuses:
-            f_statuses = ["HABLADO", "RESERVADO", "CONFIRMADO"]
+            f_statuses = ["BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"]
 
         allowed_types = CONCERT_SALE_TYPES_ALL_SET
         f_sale_types_raw = request.args.getlist("type") or []
@@ -10826,6 +12329,15 @@ def quadrantes_view():
             f_sale_types = list(CONCERT_SALE_TYPES_ALL)
 
         f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
+        allowed_announcements = {"NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"}
+        f_announcements = [
+            (a or "").strip().upper()
+            for a in (request.args.getlist("announcement") or [])
+            if (a or "").strip()
+        ]
+        f_announcements = [a for a in f_announcements if a in allowed_announcements]
+        if not f_announcements:
+            f_announcements = ["NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"]
 
         def _flag(name: str, default: bool = True) -> bool:
             vals = request.args.getlist(name)
@@ -10847,6 +12359,7 @@ def quadrantes_view():
         show_equipment = _flag("show_equipment", True)
         show_promoter = _flag("show_promoter", True)
         show_hashtag = _flag("show_hashtag", True)
+        show_announcement = _flag("show_announcement", True)
 
         selected_artists = []
         events_by_artist = []
@@ -10879,6 +12392,8 @@ def quadrantes_view():
 
             if f_concert_tags:
                 concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
+            if f_announcements:
+                concerts = [c for c in concerts if _announcement_state(c) in f_announcements]
 
             concert_ids = [c.id for c in concerts]
 
@@ -10944,10 +12459,11 @@ def quadrantes_view():
                 has_equip = (c.id in equip_ids)
                 cap = int(c.capacity or 0)
                 dstr = c.date.isoformat()
-                v = c.venue
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
                 pro_logo, pro_name = _promoter_display(c)
                 tags_clean = _concert_tags(c)
+                announcement_state = _announcement_state(c)
+                announcement_badge = _announcement_badge(c)
 
                 aid = str(c.artist_id) if c.artist_id else ""
                 if not aid:
@@ -10965,10 +12481,11 @@ def quadrantes_view():
                     "sale_type": (c.sale_type or ""),
                     "sale_type_label": _sale_type_label(c.sale_type),
                     "status": st,
-                    "province": (v.province or "") if v else "",
-                    "municipality": (v.municipality or "") if v else "",
-                    "venue_name": (v.name or "") if v else "",
+                    "province": _concert_province_value(c),
+                    "municipality": _concert_city(c),
+                    "venue_name": _concert_venue_name(c),
                     "capacity": cap,
+                    "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
                     "cache": cache_txt,
                     "has_cache": has_cache,
                     "has_equipment": has_equip,
@@ -10976,6 +12493,8 @@ def quadrantes_view():
                     "promoter_logo": pro_logo or "",
                     "hashtags": tags_clean,
                     "hashtags_text": " · ".join([f"#{x}" for x in tags_clean]),
+                    "announcement_state": announcement_state,
+                    "announcement_badge": announcement_badge,
                 })
 
             for a in selected_artists:
@@ -11017,6 +12536,7 @@ def quadrantes_view():
             type_choices=type_choices,
             all_concert_tags=all_concert_tags,
             f_concert_tags=f_concert_tags,
+            f_announcements=f_announcements,
             f_statuses=f_statuses,
             f_sale_types=f_sale_types,
             show_calendar=show_calendar,
@@ -11033,6 +12553,7 @@ def quadrantes_view():
             show_equipment=show_equipment,
             show_promoter=show_promoter,
             show_hashtag=show_hashtag,
+            show_announcement=show_announcement,
         )
 
     finally:

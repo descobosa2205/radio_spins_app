@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">Revisión de ficha de contratación</h4>
+    <div class="text-muted small">Acepta la ficha y decide cómo resolver los campos en conflicto.</div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Volver</a>
+</div>
+
+<form method="post" class="row g-3">
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="mb-3">Datos que se completarán automáticamente</h5>
+        {% if auto_updates %}
+          <div class="list-group">
+            {% for row in auto_updates %}
+              <div class="list-group-item d-flex justify-content-between gap-2 align-items-start">
+                <div>
+                  <div class="fw-semibold">{{ row.label }}</div>
+                  <div class="small text-muted">No había valor previo.</div>
+                </div>
+                <span class="badge text-bg-success">{{ row.value }}</span>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted">No hay campos nuevos que autocompletar.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="mb-3">Conflictos detectados</h5>
+        {% if conflicts %}
+          {% for row in conflicts %}
+            <div class="border rounded p-3 mb-3">
+              <div class="fw-semibold mb-2">{{ row.label }}</div>
+              <div class="row g-3">
+                <div class="col-md-6">
+                  <div class="text-muted small mb-1">Valor actual</div>
+                  <div class="border rounded p-2 bg-light">{{ row.current }}</div>
+                </div>
+                <div class="col-md-6">
+                  <div class="text-muted small mb-1">Valor recibido</div>
+                  <div class="border rounded p-2 bg-light">{{ row.incoming }}</div>
+                </div>
+              </div>
+              <div class="mt-3">
+                <label class="form-label">Qué quieres conservar</label>
+                <select class="form-select" name="decision_{{ row.field }}">
+                  <option value="keep">Conservar el valor actual</option>
+                  <option value="replace">Reemplazar por el valor recibido</option>
+                </select>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="text-muted">No hay contradicciones; al aceptar se fijará la ficha y se aplicarán los datos completables.</div>
+        {% endif %}
+      </div>
+      <div class="card-footer d-flex justify-content-end">
+        <button class="btn btn-primary">Aceptar ficha</button>
+      </div>
+    </div>
+  </div>
+</form>
+{% endblock %}

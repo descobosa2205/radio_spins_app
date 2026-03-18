@@ -1,0 +1,217 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+    <img src="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:20px;border:1px solid #eee;background:#fff;">
+    <div class="flex-grow-1">
+      <div class="d-flex flex-wrap gap-3 align-items-center">
+        <h3 class="mb-0">{{ promoter.nick }}</h3>
+        {% if promoter.tax_id %}<span class="badge text-bg-light border">{{ promoter.tax_id }}</span>{% endif %}
+      </div>
+      <div class="text-muted mt-2">
+        {% if promoter.contact_email %}<span class="me-3"><i class="fa fa-envelope me-1"></i>{{ promoter.contact_email }}</span>{% endif %}
+        {% if promoter.contact_phone %}<span><i class="fa fa-phone me-1"></i>{{ promoter.contact_phone }}</span>{% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('promoters_view') }}">Volver</a>
+      {% if CAN_EDIT_SONGS_PROMOTERS %}
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#editPromoterModal">Editar ficha</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-0">
+  <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='general') }}">Información general</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'contactos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='contactos') }}">Datos de contacto</a></li>
+</ul>
+
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+  {% if tab == 'general' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h5 class="mb-0">Sociedades vinculadas</h5>
+        <div class="text-muted small">Empresa o empresas con las que trabaja este nick.</div>
+      </div>
+      {% if CAN_EDIT_SONGS_PROMOTERS %}
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newCompanyModal"><i class="fa fa-plus"></i> Añadir sociedad</button>
+      {% endif %}
+    </div>
+
+    <div class="row g-3">
+      {% for company in promoter.companies %}
+        <div class="col-12 col-lg-6">
+          <div class="card h-100">
+            <div class="card-body">
+              <div class="d-flex justify-content-between gap-2">
+                <div>
+                  <div class="fw-semibold">{{ company.legal_name }}</div>
+                  {% if company.tax_id %}<div class="text-muted small">{{ company.tax_id }}</div>{% endif %}
+                </div>
+                {% if CAN_EDIT_SONGS_PROMOTERS %}
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                    <div class="dropdown-menu dropdown-menu-end">
+                      <button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editCompanyModal-{{ company.id }}">Editar</button>
+                      <form method="post" action="{{ url_for('promoter_company_delete', pid=promoter.id, company_id=company.id) }}" onsubmit="return confirm('¿Eliminar sociedad?');">
+                        <button class="dropdown-item text-danger">Eliminar</button>
+                      </form>
+                    </div>
+                  </div>
+                {% endif %}
+              </div>
+              {% if company.fiscal_address %}
+                <div class="mt-3 small">{{ company.fiscal_address }}</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="col-12">
+          <div class="alert alert-light border mb-0">Este tercero todavía no tiene sociedades vinculadas.</div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div>
+        <h5 class="mb-0">Personas de contacto</h5>
+        <div class="text-muted small">Los contactos se agrupan automáticamente por título.</div>
+      </div>
+      {% if CAN_EDIT_SONGS_PROMOTERS %}
+        <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#newContactModal"><i class="fa fa-plus"></i> Añadir contacto</button>
+      {% endif %}
+    </div>
+
+    {% for title, contacts in contacts_by_title %}
+      <div class="mb-4">
+        <h6 class="text-uppercase text-muted small mb-3">{{ title }}</h6>
+        <div class="row g-3">
+          {% for contact in contacts %}
+            <div class="col-12 col-xl-6">
+              <div class="card h-100">
+                <div class="card-body">
+                  <div class="d-flex justify-content-between gap-2">
+                    <div>
+                      <div class="fw-semibold">{{ contact.first_name }} {{ contact.last_name or '' }}</div>
+                      <div class="text-muted small">{{ contact.title }}</div>
+                    </div>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                      <div class="dropdown-menu dropdown-menu-end">
+                        {% if CAN_EDIT_SONGS_PROMOTERS %}<button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editContactModal-{{ contact.id }}">Editar</button>{% endif %}
+                        {% if CAN_EDIT_SONGS_PROMOTERS %}
+                          <form method="post" action="{{ url_for('promoter_contact_delete', pid=promoter.id, contact_id=contact.id) }}" onsubmit="return confirm('¿Eliminar contacto?');">
+                            <button class="dropdown-item text-danger">Eliminar</button>
+                          </form>
+                        {% endif %}
+                        <div class="dropdown-divider"></div>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='sms') }}">Compartir por SMS</a>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='mail') }}">Compartir por mail</a>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='whatsapp') }}" target="_blank">Compartir por WhatsApp</a>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mt-3 small text-muted d-grid gap-1">
+                    {% if contact.email %}<div><i class="fa fa-envelope me-2"></i>{{ contact.email }}</div>{% endif %}
+                    {% if contact.phone %}<div><i class="fa fa-phone me-2"></i>{{ contact.phone }}</div>{% endif %}
+                    {% if contact.mobile %}<div><i class="fa fa-mobile-alt me-2"></i>{{ contact.mobile }}</div>{% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">Este tercero todavía no tiene personas de contacto.</div>
+    {% endfor %}
+  {% endif %}
+</div>
+
+{% if CAN_EDIT_SONGS_PROMOTERS %}
+<div class="modal fade" id="editPromoterModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Editar tercero</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('promoter_update', pid=promoter.id) }}">
+        <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab=tab) }}">
+        <div class="modal-body row g-3">
+          <div class="col-md-6"><label class="form-label">Nick</label><input class="form-control" name="nick" value="{{ promoter.nick }}" required></div>
+          <div class="col-md-3"><label class="form-label">CIF</label><input class="form-control" name="tax_id" value="{{ promoter.tax_id or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="col-md-6"><label class="form-label">Email</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
+          <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="newCompanyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Añadir sociedad</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form method="post" action="{{ url_for('promoter_company_create', pid=promoter.id) }}">
+      <div class="modal-body row g-3">
+        <div class="col-md-6"><label class="form-label">Nombre social</label><input class="form-control" name="legal_name" required></div>
+        <div class="col-md-6"><label class="form-label">CIF</label><input class="form-control" name="tax_id"></div>
+        <div class="col-12"><label class="form-label">Dirección fiscal</label><textarea class="form-control" name="fiscal_address" rows="3"></textarea></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary">Crear sociedad</button></div>
+    </form>
+  </div></div>
+</div>
+
+<div class="modal fade" id="newContactModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Añadir contacto</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+    <form method="post" action="{{ url_for('promoter_contact_create', pid=promoter.id) }}">
+      <div class="modal-body row g-3">
+        <div class="col-md-4"><label class="form-label">Título</label><input class="form-control" name="title" required></div>
+        <div class="col-md-4"><label class="form-label">Nombre</label><input class="form-control" name="first_name" required></div>
+        <div class="col-md-4"><label class="form-label">Apellidos</label><input class="form-control" name="last_name"></div>
+        <div class="col-md-4"><label class="form-label">Email</label><input type="email" class="form-control" name="email"></div>
+        <div class="col-md-4"><label class="form-label">Teléfono fijo</label><input class="form-control" name="phone"></div>
+        <div class="col-md-4"><label class="form-label">Teléfono móvil</label><input class="form-control" name="mobile"></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-primary">Crear contacto</button></div>
+    </form>
+  </div></div>
+</div>
+
+{% for company in promoter.companies %}
+  <div class="modal fade" id="editCompanyModal-{{ company.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Editar sociedad</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form method="post" action="{{ url_for('promoter_company_update', pid=promoter.id, company_id=company.id) }}">
+        <div class="modal-body row g-3">
+          <div class="col-md-6"><label class="form-label">Nombre social</label><input class="form-control" name="legal_name" value="{{ company.legal_name }}" required></div>
+          <div class="col-md-6"><label class="form-label">CIF</label><input class="form-control" name="tax_id" value="{{ company.tax_id or '' }}"></div>
+          <div class="col-12"><label class="form-label">Dirección fiscal</label><textarea class="form-control" name="fiscal_address" rows="3">{{ company.fiscal_address or '' }}</textarea></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>
+      </form>
+    </div></div>
+  </div>
+{% endfor %}
+
+{% for title, contacts in contacts_by_title %}
+  {% for contact in contacts %}
+    <div class="modal fade" id="editContactModal-{{ contact.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Editar contacto</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+        <form method="post" action="{{ url_for('promoter_contact_update', pid=promoter.id, contact_id=contact.id) }}">
+          <div class="modal-body row g-3">
+            <div class="col-md-4"><label class="form-label">Título</label><input class="form-control" name="title" value="{{ contact.title }}" required></div>
+            <div class="col-md-4"><label class="form-label">Nombre</label><input class="form-control" name="first_name" value="{{ contact.first_name }}" required></div>
+            <div class="col-md-4"><label class="form-label">Apellidos</label><input class="form-control" name="last_name" value="{{ contact.last_name or '' }}"></div>
+            <div class="col-md-4"><label class="form-label">Email</label><input type="email" class="form-control" name="email" value="{{ contact.email or '' }}"></div>
+            <div class="col-md-4"><label class="form-label">Teléfono fijo</label><input class="form-control" name="phone" value="{{ contact.phone or '' }}"></div>
+            <div class="col-md-4"><label class="form-label">Teléfono móvil</label><input class="form-control" name="mobile" value="{{ contact.mobile or '' }}"></div>
+          </div>
+          <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>
+        </form>
+      </div></div>
+    </div>
+  {% endfor %}
+{% endfor %}
+{% endif %}
+{% endblock %}

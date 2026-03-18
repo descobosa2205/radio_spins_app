@@ -23,9 +23,14 @@
   <h4 class="mb-0">Conciertos</h4>
   {% if active_tab == 'vista' %}
     {% if CAN_EDIT_CONCERTS %}
-      <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='alta') }}">
-        <i class="fa fa-plus"></i> Alta concierto
-      </a>
+      <div class="d-flex gap-2">
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
+          <i class="fa fa-plus"></i> Alta concierto
+        </button>
+        <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='alta') }}">
+          Formulario clásico
+        </a>
+      </div>
     {% endif %}
   {% else %}
     <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">
@@ -85,6 +90,11 @@
         <div class="d-flex flex-wrap gap-2">
           {% set S = f_statuses or [] %}
           <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="BORRADOR"
+                  {% if "BORRADOR" in S %}checked{% endif %}>
+            Borrador
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
             <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO"
                   {% if "HABLADO" in S %}checked{% endif %}>
             Hablado
@@ -118,6 +128,29 @@
             <input class="form-check-input me-1" type="checkbox" name="when" value="PAST"
                   {% if "PAST" in W %}checked{% endif %}>
             Conciertos pasados
+          </label>
+        </div>
+      </div>
+
+
+      <div class="col-md-4">
+        <label class="form-label">Anuncio</label>
+        <div class="d-flex flex-wrap gap-2">
+          {% set A = f_announcements or [] %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="NO_ANNOUNCE"
+                  {% if "NO_ANNOUNCE" in A %}checked{% endif %}>
+            No anunciar
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="UPCOMING"
+                  {% if "UPCOMING" in A %}checked{% endif %}>
+            Anuncia próximamente
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="ANNOUNCED"
+                  {% if "ANNOUNCED" in A %}checked{% endif %}>
+            Ya anunciado
           </label>
         </div>
       </div>
@@ -169,16 +202,29 @@
                         <span class="badge text-bg-light border">#{{ tag }}</span>
                       {% endfor %}
 
+                      {% if c.contract_sheet_badge %}
+                        <span class="badge {{ c.contract_sheet_badge.class }}">{{ c.contract_sheet_badge.label }}</span>
+                      {% endif %}
+                      {% if c.announcement_badge %}
+                        <span class="badge {{ c.announcement_badge.class }}">{{ c.announcement_badge.label }}</span>
+                      {% endif %}
+
                       {% if c.venue %}
                         <span class="text-muted">{{ c.venue.province }}</span>
                         <span class="municipio-strong">{{ c.venue.municipality }}</span>
                         <span class="badge badge-venue">{{ c.venue.name }}</span>
+                      {% elif c.manual_province or c.manual_municipality or c.manual_venue_name %}
+                        <span class="text-muted">{{ c.manual_province }}</span>
+                        <span class="municipio-strong">{{ c.manual_municipality }}</span>
+                        {% if c.manual_venue_name %}<span class="badge badge-venue">{{ c.manual_venue_name }}</span>{% endif %}
                       {% endif %}
                     </div>
 
                     <!-- línea 2: aforo / empate / salida -->
                     <div class="d-flex flex-wrap gap-2 mt-1">
-                      {% if c.capacity is not none %}
+                      {% if c.no_capacity %}
+                        <span class="badge text-bg-light border">Sin aforo</span>
+                      {% elif c.capacity is not none %}
                         <span class="badge text-bg-light border">Aforo a la venta: <strong>{{ c.capacity }}</strong></span>
                       {% endif %}
 
@@ -186,8 +232,22 @@
                         <span class="badge text-bg-light border">Punto de empate: <strong>{{ c.break_even_ticket }}</strong></span>
                       {% endif %}
 
-                      {% if c.sale_start_date %}
+                      {% if c.sale_start_tbc %}
+                        <span class="badge bg-danger">Salida a la venta TBC</span>
+                      {% elif c.sale_start_date %}
                         <span class="badge text-bg-light border">Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') }}</strong></span>
+                      {% endif %}
+
+                      {% if c.doors_time_tbc %}
+                        <span class="badge bg-danger">Apertura puertas TBC</span>
+                      {% elif c.doors_time %}
+                        <span class="badge text-bg-light border">Puertas: <strong>{{ c.doors_time }}</strong></span>
+                      {% endif %}
+
+                      {% if c.show_time_tbc %}
+                        <span class="badge bg-danger">Hora show TBC</span>
+                      {% elif c.show_time %}
+                        <span class="badge text-bg-light border">Show: <strong>{{ c.show_time }}</strong></span>
                       {% endif %}
                     </div>
 
@@ -1646,4 +1706,5 @@
   initVenueTypeahead('venue_search_create', 'venue_id_create');
 </script>
 
+{% include "_concert_wizard_modal.html" %}
 {% endblock %}

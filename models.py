@@ -376,6 +376,61 @@ class Promoter(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     publishing_company = relationship("PublishingCompany")
+    companies = relationship(
+        "PromoterCompany",
+        back_populates="promoter",
+        cascade="all, delete-orphan",
+        order_by="PromoterCompany.created_at",
+    )
+    contacts = relationship(
+        "PromoterContact",
+        back_populates="promoter",
+        cascade="all, delete-orphan",
+        order_by="PromoterContact.title",
+    )
+
+
+class PromoterCompany(Base):
+    """Sociedades / empresas vinculadas a un tercero."""
+
+    __tablename__ = "promoter_companies"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    legal_name = Column(Text, nullable=False)
+    tax_id = Column(Text)
+    fiscal_address = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter", back_populates="companies")
+
+
+class PromoterContact(Base):
+    """Personas de contacto de un tercero."""
+
+    __tablename__ = "promoter_contacts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title = Column(Text, nullable=False)
+    first_name = Column(Text, nullable=False)
+    last_name = Column(Text)
+    email = Column(Text)
+    phone = Column(Text)
+    mobile = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter", back_populates="contacts")
 
 
 class SongRoyaltyBeneficiary(Base):
@@ -565,21 +620,35 @@ class Concert(Base):
     # nombre interno / festival
     festival_name = Column(Text)
 
-    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="RESTRICT"), nullable=False)
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="RESTRICT"), nullable=True)
 
     # EMPRESA | VENDIDO | PARTICIPADOS | CADIZ
     sale_type = Column(Text, nullable=False)
 
     # tercero principal (p.ej. vendido)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    promoter_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
 
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="RESTRICT"), nullable=False)
 
     # Aforo a la venta
     capacity = Column(Integer, nullable=False)
+    no_capacity = Column(Boolean, nullable=False, server_default=text("false"))
 
     # Fecha salida a la venta (opcional en conciertos gratuitos)
     sale_start_date = Column(Date, nullable=True)
+    sale_start_tbc = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # Datos manuales de localización / horario
+    manual_venue_name = Column(Text)
+    manual_venue_address = Column(Text)
+    manual_municipality = Column(Text)
+    manual_province = Column(Text)
+    manual_postal_code = Column(Text)
+    show_time = Column(Text)
+    doors_time = Column(Text)
+    show_time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
+    doors_time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
 
     # Punto de empate (OPCIONAL)
     break_even_ticket = Column(Integer, nullable=True)
@@ -598,12 +667,19 @@ class Concert(Base):
     # Hashtags / concepto / gira (multi-valor)
     hashtags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
-    # Estado: HABLADO | RESERVADO | CONFIRMADO
+    # Extra de contratación / comunicación
+    invitations_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    payment_terms_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    announcement_date = Column(Date)
+    do_not_announce = Column(Boolean, nullable=False, server_default=text("false"))
+
+    # Estado: BORRADOR | HABLADO | RESERVADO | CONFIRMADO
     status = Column(Text, nullable=False, server_default=text("'HABLADO'"))
 
     # relaciones:
     group_company = relationship("GroupCompany", foreign_keys=[group_company_id])
     billing_company = relationship("GroupCompany", foreign_keys=[billing_company_id])
+    promoter_company = relationship("PromoterCompany", foreign_keys=[promoter_company_id])
 
     notes = relationship(
         "ConcertNote",
@@ -656,6 +732,11 @@ class Concert(Base):
         "ConcertContract",
         cascade="all, delete-orphan",
         order_by="ConcertContract.uploaded_at",
+    )
+    contract_sheet = relationship(
+        "ConcertContractSheet",
+        uselist=False,
+        cascade="all, delete-orphan",
     )
 
     artist = relationship("Artist")
@@ -875,16 +956,18 @@ class ConcertPromoterShare(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    promoter_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
 
     # % (0..100) opcional si hay amount
     pct = Column(Integer)
-    pct_base = Column(Text)  # GROSS | NET
+    pct_base = Column(Text)  # GROSS | NET | PROFIT
 
     # fijo opcional
     amount = Column(Numeric)
-    amount_base = Column(Text)  # GROSS | NET
+    amount_base = Column(Text)  # GROSS | NET | PROFIT
 
     promoter = relationship("Promoter")
+    promoter_company = relationship("PromoterCompany")
 
 
 class ConcertCompanyShare(Base):
@@ -913,15 +996,16 @@ class ConcertZoneAgent(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="CASCADE"), nullable=False)
+    promoter_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
 
     # PERCENT | AMOUNT
     commission_type = Column(Text, nullable=False, server_default=text("'PERCENT'"))
 
     commission_pct = Column(Numeric)
-    commission_base = Column(Text)  # GROSS | NET
+    commission_base = Column(Text)  # GROSS | NET | PROFIT
 
     commission_amount = Column(Numeric)
-    commission_amount_base = Column(Text)  # GROSS | NET
+    commission_amount_base = Column(Text)  # GROSS | NET | PROFIT
 
     # Importe exento (opcional)
     exempt_amount = Column(Numeric)
@@ -932,6 +1016,7 @@ class ConcertZoneAgent(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     promoter = relationship("Promoter")
+    promoter_company = relationship("PromoterCompany")
 
 
 # --- CACHÉS ---
@@ -976,6 +1061,32 @@ class ConcertContract(Base):
     original_name = Column(Text)
 
     uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertContractSheet(Base):
+    __tablename__ = "concert_contract_sheets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    public_token = Column(Text, nullable=False, unique=True)
+    promoter_email = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
+    allow_resubmission = Column(Boolean, nullable=False, server_default=text("false"))
+    request_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    merge_log = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    rejection_reason = Column(Text)
+    requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    submitted_at = Column(DateTime(timezone=True))
+    reviewed_at = Column(DateTime(timezone=True))
+    accepted_at = Column(DateTime(timezone=True))
+    rejected_at = Column(DateTime(timezone=True))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 # --- NOTAS (contratación / generales) ---
@@ -1720,6 +1831,188 @@ def ensure_concerts_schema_enhancements():
 
 
 
+
+
+def ensure_third_party_and_contract_sheet_schema():
+    """Asegura sociedades/contactos de terceros y flujo de ficha de contratación."""
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        """
+        CREATE TABLE IF NOT EXISTS promoter_companies (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            legal_name text NOT NULL,
+            tax_id text,
+            fiscal_address text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_companies_promoter_id ON promoter_companies(promoter_id);',
+
+        """
+        CREATE TABLE IF NOT EXISTS promoter_contacts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            title text NOT NULL,
+            first_name text NOT NULL,
+            last_name text,
+            email text,
+            phone text,
+            mobile text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_contacts_promoter_id ON promoter_contacts(promoter_id);',
+        'CREATE INDEX IF NOT EXISTS idx_promoter_contacts_title ON promoter_contacts(title);',
+
+        """
+        ALTER TABLE IF EXISTS concerts
+            ALTER COLUMN venue_id DROP NOT NULL;
+        """,
+        """
+        ALTER TABLE IF EXISTS concerts
+            ADD COLUMN IF NOT EXISTS promoter_company_id uuid,
+            ADD COLUMN IF NOT EXISTS no_capacity boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS sale_start_tbc boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS manual_venue_name text,
+            ADD COLUMN IF NOT EXISTS manual_venue_address text,
+            ADD COLUMN IF NOT EXISTS manual_municipality text,
+            ADD COLUMN IF NOT EXISTS manual_province text,
+            ADD COLUMN IF NOT EXISTS manual_postal_code text,
+            ADD COLUMN IF NOT EXISTS show_time text,
+            ADD COLUMN IF NOT EXISTS doors_time text,
+            ADD COLUMN IF NOT EXISTS show_time_tbc boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS doors_time_tbc boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS invitations_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS payment_terms_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS announcement_date date,
+            ADD COLUMN IF NOT EXISTS do_not_announce boolean NOT NULL DEFAULT false;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='concerts'
+                  AND constraint_name='concerts_promoter_company_id_fkey'
+            ) THEN
+                ALTER TABLE concerts
+                    ADD CONSTRAINT concerts_promoter_company_id_fkey
+                    FOREIGN KEY (promoter_company_id)
+                    REFERENCES promoter_companies(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.table_constraints
+                WHERE table_schema='public'
+                  AND table_name='concerts'
+                  AND constraint_name='concerts_status_check'
+            ) THEN
+                ALTER TABLE concerts DROP CONSTRAINT concerts_status_check;
+            END IF;
+        EXCEPTION WHEN undefined_table THEN
+            NULL;
+        END $$;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='concerts'
+            ) THEN
+                BEGIN
+                    ALTER TABLE concerts
+                        ADD CONSTRAINT concerts_status_check
+                        CHECK (status = ANY (ARRAY['BORRADOR'::text, 'HABLADO'::text, 'RESERVADO'::text, 'CONFIRMADO'::text]));
+                EXCEPTION WHEN duplicate_object THEN
+                    NULL;
+                END;
+            END IF;
+        END $$;
+        """,
+
+        """
+        ALTER TABLE IF EXISTS concert_promoter_shares
+            ADD COLUMN IF NOT EXISTS promoter_company_id uuid;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='concert_promoter_shares'
+                  AND constraint_name='concert_promoter_shares_promoter_company_id_fkey'
+            ) THEN
+                ALTER TABLE concert_promoter_shares
+                    ADD CONSTRAINT concert_promoter_shares_promoter_company_id_fkey
+                    FOREIGN KEY (promoter_company_id)
+                    REFERENCES promoter_companies(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+        """
+        ALTER TABLE IF EXISTS concert_zone_agents
+            ADD COLUMN IF NOT EXISTS promoter_company_id uuid;
+        """,
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='concert_zone_agents'
+                  AND constraint_name='concert_zone_agents_promoter_company_id_fkey'
+            ) THEN
+                ALTER TABLE concert_zone_agents
+                    ADD CONSTRAINT concert_zone_agents_promoter_company_id_fkey
+                    FOREIGN KEY (promoter_company_id)
+                    REFERENCES promoter_companies(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+
+        """
+        CREATE TABLE IF NOT EXISTS concert_contract_sheets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL UNIQUE REFERENCES concerts(id) ON DELETE CASCADE,
+            public_token text NOT NULL UNIQUE,
+            promoter_email text,
+            status text NOT NULL DEFAULT 'REQUESTED',
+            allow_resubmission boolean NOT NULL DEFAULT false,
+            request_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            data jsonb NOT NULL DEFAULT '{}'::jsonb,
+            merge_log jsonb NOT NULL DEFAULT '[]'::jsonb,
+            rejection_reason text,
+            requested_at timestamptz DEFAULT now(),
+            submitted_at timestamptz,
+            reviewed_at timestamptz,
+            accepted_at timestamptz,
+            rejected_at timestamptz,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_contract_sheets_status ON concert_contract_sheets(status);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or '').strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

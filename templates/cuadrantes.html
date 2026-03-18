@@ -103,6 +103,7 @@
   .status-hablado{ background:#ffe8a1; color:#7a5b00; }
   .status-reservado{ background:#cfe2ff; color:#084298; }
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
+  .status-borrador{ background:#f8d7da; color:#842029; }
 
   /* Mapa */
   #quad-map{
@@ -336,6 +337,10 @@
         {% set S = f_statuses or [] %}
         <div class="d-flex flex-wrap gap-2">
           <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="status" value="BORRADOR" {% if 'BORRADOR' in S %}checked{% endif %}>
+            Borrador
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
             <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO" {% if 'HABLADO' in S %}checked{% endif %}>
             Hablado
           </label>
@@ -370,6 +375,25 @@
             <option value="{{ tag }}" {% if tag in (f_concert_tags or []) %}selected{% endif %}>#{{ tag }}</option>
           {% endfor %}
         </select>
+      </div>
+
+      <div class="col-12 mt-2">
+        <label class="form-label mb-1">Anuncio</label>
+        {% set A = f_announcements or [] %}
+        <div class="d-flex flex-wrap gap-2">
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="NO_ANNOUNCE" {% if 'NO_ANNOUNCE' in A %}checked{% endif %}>
+            No anunciar
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="UPCOMING" {% if 'UPCOMING' in A %}checked{% endif %}>
+            Anuncia próximamente
+          </label>
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="announcement" value="ANNOUNCED" {% if 'ANNOUNCED' in A %}checked{% endif %}>
+            Ya anunciado
+          </label>
+        </div>
       </div>
     </div>
 
@@ -450,6 +474,11 @@
           <input class="form-check-input me-1" type="checkbox" name="show_hashtag" value="1" {% if show_hashtag %}checked{% endif %}>
           #
         </label>
+        <label class="btn btn-outline-secondary btn-sm">
+          <input type="hidden" name="show_announcement" value="0">
+          <input class="form-check-input me-1" type="checkbox" name="show_announcement" value="1" {% if show_announcement %}checked{% endif %}>
+          Anuncio
+        </label>
 
       </div>
     </div>
@@ -517,13 +546,14 @@
                     {% if show_cache %}<th>Caché</th>{% endif %}
                     {% if show_equipment %}<th>Equip.</th>{% endif %}
                     {% if show_status %}<th>Estado</th>{% endif %}
+                    {% if show_announcement %}<th>Anuncio</th>{% endif %}
                     {% if show_promoter %}<th>Promotora</th>{% endif %}
                   </tr>
                 </thead>
                 <tbody>
                   {% for e in g.events %}
                     {% set st = (e.status or 'HABLADO') %}
-                    {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                    {% set st_class = 'status-borrador' if st=='BORRADOR' else ('status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado')) %}
                     <tr class="clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=e.concert_id) }}">
                       <td>
                         <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
@@ -536,10 +566,19 @@
                       {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
                       {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
                       {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
-                      {% if show_capacity %}<td class="text-end">{{ e.capacity|k }}</td>{% endif %}
+                      {% if show_capacity %}<td class="text-end">{% if e.capacity_label == 'Sin aforo' %}Sin aforo{% else %}{{ e.capacity_label|k }}{% endif %}</td>{% endif %}
                       {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
                       {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}
                       {% if show_status %}<td>{{ st|capitalize }}</td>{% endif %}
+                      {% if show_announcement %}
+                        <td>
+                          {% if e.announcement_badge %}
+                            <span class="badge {{ e.announcement_badge.class }}">{{ e.announcement_badge.text }}</span>
+                          {% else %}
+                            —
+                          {% endif %}
+                        </td>
+                      {% endif %}
                       {% if show_promoter %}
                         <td>
                           {% if e.promoter_logo %}
@@ -613,7 +652,7 @@
                                   <div class="day-badges">
                                     {% for it in marks[:4] %}
                                       {% set st = (it.status or 'HABLADO') %}
-                                      {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                                      {% set st_class = 'status-borrador' if st=='BORRADOR' else ('status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado')) %}
                                       <span class="day-badge {{ st_class }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
                                     {% endfor %}
                                     {% if marks|length > 4 %}
@@ -709,6 +748,7 @@
 
   function statusToClass(st){
     const s = (st || "").toUpperCase();
+    if (s === "BORRADOR") return "status-borrador";
     if (s === "RESERVADO") return "status-reservado";
     if (s === "CONFIRMADO") return "status-confirmado";
     return "status-hablado";

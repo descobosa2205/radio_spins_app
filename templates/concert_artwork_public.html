@@ -1,0 +1,154 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="mx-auto" style="max-width:1100px;">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
+        <img src="{{ (concert.billing_company.logo_url if concert.billing_company else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:18px;border:1px solid #eee;background:#fff;">
+        <div class="flex-grow-1">
+          <div class="fw-semibold text-uppercase text-muted small">Solicitud de cartelería</div>
+          <h3 class="mb-1">{{ concert.artist.name if concert.artist else 'Concierto' }}</h3>
+          <div class="text-muted">
+            {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
+            {% if concert.venue %} · {{ concert.venue.name }}{% elif concert.manual_venue_name %} · {{ concert.manual_venue_name }}{% endif %}
+            {% if concert.venue and concert.venue.municipality %} · {{ concert.venue.municipality }}{% elif concert.manual_municipality %} · {{ concert.manual_municipality }}{% endif %}
+            {% if concert.venue and concert.venue.province %} · {{ concert.venue.province }}{% elif concert.manual_province %} · {{ concert.manual_province }}{% endif %}
+            {% if concert.show_time_tbc %} · Hora show: TBC{% elif concert.show_time %} · Hora show: {{ concert.show_time }}{% endif %}
+          </div>
+        </div>
+        {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="row g-4">
+      <div class="col-12 col-xl-4">
+        <div class="card shadow-sm h-100">
+          <div class="card-body">
+            <h5 class="mb-3">Brief</h5>
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr><th style="width:170px;">Entrega máxima</th><td>{{ artwork_request.delivery_deadline.strftime('%d/%m/%Y') if artwork_request.delivery_deadline else '—' }}</td></tr>
+                <tr><th>Solicitado el</th><td>{{ artwork_request.requested_at.strftime('%d/%m/%Y %H:%M') if artwork_request.requested_at else '—' }}</td></tr>
+                <tr><th>Última subida</th><td>{{ artwork_request.uploaded_at.strftime('%d/%m/%Y %H:%M') if artwork_request.uploaded_at else '—' }}</td></tr>
+              </tbody>
+            </table>
+            <hr>
+            <div class="small text-muted mb-1">Logos de empresas del grupo</div>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              {% for co in selected_companies %}
+                <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
+                  <img src="{{ co.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:24px;height:24px;object-fit:contain;">
+                  {{ co.name }}
+                </span>
+              {% else %}
+                <span class="text-muted">No se han marcado logos específicos.</span>
+              {% endfor %}
+            </div>
+            <div class="small text-muted mb-1">Notas sobre logos</div>
+            <div class="mb-3">{{ artwork_request.logo_notes or '—' }}</div>
+            <div class="small text-muted mb-1">Ticketeras</div>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              {% for ticketer in selected_ticketers %}
+                <span class="badge text-bg-light border d-inline-flex align-items-center gap-2 px-2 py-2">
+                  <img src="{{ ticketer.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:24px;height:24px;object-fit:contain;">
+                  {{ ticketer.name }}
+                </span>
+              {% else %}
+                <span class="text-muted">No se han marcado ticketeras.</span>
+              {% endfor %}
+            </div>
+            <div class="small text-muted mb-1">Notas sobre ticketeras</div>
+            <div class="mb-3">{{ artwork_request.ticketer_notes or '—' }}</div>
+            <div class="small text-muted mb-1">Otras notas</div>
+            <div>{{ artwork_request.other_notes or '—' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-8">
+        <form method="post" action="{{ upload_action }}" enctype="multipart/form-data" class="card shadow-sm mb-4" id="artworkUploadForm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+              <h5 class="mb-0">Subir formatos</h5>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="addArtworkRowBtn">Añadir formato</button>
+            </div>
+            <div id="artworkUploadRows">
+              <div class="row g-2 align-items-end mb-2 artwork-upload-row">
+                <div class="col-md-4">
+                  <label class="form-label">Formato</label>
+                  <input class="form-control" name="asset_format[]" placeholder="Feed, story, impresión, MUPI...">
+                </div>
+                <div class="col-md-7">
+                  <label class="form-label">Archivo</label>
+                  <input class="form-control" type="file" name="asset_file[]" accept="image/*,application/pdf">
+                </div>
+                <div class="col-md-1 d-grid">
+                  <label class="form-label">&nbsp;</label>
+                  <button type="button" class="btn btn-outline-danger remove-artwork-row"><i class="fa fa-trash"></i></button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card-footer d-flex justify-content-end">
+            <button class="btn btn-primary">Subir cartelería</button>
+          </div>
+        </form>
+
+        <div class="card shadow-sm">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+              <h5 class="mb-0">Formatos ya subidos</h5>
+              {% if artwork_assets %}<span class="badge text-bg-primary">{{ artwork_assets|length }} formato(s)</span>{% endif %}
+            </div>
+            {% if artwork_assets %}
+              <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                  <thead class="table-light"><tr><th>Formato</th><th>Archivo</th><th>Subido</th><th>URL</th></tr></thead>
+                  <tbody>
+                    {% for asset in artwork_assets %}
+                      <tr>
+                        <td class="fw-semibold">{{ asset.format_label }}</td>
+                        <td><a href="{{ asset.file_url }}" target="_blank">{{ asset.original_name or asset.format_label }}</a></td>
+                        <td>{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</td>
+                        <td><a href="{{ asset.file_url }}" target="_blank">Abrir</a></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="text-muted">Todavía no se ha subido ningún formato.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const rows = document.getElementById('artworkUploadRows');
+  const addBtn = document.getElementById('addArtworkRowBtn');
+  if (rows && addBtn) {
+    addBtn.addEventListener('click', function(){
+      const first = rows.querySelector('.artwork-upload-row');
+      if (!first) return;
+      const clone = first.cloneNode(true);
+      clone.querySelectorAll('input').forEach(function(input){ input.value = ''; });
+      rows.appendChild(clone);
+    });
+    rows.addEventListener('click', function(ev){
+      const btn = ev.target.closest('.remove-artwork-row');
+      if (!btn) return;
+      const allRows = rows.querySelectorAll('.artwork-upload-row');
+      if (allRows.length <= 1) {
+        allRows[0].querySelectorAll('input').forEach(function(input){ input.value = ''; });
+        return;
+      }
+      btn.closest('.artwork-upload-row').remove();
+    });
+  }
+});
+</script>
+{% endblock %}

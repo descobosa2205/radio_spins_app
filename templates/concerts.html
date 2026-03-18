@@ -19,22 +19,27 @@
   }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h4 class="mb-0">Conciertos</h4>
-  {% if active_tab == 'vista' %}
-    {% if CAN_EDIT_CONCERTS %}
-      <div class="d-flex gap-2">
-        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
-          <i class="fa fa-plus"></i> Alta concierto
-        </button>
-        <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='alta') }}">
-          Formulario clásico
-        </a>
-      </div>
-    {% endif %}
-  {% else %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-2">Conciertos</h4>
+    <ul class="nav nav-tabs">
+      <li class="nav-item"><a class="nav-link {% if active_tab == 'vista' %}active{% endif %}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+      <li class="nav-item"><a class="nav-link {% if active_tab == 'facturacion' %}active{% endif %}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+      {% if CAN_EDIT_CONCERTS %}
+        <li class="nav-item"><a class="nav-link {% if active_tab == 'alta' %}active{% endif %}" href="{{ url_for('concerts_view', tab='alta') }}">Formulario clásico</a></li>
+      {% endif %}
+    </ul>
+  </div>
+  {% if CAN_EDIT_CONCERTS and active_tab != 'alta' %}
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
+        <i class="fa fa-plus"></i> Alta concierto
+      </button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='alta') }}">Formulario clásico</a>
+    </div>
+  {% elif active_tab == 'alta' %}
     <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">
-      <i class="fa fa-arrow-left"></i> Volver a vista
+      <i class="fa fa-arrow-left"></i> Volver a conciertos
     </a>
   {% endif %}
 </div>
@@ -655,6 +660,91 @@
     {% endif %}
   {% endfor %}
 
+{% endif %}
+
+
+{# ===================== FACTURACIÓN ===================== #}
+{% if active_tab == 'facturacion' %}
+  <div class="card mb-3">
+    <div class="card-body d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h5 class="mb-0">Pagos pendientes de facturar o cobrar</h5>
+        <div class="text-muted small">Se listan los conciertos con pagos pendientes. Cuando un pago ya está cobrado desaparece automáticamente del listado.</div>
+      </div>
+      <span class="badge text-bg-primary">{{ billing_items|length }} concierto(s)</span>
+    </div>
+  </div>
+
+  {% if billing_items %}
+    {% for item in billing_items %}
+      {% set c = item.concert %}
+      <div class="card mb-3" id="billing-{{ c.id }}">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div class="d-flex gap-3 align-items-start flex-grow-1">
+              <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:58px;height:58px;border-radius:50%;object-fit:cover;">
+              <div class="flex-grow-1">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                  <a class="fw-semibold text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id) }}">{{ c.artist.name if c.artist else 'Concierto' }}</a>
+                  <span class="badge text-bg-light border">{{ c.sale_type_label or c.sale_type }}</span>
+                  {% if c.festival_name %}<span class="badge badge-festival">{{ c.festival_name }}</span>{% endif %}
+                </div>
+                <div class="text-muted small mb-2">
+                  {{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}
+                  {% if c.venue %} · {{ c.venue.municipality }} · {{ c.venue.province }} · {{ c.venue.name }}
+                  {% elif c.manual_municipality or c.manual_province or c.manual_venue_name %} · {{ c.manual_municipality }} · {{ c.manual_province }}{% if c.manual_venue_name %} · {{ c.manual_venue_name }}{% endif %}
+                  {% endif %}
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                  <span class="badge text-bg-light border">Ingreso total: {{ item.income_total|eur }}</span>
+                  <span class="badge text-bg-primary">Pendiente: {{ item.pending_total|eur }}</span>
+                </div>
+              </div>
+            </div>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id) }}">Abrir ficha</a>
+          </div>
+
+          <div class="table-responsive mt-3">
+            <table class="table align-middle mb-0">
+              <thead class="table-light"><tr><th>Pago pendiente</th><th class="text-end">Importe</th><th>Vencimiento</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
+              <tbody>
+                {% for row in item.payment_rows %}
+                  <tr>
+                    <td>
+                      <div class="fw-semibold">{{ row.concept }}</div>
+                      {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
+                    </td>
+                    <td class="text-end">{{ row.amount|eur }}</td>
+                    <td>{{ row.due_date or '—' }}</td>
+                    <td><span class="badge {{ row.badge.class }}">{{ row.badge.label }}</span></td>
+                    <td class="text-end">
+                      <div class="d-flex justify-content-end gap-2 flex-wrap">
+                        {% if row.can_upload_invoice %}
+                          <form method="post" action="{{ url_for('concert_payment_upload_invoice', cid=c.id, payment_idx=row.idx) }}" enctype="multipart/form-data" class="d-inline invoice-upload-form">
+                            <input type="hidden" name="next" value="{{ url_for('concerts_view', tab='facturacion') }}#billing-{{ c.id }}">
+                            <input type="file" name="invoice_file" accept="application/pdf" class="d-none invoice-file-input">
+                            <button type="button" class="btn btn-sm btn-outline-primary trigger-invoice-upload">Subir factura</button>
+                          </form>
+                        {% endif %}
+                        {% if row.can_mark_collected %}
+                          <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=c.id, payment_idx=row.idx) }}" class="d-inline">
+                            <input type="hidden" name="next" value="{{ url_for('concerts_view', tab='facturacion') }}#billing-{{ c.id }}">
+                            <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="alert alert-light border">No hay pagos pendientes de facturar o cobrar.</div>
+  {% endif %}
 {% endif %}
 
 {# ===================== ALTA ===================== #}
@@ -1701,6 +1791,22 @@
     `;
     c.appendChild(row);
   }
+
+  document.querySelectorAll('.trigger-invoice-upload').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const form = btn.closest('.invoice-upload-form');
+      if (!form) return;
+      const input = form.querySelector('.invoice-file-input');
+      if (input) input.click();
+    });
+  });
+  document.querySelectorAll('.invoice-file-input').forEach(function(input){
+    input.addEventListener('change', function(){
+      if (input.files && input.files.length) {
+        input.closest('form').submit();
+      }
+    });
+  });
 
   // init venue typeahead
   initVenueTypeahead('venue_search_create', 'venue_id_create');

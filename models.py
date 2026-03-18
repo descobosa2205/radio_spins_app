@@ -738,6 +738,11 @@ class Concert(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    artwork_request = relationship(
+        "ConcertArtworkRequest",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     artist = relationship("Artist")
     promoter = relationship("Promoter")
@@ -1087,6 +1092,55 @@ class ConcertContractSheet(Base):
     accepted_at = Column(DateTime(timezone=True))
     rejected_at = Column(DateTime(timezone=True))
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConcertArtworkRequest(Base):
+    __tablename__ = "concert_artwork_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concerts.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    public_token = Column(Text, nullable=False, unique=True)
+    handled_by = Column(Text, nullable=False, server_default=text("'OURS'"))
+    status = Column(Text, nullable=False, server_default=text("'DRAFT'"))
+    group_company_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    ticketer_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    logo_notes = Column(Text)
+    ticketer_notes = Column(Text)
+    other_notes = Column(Text)
+    delivery_deadline = Column(Date)
+    event_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    needs_refresh = Column(Boolean, nullable=False, server_default=text("false"))
+    requested_at = Column(DateTime(timezone=True))
+    uploaded_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    assets = relationship(
+        "ConcertArtworkAsset",
+        cascade="all, delete-orphan",
+        order_by="ConcertArtworkAsset.created_at",
+    )
+
+
+class ConcertArtworkAsset(Base):
+    __tablename__ = "concert_artwork_assets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artwork_request_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("concert_artwork_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    format_label = Column(Text, nullable=False)
+    file_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    mime_type = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
 # --- NOTAS (contratación / generales) ---
@@ -2013,6 +2067,60 @@ def ensure_third_party_and_contract_sheet_schema():
             if not s:
                 continue
             conn.exec_driver_sql(s)
+
+def ensure_concert_artwork_schema():
+    """Asegura el esquema de cartelería de conciertos."""
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        """
+        CREATE TABLE IF NOT EXISTS concert_artwork_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL UNIQUE REFERENCES concerts(id) ON DELETE CASCADE,
+            public_token text NOT NULL UNIQUE,
+            handled_by text NOT NULL DEFAULT 'OURS',
+            status text NOT NULL DEFAULT 'DRAFT',
+            group_company_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ticketer_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            logo_notes text,
+            ticketer_notes text,
+            other_notes text,
+            delivery_deadline date,
+            event_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            needs_refresh boolean NOT NULL DEFAULT false,
+            requested_at timestamptz,
+            uploaded_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_concert_artwork_handled_by CHECK (handled_by IN ('OURS', 'PROMOTER')),
+            CONSTRAINT chk_concert_artwork_status CHECK (status IN ('DRAFT', 'PROMOTER', 'REQUESTED', 'UPLOADED'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_requests_status ON concert_artwork_requests(status);',
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_requests_concert_id ON concert_artwork_requests(concert_id);',
+
+        """
+        CREATE TABLE IF NOT EXISTS concert_artwork_assets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artwork_request_id uuid NOT NULL REFERENCES concert_artwork_requests(id) ON DELETE CASCADE,
+            format_label text NOT NULL,
+            file_url text NOT NULL,
+            original_name text,
+            mime_type text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_request_id ON concert_artwork_assets(artwork_request_id);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or '').strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

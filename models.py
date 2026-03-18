@@ -298,9 +298,11 @@ class SongStatus(Base):
 
     agedi_done = Column(Boolean, nullable=False, server_default=text("false"))
     agedi_updated_at = Column(DateTime(timezone=True))
+    agedi_registered_isrcs = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     sgae_done = Column(Boolean, nullable=False, server_default=text("false"))
     sgae_updated_at = Column(DateTime(timezone=True))
+    sgae_modification_pending = Column(Boolean, nullable=False, server_default=text("false"))
 
     ritmonet_done = Column(Boolean, nullable=False, server_default=text("false"))
     ritmonet_updated_at = Column(DateTime(timezone=True))
@@ -1454,14 +1456,45 @@ def ensure_isrc_and_song_detail_schema():
             collaboration_contract_updated_at timestamptz,
             agedi_done boolean NOT NULL DEFAULT false,
             agedi_updated_at timestamptz,
+            agedi_registered_isrcs jsonb NOT NULL DEFAULT '[]'::jsonb,
             sgae_done boolean NOT NULL DEFAULT false,
             sgae_updated_at timestamptz,
+            sgae_modification_pending boolean NOT NULL DEFAULT false,
             ritmonet_done boolean NOT NULL DEFAULT false,
             ritmonet_updated_at timestamptz,
             distributed_done boolean NOT NULL DEFAULT false,
             distributed_updated_at timestamptz,
             updated_at timestamptz DEFAULT now()
         );
+        """,
+        """
+        ALTER TABLE IF EXISTS song_status
+            ADD COLUMN IF NOT EXISTS agedi_registered_isrcs jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS sgae_modification_pending boolean NOT NULL DEFAULT false;
+        """,
+        """
+        UPDATE song_status ss
+           SET agedi_registered_isrcs = sub.codes
+          FROM (
+                SELECT s.id AS song_id,
+                       COALESCE(
+                           jsonb_agg(DISTINCT code_txt) FILTER (WHERE code_txt IS NOT NULL AND code_txt <> ''),
+                           '[]'::jsonb
+                       ) AS codes
+                  FROM songs s
+             LEFT JOIN LATERAL (
+                        SELECT NULLIF(trim(sic.code), '') AS code_txt
+                          FROM song_isrc_codes sic
+                         WHERE sic.song_id = s.id
+                        UNION ALL
+                        SELECT NULLIF(trim(s.isrc), '') AS code_txt
+                   ) src ON true
+              GROUP BY s.id
+          ) sub
+         WHERE ss.song_id = sub.song_id
+           AND ss.agedi_done = true
+           AND COALESCE(jsonb_array_length(ss.agedi_registered_isrcs), 0) = 0
+           AND COALESCE(jsonb_array_length(sub.codes), 0) > 0;
         """,
 
         # Campos extra en songs

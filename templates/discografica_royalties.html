@@ -99,7 +99,7 @@
                       <div class="fw-semibold">{{ s.title }}</div>
                       <div class="small text-muted">{{ s.interpreters }}</div>
                     </td>
-                    <td class="small">{{ s.isrc or '—' }}</td>
+                    <td class="small">{{ (s.isrc or '—')|isrc }}</td>
                     <td class="small">{{ s.release_date }}</td>
                     <td class="text-end">{{ s.income | eur }}</td>
                     <td class="text-end">{{ '%.2f'|format(s.pct or 0) }}%</td>
@@ -179,7 +179,7 @@
                       <div class="fw-semibold">{{ s.title }}</div>
                       <div class="small text-muted">{{ s.interpreters }}</div>
                     </td>
-                    <td class="small">{{ s.isrc or '—' }}</td>
+                    <td class="small">{{ (s.isrc or '—')|isrc }}</td>
                     <td class="small">{{ s.release_date }}</td>
                     <td class="text-end">{{ s.income | eur }}</td>
                     <td class="text-end">{{ '%.2f'|format(s.pct or 0) }}%</td>

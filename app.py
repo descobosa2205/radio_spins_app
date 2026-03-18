@@ -589,6 +589,11 @@ def format_eur(n):
     except Exception:
         return "0,00 €"
     
+@app.template_filter("isrc")
+def format_isrc_filter(value):
+    return _norm_isrc(value) if value not in (None, "") else "—"
+
+
 def _parse_share_pairs(ids_list, pct_list):
     """
     (['id1','id2'], ['10','40']) -> [('id1',10), ('id2',40)] sin duplicados, último gana.
@@ -2225,12 +2230,146 @@ def _semester_label(year: int, half: int) -> str:
     return f"S2 {year} (Jul-Dic)"
 
 
-def _norm_isrc(val: str | None) -> str:
+def _isrc_key(val: str | None) -> str:
     if not val:
         return ""
     s = str(val).strip().upper()
-    # Keep only alphanumerics
     return "".join(ch for ch in s if ch.isalnum())
+
+
+def _norm_isrc(val: str | None) -> str:
+    raw = _isrc_key(val)
+    if not raw:
+        return ""
+    if len(raw) == 12:
+        return f"{raw[:2]}-{raw[2:5]}-{raw[5:7]}-{raw[7:]}"
+    return raw
+
+
+def _norm_isrc_list(values) -> list[str]:
+    seen = set()
+    out = []
+    for value in values or []:
+        code = _norm_isrc(value)
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        out.append(code)
+    return out
+
+
+def _song_type_key(song: Song | None) -> str:
+    if not song:
+        return "DISCOGRAFICA"
+    if bool(getattr(song, "is_distribution", False)):
+        return "DISTRIBUCION"
+    if bool(getattr(song, "is_catalog", False)):
+        return "CATALOGO"
+    return "DISCOGRAFICA"
+
+
+def _song_type_label(song: Song | None) -> str:
+    key = _song_type_key(song)
+    if key == "DISTRIBUCION":
+        return "Distribución"
+    if key == "CATALOGO":
+        return "Catálogo"
+    return "Discográfica"
+
+
+def _song_type_badge_class(song: Song | None) -> str:
+    key = _song_type_key(song)
+    if key == "DISTRIBUCION":
+        return "text-bg-info"
+    if key == "CATALOGO":
+        return "text-bg-secondary"
+    return "text-bg-dark"
+
+
+def _ensure_song_status_row(session_db, song_or_id) -> SongStatus:
+    if isinstance(song_or_id, Song):
+        song = song_or_id
+        sid = song.id
+    else:
+        sid = song_or_id
+        song = session_db.get(Song, sid) if sid else None
+
+    st = session_db.get(SongStatus, sid) if sid else None
+    if not st and sid:
+        st = SongStatus(song_id=sid)
+        if song is not None:
+            st.cover_done = bool(getattr(song, "cover_url", None))
+            if st.cover_done:
+                st.cover_updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+        session_db.flush()
+    return st
+
+
+def _current_song_isrcs(session_db, song_id, include_song_field: bool = True) -> list[str]:
+    sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
+    rows = (
+        session_db.query(SongISRCCode.code)
+        .filter(SongISRCCode.song_id == sid)
+        .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.created_at.asc())
+        .all()
+    )
+    codes = [code for (code,) in rows if code]
+    if include_song_field:
+        song = session_db.get(Song, sid)
+        if song and getattr(song, "isrc", None):
+            codes.append(song.isrc)
+    return _norm_isrc_list(codes)
+
+
+def _sync_song_agedi_state(session_db, song_id, status_obj: SongStatus | None = None) -> SongStatus:
+    sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
+    st = status_obj or _ensure_song_status_row(session_db, sid)
+    current_codes = set(_current_song_isrcs(session_db, sid))
+    registered_codes = set(_norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or []))
+
+    prev_done = bool(getattr(st, "agedi_done", False))
+    st.agedi_done = bool(current_codes) and bool(registered_codes) and current_codes.issubset(registered_codes)
+
+    if prev_done != bool(st.agedi_done):
+        st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st
+
+
+def _mark_song_agedi_registered(session_db, song_id) -> tuple[SongStatus, list[str]]:
+    sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
+    st = _ensure_song_status_row(session_db, sid)
+    current_codes = _current_song_isrcs(session_db, sid)
+    st.agedi_registered_isrcs = current_codes
+    st.agedi_done = bool(current_codes)
+    if current_codes:
+        st.agedi_updated_at = datetime.now(TZ_MADRID)
+    st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st, current_codes
+
+
+def _mark_song_sgae_pending_from_editorial_change(session_db, song_id) -> SongStatus:
+    sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
+    st = _ensure_song_status_row(session_db, sid)
+    if bool(getattr(st, "sgae_done", False)):
+        st.sgae_done = False
+        st.sgae_modification_pending = True
+        st.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+    return st
+
+
+def _mark_song_sgae_registered(session_db, song_id) -> SongStatus:
+    sid = to_uuid(song_id) if not isinstance(song_id, UUID) else song_id
+    st = _ensure_song_status_row(session_db, sid)
+    st.sgae_done = True
+    st.sgae_modification_pending = False
+    st.sgae_updated_at = datetime.now(TZ_MADRID)
+    st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st
 
 
 def _parse_money_decimal(val: str | None) -> Decimal:
@@ -2595,6 +2734,8 @@ def discografica_view():
     income_artist_blocks: list[tuple] = []
     editorial_pending_songs: list[Song] = []
     editorial_registered_songs: list[Song] = []
+    editorial_filter_artists: list[Artist] = []
+    isrc_pending_songs: list[dict] = []
 
     # Context (solo se usa cuando section == 'royalties')
     royalty_period_label = ""
@@ -2617,9 +2758,13 @@ def discografica_view():
     if section not in ("canciones", "royalties", "editorial", "ingresos", "isrc"):
         section = "canciones"
 
+    editorial_tab = (request.args.get("editorial_tab") or "pendientes").lower().strip()
+    if editorial_tab not in ("pendientes", "repertorio"):
+        editorial_tab = "pendientes"
+
     # subpestañas ISRC
     isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
-    if isrc_tab not in ("repertorio", "configurador"):
+    if isrc_tab not in ("repertorio", "configurador", "pendientes"):
         isrc_tab = "repertorio"
 
     if section == "ingresos":
@@ -2711,12 +2856,22 @@ def discografica_view():
                     if row and row.song_id
                 }
 
+            editorial_artist_ids = set()
             for song in dedup:
                 setattr(song, "editorial_artists_str", ", ".join([a.name for a in getattr(song, "artists", [])]) or "—")
-                setattr(song, "editorial_registered", bool(getattr(status_map.get(song.id), "sgae_done", False)))
+                song_status = status_map.get(song.id)
+                setattr(song, "editorial_registered", bool(getattr(song_status, "sgae_done", False)))
+                setattr(song, "editorial_modification_pending", bool(getattr(song_status, "sgae_modification_pending", False)))
+                for art in (getattr(song, "artists", []) or []):
+                    if art and getattr(art, "id", None):
+                        editorial_artist_ids.add(art.id)
 
-            editorial_pending_songs = [s for s in dedup if not getattr(s, "editorial_registered", False)]
+            editorial_pending_songs = [
+                s for s in dedup
+                if (not getattr(s, "editorial_registered", False)) or bool(getattr(s, "editorial_modification_pending", False))
+            ]
             editorial_registered_songs = [s for s in dedup if getattr(s, "editorial_registered", False)]
+            editorial_filter_artists = [a for a in artists if a.id in editorial_artist_ids]
 
 
     if section == "royalties":
@@ -3468,15 +3623,78 @@ def discografica_view():
                     enriched.append(
                         {
                             "song": s,
-                            "audio_primary": audio_p.code if audio_p else None,
-                            "video_primary": video_p.code if video_p else None,
-                            "audio_subs": [(c.code, c.subproduct_name) for c in audio_subs],
-                            "video_subs": [(c.code, c.subproduct_name) for c in video_subs],
-                            "max_code": max_code,
+                            "audio_primary": _norm_isrc(audio_p.code) if audio_p else None,
+                            "video_primary": _norm_isrc(video_p.code) if video_p else None,
+                            "audio_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in audio_subs],
+                            "video_subs": [(_norm_isrc(c.code), c.subproduct_name) for c in video_subs],
+                            "max_code": _norm_isrc(max_code),
                         }
                     )
 
                 isrc_artist_blocks.append((a, enriched))
+
+        elif isrc_tab == "pendientes":
+            song_rows = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+                .filter(ownership_cond)
+                .distinct()
+                .options(selectinload(Song.artists))
+                .order_by(Song.release_date.desc(), Song.title.asc())
+                .all()
+            )
+            if f_artist_id:
+                song_rows = [s for s in song_rows if any(getattr(a, 'id', None) == f_artist_id for a in (s.artists or []))]
+            if f_year:
+                song_rows = [s for s in song_rows if getattr(s, 'release_date', None) and s.release_date.year == f_year]
+
+            song_ids = [s.id for s in song_rows]
+            status_map = {}
+            if song_ids:
+                status_map = {
+                    row.song_id: row
+                    for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_(song_ids)).all()
+                    if row and row.song_id
+                }
+
+            codes_by_song = defaultdict(list)
+            if song_ids:
+                rows = (
+                    session_db.query(SongISRCCode)
+                    .filter(SongISRCCode.song_id.in_(song_ids))
+                    .order_by(SongISRCCode.is_primary.desc(), SongISRCCode.code.asc())
+                    .all()
+                )
+                for row in rows:
+                    codes_by_song[row.song_id].append(row)
+
+            for song in song_rows:
+                st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
+                _sync_song_agedi_state(session_db, song.id, st)
+                current_codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
+                if not current_codes:
+                    continue
+                registered_codes = set(_norm_isrc_list(getattr(st, 'agedi_registered_isrcs', []) or []))
+                pending_codes = [code for code in current_codes if code not in registered_codes]
+                if not pending_codes and bool(getattr(st, 'agedi_done', False)):
+                    continue
+                isrc_pending_songs.append({
+                    'song': song,
+                    'artists_label': ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
+                    'registered_codes': [code for code in current_codes if code in registered_codes],
+                    'pending_codes': pending_codes if pending_codes else current_codes,
+                    'all_codes': [
+                        {
+                            'code': code,
+                            'registered': code in registered_codes,
+                            'pending': code not in registered_codes,
+                        }
+                        for code in current_codes
+                    ],
+                    'status': st,
+                })
+            session_db.commit()
 
         else:
             # Configurador
@@ -3501,11 +3719,14 @@ def discografica_view():
         contract_artists=contract_artists,
         artist_blocks=artist_blocks,
         song_audio_isrc_map=song_audio_isrc_map,
+        editorial_tab=editorial_tab,
         editorial_pending_songs=editorial_pending_songs,
         editorial_registered_songs=editorial_registered_songs,
+        editorial_filter_artists=editorial_filter_artists,
         # ISRC
         isrc_tab=isrc_tab,
         isrc_artist_blocks=isrc_artist_blocks,
+        isrc_pending_songs=isrc_pending_songs,
         isrc_filter_artists=isrc_filter_artists,
         isrc_years=isrc_years,
         isrc_config=isrc_config,
@@ -3879,7 +4100,12 @@ def discografica_income_entry_delete(entry_id):
 @app.post("/discografica/ingresos/upload")
 @admin_required
 def discografica_income_upload_csv():
-    """Importa ingresos desde CSV priorizando siempre el emparejado por ISRC."""
+    """Importa ingresos desde CSV priorizando siempre el emparejado por ISRC.
+
+    Admite varios archivos simultáneamente y detecta automáticamente dos formatos:
+    - estándar: Track / ISRC / Net Revenue o Gross Revenue
+    - alternativo: PRODUCT CODE / PRICE
+    """
 
     next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
     artist_id_raw = (request.form.get("artist_id") or "").strip()
@@ -3891,8 +4117,12 @@ def discografica_income_upload_csv():
     amount_col = (request.form.get("amount_col") or "").strip()
     amount_kind = (request.form.get("amount_kind") or "net").strip().lower()
 
-    f = request.files.get("csv_file")
-    if not f:
+    uploaded_files = [f for f in (request.files.getlist("csv_files") or []) if f and getattr(f, "filename", "")]
+    if not uploaded_files:
+        single = request.files.get("csv_file")
+        if single and getattr(single, "filename", ""):
+            uploaded_files = [single]
+    if not uploaded_files:
         flash("No se ha recibido ningún archivo CSV.", "danger")
         return redirect(next_url)
 
@@ -3901,7 +4131,6 @@ def discografica_income_upload_csv():
         try:
             artist_id = str(uuid.UUID(artist_id_raw))
         except Exception:
-            # El artista es solo contexto visual; la importación real va por ISRC.
             artist_id = None
 
     if period_type not in ("MONTH", "SEMESTER"):
@@ -3926,15 +4155,11 @@ def discografica_income_upload_csv():
     if amount_kind not in ("net", "gross"):
         amount_kind = "net"
 
-    # Rango del periodo
     if period_type == "MONTH":
         pe = _month_end(ps)
         period_label = _month_label(ps)
     else:
-        if ps.month <= 6:
-            pe = date(ps.year, 6, 30)
-        else:
-            pe = date(ps.year, 12, 31)
+        pe = date(ps.year, 6, 30) if ps.month <= 6 else date(ps.year, 12, 31)
         period_label = _semester_label(ps.year, 1 if ps.month <= 6 else 2)
 
     try:
@@ -3943,37 +4168,75 @@ def discografica_income_upload_csv():
         flash("Falta la dependencia pandas para importar CSV.", "danger")
         return redirect(next_url)
 
-    try:
-        content = f.read()
+    parsed_rows = []
+    rows_total = 0
+    files_processed = 0
+
+    def _pick_existing(columns, candidates, fallback=""):
+        for candidate in candidates:
+            if candidate and candidate in columns:
+                return candidate
+        return fallback
+
+    for uploaded in uploaded_files:
         try:
-            decoded = content.decode("utf-8-sig")
-        except Exception:
-            decoded = content.decode("latin-1")
-
-        first_line = (decoded.splitlines() or [""])[0]
-        sep = ";" if first_line.count(";") > first_line.count(",") else ","
-
-        from io import StringIO
-
-        df = pd.read_csv(StringIO(decoded), sep=sep)
-    except Exception as e:
-        flash(f"Error leyendo CSV: {e}", "danger")
-        return redirect(next_url)
-
-    for col in (track_col, isrc_col, amount_col):
-        if col not in df.columns:
-            flash(f"La columna '{col}' no existe en el CSV.", "danger")
+            content = uploaded.read()
+            try:
+                decoded = content.decode("utf-8-sig")
+            except Exception:
+                decoded = content.decode("latin-1")
+            first_line = (decoded.splitlines() or [""])[0]
+            sep = ";" if first_line.count(";") > first_line.count(",") else ","
+            from io import StringIO
+            df = pd.read_csv(StringIO(decoded), sep=sep)
+        except Exception as e:
+            flash(f"Error leyendo CSV '{getattr(uploaded, 'filename', 'archivo')}': {e}", "danger")
             return redirect(next_url)
 
-    df["__row_number"] = range(2, len(df) + 2)
-    df["__isrc"] = df[isrc_col].map(_clean_csv_cell).map(_norm_isrc)
-    df["__amount"] = df[amount_col].apply(_parse_money_decimal).map(_money_norm)
+        cols = list(df.columns)
+        file_isrc_col = _pick_existing(cols, [isrc_col, "ISRC", "PRODUCT CODE", "Product Code", "Product code"])
+        file_track_col = _pick_existing(cols, [track_col, "Track", "TITLE", "Title", "Song Title", "Name"])
+        file_amount_col = _pick_existing(
+            cols,
+            [
+                amount_col,
+                "PRICE",
+                "Price",
+                "Net Revenue" if amount_kind == "net" else "Gross Revenue",
+                "Gross Revenue" if amount_kind == "net" else "Net Revenue",
+            ],
+        )
+        if not file_isrc_col or not file_amount_col:
+            flash(
+                f"El archivo '{getattr(uploaded, 'filename', 'archivo')}' no contiene una columna de ISRC válida ni una columna de importe compatible.",
+                "danger",
+            )
+            return redirect(next_url)
+
+        df["__row_number"] = range(2, len(df) + 2)
+        df["__isrc"] = df[file_isrc_col].map(_clean_csv_cell).map(_norm_isrc)
+        df["__amount"] = df[file_amount_col].apply(_parse_money_decimal).map(_money_norm)
+        rows_total += int(len(df.index))
+        files_processed += 1
+
+        for _, row in df.iterrows():
+            raw_row = {col: _clean_csv_cell(row.get(col)) for col in cols}
+            parsed_rows.append(
+                {
+                    "file_name": getattr(uploaded, "filename", "archivo.csv"),
+                    "row_number": int(row.get("__row_number") or 0),
+                    "raw_row": raw_row,
+                    "isrc": str(row.get("__isrc") or ""),
+                    "amount": _money_norm(row.get("__amount") or 0),
+                    "track": _clean_csv_cell(row.get(file_track_col)) if file_track_col else "",
+                    "primary_artist": _clean_csv_cell(row.get("Primary Artist") or row.get("ARTIST") or row.get("Artist")),
+                }
+            )
 
     with get_db() as session_db:
         song_rows = session_db.query(Song.id, Song.title, Song.release_date, Song.isrc).all()
         isrc_to_song: dict[str, str] = {}
         ambiguous_isrcs: dict[str, set[str]] = defaultdict(set)
-        song_ids_seen: set[str] = set()
 
         def _register_isrc(code_val, sid_val):
             norm_code = _norm_isrc(code_val)
@@ -3991,28 +4254,28 @@ def discografica_income_upload_csv():
                 isrc_to_song[norm_code] = sid_s
 
         for sid, _title, _release_date, legacy_isrc in song_rows:
-            song_ids_seen.add(str(sid))
             _register_isrc(legacy_isrc, sid)
 
         code_rows = session_db.query(SongISRCCode.song_id, SongISRCCode.code).all()
         for sid, code in code_rows:
-            song_ids_seen.add(str(sid))
             _register_isrc(code, sid)
 
         aggregated_by_song: dict[str, dict] = {}
         unmatched_rows: list[dict] = []
 
-        for _, row in df.iterrows():
-            row_number = int(row.get("__row_number") or 0)
-            raw_row = {col: _clean_csv_cell(row.get(col)) for col in df.columns if not str(col).startswith("__")}
-            norm_isrc = str(row.get("__isrc") or "")
-            amount = _money_norm(row.get("__amount") or 0)
-            track_name = _clean_csv_cell(row.get(track_col))
-            primary_artist_name = _clean_csv_cell(row.get("Primary Artist"))
+        for row in parsed_rows:
+            row_number = int(row.get("row_number") or 0)
+            raw_row = row.get("raw_row") or {}
+            norm_isrc = str(row.get("isrc") or "")
+            amount = _money_norm(row.get("amount") or 0)
+            track_name = row.get("track") or ""
+            primary_artist_name = row.get("primary_artist") or ""
+            file_name = row.get("file_name") or "archivo.csv"
 
             if not norm_isrc:
                 unmatched_rows.append(
                     {
+                        "file_name": file_name,
                         "row_number": row_number,
                         "isrc": "",
                         "track": track_name,
@@ -4027,6 +4290,7 @@ def discografica_income_upload_csv():
             if norm_isrc in ambiguous_isrcs:
                 unmatched_rows.append(
                     {
+                        "file_name": file_name,
                         "row_number": row_number,
                         "isrc": norm_isrc,
                         "track": track_name,
@@ -4042,6 +4306,7 @@ def discografica_income_upload_csv():
             if not song_id:
                 unmatched_rows.append(
                     {
+                        "file_name": file_name,
                         "row_number": row_number,
                         "isrc": norm_isrc,
                         "track": track_name,
@@ -4069,6 +4334,7 @@ def discografica_income_upload_csv():
                 bucket["source_tracks"].add(track_name)
             bucket["rows"].append(
                 {
+                    "file_name": file_name,
                     "row_number": row_number,
                     "isrc": norm_isrc,
                     "track": track_name,
@@ -4094,7 +4360,6 @@ def discografica_income_upload_csv():
 
         immediate_items = []
         conflict_items = []
-        unchanged_count = 0
 
         for sid, bucket in aggregated_by_song.items():
             meta = song_meta.get(sid) or {"song_title": "", "artists_label": "", "display_isrc": "", "all_isrcs": []}
@@ -4115,9 +4380,6 @@ def discografica_income_upload_csv():
             }
             if existing_entry and not _money_equal(existing_value, amount):
                 conflict_items.append(item)
-            elif existing_entry and _money_equal(existing_value, amount):
-                immediate_items.append(item)
-                unchanged_count += 1
             else:
                 immediate_items.append(item)
 
@@ -4157,7 +4419,8 @@ def discografica_income_upload_csv():
             "amount_kind": amount_kind,
             "amount_kind_label": amount_kind_label,
             "summary": {
-                "rows_total": int(len(df.index)),
+                "files_total": files_processed,
+                "rows_total": int(rows_total),
                 "matched_songs": len(matched_song_ids),
                 "created": int(apply_result.get("created") or 0),
                 "updated": int(apply_result.get("updated") or 0),
@@ -4195,7 +4458,7 @@ def discografica_income_upload_csv():
             return redirect(_update_url_query(next_url, {"upload_report": report_token, "import_review": review_token}))
 
     flash(
-        f"CSV procesado por ISRC. Canciones con match: {report_payload['summary']['matched_songs']}. Filas sin match: {report_payload['summary']['unmatched_rows']}.",
+        f"CSV procesado por ISRC. Archivos: {files_processed}. Canciones con match: {report_payload['summary']['matched_songs']}. Filas sin match: {report_payload['summary']['unmatched_rows']}.",
         "success" if report_payload["summary"]["matched_songs"] else "warning",
     )
     return redirect(_update_url_query(next_url, {"upload_report": report_token}))
@@ -4883,7 +5146,7 @@ def discografica_royalties_liquidation_pdf():
                     'cover_url': s.cover_url,
                     'title': s.title,
                     'interpreters': (interpreters_str.get(s.id) or '').strip() or ", ".join([a.name for a in getattr(s, 'artists', [])]) or "",
-                    'isrc': isrc_map.get(s.id) or s.isrc,
+                    'isrc': _norm_isrc(isrc_map.get(s.id) or s.isrc),
                     'release_date': s.release_date.strftime('%d/%m/%Y') if s.release_date else '',
                     'income': float(income or 0),
                     'pct': float(pct or 0),
@@ -4921,6 +5184,15 @@ def discografica_royalties_liquidation_pdf():
 
         session_db.commit()
 
+        pies_company = (
+            session_db.query(GroupCompany)
+            .filter(func.lower(GroupCompany.name).like('%pies%'))
+            .order_by(GroupCompany.name.asc())
+            .first()
+        )
+        pies_tax_info = (getattr(pies_company, 'tax_info', None) or 'poner los datos fiscales de la empresa del grupo PIES').strip()
+        pies_logo_url = getattr(pies_company, 'logo_url', None) or None
+
         # ---------------- PDF ----------------
         buf = BytesIO()
         doc = SimpleDocTemplate(
@@ -4935,13 +5207,14 @@ def discografica_royalties_liquidation_pdf():
 
         story = []
 
-        # Logo PIES (local) + título
-        try:
-            import os
-            logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
-            logo = Image(logo_path, width=3.2 * cm, height=1.3 * cm)
-        except Exception:
-            logo = ''
+        logo = _fetch_img(pies_logo_url or '', 3.2 * cm, 1.3 * cm)
+        if not logo:
+            try:
+                import os
+                logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
+                logo = Image(logo_path, width=3.2 * cm, height=1.3 * cm)
+            except Exception:
+                logo = ''
 
         title = Paragraph("<b>Liquidación de Royalties</b>", styles['Title'])
         header = Table([[logo, title]], colWidths=[4.0 * cm, None])
@@ -5012,12 +5285,37 @@ def discografica_royalties_liquidation_pdf():
         story.append(tbl)
 
         story.append(Spacer(1, 10))
-        story.append(Paragraph(f"<b>Total a facturar:</b> {eur(total_amount)}", styles['Normal']))
+        total_box = Table(
+            [[Paragraph(f"<para alignment='right'><b>Total a facturar:</b> {eur(total_amount)}</para>", styles['Normal'])]],
+            colWidths=[8.0 * cm],
+            hAlign='RIGHT',
+        )
+        total_box.setStyle(
+            TableStyle(
+                [
+                    ('BOX', (0, 0), (-1, -1), 0.5, colors.lightgrey),
+                    ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
+                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                    ('TOPPADDING', (0, 0), (-1, -1), 6),
+                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.append(total_box)
+        story.append(Spacer(1, 8))
+        note_style = styles['Normal']
+        safe_pies_tax_info = (pies_tax_info or "poner los datos fiscales de la empresa del grupo PIES").replace("<", "").replace(">", "")
+        story.append(Paragraph(f'Emitir factura a nombre de "{safe_pies_tax_info}"', note_style))
+        story.append(Spacer(1, 4))
+        story.append(Paragraph("<link href='https://www.piesrecords.com/facturacion'><u>Subir factura</u></link>", note_style))
 
         doc.build(story)
         buf.seek(0)
 
-        fname = f"Liquidacion_Royalties_{_clean_filename(ben_name)}_{sem_key}.pdf"
+        sem_year_num, sem_half_num = parsed_sem
+        semester_label_for_file = f"S{sem_half_num}"
+        fname = f"{_clean_filename(ben_name)}_Liquidación Royalties_{semester_label_for_file}_{sem_year_num}.pdf"
         return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=fname)
 
 
@@ -5113,15 +5411,12 @@ def discografica_song_detail(song_id):
     primary_artist = s.artists[0] if s.artists else None
 
     # Asegurar estado
-    st = session_db.get(SongStatus, s.id)
-    if not st:
-        st = SongStatus(song_id=s.id)
-        # portada (auto)
-        st.cover_done = bool(s.cover_url)
-        if st.cover_done:
-            st.cover_updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
-        session_db.add(st)
-        session_db.commit()
+    st = _ensure_song_status_row(session_db, s)
+    st.cover_done = bool(s.cover_url)
+    if st.cover_done and not getattr(st, "cover_updated_at", None):
+        st.cover_updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+    _sync_song_agedi_state(session_db, s.id, st)
+    session_db.commit()
 
     # Intérpretes
     interpreters = (
@@ -5138,6 +5433,12 @@ def discografica_song_detail(song_id):
         .order_by(SongISRCCode.created_at.asc())
         .all()
     )
+    for code in isrc_codes:
+        setattr(code, "display_code", _norm_isrc(getattr(code, "code", None)))
+
+    current_isrcs = _current_song_isrcs(session_db, s.id, include_song_field=True)
+    agedi_registered_isrcs = _norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or [])
+    agedi_pending_isrcs = [code for code in current_isrcs if code not in set(agedi_registered_isrcs)]
 
     # Días restantes
     days_remaining = None
@@ -5151,6 +5452,9 @@ def discografica_song_detail(song_id):
     current_year = today_local().year
     default_copyright = f"© ℗ {current_year} PIES compañía discográfica SL"
 
+    song_type_label = _song_type_label(s)
+    song_type_badge_class = _song_type_badge_class(s)
+
     # =====================
     # TAB: ROYALTIES
     # =====================
@@ -5158,6 +5462,13 @@ def discografica_song_detail(song_id):
     royalty_other_beneficiaries = []
     radio_total_spins = 0
     radio_station_rows = []
+    song_income_groups = []
+    song_income_group_mode = (request.args.get("period_mode") or "semester").strip().lower()
+    if song_income_group_mode not in ("semester", "month", "year"):
+        song_income_group_mode = "semester"
+    song_income_total_gross = Decimal("0")
+    song_income_total_net = Decimal("0")
+    song_income_entries = []
 
     if tab == "royalties":
         # Beneficiario artista (auto según contratos)
@@ -5207,6 +5518,74 @@ def discografica_song_detail(song_id):
             .all()
         )
 
+    if tab == "ingresos":
+        rows = (
+            session_db.query(SongRevenueEntry)
+            .filter(SongRevenueEntry.song_id == s.id)
+            .order_by(SongRevenueEntry.period_start.desc(), SongRevenueEntry.is_base.desc(), SongRevenueEntry.created_at.asc())
+            .all()
+        )
+        grouped = defaultdict(lambda: {"rows": [], "total_gross": Decimal("0"), "total_net": Decimal("0"), "sort_key": None, "label": ""})
+        for row in rows:
+            gross = Decimal(row.gross or 0)
+            net = Decimal(row.net or 0)
+            song_income_total_gross += gross
+            song_income_total_net += net
+
+            ps = getattr(row, "period_start", None)
+            if song_income_group_mode == "month":
+                group_key = f"month:{ps.isoformat() if ps else 'na'}"
+                group_label = _month_label(ps) if ps else "Sin fecha"
+                sort_key = ps or date.min
+            elif song_income_group_mode == "year":
+                year_val = ps.year if ps else 0
+                group_key = f"year:{year_val}"
+                group_label = str(year_val) if year_val else "Sin fecha"
+                sort_key = date(year_val, 1, 1) if year_val else date.min
+            else:
+                if ps:
+                    half = 1 if ps.month <= 6 else 2
+                    group_key = f"semester:{ps.year}-S{half}"
+                    group_label = _semester_label(ps.year, half)
+                    sort_key = _semester_range(ps.year, half)[0]
+                else:
+                    group_key = "semester:na"
+                    group_label = "Sin fecha"
+                    sort_key = date.min
+
+            grouped[group_key]["rows"].append({
+                "id": str(row.id),
+                "name": (row.name or ("Base" if row.is_base else "Ingreso")),
+                "is_base": bool(row.is_base),
+                "period_type": row.period_type,
+                "period_start": ps,
+                "period_end": getattr(row, "period_end", None),
+                "period_label": _month_label(ps) if row.period_type == "MONTH" and ps else (_semester_label(ps.year, 1 if ps.month <= 6 else 2) if ps else ""),
+                "gross": gross,
+                "net": net,
+            })
+            grouped[group_key]["total_gross"] += gross
+            grouped[group_key]["total_net"] += net
+            grouped[group_key]["sort_key"] = sort_key
+            grouped[group_key]["label"] = group_label
+
+        song_income_groups = sorted(
+            [
+                {
+                    "key": key,
+                    "label": data["label"],
+                    "rows": data["rows"],
+                    "total_gross": data["total_gross"],
+                    "total_net": data["total_net"],
+                    "sort_key": data["sort_key"],
+                }
+                for key, data in grouped.items()
+            ],
+            key=lambda item: item.get("sort_key") or date.min,
+            reverse=True,
+        )
+        song_income_entries = rows
+
     if tab == "radio":
         radio_total_spins = int(
             session_db.query(func.coalesce(func.sum(Play.spins), 0))
@@ -5238,7 +5617,6 @@ def discografica_song_detail(song_id):
             }
             for station_id, name, logo_url, total_spins in rows
         ]
-
 
     # Editorial (solo si se pide esa pestaña)
     editorial_shares = []
@@ -5277,6 +5655,7 @@ def discografica_song_detail(song_id):
                 "pct": pct_val,
             })
 
+    session_db.expunge_all()
     session_db.close()
     return render_template(
         "song_detail.html",
@@ -5287,6 +5666,11 @@ def discografica_song_detail(song_id):
         status=st,
         interpreters=interpreters,
         isrc_codes=isrc_codes,
+        current_isrcs=current_isrcs,
+        agedi_registered_isrcs=agedi_registered_isrcs,
+        agedi_pending_isrcs=agedi_pending_isrcs,
+        song_type_label=song_type_label,
+        song_type_badge_class=song_type_badge_class,
         days_remaining=days_remaining,
         default_copyright=default_copyright,
         royalties_artist=royalties_artist,
@@ -5296,6 +5680,12 @@ def discografica_song_detail(song_id):
         editorial_shares=editorial_shares,
         editorial_total_pct=round(editorial_total_pct, 2),
         editorial_remaining_pct=round(max(0.0, 100.0 - editorial_total_pct), 2),
+        editorial_sgae_modification_pending=bool(getattr(st, "sgae_modification_pending", False)),
+        song_income_group_mode=song_income_group_mode,
+        song_income_groups=song_income_groups,
+        song_income_total_gross=song_income_total_gross,
+        song_income_total_net=song_income_total_net,
+        song_income_entries=song_income_entries,
     )
 
 
@@ -5422,6 +5812,7 @@ def discografica_song_editorial_share_save(song_id):
             session_db.add(sh)
 
         session_db.add(promoter)
+        _mark_song_sgae_pending_from_editorial_change(session_db, sid)
         session_db.commit()
         flash("Autor/Compositor guardado.", "success")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
@@ -5451,6 +5842,7 @@ def discografica_song_editorial_share_delete(song_id, share_id):
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
 
         session_db.delete(sh)
+        _mark_song_sgae_pending_from_editorial_change(session_db, sid)
         session_db.commit()
         flash("Autor/Compositor eliminado.", "success")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
@@ -5484,6 +5876,7 @@ def discografica_song_declaration_upload(song_id):
         s.work_declaration_url = url
         s.work_declaration_uploaded_at = datetime.now(TZ_MADRID)
         session_db.add(s)
+        _mark_song_sgae_pending_from_editorial_change(session_db, s.id)
         session_db.commit()
         flash("Declaración de obra subida.", "success")
     except Exception as e:
@@ -5495,12 +5888,13 @@ def discografica_song_declaration_upload(song_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
 
 
-@app.post("/discografica/canciones/<song_id>/editorial/sgae/register")
+@app.post("/discografica/canciones/<song_id>/editorial/agedi/register")
 @admin_required
-def discografica_song_sgae_register(song_id):
+def discografica_song_agedi_register(song_id):
     if not can_edit_discografica():
-        return forbid("No tienes permisos para actualizar SGAE.")
+        return forbid("No tienes permisos para actualizar AGEDI.")
 
+    nxt = safe_next_or(request.form.get("next") or url_for("discografica_view", section="isrc", isrc_tab="pendientes"))
     session_db = db()
     try:
         sid = to_uuid(song_id)
@@ -5509,15 +5903,34 @@ def discografica_song_sgae_register(song_id):
             flash("Canción no encontrada.", "warning")
             return redirect(url_for("discografica_view", section="canciones"))
 
-        st = session_db.get(SongStatus, sid)
-        if not st:
-            st = SongStatus(song_id=sid)
-            session_db.add(st)
+        _mark_song_agedi_registered(session_db, sid)
+        session_db.commit()
+        flash("Marcada como registrada en AGEDI.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error marcando AGEDI: {e}", "danger")
+    finally:
+        session_db.close()
 
-        st.sgae_done = True
-        st.sgae_updated_at = datetime.now(TZ_MADRID)
-        st.updated_at = datetime.now(TZ_MADRID)
-        session_db.add(st)
+    return redirect(nxt)
+
+
+@app.post("/discografica/canciones/<song_id>/editorial/sgae/register")
+@admin_required
+def discografica_song_sgae_register(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para actualizar SGAE.")
+
+    nxt = safe_next_or(request.form.get("next") or url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        _mark_song_sgae_registered(session_db, sid)
         session_db.commit()
         flash("Marcado como registrado en SGAE.", "success")
     except Exception as e:
@@ -5526,7 +5939,7 @@ def discografica_song_sgae_register(song_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    return redirect(nxt)
 
 
 @app.post("/discografica/canciones/<song_id>/status/toggle")
@@ -5571,9 +5984,27 @@ def discografica_song_status_toggle(song_id):
 
         done_attr, ts_attr = allowed[key]
         current = bool(getattr(st, done_attr) or False)
-        setattr(st, done_attr, not current)
-        setattr(st, ts_attr, datetime.now(TZ_MADRID))
-        st.updated_at = datetime.now(TZ_MADRID)
+        now_dt = datetime.now(TZ_MADRID)
+
+        if key == "agedi":
+            if current:
+                st.agedi_done = False
+                st.agedi_updated_at = now_dt
+                st.updated_at = now_dt
+            else:
+                _mark_song_agedi_registered(session_db, sid)
+        elif key == "sgae":
+            if current:
+                st.sgae_done = False
+                st.sgae_modification_pending = False
+                st.sgae_updated_at = now_dt
+                st.updated_at = now_dt
+            else:
+                _mark_song_sgae_registered(session_db, sid)
+        else:
+            setattr(st, done_attr, not current)
+            setattr(st, ts_attr, now_dt)
+            st.updated_at = now_dt
         session_db.add(st)
         session_db.commit()
     except Exception as e:
@@ -5800,7 +6231,7 @@ def discografica_song_isrc_add(song_id):
             if not manual_code:
                 flash("Debes indicar un código ISRC.", "warning")
                 return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
-            code = manual_code.strip().upper()
+            code = _norm_isrc(manual_code)
 
             # Intento de parseo (opcional)
             try:
@@ -5835,7 +6266,7 @@ def discografica_song_isrc_add(song_id):
             song_id=sid,
             artist_id=primary_artist.id,
             kind=kind,
-            code=code,
+            code=_norm_isrc(code),
             is_primary=is_primary,
             subproduct_name=subproduct_name,
             year=year_full,
@@ -5845,8 +6276,9 @@ def discografica_song_isrc_add(song_id):
 
         # Mantener compatibilidad: guardar el ISRC principal de AUDIO en songs.isrc
         if kind == "AUDIO" and is_primary:
-            s.isrc = code
+            s.isrc = _norm_isrc(code)
 
+        _sync_song_agedi_state(session_db, sid)
         session_db.commit()
         flash("ISRC añadido.", "success")
     except Exception as e:
@@ -5885,8 +6317,9 @@ def discografica_song_isrc_delete(song_id, code_id):
                         .filter(SongISRCCode.is_primary == True)  # noqa: E712
                         .first()
                     )
-                    s.isrc = other.code if other else None
+                    s.isrc = _norm_isrc(other.code) if other else None
 
+            _sync_song_agedi_state(session_db, sid)
             session_db.commit()
             flash("ISRC eliminado.", "success")
     except Exception as e:
@@ -5920,12 +6353,13 @@ def discografica_song_update(song_id):
             s.release_date = parse_date(rd)
 
         s.is_catalog = bool(request.form.get("is_catalog"))
-        s.isrc = (request.form.get("isrc") or "").strip() or None
+        s.isrc = _norm_isrc((request.form.get("isrc") or "").strip() or None)
 
         cover = request.files.get("cover")
         if cover and getattr(cover, "filename", ""):
             s.cover_url = upload_image(cover, "songs")
 
+        _sync_song_agedi_state(session_db, s.id)
         session_db.commit()
         flash("Canción actualizada.", "success")
     except Exception as e:
@@ -10414,6 +10848,7 @@ def _sales_pdf_logo_path():
     candidates = [
         Path(app.root_path) / "static" / "img" / "logo_33_producciones.png",
         Path(app.root_path) / "static" / "img" / "logo_33.png",
+        Path(app.root_path) / "static" / "img" / "logo.png",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -10422,14 +10857,19 @@ def _sales_pdf_logo_path():
 
 
 def _draw_sales_pdf_logo(canvas, doc):
-    logo_path = _sales_pdf_logo_path()
-    if not logo_path:
+    logo_source = getattr(doc, "_sales_logo_source", None) or _sales_pdf_logo_path()
+    if not logo_source:
         return
 
     try:
         from reportlab.lib.utils import ImageReader
 
-        image = ImageReader(logo_path)
+        image_source = logo_source
+        if isinstance(logo_source, str) and logo_source.startswith(("http://", "https://")):
+            with urlopen(logo_source, timeout=6) as resp:
+                image_source = BytesIO(resp.read())
+
+        image = ImageReader(image_source)
         iw, ih = image.getSize()
         max_w = 96.0
         max_h = 24.0
@@ -10537,6 +10977,26 @@ def sales_report_pdf():
 
     ncols = len(header_labels)
     body_font = _sales_pdf_body_font_size(ncols)
+
+    logo_source = None
+    if company_id:
+        try:
+            with get_db() as logo_db:
+                company = logo_db.get(GroupCompany, to_uuid(company_id))
+                if company and getattr(company, "logo_url", None):
+                    logo_source = company.logo_url
+        except Exception:
+            logo_source = None
+    if not logo_source:
+        company_ids = {str(getattr(c, "billing_company_id", None) or getattr(c, "group_company_id", None)) for sale_type in SALES_SECTION_ORDER for c in (sections.get(sale_type) or []) if (getattr(c, "billing_company_id", None) or getattr(c, "group_company_id", None))}
+        if len(company_ids) == 1:
+            try:
+                with get_db() as logo_db:
+                    company = logo_db.get(GroupCompany, to_uuid(next(iter(company_ids))))
+                    if company and getattr(company, "logo_url", None):
+                        logo_source = company.logo_url
+            except Exception:
+                logo_source = None
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -10670,6 +11130,7 @@ def sales_report_pdf():
     if not has_rows:
         story.append(Paragraph("No hay conciertos para los filtros seleccionados.", styles["Normal"]))
 
+    doc._sales_logo_source = logo_source
     doc.build(story, onFirstPage=_draw_sales_pdf_logo, onLaterPages=_draw_sales_pdf_logo)
     buf.seek(0)
 
@@ -10876,6 +11337,16 @@ def sales_update_report_pdf():
         from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import cm
 
+        logo_source = None
+        company_ids = {str(getattr(c, "billing_company_id", None) or getattr(c, "group_company_id", None)) for c in concerts if (getattr(c, "billing_company_id", None) or getattr(c, "group_company_id", None))}
+        if len(company_ids) == 1:
+            try:
+                company = session_db.get(GroupCompany, to_uuid(next(iter(company_ids))))
+                if company and getattr(company, "logo_url", None):
+                    logo_source = company.logo_url
+            except Exception:
+                logo_source = None
+
         buf = BytesIO()
         doc = SimpleDocTemplate(
             buf,
@@ -11016,6 +11487,7 @@ def sales_update_report_pdf():
             table.setStyle(table_style)
             story.append(table)
 
+        doc._sales_logo_source = logo_source
         doc.build(story, onFirstPage=_draw_sales_pdf_logo, onLaterPages=_draw_sales_pdf_logo)
         buf.seek(0)
 

@@ -592,7 +592,7 @@
                   <span class="text-muted">{{ s.collaborator or '—' }}</span>
                 </td>
                 <td>
-                  <span class="text-muted">{{ s.isrc or '—' }}</span>
+                  <span class="text-muted">{{ (s.isrc or '—')|isrc }}</span>
                 </td>
                 <td>
                   {% if s.release_date %}

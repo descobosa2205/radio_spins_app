@@ -24,6 +24,9 @@
               {% if song.collaborator %}
                 <div class="text-muted small">Colaboradores: {{ song.collaborator }}</div>
               {% endif %}
+              <div class="mt-1">
+                <span class="badge {{ song_type_badge_class }}">{{ song_type_label }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -597,6 +600,19 @@
               {% endif %}
             </div>
             <div class="text-muted small mt-1">Audio / Vídeo, principal y subproductos.</div>
+            {% if current_isrcs and (current_isrcs|length) > 0 %}
+              <div class="d-flex gap-1 flex-wrap mt-2">
+                {% for code in current_isrcs %}
+                  {% if code in agedi_registered_isrcs %}
+                    <span class="badge text-bg-success">{{ code|isrc }}</span>
+                  {% elif code in agedi_pending_isrcs %}
+                    <span class="badge text-bg-warning text-dark">{{ code|isrc }}</span>
+                  {% else %}
+                    <span class="badge text-bg-light text-dark">{{ code|isrc }}</span>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% endif %}
 
             <div class="mt-2">
               {% if isrc_codes and (isrc_codes|length) > 0 %}
@@ -614,7 +630,7 @@
                       {% for c in isrc_codes %}
                         <tr>
                           <td class="text-nowrap">{{ c.kind }}</td>
-                          <td class="text-nowrap">{{ c.code }}</td>
+                          <td class="text-nowrap">{{ c.display_code or c.code|isrc }}</td>
                           <td>
                             {% if c.is_primary %}
                               <span class="badge text-bg-primary">Principal</span>
@@ -1206,17 +1222,29 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h6 class="m-0">SGAE</h6>
-            {% if status.sgae_done %}
-              <span class="badge text-bg-success">Registrado en SGAE · {{ status.sgae_updated_at.strftime('%d/%m/%Y') if status.sgae_updated_at else '' }}</span>
-            {% else %}
-              {% if CAN_EDIT_DISCOGRAFICA %}
-                <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
-                  <button class="btn btn-success"><i class="fa fa-check"></i> Marcar como registrado</button>
-                </form>
-              {% else %}
-                <span class="text-muted">Pendiente</span>
+            <div class="d-flex gap-2 flex-wrap align-items-center">
+              {% if status.sgae_done %}
+                <span class="badge text-bg-success">Registrado en SGAE · {{ status.sgae_updated_at.strftime('%d/%m/%Y') if status.sgae_updated_at else '' }}</span>
               {% endif %}
-            {% endif %}
+              {% if editorial_sgae_modification_pending %}
+                <span class="badge text-bg-warning">Modificación pendiente</span>
+              {% endif %}
+              {% if not status.sgae_done and not editorial_sgae_modification_pending %}
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
+                    <input type="hidden" name="next" value="{{ url_for('discografica_song_detail', song_id=song.id, tab='editorial') }}">
+                    <button class="btn btn-success"><i class="fa fa-check"></i> Marcar como registrado</button>
+                  </form>
+                {% else %}
+                  <span class="text-muted">Pendiente</span>
+                {% endif %}
+              {% elif editorial_sgae_modification_pending and CAN_EDIT_DISCOGRAFICA %}
+                <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
+                  <input type="hidden" name="next" value="{{ url_for('discografica_song_detail', song_id=song.id, tab='editorial') }}">
+                  <button class="btn btn-warning"><i class="fa fa-check"></i> Marcar modificación registrada</button>
+                </form>
+              {% endif %}
+            </div>
           </div>
         </div>
       </div>
@@ -1317,6 +1345,105 @@
             </div>
           </form>
         </div>
+      </div>
+    {% endif %}
+
+
+  {% elif tab == 'ingresos' %}
+
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="m-0">Ingresos</h5>
+        <div class="text-muted small">Detalle completo de ingresos netos y brutos asociados a esta canción.</div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        <a class="btn btn-sm {% if song_income_group_mode == 'semester' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='ingresos', period_mode='semester') }}">Ver por semestres</a>
+        <a class="btn btn-sm {% if song_income_group_mode == 'month' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='ingresos', period_mode='month') }}">Ver por meses</a>
+        <a class="btn btn-sm {% if song_income_group_mode == 'year' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='ingresos', period_mode='year') }}">Ver por años</a>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="text-muted small">Total bruto</div>
+            <div class="fs-5 fw-semibold">{{ song_income_total_gross|eur }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="text-muted small">Total neto</div>
+            <div class="fs-5 fw-semibold">{{ song_income_total_net|eur }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="text-muted small">Apuntes</div>
+            <div class="fs-5 fw-semibold">{{ song_income_entries|length }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-md-6 col-xl-3">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="text-muted small">Agrupaciones visibles</div>
+            <div class="fs-5 fw-semibold">{{ song_income_groups|length }}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if not song_income_entries or (song_income_entries|length) == 0 %}
+      <div class="text-muted">Todavía no hay ingresos cargados para esta canción.</div>
+    {% else %}
+      <div class="d-flex flex-column gap-3">
+        {% for group in song_income_groups %}
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <h6 class="m-0">{{ group.label }}</h6>
+                <div class="d-flex gap-2 flex-wrap">
+                  <span class="badge text-bg-light text-dark">Bruto {{ group.total_gross|eur }}</span>
+                  <span class="badge text-bg-light text-dark">Neto {{ group.total_net|eur }}</span>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th>Concepto</th>
+                      <th class="text-nowrap">Periodo origen</th>
+                      <th class="text-nowrap text-end">Bruto</th>
+                      <th class="text-nowrap text-end">Neto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for row in group.rows %}
+                      <tr>
+                        <td>
+                          <div class="fw-semibold">{{ row.name }}</div>
+                          {% if row.is_base %}
+                            <div class="small text-muted">Ingreso base</div>
+                          {% else %}
+                            <div class="small text-muted">Ingreso adicional</div>
+                          {% endif %}
+                        </td>
+                        <td class="text-nowrap">{{ row.period_label or '—' }}</td>
+                        <td class="text-end">{{ row.gross|eur }}</td>
+                        <td class="text-end">{{ row.net|eur }}</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     {% endif %}
 

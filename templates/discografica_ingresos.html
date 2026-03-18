@@ -3,9 +3,14 @@
     <div class="fw-semibold">Periodo seleccionado: {{ income_period_label }}</div>
     <div class="text-muted small">Puedes añadir ingresos brutos/netos por periodo o importarlos por CSV (por ISRC).</div>
   </div>
-  <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#incomeReportModal">
-    <i class="fa fa-file-pdf"></i> Generar informe
-  </button>
+  <div class="d-flex gap-2 flex-wrap">
+    <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#incomeReportModal">
+      <i class="fa fa-file-pdf"></i> Generar informe
+    </button>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#incomeUploadModal">
+      <i class="fa fa-upload"></i> Subir CSV
+    </button>
+  </div>
 </div>
 
 {% if income_upload_report %}
@@ -33,16 +38,12 @@
       </div>
 
       <div class="row g-2 small mb-3">
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Archivos</div><div class="fw-semibold">{{ sum.files_total or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Filas CSV</div><div class="fw-semibold">{{ sum.rows_total or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Canciones con match</div><div class="fw-semibold">{{ sum.matched_songs or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Creadas</div><div class="fw-semibold">{{ sum.created or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Actualizadas</div><div class="fw-semibold">{{ sum.updated or 0 }}</div></div></div>
-        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Sin cambios</div><div class="fw-semibold">{{ sum.unchanged or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Sin match</div><div class="fw-semibold">{{ sum.unmatched_rows or 0 }}</div></div></div>
-        {% if sum.replaced or sum.kept %}
-          <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Reemplazadas</div><div class="fw-semibold">{{ sum.replaced or 0 }}</div></div></div>
-          <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Mantenidas</div><div class="fw-semibold">{{ sum.kept or 0 }}</div></div></div>
-        {% endif %}
       </div>
 
       {% if rpt.applied_songs %}
@@ -60,9 +61,9 @@
             <tbody>
               {% for item in rpt.applied_songs %}
                 <tr>
-                  <td class="fw-semibold">{{ item.song_title or '—' }}</td>
+                  <td class="fw-semibold"><a class="text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=item.song_id, tab='ingresos') }}">{{ item.song_title or '—' }}</a></td>
                   <td>{{ item.artists_label or '—' }}</td>
-                  <td class="text-muted">{{ item.display_isrc or '—' }}</td>
+                  <td class="text-muted">{{ (item.display_isrc or '—')|isrc }}</td>
                   <td class="text-end">{{ item.amount|eur }}</td>
                   <td>
                     {% if item.action == 'created' %}
@@ -92,6 +93,7 @@
             <table class="table table-sm align-middle mb-0">
               <thead class="table-light">
                 <tr>
+                  <th>Archivo</th>
                   <th class="text-nowrap">Fila</th>
                   <th class="text-nowrap">ISRC</th>
                   <th>Canción CSV</th>
@@ -103,8 +105,9 @@
               <tbody>
                 {% for row in rpt.unmatched_rows %}
                   <tr>
+                    <td>{{ row.file_name or '—' }}</td>
                     <td>{{ row.row_number }}</td>
-                    <td class="text-muted">{{ row.isrc or '—' }}</td>
+                    <td class="text-muted">{{ (row.isrc or '—')|isrc }}</td>
                     <td>{{ row.track or '—' }}</td>
                     <td>{{ row.primary_artist or '—' }}</td>
                     <td>{{ row.reason }}</td>
@@ -171,26 +174,46 @@
   </div>
 </div>
 
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-lg-7">
+        <label class="form-label">Filtrar por artistas</label>
+        <div class="d-flex flex-wrap gap-2" id="incomeArtistFilters">
+          <button type="button" class="btn btn-sm btn-dark active" data-income-artist-filter="all">Todos</button>
+          {% for artist, rows in income_artist_blocks %}
+            <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-income-artist-filter="{{ artist.id }}">
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+              <span>{{ artist.name }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 col-lg-3">
+        <label class="form-label">Buscar</label>
+        <input type="search" class="form-control" id="incomeSearchInput" placeholder="Buscar por canción, intérprete, ISRC...">
+      </div>
+      <div class="col-12 col-lg-2">
+        <div class="form-check mt-4">
+          <input class="form-check-input" type="checkbox" id="incomeNoRevenueOnly">
+          <label class="form-check-label" for="incomeNoRevenueOnly">Solo canciones sin ingresos</label>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 {% if not income_artist_blocks or (income_artist_blocks|length) == 0 %}
   <div class="text-muted">No hay artistas/canciones para este periodo.</div>
 {% else %}
+  <div id="incomeArtistWrap">
   {% for artist, rows in income_artist_blocks %}
-    <div class="mb-4">
+    <div class="mb-4 income-artist-block" data-income-artist-block="{{ artist.id }}">
       <div class="d-flex align-items-center justify-content-between gap-2 mb-2 flex-wrap">
         <div class="d-flex align-items-center gap-2">
           <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
           <h5 class="m-0">{{ artist.name }}</h5>
         </div>
-
-        <button class="btn btn-sm btn-outline-secondary btn-income-upload"
-                data-bs-toggle="modal" data-bs-target="#incomeUploadModal"
-                data-artist-id="{{ artist.id }}"
-                data-artist-name="{{ artist.name }}"
-                data-artist-photo="{{ artist.photo_url or '' }}"
-                data-period-type="{{ income_period_type }}"
-                data-period-start="{{ income_period_start_iso }}">
-          <i class="fa fa-upload"></i> Subir ingresos (CSV)
-        </button>
       </div>
 
       {% if not rows or (rows|length) == 0 %}
@@ -214,8 +237,8 @@
 
               {% for r in rows %}
                 {% set s = r.song %}
+                {% set row_has_revenue = (r.total_gross != 0 or r.total_net != 0 or r.base_gross or r.base_net or (r.extra_entries and r.extra_entries|length > 0)) %}
 
-                {# Form invisible para guardar la línea base #}
                 <form id="income-base-{{ s.id }}-{{ income_period_type }}-{{ income_period_start_iso }}" method="post" action="{{ url_for('discografica_income_entry_save') }}">
                   <input type="hidden" name="song_id" value="{{ s.id }}">
                   <input type="hidden" name="period_type" value="{{ income_period_type }}">
@@ -227,12 +250,17 @@
                   <input type="hidden" name="next" value="{{ income_next_url }}">
                 </form>
 
-                <tr>
+                <tr class="income-search-row"
+                    data-income-artist="{{ artist.id }}"
+                    data-income-empty="{{ '1' if not row_has_revenue else '0' }}"
+                    data-income-search="{{ (s.title ~ ' ' ~ (r.interpreters or '') ~ ' ' ~ (r.isrc or '') ~ ' ' ~ (s.collaborator or ''))|lower }}">
                   <td>
-                    <img src="{{ r.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                    <a href="{{ url_for('discografica_song_detail', song_id=s.id, tab='ingresos') }}">
+                      <img src="{{ r.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                    </a>
                   </td>
                   <td>
-                    <div class="fw-semibold">{{ s.title }}</div>
+                    <div class="fw-semibold"><a class="text-decoration-none" href="{{ url_for('discografica_song_detail', song_id=s.id, tab='ingresos') }}">{{ s.title }}</a></div>
 
                     <div class="d-flex gap-1 flex-wrap mt-1">
                       {% if s.is_distribution %}
@@ -263,7 +291,7 @@
                     <span class="text-muted">{{ r.interpreters or '—' }}</span>
                   </td>
                   <td>
-                    <span class="text-muted">{{ r.isrc or '—' }}</span>
+                    <span class="text-muted">{{ (r.isrc or '—')|isrc }}</span>
                   </td>
                   <td>
                     <span class="badge {{ r.status.class }}">{{ r.status.label }}</span>
@@ -300,7 +328,10 @@
 
                 {% if r.extra_entries and (r.extra_entries|length) > 0 %}
                   {% for e in r.extra_entries %}
-                    <tr class="table-light">
+                    <tr class="table-light income-search-row"
+                        data-income-artist="{{ artist.id }}"
+                        data-income-empty="0"
+                        data-income-search="{{ (s.title ~ ' ' ~ (e.name or '') ~ ' ' ~ (r.isrc or '') ~ ' ' ~ (r.interpreters or ''))|lower }}">
                       <td></td>
                       <td colspan="3">
                         <div class="small fw-semibold">{{ e.name }}</div>
@@ -334,7 +365,10 @@
                 {% endif %}
 
                 {% if r.show_total %}
-                  <tr class="table-secondary">
+                  <tr class="table-secondary income-search-row"
+                      data-income-artist="{{ artist.id }}"
+                      data-income-empty="0"
+                      data-income-search="{{ (s.title ~ ' total ' ~ (r.isrc or '') ~ ' ' ~ (r.interpreters or ''))|lower }}">
                     <td></td>
                     <td colspan="4" class="text-end small fw-semibold">Total</td>
                     <td class="text-end small fw-semibold">{{ r.total_gross|eur }}</td>
@@ -351,8 +385,8 @@
       {% endif %}
     </div>
   {% endfor %}
+  </div>
 {% endif %}
-
 
 <!-- Modal: Añadir / Editar ingreso extra -->
 <div class="modal fade" id="incomeEntryModal" tabindex="-1" aria-hidden="true">
@@ -412,34 +446,27 @@
       </div>
       <div class="modal-body">
 
-        <div class="d-flex align-items-center gap-2 mb-3">
-          <img src="{{ url_for('static', filename='img/logo.png') }}" data-default-src="{{ url_for('static', filename='img/logo.png') }}" id="incomeUploadArtistPhoto" class="artist-avatar" alt="">
-          <div>
-            <div class="fw-semibold" id="incomeUploadArtistName">—</div>
-            <div class="small text-muted">Periodo: {{ income_period_label }}</div>
-          </div>
+        <div class="mb-3">
+          <div class="fw-semibold">Importación global de ingresos</div>
+          <div class="small text-muted">Periodo: {{ income_period_label }}. Puedes subir uno o varios CSV a la vez.</div>
         </div>
 
-        <input type="hidden" name="artist_id" id="incomeUploadArtistId">
-        <input type="hidden" name="period_type" id="incomeUploadPeriodType" required>
-        <input type="hidden" name="period_start" id="incomeUploadPeriodStart" required>
+        <input type="hidden" name="artist_id" value="">
+        <input type="hidden" name="period_type" value="{{ income_period_type }}" required>
+        <input type="hidden" name="period_start" value="{{ income_period_start_iso }}" required>
         <input type="hidden" name="next" value="{{ income_next_url }}">
 
         <div class="row g-2">
           <div class="col-12">
-            <label class="form-label">Archivo CSV</label>
-            <input class="form-control" type="file" name="csv_file" id="incomeUploadFile" accept=".csv,text/csv" required>
+            <label class="form-label">Archivos CSV</label>
+            <input class="form-control" type="file" name="csv_files" id="incomeUploadFile" accept=".csv,text/csv" multiple required>
             <div class="small text-muted mt-1">
-              Se usarán automáticamente las columnas <span class="text-nowrap">Track</span>, <span class="text-nowrap">ISRC</span> y
-              <span class="text-nowrap">Net Revenue</span> (o <span class="text-nowrap">Gross Revenue</span> si seleccionas <strong>Bruto</strong>).
+              Formatos soportados: <span class="text-nowrap">Track / ISRC / Net Revenue</span>,
+              <span class="text-nowrap">Track / ISRC / Gross Revenue</span> y el formato con
+              <span class="text-nowrap">PRODUCT CODE</span> como ISRC y <span class="text-nowrap">PRICE</span> como importe.
             </div>
           </div>
 
-          {#
-            IMPORTANTE:
-            - No mostramos selects de columnas para evitar errores.
-            - El backend existente espera estos campos; los enviamos fijos.
-          #}
           <input type="hidden" name="track_col" value="Track">
           <input type="hidden" name="isrc_col" value="ISRC">
           <input type="hidden" name="amount_col" id="incomeUploadAmountColFixed" value="Net Revenue">
@@ -458,7 +485,7 @@
                 <label class="form-check-label" for="incomeAmtGross">Bruto</label>
               </div>
             </div>
-            <div class="small text-muted">Se actualizará el campo correspondiente (neto o bruto) para este periodo. Si el mismo ISRC aparece varias veces, se suman sus importes.</div>
+            <div class="small text-muted">Se actualizará el campo correspondiente (neto o bruto) para este periodo. Si el mismo ISRC aparece varias veces entre varios archivos, se suman sus importes.</div>
           </div>
 
         </div>
@@ -475,17 +502,63 @@
 </div>
 
 <script>
-  // Asegura que al abrir el modal quede en NET por defecto y el amount_col fijo en Net Revenue.
-  // (evita que se quede seleccionado "Bruto" de una importación anterior.)
   document.addEventListener('DOMContentLoaded', function(){
     const modal = document.getElementById('incomeUploadModal');
-    if (!modal) return;
-    modal.addEventListener('show.bs.modal', function(){
-      const net = document.getElementById('incomeAmtNet');
-      const hidden = document.getElementById('incomeUploadAmountColFixed');
-      if (net) net.checked = true;
-      if (hidden) hidden.value = 'Net Revenue';
+    if (modal) {
+      modal.addEventListener('show.bs.modal', function(){
+        const net = document.getElementById('incomeAmtNet');
+        const hidden = document.getElementById('incomeUploadAmountColFixed');
+        if (net) net.checked = true;
+        if (hidden) hidden.value = 'Net Revenue';
+      });
+    }
+
+    const normalize = (v) => (v || '').toString().toLowerCase().trim();
+    let selectedArtist = 'all';
+    const searchInput = document.getElementById('incomeSearchInput');
+    const onlyEmpty = document.getElementById('incomeNoRevenueOnly');
+
+    function updateArtistButtons(){
+      document.querySelectorAll('[data-income-artist-filter]').forEach(btn => {
+        const val = btn.getAttribute('data-income-artist-filter') || 'all';
+        const active = val === selectedArtist;
+        btn.classList.toggle('active', active);
+        if (val !== 'all') {
+          btn.classList.toggle('btn-dark', active);
+          btn.classList.toggle('btn-outline-secondary', !active);
+        }
+      });
+    }
+
+    function applyIncomeFilters(){
+      const q = normalize(searchInput && searchInput.value);
+      const emptyOnly = !!(onlyEmpty && onlyEmpty.checked);
+      document.querySelectorAll('.income-search-row').forEach(row => {
+        const artistId = row.getAttribute('data-income-artist') || '';
+        const haystack = normalize(row.getAttribute('data-income-search'));
+        const isEmpty = (row.getAttribute('data-income-empty') || '0') === '1';
+        const okArtist = selectedArtist === 'all' || artistId === selectedArtist;
+        const okSearch = !q || haystack.includes(q);
+        const okEmpty = !emptyOnly || isEmpty;
+        row.style.display = (okArtist && okSearch && okEmpty) ? '' : 'none';
+      });
+      document.querySelectorAll('.income-artist-block').forEach(block => {
+        const visibleRows = Array.from(block.querySelectorAll('.income-search-row')).filter(r => r.style.display !== 'none');
+        block.style.display = visibleRows.length ? '' : 'none';
+      });
+    }
+
+    document.querySelectorAll('[data-income-artist-filter]').forEach(btn => {
+      btn.addEventListener('click', function(){
+        selectedArtist = btn.getAttribute('data-income-artist-filter') || 'all';
+        updateArtistButtons();
+        applyIncomeFilters();
+      });
     });
+    if (searchInput) searchInput.addEventListener('input', applyIncomeFilters);
+    if (onlyEmpty) onlyEmpty.addEventListener('change', applyIncomeFilters);
+    updateArtistButtons();
+    applyIncomeFilters();
   });
 </script>
 
@@ -531,7 +604,7 @@
                     {% endif %}
                   </td>
                   <td>{{ item.artists_label or '—' }}</td>
-                  <td class="text-muted">{{ (item.matched_isrcs or [])|join(', ') or '—' }}</td>
+                  <td class="text-muted">{{ (item.matched_isrcs or [])|map('isrc')|join(', ') or '—' }}</td>
                   <td class="text-end">{{ item.existing_value|eur }}</td>
                   <td class="text-end">{{ item.new_value|eur }}</td>
                   <td>{{ item.row_count or 0 }}</td>

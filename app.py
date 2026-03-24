@@ -6,6 +6,8 @@ import uuid as _uuid
 import uuid
 import json
 import csv
+import mimetypes
+import zipfile
 import unicodedata
 import html
 from pathlib import Path
@@ -46,13 +48,34 @@ try:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib import colors
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_JUSTIFY
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
     from reportlab.graphics.shapes import Drawing, PolyLine, Line
 
     REPORTLAB_AVAILABLE = True
 except Exception:
     REPORTLAB_AVAILABLE = False
+
+try:
+    from PIL import Image as PILImage
+    PILLOW_AVAILABLE = True
+except Exception:
+    PILLOW_AVAILABLE = False
+    PILImage = None
+
+try:
+    from pydub import AudioSegment
+    PYDUB_AVAILABLE = True
+except Exception:
+    PYDUB_AVAILABLE = False
+    AudioSegment = None
+
+try:
+    import pycountry
+    PYCOUNTRY_AVAILABLE = True
+except Exception:
+    PYCOUNTRY_AVAILABLE = False
+    pycountry = None
 
 from config import settings
 from models import (
@@ -79,6 +102,8 @@ from models import (
     ArtistISRCSetting,
     SongInterpreter,
     SongISRCCode,
+    SongMaterial,
+    SongCertification,
     SongStatus,
     SongArtist,
     RadioStation,
@@ -98,6 +123,7 @@ from models import (
     AlbumProductCode,
     AlbumTrack,
     AlbumMaterial,
+    AlbumCertification,
     AlbumRoyaltyBeneficiary,
     RoyaltyLiquidation,
     Venue,
@@ -330,7 +356,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download"}
     if request.endpoint in allowed:
         return
 
@@ -2628,6 +2654,627 @@ def _parse_public_royalty_liquidation_token(token: str | None, max_age: int = 31
     if not isinstance(data, dict):
         return None
     return data
+
+
+_COUNTRY_CHOICES_CACHE = None
+_AUDIO_UPLOAD_EXTENSIONS = {".wav", ".wave"}
+
+
+def _song_public_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="song-public-share")
+
+
+def _make_public_song_share_token(kind: str, song_id: str, ref: str | None = None, fmt: str | None = None) -> str:
+    return _song_public_serializer().dumps({
+        "kind": (kind or "").strip().upper(),
+        "sid": str(song_id or "").strip(),
+        "ref": (ref or "").strip(),
+        "fmt": (fmt or "").strip().lower(),
+    })
+
+
+def _parse_public_song_share_token(token: str | None, max_age: int = 31536000) -> dict | None:
+    token = (token or "").strip()
+    if not token:
+        return None
+    try:
+        data = _song_public_serializer().loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _certification_catalog() -> dict[str, dict]:
+    return {
+        "GOLD": {
+            "title": "Disco de Oro",
+            "plural_title": "Discos de Oro",
+            "copies_label": "Equivalente a 20.000 Copias",
+            "image": "img/certifications/gold.svg",
+            "order": 1,
+        },
+        "PLATINUM": {
+            "title": "Disco de Platino",
+            "plural_title": "Discos de Platino",
+            "copies_label": "Equivalente a 40.000 Copias",
+            "image": "img/certifications/platinum.svg",
+            "order": 2,
+        },
+        "DIAMOND": {
+            "title": "Disco de Diamante",
+            "plural_title": "Discos de Diamante",
+            "copies_label": "Equivalente a 1 millón de copias",
+            "image": "img/certifications/diamond.svg",
+            "order": 3,
+        },
+        "URANIUM": {
+            "title": "Disco de Uranio",
+            "plural_title": "Discos de Uranio",
+            "copies_label": "Equivalente a más de 50 millones de copias",
+            "image": "img/certifications/uranium.svg",
+            "order": 4,
+        },
+    }
+
+
+def _country_flag_emoji(country_code: str | None) -> str:
+    code = (country_code or "").strip().upper()
+    if len(code) != 2 or not code.isalpha():
+        return ""
+    return chr(127397 + ord(code[0])) + chr(127397 + ord(code[1]))
+
+
+def _country_choices() -> list[dict]:
+    global _COUNTRY_CHOICES_CACHE
+    if _COUNTRY_CHOICES_CACHE is not None:
+        return _COUNTRY_CHOICES_CACHE
+
+    out = []
+    seen = set()
+    if PYCOUNTRY_AVAILABLE:
+        for item in pycountry.countries:
+            code = (getattr(item, "alpha_2", None) or "").strip().upper()
+            name = (getattr(item, "name", None) or getattr(item, "official_name", None) or "").strip()
+            if not code or not name or code in seen:
+                continue
+            aliases = {name.casefold()}
+            for attr in ("official_name", "common_name"):
+                val = (getattr(item, attr, None) or "").strip()
+                if val:
+                    aliases.add(val.casefold())
+            out.append({
+                "code": code,
+                "name": name,
+                "flag": _country_flag_emoji(code),
+                "aliases": sorted(aliases),
+            })
+            seen.add(code)
+    if not out:
+        for code, name in [("ES", "España"), ("MX", "México"), ("AR", "Argentina"), ("US", "Estados Unidos")]:
+            out.append({"code": code, "name": name, "flag": _country_flag_emoji(code), "aliases": [name.casefold()]})
+    out.sort(key=lambda row: row["name"].casefold())
+    _COUNTRY_CHOICES_CACHE = out
+    return out
+
+
+def _resolve_country_choice(raw_value: str | None) -> dict | None:
+    raw = " ".join(((raw_value or "").replace("/", " ").split())).strip()
+    if not raw:
+        return None
+    choices = _country_choices()
+    if len(raw) == 2 and raw.isalpha():
+        code = raw.upper()
+        for item in choices:
+            if item["code"] == code:
+                return item
+    norm = raw.casefold()
+    for item in choices:
+        if norm == item["name"].casefold() or norm in set(item.get("aliases") or []):
+            return item
+    return None
+
+
+def _group_certifications(rows) -> list[dict]:
+    catalog = _certification_catalog()
+    grouped = {}
+    for row in rows or []:
+        cert_type = (getattr(row, "certification_type", None) or "").strip().upper()
+        country_code = (getattr(row, "country_code", None) or "").strip().upper()
+        country_name = (getattr(row, "country_name", None) or "").strip() or country_code
+        if cert_type not in catalog or not country_code:
+            continue
+        key = f"{cert_type}|{country_code}"
+        payload = grouped.setdefault(key, {
+            "group_key": key,
+            "certification_type": cert_type,
+            "country_code": country_code,
+            "country_name": country_name,
+            "count": 0,
+            "rows": [],
+        })
+        payload["count"] += 1
+        payload["rows"].append(row)
+
+    out = []
+    for payload in grouped.values():
+        meta = catalog[payload["certification_type"]]
+        count = payload["count"]
+        payload.update({
+            "title": meta["title"],
+            "plural_title": meta["plural_title"],
+            "copies_label": meta["copies_label"],
+            "image_url": url_for("static", filename=meta["image"]),
+            "flag": _country_flag_emoji(payload["country_code"]),
+            "stack_count": min(max(count, 1), 4),
+            "display_title": meta["title"] if count == 1 else meta["plural_title"],
+            "summary": f"{count} {meta['title'] if count == 1 else meta['plural_title']} ({meta['copies_label']}) en {(_country_flag_emoji(payload['country_code']) + ' ') if _country_flag_emoji(payload['country_code']) else ''}{payload['country_name']}",
+            "sort_order": (meta["order"], payload["country_name"].casefold()),
+        })
+        out.append(payload)
+
+    out.sort(key=lambda item: item["sort_order"])
+    return out
+
+
+def _song_material_slot_label(category: str | None, slot_key: str | None, display_name: str | None = None) -> str:
+    cat = (category or "").strip().upper()
+    slot = (slot_key or "DEFAULT").strip().upper()
+    if cat == "COVER":
+        return "Portada"
+    if cat == "MASTER":
+        if slot == "MASTER_24":
+            return "Master 24 Bits"
+        if slot == "MASTER_16":
+            return "Master 16 Bits"
+        return (display_name or "").strip() or "Subproducto"
+    if cat == "INSTRUMENTAL":
+        if slot == "DEFAULT":
+            return "Instrumental"
+        return (display_name or "").strip() or "Subproducto"
+    if cat == "TV_TRACK":
+        if slot == "DEFAULT":
+            return "TV Track"
+        return (display_name or "").strip() or "Subproducto"
+    if cat == "STEMS":
+        return (display_name or "").strip() or "Stems"
+    return (display_name or "").strip() or "Archivo"
+
+
+def _download_remote_content(file_url: str, timeout: int = 30) -> tuple[bytes, str | None]:
+    target_url = (file_url or "").strip()
+    if not target_url:
+        raise ValueError("No hay URL de archivo.")
+    req = Request(target_url, headers={"User-Agent": "Mozilla/5.0"})
+    with urlopen(req, timeout=timeout) as resp:
+        data = resp.read()
+        guessed = getattr(resp, "headers", {}).get_content_type() if getattr(resp, "headers", None) else None
+    return data, guessed
+
+
+def _safe_zip_member_name(name: str | None, existing: set[str], fallback: str) -> str:
+    raw = (name or "").replace("\\", "/").lstrip("/")
+    parts = [part for part in raw.split("/") if part not in ("", ".", "..")]
+    candidate = "/".join(parts).strip() or fallback
+    if candidate not in existing:
+        existing.add(candidate)
+        return candidate
+    stem = Path(candidate).stem or Path(fallback).stem or "archivo"
+    suffix = Path(candidate).suffix
+    idx = 2
+    while True:
+        alt = f"{stem}_{idx}{suffix}"
+        if alt not in existing:
+            existing.add(alt)
+            return alt
+        idx += 1
+
+
+def _convert_image_content(data: bytes, target_format: str) -> tuple[bytes, str, str]:
+    fmt = (target_format or "").strip().lower()
+    if fmt not in {"jpg", "jpeg", "png"}:
+        raise ValueError("Formato de imagen no válido.")
+    if not PILLOW_AVAILABLE:
+        raise RuntimeError("Pillow no está disponible para convertir imágenes.")
+    with PILImage.open(BytesIO(data)) as img:
+        out = BytesIO()
+        if fmt == "png":
+            img.save(out, format="PNG")
+            return out.getvalue(), "image/png", ".png"
+        if img.mode not in ("RGB", "L"):
+            if "A" in img.getbands():
+                bg = PILImage.new("RGB", img.size, (255, 255, 255))
+                bg.paste(img, mask=img.getchannel("A"))
+                img = bg
+            else:
+                img = img.convert("RGB")
+        elif img.mode == "L":
+            img = img.convert("RGB")
+        img.save(out, format="JPEG", quality=95)
+        return out.getvalue(), "image/jpeg", ".jpg"
+
+
+def _convert_audio_content_to_mp3(data: bytes, source_ext: str | None = None) -> tuple[bytes, str, str]:
+    if not PYDUB_AVAILABLE:
+        raise RuntimeError("pydub no está disponible para convertir audio.")
+    fmt = (source_ext or "").lower().lstrip(".") or None
+    seg = AudioSegment.from_file(BytesIO(data), format=fmt or None)
+    out = BytesIO()
+    seg.export(out, format="mp3", bitrate="320k")
+    return out.getvalue(), "audio/mpeg", ".mp3"
+
+
+def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]) -> dict:
+    basics = {
+        ("MASTER", "MASTER_24"): False,
+        ("MASTER", "MASTER_16"): False,
+        ("INSTRUMENTAL", "DEFAULT"): False,
+        ("TV_TRACK", "DEFAULT"): False,
+    }
+    any_non_cover = False
+    last_cover_at = None
+    last_material_at = None
+    cover_exists = bool(getattr(song, "cover_url", None))
+
+    for row in material_rows or []:
+        category = (getattr(row, "category", None) or "").strip().upper()
+        slot = (getattr(row, "slot_key", None) or "DEFAULT").strip().upper()
+        dt = getattr(row, "updated_at", None) or getattr(row, "created_at", None)
+        if category == "COVER":
+            cover_exists = True
+            if dt and (last_cover_at is None or dt > last_cover_at):
+                last_cover_at = dt
+            continue
+        any_non_cover = True
+        if dt and (last_material_at is None or dt > last_material_at):
+            last_material_at = dt
+        if (category, slot) in basics:
+            basics[(category, slot)] = True
+
+    completed_basics = sum(1 for value in basics.values() if value)
+    if completed_basics == len(basics):
+        state = "complete"
+    elif completed_basics > 0 or any_non_cover:
+        state = "partial"
+    else:
+        state = "none"
+
+    return {
+        "cover_done": cover_exists,
+        "last_cover_at": last_cover_at,
+        "last_material_at": last_material_at,
+        "completed_basics": completed_basics,
+        "total_basics": len(basics),
+        "state": state,
+        "text_class": "text-success" if state == "complete" else ("text-warning" if state == "partial" else "text-danger"),
+        "badge_class": "text-bg-success" if state == "complete" else ("text-bg-warning text-dark" if state == "partial" else "text-bg-danger"),
+    }
+
+
+def _ensure_song_cover_material_row(session_db, song: Song | None) -> None:
+    if not song or not getattr(song, "id", None):
+        return
+    cover_url = (getattr(song, "cover_url", None) or "").strip()
+    if not cover_url:
+        return
+    exists = (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == song.id)
+        .filter(func.upper(SongMaterial.category) == "COVER")
+        .first()
+    )
+    if exists:
+        return
+    mime_type = mimetypes.guess_type(cover_url.split("?", 1)[0])[0] or None
+    session_db.add(
+        SongMaterial(
+            song_id=song.id,
+            category="COVER",
+            slot_key="COVER",
+            display_name="Portada",
+            file_name="portada",
+            file_url=cover_url,
+            mime_type=mime_type,
+        )
+    )
+    session_db.flush()
+
+
+def _refresh_song_material_status(session_db, song_or_id, material_rows: list[SongMaterial] | None = None, status_obj: SongStatus | None = None) -> dict:
+    song = song_or_id if isinstance(song_or_id, Song) else session_db.get(Song, to_uuid(song_or_id))
+    if not song:
+        return {"state": "none", "text_class": "text-danger", "badge_class": "text-bg-danger"}
+    if material_rows is None:
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+    meta = _song_material_completion_meta(song, material_rows)
+    st = status_obj or _ensure_song_status_row(session_db, song.id)
+    now_dt = datetime.now(TZ_MADRID)
+    st.cover_done = bool(meta["cover_done"])
+    st.cover_updated_at = meta["last_cover_at"] or (st.cover_updated_at if meta["cover_done"] else None)
+    st.materials_done = meta["state"] == "complete"
+    st.materials_updated_at = meta["last_material_at"]
+    st.updated_at = now_dt
+    session_db.add(st)
+    return meta
+
+
+def _build_song_material_context(session_db, song: Song, material_rows: list[SongMaterial] | None = None) -> dict:
+    if material_rows is None:
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+
+    def row_payload(row: SongMaterial) -> dict:
+        category = (getattr(row, "category", None) or "").strip().upper()
+        slot_key = (getattr(row, "slot_key", None) or "DEFAULT").strip().upper()
+        display_name = (getattr(row, "display_name", None) or "").strip() or None
+        raw_name = (getattr(row, "file_name", None) or display_name or "archivo").replace("\\", "/")
+        base_name = Path(raw_name).name or "archivo"
+        share_token = _make_public_song_share_token("MATERIAL", str(song.id), ref=str(row.id), fmt="original")
+        share_url = _external_url_for("public_song_material_download") + f"?token={quote_plus(share_token)}"
+        payload = {
+            "id": str(row.id),
+            "category": category,
+            "slot_key": slot_key,
+            "bundle_key": (getattr(row, "bundle_key", None) or "").strip(),
+            "label": _song_material_slot_label(category, slot_key, display_name),
+            "display_name": display_name,
+            "file_name": raw_name,
+            "base_name": base_name,
+            "file_url": (getattr(row, "file_url", None) or "").strip(),
+            "mime_type": (getattr(row, "mime_type", None) or "").strip(),
+            "created_at": getattr(row, "created_at", None),
+            "share_url": share_url,
+            "download_original_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="original"),
+            "download_jpg_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="jpg") if category == "COVER" else "",
+            "download_png_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="png") if category == "COVER" else "",
+            "download_wav_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="wav") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
+            "download_mp3_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mp3") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
+        }
+        return payload
+
+    cover_item = None
+    masters_default = {"MASTER_24": None, "MASTER_16": None}
+    master_subproducts = []
+    instrumental_default = None
+    instrumental_subproducts = []
+    tv_track_default = None
+    tv_track_subproducts = []
+    stems_map: dict[str, dict] = {}
+
+    for row in material_rows or []:
+        category = (getattr(row, "category", None) or "").strip().upper()
+        slot_key = (getattr(row, "slot_key", None) or "DEFAULT").strip().upper()
+        payload = row_payload(row)
+        if category == "COVER" and cover_item is None:
+            cover_item = payload
+            continue
+        if category == "MASTER":
+            if slot_key in masters_default and masters_default[slot_key] is None:
+                masters_default[slot_key] = payload
+            else:
+                master_subproducts.append(payload)
+            continue
+        if category == "INSTRUMENTAL":
+            if slot_key == "DEFAULT" and instrumental_default is None:
+                instrumental_default = payload
+            else:
+                instrumental_subproducts.append(payload)
+            continue
+        if category == "TV_TRACK":
+            if slot_key == "DEFAULT" and tv_track_default is None:
+                tv_track_default = payload
+            else:
+                tv_track_subproducts.append(payload)
+            continue
+        if category == "STEMS":
+            bundle_key = payload["bundle_key"] or payload["id"]
+            group = stems_map.setdefault(bundle_key, {
+                "bundle_key": bundle_key,
+                "label": payload["display_name"] or "Stems",
+                "rows": [],
+                "created_at": payload["created_at"],
+            })
+            group["rows"].append(payload)
+            if payload["created_at"] and (group["created_at"] is None or payload["created_at"] > group["created_at"]):
+                group["created_at"] = payload["created_at"]
+
+    if cover_item is None and (getattr(song, "cover_url", None) or "").strip():
+        cover_item = {
+            "id": "",
+            "category": "COVER",
+            "slot_key": "COVER",
+            "bundle_key": "",
+            "label": "Portada",
+            "display_name": "Portada",
+            "file_name": "portada",
+            "base_name": "portada",
+            "file_url": (song.cover_url or "").strip(),
+            "mime_type": mimetypes.guess_type((song.cover_url or "").split("?", 1)[0])[0] or "",
+            "created_at": getattr(song, "created_at", None),
+            "share_url": (song.cover_url or "").strip(),
+            "download_original_url": "",
+            "download_jpg_url": "",
+            "download_png_url": "",
+            "download_wav_url": "",
+            "download_mp3_url": "",
+        }
+
+    stem_groups = []
+    for bundle_key, group in stems_map.items():
+        token = _make_public_song_share_token("STEMS_BUNDLE", str(song.id), ref=bundle_key)
+        share_url = _external_url_for("public_song_material_bundle_download") + f"?token={quote_plus(token)}"
+        group.update({
+            "label": group["label"],
+            "file_count": len(group["rows"]),
+            "share_url": share_url,
+            "download_zip_url": url_for("discografica_song_stems_bundle_download", song_id=song.id, bundle_key=bundle_key),
+        })
+        stem_groups.append(group)
+    stem_groups.sort(key=lambda item: item.get("created_at") or datetime.min.replace(tzinfo=TZ_MADRID), reverse=True)
+
+    completion = _song_material_completion_meta(song, material_rows or [])
+    return {
+        "cover_item": cover_item,
+        "masters_default": masters_default,
+        "master_subproducts": master_subproducts,
+        "instrumental_default": instrumental_default,
+        "instrumental_subproducts": instrumental_subproducts,
+        "tv_track_default": tv_track_default,
+        "tv_track_subproducts": tv_track_subproducts,
+        "stem_groups": stem_groups,
+        "completion": completion,
+    }
+
+
+def _bundle_song_material_rows_to_zip(rows: list[SongMaterial], archive_label: str | None = None) -> tuple[bytes, str]:
+    buf = BytesIO()
+    used = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, row in enumerate(rows or [], start=1):
+            content, _ctype = _download_remote_content(getattr(row, "file_url", None))
+            fallback = f"archivo_{idx}"
+            member_name = _safe_zip_member_name(getattr(row, "file_name", None), used, fallback)
+            zf.writestr(member_name, content)
+    filename_root = (archive_label or "stems").strip() or "stems"
+    filename_root = filename_root.replace("/", "-").replace("\\", "-")
+    return buf.getvalue(), f"{filename_root}.zip"
+
+
+def _song_lyrics_meta(session_db, song: Song) -> dict:
+    shares = (
+        session_db.query(SongEditorialShare)
+        .options(joinedload(SongEditorialShare.promoter))
+        .filter(SongEditorialShare.song_id == song.id)
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+    authors = []
+    composers = []
+    for sh in shares:
+        promoter = getattr(sh, "promoter", None)
+        full_name = " ".join([x for x in [
+            (getattr(promoter, "first_name", None) or "").strip(),
+            (getattr(promoter, "last_name", None) or "").strip(),
+        ] if x]).strip()
+        full_name = full_name or (getattr(promoter, "nick", None) or "").strip() or "—"
+        role = (getattr(sh, "role", None) or "").strip().upper()
+        if role == "AUTHOR":
+            authors.append(full_name)
+        elif role == "COMPOSER":
+            composers.append(full_name)
+        else:
+            authors.append(full_name)
+            composers.append(full_name)
+
+    interpreters = [
+        (getattr(row, "name", None) or "").strip()
+        for row in (
+            session_db.query(SongInterpreter)
+            .filter(SongInterpreter.song_id == song.id)
+            .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+            .all()
+        )
+        if (getattr(row, "name", None) or "").strip()
+    ]
+    if not interpreters:
+        interpreters = [a.name for a in (getattr(song, "artists", []) or []) if getattr(a, "name", None)]
+
+    combined = bool(authors) and bool(composers) and authors == composers
+    return {
+        "authors": authors,
+        "composers": composers,
+        "interpreters": interpreters,
+        "combined": combined,
+    }
+
+
+def _build_song_lyrics_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
+    song = session_db.get(Song, to_uuid(song_id))
+    if not song or not (getattr(song, "lyrics_text", None) or "").strip():
+        raise LookupError("La canción no tiene letra guardada.")
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+
+    meta = _song_lyrics_meta(session_db, song)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "SongLyricsTitle",
+        parent=styles["Heading1"],
+        fontName="Helvetica-Bold",
+        fontSize=18,
+        leading=22,
+        spaceAfter=12,
+        textColor=colors.HexColor("#1f2937"),
+    )
+    meta_label_style = ParagraphStyle(
+        "SongLyricsMetaLabel",
+        parent=styles["BodyText"],
+        fontName="Helvetica-Bold",
+        fontSize=9.5,
+        leading=12,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=3,
+    )
+    meta_text_style = ParagraphStyle(
+        "SongLyricsMetaText",
+        parent=styles["BodyText"],
+        fontSize=10,
+        leading=13,
+        textColor=colors.HexColor("#374151"),
+        spaceAfter=6,
+    )
+    lyrics_style = ParagraphStyle(
+        "SongLyricsBody",
+        parent=styles["BodyText"],
+        fontSize=10.5,
+        leading=16,
+        alignment=TA_JUSTIFY,
+        textColor=colors.HexColor("#111827"),
+        spaceAfter=10,
+    )
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2.1*cm, rightMargin=2.1*cm, topMargin=1.8*cm, bottomMargin=1.8*cm)
+    story = []
+
+    logo_path = Path(app.root_path) / "static" / "img" / "logo.png"
+    if logo_path.exists():
+        story.append(RLImage(str(logo_path), width=3.3*cm, height=1.05*cm))
+        story.append(Spacer(1, 0.4*cm))
+
+    story.append(Paragraph(f"Letra: {html.escape(song.title)}", title_style))
+
+    if meta["combined"]:
+        story.append(Paragraph("Autores y compositores", meta_label_style))
+        story.append(Paragraph(html.escape(", ".join(meta["authors"]) or "—"), meta_text_style))
+    else:
+        story.append(Paragraph("Autores", meta_label_style))
+        story.append(Paragraph(html.escape(", ".join(meta["authors"]) or "—"), meta_text_style))
+        story.append(Paragraph("Compositores", meta_label_style))
+        story.append(Paragraph(html.escape(", ".join(meta["composers"]) or "—"), meta_text_style))
+
+    story.append(Paragraph("Intérpretes", meta_label_style))
+    story.append(Paragraph(html.escape(", ".join(meta["interpreters"]) or "—"), meta_text_style))
+    story.append(Spacer(1, 0.35*cm))
+
+    lyrics_text = (song.lyrics_text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    paragraphs = [chunk.strip() for chunk in lyrics_text.split("\n\n") if chunk.strip()] or [lyrics_text]
+    for chunk in paragraphs:
+        safe_chunk = html.escape(chunk).replace("\n", "<br/>")
+        story.append(Paragraph(safe_chunk, lyrics_style))
+
+    doc.build(story)
+    filename = f"Letra - {song.title}".replace("/", "-").replace("\\", "-").strip() or "Letra"
+    return buf.getvalue(), f"{filename}.pdf"
 
 
 def _royalty_item_type_label(item_kind: str) -> str:
@@ -6412,11 +7059,17 @@ def discografica_song_detail(song_id):
     _ = s.artists
     primary_artist = s.artists[0] if s.artists else None
 
+    _ensure_song_cover_material_row(session_db, s)
+    material_rows = (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == s.id)
+        .order_by(SongMaterial.created_at.asc())
+        .all()
+    )
+
     # Asegurar estado
     st = _ensure_song_status_row(session_db, s)
-    st.cover_done = bool(s.cover_url)
-    if st.cover_done and not getattr(st, "cover_updated_at", None):
-        st.cover_updated_at = datetime.now(tz=ZoneInfo("Europe/Madrid"))
+    materials_status = _refresh_song_material_status(session_db, s, material_rows=material_rows, status_obj=st)
     _sync_song_agedi_state(session_db, s.id, st)
     session_db.commit()
 
@@ -6441,6 +7094,43 @@ def discografica_song_detail(song_id):
     current_isrcs = _current_song_isrcs(session_db, s.id, include_song_field=True)
     agedi_registered_isrcs = _norm_isrc_list(getattr(st, "agedi_registered_isrcs", []) or [])
     agedi_pending_isrcs = [code for code in current_isrcs if code not in set(agedi_registered_isrcs)]
+
+    song_materials = _build_song_material_context(session_db, s, material_rows=material_rows)
+    materials_status = song_materials.get("completion") or materials_status
+
+    song_cert_rows = (
+        session_db.query(SongCertification)
+        .filter(SongCertification.song_id == s.id)
+        .order_by(SongCertification.created_at.asc())
+        .all()
+    )
+    song_cert_groups = _group_certifications(song_cert_rows)
+    country_options = _country_choices()
+
+    lyrics_public_token = _make_public_song_share_token("LYRICS_PDF", str(s.id))
+    lyrics_public_url = _external_url_for("public_song_lyrics_pdf") + f"?token={quote_plus(lyrics_public_token)}"
+
+    linked_albums = []
+    linked_album_rows = (
+        session_db.query(Album)
+        .join(AlbumTrack, AlbumTrack.album_id == Album.id)
+        .filter(AlbumTrack.song_id == s.id)
+        .options(joinedload(Album.artist))
+        .order_by(Album.release_date.desc(), Album.title.asc())
+        .all()
+    )
+    seen_album_ids = set()
+    for album_row in linked_album_rows:
+        if not getattr(album_row, "id", None) or album_row.id in seen_album_ids:
+            continue
+        seen_album_ids.add(album_row.id)
+        linked_albums.append({
+            "id": str(album_row.id),
+            "title": album_row.title,
+            "cover_url": album_row.cover_url,
+            "artist_name": (getattr(album_row.artist, "name", None) or "").strip(),
+            "detail_url": url_for("discografica_album_detail", album_id=album_row.id, tab="informacion"),
+        })
 
     # Días restantes
     days_remaining = None
@@ -6686,6 +7376,12 @@ def discografica_song_detail(song_id):
         song_income_total_gross=song_income_total_gross,
         song_income_total_net=song_income_total_net,
         song_income_entries=song_income_entries,
+        song_materials=song_materials,
+        materials_status=materials_status,
+        linked_albums=linked_albums,
+        song_cert_groups=song_cert_groups,
+        country_options=country_options,
+        lyrics_public_url=lyrics_public_url,
     )
     session_db.close()
     return response
@@ -7422,6 +8118,675 @@ def discografica_song_set_link(song_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id))
 
 
+@app.post("/discografica/canciones/<song_id>/materials/upload")
+@admin_required
+def discografica_song_material_upload(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para subir materiales.")
+
+    category = (request.form.get("category") or "").strip().upper()
+    slot_key = (request.form.get("slot_key") or "DEFAULT").strip().upper()
+    display_name = (request.form.get("display_name") or "").strip() or None
+    replace_material_id = (request.form.get("material_id") or "").strip() or None
+    replace_bundle_key = (request.form.get("bundle_key") or "").strip() or None
+    files = [f for f in request.files.getlist("files") if f and getattr(f, "filename", "")]
+
+    if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"}:
+        flash("Tipo de material no válido.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    if category == "COVER":
+        slot_key = "COVER"
+    elif category == "MASTER" and slot_key not in {"MASTER_24", "MASTER_16", "SUBPRODUCT"}:
+        slot_key = "MASTER_24"
+    elif category in {"INSTRUMENTAL", "TV_TRACK"} and slot_key not in {"DEFAULT", "SUBPRODUCT"}:
+        slot_key = "DEFAULT"
+    elif category == "STEMS":
+        slot_key = "BUNDLE"
+
+    if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and slot_key == "SUBPRODUCT" and not display_name:
+        flash("Debes indicar un nombre para el subproducto.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    if not files:
+        flash("Selecciona al menos un archivo.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        if replace_material_id:
+            old_row = session_db.get(SongMaterial, to_uuid(replace_material_id))
+            if not old_row or old_row.song_id != song.id:
+                flash("Material no encontrado.", "warning")
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+            if not display_name and (getattr(old_row, "display_name", None) or "").strip():
+                display_name = (old_row.display_name or "").strip()
+            if old_row.category == "COVER":
+                song.cover_url = None
+            session_db.delete(old_row)
+            session_db.flush()
+
+        if replace_bundle_key:
+            old_rows = (
+                session_db.query(SongMaterial)
+                .filter(SongMaterial.song_id == song.id)
+                .filter(SongMaterial.bundle_key == replace_bundle_key)
+                .all()
+            )
+            if old_rows and not display_name:
+                display_name = (getattr(old_rows[0], "display_name", None) or "").strip() or None
+            for row in old_rows:
+                session_db.delete(row)
+            session_db.flush()
+
+        if category == "COVER":
+            for row in session_db.query(SongMaterial).filter(SongMaterial.song_id == song.id).filter(func.upper(SongMaterial.category) == "COVER").all():
+                session_db.delete(row)
+            file_url = upload_image(files[0], "song_materials")
+            row = SongMaterial(
+                song_id=song.id,
+                category="COVER",
+                slot_key="COVER",
+                display_name="Portada",
+                file_name=Path(files[0].filename or "portada").name,
+                file_url=file_url,
+                mime_type=(getattr(files[0], "mimetype", "") or "").strip() or None,
+            )
+            session_db.add(row)
+            song.cover_url = file_url
+
+        elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"}:
+            if slot_key != "SUBPRODUCT":
+                for row in (
+                    session_db.query(SongMaterial)
+                    .filter(SongMaterial.song_id == song.id)
+                    .filter(func.upper(SongMaterial.category) == category)
+                    .filter(func.upper(SongMaterial.slot_key) == slot_key)
+                    .all()
+                ):
+                    session_db.delete(row)
+            file_storage = files[0]
+            file_url = upload_file(file_storage, "song_materials", allowed_extensions=_AUDIO_UPLOAD_EXTENSIONS)
+            session_db.add(
+                SongMaterial(
+                    song_id=song.id,
+                    category=category,
+                    slot_key=slot_key,
+                    display_name=display_name,
+                    file_name=(file_storage.filename or "audio.wav").replace("\\", "/"),
+                    file_url=file_url,
+                    mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
+                )
+            )
+
+        else:  # STEMS
+            bundle_key = uuid.uuid4().hex
+            bundle_label = display_name or "Stems"
+            for file_storage in files:
+                file_url = upload_file(file_storage, "song_materials")
+                session_db.add(
+                    SongMaterial(
+                        song_id=song.id,
+                        category="STEMS",
+                        slot_key="BUNDLE",
+                        bundle_key=bundle_key,
+                        display_name=bundle_label,
+                        file_name=(file_storage.filename or "archivo").replace("\\", "/"),
+                        file_url=file_url,
+                        mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
+                    )
+                )
+
+        song.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(song)
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        _refresh_song_material_status(session_db, song, material_rows=material_rows)
+        session_db.commit()
+        flash("Material guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando el material: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/materials/<material_id>/delete")
+@admin_required
+def discografica_song_material_delete(song_id, material_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar materiales.")
+
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        row = session_db.get(SongMaterial, to_uuid(material_id))
+        if not song or not row or row.song_id != song.id:
+            flash("Material no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        if (row.category or "").upper() == "COVER":
+            song.cover_url = None
+            session_db.add(song)
+        session_db.delete(row)
+        session_db.flush()
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        _refresh_song_material_status(session_db, song, material_rows=material_rows)
+        session_db.commit()
+        flash("Material eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el material: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/delete")
+@admin_required
+def discografica_song_material_bundle_delete(song_id, bundle_key):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar materiales.")
+
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .filter(SongMaterial.bundle_key == (bundle_key or "").strip())
+            .all()
+        )
+        if not rows:
+            flash("Grupo de stems no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        for row in rows:
+            session_db.delete(row)
+        session_db.flush()
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        _refresh_song_material_status(session_db, song, material_rows=material_rows)
+        session_db.commit()
+        flash("Stems eliminados.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando los stems: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.get("/discografica/canciones/<song_id>/materials/<material_id>/download")
+@admin_required
+def discografica_song_material_download(song_id, material_id):
+    fmt = (request.args.get("format") or "original").strip().lower()
+    session_db = db()
+    try:
+        row = session_db.get(SongMaterial, to_uuid(material_id))
+        if not row or row.song_id != to_uuid(song_id):
+            flash("Material no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+        data, guessed_mimetype = _download_remote_content(row.file_url)
+        base_name = Path((row.file_name or row.display_name or "archivo").replace("\\", "/")).stem or "archivo"
+        original_suffix = Path((row.file_name or "").replace("\\", "/")).suffix.lower()
+        mimetype = (row.mime_type or guessed_mimetype or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0] or "application/octet-stream")
+        download_name = f"{base_name}{original_suffix or mimetypes.guess_extension(mimetype or '') or ''}"
+
+        category = (row.category or "").strip().upper()
+        try:
+            if category == "COVER" and fmt in {"jpg", "jpeg", "png"}:
+                data, mimetype, out_ext = _convert_image_content(data, fmt)
+                download_name = f"{base_name}{out_ext}"
+            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "mp3":
+                data, mimetype, out_ext = _convert_audio_content_to_mp3(data, original_suffix)
+                download_name = f"{base_name}{out_ext}"
+            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
+                mimetype = mimetype or "audio/wav"
+                if not original_suffix:
+                    download_name = f"{base_name}.wav"
+        except Exception:
+            pass
+
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=download_name)
+    except Exception as e:
+        flash(f"No se pudo descargar el material: {e}", "danger")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/song-materials/download")
+def public_song_material_download():
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "MATERIAL":
+        abort(404)
+
+    sid_raw = (payload.get("sid") or "").strip()
+    material_raw = (payload.get("ref") or "").strip()
+    fmt = (payload.get("fmt") or request.args.get("format") or "original").strip().lower()
+    try:
+        sid = to_uuid(sid_raw)
+        material_id = to_uuid(material_raw)
+    except Exception:
+        abort(404)
+
+    with get_db() as session_db:
+        row = session_db.get(SongMaterial, material_id)
+        if not row or row.song_id != sid:
+            abort(404)
+
+        try:
+            data, guessed_mimetype = _download_remote_content(row.file_url)
+        except Exception:
+            abort(404)
+
+        base_name = Path((row.file_name or row.display_name or "archivo").replace("\\", "/")).stem or "archivo"
+        original_suffix = Path((row.file_name or "").replace("\\", "/")).suffix.lower()
+        mimetype = (row.mime_type or guessed_mimetype or mimetypes.guess_type((row.file_url or "").split("?", 1)[0])[0] or "application/octet-stream")
+        download_name = f"{base_name}{original_suffix or mimetypes.guess_extension(mimetype or '') or ''}"
+        category = (row.category or "").strip().upper()
+
+        try:
+            if category == "COVER" and fmt in {"jpg", "jpeg", "png"}:
+                data, mimetype, out_ext = _convert_image_content(data, fmt)
+                download_name = f"{base_name}{out_ext}"
+            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "mp3":
+                data, mimetype, out_ext = _convert_audio_content_to_mp3(data, original_suffix)
+                download_name = f"{base_name}{out_ext}"
+            elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and fmt == "wav":
+                mimetype = mimetype or "audio/wav"
+                if not original_suffix:
+                    download_name = f"{base_name}.wav"
+        except Exception:
+            pass
+
+    return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=download_name)
+
+
+@app.get("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/download")
+@admin_required
+def discografica_song_stems_bundle_download(song_id, bundle_key):
+    session_db = db()
+    try:
+        rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == to_uuid(song_id))
+            .filter(SongMaterial.bundle_key == (bundle_key or "").strip())
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        if not rows:
+            flash("Grupo de stems no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        archive_label = (getattr(rows[0], "display_name", None) or "Stems").strip() or "Stems"
+        payload, filename = _bundle_song_material_rows_to_zip(rows, archive_label=archive_label)
+        return send_file(BytesIO(payload), mimetype="application/zip", as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f"No se pudieron descargar los stems: {e}", "danger")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/song-materials/bundle/download")
+def public_song_material_bundle_download():
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "STEMS_BUNDLE":
+        abort(404)
+    sid_raw = (payload.get("sid") or "").strip()
+    bundle_key = (payload.get("ref") or "").strip()
+    try:
+        sid = to_uuid(sid_raw)
+    except Exception:
+        abort(404)
+
+    with get_db() as session_db:
+        rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == sid)
+            .filter(SongMaterial.bundle_key == bundle_key)
+            .order_by(SongMaterial.created_at.asc())
+            .all()
+        )
+        if not rows:
+            abort(404)
+        archive_label = (getattr(rows[0], "display_name", None) or "Stems").strip() or "Stems"
+        payload_bytes, filename = _bundle_song_material_rows_to_zip(rows, archive_label=archive_label)
+    return send_file(BytesIO(payload_bytes), mimetype="application/zip", as_attachment=True, download_name=filename)
+
+
+@app.post("/discografica/canciones/<song_id>/editorial/lyrics/save")
+@admin_required
+def discografica_song_lyrics_save(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la letra.")
+
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        lyrics_text = (request.form.get("lyrics_text") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not lyrics_text:
+            flash("Debes pegar la letra de la canción.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+
+        song.lyrics_text = lyrics_text
+        song.lyrics_updated_at = datetime.now(TZ_MADRID)
+        session_db.add(song)
+        _mark_song_sgae_pending_from_editorial_change(session_db, song.id)
+        session_db.commit()
+        flash("Letra guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando la letra: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+
+
+@app.post("/discografica/canciones/<song_id>/editorial/lyrics/delete")
+@admin_required
+def discografica_song_lyrics_delete(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para borrar la letra.")
+
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        song.lyrics_text = None
+        song.lyrics_updated_at = None
+        session_db.add(song)
+        _mark_song_sgae_pending_from_editorial_change(session_db, song.id)
+        session_db.commit()
+        flash("Letra eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la letra: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+
+
+@app.get("/discografica/canciones/<song_id>/editorial/lyrics/pdf")
+@admin_required
+def discografica_song_lyrics_pdf(song_id):
+    session_db = db()
+    try:
+        pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, song_id)
+        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except LookupError:
+        flash("La canción no tiene letra guardada.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    except Exception as e:
+        flash(f"No se pudo generar el PDF de la letra: {e}", "danger")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/song-lyrics/pdf")
+def public_song_lyrics_pdf():
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "LYRICS_PDF":
+        abort(404)
+    sid_raw = (payload.get("sid") or "").strip()
+    try:
+        sid = to_uuid(sid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        try:
+            pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, sid)
+        except Exception:
+            abort(404)
+    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.post("/discografica/canciones/<song_id>/certifications/save")
+@admin_required
+def discografica_song_certification_save(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar certificaciones.")
+
+    cert_type = (request.form.get("certification_type") or "").strip().upper()
+    if cert_type not in _certification_catalog():
+        flash("Tipo de certificación no válido.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+    country = _resolve_country_choice(request.form.get("country"))
+    if not country:
+        flash("Selecciona un país válido.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+    try:
+        count = max(1, min(99, int((request.form.get("count") or "1").strip() or "1")))
+    except Exception:
+        count = 1
+
+    original_type = (request.form.get("original_type") or "").strip().upper()
+    original_country_code = (request.form.get("original_country_code") or "").strip().upper()
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        now_dt = datetime.now(TZ_MADRID)
+        if original_type and original_country_code:
+            rows = (
+                session_db.query(SongCertification)
+                .filter(SongCertification.song_id == song.id)
+                .filter(func.upper(SongCertification.certification_type) == original_type)
+                .filter(func.upper(SongCertification.country_code) == original_country_code)
+                .order_by(SongCertification.created_at.asc())
+                .all()
+            )
+        else:
+            rows = []
+
+        if rows:
+            for row in rows[:count]:
+                row.certification_type = cert_type
+                row.country_code = country["code"]
+                row.country_name = country["name"]
+                row.updated_at = now_dt
+                session_db.add(row)
+            for row in rows[count:]:
+                session_db.delete(row)
+            for _ in range(max(0, count - len(rows))):
+                session_db.add(SongCertification(song_id=song.id, certification_type=cert_type, country_code=country["code"], country_name=country["name"], created_at=now_dt, updated_at=now_dt))
+        else:
+            for _ in range(count):
+                session_db.add(SongCertification(song_id=song.id, certification_type=cert_type, country_code=country["code"], country_name=country["name"], created_at=now_dt, updated_at=now_dt))
+
+        session_db.commit()
+        flash("Certificación guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando la certificación: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.post("/discografica/canciones/<song_id>/certifications/delete")
+@admin_required
+def discografica_song_certification_delete(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para borrar certificaciones.")
+
+    cert_type = (request.form.get("certification_type") or "").strip().upper()
+    country_code = (request.form.get("country_code") or "").strip().upper()
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        rows = (
+            session_db.query(SongCertification)
+            .filter(SongCertification.song_id == song.id)
+            .filter(func.upper(SongCertification.certification_type) == cert_type)
+            .filter(func.upper(SongCertification.country_code) == country_code)
+            .all()
+        )
+        if not rows:
+            flash("No se encontraron certificaciones para eliminar.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        for row in rows:
+            session_db.delete(row)
+        session_db.commit()
+        flash("Certificación eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la certificación: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/certifications/save")
+@admin_required
+def discografica_album_certification_save(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar certificaciones.")
+
+    cert_type = (request.form.get("certification_type") or "").strip().upper()
+    if cert_type not in _certification_catalog():
+        flash("Tipo de certificación no válido.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+    country = _resolve_country_choice(request.form.get("country"))
+    if not country:
+        flash("Selecciona un país válido.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+    try:
+        count = max(1, min(99, int((request.form.get("count") or "1").strip() or "1")))
+    except Exception:
+        count = 1
+
+    original_type = (request.form.get("original_type") or "").strip().upper()
+    original_country_code = (request.form.get("original_country_code") or "").strip().upper()
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        now_dt = datetime.now(TZ_MADRID)
+        if original_type and original_country_code:
+            rows = (
+                session_db.query(AlbumCertification)
+                .filter(AlbumCertification.album_id == album.id)
+                .filter(func.upper(AlbumCertification.certification_type) == original_type)
+                .filter(func.upper(AlbumCertification.country_code) == original_country_code)
+                .order_by(AlbumCertification.created_at.asc())
+                .all()
+            )
+        else:
+            rows = []
+
+        if rows:
+            for row in rows[:count]:
+                row.certification_type = cert_type
+                row.country_code = country["code"]
+                row.country_name = country["name"]
+                row.updated_at = now_dt
+                session_db.add(row)
+            for row in rows[count:]:
+                session_db.delete(row)
+            for _ in range(max(0, count - len(rows))):
+                session_db.add(AlbumCertification(album_id=album.id, certification_type=cert_type, country_code=country["code"], country_name=country["name"], created_at=now_dt, updated_at=now_dt))
+        else:
+            for _ in range(count):
+                session_db.add(AlbumCertification(album_id=album.id, certification_type=cert_type, country_code=country["code"], country_name=country["name"], created_at=now_dt, updated_at=now_dt))
+
+        session_db.commit()
+        flash("Certificación guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando la certificación: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/certifications/delete")
+@admin_required
+def discografica_album_certification_delete(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para borrar certificaciones.")
+
+    cert_type = (request.form.get("certification_type") or "").strip().upper()
+    country_code = (request.form.get("country_code") or "").strip().upper()
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+        rows = (
+            session_db.query(AlbumCertification)
+            .filter(AlbumCertification.album_id == album.id)
+            .filter(func.upper(AlbumCertification.certification_type) == cert_type)
+            .filter(func.upper(AlbumCertification.country_code) == country_code)
+            .all()
+        )
+        if not rows:
+            flash("No se encontraron certificaciones para eliminar.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        for row in rows:
+            session_db.delete(row)
+        session_db.commit()
+        flash("Certificación eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la certificación: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
 # =====================
 # DISCOGRÁFICA: ROYALTIES (beneficiarios)
 # =====================
@@ -7948,6 +9313,15 @@ def discografica_album_detail(album_id):
                 "found": False,
             }
 
+    album_cert_rows = (
+        session_db.query(AlbumCertification)
+        .filter(AlbumCertification.album_id == album.id)
+        .order_by(AlbumCertification.created_at.asc())
+        .all()
+    )
+    album_cert_groups = _group_certifications(album_cert_rows)
+    country_options = _country_choices()
+
     days_remaining = None
     if album.release_date and album.release_date > today_local():
         try:
@@ -7974,6 +9348,8 @@ def discografica_album_detail(album_id):
         default_copyright=_default_album_copy_text(getattr(album, "release_date", None)),
         product_code_config=product_code_config,
         contract_artists=contract_artists,
+        album_cert_groups=album_cert_groups,
+        country_options=country_options,
     )
     session_db.close()
     return response

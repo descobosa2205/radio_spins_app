@@ -32,38 +32,55 @@
         </div>
 
         <!-- Enlaces plataformas -->
-        <div class="d-flex align-items-center gap-2 flex-wrap">
-          {% set sp = song.spotify_url %}
-          {% set ap = song.apple_music_url %}
-          {% set am = song.amazon_music_url %}
-          {% set tk = song.tiktok_url %}
-          {% set yt = song.youtube_url %}
+        <div>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {% set sp = song.spotify_url %}
+            {% set ap = song.apple_music_url %}
+            {% set am = song.amazon_music_url %}
+            {% set tk = song.tiktok_url %}
+            {% set yt = song.youtube_url %}
 
-          <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}"
-             data-platform="spotify" data-platform-label="Spotify"
-             {% if sp %}href="{{ sp }}" target="_blank"{% else %}href="#"{% endif %}>
-            <i class="fab fa-spotify"></i>
-          </a>
-          <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}"
-             data-platform="apple_music" data-platform-label="Apple Music"
-             {% if ap %}href="{{ ap }}" target="_blank"{% else %}href="#"{% endif %}>
-            <i class="fab fa-apple"></i>
-          </a>
-          <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}"
-             data-platform="amazon_music" data-platform-label="Amazon Music"
-             {% if am %}href="{{ am }}" target="_blank"{% else %}href="#"{% endif %}>
-            <i class="fab fa-amazon"></i>
-          </a>
-          <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}"
-             data-platform="tiktok" data-platform-label="TikTok"
-             {% if tk %}href="{{ tk }}" target="_blank"{% else %}href="#"{% endif %}>
-            <i class="fab fa-tiktok"></i>
-          </a>
-          <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}"
-             data-platform="youtube" data-platform-label="YouTube"
-             {% if yt %}href="{{ yt }}" target="_blank"{% else %}href="#"{% endif %}>
-            <i class="fab fa-youtube"></i>
-          </a>
+            <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}"
+               data-platform="spotify" data-platform-label="Spotify"
+               {% if sp %}href="{{ sp }}" target="_blank"{% else %}href="#"{% endif %}>
+              <i class="fab fa-spotify"></i>
+            </a>
+            <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}"
+               data-platform="apple_music" data-platform-label="Apple Music"
+               {% if ap %}href="{{ ap }}" target="_blank"{% else %}href="#"{% endif %}>
+              <i class="fab fa-apple"></i>
+            </a>
+            <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}"
+               data-platform="amazon_music" data-platform-label="Amazon Music"
+               {% if am %}href="{{ am }}" target="_blank"{% else %}href="#"{% endif %}>
+              <i class="fab fa-amazon"></i>
+            </a>
+            <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}"
+               data-platform="tiktok" data-platform-label="TikTok"
+               {% if tk %}href="{{ tk }}" target="_blank"{% else %}href="#"{% endif %}>
+              <i class="fab fa-tiktok"></i>
+            </a>
+            <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}"
+               data-platform="youtube" data-platform-label="YouTube"
+               {% if yt %}href="{{ yt }}" target="_blank"{% else %}href="#"{% endif %}>
+              <i class="fab fa-youtube"></i>
+            </a>
+          </div>
+          {% if linked_albums and (linked_albums|length) > 0 %}
+            <div class="mt-3">
+              <div class="small text-muted mb-2">Forma parte de:</div>
+              <div class="d-flex align-items-start gap-2 flex-wrap">
+                {% for album_link in linked_albums %}
+                  <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset" title="{{ album_link.title }}">
+                    <div class="border rounded p-2 bg-white text-center" style="width:96px;">
+                      <img src="{{ album_link.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ album_link.title }}" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid #eee;">
+                      <div class="small fw-semibold mt-2 text-truncate">{{ album_link.title }}</div>
+                    </div>
+                  </a>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -130,23 +147,11 @@
         </span>
 
         <!-- Materiales -->
-        {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
-            <input type="hidden" name="key" value="materials">
-            <input type="hidden" name="next" value="{{ request.full_path }}">
-            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
-                    title="{% if status.materials_updated_at %}{{ status.materials_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
-              <i class="fa fa-box-open {% if status.materials_done %}text-success{% else %}text-danger{% endif %}"></i>
-              <span class="small">Materiales</span>
-            </button>
-          </form>
-        {% else %}
-          <span class="song-status-item" data-bs-toggle="tooltip"
-                title="{% if status.materials_updated_at %}{{ status.materials_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
-            <i class="fa fa-box-open {% if status.materials_done %}text-success{% else %}text-danger{% endif %}"></i>
-            <span class="small">Materiales</span>
-          </span>
-        {% endif %}
+        <span class="song-status-item" data-bs-toggle="tooltip"
+              title="{% if status.materials_updated_at %}{{ status.materials_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+          <i class="fa fa-box-open {{ materials_status.text_class if materials_status else ('text-success' if status.materials_done else 'text-danger') }}"></i>
+          <span class="small">Materiales</span>
+        </span>
 
         <!-- Contrato producción -->
         {% if CAN_EDIT_DISCOGRAFICA %}
@@ -310,11 +315,6 @@
                 <div class="col-12">
                   <label class="form-label">Colaboradores (opcional)</label>
                   <input name="collaborator" class="form-control" value="{{ song.collaborator or '' }}" placeholder="Ej: Artista X, Artista Y">
-                </div>
-
-                <div class="col-12">
-                  <label class="form-label">Portada</label>
-                  <input type="file" name="cover" class="form-control" accept="image/*">
                 </div>
 
                 <div class="col-12 col-md-6 d-flex align-items-end">
@@ -660,6 +660,69 @@
           </div>
         </div>
 
+        <div class="card mt-3">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+              <div>
+                <h6 class="m-0">Certificaciones</h6>
+                <div class="text-muted small">Reconocimientos acumulados por tipo y país.</div>
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongCertificationAdd()">
+                  <i class="fa fa-plus"></i> Añadir certificación
+                </button>
+              {% endif %}
+            </div>
+
+            {% if song_cert_groups and (song_cert_groups|length) > 0 %}
+              <div class="d-flex flex-column gap-3 mt-3">
+                {% for group in song_cert_groups %}
+                  <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <div class="d-flex align-items-center gap-3">
+                      <div style="position:relative;width:96px;height:78px;">
+                        {% for i in range(group.stack_count) %}
+                          <img src="{{ group.image_url }}" alt="{{ group.title }}" style="position:absolute;left:{{ i * 8 }}px;top:{{ i * 6 }}px;width:64px;height:64px;object-fit:contain;filter: drop-shadow(0 2px 4px rgba(0,0,0,.12));">
+                        {% endfor %}
+                      </div>
+                      <div>
+                        <div class="fw-semibold">{{ group.summary }}</div>
+                      </div>
+                    </div>
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                          <i class="fa fa-ellipsis-h"></i>
+                        </button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li>
+                            <button type="button" class="dropdown-item"
+                                    data-cert-type="{{ group.certification_type }}"
+                                    data-country-code="{{ group.country_code }}"
+                                    data-country-name="{{ group.country_name }}"
+                                    data-count="{{ group.count }}"
+                                    onclick="openSongCertificationEdit(this)">
+                              Editar
+                            </button>
+                          </li>
+                          <li>
+                            <form method="post" action="{{ url_for('discografica_song_certification_delete', song_id=song.id) }}" onsubmit="return confirm('¿Eliminar esta certificación?');">
+                              <input type="hidden" name="certification_type" value="{{ group.certification_type }}">
+                              <input type="hidden" name="country_code" value="{{ group.country_code }}">
+                              <button class="dropdown-item text-danger">Eliminar</button>
+                            </form>
+                          </li>
+                        </ul>
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted mt-3">Todavía no hay certificaciones registradas.</div>
+            {% endif %}
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -782,6 +845,508 @@
           // Estado inicial
           applyIsrcModalControls();
         })();
+      </script>
+
+      <div class="modal fade" id="songCertificationModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_song_certification_save', song_id=song.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title" id="songCertificationModalTitle">Añadir certificación</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              {% set certification_cards = [
+                ('GOLD', 'Disco de Oro', 'Equivalente a 20.000 Copias', 'img/certifications/gold.svg'),
+                ('PLATINUM', 'Disco de Platino', 'Equivalente a 40.000 Copias', 'img/certifications/platinum.svg'),
+                ('DIAMOND', 'Disco de Diamante', 'Equivalente a 1 millón de copias', 'img/certifications/diamond.svg'),
+                ('URANIUM', 'Disco de Uranio', 'Equivalente a más de 50 millones de copias', 'img/certifications/uranium.svg')
+              ] %}
+              <input type="hidden" name="original_type" id="songCertOriginalType">
+              <input type="hidden" name="original_country_code" id="songCertOriginalCountryCode">
+              <input type="hidden" name="certification_type" id="songCertType" required>
+
+              <div class="mb-3">
+                <label class="form-label d-block">Tipo de certificación</label>
+                <div class="row g-2" id="songCertTypeGrid">
+                  {% for value, label, subtitle, image_path in certification_cards %}
+                    <div class="col-12 col-md-6">
+                      <button type="button" class="btn btn-outline-secondary w-100 text-start song-cert-type-btn" data-value="{{ value }}" onclick="selectSongCertType(this)">
+                        <div class="d-flex align-items-center gap-3">
+                          <img src="{{ url_for('static', filename=image_path) }}" alt="{{ label }}" style="width:58px;height:58px;object-fit:contain;">
+                          <div>
+                            <div class="fw-semibold">{{ label }}</div>
+                            <div class="small text-muted">{{ subtitle }}</div>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="row g-3">
+                <div class="col-12 col-md-8">
+                  <label class="form-label">País</label>
+                  <input class="form-control" list="songCertificationCountries" name="country" id="songCertCountry" placeholder="Escribe para buscar un país..." required>
+                  <datalist id="songCertificationCountries">
+                    {% for item in country_options %}
+                      <option value="{{ item.name }}">{{ item.flag }} {{ item.name }}</option>
+                    {% endfor %}
+                  </datalist>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Número de certificaciones</label>
+                  <input type="number" class="form-control" min="1" max="99" value="1" name="count" id="songCertCount" required>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script>
+        let _songCertificationModal;
+        function selectSongCertType(btn){
+          const value = btn?.dataset?.value || '';
+          document.getElementById('songCertType').value = value;
+          document.querySelectorAll('.song-cert-type-btn').forEach(el => {
+            el.classList.toggle('btn-primary', el === btn);
+            el.classList.toggle('btn-outline-secondary', el !== btn);
+          });
+        }
+        function resetSongCertificationModal(){
+          document.getElementById('songCertificationModalTitle').textContent = 'Añadir certificación';
+          document.getElementById('songCertOriginalType').value = '';
+          document.getElementById('songCertOriginalCountryCode').value = '';
+          document.getElementById('songCertCountry').value = '';
+          document.getElementById('songCertCount').value = '1';
+          document.getElementById('songCertType').value = '';
+          document.querySelectorAll('.song-cert-type-btn').forEach(el => {
+            el.classList.remove('btn-primary');
+            el.classList.add('btn-outline-secondary');
+          });
+        }
+        function openSongCertificationAdd(){
+          resetSongCertificationModal();
+          _songCertificationModal = new bootstrap.Modal(document.getElementById('songCertificationModal'));
+          _songCertificationModal.show();
+        }
+        function openSongCertificationEdit(btn){
+          resetSongCertificationModal();
+          document.getElementById('songCertificationModalTitle').textContent = 'Editar certificación';
+          document.getElementById('songCertOriginalType').value = btn.dataset.certType || '';
+          document.getElementById('songCertOriginalCountryCode').value = btn.dataset.countryCode || '';
+          document.getElementById('songCertCountry').value = btn.dataset.countryName || btn.dataset.countryCode || '';
+          document.getElementById('songCertCount').value = btn.dataset.count || '1';
+          const typeBtn = document.querySelector('.song-cert-type-btn[data-value="' + (btn.dataset.certType || '') + '"]');
+          if (typeBtn) selectSongCertType(typeBtn);
+          _songCertificationModal = new bootstrap.Modal(document.getElementById('songCertificationModal'));
+          _songCertificationModal.show();
+        }
+      </script>
+    {% endif %}
+
+  {% elif tab == 'materiales' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="m-0">Materiales</h5>
+        <div class="text-muted small">Portada, masters, instrumental, TV track y stems de la canción.</div>
+      </div>
+      <span class="badge {{ materials_status.badge_class if materials_status else 'text-bg-danger' }}">
+        Básicos completos {{ materials_status.completed_basics if materials_status else 0 }}/{{ materials_status.total_basics if materials_status else 4 }}
+      </span>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+              <div>
+                <h6 class="m-0">Portada</h6>
+                <div class="text-muted small">La portada vive ahora dentro de Materiales.</div>
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir portada', category:'COVER', slotKey:'COVER', showDisplayName:false, multiple:false, stemMode:false})">
+                  <i class="fa fa-upload"></i> Subir portada
+                </button>
+              {% endif %}
+            </div>
+
+            {% if song_materials.cover_item %}
+              {% set item = song_materials.cover_item %}
+              <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                <div class="d-flex align-items-center gap-3">
+                  <img src="{{ item.file_url or url_for('static', filename='img/logo.png') }}" alt="Portada" style="width:84px;height:84px;object-fit:cover;border-radius:12px;border:1px solid #eee;">
+                  <div>
+                    <div class="fw-semibold">Portada</div>
+                    <div class="small text-muted">{{ item.base_name }}</div>
+                  </div>
+                </div>
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><h6 class="dropdown-header">Compartir</h6></li>
+                    <li><button class="dropdown-item" type="button" onclick="shareByMail('Portada · {{ song.title|e }}', '{{ item.share_url }}')">Enviar por Mail</button></li>
+                    <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Portada · {{ song.title|e }}', '{{ item.share_url }}')">WhatsApp</button></li>
+                    <li><button class="dropdown-item" type="button" onclick="shareBySms('Portada · {{ song.title|e }}', '{{ item.share_url }}')">SMS</button></li>
+                    <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ item.share_url }}')">Copiar link</button></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><h6 class="dropdown-header">Descargar</h6></li>
+                    <li><a class="dropdown-item" href="{{ item.download_jpg_url }}">JPG</a></li>
+                    <li><a class="dropdown-item" href="{{ item.download_png_url }}">PNG</a></li>
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <li><hr class="dropdown-divider"></li>
+                      <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'COVER', materialId:'{{ item.id }}', showDisplayName:false, multiple:false, stemMode:false})">Editar</button></li>
+                      <li>
+                        <form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar la portada?');">
+                          <button class="dropdown-item text-danger">Eliminar</button>
+                        </form>
+                      </li>
+                    {% endif %}
+                  </ul>
+                </div>
+              </div>
+            {% else %}
+              <div class="text-muted">Todavía no hay portada subida.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-body d-flex flex-column gap-3">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+              <div>
+                <h6 class="m-0">Masters</h6>
+                <div class="text-muted small">WAV 24 bits y 16 bits como básicos, con subproductos opcionales.</div>
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto master', category:'MASTER', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})">
+                  <i class="fa fa-plus"></i> Añadir subproducto
+                </button>
+              {% endif %}
+            </div>
+
+            {% for slot_key, slot_label in [('MASTER_24', 'Master 24 Bits'), ('MASTER_16', 'Master 16 Bits')] %}
+              {% set item = song_materials.masters_default[slot_key] %}
+              <div class="border rounded p-3">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                  <div class="fw-semibold">{{ slot_label }}</div>
+                  {% if CAN_EDIT_DISCOGRAFICA %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'{{ 'Sustituir' if item else 'Subir' }} {{ slot_label }}', category:'MASTER', slotKey:'{{ slot_key }}', materialId:'{{ item.id if item else '' }}', showDisplayName:false, multiple:false, stemMode:false})">
+                      <i class="fa fa-upload"></i> {{ 'Sustituir' if item else 'Subir' }}
+                    </button>
+                  {% endif %}
+                </div>
+                {% if item %}
+                  <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <div>
+                      <div class="small text-muted">{{ item.base_name }}</div>
+                    </div>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><h6 class="dropdown-header">Compartir</h6></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ slot_label }} · {{ song.title|e }}', '{{ item.share_url }}')">Enviar por Mail</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ slot_label }} · {{ song.title|e }}', '{{ item.share_url }}')">WhatsApp</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ slot_label }} · {{ song.title|e }}', '{{ item.share_url }}')">SMS</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ item.share_url }}')">Copiar enlace</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><h6 class="dropdown-header">Descargar</h6></li>
+                        <li><a class="dropdown-item" href="{{ item.download_wav_url }}">En WAV</a></li>
+                        <li><a class="dropdown-item" href="{{ item.download_mp3_url }}">En MP3</a></li>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir {{ slot_label }}', category:'MASTER', slotKey:'{{ slot_key }}', materialId:'{{ item.id }}', showDisplayName:false, multiple:false, stemMode:false})">Editar</button></li>
+                          <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este master?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                        {% endif %}
+                      </ul>
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="text-muted small">Pendiente de subida.</div>
+                {% endif %}
+              </div>
+            {% endfor %}
+
+            <div>
+              <div class="small text-muted text-uppercase mb-2">Subproductos</div>
+              {% if song_materials.master_subproducts and (song_materials.master_subproducts|length) > 0 %}
+                <div class="d-flex flex-column gap-2">
+                  {% for item in song_materials.master_subproducts %}
+                    <div class="border rounded p-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                      <div>
+                        <div class="fw-semibold">{{ item.label }}</div>
+                        <div class="small text-muted">{{ item.base_name }}</div>
+                      </div>
+                      <div class="dropdown">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                          <li><h6 class="dropdown-header">Compartir</h6></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">Enviar por Mail</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">WhatsApp</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">SMS</button></li>
+                          <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ item.share_url }}')">Copiar enlace</button></li>
+                          <li><hr class="dropdown-divider"></li>
+                          <li><a class="dropdown-item" href="{{ item.download_wav_url }}">En WAV</a></li>
+                          <li><a class="dropdown-item" href="{{ item.download_mp3_url }}">En MP3</a></li>
+                          {% if CAN_EDIT_DISCOGRAFICA %}
+                            <li><hr class="dropdown-divider"></li>
+                            <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir subproducto master', category:'MASTER', slotKey:'SUBPRODUCT', materialId:'{{ item.id }}', showDisplayName:true, multiple:false, stemMode:false, displayName:'{{ item.label|e }}'})">Editar</button></li>
+                            <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este subproducto?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                          {% endif %}
+                        </ul>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small">No hay subproductos de master.</div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% for category_key, title, item_default, subproducts, default_slot in [
+        ('INSTRUMENTAL', 'Instrumental', song_materials.instrumental_default, song_materials.instrumental_subproducts, 'DEFAULT'),
+        ('TV_TRACK', 'TV Track', song_materials.tv_track_default, song_materials.tv_track_subproducts, 'DEFAULT')
+      ] %}
+        <div class="col-12 col-xl-6">
+          <div class="card h-100">
+            <div class="card-body d-flex flex-column gap-3">
+              <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                  <h6 class="m-0">{{ title }}</h6>
+                  <div class="text-muted small">Archivo WAV básico y posibilidad de añadir subproductos.</div>
+                </div>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir subproducto {{ title|lower }}', category:'{{ category_key }}', slotKey:'SUBPRODUCT', showDisplayName:true, multiple:false, stemMode:false, displayName:''})">
+                    <i class="fa fa-plus"></i> Añadir subproducto
+                  </button>
+                {% endif %}
+              </div>
+
+              <div class="border rounded p-3">
+                <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2">
+                  <div class="fw-semibold">{{ title }}</div>
+                  {% if CAN_EDIT_DISCOGRAFICA %}
+                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'{{ 'Sustituir' if item_default else 'Subir' }} {{ title }}', category:'{{ category_key }}', slotKey:'DEFAULT', materialId:'{{ item_default.id if item_default else '' }}', showDisplayName:false, multiple:false, stemMode:false})">
+                      <i class="fa fa-upload"></i> {{ 'Sustituir' if item_default else 'Subir' }}
+                    </button>
+                  {% endif %}
+                </div>
+                {% if item_default %}
+                  <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <div class="small text-muted">{{ item_default.base_name }}</div>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><h6 class="dropdown-header">Compartir</h6></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ title|e }} · {{ song.title|e }}', '{{ item_default.share_url }}')">Enviar por Mail</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ title|e }} · {{ song.title|e }}', '{{ item_default.share_url }}')">WhatsApp</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ title|e }} · {{ song.title|e }}', '{{ item_default.share_url }}')">SMS</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ item_default.share_url }}')">Copiar enlace</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ item_default.download_wav_url }}">En WAV</a></li>
+                        <li><a class="dropdown-item" href="{{ item_default.download_mp3_url }}">En MP3</a></li>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir {{ title }}', category:'{{ category_key }}', slotKey:'DEFAULT', materialId:'{{ item_default.id }}', showDisplayName:false, multiple:false, stemMode:false})">Editar</button></li>
+                          <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item_default.id) }}" onsubmit="return confirm('¿Eliminar este material?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                        {% endif %}
+                      </ul>
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="text-muted small">Pendiente de subida.</div>
+                {% endif %}
+              </div>
+
+              <div>
+                <div class="small text-muted text-uppercase mb-2">Subproductos</div>
+                {% if subproducts and (subproducts|length) > 0 %}
+                  <div class="d-flex flex-column gap-2">
+                    {% for item in subproducts %}
+                      <div class="border rounded p-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                        <div>
+                          <div class="fw-semibold">{{ item.label }}</div>
+                          <div class="small text-muted">{{ item.base_name }}</div>
+                        </div>
+                        <div class="dropdown">
+                          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li><h6 class="dropdown-header">Compartir</h6></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">Enviar por Mail</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">WhatsApp</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ item.label|e }} · {{ song.title|e }}', '{{ item.share_url }}')">SMS</button></li>
+                            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ item.share_url }}')">Copiar enlace</button></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="{{ item.download_wav_url }}">En WAV</a></li>
+                            <li><a class="dropdown-item" href="{{ item.download_mp3_url }}">En MP3</a></li>
+                            {% if CAN_EDIT_DISCOGRAFICA %}
+                              <li><hr class="dropdown-divider"></li>
+                              <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir subproducto {{ title|lower }}', category:'{{ category_key }}', slotKey:'SUBPRODUCT', materialId:'{{ item.id }}', showDisplayName:true, multiple:false, stemMode:false, displayName:'{{ item.label|e }}'})">Editar</button></li>
+                              <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" onsubmit="return confirm('¿Eliminar este subproducto?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                            {% endif %}
+                          </ul>
+                        </div>
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% else %}
+                  <div class="text-muted small">No hay subproductos.</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+              <div>
+                <h6 class="m-0">Stems</h6>
+                <div class="text-muted small">Puedes agrupar varios archivos de audio, ZIPs o carpetas compatibles del navegador como un paquete de stems.</div>
+              </div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Añadir stems', category:'STEMS', slotKey:'BUNDLE', showDisplayName:true, multiple:true, stemMode:true, displayName:'Stems'})">
+                  <i class="fa fa-plus"></i> Añadir stems
+                </button>
+              {% endif %}
+            </div>
+
+            {% if song_materials.stem_groups and (song_materials.stem_groups|length) > 0 %}
+              <div class="d-flex flex-column gap-3">
+                {% for group in song_materials.stem_groups %}
+                  <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                    <div>
+                      <div class="fw-semibold">{{ group.label }}</div>
+                      <div class="small text-muted">{{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</div>
+                    </div>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><h6 class="dropdown-header">Compartir</h6></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByMail('{{ group.label|e }} · {{ song.title|e }}', '{{ group.share_url }}')">Enviar por Mail</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('{{ group.label|e }} · {{ song.title|e }}', '{{ group.share_url }}')">WhatsApp</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="shareBySms('{{ group.label|e }} · {{ song.title|e }}', '{{ group.share_url }}')">SMS</button></li>
+                        <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ group.share_url }}')">Copiar enlace</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item" href="{{ group.download_zip_url }}">Descargar todo en ZIP</a></li>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <li><hr class="dropdown-divider"></li>
+                          <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir stems', category:'STEMS', slotKey:'BUNDLE', bundleKey:'{{ group.bundle_key }}', showDisplayName:true, multiple:true, stemMode:true, displayName:'{{ group.label|e }}'})">Editar</button></li>
+                          <li><form method="post" action="{{ url_for('discografica_song_material_bundle_delete', song_id=song.id, bundle_key=group.bundle_key) }}" onsubmit="return confirm('¿Eliminar este grupo de stems?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                        {% endif %}
+                      </ul>
+                    </div>
+                  </div>
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="text-muted">Todavía no hay stems subidos.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="songMaterialUploadModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_song_material_upload', song_id=song.id) }}" enctype="multipart/form-data">
+            <div class="modal-header">
+              <h5 class="modal-title" id="songMaterialUploadModalTitle">Subir material</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="category" id="songMaterialCategory">
+              <input type="hidden" name="slot_key" id="songMaterialSlotKey">
+              <input type="hidden" name="material_id" id="songMaterialId">
+              <input type="hidden" name="bundle_key" id="songMaterialBundleKey">
+
+              <div class="mb-3" id="songMaterialDisplayNameWrap" style="display:none;">
+                <label class="form-label">Nombre</label>
+                <input class="form-control" name="display_name" id="songMaterialDisplayName" placeholder="Nombre del subproducto o del grupo">
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label" id="songMaterialFilesLabel">Archivo</label>
+                <input class="form-control" type="file" name="files" id="songMaterialFiles" multiple>
+                <div class="form-text" id="songMaterialHelp"></div>
+              </div>
+
+              <div class="mb-0" id="songMaterialFolderWrap" style="display:none;">
+                <label class="form-label">O subir carpeta completa</label>
+                <input class="form-control" type="file" name="files" id="songMaterialFolderFiles" multiple webkitdirectory directory>
+                <div class="form-text">Disponible en navegadores compatibles.</div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script>
+        let _songMaterialUploadModal;
+        function openSongMaterialModal(cfg){
+          cfg = cfg || {};
+          document.getElementById('songMaterialUploadModalTitle').textContent = cfg.title || 'Subir material';
+          document.getElementById('songMaterialCategory').value = cfg.category || '';
+          document.getElementById('songMaterialSlotKey').value = cfg.slotKey || 'DEFAULT';
+          document.getElementById('songMaterialId').value = cfg.materialId || '';
+          document.getElementById('songMaterialBundleKey').value = cfg.bundleKey || '';
+          const displayWrap = document.getElementById('songMaterialDisplayNameWrap');
+          const displayInput = document.getElementById('songMaterialDisplayName');
+          const filesInput = document.getElementById('songMaterialFiles');
+          const folderWrap = document.getElementById('songMaterialFolderWrap');
+          const folderInput = document.getElementById('songMaterialFolderFiles');
+          const help = document.getElementById('songMaterialHelp');
+          const filesLabel = document.getElementById('songMaterialFilesLabel');
+          displayWrap.style.display = cfg.showDisplayName ? '' : 'none';
+          displayInput.value = cfg.displayName || '';
+          displayInput.required = !!cfg.showDisplayName;
+          filesInput.value = '';
+          folderInput.value = '';
+          filesInput.multiple = !!cfg.multiple;
+          filesInput.accept = cfg.category === 'COVER' ? 'image/*' : (cfg.stemMode ? '.zip,audio/*,.wav,.wave' : '.wav,.wave');
+          filesLabel.textContent = cfg.stemMode ? 'Archivos / ZIP' : 'Archivo';
+          help.textContent = cfg.stemMode ? 'Puedes seleccionar varios archivos, ZIPs o usar el campo de carpeta completa.' : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Sube el archivo maestro en WAV.');
+          folderWrap.style.display = cfg.stemMode ? '' : 'none';
+          folderInput.disabled = !cfg.stemMode;
+          _songMaterialUploadModal = new bootstrap.Modal(document.getElementById('songMaterialUploadModal'));
+          _songMaterialUploadModal.show();
+        }
+        function _shareUrl(mode, title, url){
+          const text = title + '\\n' + url;
+          if(mode === 'mail') window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
+          if(mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+          if(mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+        }
+        function shareByMail(title, url){ _shareUrl('mail', title, url); }
+        function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
+        function shareBySms(title, url){ _shareUrl('sms', title, url); }
+        async function copyShareLink(url){
+          try {
+            await navigator.clipboard.writeText(url);
+            alert('Enlace copiado.');
+          } catch (e) {
+            window.prompt('Copia este enlace:', url);
+          }
+        }
       </script>
     {% endif %}
 
@@ -1221,31 +1786,59 @@
       <div class="card mt-3">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+            <div>
+              <h6 class="m-0">Letra</h6>
+              <div class="text-muted small">Texto de la canción para compartir o descargar en PDF.</div>
+            </div>
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fa fa-ellipsis-h"></i>
+              </button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><h6 class="dropdown-header">Compartir la letra</h6></li>
+                <li><button class="dropdown-item" type="button" onclick="shareByMail('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">Mail</button></li>
+                <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">WhatsApp</button></li>
+                <li><button class="dropdown-item" type="button" onclick="shareBySms('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">SMS</button></li>
+                <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ lyrics_public_url }}')">Copiar enlace</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li><a class="dropdown-item" href="{{ url_for('discografica_song_lyrics_pdf', song_id=song.id) }}">Descargar en PDF</a></li>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <li><hr class="dropdown-divider"></li>
+                  <li><button class="dropdown-item" type="button" onclick="openSongLyricsModal()">Editar</button></li>
+                  <li>
+                    <form method="post" action="{{ url_for('discografica_song_lyrics_delete', song_id=song.id) }}" onsubmit="return confirm('¿Eliminar la letra guardada?');">
+                      <button class="dropdown-item text-danger">Eliminar</button>
+                    </form>
+                  </li>
+                {% endif %}
+              </ul>
+            </div>
+          </div>
+
+          {% if song.lyrics_text %}
+            <div class="border rounded p-3 mt-3" style="white-space:pre-wrap;">{{ song.lyrics_text }}</div>
+          {% else %}
+            <div class="text-muted mt-3">Todavía no hay letra guardada.</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mt-3">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h6 class="m-0">SGAE</h6>
             <div class="d-flex gap-2 flex-wrap align-items-center">
               {% if status.sgae_done %}
                 <span class="badge text-bg-success">Registrado en SGAE · {{ status.sgae_updated_at.strftime('%d/%m/%Y') if status.sgae_updated_at else '' }}</span>
+              {% else %}
+                <span class="badge text-bg-secondary">Pendiente</span>
               {% endif %}
               {% if editorial_sgae_modification_pending %}
                 <span class="badge text-bg-warning">Modificación pendiente</span>
               {% endif %}
-              {% if not status.sgae_done and not editorial_sgae_modification_pending %}
-                {% if CAN_EDIT_DISCOGRAFICA %}
-                  <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
-                    <input type="hidden" name="next" value="{{ url_for('discografica_song_detail', song_id=song.id, tab='editorial') }}">
-                    <button class="btn btn-success"><i class="fa fa-check"></i> Marcar como registrado</button>
-                  </form>
-                {% else %}
-                  <span class="text-muted">Pendiente</span>
-                {% endif %}
-              {% elif editorial_sgae_modification_pending and CAN_EDIT_DISCOGRAFICA %}
-                <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=song.id) }}" class="m-0">
-                  <input type="hidden" name="next" value="{{ url_for('discografica_song_detail', song_id=song.id, tab='editorial') }}">
-                  <button class="btn btn-warning"><i class="fa fa-check"></i> Marcar modificación registrada</button>
-                </form>
-              {% endif %}
             </div>
           </div>
+          <div class="text-muted small mt-2">Este estado se alimenta desde la sección Editorial y sus pendientes de registro.</div>
         </div>
       </div>
     </div>
@@ -1346,6 +1939,50 @@
           </form>
         </div>
       </div>
+
+      <div class="modal fade" id="songLyricsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_song_lyrics_save', song_id=song.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">Editar letra</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <label class="form-label">Letra</label>
+              <textarea class="form-control" name="lyrics_text" rows="14" placeholder="Pega aquí la letra de la canción...">{{ song.lyrics_text or '' }}</textarea>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <script>
+        let _songLyricsModal;
+        function openSongLyricsModal(){
+          _songLyricsModal = new bootstrap.Modal(document.getElementById('songLyricsModal'));
+          _songLyricsModal.show();
+        }
+        function _shareUrl(mode, title, url){
+          const text = title + '\\n' + url;
+          if(mode === 'mail') window.location.href = 'mailto:?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
+          if(mode === 'wa') window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+          if(mode === 'sms') window.location.href = 'sms:?&body=' + encodeURIComponent(text);
+        }
+        function shareByMail(title, url){ _shareUrl('mail', title, url); }
+        function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
+        function shareBySms(title, url){ _shareUrl('sms', title, url); }
+        async function copyShareLink(url){
+          try {
+            await navigator.clipboard.writeText(url);
+            alert('Enlace copiado.');
+          } catch (e) {
+            window.prompt('Copia este enlace:', url);
+          }
+        }
+      </script>
     {% endif %}
 
 

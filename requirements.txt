@@ -7,3 +7,6 @@ Werkzeug==3.0.4
 gunicorn==21.2.0
 reportlab>=4.0.0
 pandas==2.2.2
+Pillow>=10.0.0
+pydub>=0.25.1
+pycountry>=24.6.1

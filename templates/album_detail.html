@@ -378,6 +378,67 @@
               </div>
             </div>
           </div>
+
+          <div class="card mt-3">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                <div>
+                  <h6 class="m-0">Certificaciones</h6>
+                  <div class="text-muted small">Reconocimientos del disco o EP por tipo y país.</div>
+                </div>
+                {% if CAN_EDIT_DISCOGRAFICA %}
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="openAlbumCertificationAdd()">
+                    <i class="fa fa-plus"></i> Añadir certificación
+                  </button>
+                {% endif %}
+              </div>
+
+              {% if album_cert_groups and (album_cert_groups|length) > 0 %}
+                <div class="d-flex flex-column gap-3 mt-3">
+                  {% for group in album_cert_groups %}
+                    <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                      <div class="d-flex align-items-center gap-3">
+                        <div style="position:relative;width:96px;height:78px;">
+                          {% for i in range(group.stack_count) %}
+                            <img src="{{ group.image_url }}" alt="{{ group.title }}" style="position:absolute;left:{{ i * 8 }}px;top:{{ i * 6 }}px;width:64px;height:64px;object-fit:contain;filter: drop-shadow(0 2px 4px rgba(0,0,0,.12));">
+                          {% endfor %}
+                        </div>
+                        <div>
+                          <div class="fw-semibold">{{ group.summary }}</div>
+                        </div>
+                      </div>
+                      {% if CAN_EDIT_DISCOGRAFICA %}
+                        <div class="dropdown">
+                          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
+                          <ul class="dropdown-menu dropdown-menu-end">
+                            <li>
+                              <button type="button" class="dropdown-item"
+                                      data-cert-type="{{ group.certification_type }}"
+                                      data-country-code="{{ group.country_code }}"
+                                      data-country-name="{{ group.country_name }}"
+                                      data-count="{{ group.count }}"
+                                      onclick="openAlbumCertificationEdit(this)">
+                                Editar
+                              </button>
+                            </li>
+                            <li>
+                              <form method="post" action="{{ url_for('discografica_album_certification_delete', album_id=album.id) }}" onsubmit="return confirm('¿Eliminar esta certificación?');">
+                                <input type="hidden" name="certification_type" value="{{ group.certification_type }}">
+                                <input type="hidden" name="country_code" value="{{ group.country_code }}">
+                                <button class="dropdown-item text-danger">Eliminar</button>
+                              </form>
+                            </li>
+                          </ul>
+                        </div>
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted mt-3">Todavía no hay certificaciones registradas.</div>
+              {% endif %}
+            </div>
+          </div>
         </div>
       </div>
     {% endif %}
@@ -426,6 +487,67 @@
               <div class="mb-0" id="albumProductCodeWrap">
                 <label class="form-label">Código</label>
                 <input name="code" id="albumProductCode" class="form-control" placeholder="Código manual">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal fade" id="albumCertificationModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_album_certification_save', album_id=album.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title" id="albumCertificationModalTitle">Añadir certificación</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              {% set certification_cards = [
+                ('GOLD', 'Disco de Oro', 'Equivalente a 20.000 Copias', 'img/certifications/gold.svg'),
+                ('PLATINUM', 'Disco de Platino', 'Equivalente a 40.000 Copias', 'img/certifications/platinum.svg'),
+                ('DIAMOND', 'Disco de Diamante', 'Equivalente a 1 millón de copias', 'img/certifications/diamond.svg'),
+                ('URANIUM', 'Disco de Uranio', 'Equivalente a más de 50 millones de copias', 'img/certifications/uranium.svg')
+              ] %}
+              <input type="hidden" name="original_type" id="albumCertOriginalType">
+              <input type="hidden" name="original_country_code" id="albumCertOriginalCountryCode">
+              <input type="hidden" name="certification_type" id="albumCertType" required>
+
+              <div class="mb-3">
+                <label class="form-label d-block">Tipo de certificación</label>
+                <div class="row g-2">
+                  {% for value, label, subtitle, image_path in certification_cards %}
+                    <div class="col-12 col-md-6">
+                      <button type="button" class="btn btn-outline-secondary w-100 text-start album-cert-type-btn" data-value="{{ value }}" onclick="selectAlbumCertType(this)">
+                        <div class="d-flex align-items-center gap-3">
+                          <img src="{{ url_for('static', filename=image_path) }}" alt="{{ label }}" style="width:58px;height:58px;object-fit:contain;">
+                          <div>
+                            <div class="fw-semibold">{{ label }}</div>
+                            <div class="small text-muted">{{ subtitle }}</div>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <div class="row g-3">
+                <div class="col-12 col-md-8">
+                  <label class="form-label">País</label>
+                  <input class="form-control" list="albumCertificationCountries" name="country" id="albumCertCountry" placeholder="Escribe para buscar un país..." required>
+                  <datalist id="albumCertificationCountries">
+                    {% for item in country_options %}
+                      <option value="{{ item.name }}">{{ item.flag }} {{ item.name }}</option>
+                    {% endfor %}
+                  </datalist>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Número de certificaciones</label>
+                  <input type="number" class="form-control" min="1" max="99" value="1" name="count" id="albumCertCount" required>
+                </div>
               </div>
             </div>
             <div class="modal-footer">
@@ -1017,6 +1139,55 @@
     }
     window.location.reload();
     return false;
+  }
+
+  let _albumCertificationModal;
+
+  function selectAlbumCertType(btn){
+    const value = btn?.dataset?.value || '';
+    document.getElementById('albumCertType').value = value;
+    document.querySelectorAll('.album-cert-type-btn').forEach(el => {
+      el.classList.toggle('btn-primary', el === btn);
+      el.classList.toggle('btn-outline-secondary', el !== btn);
+    });
+  }
+
+  function resetAlbumCertificationModal(){
+    const title = document.getElementById('albumCertificationModalTitle');
+    if (title) title.textContent = 'Añadir certificación';
+    const originalType = document.getElementById('albumCertOriginalType');
+    const originalCountry = document.getElementById('albumCertOriginalCountryCode');
+    const country = document.getElementById('albumCertCountry');
+    const count = document.getElementById('albumCertCount');
+    const certType = document.getElementById('albumCertType');
+    if (originalType) originalType.value = '';
+    if (originalCountry) originalCountry.value = '';
+    if (country) country.value = '';
+    if (count) count.value = '1';
+    if (certType) certType.value = '';
+    document.querySelectorAll('.album-cert-type-btn').forEach(el => {
+      el.classList.remove('btn-primary');
+      el.classList.add('btn-outline-secondary');
+    });
+  }
+
+  function openAlbumCertificationAdd(){
+    resetAlbumCertificationModal();
+    _albumCertificationModal = new bootstrap.Modal(document.getElementById('albumCertificationModal'));
+    _albumCertificationModal.show();
+  }
+
+  function openAlbumCertificationEdit(btn){
+    resetAlbumCertificationModal();
+    document.getElementById('albumCertificationModalTitle').textContent = 'Editar certificación';
+    document.getElementById('albumCertOriginalType').value = btn.dataset.certType || '';
+    document.getElementById('albumCertOriginalCountryCode').value = btn.dataset.countryCode || '';
+    document.getElementById('albumCertCountry').value = btn.dataset.countryName || btn.dataset.countryCode || '';
+    document.getElementById('albumCertCount').value = btn.dataset.count || '1';
+    const typeBtn = document.querySelector('.album-cert-type-btn[data-value="' + (btn.dataset.certType || '') + '"]');
+    if (typeBtn) selectAlbumCertType(typeBtn);
+    _albumCertificationModal = new bootstrap.Modal(document.getElementById('albumCertificationModal'));
+    _albumCertificationModal.show();
   }
 
   document.addEventListener('DOMContentLoaded', () => {

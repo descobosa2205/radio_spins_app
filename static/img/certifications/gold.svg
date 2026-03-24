@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" role="img" aria-label="Disco de Oro">
+  <defs>
+    <linearGradient id="g" x1="0" x2="1">
+      <stop offset="0%" stop-color="#f8e79a"/>
+      <stop offset="50%" stop-color="#d8a300"/>
+      <stop offset="100%" stop-color="#fff1b8"/>
+    </linearGradient>
+  </defs>
+  <rect width="200" height="200" rx="24" fill="#111827"/>
+  <circle cx="100" cy="100" r="72" fill="url(#g)" stroke="#fff7d6" stroke-width="6"/>
+  <circle cx="100" cy="100" r="18" fill="#111827" stroke="#fff7d6" stroke-width="5"/>
+  <text x="100" y="176" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#fff7d6">ORO</text>
+</svg>

@@ -187,6 +187,8 @@ class Song(Base):
     # Editorial
     work_declaration_url = Column(Text)
     work_declaration_uploaded_at = Column(DateTime(timezone=True))
+    lyrics_text = Column(Text)
+    lyrics_updated_at = Column(DateTime(timezone=True))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -271,6 +273,81 @@ class SongISRCCode(Base):
     sequence_num = Column(Integer)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class SongMaterial(Base):
+    """Materiales asociados a una canción."""
+
+    __tablename__ = "song_materials"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    category = Column(Text, nullable=False)  # COVER | MASTER | INSTRUMENTAL | TV_TRACK | STEMS
+    slot_key = Column(Text, nullable=False, server_default=text("'DEFAULT'"))
+    bundle_key = Column(Text)
+    display_name = Column(Text)
+    file_name = Column(Text, nullable=False)
+    file_url = Column(Text, nullable=False)
+    mime_type = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_song_materials_song_id", "song_id"),
+        Index("idx_song_materials_song_category", "song_id", "category", "slot_key"),
+    )
+
+
+class SongCertification(Base):
+    __tablename__ = "song_certifications"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("songs.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    certification_type = Column(Text, nullable=False)
+    country_code = Column(Text, nullable=False)
+    country_name = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_song_certifications_song_id", "song_id"),
+        Index("idx_song_certifications_group", "song_id", "certification_type", "country_code"),
+    )
+
+
+class AlbumCertification(Base):
+    __tablename__ = "album_certifications"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("albums.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+
+    certification_type = Column(Text, nullable=False)
+    country_code = Column(Text, nullable=False)
+    country_name = Column(Text, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_album_certifications_album_id", "album_id"),
+        Index("idx_album_certifications_group", "album_id", "certification_type", "country_code"),
+    )
 
 
 class SongStatus(Base):
@@ -1705,6 +1782,8 @@ def ensure_isrc_and_song_detail_schema():
                    OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='producers')
                    OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='arrangers')
                    OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='musicians')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='lyrics_text')
+                   OR NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='songs' AND column_name='lyrics_updated_at')
                 THEN
                     ALTER TABLE songs
                         ADD COLUMN IF NOT EXISTS version text,
@@ -1722,11 +1801,49 @@ def ensure_isrc_and_song_detail_schema():
                         ADD COLUMN IF NOT EXISTS studio text,
                         ADD COLUMN IF NOT EXISTS producers jsonb,
                         ADD COLUMN IF NOT EXISTS arrangers jsonb,
-                        ADD COLUMN IF NOT EXISTS musicians jsonb;
+                        ADD COLUMN IF NOT EXISTS musicians jsonb,
+                        ADD COLUMN IF NOT EXISTS lyrics_text text,
+                        ADD COLUMN IF NOT EXISTS lyrics_updated_at timestamptz;
                 END IF;
             END IF;
         END$$;
         """,
+
+        # Materiales de canción
+        """
+        CREATE TABLE IF NOT EXISTS song_materials (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            category text NOT NULL,
+            slot_key text NOT NULL DEFAULT 'DEFAULT',
+            bundle_key text,
+            display_name text,
+            file_name text NOT NULL,
+            file_url text NOT NULL,
+            mime_type text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_song_material_category CHECK (category IN ('COVER','MASTER','INSTRUMENTAL','TV_TRACK','STEMS'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
+        'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',
+
+        # Certificaciones de canción
+        """
+        CREATE TABLE IF NOT EXISTS song_certifications (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            certification_type text NOT NULL,
+            country_code text NOT NULL,
+            country_name text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_song_certification_type CHECK (certification_type IN ('GOLD','PLATINUM','DIAMOND','URANIUM'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_song_certifications_song_id ON song_certifications(song_id);',
+        'CREATE INDEX IF NOT EXISTS idx_song_certifications_group ON song_certifications(song_id, certification_type, country_code);',
 
         # Backfill: crear estado para canciones existentes si no existe
         """
@@ -2154,6 +2271,21 @@ def ensure_album_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_album_materials_album_id ON album_materials(album_id);',
         'CREATE INDEX IF NOT EXISTS idx_album_materials_category ON album_materials(category);',
+        """
+        CREATE TABLE IF NOT EXISTS album_certifications (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            certification_type text NOT NULL,
+            country_code text NOT NULL,
+            country_name text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_album_certification_type CHECK (certification_type IN ('GOLD','PLATINUM','DIAMOND','URANIUM'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_certifications_album_id ON album_certifications(album_id);',
+        'CREATE INDEX IF NOT EXISTS idx_album_certifications_group ON album_certifications(album_id, certification_type, country_code);',
+
         """
         CREATE TABLE IF NOT EXISTS album_royalty_beneficiaries (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

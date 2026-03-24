@@ -552,14 +552,20 @@
 
   <ul class="nav nav-pills mb-3">
     <li class="nav-item">
-      <a class="nav-link {% if disc_tab=='repertorio' %}active{% endif %}"
-         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica', disc='repertorio') }}">
-        Repertorio
+      <a class="nav-link {% if disc_tab=='canciones' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica', disc='canciones') }}">
+        Canciones
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if disc_tab=='albumes' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica', disc='albumes') }}">
+        Álbumes
       </a>
     </li>
   </ul>
 
-  {% if disc_tab == 'repertorio' %}
+  {% if disc_tab == 'canciones' %}
     {% if not songs or (songs|length) == 0 %}
       <div class="text-muted">No hay canciones asociadas a este artista.</div>
     {% else %}
@@ -597,6 +603,61 @@
                 <td>
                   {% if s.release_date %}
                     {{ s.release_date.strftime('%d/%m/%Y') }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  {% elif disc_tab == 'albumes' %}
+    {% if not albums or (albums|length) == 0 %}
+      <div class="text-muted">No hay discos ni EPs asociados a este artista.</div>
+    {% else %}
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead>
+            <tr>
+              <th style="width:72px;">Portada</th>
+              <th>Álbum</th>
+              <th class="text-nowrap">Tipo</th>
+              <th class="text-nowrap">Físico</th>
+              <th class="text-nowrap">Propiedad</th>
+              <th class="text-nowrap">Lanzamiento</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for al in albums %}
+              {% set physical_label = 'CD / Vinilo' if al.physical_cd and al.physical_vinyl else ('CD' if al.physical_cd else ('Vinilo' if al.physical_vinyl else 'No hay físico')) %}
+              <tr class="clickable-row"
+                  role="button"
+                  tabindex="0"
+                  data-href="{{ url_for('discografica_album_detail', album_id=al.id) }}"
+                  onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}';"
+                  onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}'; }">
+                <td>
+                  <img src="{{ al.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                </td>
+                <td>
+                  <div class="fw-semibold">{{ al.title }}</div>
+                </td>
+                <td>{{ 'EP' if al.album_type == 'EP' else 'Disco' }}</td>
+                <td><span class="text-muted">{{ physical_label }}</span></td>
+                <td>
+                  {% if al.is_distribution %}
+                    <span class="badge text-bg-info">Distribución</span>
+                  {% elif al.is_catalog %}
+                    <span class="badge text-bg-secondary">Catálogo</span>
+                  {% else %}
+                    <span class="badge text-bg-dark">Propio</span>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if al.release_date %}
+                    {{ al.release_date.strftime('%d/%m/%Y') }}
                   {% else %}
                     <span class="text-muted">—</span>
                   {% endif %}

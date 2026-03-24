@@ -572,6 +572,155 @@ class SongRevenueEntry(Base):
     )
 
 
+class ProductCodeConfig(Base):
+    """Configuración global para generar referencias de producto."""
+
+    __tablename__ = "product_code_config"
+
+    id = Column(Integer, primary_key=True, server_default=text("1"))
+    prefix = Column(Text, nullable=False, server_default=text("'REF'"))
+    padding = Column(Integer, nullable=False, server_default=text("5"))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Album(Base):
+    __tablename__ = "albums"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="RESTRICT"), nullable=False)
+
+    title = Column(Text, nullable=False)
+    album_type = Column(Text, nullable=False, server_default=text("'ALBUM'"))  # ALBUM | EP
+    release_date = Column(Date, nullable=False)
+    cover_url = Column(Text)
+
+    specifications = Column(Text)
+    copyright_text = Column(Text)
+    mastering_engineer = Column(Text)
+    edited_by = Column(Text)
+    distributed_by = Column(Text)
+
+    physical_cd = Column(Boolean, nullable=False, server_default=text("false"))
+    physical_vinyl = Column(Boolean, nullable=False, server_default=text("false"))
+
+    is_distribution = Column(Boolean, nullable=False, server_default=text("false"))
+    is_catalog = Column(Boolean, nullable=False, server_default=text("false"))
+
+    upc_code = Column(Text)
+    legal_deposit_code = Column(Text)
+    label_code = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    tracks = relationship(
+        "AlbumTrack",
+        cascade="all, delete-orphan",
+        order_by="AlbumTrack.track_number",
+    )
+    product_codes = relationship(
+        "AlbumProductCode",
+        cascade="all, delete-orphan",
+        order_by="AlbumProductCode.created_at",
+    )
+    materials = relationship(
+        "AlbumMaterial",
+        cascade="all, delete-orphan",
+        order_by="AlbumMaterial.created_at",
+    )
+
+    __table_args__ = (
+        Index("idx_albums_artist_release", "artist_id", "release_date"),
+    )
+
+
+class AlbumProductCode(Base):
+    __tablename__ = "album_product_codes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+
+    format_kind = Column(Text, nullable=False)  # CD | VINYL | CASSETTE | OTHER
+    other_label = Column(Text)
+    code = Column(Text, nullable=False)
+    generated_sequence = Column(Integer)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+
+    __table_args__ = (
+        UniqueConstraint("code", name="uq_album_product_code"),
+        Index("idx_album_product_codes_album_id", "album_id"),
+    )
+
+
+class AlbumTrack(Base):
+    __tablename__ = "album_tracks"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    track_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+    song = relationship("Song")
+
+    __table_args__ = (
+        UniqueConstraint("album_id", "song_id", name="uq_album_track_song"),
+        UniqueConstraint("album_id", "track_number", name="uq_album_track_number"),
+        Index("idx_album_tracks_album_id", "album_id"),
+    )
+
+
+class AlbumMaterial(Base):
+    __tablename__ = "album_materials"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+
+    category = Column(Text, nullable=False)  # COVER | DDP | BODEGON | PHYSICAL_DESIGN
+    file_name = Column(Text, nullable=False)
+    file_url = Column(Text, nullable=False)
+    mime_type = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+
+    __table_args__ = (
+        Index("idx_album_materials_album_id", "album_id"),
+        Index("idx_album_materials_category", "category"),
+    )
+
+
+class AlbumRoyaltyBeneficiary(Base):
+    """Beneficiarios adicionales de royalties por álbum."""
+
+    __tablename__ = "album_royalty_beneficiaries"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="RESTRICT"), nullable=False)
+
+    pct = Column(Numeric, nullable=False, server_default=text("0"))
+    base = Column(Text, nullable=False, server_default=text("'GROSS'"))
+    profit_scope = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+    promoter = relationship("Promoter")
+
+    __table_args__ = (
+        UniqueConstraint("album_id", "promoter_id", name="uq_album_royalty_beneficiary"),
+        Index("idx_album_royalty_beneficiaries_album_id", "album_id"),
+        Index("idx_album_royalty_beneficiaries_promoter_id", "promoter_id"),
+    )
 
 
 class RoyaltyLiquidation(Base):
@@ -1844,6 +1993,146 @@ def ensure_royalty_liquidations_schema():
     with engine.begin() as conn:
         for stmt in stmts:
             s = (stmt or "").strip()
+            if not s:
+                continue
+            conn.exec_driver_sql(s)
+
+
+def ensure_album_schema():
+    """Asegura el esquema necesario para la nueva pestaña Repertorio > Álbumes."""
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS product_code_config (
+            id integer PRIMARY KEY DEFAULT 1,
+            prefix text NOT NULL DEFAULT 'REF',
+            padding integer NOT NULL DEFAULT 5,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        INSERT INTO product_code_config (id)
+        SELECT 1
+        WHERE NOT EXISTS (SELECT 1 FROM product_code_config WHERE id = 1);
+        """,
+        """
+        ALTER TABLE IF EXISTS product_code_config
+            ADD COLUMN IF NOT EXISTS prefix text NOT NULL DEFAULT 'REF',
+            ADD COLUMN IF NOT EXISTS padding integer NOT NULL DEFAULT 5,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS albums (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE RESTRICT,
+            title text NOT NULL,
+            album_type text NOT NULL DEFAULT 'ALBUM',
+            release_date date NOT NULL,
+            cover_url text,
+            specifications text,
+            copyright_text text,
+            mastering_engineer text,
+            edited_by text,
+            distributed_by text,
+            physical_cd boolean NOT NULL DEFAULT false,
+            physical_vinyl boolean NOT NULL DEFAULT false,
+            is_distribution boolean NOT NULL DEFAULT false,
+            is_catalog boolean NOT NULL DEFAULT false,
+            upc_code text,
+            legal_deposit_code text,
+            label_code text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_album_type CHECK (album_type IN ('ALBUM','EP'))
+        );
+        """,
+        """
+        ALTER TABLE IF EXISTS albums
+            ADD COLUMN IF NOT EXISTS cover_url text,
+            ADD COLUMN IF NOT EXISTS specifications text,
+            ADD COLUMN IF NOT EXISTS copyright_text text,
+            ADD COLUMN IF NOT EXISTS mastering_engineer text,
+            ADD COLUMN IF NOT EXISTS edited_by text,
+            ADD COLUMN IF NOT EXISTS distributed_by text,
+            ADD COLUMN IF NOT EXISTS physical_cd boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS physical_vinyl boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS is_catalog boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS upc_code text,
+            ADD COLUMN IF NOT EXISTS legal_deposit_code text,
+            ADD COLUMN IF NOT EXISTS label_code text,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now(),
+            ADD COLUMN IF NOT EXISTS album_type text NOT NULL DEFAULT 'ALBUM';
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_albums_artist_release ON albums(artist_id, release_date);',
+        """
+        CREATE TABLE IF NOT EXISTS album_product_codes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            format_kind text NOT NULL,
+            other_label text,
+            code text NOT NULL,
+            generated_sequence integer,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_album_product_code_kind CHECK (format_kind IN ('CD','VINYL','CASSETTE','OTHER')),
+            CONSTRAINT uq_album_product_code UNIQUE (code)
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_product_codes_album_id ON album_product_codes(album_id);',
+        """
+        CREATE TABLE IF NOT EXISTS album_tracks (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            track_number integer NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_album_track_song UNIQUE (album_id, song_id),
+            CONSTRAINT uq_album_track_number UNIQUE (album_id, track_number)
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_tracks_album_id ON album_tracks(album_id);',
+        """
+        CREATE TABLE IF NOT EXISTS album_materials (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            category text NOT NULL,
+            file_name text NOT NULL,
+            file_url text NOT NULL,
+            mime_type text,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_album_material_category CHECK (category IN ('COVER','DDP','BODEGON','PHYSICAL_DESIGN'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_materials_album_id ON album_materials(album_id);',
+        'CREATE INDEX IF NOT EXISTS idx_album_materials_category ON album_materials(category);',
+        """
+        CREATE TABLE IF NOT EXISTS album_royalty_beneficiaries (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE RESTRICT,
+            pct numeric NOT NULL DEFAULT 0,
+            base text NOT NULL DEFAULT 'GROSS',
+            profit_scope text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_arb_pct CHECK (pct >= 0 AND pct <= 100),
+            CONSTRAINT chk_arb_base CHECK (base IN ('GROSS','NET','PROFIT')),
+            CONSTRAINT chk_arb_profit_scope CHECK (
+                profit_scope IS NULL
+                OR profit_scope IN ('CONCEPT_ONLY','CONCEPT_PLUS_GENERAL')
+            ),
+            CONSTRAINT uq_album_royalty_beneficiary UNIQUE (album_id, promoter_id)
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_royalty_beneficiaries_album_id ON album_royalty_beneficiaries(album_id);',
+        'CREATE INDEX IF NOT EXISTS idx_album_royalty_beneficiaries_promoter_id ON album_royalty_beneficiaries(promoter_id);',
+    ]
+
+    with engine.begin() as conn:
+        for stmt in stmts:
+            s = (stmt or '').strip()
             if not s:
                 continue
             conn.exec_driver_sql(s)

@@ -1,0 +1,1056 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="mb-3">
+  <a href="{{ url_for('discografica_view', section='canciones', rep_tab='albumes') }}" class="btn btn-outline-secondary">
+    <i class="fa fa-arrow-left"></i> Volver
+  </a>
+</div>
+
+<div class="song-hero">
+  <div class="d-flex gap-3 flex-wrap align-items-start">
+    <img src="{{ album.cover_url or url_for('static', filename='img/logo.png') }}" class="song-hero-cover" alt="">
+
+    <div class="flex-grow-1">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div>
+          <h3 class="m-0">{{ album.title }}</h3>
+
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <img src="{{ artist.photo_url if artist else url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+            <div>
+              <div class="fw-semibold">{{ artist.name if artist else '—' }}</div>
+              <div class="text-muted small">
+                {% if album.release_date %}Lanzamiento: {{ album.release_date.strftime('%d/%m/%Y') }}{% else %}Sin fecha de lanzamiento{% endif %}
+              </div>
+              <div class="d-flex gap-1 flex-wrap mt-1">
+                <span class="badge text-bg-light border">{{ album_kind_label }}</span>
+                <span class="badge {{ ownership_badge_class }}">{{ ownership_label }}</span>
+                {% if physical_labels and (physical_labels|length) > 0 %}
+                  {% for lbl in physical_labels %}
+                    <span class="badge text-bg-light border">{{ lbl }}</span>
+                  {% endfor %}
+                {% else %}
+                  <span class="badge text-bg-light border">No hay físico</span>
+                {% endif %}
+                {% if days_remaining is not none %}
+                  <span class="badge text-bg-warning text-dark">Sale en {{ days_remaining }} día{% if days_remaining != 1 %}s{% endif %}</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="text-end">
+          <div class="small text-muted">Canciones</div>
+          <div class="h4 m-0">{{ track_rows|length }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mt-3">
+  {% set tabs = [
+    ('informacion','Información'),
+    ('canciones','Canciones'),
+    ('materiales','Materiales'),
+    ('beneficiarios','Beneficiarios')
+  ] %}
+  {% for k, label in tabs %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_album_detail', album_id=album.id, tab=k) }}">{{ label }}</a>
+    </li>
+  {% endfor %}
+</ul>
+
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+
+  {% if tab == 'informacion' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="m-0">Información</h5>
+        <div class="text-muted small">Ficha general del álbum y códigos de producto.</div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          {% if edit %}
+            <form method="post" action="{{ url_for('discografica_album_delete', album_id=album.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este álbum? Esta acción no se puede deshacer.');">
+              <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Eliminar álbum</button>
+            </form>
+            <a class="btn btn-outline-secondary" href="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion') }}">
+              Cancelar edición
+            </a>
+          {% else %}
+            <a class="btn btn-primary" href="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion', edit=1) }}">
+              <i class="fa fa-edit"></i> Editar
+            </a>
+          {% endif %}
+        {% endif %}
+      </div>
+    </div>
+
+    {% if edit and CAN_EDIT_DISCOGRAFICA %}
+      <form id="albumInfoForm" method="post" action="{{ url_for('discografica_album_info_update', album_id=album.id) }}" enctype="multipart/form-data">
+        <div class="row g-3">
+          <div class="col-12 col-xl-8">
+            <div class="card h-100">
+              <div class="card-body">
+                <div class="row g-3">
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Artista</label>
+                    <select name="artist_id" class="form-select select-artists" required>
+                      {% for a in contract_artists %}
+                        <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" {% if a.id == album.artist_id %}selected{% endif %}>{{ a.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Nombre del álbum</label>
+                    <input name="title" class="form-control" value="{{ album.title }}" required>
+                  </div>
+
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Tipo</label>
+                    <select name="album_type" class="form-select">
+                      <option value="ALBUM" {% if album.album_type != 'EP' %}selected{% endif %}>Disco</option>
+                      <option value="EP" {% if album.album_type == 'EP' %}selected{% endif %}>EP</option>
+                    </select>
+                  </div>
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Fecha de publicación</label>
+                    <input type="date" name="release_date" class="form-control" value="{{ album.release_date.isoformat() if album.release_date else '' }}" required>
+                  </div>
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Portada</label>
+                    <input type="file" name="cover" class="form-control" accept="image/*">
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label">Especificaciones</label>
+                    <input name="specifications" class="form-control" value="{{ album.specifications or '' }}" placeholder="Etiqueta de texto opcional a cumplimentar">
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label">Copy</label>
+                    <textarea name="copyright_text" class="form-control" rows="8">{{ album.copyright_text or default_copyright }}</textarea>
+                  </div>
+
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Masterización</label>
+                    <input name="mastering_engineer" class="form-control" value="{{ album.mastering_engineer or '' }}">
+                  </div>
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Editado por</label>
+                    <input name="edited_by" class="form-control" value="{{ album.edited_by or 'PIES Compañía Discográfica' }}">
+                  </div>
+                  <div class="col-12 col-md-4">
+                    <label class="form-label">Distribuido por</label>
+                    <input name="distributed_by" class="form-control" value="{{ album.distributed_by or '' }}">
+                  </div>
+
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Formato físico</label>
+                    <div class="border rounded p-3 bg-light-subtle">
+                      <div class="d-flex flex-wrap gap-3 mb-2" id="albumInfoPhysicalOptions">
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" name="physical_cd" id="albumInfoPhysicalCd" value="1" {% if album.physical_cd %}checked{% endif %}>
+                          <label class="form-check-label" for="albumInfoPhysicalCd">CD</label>
+                        </div>
+                        <div class="form-check">
+                          <input class="form-check-input" type="checkbox" name="physical_vinyl" id="albumInfoPhysicalVinyl" value="1" {% if album.physical_vinyl %}checked{% endif %}>
+                          <label class="form-check-label" for="albumInfoPhysicalVinyl">Vinilo</label>
+                        </div>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="no_physical" id="albumInfoNoPhysical" value="1" {% if not album.physical_cd and not album.physical_vinyl %}checked{% endif %}>
+                        <label class="form-check-label" for="albumInfoNoPhysical">No hay físico</label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Propiedad</label>
+                    <div class="border rounded p-3 bg-light-subtle">
+                      <div class="d-flex flex-wrap gap-3 mb-2">
+                        <div class="form-check">
+                          <input class="form-check-input" type="radio" name="ownership_type" id="albumInfoTypeOwn" value="own" {% if not album.is_distribution %}checked{% endif %}>
+                          <label class="form-check-label" for="albumInfoTypeOwn">Propio</label>
+                        </div>
+                        <div class="form-check">
+                          <input class="form-check-input" type="radio" name="ownership_type" id="albumInfoTypeDist" value="distribution" {% if album.is_distribution %}checked{% endif %}>
+                          <label class="form-check-label" for="albumInfoTypeDist">En distribución</label>
+                        </div>
+                      </div>
+                      <div class="form-check" id="albumInfoCatalogWrap">
+                        <input class="form-check-input" type="checkbox" name="is_catalog" id="albumInfoIsCatalog" value="1" {% if album.is_catalog %}checked{% endif %}>
+                        <label class="form-check-label" for="albumInfoIsCatalog">Marcar como catálogo</label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-xl-4">
+            <div class="card h-100">
+              <div class="card-body d-flex flex-column gap-3">
+                <div>
+                  <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                    <h6 class="m-0">Códigos de producto (Referencias)</h6>
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="openProductCodeAdd()">
+                      <i class="fa fa-plus"></i> Añadir código
+                    </button>
+                  </div>
+
+                  {% if not product_codes or (product_codes|length) == 0 %}
+                    <div class="text-muted small">No hay códigos de producto creados todavía.</div>
+                  {% else %}
+                    <div class="d-flex flex-column gap-2">
+                      {% for code in product_codes %}
+                        <div class="border rounded p-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                          <div>
+                            <div class="small text-uppercase text-muted">{{ code.display_format_label }}</div>
+                            <div class="fw-semibold">{{ code.code }}</div>
+                          </div>
+                          <div class="d-flex gap-2">
+                            <button type="button"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    data-code-id="{{ code.id }}"
+                                    data-format-kind="{{ code.format_kind }}"
+                                    data-other-label="{{ code.other_label or '' }}"
+                                    data-code="{{ code.code }}"
+                                    onclick="openProductCodeEdit(this)">
+                              <i class="fa fa-pen"></i>
+                            </button>
+                            <button type="button" class="btn btn-outline-danger btn-sm" onclick="document.getElementById('delete-product-code-{{ code.id }}').submit();">
+                              <i class="fa fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+
+                <div>
+                  <label class="form-label">Código UPC</label>
+                  <input name="upc_code" class="form-control" value="{{ album.upc_code or '' }}" placeholder="Código manual">
+                </div>
+                <div>
+                  <label class="form-label">Depósito Legal</label>
+                  <input name="legal_deposit_code" class="form-control" value="{{ album.legal_deposit_code or '' }}" placeholder="Código manual">
+                </div>
+                <div>
+                  <label class="form-label">Label Code</label>
+                  <div class="input-group">
+                    <span class="input-group-text">LC</span>
+                    <input name="label_code" class="form-control" value="{{ album.label_code or '' }}" placeholder="Código manual">
+                  </div>
+                </div>
+
+                <div class="mt-auto d-grid">
+                  <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar cambios</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      {% for code in product_codes %}
+        <form id="delete-product-code-{{ code.id }}" method="post" action="{{ url_for('discografica_album_product_code_delete', album_id=album.id, code_id=code.id) }}" class="d-none"></form>
+      {% endfor %}
+
+    {% else %}
+      <div class="row g-3">
+        <div class="col-12 col-xl-8">
+          <div class="card h-100">
+            <div class="card-body">
+              <div class="row g-3">
+                <div class="col-12 col-md-6">
+                  <div class="small text-muted text-uppercase">Artista</div>
+                  <div class="fw-semibold">{{ artist.name if artist else '—' }}</div>
+                </div>
+                <div class="col-12 col-md-6">
+                  <div class="small text-muted text-uppercase">Nombre del álbum</div>
+                  <div class="fw-semibold">{{ album.title }}</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted text-uppercase">Especificaciones</div>
+                  <div>{{ album.specifications or '—' }}</div>
+                </div>
+                <div class="col-12">
+                  <div class="small text-muted text-uppercase">Copy</div>
+                  <div style="white-space:pre-line">{{ album.copyright_text or default_copyright }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Masterización</div>
+                  <div>{{ album.mastering_engineer or '—' }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Editado por</div>
+                  <div>{{ album.edited_by or 'PIES Compañía Discográfica' }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Distribuido por</div>
+                  <div>{{ album.distributed_by or '—' }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Fecha de publicación</div>
+                  <div>{% if album.release_date %}{{ album.release_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Tipo</div>
+                  <div>{{ album_kind_label }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Formato físico</div>
+                  <div>{{ (physical_labels|join(', ')) if physical_labels else 'No hay físico' }}</div>
+                </div>
+                <div class="col-12 col-md-4">
+                  <div class="small text-muted text-uppercase">Propiedad</div>
+                  <div>{{ ownership_label }}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="col-12 col-xl-4">
+          <div class="card h-100">
+            <div class="card-body d-flex flex-column gap-3">
+              <div>
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                  <h6 class="m-0">Códigos de producto (Referencias)</h6>
+                  {% if CAN_EDIT_DISCOGRAFICA %}
+                    <button type="button" class="btn btn-outline-primary btn-sm" onclick="openProductCodeAdd()">
+                      <i class="fa fa-plus"></i> Añadir código
+                    </button>
+                  {% endif %}
+                </div>
+
+                {% if not product_codes or (product_codes|length) == 0 %}
+                  <div class="text-muted small">No hay códigos de producto creados todavía.</div>
+                {% else %}
+                  <div class="d-flex flex-column gap-2">
+                    {% for code in product_codes %}
+                      <div class="border rounded p-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                        <div>
+                          <div class="small text-uppercase text-muted">{{ code.display_format_label }}</div>
+                          <div class="fw-semibold">{{ code.code }}</div>
+                        </div>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <div class="d-flex gap-2">
+                            <button type="button"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    data-code-id="{{ code.id }}"
+                                    data-format-kind="{{ code.format_kind }}"
+                                    data-other-label="{{ code.other_label or '' }}"
+                                    data-code="{{ code.code }}"
+                                    onclick="openProductCodeEdit(this)">
+                              <i class="fa fa-pen"></i>
+                            </button>
+                            <form method="post" action="{{ url_for('discografica_album_product_code_delete', album_id=album.id, code_id=code.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este código de producto?');">
+                              <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
+                            </form>
+                          </div>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              </div>
+
+              <div class="border-top pt-3">
+                <div class="small text-muted text-uppercase">Código UPC</div>
+                <div>{{ album.upc_code or '—' }}</div>
+              </div>
+              <div>
+                <div class="small text-muted text-uppercase">Depósito Legal</div>
+                <div>{{ album.legal_deposit_code or '—' }}</div>
+              </div>
+              <div>
+                <div class="small text-muted text-uppercase">Label Code</div>
+                <div>{% if album.label_code %}LC {{ album.label_code }}{% else %}—{% endif %}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="albumProductCodeModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_album_product_code_save', album_id=album.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title" id="albumProductCodeModalTitle">Añadir código</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="code_id" id="albumProductCodeId">
+
+              <div class="mb-3">
+                <label class="form-label">Formato</label>
+                <select name="format_kind" id="albumProductFormat" class="form-select">
+                  <option value="CD">CD</option>
+                  <option value="VINYL">Vinilo</option>
+                  <option value="CASSETTE">Cassette</option>
+                  <option value="OTHER">Otro</option>
+                </select>
+              </div>
+
+              <div class="mb-3" id="albumProductOtherWrap" style="display:none;">
+                <label class="form-label">Nombre del formato</label>
+                <input name="other_label" id="albumProductOtherLabel" class="form-control" placeholder="Ej: Libro disco, USB...">
+              </div>
+
+              <div class="mb-3">
+                <label class="form-label d-block">Modo</label>
+                <div class="d-flex gap-3 flex-wrap">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="mode" id="albumProductModeManual" value="manual" checked>
+                    <label class="form-check-label" for="albumProductModeManual">Introducir código</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="mode" id="albumProductModeGenerate" value="generate">
+                    <label class="form-check-label" for="albumProductModeGenerate">Generar siguiente disponible</label>
+                  </div>
+                </div>
+                <div class="form-text">Configuración actual: {{ (product_code_config.prefix if product_code_config else 'REF') }} + {{ product_code_config.padding if product_code_config else 5 }} dígitos.</div>
+              </div>
+
+              <div class="mb-0" id="albumProductCodeWrap">
+                <label class="form-label">Código</label>
+                <input name="code" id="albumProductCode" class="form-control" placeholder="Código manual">
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+  {% elif tab == 'canciones' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="m-0">Canciones</h5>
+        <div class="text-muted">Listado de canciones incluidas en este {{ album_kind_label|lower }}.</div>
+      </div>
+      {% if CAN_EDIT_DISCOGRAFICA %}
+        <button type="button" class="btn btn-primary" onclick="openAlbumSongSearchModal()">
+          <i class="fa fa-plus"></i> Añadir canciones
+        </button>
+      {% endif %}
+    </div>
+
+    {% if not track_rows or (track_rows|length) == 0 %}
+      <div class="text-muted">Todavía no hay canciones añadidas a este {{ album_kind_label|lower }}.</div>
+    {% else %}
+      <div class="card">
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:72px;">#</th>
+                  <th>Canción</th>
+                  <th class="text-nowrap">ISRC principal</th>
+                  <th>Intérpretes</th>
+                  <th class="text-nowrap">Duración</th>
+                  {% if CAN_EDIT_DISCOGRAFICA %}<th style="width:120px;"></th>{% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in track_rows %}
+                  <tr>
+                    <td class="fw-semibold">{{ row.track_number }}</td>
+                    <td>{{ row.song.title }}</td>
+                    <td><span class="text-muted">{{ row.isrc|isrc }}</span></td>
+                    <td>{{ row.interpreters }}</td>
+                    <td>{{ row.duration }}</td>
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <td class="text-end">
+                        <form method="post" action="{{ url_for('discografica_album_track_delete', album_id=album.id, track_id=row.track_id) }}" class="m-0" onsubmit="return confirm('¿Quitar esta canción del álbum?');">
+                          <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i> Quitar</button>
+                        </form>
+                      </td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    {% endif %}
+
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="albumSongSearchModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Añadir canciones</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="mb-3">
+                <label class="form-label">Buscar canción del artista</label>
+                <input type="search" class="form-control" id="albumSongSearchInput" placeholder="Escribe cualquier dato para buscar coincidencias...">
+                <div class="form-text">Solo se mostrarán canciones del artista del álbum que aún no estén añadidas.</div>
+              </div>
+
+              <div id="albumSongSearchResults" class="list-group"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <form id="albumTrackAddForm" method="post" action="{{ url_for('discografica_album_track_add', album_id=album.id) }}" class="d-none">
+        <input type="hidden" name="song_id" id="albumTrackSongId">
+      </form>
+    {% endif %}
+
+  {% elif tab == 'materiales' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="m-0">Materiales</h5>
+        <div class="text-muted">Portada, DDP, bodegones y diseños físicos del lanzamiento.</div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      {% set material_cards = [
+        ('COVER', 'Portada', 'Portada en cualquier formato', material_groups.get('COVER', [])),
+        ('DDP', 'DDP', 'Archivo maestro DDP', material_groups.get('DDP', [])),
+        ('BODEGON', 'Bodegón', 'Se pueden subir varios archivos', material_groups.get('BODEGON', [])),
+        ('PHYSICAL_DESIGN', 'Diseño físico', 'Se pueden subir varios archivos', material_groups.get('PHYSICAL_DESIGN', []))
+      ] %}
+
+      {% for category, title, subtitle, rows in material_cards %}
+        <div class="col-12 col-xl-6">
+          <div class="card h-100">
+            <div class="card-body d-flex flex-column gap-3">
+              <div>
+                <div class="fw-semibold">{{ title }}</div>
+                <div class="text-muted small">{{ subtitle }}</div>
+              </div>
+
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <form method="post" action="{{ url_for('discografica_album_material_upload', album_id=album.id) }}" enctype="multipart/form-data" class="row g-2">
+                  <input type="hidden" name="category" value="{{ category }}">
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Archivo</label>
+                    <input type="file" name="file" class="form-control" {% if category == 'COVER' %}accept="image/*"{% endif %} required>
+                  </div>
+                  <div class="col-12 col-md-6">
+                    <label class="form-label">Nombre del archivo</label>
+                    <input name="display_name" class="form-control" placeholder="Opcional">
+                  </div>
+                  <div class="col-12 d-grid">
+                    <button class="btn btn-outline-primary"><i class="fa fa-upload"></i> Subir</button>
+                  </div>
+                </form>
+              {% endif %}
+
+              {% if not rows or (rows|length) == 0 %}
+                <div class="text-muted small">No hay archivos subidos.</div>
+              {% else %}
+                <div class="list-group list-group-flush border rounded">
+                  {% for item in rows %}
+                    <div class="list-group-item d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                      <div>
+                        <div class="fw-semibold">{{ item.file_name }}</div>
+                        <div class="small text-muted">{{ item.mime_type or 'Archivo' }}</div>
+                      </div>
+                      <div class="d-flex gap-2">
+                        <a href="{{ item.file_url }}" target="_blank" class="btn btn-outline-secondary btn-sm">
+                          <i class="fa fa-eye"></i> Ver
+                        </a>
+                        {% if CAN_EDIT_DISCOGRAFICA %}
+                          <form method="post" action="{{ url_for('discografica_album_material_delete', album_id=album.id, material_id=item.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este material?');">
+                            <button class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
+                          </form>
+                        {% endif %}
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+  {% elif tab == 'beneficiarios' %}
+
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+      <div>
+        <h5 class="m-0">Beneficiarios</h5>
+        <div class="text-muted">Listado de beneficiarios de royalties para este {{ album_kind_label|lower }}.</div>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div class="fw-semibold">Artista</div>
+              {% if royalties_artist and royalties_artist.concept %}
+                <span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>
+              {% endif %}
+            </div>
+
+            {% if royalties_artist %}
+              <div class="d-flex align-items-center justify-content-between gap-3 mt-3 flex-wrap">
+                <div class="d-flex align-items-center gap-2">
+                  <img src="{{ royalties_artist.artist_photo or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                  <div>
+                    <div class="fw-semibold">{{ royalties_artist.artist_name }}</div>
+                    {% if not royalties_artist.found %}
+                      <div class="small text-danger">No se encontró compromiso en contratos para este concepto. Se muestra 0%.</div>
+                    {% endif %}
+                  </div>
+                </div>
+
+                <div class="text-end">
+                  <div class="h5 m-0">{{ '%.2f'|format(royalties_artist.pct) }}%</div>
+                  <div class="small text-muted">
+                    {% set b = (royalties_artist.base or 'GROSS') %}
+                    {% if b == 'GROSS' %}Bruto{% elif b == 'NET' %}Neto{% else %}Sobre beneficio{% endif %}
+                    {% if b == 'PROFIT' %}
+                      — {% if (royalties_artist.profit_scope or '') == 'CONCEPT_PLUS_GENERAL' %}Concepto + general{% else %}Solo concepto{% endif %}
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            {% else %}
+              <div class="text-muted mt-2">Sin artista asociado.</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div class="fw-semibold">Terceros beneficiarios</div>
+              <span class="badge text-bg-secondary">Pendiente</span>
+            </div>
+            <div class="text-muted mt-2">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+              <div class="fw-semibold">Otros beneficiarios</div>
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openAlbumRoyaltyBeneficiaryAdd()">
+                  <i class="fa fa-plus"></i>
+                </button>
+              {% endif %}
+            </div>
+
+            {% if not royalty_other_beneficiaries or (royalty_other_beneficiaries|length) == 0 %}
+              <div class="text-muted">No hay otros beneficiarios todavía.</div>
+            {% else %}
+              <div class="list-group">
+                {% for b in royalty_other_beneficiaries %}
+                  <div class="list-group-item d-flex align-items-center justify-content-between flex-wrap gap-3">
+                    <div class="d-flex align-items-center gap-2">
+                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or url_for('static', filename='img/default_promoter.png') }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
+                      <div>
+                        <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
+                        <div class="small text-muted">
+                          {% if b.promoter and b.promoter.tax_id %}{{ b.promoter.tax_id }}{% endif %}
+                          {% if b.promoter and b.promoter.contact_email %}{% if b.promoter.tax_id %} · {% endif %}{{ b.promoter.contact_email }}{% endif %}
+                          {% if b.promoter and b.promoter.contact_phone %}{% if b.promoter.tax_id or b.promoter.contact_email %} · {% endif %}{{ b.promoter.contact_phone }}{% endif %}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="text-end">
+                      <div class="fw-semibold">{{ '%.2f'|format(b.pct or 0) }}%</div>
+                      <div class="small text-muted">
+                        {% set bb = (b.base or 'GROSS') %}
+                        {% if bb == 'GROSS' %}Bruto{% elif bb == 'NET' %}Neto{% else %}Sobre beneficio{% endif %}
+                        {% if bb == 'PROFIT' %}
+                          — {% if (b.profit_scope or '') == 'CONCEPT_PLUS_GENERAL' %}Concepto + general{% else %}Solo concepto{% endif %}
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openAlbumRoyaltyBeneficiaryEdit('{{ b.id }}')">
+                          <i class="fa fa-pen"></i> Editar
+                        </button>
+
+                        <form method="post"
+                              action="{{ url_for('discografica_album_royalty_beneficiary_delete', album_id=album.id, beneficiary_id=b.id) }}"
+                              class="m-0"
+                              onsubmit="return confirm('¿Eliminar este beneficiario?');">
+                          <button type="submit" class="btn btn-outline-danger btn-sm">
+                            <i class="fa fa-trash"></i> Eliminar
+                          </button>
+                        </form>
+                      </div>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="albumRoyaltyBeneficiaryModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" id="albumRoyaltyBeneficiaryForm" data-save-url="{{ url_for('discografica_album_royalty_beneficiary_save', album_id=album.id) }}" onsubmit="return submitAlbumRoyaltyBeneficiary(event);" enctype="multipart/form-data">
+            <div class="modal-header">
+              <h5 class="modal-title" id="albumRoyaltyBeneficiaryModalTitle">Añadir beneficiario</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="beneficiary_id" id="albRoyBen_id">
+              <input type="hidden" name="promoter_id" id="albRoyBen_promoter_id">
+
+              <div class="row g-2">
+                <div class="col-12">
+                  <label class="form-label">Buscar tercero (se autocompleta al escribir)</label>
+                  <input type="text" class="form-control" id="albRoyBen_promoter_search" placeholder="Escribe para buscar..." autocomplete="off">
+                  <div class="form-text">Si no existe, pulsa “Nuevo tercero” y completa los datos.</div>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Foto (opcional)</label>
+                  <input type="file" class="form-control" name="photo" id="albRoyBen_photo" accept="image/*">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Nick: Nombre y apellidos / empresa</label>
+                  <input type="text" class="form-control" name="nick" id="albRoyBen_nick" required>
+                </div>
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">CIF / DNI <span class="text-muted">(opcional)</span></label>
+                  <input type="text" class="form-control" name="tax_id" id="albRoyBen_tax_id">
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Mail de contacto</label>
+                  <input type="email" class="form-control" name="contact_email" id="albRoyBen_email" required>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Teléfono <span class="text-muted">(opcional)</span></label>
+                  <input type="text" class="form-control" name="contact_phone" id="albRoyBen_phone">
+                </div>
+
+                <hr class="mt-3 mb-2">
+
+                <div class="col-12 col-md-4">
+                  <label class="form-label">% Royalties</label>
+                  <input type="number" step="0.01" min="0" max="100" class="form-control" name="pct" id="albRoyBen_pct" required>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Base</label>
+                  <select name="base" id="albRoyBen_base" class="form-select">
+                    <option value="GROSS">Bruto</option>
+                    <option value="NET">Neto</option>
+                    <option value="PROFIT">Sobre beneficio</option>
+                  </select>
+                </div>
+                <div class="col-12 col-md-4" id="albRoyBen_profit_scope_wrap" style="display:none;">
+                  <label class="form-label">Beneficio</label>
+                  <select name="profit_scope" id="albRoyBen_profit_scope" class="form-select">
+                    <option value="CONCEPT_ONLY">Solo concepto</option>
+                    <option value="CONCEPT_PLUS_GENERAL">Concepto + general</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-outline-primary" onclick="albumRoyBenNewPromoter()"><i class="fa fa-user-plus"></i> Nuevo tercero</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+
+  {% endif %}
+</div>
+
+{% if CAN_EDIT_DISCOGRAFICA %}
+<script>
+  let _albumProductCodeModal;
+  let _albumSongSearchModal;
+  let _albumRoyaltyModal;
+  let _albumSongSearchTimer;
+
+  function applyAlbumInfoEditState(){
+    const noPhysical = document.getElementById('albumInfoNoPhysical');
+    const physicalChecks = document.querySelectorAll('#albumInfoPhysicalOptions input[type="checkbox"]');
+    const distRadio = document.getElementById('albumInfoTypeDist');
+    const catalogWrap = document.getElementById('albumInfoCatalogWrap');
+    const catalogChk = document.getElementById('albumInfoIsCatalog');
+
+    if (noPhysical) {
+      physicalChecks.forEach(chk => {
+        chk.disabled = noPhysical.checked;
+        if (noPhysical.checked) chk.checked = false;
+      });
+    }
+
+    const isDistribution = distRadio && distRadio.checked;
+    if (catalogWrap) catalogWrap.style.display = isDistribution ? 'none' : '';
+    if (catalogChk) {
+      catalogChk.disabled = !!isDistribution;
+      if (isDistribution) catalogChk.checked = false;
+    }
+  }
+
+  function applyProductCodeModalState(){
+    const kind = document.getElementById('albumProductFormat')?.value;
+    const otherWrap = document.getElementById('albumProductOtherWrap');
+    const modeGenerate = document.getElementById('albumProductModeGenerate')?.checked;
+    const codeInput = document.getElementById('albumProductCode');
+    const codeWrap = document.getElementById('albumProductCodeWrap');
+
+    if (otherWrap) otherWrap.style.display = kind === 'OTHER' ? '' : 'none';
+    if (codeInput) {
+      codeInput.disabled = !!modeGenerate;
+      if (modeGenerate) codeInput.value = '';
+    }
+    if (codeWrap) codeWrap.style.opacity = modeGenerate ? '0.55' : '1';
+  }
+
+  function resetProductCodeModal(){
+    document.getElementById('albumProductCodeModalTitle').textContent = 'Añadir código';
+    document.getElementById('albumProductCodeId').value = '';
+    document.getElementById('albumProductFormat').value = 'CD';
+    document.getElementById('albumProductOtherLabel').value = '';
+    document.getElementById('albumProductModeManual').checked = true;
+    document.getElementById('albumProductCode').value = '';
+    applyProductCodeModalState();
+  }
+
+  function openProductCodeAdd(){
+    resetProductCodeModal();
+    _albumProductCodeModal = new bootstrap.Modal(document.getElementById('albumProductCodeModal'));
+    _albumProductCodeModal.show();
+  }
+
+  function openProductCodeEdit(btn){
+    resetProductCodeModal();
+    document.getElementById('albumProductCodeModalTitle').textContent = 'Editar código';
+    document.getElementById('albumProductCodeId').value = btn.dataset.codeId || '';
+    document.getElementById('albumProductFormat').value = btn.dataset.formatKind || 'CD';
+    document.getElementById('albumProductOtherLabel').value = btn.dataset.otherLabel || '';
+    document.getElementById('albumProductModeManual').checked = true;
+    document.getElementById('albumProductCode').value = btn.dataset.code || '';
+    applyProductCodeModalState();
+    _albumProductCodeModal = new bootstrap.Modal(document.getElementById('albumProductCodeModal'));
+    _albumProductCodeModal.show();
+  }
+
+  function openAlbumSongSearchModal(){
+    const input = document.getElementById('albumSongSearchInput');
+    const results = document.getElementById('albumSongSearchResults');
+    if (input) input.value = '';
+    if (results) {
+      results.innerHTML = '<div class="text-muted">Empieza a escribir para buscar canciones.</div>';
+    }
+    _albumSongSearchModal = new bootstrap.Modal(document.getElementById('albumSongSearchModal'));
+    _albumSongSearchModal.show();
+    if (input) setTimeout(() => input.focus(), 250);
+  }
+
+  async function runAlbumSongSearch(){
+    const input = document.getElementById('albumSongSearchInput');
+    const results = document.getElementById('albumSongSearchResults');
+    if (!input || !results) return;
+    const q = (input.value || '').trim();
+    if (!q) {
+      results.innerHTML = '<div class="text-muted">Empieza a escribir para buscar canciones.</div>';
+      return;
+    }
+
+    results.innerHTML = '<div class="text-muted">Buscando...</div>';
+    const res = await fetch(`{{ url_for('api_album_song_search', album_id=album.id) }}?q=${encodeURIComponent(q)}`);
+    const data = await res.json().catch(() => []);
+    if (!res.ok) {
+      results.innerHTML = '<div class="text-danger">No se pudo completar la búsqueda.</div>';
+      return;
+    }
+    if (!data.length) {
+      results.innerHTML = '<div class="text-muted">No hay coincidencias para esta búsqueda.</div>';
+      return;
+    }
+
+    results.innerHTML = '';
+    data.forEach(item => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'list-group-item list-group-item-action';
+      const extra = item.release_date ? `<div class="small text-muted">${item.release_date}</div>` : '';
+      btn.innerHTML = `<div class="fw-semibold">${item.label || item.text || 'Canción'}</div>${extra}`;
+      btn.addEventListener('click', () => {
+        document.getElementById('albumTrackSongId').value = item.id;
+        document.getElementById('albumTrackAddForm').submit();
+      });
+      results.appendChild(btn);
+    });
+  }
+
+  function scheduleAlbumSongSearch(){
+    clearTimeout(_albumSongSearchTimer);
+    _albumSongSearchTimer = setTimeout(runAlbumSongSearch, 180);
+  }
+
+  function albumRoyBenBaseVisibility(){
+    const base = document.getElementById('albRoyBen_base')?.value;
+    const wrap = document.getElementById('albRoyBen_profit_scope_wrap');
+    if (!wrap) return;
+    wrap.style.display = (base === 'PROFIT') ? '' : 'none';
+  }
+
+  function albumRoyBenReset(){
+    document.getElementById('albRoyBen_id').value = '';
+    document.getElementById('albRoyBen_promoter_id').value = '';
+    document.getElementById('albRoyBen_promoter_search').value = '';
+    document.getElementById('albRoyBen_photo').value = '';
+    document.getElementById('albRoyBen_nick').value = '';
+    document.getElementById('albRoyBen_tax_id').value = '';
+    document.getElementById('albRoyBen_email').value = '';
+    document.getElementById('albRoyBen_phone').value = '';
+    document.getElementById('albRoyBen_pct').value = '';
+    document.getElementById('albRoyBen_base').value = 'GROSS';
+    document.getElementById('albRoyBen_profit_scope').value = 'CONCEPT_ONLY';
+    albumRoyBenBaseVisibility();
+  }
+
+  function openAlbumRoyaltyBeneficiaryAdd(){
+    albumRoyBenReset();
+    document.getElementById('albumRoyaltyBeneficiaryModalTitle').textContent = 'Añadir beneficiario';
+    _albumRoyaltyModal = new bootstrap.Modal(document.getElementById('albumRoyaltyBeneficiaryModal'));
+    _albumRoyaltyModal.show();
+  }
+
+  async function openAlbumRoyaltyBeneficiaryEdit(id){
+    albumRoyBenReset();
+    const res = await fetch(`/api/album_royalty_beneficiaries/${encodeURIComponent(id)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Error cargando beneficiario');
+      return;
+    }
+
+    document.getElementById('albumRoyaltyBeneficiaryModalTitle').textContent = 'Editar beneficiario';
+    document.getElementById('albRoyBen_id').value = data.id || '';
+    document.getElementById('albRoyBen_pct').value = (data.pct ?? '');
+    document.getElementById('albRoyBen_base').value = (data.base || 'GROSS');
+    document.getElementById('albRoyBen_profit_scope').value = (data.profit_scope || 'CONCEPT_ONLY');
+
+    if (data.promoter) {
+      document.getElementById('albRoyBen_promoter_id').value = data.promoter.id || '';
+      document.getElementById('albRoyBen_promoter_search').value = data.promoter.nick || '';
+      document.getElementById('albRoyBen_nick').value = data.promoter.nick || '';
+      document.getElementById('albRoyBen_tax_id').value = data.promoter.tax_id || '';
+      document.getElementById('albRoyBen_email').value = data.promoter.contact_email || '';
+      document.getElementById('albRoyBen_phone').value = data.promoter.contact_phone || '';
+    }
+
+    albumRoyBenBaseVisibility();
+    _albumRoyaltyModal = new bootstrap.Modal(document.getElementById('albumRoyaltyBeneficiaryModal'));
+    _albumRoyaltyModal.show();
+  }
+
+  async function albumRoyBenLoadPromoterIfSelected(){
+    const pid = document.getElementById('albRoyBen_promoter_id').value;
+    if (!pid) return;
+    const res = await fetch(`/api/promoters/${encodeURIComponent(pid)}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return;
+    document.getElementById('albRoyBen_nick').value = data.nick || '';
+    document.getElementById('albRoyBen_tax_id').value = data.tax_id || '';
+    document.getElementById('albRoyBen_email').value = data.contact_email || '';
+    document.getElementById('albRoyBen_phone').value = data.contact_phone || '';
+  }
+
+  function albumRoyBenNewPromoter(){
+    const typed = (document.getElementById('albRoyBen_promoter_search').value || '').trim();
+    document.getElementById('albRoyBen_promoter_id').value = '';
+    document.getElementById('albRoyBen_nick').value = typed;
+    document.getElementById('albRoyBen_tax_id').value = '';
+    document.getElementById('albRoyBen_email').value = '';
+    document.getElementById('albRoyBen_phone').value = '';
+    document.getElementById('albRoyBen_photo').value = '';
+  }
+
+  async function submitAlbumRoyaltyBeneficiary(ev){
+    ev.preventDefault();
+    const form = document.getElementById('albumRoyaltyBeneficiaryForm');
+    const url = form.dataset.saveUrl;
+    const fd = new FormData(form);
+
+    const res = await fetch(url, { method: 'POST', body: fd });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || 'Error guardando beneficiario');
+      return false;
+    }
+    window.location.reload();
+    return false;
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    ['albumInfoNoPhysical', 'albumInfoTypeOwn', 'albumInfoTypeDist'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', applyAlbumInfoEditState);
+    });
+    applyAlbumInfoEditState();
+
+    ['albumProductFormat', 'albumProductModeManual', 'albumProductModeGenerate'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', applyProductCodeModalState);
+    });
+    applyProductCodeModalState();
+
+    const songSearchInput = document.getElementById('albumSongSearchInput');
+    if (songSearchInput) songSearchInput.addEventListener('input', scheduleAlbumSongSearch);
+
+    if (typeof initTypeahead === 'function') {
+      initTypeahead('albRoyBen_promoter_search', 'albRoyBen_promoter_id', '/api/search/promoters');
+    }
+    const search = document.getElementById('albRoyBen_promoter_search');
+    if (search) {
+      search.addEventListener('change', () => setTimeout(albumRoyBenLoadPromoterIfSelected, 50));
+      search.addEventListener('blur', () => setTimeout(albumRoyBenLoadPromoterIfSelected, 50));
+    }
+
+    const baseSel = document.getElementById('albRoyBen_base');
+    if (baseSel) {
+      baseSel.addEventListener('change', albumRoyBenBaseVisibility);
+      albumRoyBenBaseVisibility();
+    }
+  });
+</script>
+{% endif %}
+
+{% endblock %}

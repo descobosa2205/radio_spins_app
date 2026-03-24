@@ -8,8 +8,8 @@
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item">
     <a class="nav-link {% if section=='canciones' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='canciones') }}">
-      Canciones
+       href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
+      Repertorio
     </a>
   </li>
   <li class="nav-item">
@@ -43,54 +43,248 @@
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <ul class="nav nav-pills">
       <li class="nav-item">
-        <span class="nav-link active">Repertorio</span>
+        <a class="nav-link {% if repertorio_tab=='canciones' %}active{% endif %}"
+           href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
+          Canciones
+        </a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link {% if repertorio_tab=='albumes' %}active{% endif %}"
+           href="{{ url_for('discografica_view', section='canciones', rep_tab='albumes') }}">
+          Álbumes
+        </a>
       </li>
     </ul>
 
     {% if CAN_EDIT_DISCOGRAFICA %}
-      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
-        <i class="fa fa-plus"></i> Añadir canción
-      </button>
+      {% if repertorio_tab == 'canciones' %}
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSongModal">
+          <i class="fa fa-plus"></i> Añadir canción
+        </button>
+      {% else %}
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addAlbumModal">
+          <i class="fa fa-plus"></i> Añadir Disco / EP
+        </button>
+      {% endif %}
     {% endif %}
   </div>
 
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="row g-3 align-items-end">
-        <div class="col-12 col-lg-8">
-          <label class="form-label">Filtrar por artistas</label>
-          <div class="d-flex flex-wrap gap-2" id="songsArtistFilters">
-            <button type="button" class="btn btn-sm btn-dark active" data-song-artist-filter="all">Todos</button>
-            {% for artist, songs in artist_blocks %}
-              <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-song-artist-filter="{{ artist.id }}">
-                <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
-                <span>{{ artist.name }}</span>
-              </button>
-            {% endfor %}
+  {% if repertorio_tab == 'canciones' %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-lg-8">
+            <label class="form-label">Filtrar por artistas</label>
+            <div class="d-flex flex-wrap gap-2" id="songsArtistFilters">
+              <button type="button" class="btn btn-sm btn-dark active" data-song-artist-filter="all">Todos</button>
+              {% for artist, songs in artist_blocks %}
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-song-artist-filter="{{ artist.id }}">
+                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <span>{{ artist.name }}</span>
+                </button>
+              {% endfor %}
+            </div>
           </div>
-        </div>
-        <div class="col-12 col-lg-4">
-          <label class="form-label">Buscar canción</label>
-          <input type="search" class="form-control" id="songsSearchInput" placeholder="Buscar por título, artista, colaborador, ISRC...">
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Buscar canción</label>
+            <input type="search" class="form-control" id="songsSearchInput" placeholder="Buscar por título, artista, colaborador, ISRC...">
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  {% if not artist_blocks or (artist_blocks|length) == 0 %}
-    <div class="text-muted">No hay artistas creados todavía.</div>
-  {% else %}
-    <div id="songsLibraryWrap">
-      {% for artist, songs in artist_blocks %}
-        <div class="mb-4 song-artist-block" data-song-artist-block="{{ artist.id }}">
-          <div class="d-flex align-items-center gap-2 mb-2">
-            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-            <h5 class="m-0">{{ artist.name }}</h5>
+    {% if not artist_blocks or (artist_blocks|length) == 0 %}
+      <div class="text-muted">No hay artistas creados todavía.</div>
+    {% else %}
+      <div id="songsLibraryWrap">
+        {% for artist, songs in artist_blocks %}
+          <div class="mb-4 song-artist-block" data-song-artist-block="{{ artist.id }}">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+              <h5 class="m-0">{{ artist.name }}</h5>
+            </div>
+
+            {% if not songs or (songs|length) == 0 %}
+              <div class="text-muted small">Este artista no tiene canciones aún.</div>
+            {% else %}
+              <div class="table-responsive bg-white border rounded">
+                <table class="table table-hover align-middle mb-0">
+                  <thead class="table-light">
+                    <tr>
+                      <th style="width:72px;">Portada</th>
+                      <th>Nombre</th>
+                      <th>Artista</th>
+                      <th>Colaboradores</th>
+                      <th class="text-nowrap">ISRC</th>
+                      <th class="text-nowrap">Publicación</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for s in songs %}
+                      {% set type_label = 'Distribución' if s.is_distribution else ('Catálogo' if s.is_catalog else 'Discográfica') %}
+                      <tr class="clickable-row song-search-row"
+                          role="button"
+                          tabindex="0"
+                          data-song-artist="{{ artist.id }}"
+                          data-song-search="{{ (s.title ~ ' ' ~ artist.name ~ ' ' ~ (s.collaborator or '') ~ ' ' ~ (song_audio_isrc_map.get(s.id) or s.isrc or '') ~ ' ' ~ type_label)|lower }}"
+                          data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
+                          onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
+                          onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
+                        <td>
+                          <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                        </td>
+                        <td>
+                          <div class="fw-semibold">{{ s.title }}</div>
+                          <div class="d-flex gap-1 flex-wrap mt-1">
+                            {% if s.is_distribution %}
+                              <span class="badge text-bg-info">Distribución</span>
+                            {% elif s.is_catalog %}
+                              <span class="badge text-bg-secondary">Catálogo</span>
+                            {% else %}
+                              <span class="badge text-bg-dark">Discográfica</span>
+                            {% endif %}
+                          </div>
+                        </td>
+                        <td>
+                          <div class="d-flex align-items-center gap-2">
+                            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                            <span>{{ artist.name }}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                        </td>
+                        <td>
+                          <span class="text-muted">{{ (song_audio_isrc_map.get(s.id) or s.isrc or '—')|isrc }}</span>
+                        </td>
+                        <td>
+                          {% if s.release_date %}
+                            {{ s.release_date.strftime('%d/%m/%Y') }}
+                          {% else %}
+                            <span class="text-muted">—</span>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
           </div>
+        {% endfor %}
+      </div>
+    {% endif %}
 
-          {% if not songs or (songs|length) == 0 %}
-            <div class="text-muted small">Este artista no tiene canciones aún.</div>
-          {% else %}
+    {% if CAN_EDIT_DISCOGRAFICA %}
+    <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <form class="modal-content" method="post" action="{{ url_for('discografica_song_create') }}">
+          <div class="modal-header">
+            <h5 class="modal-title">Añadir canción</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <div class="row g-2">
+              <div class="col-12 col-md-6">
+                <label class="form-label">Nombre de la canción</label>
+                <input name="title" class="form-control" required>
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Artista</label>
+                <select name="artist_id" class="form-select select-artists" required>
+                  <option value="">Selecciona…</option>
+                  {% for a in contract_artists %}
+                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
+                  {% endfor %}
+                </select>
+                {% if not contract_artists or (contract_artists|length)==0 %}
+                  <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
+                {% endif %}
+              </div>
+              <div class="col-12">
+                <label class="form-label">Colaboradores (opcional)</label>
+                <input name="collaborator" class="form-control" placeholder="Ej: Artista X, Artista Y">
+              </div>
+              <div class="col-12 col-md-6">
+                <label class="form-label">Fecha de publicación</label>
+                <input type="date" name="release_date" class="form-control" required>
+              </div>
+              <div class="col-12 col-md-6 d-flex align-items-end">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog">
+                  <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+                </div>
+              </div>
+
+              <div class="col-12">
+                <label class="form-label">Tipo</label>
+                <div class="d-flex gap-3 flex-wrap">
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="ownership_type" id="songTypeOwn" value="own" checked>
+                    <label class="form-check-label" for="songTypeOwn">Propia</label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="ownership_type" id="songTypeDist" value="distribution">
+                    <label class="form-check-label" for="songTypeDist">Distribución</label>
+                  </div>
+                </div>
+              </div>
+
+              <div class="col-12 col-md-6 master-ownership-wrap">
+                <label class="form-label">Propiedad master (%)</label>
+                <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="100">
+              </div>
+            </div>
+            <div class="small text-muted mt-2">
+              El resto de datos (ISRC, portada y enlaces) se completan en la ficha de la canción.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+  {% else %}
+
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-lg-8">
+            <label class="form-label">Filtrar por artistas</label>
+            <div class="d-flex flex-wrap gap-2" id="albumsArtistFilters">
+              <button type="button" class="btn btn-sm btn-dark active" data-album-artist-filter="all">Todos</button>
+              {% for artist, albums in album_blocks %}
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-album-artist-filter="{{ artist.id }}">
+                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <span>{{ artist.name }}</span>
+                </button>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Buscar disco / EP</label>
+            <input type="search" class="form-control" id="albumsSearchInput" placeholder="Buscar por nombre, artista, tipo, formato...">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {% if not album_blocks or (album_blocks|length) == 0 %}
+      <div class="text-muted">No hay discos ni EPs creados todavía.</div>
+    {% else %}
+      <div id="albumsLibraryWrap">
+        {% for artist, albums in album_blocks %}
+          <div class="mb-4 album-artist-block" data-album-artist-block="{{ artist.id }}">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+              <h5 class="m-0">{{ artist.name }}</h5>
+            </div>
+
             <div class="table-responsive bg-white border rounded">
               <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
@@ -98,34 +292,38 @@
                     <th style="width:72px;">Portada</th>
                     <th>Nombre</th>
                     <th>Artista</th>
-                    <th>Colaboradores</th>
-                    <th class="text-nowrap">ISRC</th>
+                    <th class="text-nowrap">Tipo</th>
+                    <th class="text-nowrap">Físico</th>
+                    <th class="text-nowrap">Propiedad</th>
                     <th class="text-nowrap">Publicación</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {% for s in songs %}
-                    {% set type_label = 'Distribución' if s.is_distribution else ('Catálogo' if s.is_catalog else 'Discográfica') %}
-                    <tr class="clickable-row song-search-row"
+                  {% for al in albums %}
+                    {% set type_label = 'EP' if al.album_type == 'EP' else 'Disco' %}
+                    {% set ownership_label = 'Distribución' if al.is_distribution else ('Catálogo' if al.is_catalog else 'Propio') %}
+                    {% set physical_label = 'CD / Vinilo' if al.physical_cd and al.physical_vinyl else ('CD' if al.physical_cd else ('Vinilo' if al.physical_vinyl else 'No hay físico')) %}
+                    <tr class="clickable-row album-search-row"
                         role="button"
                         tabindex="0"
-                        data-song-artist="{{ artist.id }}"
-                        data-song-search="{{ (s.title ~ ' ' ~ artist.name ~ ' ' ~ (s.collaborator or '') ~ ' ' ~ (song_audio_isrc_map.get(s.id) or s.isrc or '') ~ ' ' ~ type_label)|lower }}"
-                        data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
-                        onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
-                        onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
+                        data-album-artist="{{ artist.id }}"
+                        data-album-search="{{ (al.title ~ ' ' ~ artist.name ~ ' ' ~ type_label ~ ' ' ~ ownership_label ~ ' ' ~ physical_label)|lower }}"
+                        data-href="{{ url_for('discografica_album_detail', album_id=al.id) }}"
+                        onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}';"
+                        onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}'; }">
                       <td>
-                        <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                        <img src="{{ al.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
                       </td>
                       <td>
-                        <div class="fw-semibold">{{ s.title }}</div>
+                        <div class="fw-semibold">{{ al.title }}</div>
                         <div class="d-flex gap-1 flex-wrap mt-1">
-                          {% if s.is_distribution %}
+                          <span class="badge text-bg-light border">{{ type_label }}</span>
+                          {% if al.is_distribution %}
                             <span class="badge text-bg-info">Distribución</span>
-                          {% elif s.is_catalog %}
+                          {% elif al.is_catalog %}
                             <span class="badge text-bg-secondary">Catálogo</span>
                           {% else %}
-                            <span class="badge text-bg-dark">Discográfica</span>
+                            <span class="badge text-bg-dark">Propio</span>
                           {% endif %}
                         </div>
                       </td>
@@ -135,15 +333,14 @@
                           <span>{{ artist.name }}</span>
                         </div>
                       </td>
+                      <td>{{ type_label }}</td>
                       <td>
-                        <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                        <span class="text-muted">{{ physical_label }}</span>
                       </td>
+                      <td>{{ ownership_label }}</td>
                       <td>
-                        <span class="text-muted">{{ (song_audio_isrc_map.get(s.id) or s.isrc or '—')|isrc }}</span>
-                      </td>
-                      <td>
-                        {% if s.release_date %}
-                          {{ s.release_date.strftime('%d/%m/%Y') }}
+                        {% if al.release_date %}
+                          {{ al.release_date.strftime('%d/%m/%Y') }}
                         {% else %}
                           <span class="text-muted">—</span>
                         {% endif %}
@@ -153,83 +350,100 @@
                 </tbody>
               </table>
             </div>
-          {% endif %}
-        </div>
-      {% endfor %}
-    </div>
-  {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
 
-  {% if CAN_EDIT_DISCOGRAFICA %}
-  <div class="modal fade" id="addSongModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-      <form class="modal-content" method="post" action="{{ url_for('discografica_song_create') }}">
-        <div class="modal-header">
-          <h5 class="modal-title">Añadir canción</h5>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-        </div>
-        <div class="modal-body">
-          <div class="row g-2">
-            <div class="col-12 col-md-6">
-              <label class="form-label">Nombre de la canción</label>
-              <input name="title" class="form-control" required>
+    {% if CAN_EDIT_DISCOGRAFICA %}
+      <div class="modal fade" id="addAlbumModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_album_create') }}">
+            <div class="modal-header">
+              <h5 class="modal-title">Añadir Disco / EP</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Artista</label>
-              <select name="artist_id" class="form-select select-artists" required>
-                <option value="">Selecciona…</option>
-                {% for a in contract_artists %}
-                  <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
-                {% endfor %}
-              </select>
-              {% if not contract_artists or (contract_artists|length)==0 %}
-                <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
-              {% endif %}
-            </div>
-            <div class="col-12">
-              <label class="form-label">Colaboradores (opcional)</label>
-              <input name="collaborator" class="form-control" placeholder="Ej: Artista X, Artista Y">
-            </div>
-            <div class="col-12 col-md-6">
-              <label class="form-label">Fecha de publicación</label>
-              <input type="date" name="release_date" class="form-control" required>
-            </div>
-            <div class="col-12 col-md-6 d-flex align-items-end">
-              <div class="form-check">
-                <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog">
-                <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+            <div class="modal-body">
+              <div class="row g-3">
+                <div class="col-12 col-md-8">
+                  <label class="form-label">Nombre</label>
+                  <input name="title" class="form-control" required>
+                </div>
+                <div class="col-12 col-md-4">
+                  <label class="form-label">Tipo</label>
+                  <select name="album_type" class="form-select">
+                    <option value="ALBUM">Disco</option>
+                    <option value="EP">EP</option>
+                  </select>
+                </div>
+
+                <div class="col-12 col-md-7">
+                  <label class="form-label">Artista</label>
+                  <select name="artist_id" class="form-select select-artists" required>
+                    <option value="">Selecciona…</option>
+                    {% for a in contract_artists %}
+                      <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
+                    {% endfor %}
+                  </select>
+                  {% if not contract_artists or (contract_artists|length)==0 %}
+                    <div class="text-warning small mt-1">Solo aparecen artistas con contrato discográfico, distribución o catálogo configurado en contratos.</div>
+                  {% endif %}
+                </div>
+                <div class="col-12 col-md-5">
+                  <label class="form-label">Fecha de publicación</label>
+                  <input type="date" name="release_date" class="form-control" required>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Formato físico</label>
+                  <div class="border rounded p-3 bg-light-subtle">
+                    <div class="d-flex flex-wrap gap-3 mb-2" id="albumPhysicalOptions">
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="physical_cd" id="albumPhysicalCd" value="1">
+                        <label class="form-check-label" for="albumPhysicalCd">CD</label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="checkbox" name="physical_vinyl" id="albumPhysicalVinyl" value="1">
+                        <label class="form-check-label" for="albumPhysicalVinyl">Vinilo</label>
+                      </div>
+                    </div>
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" name="no_physical" id="albumNoPhysicalChk" value="1">
+                      <label class="form-check-label" for="albumNoPhysicalChk">No hay físico</label>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Propiedad</label>
+                  <div class="border rounded p-3 bg-light-subtle">
+                    <div class="d-flex flex-wrap gap-3 mb-2">
+                      <div class="form-check">
+                        <input class="form-check-input" type="radio" name="ownership_type" id="albumTypeOwn" value="own" checked>
+                        <label class="form-check-label" for="albumTypeOwn">Propio</label>
+                      </div>
+                      <div class="form-check">
+                        <input class="form-check-input" type="radio" name="ownership_type" id="albumTypeDist" value="distribution">
+                        <label class="form-check-label" for="albumTypeDist">En distribución</label>
+                      </div>
+                    </div>
+                    <div class="form-check" id="albumCatalogWrap">
+                      <input class="form-check-input" type="checkbox" name="is_catalog" id="albumIsCatalogChk" value="1">
+                      <label class="form-check-label" for="albumIsCatalogChk">Marcar como catálogo</label>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-
-            <div class="col-12">
-              <label class="form-label">Tipo</label>
-              <div class="d-flex gap-3 flex-wrap">
-                <div class="form-check">
-                  <input class="form-check-input" type="radio" name="ownership_type" id="songTypeOwn" value="own" checked>
-                  <label class="form-check-label" for="songTypeOwn">Propia</label>
-                </div>
-                <div class="form-check">
-                  <input class="form-check-input" type="radio" name="ownership_type" id="songTypeDist" value="distribution">
-                  <label class="form-check-label" for="songTypeDist">Distribución</label>
-                </div>
-              </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
             </div>
+          </form>
+        </div>
+      </div>
+    {% endif %}
 
-            <div class="col-12 col-md-6 master-ownership-wrap">
-              <label class="form-label">Propiedad master (%)</label>
-              <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="100">
-            </div>
-          </div>
-          <div class="small text-muted mt-2">
-            El resto de datos (ISRC, portada y enlaces) se completan en la ficha de la canción.
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
-        </div>
-      </form>
-    </div>
-  </div>
   {% endif %}
 
 {% elif section == 'royalties' %}
@@ -668,6 +882,30 @@
       </div>
     </div>
 
+    <div class="card mb-3">
+      <div class="card-body">
+        <h6 class="mb-2">Referencias de producto</h6>
+        <div class="text-muted small mb-3">Configuración usada para generar automáticamente los códigos de producto en los álbumes.</div>
+        <form class="row g-2" method="post" action="{{ url_for('discografica_product_code_config_update') }}">
+          <div class="col-12 col-md-6">
+            <label class="form-label">Prefijo</label>
+            <input name="prefix" class="form-control" maxlength="12" value="{{ (product_code_config.prefix if product_code_config else 'REF') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+          </div>
+          <div class="col-12 col-md-6">
+            <label class="form-label">Longitud numérica</label>
+            <input type="number" name="padding" class="form-control" min="1" max="12" value="{{ (product_code_config.padding if product_code_config else 5) }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+          </div>
+          <div class="col-12 d-grid mt-1">
+            {% if CAN_EDIT_DISCOGRAFICA %}
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración de referencias</button>
+            {% else %}
+              <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-body">
         <h6 class="mb-2">Artistas con contrato discográfico / catálogo / distribución</h6>
@@ -753,6 +991,61 @@
   });
   if (songSearchInput) songSearchInput.addEventListener('input', applySongsFilters);
   applySongsFilters();
+
+  let selectedAlbumArtist = 'all';
+  const albumSearchInput = document.getElementById('albumsSearchInput');
+  function applyAlbumFilters(){
+    const q = normalize(albumSearchInput && albumSearchInput.value);
+    document.querySelectorAll('.album-search-row').forEach(row => {
+      const artistId = row.getAttribute('data-album-artist') || '';
+      const haystack = normalize(row.getAttribute('data-album-search'));
+      const okArtist = selectedAlbumArtist === 'all' || artistId === selectedAlbumArtist;
+      const okSearch = !q || haystack.includes(q);
+      row.style.display = okArtist && okSearch ? '' : 'none';
+    });
+    document.querySelectorAll('.album-artist-block').forEach(block => {
+      const visibleRows = Array.from(block.querySelectorAll('.album-search-row')).filter(r => r.style.display !== 'none');
+      block.style.display = visibleRows.length ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('[data-album-artist-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedAlbumArtist = btn.getAttribute('data-album-artist-filter') || 'all';
+      refreshGroupButtons('#albumsArtistFilters', 'data-album-artist-filter', selectedAlbumArtist);
+      applyAlbumFilters();
+    });
+  });
+  if (albumSearchInput) albumSearchInput.addEventListener('input', applyAlbumFilters);
+  applyAlbumFilters();
+
+  function applyAlbumCreateModalState(){
+    const noPhysical = document.getElementById('albumNoPhysicalChk');
+    const physicalChecks = document.querySelectorAll('#albumPhysicalOptions input[type="checkbox"]');
+    const ownRadio = document.getElementById('albumTypeOwn');
+    const distRadio = document.getElementById('albumTypeDist');
+    const catalogWrap = document.getElementById('albumCatalogWrap');
+    const catalogChk = document.getElementById('albumIsCatalogChk');
+
+    if (noPhysical) {
+      physicalChecks.forEach(chk => {
+        chk.disabled = noPhysical.checked;
+        if (noPhysical.checked) chk.checked = false;
+      });
+    }
+
+    const isDistribution = distRadio && distRadio.checked;
+    if (catalogWrap) catalogWrap.style.display = isDistribution ? 'none' : '';
+    if (catalogChk) {
+      catalogChk.disabled = !!isDistribution;
+      if (isDistribution) catalogChk.checked = false;
+    }
+  }
+
+  ['albumNoPhysicalChk', 'albumTypeOwn', 'albumTypeDist'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', applyAlbumCreateModalState);
+  });
+  applyAlbumCreateModalState();
 
   let selectedEditorialArtist = 'all';
   const editorialSearchInput = document.getElementById('editorialSearchInput');

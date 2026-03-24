@@ -61,6 +61,7 @@ from models import (
     ensure_editorial_schema,
     ensure_ingresos_schema,
     ensure_royalty_liquidations_schema,
+    ensure_album_schema,
     ensure_concerts_schema_enhancements,
     ensure_third_party_and_contract_sheet_schema,
     ensure_concert_artwork_schema,
@@ -88,6 +89,12 @@ from models import (
     PublishingCompany,
     SongEditorialShare,
     SongRevenueEntry,
+    ProductCodeConfig,
+    Album,
+    AlbumProductCode,
+    AlbumTrack,
+    AlbumMaterial,
+    AlbumRoyaltyBeneficiary,
     RoyaltyLiquidation,
     Venue,
     Concert,
@@ -113,7 +120,7 @@ from models import (
     ConcertTicketerTicketType,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -135,6 +142,7 @@ for _fn, _name in [
     (ensure_editorial_schema, "ensure_editorial_schema"),
     (ensure_ingresos_schema, "ensure_ingresos_schema"),
     (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
+    (ensure_album_schema, "ensure_album_schema"),
     (ensure_concerts_schema_enhancements, "ensure_concerts_schema_enhancements"),
     (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
     (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
@@ -834,9 +842,11 @@ def artist_detail_view(artist_id):
         if tab not in allowed_tabs:
             tab = "datos"
 
-        disc_tab = (request.args.get("disc") or "repertorio").strip().lower()
-        if disc_tab not in {"repertorio"}:
-            disc_tab = "repertorio"
+        disc_tab = (request.args.get("disc") or "canciones").strip().lower()
+        if disc_tab == "repertorio":
+            disc_tab = "canciones"
+        if disc_tab not in {"canciones", "albumes"}:
+            disc_tab = "canciones"
 
         # Datos: personas asociadas
         people = (
@@ -855,12 +865,18 @@ def artist_detail_view(artist_id):
             .all()
         )
 
-        # Discográfica: repertorio (canciones asociadas)
+        # Discográfica: repertorio (canciones y álbumes asociados)
         songs = (
             session_db.query(Song)
             .join(SongArtist, SongArtist.song_id == Song.id)
             .filter(SongArtist.artist_id == artist.id)
             .order_by(Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+        albums = (
+            session_db.query(Album)
+            .filter(Album.artist_id == artist.id)
+            .order_by(Album.release_date.desc(), Album.title.asc())
             .all()
         )
 
@@ -925,6 +941,7 @@ def artist_detail_view(artist_id):
             people=people,
             contracts=contracts,
             songs=songs,
+            albums=albums,
             default_concepts=ARTIST_CONTRACT_DEFAULT_CONCEPTS,
             contract_commitments_payload=contract_commitments_payload,
             concerts_sections=concerts_sections,
@@ -2439,6 +2456,91 @@ def _song_type_badge_class(song: Song | None) -> str:
     return "text-bg-dark"
 
 
+def _seconds_to_timecode(total_seconds: int | None) -> str:
+    if total_seconds in (None, ""):
+        return "—"
+    try:
+        total = int(total_seconds)
+    except Exception:
+        return "—"
+    if total < 0:
+        return "—"
+    hours, rem = divmod(total, 3600)
+    minutes, seconds = divmod(rem, 60)
+    if hours:
+        return f"{hours}:{str(minutes).zfill(2)}:{str(seconds).zfill(2)}"
+    return f"{minutes}:{str(seconds).zfill(2)}"
+
+
+def _album_kind_label(album: Album | None) -> str:
+    raw = (getattr(album, "album_type", None) or "ALBUM").strip().upper()
+    return "EP" if raw == "EP" else "Disco"
+
+
+def _album_ownership_key(album: Album | None) -> str:
+    if not album:
+        return "DISCOGRAFICA"
+    if bool(getattr(album, "is_distribution", False)):
+        return "DISTRIBUCION"
+    if bool(getattr(album, "is_catalog", False)):
+        return "CATALOGO"
+    return "DISCOGRAFICA"
+
+
+def _album_ownership_label(album: Album | None) -> str:
+    key = _album_ownership_key(album)
+    if key == "DISTRIBUCION":
+        return "Distribución"
+    if key == "CATALOGO":
+        return "Catálogo"
+    return "Propio"
+
+
+def _album_ownership_badge_class(album: Album | None) -> str:
+    key = _album_ownership_key(album)
+    if key == "DISTRIBUCION":
+        return "text-bg-info"
+    if key == "CATALOGO":
+        return "text-bg-secondary"
+    return "text-bg-dark"
+
+
+def _album_physical_labels(album: Album | None) -> list[str]:
+    if not album:
+        return []
+    out = []
+    if bool(getattr(album, "physical_cd", False)):
+        out.append("CD")
+    if bool(getattr(album, "physical_vinyl", False)):
+        out.append("Vinilo")
+    return out
+
+
+def _default_album_copy_text(release_date: date | None = None) -> str:
+    year = getattr(release_date, "year", None) or today_local().year
+    return (
+        f"℗ y © {year} PIES Compañía Discográfica SL. Quedan reservados todos los derechos del productor "
+        "discográfico y del propietario de la obra grabada. Salvo autorización expresa quedan prohibidos la "
+        "duplicación, alquiler y préstamo, así como la autorización de este CD para la ejecución pública y radiodifusión.\n"
+        "Editado por PIES Compañía Discográfica SL y distribuido en España por Altafonte Network.\n"
+        "Made in E.U."
+    )
+
+
+def _album_product_format_label(code: AlbumProductCode | None) -> str:
+    if not code:
+        return "—"
+    kind = (getattr(code, "format_kind", None) or "").strip().upper()
+    if kind == "CD":
+        return "CD"
+    if kind == "VINYL":
+        return "Vinilo"
+    if kind == "CASSETTE":
+        return "Cassette"
+    other = (getattr(code, "other_label", None) or "").strip()
+    return other or "Otro"
+
+
 def _ensure_song_status_row(session_db, song_or_id) -> SongStatus:
     if isinstance(song_or_id, Song):
         song = song_or_id
@@ -2867,6 +2969,8 @@ def discografica_view():
     """
 
     section = (request.args.get("section") or "canciones").lower().strip()
+    if section == "repertorio":
+        section = "canciones"
 
     # Context (solo se usa cuando section == 'ingresos')
     income_view = request.args.get("view") or "month"  # 'month' | 'semester'
@@ -2885,6 +2989,9 @@ def discografica_view():
     income_semester_tabs: list[dict] = []
 
     income_artist_blocks: list[tuple] = []
+    repertorio_tab = (request.args.get("rep_tab") or "canciones").lower().strip()
+    if repertorio_tab not in ("canciones", "albumes"):
+        repertorio_tab = "canciones"
     editorial_pending_songs: list[Song] = []
     editorial_registered_songs: list[Song] = []
     editorial_filter_artists: list[Artist] = []
@@ -2939,35 +3046,49 @@ def discografica_view():
     isrc_artist_settings = {}
     isrc_contract_artists = []
     isrc_filter_artists = []
+    album_blocks = []
+    product_code_config = None
 
     if section == "canciones":
-        for a in artists:
-            songs = (
-                session_db.query(Song)
-                .join(SongArtist, Song.id == SongArtist.song_id)
-                .filter(SongArtist.artist_id == a.id)
-                .order_by(Song.release_date.desc())
-                .all()
-            )
-            for s in songs:
-                _ = s.artists
-            if songs:
-                artist_blocks.append((a, songs))
+        if repertorio_tab == "canciones":
+            for a in artists:
+                songs = (
+                    session_db.query(Song)
+                    .join(SongArtist, Song.id == SongArtist.song_id)
+                    .filter(SongArtist.artist_id == a.id)
+                    .order_by(Song.release_date.desc())
+                    .all()
+                )
+                for s in songs:
+                    _ = s.artists
+                if songs:
+                    artist_blocks.append((a, songs))
 
-        # Prefetch ISRC AUDIO principal por canción (song_isrc_codes),
-        # para mostrarlo en el repertorio.
-        all_song_ids = [s.id for _, ss in artist_blocks for s in (ss or [])]
-        if all_song_ids:
-            rows = (
-                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
-                .filter(SongISRCCode.song_id.in_(all_song_ids))
-                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
-                .filter(SongISRCCode.is_primary == True)  # noqa: E712
-                .all()
-            )
-            for sid, code in rows:
-                if sid and code:
-                    song_audio_isrc_map[sid] = code
+            # Prefetch ISRC AUDIO principal por canción (song_isrc_codes),
+            # para mostrarlo en el repertorio.
+            all_song_ids = [s.id for _, ss in artist_blocks for s in (ss or [])]
+            if all_song_ids:
+                rows = (
+                    session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                    .filter(SongISRCCode.song_id.in_(all_song_ids))
+                    .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                    .filter(SongISRCCode.is_primary == True)  # noqa: E712
+                    .all()
+                )
+                for sid, code in rows:
+                    if sid and code:
+                        song_audio_isrc_map[sid] = code
+        else:
+            for a in artists:
+                albums = (
+                    session_db.query(Album)
+                    .filter(Album.artist_id == a.id)
+                    .order_by(Album.release_date.desc(), Album.title.asc())
+                    .all()
+                )
+                if albums:
+                    album_blocks.append((a, albums))
+
 
 
     if section == "editorial":
@@ -3860,6 +3981,11 @@ def discografica_view():
             # Ajustes por artista
             settings_rows = session_db.query(ArtistISRCSetting).all()
             isrc_artist_settings = {r.artist_id: r for r in settings_rows}
+            product_code_config = session_db.get(ProductCodeConfig, 1)
+            if not product_code_config:
+                product_code_config = ProductCodeConfig(id=1)
+                session_db.add(product_code_config)
+                session_db.commit()
             # Artistas con contrato discográfico / catálogo / distribución.
             # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
             isrc_contract_artists = contract_artists
@@ -3867,9 +3993,11 @@ def discografica_view():
     response = render_template(
         "discografica.html",
         section=section,
+        repertorio_tab=repertorio_tab,
         artists=artists,
         contract_artists=contract_artists,
         artist_blocks=artist_blocks,
+        album_blocks=album_blocks,
         song_audio_isrc_map=song_audio_isrc_map,
         editorial_tab=editorial_tab,
         editorial_pending_songs=editorial_pending_songs,
@@ -3883,6 +4011,7 @@ def discografica_view():
         isrc_years=isrc_years,
         isrc_config=isrc_config,
         isrc_artist_settings=isrc_artist_settings,
+        product_code_config=product_code_config,
         isrc_contract_artists=isrc_contract_artists,
         selected_artist_id=str(f_artist_id) if section == "isrc" and 'f_artist_id' in locals() and f_artist_id else "",
         selected_year=str(f_year) if section == "isrc" and 'f_year' in locals() and f_year else "",
@@ -6808,6 +6937,933 @@ def discografica_song_royalty_beneficiary_delete(song_id, beneficiary_id):
         session_db.close()
 
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="royalties"))
+
+
+def _uploaded_file_is_image(file_storage) -> bool:
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return False
+    mt = (getattr(file_storage, "mimetype", "") or "").lower().strip()
+    if mt.startswith("image/"):
+        return True
+    fname = (file_storage.filename or "").lower().strip()
+    return any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
+
+
+def _generate_next_product_code(session_db) -> tuple[str, int, ProductCodeConfig]:
+    cfg = session_db.get(ProductCodeConfig, 1)
+    if not cfg:
+        cfg = ProductCodeConfig(id=1, prefix="REF", padding=5)
+        session_db.add(cfg)
+        session_db.flush()
+
+    prefix = (cfg.prefix or "REF").strip().upper() or "REF"
+    try:
+        padding = int(cfg.padding or 5)
+    except Exception:
+        padding = 5
+    padding = max(1, min(12, padding))
+
+    max_seq = session_db.query(func.max(AlbumProductCode.generated_sequence)).scalar()
+    seq = int(max_seq or 0) + 1
+    code = f"{prefix}{str(seq).zfill(padding)}"
+    return code, seq, cfg
+
+
+def _renumber_album_tracks(session_db, album_id):
+    tracks = (
+        session_db.query(AlbumTrack)
+        .filter(AlbumTrack.album_id == album_id)
+        .order_by(AlbumTrack.track_number.asc(), AlbumTrack.created_at.asc())
+        .all()
+    )
+    for idx, row in enumerate(tracks, start=1):
+        if row.track_number != idx:
+            row.track_number = idx
+            session_db.add(row)
+
+
+@app.post("/discografica/product-codes/config/update")
+@admin_required
+def discografica_product_code_config_update():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la configuración de referencias.")
+
+    prefix = (request.form.get("prefix") or "REF").strip().upper() or "REF"
+    padding_raw = (request.form.get("padding") or "5").strip()
+    try:
+        padding = int(padding_raw)
+    except Exception:
+        padding = 5
+    padding = max(1, min(12, padding))
+
+    session_db = db()
+    try:
+        cfg = session_db.get(ProductCodeConfig, 1)
+        if not cfg:
+            cfg = ProductCodeConfig(id=1)
+            session_db.add(cfg)
+        cfg.prefix = prefix
+        cfg.padding = padding
+        cfg.updated_at = datetime.now(TZ_MADRID)
+        session_db.commit()
+        flash("Configuración de referencias guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando la configuración de referencias: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+
+
+@app.post("/discografica/albumes/create")
+@admin_required
+def discografica_album_create():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para añadir discos o EPs.")
+
+    title = (request.form.get("title") or "").strip()
+    album_type = (request.form.get("album_type") or "ALBUM").strip().upper()
+    if album_type not in ("ALBUM", "EP"):
+        album_type = "ALBUM"
+
+    release_date_raw = (request.form.get("release_date") or "").strip()
+    artist_id = to_uuid((request.form.get("artist_id") or "").strip())
+
+    no_physical = bool(request.form.get("no_physical"))
+    physical_cd = bool(request.form.get("physical_cd")) and not no_physical
+    physical_vinyl = bool(request.form.get("physical_vinyl")) and not no_physical
+
+    ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
+    is_distribution = ownership_type == "distribution"
+    is_catalog = bool(request.form.get("is_catalog")) if not is_distribution else False
+
+    if not title:
+        flash("El nombre del disco / EP es obligatorio.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+    if not release_date_raw:
+        flash("La fecha de publicación es obligatoria.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+    if not artist_id:
+        flash("Debes seleccionar un artista.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+    session_db = db()
+    try:
+        contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
+        if artist_id not in contract_artist_ids:
+            flash("El artista seleccionado no tiene contrato discográfico / catálogo / distribución.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        release_date = parse_date(release_date_raw)
+        album = Album(
+            artist_id=artist_id,
+            title=title,
+            album_type=album_type,
+            release_date=release_date,
+            physical_cd=physical_cd,
+            physical_vinyl=physical_vinyl,
+            is_distribution=is_distribution,
+            is_catalog=is_catalog,
+            copyright_text=_default_album_copy_text(release_date),
+            edited_by="PIES Compañía Discográfica",
+            updated_at=datetime.now(TZ_MADRID),
+        )
+        session_db.add(album)
+        session_db.commit()
+        flash(f"{_album_kind_label(album)} creado.", "success")
+        return redirect(url_for("discografica_album_detail", album_id=str(album.id)))
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error creando el álbum: {e}", "danger")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+    finally:
+        session_db.close()
+
+
+@app.get("/discografica/albumes/<album_id>")
+@admin_required
+def discografica_album_detail(album_id):
+    tab = (request.args.get("tab") or "informacion").lower().strip()
+    if tab not in {"informacion", "canciones", "materiales", "beneficiarios"}:
+        tab = "informacion"
+
+    edit = bool((request.args.get("edit") or "").strip())
+    if edit and not can_edit_discografica():
+        edit = False
+
+    session_db = db()
+    album = session_db.get(Album, to_uuid(album_id))
+    if not album:
+        session_db.close()
+        flash("Álbum no encontrado.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+    artist = session_db.get(Artist, album.artist_id)
+    product_code_config = session_db.get(ProductCodeConfig, 1)
+    contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
+    contract_artists = [
+        a for a in session_db.query(Artist).order_by(Artist.name.asc()).all()
+        if a.id in contract_artist_ids
+    ]
+
+    product_codes = (
+        session_db.query(AlbumProductCode)
+        .filter(AlbumProductCode.album_id == album.id)
+        .order_by(AlbumProductCode.created_at.asc())
+        .all()
+    )
+    for rec in product_codes:
+        setattr(rec, "display_format_label", _album_product_format_label(rec))
+
+    track_links = (
+        session_db.query(AlbumTrack)
+        .options(joinedload(AlbumTrack.song).joinedload(Song.artists))
+        .filter(AlbumTrack.album_id == album.id)
+        .order_by(AlbumTrack.track_number.asc(), AlbumTrack.created_at.asc())
+        .all()
+    )
+    song_ids = [row.song_id for row in track_links if row.song_id]
+
+    primary_audio_isrc = {}
+    interpreter_map = defaultdict(list)
+    if song_ids:
+        isrc_rows = (
+            session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+            .filter(SongISRCCode.song_id.in_(song_ids))
+            .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+            .filter(SongISRCCode.is_primary == True)  # noqa: E712
+            .all()
+        )
+        for sid, code in isrc_rows:
+            if sid and code and sid not in primary_audio_isrc:
+                primary_audio_isrc[sid] = _norm_isrc(code)
+
+        interp_rows = (
+            session_db.query(SongInterpreter)
+            .filter(SongInterpreter.song_id.in_(song_ids))
+            .order_by(SongInterpreter.song_id.asc(), SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+            .all()
+        )
+        for row in interp_rows:
+            if row.song_id:
+                interpreter_map[row.song_id].append((row.name or "").strip())
+
+    track_rows = []
+    for row in track_links:
+        song = row.song
+        if not song:
+            continue
+        names = [x for x in interpreter_map.get(song.id, []) if x]
+        if not names:
+            names = [a.name for a in (song.artists or []) if getattr(a, "name", None)]
+        track_rows.append(
+            {
+                "track_id": str(row.id),
+                "track_number": row.track_number,
+                "song_id": str(song.id),
+                "song": song,
+                "isrc": primary_audio_isrc.get(song.id) or _norm_isrc(getattr(song, "isrc", None)) or "—",
+                "interpreters": ", ".join(names) or "—",
+                "duration": _seconds_to_timecode(getattr(song, "duration_seconds", None)),
+            }
+        )
+
+    materials = (
+        session_db.query(AlbumMaterial)
+        .filter(AlbumMaterial.album_id == album.id)
+        .order_by(AlbumMaterial.created_at.asc())
+        .all()
+    )
+    material_groups = {"COVER": [], "DDP": [], "BODEGON": [], "PHYSICAL_DESIGN": []}
+    for row in materials:
+        material_groups.setdefault((row.category or "").upper(), []).append(row)
+
+    royalties_artist = None
+    royalty_other_beneficiaries = (
+        session_db.query(AlbumRoyaltyBeneficiary)
+        .options(joinedload(AlbumRoyaltyBeneficiary.promoter))
+        .filter(AlbumRoyaltyBeneficiary.album_id == album.id)
+        .order_by(AlbumRoyaltyBeneficiary.created_at.asc())
+        .all()
+    )
+    if artist:
+        if bool(getattr(album, "is_distribution", False)):
+            concept_label = "Distribución"
+            concept_variants = ["distribución", "distribucion"]
+        elif bool(getattr(album, "is_catalog", False)):
+            concept_label = "Catálogo"
+            concept_variants = ["catálogo", "catalogo"]
+        else:
+            concept_label = "Discográfico"
+            concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
+
+        commitment, contract = _pick_artist_commitment(
+            session_db,
+            artist.id,
+            concept_variants,
+            material_date=getattr(album, "release_date", None),
+            as_of_date=today_local(),
+        )
+        if commitment:
+            base = _norm_contract_base(getattr(commitment, "base", None))
+            royalties_artist = {
+                "artist_name": (artist.name or "").strip(),
+                "artist_photo": artist.photo_url,
+                "pct": float(getattr(commitment, "pct_artist", 0) or 0),
+                "base": base,
+                "profit_scope": _norm_profit_scope(getattr(commitment, "profit_scope", None)) if base == "PROFIT" else None,
+                "concept": concept_label,
+                "contract_name": getattr(contract, "name", None) if contract else None,
+                "found": True,
+            }
+        else:
+            royalties_artist = {
+                "artist_name": (artist.name or "").strip(),
+                "artist_photo": artist.photo_url,
+                "pct": 0.0,
+                "base": "GROSS",
+                "profit_scope": None,
+                "concept": concept_label,
+                "contract_name": None,
+                "found": False,
+            }
+
+    days_remaining = None
+    if album.release_date and album.release_date > today_local():
+        try:
+            days_remaining = (album.release_date - today_local()).days
+        except Exception:
+            days_remaining = None
+
+    response = render_template(
+        "album_detail.html",
+        album=album,
+        artist=artist,
+        tab=tab,
+        edit=edit,
+        product_codes=product_codes,
+        track_rows=track_rows,
+        material_groups=material_groups,
+        royalties_artist=royalties_artist,
+        royalty_other_beneficiaries=royalty_other_beneficiaries,
+        days_remaining=days_remaining,
+        album_kind_label=_album_kind_label(album),
+        ownership_label=_album_ownership_label(album),
+        ownership_badge_class=_album_ownership_badge_class(album),
+        physical_labels=_album_physical_labels(album),
+        default_copyright=_default_album_copy_text(getattr(album, "release_date", None)),
+        product_code_config=product_code_config,
+        contract_artists=contract_artists,
+    )
+    session_db.close()
+    return response
+
+
+@app.post("/discografica/albumes/<album_id>/info/update")
+@admin_required
+def discografica_album_info_update(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar la ficha del álbum.")
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        artist_id = to_uuid((request.form.get("artist_id") or "").strip()) or album.artist_id
+        contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
+        if artist_id not in contract_artist_ids:
+            flash("El artista seleccionado no tiene contrato discográfico / catálogo / distribución.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion", edit=1))
+
+        album.artist_id = artist_id
+        album.title = (request.form.get("title") or album.title or "").strip() or album.title
+
+        album_type = (request.form.get("album_type") or getattr(album, "album_type", "ALBUM") or "ALBUM").strip().upper()
+        album.album_type = "EP" if album_type == "EP" else "ALBUM"
+
+        rd = (request.form.get("release_date") or "").strip()
+        if rd:
+            album.release_date = parse_date(rd)
+
+        album.specifications = (request.form.get("specifications") or "").strip() or None
+        album.mastering_engineer = (request.form.get("mastering_engineer") or "").strip() or None
+        album.edited_by = (request.form.get("edited_by") or "").strip() or "PIES Compañía Discográfica"
+        album.distributed_by = (request.form.get("distributed_by") or "").strip() or None
+
+        no_physical = bool(request.form.get("no_physical"))
+        album.physical_cd = bool(request.form.get("physical_cd")) and not no_physical
+        album.physical_vinyl = bool(request.form.get("physical_vinyl")) and not no_physical
+
+        ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
+        album.is_distribution = ownership_type == "distribution"
+        album.is_catalog = bool(request.form.get("is_catalog")) if not album.is_distribution else False
+
+        album.upc_code = (request.form.get("upc_code") or "").strip() or None
+        album.legal_deposit_code = (request.form.get("legal_deposit_code") or "").strip() or None
+        album.label_code = (request.form.get("label_code") or "").strip() or None
+        album.copyright_text = (request.form.get("copyright_text") or "").strip() or _default_album_copy_text(getattr(album, "release_date", None))
+
+        cover = request.files.get("cover")
+        if cover and getattr(cover, "filename", ""):
+            album.cover_url = upload_image(cover, "albums")
+
+        album.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(album)
+
+        valid_song_ids = {
+            sid for (sid,) in (
+                session_db.query(SongArtist.song_id)
+                .filter(SongArtist.artist_id == artist_id)
+                .all()
+            ) if sid
+        }
+        invalid_tracks = (
+            session_db.query(AlbumTrack)
+            .filter(AlbumTrack.album_id == album.id)
+            .all()
+        )
+        changed_tracks = False
+        for row in invalid_tracks:
+            if row.song_id not in valid_song_ids:
+                session_db.delete(row)
+                changed_tracks = True
+        if changed_tracks:
+            session_db.flush()
+            _renumber_album_tracks(session_db, album.id)
+
+        session_db.commit()
+        flash("Ficha del álbum actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando el álbum: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/delete")
+@admin_required
+def discografica_album_delete(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar álbumes.")
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+        session_db.delete(album)
+        session_db.commit()
+        flash("Álbum eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el álbum: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+
+@app.post("/discografica/albumes/<album_id>/product-codes/save")
+@admin_required
+def discografica_album_product_code_save(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar referencias de producto.")
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        code_id = (request.form.get("code_id") or "").strip() or None
+        format_kind = (request.form.get("format_kind") or "CD").strip().upper()
+        if format_kind not in {"CD", "VINYL", "CASSETTE", "OTHER"}:
+            format_kind = "CD"
+        other_label = (request.form.get("other_label") or "").strip() or None
+        if format_kind == "OTHER" and not other_label:
+            flash("Debes indicar el nombre del formato “Otro”.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+        mode = (request.form.get("mode") or "manual").strip().lower()
+        manual_code = (request.form.get("code") or "").strip().upper()
+
+        rec = None
+        if code_id:
+            rec = session_db.get(AlbumProductCode, to_uuid(code_id))
+            if not rec or rec.album_id != album.id:
+                flash("Referencia no encontrada para este álbum.", "warning")
+                return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        if not rec:
+            rec = AlbumProductCode(album_id=album.id)
+            session_db.add(rec)
+
+        if mode == "generate":
+            code, seq, _cfg = _generate_next_product_code(session_db)
+            rec.code = code
+            rec.generated_sequence = seq
+        else:
+            if not manual_code:
+                flash("Debes indicar el código de producto.", "warning")
+                return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+            rec.code = manual_code
+            rec.generated_sequence = None
+
+        rec.format_kind = format_kind
+        rec.other_label = other_label if format_kind == "OTHER" else None
+        rec.updated_at = datetime.now(TZ_MADRID)
+        album.updated_at = datetime.now(TZ_MADRID)
+
+        session_db.add(rec)
+        session_db.add(album)
+        session_db.commit()
+        flash("Referencia guardada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando la referencia: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/product-codes/<code_id>/delete")
+@admin_required
+def discografica_album_product_code_delete(album_id, code_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar referencias de producto.")
+
+    session_db = db()
+    try:
+        rec = session_db.get(AlbumProductCode, to_uuid(code_id))
+        if not rec or rec.album_id != to_uuid(album_id):
+            flash("Referencia no encontrada.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        session_db.delete(rec)
+        session_db.commit()
+        flash("Referencia eliminada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la referencia: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.get("/api/albumes/<album_id>/song-search")
+@admin_required
+def api_album_song_search(album_id):
+    q = (request.args.get("q") or "").strip()
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            return jsonify([])
+
+        existing_song_ids = {
+            sid for (sid,) in (
+                session_db.query(AlbumTrack.song_id)
+                .filter(AlbumTrack.album_id == album.id)
+                .all()
+            ) if sid
+        }
+
+        query = (
+            session_db.query(Song)
+            .join(SongArtist, SongArtist.song_id == Song.id)
+            .filter(SongArtist.artist_id == album.artist_id)
+            .distinct()
+            .order_by(Song.release_date.desc(), Song.title.asc())
+        )
+        if q:
+            like = f"%{q}%"
+            query = query.filter(
+                or_(
+                    Song.title.ilike(like),
+                    Song.collaborator.ilike(like),
+                    Song.isrc.ilike(like),
+                    Song.id.in_(session_db.query(SongISRCCode.song_id).filter(SongISRCCode.code.ilike(like))),
+                    Song.id.in_(session_db.query(SongInterpreter.song_id).filter(SongInterpreter.name.ilike(like))),
+                )
+            )
+
+        rows = query.limit(20).all()
+        out = []
+        for song in rows:
+            if song.id in existing_song_ids:
+                continue
+            out.append(
+                {
+                    "id": str(song.id),
+                    "label": song.title,
+                    "text": song.title,
+                    "release_date": song.release_date.isoformat() if getattr(song, "release_date", None) else "",
+                }
+            )
+        return jsonify(out)
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/albumes/<album_id>/tracks/add")
+@admin_required
+def discografica_album_track_add(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar el repertorio del álbum.")
+
+    song_id = to_uuid((request.form.get("song_id") or "").strip())
+    if not song_id:
+        flash("Debes seleccionar una canción.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        song = session_db.get(Song, song_id)
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+        belongs_to_artist = bool(
+            session_db.query(SongArtist)
+            .filter(SongArtist.song_id == song_id)
+            .filter(SongArtist.artist_id == album.artist_id)
+            .first()
+        )
+        if not belongs_to_artist:
+            flash("Solo puedes añadir canciones del artista del álbum.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+        exists = (
+            session_db.query(AlbumTrack)
+            .filter(AlbumTrack.album_id == album.id)
+            .filter(AlbumTrack.song_id == song_id)
+            .first()
+        )
+        if exists:
+            flash("Esta canción ya está añadida al álbum.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+        next_track = int(
+            session_db.query(func.coalesce(func.max(AlbumTrack.track_number), 0))
+            .filter(AlbumTrack.album_id == album.id)
+            .scalar()
+            or 0
+        ) + 1
+        session_db.add(AlbumTrack(album_id=album.id, song_id=song_id, track_number=next_track))
+        album.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(album)
+        session_db.commit()
+        flash("Canción añadida al álbum.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error añadiendo la canción: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+
+@app.post("/discografica/albumes/<album_id>/tracks/<track_id>/delete")
+@admin_required
+def discografica_album_track_delete(album_id, track_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar el repertorio del álbum.")
+
+    session_db = db()
+    try:
+        row = session_db.get(AlbumTrack, to_uuid(track_id))
+        if not row or row.album_id != to_uuid(album_id):
+            flash("Canción no encontrada en este álbum.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+        session_db.delete(row)
+        session_db.flush()
+        _renumber_album_tracks(session_db, row.album_id)
+        session_db.commit()
+        flash("Canción eliminada del álbum.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando la canción del álbum: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="canciones"))
+
+
+@app.post("/discografica/albumes/<album_id>/materials/upload")
+@admin_required
+def discografica_album_material_upload(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para subir materiales.")
+
+    category = (request.form.get("category") or "").strip().upper()
+    if category not in {"COVER", "DDP", "BODEGON", "PHYSICAL_DESIGN"}:
+        flash("Tipo de material no válido.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+
+    file_storage = request.files.get("file")
+    display_name = (request.form.get("display_name") or "").strip() or None
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        flash("Selecciona un archivo.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        is_image = _uploaded_file_is_image(file_storage)
+        if is_image:
+            file_url = upload_image(file_storage, "album_materials")
+        else:
+            file_url = upload_file(file_storage, "album_materials")
+
+        if category in {"COVER", "DDP"}:
+            old_rows = (
+                session_db.query(AlbumMaterial)
+                .filter(AlbumMaterial.album_id == album.id)
+                .filter(AlbumMaterial.category == category)
+                .all()
+            )
+            for row in old_rows:
+                session_db.delete(row)
+
+        row = AlbumMaterial(
+            album_id=album.id,
+            category=category,
+            file_name=display_name or (file_storage.filename or "archivo"),
+            file_url=file_url,
+            mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
+        )
+        session_db.add(row)
+        if category == "COVER" and is_image:
+            album.cover_url = file_url
+        album.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(album)
+        session_db.commit()
+        flash("Material subido.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error subiendo el material: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+
+
+@app.post("/discografica/albumes/<album_id>/materials/<material_id>/delete")
+@admin_required
+def discografica_album_material_delete(album_id, material_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar materiales.")
+
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        row = session_db.get(AlbumMaterial, to_uuid(material_id))
+        if not album or not row or row.album_id != album.id:
+            flash("Material no encontrado.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+        if row.category == "COVER" and getattr(album, "cover_url", None) == row.file_url:
+            album.cover_url = None
+            album.updated_at = datetime.now(TZ_MADRID)
+            session_db.add(album)
+        session_db.delete(row)
+        session_db.commit()
+        flash("Material eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el material: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="materiales"))
+
+
+@app.get("/api/album_royalty_beneficiaries/<beneficiary_id>")
+@admin_required
+def api_get_album_royalty_beneficiary(beneficiary_id):
+    session_db = db()
+    try:
+        b = (
+            session_db.query(AlbumRoyaltyBeneficiary)
+            .options(joinedload(AlbumRoyaltyBeneficiary.promoter))
+            .filter(AlbumRoyaltyBeneficiary.id == to_uuid(beneficiary_id))
+            .first()
+        )
+        if not b:
+            return jsonify({"error": "Beneficiario no encontrado."}), 404
+
+        p = b.promoter
+        return jsonify(
+            {
+                "id": str(b.id),
+                "album_id": str(b.album_id),
+                "pct": float(getattr(b, "pct", 0) or 0),
+                "base": (b.base or "GROSS").upper(),
+                "profit_scope": (b.profit_scope or "").upper(),
+                "promoter": {
+                    "id": str(p.id) if p else "",
+                    "nick": (p.nick or "").strip() if p else "",
+                    "logo_url": getattr(p, "logo_url", None) if p else None,
+                    "tax_id": (getattr(p, "tax_id", "") or "").strip() if p else "",
+                    "contact_email": (getattr(p, "contact_email", "") or "").strip() if p else "",
+                    "contact_phone": (getattr(p, "contact_phone", "") or "").strip() if p else "",
+                },
+            }
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/albumes/<album_id>/beneficiarios/save")
+@admin_required
+def discografica_album_royalty_beneficiary_save(album_id):
+    if not can_edit_discografica():
+        return jsonify({"error": "No tienes permisos para editar beneficiarios."}), 403
+
+    session_db = db()
+    try:
+        aid = to_uuid(album_id)
+        album = session_db.get(Album, aid)
+        if not album:
+            return jsonify({"error": "Álbum no encontrado."}), 404
+
+        beneficiary_id = (request.form.get("beneficiary_id") or "").strip() or None
+        promoter_id = (request.form.get("promoter_id") or "").strip() or None
+
+        nick = (request.form.get("nick") or "").strip()
+        tax_id = (request.form.get("tax_id") or "").strip()
+        contact_email = (request.form.get("contact_email") or "").strip()
+        contact_phone = (request.form.get("contact_phone") or "").strip()
+
+        pct = _parse_pct(request.form.get("pct"))
+        base = _norm_contract_base(request.form.get("base"))
+        profit_scope = _norm_profit_scope(request.form.get("profit_scope")) if base == "PROFIT" else None
+
+        photo = request.files.get("photo") or request.files.get("logo")
+        promoter = None
+        if not promoter_id and nick:
+            promoter = (
+                session_db.query(Promoter)
+                .filter(func.lower(Promoter.nick) == nick.lower())
+                .first()
+            )
+            if promoter:
+                promoter_id = str(promoter.id)
+
+        if promoter_id:
+            promoter = session_db.get(Promoter, to_uuid(promoter_id))
+            if not promoter:
+                return jsonify({"error": "Tercero no encontrado."}), 404
+        else:
+            if not nick:
+                return jsonify({"error": "El nombre del tercero (Nick) es obligatorio."}), 400
+            promoter = Promoter(nick=nick)
+            session_db.add(promoter)
+            session_db.flush()
+
+        if nick:
+            promoter.nick = nick
+        promoter.tax_id = tax_id or promoter.tax_id
+        promoter.contact_email = contact_email or promoter.contact_email
+        promoter.contact_phone = contact_phone or promoter.contact_phone
+        if photo and getattr(photo, "filename", ""):
+            promoter.logo_url = upload_image(photo, "promoters")
+
+        missing = []
+        if not (promoter.nick or "").strip():
+            missing.append("Nick")
+        if not (promoter.tax_id or "").strip():
+            missing.append("CIF/DNI")
+        if not (promoter.contact_email or "").strip():
+            missing.append("Email")
+        if not (promoter.contact_phone or "").strip():
+            missing.append("Teléfono")
+        if missing:
+            return jsonify({"error": "Faltan datos del tercero: " + ", ".join(missing)}), 400
+
+        rec = None
+        if beneficiary_id:
+            rec = session_db.get(AlbumRoyaltyBeneficiary, to_uuid(beneficiary_id))
+            if not rec or rec.album_id != aid:
+                return jsonify({"error": "Beneficiario no encontrado para este álbum."}), 404
+
+        if rec and rec.promoter_id != promoter.id:
+            existing = (
+                session_db.query(AlbumRoyaltyBeneficiary)
+                .filter(AlbumRoyaltyBeneficiary.album_id == aid)
+                .filter(AlbumRoyaltyBeneficiary.promoter_id == promoter.id)
+                .filter(AlbumRoyaltyBeneficiary.id != rec.id)
+                .first()
+            )
+            if existing:
+                return jsonify({"error": "Ya existe este beneficiario en el álbum."}), 400
+
+        if not rec:
+            rec = (
+                session_db.query(AlbumRoyaltyBeneficiary)
+                .filter(AlbumRoyaltyBeneficiary.album_id == aid)
+                .filter(AlbumRoyaltyBeneficiary.promoter_id == promoter.id)
+                .first()
+            )
+            if not rec:
+                rec = AlbumRoyaltyBeneficiary(album_id=aid, promoter_id=promoter.id)
+                session_db.add(rec)
+
+        rec.promoter_id = promoter.id
+        rec.pct = pct
+        rec.base = base
+        rec.profit_scope = profit_scope
+        rec.updated_at = datetime.now(TZ_MADRID)
+
+        session_db.commit()
+        return jsonify({"ok": True, "id": str(rec.id), "promoter_id": str(promoter.id)})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"error": str(e)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/discografica/albumes/<album_id>/beneficiarios/<beneficiary_id>/delete")
+@admin_required
+def discografica_album_royalty_beneficiary_delete(album_id, beneficiary_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para eliminar beneficiarios.")
+
+    session_db = db()
+    try:
+        aid = to_uuid(album_id)
+        rec = session_db.get(AlbumRoyaltyBeneficiary, to_uuid(beneficiary_id))
+        if not rec or rec.album_id != aid:
+            flash("Beneficiario no encontrado.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="beneficiarios"))
+        session_db.delete(rec)
+        session_db.commit()
+        flash("Beneficiario eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando beneficiario: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="beneficiarios"))
+
 
 # ---------- CANCIONES (LEGACY) ----------
 @app.route("/canciones", methods=["GET", "POST"])

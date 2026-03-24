@@ -1,4 +1,5 @@
 # supabase_utils.py
+from pathlib import Path
 from uuid import uuid4
 from supabase import create_client, Client
 
@@ -99,6 +100,29 @@ def upload_image(file_storage, folder: str) -> str | None:
     key = f"{folder}/{uuid4().hex}{ext}"
     data = file_storage.read()
     file_storage.stream.seek(0)
+    return _upload_bytes(data, key, content_type)
+
+
+def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None = None) -> str | None:
+    """Sube un archivo genérico y devuelve URL pública.
+
+    - Conserva la extensión original si existe.
+    - Si `allowed_extensions` se informa, valida por sufijo en minúsculas.
+    """
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return None
+
+    filename = (file_storage.filename or "").strip()
+    suffix = Path(filename).suffix.lower()
+    if allowed_extensions is not None:
+        allowed = {str(x).lower() for x in (allowed_extensions or set())}
+        if suffix not in allowed:
+            raise ValueError("Formato de archivo no permitido.")
+
+    key = f"{folder}/{uuid4().hex}{suffix}"
+    data = file_storage.read()
+    file_storage.stream.seek(0)
+    content_type = (getattr(file_storage, "mimetype", "") or "").strip() or "application/octet-stream"
     return _upload_bytes(data, key, content_type)
 
 

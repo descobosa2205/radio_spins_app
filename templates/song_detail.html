@@ -2,7 +2,7 @@
 {% block content %}
 
 <div class="mb-3">
-  <a href="{{ url_for('discografica_view', section='canciones') }}" class="btn btn-outline-secondary">
+  <a href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}" class="btn btn-outline-secondary">
     <i class="fa fa-arrow-left"></i> Volver
   </a>
 </div>
@@ -102,7 +102,7 @@
         {% if CAN_EDIT_DISCOGRAFICA %}
           {% if edit %}
             <form method="post" action="{{ url_for('song_delete', song_id=song.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar esta canción? Esta acción no se puede deshacer.');">
-              <input type="hidden" name="next" value="{{ url_for('discografica_view', section='canciones') }}">
+              <input type="hidden" name="next" value="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
               <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Eliminar canción</button>
             </form>
             <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">

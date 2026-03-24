@@ -53,6 +53,7 @@
         </div>
       </div>
 
+      {% set beneficiary_items = b.get('items') or [] %}
       <div class="table-responsive mt-3">
         <table class="table table-sm align-middle mb-0">
           <thead>
@@ -67,7 +68,7 @@
             </tr>
           </thead>
           <tbody>
-            {% for item in b.items %}
+            {% for item in beneficiary_items %}
               {% set item_badges = (item.badges or []) | join(' ') %}
               <tr class="royalty-search-row" data-royalty-search="{{ ((item.title or '') ~ ' ' ~ (item.subtitle or '') ~ ' ' ~ (item.code or '') ~ ' ' ~ (item.release_date or '') ~ ' ' ~ item_badges)|lower }}">
                 <td>

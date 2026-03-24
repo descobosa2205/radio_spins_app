@@ -1,12 +1,122 @@
 {#
   Discográfica > Royalties (por semestre)
-  Contexto esperado:
-  - royalty_period_label
-  - royalty_semester_key
-  - royalty_semester_tabs
-  - royalty_beneficiaries_artists
-  - royalty_beneficiaries_others
 #}
+
+{% macro render_beneficiary_card(b, default_avatar) %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+        <div class="d-flex align-items-center gap-2">
+          <img src="{{ b.photo_url or default_avatar }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff">
+          <div>
+            <div class="fw-semibold">{{ b.name }}</div>
+            <div class="small text-muted">{{ b.kind_label }}</div>
+            {% if b.contact_email %}
+              <div class="small text-muted">{{ b.contact_email }}</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+          <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
+            {% if b.liquidation_status %}
+              <div class="dropdown">
+                <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  {{ b.liquidation_label }}
+                </button>
+                <ul class="dropdown-menu">
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
+                </ul>
+              </div>
+            {% endif %}
+          </div>
+
+          {% if b.liquidation_status %}
+            <form method="post" action="{{ url_for('discografica_royalties_liquidation_send') }}" class="d-inline">
+              <input type="hidden" name="kind" value="{{ b.kind }}">
+              <input type="hidden" name="bid" value="{{ b.id }}">
+              <input type="hidden" name="s" value="{{ royalty_semester_key }}">
+              <input type="hidden" name="next" value="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None) }}">
+              <button class="btn btn-outline-success btn-sm" {% if not b.can_send_email %}disabled title="Beneficiario sin email configurado"{% endif %}>
+                <i class="fa fa-paper-plane"></i> Enviar liquidación
+              </button>
+            </form>
+          {% endif %}
+
+          <button class="btn btn-outline-primary btn-sm" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+            <i class="fa fa-file-pdf"></i> Generar liquidación
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive mt-3">
+        <table class="table table-sm align-middle mb-0">
+          <thead>
+            <tr>
+              <th style="width:52px;"></th>
+              <th>Repertorio</th>
+              <th style="width:140px;">Código</th>
+              <th style="width:110px;">Publicación</th>
+              <th class="text-end" style="width:140px;">Ingreso</th>
+              <th class="text-end" style="width:90px;">%</th>
+              <th class="text-end" style="width:160px;">A facturar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in b.items %}
+              <tr>
+                <td>
+                  <a href="{{ item.detail_url }}">
+                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
+                  </a>
+                </td>
+                <td>
+                  <div class="fw-semibold"><a class="text-decoration-none" href="{{ item.detail_url }}">{{ item.title }}</a></div>
+                  <div class="small text-muted">{{ item.subtitle }}</div>
+                  {% if item.badges %}
+                    <div class="d-flex flex-wrap gap-1 mt-1">
+                      {% for badge in item.badges %}
+                        {% if badge == 'Disco' %}
+                          <span class="badge text-bg-light text-dark">Disco</span>
+                        {% elif badge == 'Canción' %}
+                          <span class="badge text-bg-light text-dark">Canción</span>
+                        {% elif badge == 'Distribución' %}
+                          <span class="badge text-bg-info">Distribución</span>
+                        {% elif badge == 'Catálogo' %}
+                          <span class="badge text-bg-secondary">Catálogo</span>
+                        {% else %}
+                          <span class="badge text-bg-dark">{{ badge }}</span>
+                        {% endif %}
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </td>
+                <td class="small text-muted">
+                  {% if item.item_kind == 'SONG' %}
+                    {{ (item.code or '—')|isrc }}
+                  {% else %}
+                    {{ item.code or '—' }}
+                  {% endif %}
+                </td>
+                <td class="small">{{ item.release_date }}</td>
+                <td class="text-end">{{ item.income | eur }}</td>
+                <td class="text-end">{{ '%.2f'|format(item.pct or 0) }}%</td>
+                <td class="text-end fw-semibold">{{ item.amount | eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex justify-content-end mt-2">
+        <div class="fw-semibold">Total a facturar: {{ b.total_amount | eur }}</div>
+      </div>
+    </div>
+  </div>
+{% endmacro %}
 
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <div>
@@ -34,167 +144,38 @@
   </div>
 </div>
 
+{% if royalty_filter_artists and (royalty_filter_artists|length) > 0 %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <label class="form-label">Filtrar por artistas</label>
+      <div class="d-flex flex-wrap gap-2">
+        <a class="btn btn-sm {% if not royalty_selected_artist_id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key) }}">Todos</a>
+        {% for artist in royalty_filter_artists %}
+          <a class="btn btn-sm d-inline-flex align-items-center gap-2 {% if royalty_selected_artist_id == (artist.id|string) %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=artist.id) }}">
+            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+            <span>{{ artist.name }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
 {% if (royalty_beneficiaries_artists|length) == 0 and (royalty_beneficiaries_others|length) == 0 %}
-  <div class="text-muted">No hay datos de ingresos en este semestre o no hay beneficiarios configurados.</div>
+  <div class="text-muted">No hay datos de ingresos en este semestre{% if royalty_selected_artist_id %} para el artista filtrado{% endif %} o no hay beneficiarios configurados.</div>
 {% else %}
 
   {% if (royalty_beneficiaries_artists|length) > 0 %}
     <div class="mb-2 text-muted">Artistas</div>
-
     {% for b in royalty_beneficiaries_artists %}
-      <div class="card mb-3">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-            <div class="d-flex align-items-center gap-2">
-              <img src="{{ b.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff">
-              <div>
-                <div class="fw-semibold">{{ b.name }}</div>
-                <div class="small text-muted">{{ b.kind_label }}</div>
-              </div>
-            </div>
-
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
-                {% if b.liquidation_status %}
-                  <div class="dropdown">
-                    <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                      {{ b.liquidation_label }}
-                    </button>
-                    <ul class="dropdown-menu">
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
-                    </ul>
-                  </div>
-                {% endif %}
-              </div>
-
-              <button class="btn btn-outline-primary btn-sm" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-                <i class="fa fa-file-pdf"></i> Generar liquidación
-              </button>
-            </div>
-          </div>
-
-          <div class="table-responsive mt-3">
-            <table class="table table-sm align-middle">
-              <thead>
-                <tr>
-                  <th style="width:52px;"></th>
-                  <th>Canción</th>
-                  <th style="width:140px;">ISRC</th>
-                  <th style="width:110px;">Publicación</th>
-                  <th class="text-end" style="width:140px;">Ingreso</th>
-                  <th class="text-end" style="width:90px;">%</th>
-                  <th class="text-end" style="width:160px;">A facturar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for s in b.songs %}
-                  <tr>
-                    <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
-                    </td>
-                    <td>
-                      <div class="fw-semibold">{{ s.title }}</div>
-                      <div class="small text-muted">{{ s.interpreters }}</div>
-                    </td>
-                    <td class="small">{{ (s.isrc or '—')|isrc }}</td>
-                    <td class="small">{{ s.release_date }}</td>
-                    <td class="text-end">{{ s.income | eur }}</td>
-                    <td class="text-end">{{ '%.2f'|format(s.pct or 0) }}%</td>
-                    <td class="text-end fw-semibold">{{ s.amount | eur }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="d-flex justify-content-end mt-2">
-            <div class="fw-semibold">Total a facturar: {{ b.total_amount | eur }}</div>
-          </div>
-        </div>
-      </div>
+      {{ render_beneficiary_card(b, url_for('static', filename='img/logo.png')) }}
     {% endfor %}
   {% endif %}
 
   {% if (royalty_beneficiaries_others|length) > 0 %}
     <div class="mb-2 mt-4 text-muted">Otros beneficiarios</div>
-
     {% for b in royalty_beneficiaries_others %}
-      <div class="card mb-3">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
-            <div class="d-flex align-items-center gap-2">
-              <img src="{{ b.photo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff">
-              <div>
-                <div class="fw-semibold">{{ b.name }}</div>
-                <div class="small text-muted">{{ b.kind_label }}</div>
-              </div>
-            </div>
-
-            <div class="d-flex align-items-center gap-2 flex-wrap">
-              <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
-                {% if b.liquidation_status %}
-                  <div class="dropdown">
-                    <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                      {{ b.liquidation_label }}
-                    </button>
-                    <ul class="dropdown-menu">
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
-                      <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
-                    </ul>
-                  </div>
-                {% endif %}
-              </div>
-
-              <button class="btn btn-outline-primary btn-sm" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-                <i class="fa fa-file-pdf"></i> Generar liquidación
-              </button>
-            </div>
-          </div>
-
-          <div class="table-responsive mt-3">
-            <table class="table table-sm align-middle">
-              <thead>
-                <tr>
-                  <th style="width:52px;"></th>
-                  <th>Canción</th>
-                  <th style="width:140px;">ISRC</th>
-                  <th style="width:110px;">Publicación</th>
-                  <th class="text-end" style="width:140px;">Ingreso</th>
-                  <th class="text-end" style="width:90px;">%</th>
-                  <th class="text-end" style="width:160px;">A facturar</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for s in b.songs %}
-                  <tr>
-                    <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
-                    </td>
-                    <td>
-                      <div class="fw-semibold">{{ s.title }}</div>
-                      <div class="small text-muted">{{ s.interpreters }}</div>
-                    </td>
-                    <td class="small">{{ (s.isrc or '—')|isrc }}</td>
-                    <td class="small">{{ s.release_date }}</td>
-                    <td class="text-end">{{ s.income | eur }}</td>
-                    <td class="text-end">{{ '%.2f'|format(s.pct or 0) }}%</td>
-                    <td class="text-end fw-semibold">{{ s.amount | eur }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="d-flex justify-content-end mt-2">
-            <div class="fw-semibold">Total a facturar: {{ b.total_amount | eur }}</div>
-          </div>
-        </div>
-      </div>
+      {{ render_beneficiary_card(b, url_for('static', filename='img/default_promoter.png')) }}
     {% endfor %}
   {% endif %}
 

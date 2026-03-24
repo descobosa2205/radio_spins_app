@@ -583,6 +583,35 @@ class ProductCodeConfig(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AlbumRevenueEntry(Base):
+    """Ingresos (bruto/neto) por álbum y periodo (mes o semestre)."""
+
+    __tablename__ = "album_revenue_entries"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+
+    period_type = Column(Text, nullable=False)  # MONTH | SEMESTER
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+
+    is_base = Column(Boolean, nullable=False, server_default=text("true"))
+    name = Column(Text)
+
+    gross = Column(Numeric, nullable=False, server_default=text("0"))
+    net = Column(Numeric, nullable=False, server_default=text("0"))
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+
+    __table_args__ = (
+        Index("idx_album_revenue_entries_album_period", "album_id", "period_type", "period_start"),
+        Index("idx_album_revenue_entries_period", "period_type", "period_start"),
+    )
+
+
 class Album(Base):
     __tablename__ = "albums"
 
@@ -2081,6 +2110,24 @@ def ensure_album_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_album_product_codes_album_id ON album_product_codes(album_id);',
+        """
+        CREATE TABLE IF NOT EXISTS album_revenue_entries (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            period_type text NOT NULL,
+            period_start date NOT NULL,
+            period_end date NOT NULL,
+            is_base boolean NOT NULL DEFAULT true,
+            name text,
+            gross numeric NOT NULL DEFAULT 0,
+            net numeric NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT chk_album_revenue_period_type CHECK (period_type IN ('MONTH','SEMESTER'))
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_revenue_entries_album_period ON album_revenue_entries(album_id, period_type, period_start);',
+        'CREATE INDEX IF NOT EXISTS idx_album_revenue_entries_period ON album_revenue_entries(period_type, period_start);',
         """
         CREATE TABLE IF NOT EXISTS album_tracks (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

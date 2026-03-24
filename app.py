@@ -7,6 +7,7 @@ import uuid
 import json
 import csv
 import unicodedata
+import html
 from pathlib import Path
 from io import BytesIO
 from functools import wraps
@@ -35,8 +36,10 @@ from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, 
 from urllib.request import Request, urlopen
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
+from email.utils import formataddr
 from difflib import SequenceMatcher
 from collections import defaultdict
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 # PDF (informe de ventas)
 try:
@@ -90,6 +93,7 @@ from models import (
     SongEditorialShare,
     SongRevenueEntry,
     ProductCodeConfig,
+    AlbumRevenueEntry,
     Album,
     AlbumProductCode,
     AlbumTrack,
@@ -326,7 +330,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf"}
     if request.endpoint in allowed:
         return
 
@@ -1418,7 +1422,14 @@ def _smtp_enabled() -> bool:
     return bool((os.getenv('SMTP_HOST') or '').strip())
 
 
-def _send_optional_email(to_email: str, subject: str, html_body: str, text_body: str | None = None) -> tuple[bool, str | None]:
+def _send_optional_email(
+    to_email: str,
+    subject: str,
+    html_body: str,
+    text_body: str | None = None,
+    reply_to: str | None = None,
+    attachments: list[dict] | None = None,
+) -> tuple[bool, str | None]:
     to_email = (to_email or '').strip()
     if not to_email:
         return False, 'No se indicó email destino.'
@@ -1434,12 +1445,33 @@ def _send_optional_email(to_email: str, subject: str, html_body: str, text_body:
     use_ssl = _truthy(os.getenv('SMTP_SSL'))
     use_tls = not use_ssl if os.getenv('SMTP_TLS') is None else _truthy(os.getenv('SMTP_TLS'))
 
+    effective_reply_to = (reply_to or _current_user_email() or '').strip()
+    reply_to_header = ''
+    if effective_reply_to:
+        reply_name = effective_reply_to.split('@', 1)[0].strip() if '@' in effective_reply_to else effective_reply_to
+        reply_to_header = formataddr((reply_name, effective_reply_to)) if reply_name else effective_reply_to
+
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = f'{sender_name} <{sender}>' if sender else sender_name
     msg['To'] = to_email
+    if reply_to_header:
+        msg['Reply-To'] = reply_to_header
     msg.set_content(text_body or 'Este mensaje contiene una versión HTML del contenido.')
     msg.add_alternative(html_body, subtype='html')
+
+    for attachment in attachments or []:
+        if not isinstance(attachment, dict):
+            continue
+        data = attachment.get('data')
+        if not data:
+            continue
+        filename = (attachment.get('filename') or 'adjunto').strip() or 'adjunto'
+        mimetype = (attachment.get('mimetype') or 'application/octet-stream').strip()
+        maintype, _sep, subtype = mimetype.partition('/')
+        maintype = maintype or 'application'
+        subtype = subtype or 'octet-stream'
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=filename)
 
     try:
         if use_ssl:
@@ -2541,6 +2573,950 @@ def _album_product_format_label(code: AlbumProductCode | None) -> str:
     return other or "Otro"
 
 
+def _norm_product_code(value) -> str:
+    raw = _clean_csv_cell(value)
+    if not raw:
+        return ""
+    return "".join(raw.split()).upper()
+
+
+def _current_user_row(session_db=None) -> User | None:
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+
+    close_session = False
+    if session_db is None:
+        session_db = db()
+        close_session = True
+
+    try:
+        return session_db.get(User, to_uuid(user_id)) if user_id else None
+    except Exception:
+        return None
+    finally:
+        if close_session:
+            session_db.close()
+
+
+def _current_user_email(session_db=None) -> str | None:
+    user = _current_user_row(session_db=session_db)
+    email = (getattr(user, "email", None) or "").strip()
+    return email or None
+
+
+def _royalty_public_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="royalty-liquidation-public")
+
+
+def _make_public_royalty_liquidation_token(kind: str, bid: str, sem_key: str) -> str:
+    return _royalty_public_serializer().dumps({
+        "kind": (kind or "").strip().upper(),
+        "bid": str(bid or "").strip(),
+        "s": (sem_key or "").strip(),
+    })
+
+
+def _parse_public_royalty_liquidation_token(token: str | None, max_age: int = 31536000) -> dict | None:
+    token = (token or "").strip()
+    if not token:
+        return None
+    try:
+        data = _royalty_public_serializer().loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _royalty_item_type_label(item_kind: str) -> str:
+    return "Disco" if (item_kind or "").upper() == "ALBUM" else "Canción"
+
+
+def _royalty_item_ownership_label(material) -> str:
+    if bool(getattr(material, "is_distribution", False)):
+        return "Distribución"
+    if bool(getattr(material, "is_catalog", False)):
+        return "Catálogo"
+    return ""
+
+
+def _royalty_concept_variants_for_material(material) -> list[str]:
+    if bool(getattr(material, "is_distribution", False)):
+        return ["distribución", "distribucion"]
+    if bool(getattr(material, "is_catalog", False)):
+        return ["catálogo", "catalogo"]
+    return ["discográfico", "discografico", "discográfica", "discografica"]
+
+
+def _royalty_item_artist_ids(song: Song | None = None, album: Album | None = None) -> list[str]:
+    if album is not None:
+        return [str(album.artist_id)] if getattr(album, "artist_id", None) else []
+    if song is None:
+        return []
+    out = []
+    for artist in getattr(song, "artists", []) or []:
+        if getattr(artist, "id", None):
+            out.append(str(artist.id))
+    return out
+
+
+def _first_album_code_display_map(session_db, album_ids: list) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not album_ids:
+        return out
+    rows = (
+        session_db.query(AlbumProductCode)
+        .filter(AlbumProductCode.album_id.in_(album_ids))
+        .order_by(AlbumProductCode.album_id.asc(), AlbumProductCode.created_at.asc())
+        .all()
+    )
+    for row in rows:
+        aid = str(getattr(row, "album_id", None) or "")
+        if not aid or aid in out:
+            continue
+        code = (_clean_csv_cell(getattr(row, "code", None)) or "").strip()
+        if code:
+            out[aid] = code
+    return out
+
+
+def _beneficiary_contact_email(session_db, kind: str, beneficiary_id) -> str | None:
+    kind = (kind or "").strip().upper()
+    if kind != "PROMOTER":
+        return None
+
+    promoter = session_db.get(Promoter, to_uuid(beneficiary_id))
+    if not promoter:
+        return None
+
+    email = (getattr(promoter, "contact_email", None) or "").strip()
+    if email:
+        return email
+
+    contact = (
+        session_db.query(PromoterContact)
+        .filter(PromoterContact.promoter_id == promoter.id)
+        .filter(PromoterContact.email.isnot(None))
+        .order_by(PromoterContact.created_at.asc())
+        .first()
+    )
+    email = (getattr(contact, "email", None) or "").strip()
+    return email or None
+
+
+def _royalty_status_meta(status: str | None) -> tuple[str, str]:
+    s = (status or "GENERATED").upper()
+    if s == "SENT":
+        return ("Enviada", "primary")
+    if s == "INVOICED":
+        return ("Facturada", "warning")
+    if s == "PAID":
+        return ("Pagado", "success")
+    return ("Generada", "secondary")
+
+
+def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, selected_artist_id=None, only_beneficiary: tuple[str, str] | None = None) -> dict:
+    selected_artist_id_str = str(selected_artist_id) if selected_artist_id else None
+
+    month_starts = []
+    cursor = date(sem_start.year, sem_start.month, 1)
+    for _ in range(6):
+        month_starts.append(cursor)
+        cursor = _add_months(cursor, 1)
+
+    sem_song_ids = [
+        sid
+        for (sid,) in (
+            session_db.query(SongRevenueEntry.song_id)
+            .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+            .filter(SongRevenueEntry.period_start == sem_start)
+            .distinct()
+            .all()
+        )
+        if sid
+    ]
+    month_song_ids = [
+        sid
+        for (sid,) in (
+            session_db.query(SongRevenueEntry.song_id)
+            .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+            .filter(SongRevenueEntry.period_start.in_(month_starts))
+            .distinct()
+            .all()
+        )
+        if sid
+    ]
+    song_ids = sorted(set(sem_song_ids + month_song_ids), key=lambda x: str(x))
+
+    sem_album_ids = [
+        aid
+        for (aid,) in (
+            session_db.query(AlbumRevenueEntry.album_id)
+            .filter(func.upper(AlbumRevenueEntry.period_type) == "SEMESTER")
+            .filter(AlbumRevenueEntry.period_start == sem_start)
+            .distinct()
+            .all()
+        )
+        if aid
+    ]
+    month_album_ids = [
+        aid
+        for (aid,) in (
+            session_db.query(AlbumRevenueEntry.album_id)
+            .filter(func.upper(AlbumRevenueEntry.period_type) == "MONTH")
+            .filter(AlbumRevenueEntry.period_start.in_(month_starts))
+            .distinct()
+            .all()
+        )
+        if aid
+    ]
+    album_ids = sorted(set(sem_album_ids + month_album_ids), key=lambda x: str(x))
+
+    songs: list[Song] = []
+    if song_ids:
+        songs = (
+            session_db.query(Song)
+            .options(selectinload(Song.artists))
+            .filter(Song.id.in_(song_ids))
+            .order_by(Song.release_date.desc())
+            .all()
+        )
+
+    albums: list[Album] = []
+    if album_ids:
+        albums = (
+            session_db.query(Album)
+            .options(joinedload(Album.artist))
+            .filter(Album.id.in_(album_ids))
+            .order_by(Album.release_date.desc())
+            .all()
+        )
+
+    sem_song_totals = {
+        sid: (Decimal(g or 0), Decimal(n or 0))
+        for sid, g, n in (
+            session_db.query(
+                SongRevenueEntry.song_id,
+                func.sum(SongRevenueEntry.gross),
+                func.sum(SongRevenueEntry.net),
+            )
+            .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+            .filter(SongRevenueEntry.period_start == sem_start)
+            .group_by(SongRevenueEntry.song_id)
+            .all()
+        )
+        if sid
+    }
+    month_song_totals = {
+        sid: (Decimal(g or 0), Decimal(n or 0))
+        for sid, g, n in (
+            session_db.query(
+                SongRevenueEntry.song_id,
+                func.sum(SongRevenueEntry.gross),
+                func.sum(SongRevenueEntry.net),
+            )
+            .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+            .filter(SongRevenueEntry.period_start.in_(month_starts))
+            .group_by(SongRevenueEntry.song_id)
+            .all()
+        )
+        if sid
+    }
+    song_gross_map = {}
+    song_net_map = {}
+    for sid in song_ids:
+        if sid in sem_song_totals:
+            g, n = sem_song_totals[sid]
+        else:
+            g, n = month_song_totals.get(sid, (Decimal(0), Decimal(0)))
+        song_gross_map[sid] = float(g or 0)
+        song_net_map[sid] = float(n or 0)
+
+    sem_album_totals = {
+        aid: (Decimal(g or 0), Decimal(n or 0))
+        for aid, g, n in (
+            session_db.query(
+                AlbumRevenueEntry.album_id,
+                func.sum(AlbumRevenueEntry.gross),
+                func.sum(AlbumRevenueEntry.net),
+            )
+            .filter(func.upper(AlbumRevenueEntry.period_type) == "SEMESTER")
+            .filter(AlbumRevenueEntry.period_start == sem_start)
+            .group_by(AlbumRevenueEntry.album_id)
+            .all()
+        )
+        if aid
+    }
+    month_album_totals = {
+        aid: (Decimal(g or 0), Decimal(n or 0))
+        for aid, g, n in (
+            session_db.query(
+                AlbumRevenueEntry.album_id,
+                func.sum(AlbumRevenueEntry.gross),
+                func.sum(AlbumRevenueEntry.net),
+            )
+            .filter(func.upper(AlbumRevenueEntry.period_type) == "MONTH")
+            .filter(AlbumRevenueEntry.period_start.in_(month_starts))
+            .group_by(AlbumRevenueEntry.album_id)
+            .all()
+        )
+        if aid
+    }
+    album_gross_map = {}
+    album_net_map = {}
+    for aid in album_ids:
+        if aid in sem_album_totals:
+            g, n = sem_album_totals[aid]
+        else:
+            g, n = month_album_totals.get(aid, (Decimal(0), Decimal(0)))
+        album_gross_map[aid] = float(g or 0)
+        album_net_map[aid] = float(n or 0)
+
+    interp_map = {sid: [] for sid in song_ids}
+    if song_ids:
+        rows = (
+            session_db.query(SongInterpreter)
+            .filter(SongInterpreter.song_id.in_(song_ids))
+            .order_by(SongInterpreter.song_id.asc(), SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+            .all()
+        )
+        for row in rows:
+            if row.song_id in interp_map and row.name:
+                interp_map[row.song_id].append(row.name)
+    interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+
+    isrc_map = {}
+    if song_ids:
+        rows = (
+            session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+            .filter(SongISRCCode.song_id.in_(song_ids))
+            .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+            .filter(SongISRCCode.is_primary == True)  # noqa: E712
+            .all()
+        )
+        for sid, code in rows:
+            if sid and code and sid not in isrc_map:
+                isrc_map[sid] = _norm_isrc(code)
+
+    album_code_map = _first_album_code_display_map(session_db, album_ids)
+
+    song_lookup = {song.id: song for song in songs}
+    album_lookup = {album.id: album for album in albums}
+
+    extra_song_rows = []
+    if song_ids:
+        extra_song_rows = (
+            session_db.query(SongRoyaltyBeneficiary)
+            .options(joinedload(SongRoyaltyBeneficiary.promoter))
+            .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
+            .all()
+        )
+
+    extra_album_rows = []
+    if album_ids:
+        extra_album_rows = (
+            session_db.query(AlbumRoyaltyBeneficiary)
+            .options(joinedload(AlbumRoyaltyBeneficiary.promoter))
+            .filter(AlbumRoyaltyBeneficiary.album_id.in_(album_ids))
+            .all()
+        )
+
+    liq_rows = (
+        session_db.query(RoyaltyLiquidation)
+        .filter(RoyaltyLiquidation.period_start == sem_start)
+        .all()
+    )
+    liq_map = {(row.beneficiary_kind, str(row.beneficiary_id)): row for row in liq_rows if row}
+
+    filter_artist_ids = set()
+    for song in songs:
+        for artist in getattr(song, "artists", []) or []:
+            if getattr(artist, "id", None):
+                filter_artist_ids.add(artist.id)
+    for album in albums:
+        if getattr(album, "artist_id", None):
+            filter_artist_ids.add(album.artist_id)
+
+    ben_map: dict[tuple[str, str], dict] = {}
+
+    def ensure_benef(kind: str, bid: str, name: str, photo_url: str | None, kind_label: str):
+        key = (kind, bid)
+        if only_beneficiary and key != only_beneficiary:
+            return None
+        if key not in ben_map:
+            contact_email = _beneficiary_contact_email(session_db, kind, bid)
+            ben_map[key] = {
+                "kind": kind,
+                "id": bid,
+                "name": name,
+                "photo_url": photo_url,
+                "kind_label": kind_label,
+                "items": [],
+                "total_amount": 0.0,
+                "liquidation_status": None,
+                "liquidation_label": None,
+                "liquidation_color": None,
+                "contact_email": contact_email or "",
+                "can_send_email": bool(contact_email),
+            }
+        return ben_map[key]
+
+    def append_item(bucket: dict | None, item: dict):
+        if not bucket:
+            return
+        bucket["items"].append(item)
+        bucket["total_amount"] += float(item.get("amount") or 0)
+
+    for song in songs:
+        artist_ids = _royalty_item_artist_ids(song=song)
+        if selected_artist_id_str and selected_artist_id_str not in artist_ids:
+            continue
+
+        primary_artist = song.artists[0] if getattr(song, "artists", None) else None
+        if not primary_artist:
+            continue
+
+        g = song_gross_map.get(song.id, 0.0)
+        n = song_net_map.get(song.id, 0.0)
+        if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+            continue
+
+        commitment, _contract = _pick_artist_commitment(
+            session_db,
+            primary_artist.id,
+            _royalty_concept_variants_for_material(song),
+            material_date=getattr(song, "release_date", None),
+            as_of_date=sem_end,
+        )
+        pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
+        base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
+        income = n if base in ("NET", "PROFIT") else g
+        amount = float(income) * (pct / 100.0)
+
+        badges = ["Canción"]
+        ownership_label = _royalty_item_ownership_label(song)
+        if ownership_label:
+            badges.append(ownership_label)
+
+        bucket = ensure_benef("ARTIST", str(primary_artist.id), primary_artist.name, getattr(primary_artist, "photo_url", None), "Artista")
+        append_item(
+            bucket,
+            {
+                "item_kind": "SONG",
+                "item_type_label": "Canción",
+                "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
+                "cover_url": song.cover_url,
+                "title": song.title,
+                "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
+                "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
+                "code_label": "ISRC",
+                "release_date": song.release_date.strftime("%d/%m/%Y") if song.release_date else "",
+                "income": float(income or 0),
+                "pct": pct,
+                "amount": amount,
+                "badges": badges,
+                "sort_title": (song.title or "").lower(),
+            },
+        )
+
+    for row in extra_song_rows:
+        song = song_lookup.get(getattr(row, "song_id", None))
+        promoter = getattr(row, "promoter", None)
+        if not song or not promoter:
+            continue
+
+        artist_ids = _royalty_item_artist_ids(song=song)
+        if selected_artist_id_str and selected_artist_id_str not in artist_ids:
+            continue
+
+        g = song_gross_map.get(song.id, 0.0)
+        n = song_net_map.get(song.id, 0.0)
+        if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+            continue
+
+        base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
+        if base not in ("GROSS", "NET", "PROFIT"):
+            base = "GROSS"
+        pct = float(getattr(row, "pct", 0) or 0)
+        income = n if base in ("NET", "PROFIT") else g
+        amount = float(income) * (pct / 100.0)
+
+        badges = ["Canción"]
+        ownership_label = _royalty_item_ownership_label(song)
+        if ownership_label:
+            badges.append(ownership_label)
+
+        display_name = (promoter.nick or ((promoter.first_name or "") + " " + (promoter.last_name or ""))).strip() or "Beneficiario"
+        bucket = ensure_benef("PROMOTER", str(promoter.id), display_name, getattr(promoter, "logo_url", None), "Beneficiario")
+        append_item(
+            bucket,
+            {
+                "item_kind": "SONG",
+                "item_type_label": "Canción",
+                "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
+                "cover_url": song.cover_url,
+                "title": song.title,
+                "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
+                "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
+                "code_label": "ISRC",
+                "release_date": song.release_date.strftime("%d/%m/%Y") if song.release_date else "",
+                "income": float(income or 0),
+                "pct": pct,
+                "amount": amount,
+                "badges": badges,
+                "sort_title": (song.title or "").lower(),
+            },
+        )
+
+    for album in albums:
+        artist = getattr(album, "artist", None)
+        if not artist:
+            artist = session_db.get(Artist, getattr(album, "artist_id", None)) if getattr(album, "artist_id", None) else None
+        if not artist:
+            continue
+
+        if selected_artist_id_str and str(artist.id) != selected_artist_id_str:
+            continue
+
+        g = album_gross_map.get(album.id, 0.0)
+        n = album_net_map.get(album.id, 0.0)
+        if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+            continue
+
+        commitment, _contract = _pick_artist_commitment(
+            session_db,
+            artist.id,
+            _royalty_concept_variants_for_material(album),
+            material_date=getattr(album, "release_date", None),
+            as_of_date=sem_end,
+        )
+        pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
+        base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
+        income = n if base in ("NET", "PROFIT") else g
+        amount = float(income) * (pct / 100.0)
+
+        badges = ["Disco"]
+        ownership_label = _royalty_item_ownership_label(album)
+        if ownership_label:
+            badges.append(ownership_label)
+
+        code_display = album_code_map.get(str(album.id)) or ((_clean_csv_cell(getattr(album, "upc_code", None)) or "").strip()) or "—"
+        subtitle_bits = [artist.name]
+        kind_label = _album_kind_label(album)
+        if kind_label:
+            subtitle_bits.append(kind_label)
+
+        bucket = ensure_benef("ARTIST", str(artist.id), artist.name, getattr(artist, "photo_url", None), "Artista")
+        append_item(
+            bucket,
+            {
+                "item_kind": "ALBUM",
+                "item_type_label": "Disco",
+                "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
+                "cover_url": album.cover_url,
+                "title": album.title,
+                "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
+                "code": code_display,
+                "code_label": "Código",
+                "release_date": album.release_date.strftime("%d/%m/%Y") if album.release_date else "",
+                "income": float(income or 0),
+                "pct": pct,
+                "amount": amount,
+                "badges": badges,
+                "sort_title": (album.title or "").lower(),
+            },
+        )
+
+    for row in extra_album_rows:
+        album = album_lookup.get(getattr(row, "album_id", None))
+        promoter = getattr(row, "promoter", None)
+        if not album or not promoter:
+            continue
+
+        album_artist = getattr(album, "artist", None)
+        if not album_artist and getattr(album, "artist_id", None):
+            album_artist = session_db.get(Artist, album.artist_id)
+        if selected_artist_id_str and str(getattr(album, "artist_id", "")) != selected_artist_id_str:
+            continue
+
+        g = album_gross_map.get(album.id, 0.0)
+        n = album_net_map.get(album.id, 0.0)
+        if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+            continue
+
+        base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
+        if base not in ("GROSS", "NET", "PROFIT"):
+            base = "GROSS"
+        pct = float(getattr(row, "pct", 0) or 0)
+        income = n if base in ("NET", "PROFIT") else g
+        amount = float(income) * (pct / 100.0)
+
+        badges = ["Disco"]
+        ownership_label = _royalty_item_ownership_label(album)
+        if ownership_label:
+            badges.append(ownership_label)
+
+        code_display = album_code_map.get(str(album.id)) or ((_clean_csv_cell(getattr(album, "upc_code", None)) or "").strip()) or "—"
+        subtitle_bits = [getattr(album_artist, "name", None) or ""]
+        kind_label = _album_kind_label(album)
+        if kind_label:
+            subtitle_bits.append(kind_label)
+
+        display_name = (promoter.nick or ((promoter.first_name or "") + " " + (promoter.last_name or ""))).strip() or "Beneficiario"
+        bucket = ensure_benef("PROMOTER", str(promoter.id), display_name, getattr(promoter, "logo_url", None), "Beneficiario")
+        append_item(
+            bucket,
+            {
+                "item_kind": "ALBUM",
+                "item_type_label": "Disco",
+                "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
+                "cover_url": album.cover_url,
+                "title": album.title,
+                "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
+                "code": code_display,
+                "code_label": "Código",
+                "release_date": album.release_date.strftime("%d/%m/%Y") if album.release_date else "",
+                "income": float(income or 0),
+                "pct": pct,
+                "amount": amount,
+                "badges": badges,
+                "sort_title": (album.title or "").lower(),
+            },
+        )
+
+    for (kind, bid), bucket in ben_map.items():
+        rec = liq_map.get((kind, bid))
+        if rec:
+            bucket["liquidation_status"] = getattr(rec, "status", None)
+            lbl, color = _royalty_status_meta(bucket["liquidation_status"])
+            bucket["liquidation_label"] = lbl
+            bucket["liquidation_color"] = color
+        bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
+
+    artist_beneficiaries = [
+        bucket for (kind, _bid), bucket in ben_map.items()
+        if kind == "ARTIST" and (bucket.get("items") or [])
+    ]
+    other_beneficiaries = [
+        bucket for (kind, _bid), bucket in ben_map.items()
+        if kind == "PROMOTER" and (bucket.get("items") or [])
+    ]
+    artist_beneficiaries.sort(key=lambda item: (item.get("name") or "").lower())
+    other_beneficiaries.sort(key=lambda item: (item.get("name") or "").lower())
+
+    filter_artists = []
+    if filter_artist_ids:
+        filter_artists = (
+            session_db.query(Artist)
+            .filter(Artist.id.in_(list(filter_artist_ids)))
+            .order_by(Artist.name.asc())
+            .all()
+        )
+
+    return {
+        "artists": artist_beneficiaries,
+        "others": other_beneficiaries,
+        "filter_artists": filter_artists,
+        "selected_artist_id": selected_artist_id_str or "",
+    }
+
+
+def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int, touch_liquidation: bool = True) -> tuple[bytes, str, dict]:
+    kind = (kind or "").strip().upper()
+    if kind not in ("ARTIST", "PROMOTER"):
+        raise ValueError("Beneficiario inválido")
+
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+    bid = to_uuid(beneficiary_id)
+    if not bid:
+        raise ValueError("Beneficiario inválido")
+
+    payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end, only_beneficiary=(kind, str(bid)))
+    beneficiary = None
+    for row in (payload.get("artists") or []) + (payload.get("others") or []):
+        if row.get("kind") == kind and row.get("id") == str(bid):
+            beneficiary = row
+            break
+    if not beneficiary:
+        raise LookupError("No hay datos de royalties para este beneficiario y semestre.")
+
+    if touch_liquidation:
+        now_dt = datetime.now(TZ_MADRID)
+        rec = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+            .filter(RoyaltyLiquidation.beneficiary_id == bid)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .first()
+        )
+        if rec:
+            rec.period_end = sem_end
+            rec.generated_at = now_dt
+            rec.updated_at = now_dt
+            if not getattr(rec, "status", None):
+                rec.status = "GENERATED"
+        else:
+            rec = RoyaltyLiquidation(
+                beneficiary_kind=kind,
+                beneficiary_id=bid,
+                period_start=sem_start,
+                period_end=sem_end,
+                status="GENERATED",
+                generated_at=now_dt,
+                updated_at=now_dt,
+            )
+            session_db.add(rec)
+        session_db.commit()
+
+    from io import BytesIO
+    from urllib.request import urlopen
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    def _fetch_img(url: str, w: float, h: float):
+        if not url:
+            return ""
+        try:
+            with urlopen(url, timeout=6) as resp:
+                data = resp.read()
+            bio = BytesIO(data)
+            img = Image(bio, width=w, height=h)
+            img.hAlign = "LEFT"
+            return img
+        except Exception:
+            return ""
+
+    def _clean_filename(value: str) -> str:
+        safe = (value or "").strip()
+        allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ "
+        safe = "".join(ch for ch in safe if ch in allowed)
+        safe = "_".join([part for part in safe.split() if part])
+        return safe or "beneficiario"
+
+    def _eur(value) -> str:
+        try:
+            return f"{float(value):,.2f} EUR".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "0,00 EUR"
+
+    pies_company = (
+        session_db.query(GroupCompany)
+        .filter(func.lower(GroupCompany.name).like('%pies%'))
+        .order_by(GroupCompany.name.asc())
+        .first()
+    )
+    pies_tax_info = (getattr(pies_company, 'tax_info', None) or 'poner los datos fiscales de la empresa del grupo PIES').strip()
+    pies_logo_url = getattr(pies_company, 'logo_url', None) or None
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'royalty_pdf_title',
+        parent=styles['Title'],
+        fontName='Helvetica-Bold',
+        fontSize=17,
+        leading=20,
+        spaceAfter=4,
+        textColor=colors.black,
+    )
+    meta_style = ParagraphStyle(
+        'royalty_pdf_meta',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=9,
+        leading=11,
+        textColor=colors.HexColor('#555555'),
+    )
+    cell_style = ParagraphStyle(
+        'royalty_pdf_cell',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=8,
+        leading=10,
+        spaceAfter=0,
+    )
+    small_style = ParagraphStyle(
+        'royalty_pdf_small',
+        parent=styles['Normal'],
+        fontName='Helvetica',
+        fontSize=7,
+        leading=8.4,
+        textColor=colors.HexColor('#666666'),
+    )
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        leftMargin=1.2 * cm,
+        rightMargin=1.2 * cm,
+        topMargin=1.1 * cm,
+        bottomMargin=1.1 * cm,
+    )
+    story = []
+
+    logo = _fetch_img(pies_logo_url or '', 3.4 * cm, 1.4 * cm)
+    if not logo:
+        try:
+            logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
+            logo = Image(logo_path, width=3.4 * cm, height=1.4 * cm)
+            logo.hAlign = 'RIGHT'
+        except Exception:
+            logo = ''
+
+    header_table = Table(
+        [[Paragraph('<b>Liquidación de Royalties</b>', title_style), logo]],
+        colWidths=[None, 3.8 * cm],
+    )
+    header_table.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ]))
+    story.append(header_table)
+    story.append(Spacer(1, 4))
+
+    period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
+    beneficiary_photo = _fetch_img(beneficiary.get('photo_url') or '', 1.8 * cm, 1.8 * cm)
+    if not beneficiary_photo:
+        beneficiary_photo = ''
+    beneficiary_info = Paragraph(
+        f"<b>{html.escape(beneficiary.get('name') or '')}</b><br/>{html.escape(beneficiary.get('kind_label') or '')}<br/><font size='9'>{html.escape(period_str)}</font>",
+        meta_style,
+    )
+    beneficiary_box = Table([[beneficiary_photo, beneficiary_info]], colWidths=[2.1 * cm, None])
+    beneficiary_box.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#DDDDDD')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8F8F8')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+    ]))
+    story.append(beneficiary_box)
+    story.append(Spacer(1, 10))
+
+    data = [["", "Repertorio", "Código", "Fecha", "Ingreso", "%", "A facturar"]]
+    for item in beneficiary.get('items') or []:
+        cover = _fetch_img(item.get('cover_url') or '', 0.8 * cm, 0.8 * cm)
+        subtitle = html.escape(item.get('subtitle') or '')
+        badge_line = html.escape(' · '.join(item.get('badges') or []))
+        title_html = f"<b>{html.escape(item.get('title') or '')}</b>"
+        if subtitle:
+            title_html += f"<br/><font size='7'>{subtitle}</font>"
+        if badge_line:
+            title_html += f"<br/><font size='7' color='#666666'>{badge_line}</font>"
+        title_cell = Paragraph(title_html, cell_style)
+        code_html = html.escape(item.get('code') or '—')
+        if item.get('item_kind') == 'SONG':
+            code_html = html.escape(_norm_isrc(item.get('code') or '') or '—')
+        data.append([
+            cover,
+            title_cell,
+            Paragraph(code_html, cell_style),
+            Paragraph(html.escape(item.get('release_date') or ''), cell_style),
+            Paragraph(f"<para alignment='right'>{_eur(item.get('income') or 0)}</para>", cell_style),
+            Paragraph(f"<para alignment='right'>{float(item.get('pct') or 0):.2f}%</para>", cell_style),
+            Paragraph(f"<para alignment='right'><b>{_eur(item.get('amount') or 0)}</b></para>", cell_style),
+        ])
+
+    table = Table(
+        data,
+        colWidths=[1.0 * cm, 6.0 * cm, 2.7 * cm, 2.0 * cm, 2.3 * cm, 1.2 * cm, 2.7 * cm],
+        repeatRows=1,
+    )
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F1F1F1')),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 8),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+        ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#DDDDDD')),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
+        ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 10))
+
+    total_box = Table(
+        [[Paragraph(f"<para alignment='right'><b>Total a facturar:</b> {_eur(beneficiary.get('total_amount') or 0)}</para>", meta_style)]],
+        colWidths=[6.6 * cm],
+        hAlign='RIGHT',
+    )
+    total_box.setStyle(TableStyle([
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#DDDDDD')),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8F8F8')),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(total_box)
+    story.append(Spacer(1, 8))
+
+    safe_pies_tax_info = html.escape(pies_tax_info or 'poner los datos fiscales de la empresa del grupo PIES')
+    story.append(Paragraph(f'Emitir factura a nombre de "{safe_pies_tax_info}"', meta_style))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph("<link href='https://www.piesrecords.com/facturacion'><u>Subir factura</u></link>", small_style))
+
+    doc.build(story)
+    pdf_bytes = buf.getvalue()
+    filename = f"{_clean_filename(beneficiary.get('name') or 'beneficiario')}_Liquidacion_Royalties_S{sem_half}_{sem_year}.pdf"
+    return pdf_bytes, filename, beneficiary
+
+
+def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, download_url: str, logo_url: str | None, beneficiary_photo_url: str | None) -> tuple[str, str]:
+    ben_name = html.escape(beneficiary.get('name') or 'Beneficiario')
+    period_label_safe = html.escape(period_label)
+    logo_html = ''
+    if logo_url:
+        logo_html = f'<img src="{html.escape(logo_url)}" alt="PIES" style="max-width:190px;height:auto;">'
+    photo_html = ''
+    if beneficiary_photo_url:
+        photo_html = f'<img src="{html.escape(beneficiary_photo_url)}" alt="{ben_name}" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #e5e5e5;background:#fff;">'
+
+    html_body = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:720px;margin:0 auto;">
+      <div style="text-align:right;margin-bottom:18px;">{logo_html}</div>
+      <div style="border:1px solid #e5e7eb;border-radius:18px;padding:24px;background:#ffffff;">
+        <div style="font-size:28px;line-height:1.1;font-weight:700;margin-bottom:18px;">Liquidación de royalties</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:18px;">
+          <div>{photo_html}</div>
+          <div>
+            <div style="font-size:20px;font-weight:700;">{ben_name}</div>
+            <div style="font-size:14px;color:#6b7280;">{html.escape(beneficiary.get('kind_label') or '')}</div>
+          </div>
+        </div>
+        <div style="font-size:15px;color:#374151;margin-bottom:18px;"><strong>Periodo:</strong> {period_label_safe}</div>
+        <div style="margin:22px 0;">
+          <a href="{html.escape(download_url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Descargar liquidación</a>
+        </div>
+        <div style="font-size:14px;color:#374151;margin-top:18px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrrecords.com">music@piesrrecords.com</a></div>
+        <div style="font-size:14px;color:#374151;margin-top:12px;">Puede subir su factura en <a href="https://www.piesrecords.com/facturacion">https://www.piesrecords.com/facturacion</a></div>
+      </div>
+    </div>
+    """
+    text_body = (
+        f"Liquidación de royalties\n\n"
+        f"Beneficiario: {beneficiary.get('name') or 'Beneficiario'}\n"
+        f"Periodo: {period_label}\n\n"
+        f"Descargar liquidación: {download_url}\n\n"
+        "Si tiene alguna duda contacte con music@piesrrecords.com\n"
+        "Puede subir su factura en https://www.piesrecords.com/facturacion"
+    )
+    return html_body, text_body
+
+
 def _ensure_song_status_row(session_db, song_or_id) -> SongStatus:
     if isinstance(song_or_id, Song):
         song = song_or_id
@@ -2861,6 +3837,165 @@ def _serialize_income_song_meta(session_db, song_ids: list[str]) -> dict[str, di
     return meta
 
 
+def _serialize_income_album_meta(session_db, album_ids: list[str]) -> dict[str, dict]:
+    if not album_ids:
+        return {}
+
+    uuids = []
+    for aid in album_ids:
+        try:
+            uuids.append(uuid.UUID(str(aid)))
+        except Exception:
+            continue
+
+    if not uuids:
+        return {}
+
+    meta: dict[str, dict] = {}
+    album_rows = (
+        session_db.query(Album.id, Album.title, Album.release_date, Album.upc_code, Album.artist_id)
+        .filter(Album.id.in_(uuids))
+        .all()
+    )
+    for aid, title, release_date, upc_code, artist_id in album_rows:
+        meta[str(aid)] = {
+            "album_id": str(aid),
+            "album_title": title or "",
+            "release_date": release_date.isoformat() if release_date else "",
+            "display_code": (_clean_csv_cell(upc_code) or "").strip(),
+            "artist_id": str(artist_id) if artist_id else "",
+            "artists_label": "",
+            "all_codes": [],
+        }
+
+    artist_rows = (
+        session_db.query(Album.id, Artist.name)
+        .join(Artist, Artist.id == Album.artist_id)
+        .filter(Album.id.in_(uuids))
+        .all()
+    )
+    for aid, artist_name in artist_rows:
+        item = meta.get(str(aid))
+        if item and artist_name:
+            item["artists_label"] = artist_name
+
+    code_rows = (
+        session_db.query(AlbumProductCode.album_id, AlbumProductCode.code)
+        .filter(AlbumProductCode.album_id.in_(uuids))
+        .order_by(AlbumProductCode.created_at.asc())
+        .all()
+    )
+    for aid, code in code_rows:
+        item = meta.get(str(aid))
+        if not item:
+            continue
+        raw_code = (_clean_csv_cell(code) or "").strip()
+        if not raw_code:
+            continue
+        if raw_code not in item["all_codes"]:
+            item["all_codes"].append(raw_code)
+        if not item.get("display_code"):
+            item["display_code"] = raw_code
+
+    return meta
+
+
+def _apply_album_income_import_items(session_db, items: list[dict], period_type: str, period_start: date, period_end: date, amount_kind: str, strategy: str = "replace") -> dict:
+    result = {
+        "created": 0,
+        "updated": 0,
+        "unchanged": 0,
+        "kept": 0,
+        "replaced": 0,
+        "actions": [],
+    }
+    if not items:
+        return result
+
+    album_ids = []
+    for item in items:
+        try:
+            album_ids.append(uuid.UUID(str(item.get("album_id") or "")))
+        except Exception:
+            continue
+
+    if not album_ids:
+        return result
+
+    existing_rows = (
+        session_db.query(AlbumRevenueEntry)
+        .filter(AlbumRevenueEntry.album_id.in_(album_ids))
+        .filter(AlbumRevenueEntry.period_type == period_type)
+        .filter(AlbumRevenueEntry.period_start == period_start)
+        .filter(AlbumRevenueEntry.is_base.is_(True))
+        .all()
+    )
+    existing_by_album = {str(row.album_id): row for row in existing_rows}
+
+    for item in items:
+        aid = str(item.get("album_id") or "")
+        amount = _money_norm(item.get("new_value") or item.get("amount") or 0)
+        if not aid:
+            continue
+
+        entry = existing_by_album.get(aid)
+        field_name = "gross" if amount_kind == "gross" else "net"
+        existing_value = _money_norm(getattr(entry, field_name, 0) if entry else 0)
+        action = None
+
+        if entry and strategy == "keep" and not _money_equal(existing_value, amount):
+            result["kept"] += 1
+            action = "kept"
+        else:
+            if not entry:
+                try:
+                    album_uuid = uuid.UUID(aid)
+                except Exception:
+                    continue
+                entry = AlbumRevenueEntry(
+                    album_id=album_uuid,
+                    period_type=period_type,
+                    period_start=period_start,
+                    period_end=period_end,
+                    is_base=True,
+                    name=None,
+                    gross=Decimal("0"),
+                    net=Decimal("0"),
+                )
+                session_db.add(entry)
+                existing_by_album[aid] = entry
+                result["created"] += 1
+                action = "created"
+            else:
+                if strategy == "replace" and not _money_equal(existing_value, amount):
+                    result["replaced"] += 1
+                    action = "replaced"
+                elif _money_equal(existing_value, amount):
+                    result["unchanged"] += 1
+                    action = "unchanged"
+                else:
+                    result["updated"] += 1
+                    action = "updated"
+
+            if strategy != "keep" or not _money_equal(existing_value, amount):
+                setattr(entry, field_name, amount)
+                entry.period_end = period_end
+                entry.updated_at = func.now()
+                if action not in ("created", "replaced", "unchanged"):
+                    action = "updated"
+
+        result["actions"].append(
+            {
+                **item,
+                "existing_value": str(existing_value),
+                "new_value": str(amount),
+                "action": action or "updated",
+            }
+        )
+
+    return result
+
+
 def _apply_income_import_items(session_db, items: list[dict], period_type: str, period_start: date, period_end: date, amount_kind: str, strategy: str = "replace") -> dict:
     result = {
         "created": 0,
@@ -3003,6 +4138,8 @@ def discografica_view():
     royalty_semester_tabs: list[dict] = []
     royalty_beneficiaries_artists: list[dict] = []
     royalty_beneficiaries_others: list[dict] = []
+    royalty_filter_artists: list[Artist] = []
+    royalty_selected_artist_id = ""
 
     # Para redirecciones tras POST
     income_next_url = _update_url_query(request.full_path.rstrip("?"), {"upload_report": None, "import_review": None})
@@ -3149,11 +4286,9 @@ def discografica_view():
 
 
     if section == "royalties":
-        # Subpestañas por semestres (igual que Ingresos)
         today = today_local()
         parsed_sem = _parse_semester_key((request.args.get("s") or "").strip())
         if parsed_sem is None:
-            # Semestre anterior "cerrado"
             if today.month <= 6:
                 sem_year, sem_half = today.year - 1, 2
             else:
@@ -3164,8 +4299,11 @@ def discografica_view():
         royalty_semester_key = _semester_key(sem_year, sem_half)
         sem_start, sem_end = _semester_range(sem_year, sem_half)
         royalty_period_label = _semester_label(sem_year, sem_half)
+        royalty_selected_artist_id = (request.args.get("artist") or "").strip()
+        selected_artist_uuid = to_uuid(royalty_selected_artist_id) if royalty_selected_artist_id else None
+        if royalty_selected_artist_id and not selected_artist_uuid:
+            royalty_selected_artist_id = ""
 
-        # Tabs semestrales (últimos 12 desde el seleccionado)
         royalty_semester_tabs = []
         for i in range(12):
             y, h = _add_semesters(sem_year, sem_half, -i)
@@ -3175,287 +4313,24 @@ def discografica_view():
                     "key": k,
                     "label": _semester_label(y, h),
                     "is_active": k == royalty_semester_key,
-                    "url": url_for("discografica_view", section="royalties", s=k),
+                    "url": url_for(
+                        "discografica_view",
+                        section="royalties",
+                        s=k,
+                        artist=royalty_selected_artist_id or None,
+                    ),
                 }
             )
 
-        # Meses dentro del semestre (para sumar si no hay fila SEMESTER)
-        month_starts = []
-        cursor = date(sem_start.year, sem_start.month, 1)
-        for _ in range(6):
-            month_starts.append(cursor)
-            cursor = _add_months(cursor, 1)
-
-        # Canciones con ingresos en el semestre (SEMESTER o suma de meses)
-        sem_song_ids = [
-            sid
-            for (sid,) in (
-                session_db.query(SongRevenueEntry.song_id)
-                .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
-                .filter(SongRevenueEntry.period_start == sem_start)
-                .distinct()
-                .all()
-            )
-            if sid
-        ]
-        month_song_ids = [
-            sid
-            for (sid,) in (
-                session_db.query(SongRevenueEntry.song_id)
-                .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
-                .filter(SongRevenueEntry.period_start.in_(month_starts))
-                .distinct()
-                .all()
-            )
-            if sid
-        ]
-        song_ids = sorted(set(sem_song_ids + month_song_ids))
-
-        songs = []
-        if song_ids:
-            songs = (
-                session_db.query(Song)
-                .options(selectinload(Song.artists))
-                .filter(Song.id.in_(song_ids))
-                .order_by(Song.release_date.desc())
-                .all()
-            )
-
-        # Ingresos agregados por canción
-        sem_totals = {
-            sid: (Decimal(g or 0), Decimal(n or 0))
-            for sid, g, n in (
-                session_db.query(
-                    SongRevenueEntry.song_id,
-                    func.sum(SongRevenueEntry.gross),
-                    func.sum(SongRevenueEntry.net),
-                )
-                .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
-                .filter(SongRevenueEntry.period_start == sem_start)
-                .group_by(SongRevenueEntry.song_id)
-                .all()
-            )
-            if sid
-        }
-
-        month_totals = {
-            sid: (Decimal(g or 0), Decimal(n or 0))
-            for sid, g, n in (
-                session_db.query(
-                    SongRevenueEntry.song_id,
-                    func.sum(SongRevenueEntry.gross),
-                    func.sum(SongRevenueEntry.net),
-                )
-                .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
-                .filter(SongRevenueEntry.period_start.in_(month_starts))
-                .group_by(SongRevenueEntry.song_id)
-                .all()
-            )
-            if sid
-        }
-
-        gross_map = {}
-        net_map = {}
-        for sid in song_ids:
-            if sid in sem_totals:
-                g, n = sem_totals[sid]
-            else:
-                g, n = month_totals.get(sid, (Decimal(0), Decimal(0)))
-            gross_map[sid] = float(g or 0)
-            net_map[sid] = float(n or 0)
-
-        # Intérpretes por canción
-        interp_map = {sid: [] for sid in song_ids}
-        if song_ids:
-            rows = (
-                session_db.query(SongInterpreter)
-                .filter(SongInterpreter.song_id.in_(song_ids))
-                .order_by(SongInterpreter.song_id, SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
-                .all()
-            )
-            for r in rows:
-                if r.song_id in interp_map and r.name:
-                    interp_map[r.song_id].append(r.name)
-
-        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
-
-        # ISRC AUDIO principal por canción
-        isrc_map = {}
-        if song_ids:
-            rows = (
-                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
-                .filter(SongISRCCode.song_id.in_(song_ids))
-                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
-                .filter(SongISRCCode.is_primary == True)  # noqa: E712
-                .all()
-            )
-            for sid, code in rows:
-                if sid and code:
-                    isrc_map[sid] = code
-
-        # Beneficiarios adicionales (terceros)
-        extra_benef_rows = []
-        if song_ids:
-            extra_benef_rows = (
-                session_db.query(SongRoyaltyBeneficiary)
-                .options(joinedload(SongRoyaltyBeneficiary.promoter))
-                .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
-                .all()
-            )
-
-        # Liquidaciones existentes (estado)
-        liq_rows = (
-            session_db.query(RoyaltyLiquidation)
-            .filter(RoyaltyLiquidation.period_start == sem_start)
-            .all()
+        royalty_payload = _build_royalty_beneficiaries(
+            session_db,
+            sem_start,
+            sem_end,
+            selected_artist_id=selected_artist_uuid,
         )
-        liq_map = {(r.beneficiary_kind, str(r.beneficiary_id)): r for r in liq_rows if r}
-
-        def liq_meta(status: str | None):
-            s = (status or "GENERATED").upper()
-            if s == "SENT":
-                return ("Enviada", "primary")
-            if s == "INVOICED":
-                return ("Facturada", "warning")
-            if s == "PAID":
-                return ("Pagado", "success")
-            return ("Generada", "secondary")
-
-        # Acumulador por beneficiario
-        ben_map = {}
-
-        def ensure_benef(kind: str, bid: str, name: str, photo_url: str | None, kind_label: str):
-            key = (kind, bid)
-            if key not in ben_map:
-                ben_map[key] = {
-                    "kind": kind,
-                    "id": bid,
-                    "name": name,
-                    "photo_url": photo_url,
-                    "kind_label": kind_label,
-                    "songs": [],
-                    "total_amount": 0.0,
-                    "liquidation_status": None,
-                    "liquidation_label": None,
-                    "liquidation_color": None,
-                }
-            return ben_map[key]
-
-        # 1) Beneficiarios artistas (principal por canción)
-        for s in songs:
-            primary_artist = s.artists[0] if getattr(s, 'artists', None) else None
-            if not primary_artist:
-                continue
-
-            # Concepto según tipo de canción
-            if s.is_distribution:
-                concept_variants = ["distribución", "distribucion"]
-                kind_label = "Artista (Distribución)"
-            elif s.is_catalog:
-                concept_variants = ["catálogo", "catalogo"]
-                kind_label = "Artista (Catálogo)"
-            else:
-                concept_variants = ["discográfico", "discografico", "discográfica", "discografica"]
-                kind_label = "Artista (Discográfica)"
-
-            m, _c = _pick_artist_commitment(session_db, primary_artist.id, concept_variants, material_date=getattr(s, "release_date", None), as_of_date=sem_end)
-            pct = float(getattr(m, "pct_artist", 0) or 0) if m else 0.0
-            base = _norm_contract_base(getattr(m, "base", "GROSS") or "GROSS") if m else "GROSS"
-
-            g = gross_map.get(s.id, 0.0)
-            n = net_map.get(s.id, 0.0)
-            base_income = n if base in ("NET", "PROFIT") else g
-            amount = float(base_income) * (pct / 100.0)
-
-            # Excluir canciones sin ingresos (evita listados enormes con 0)
-            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
-                continue
-
-            b = ensure_benef("ARTIST", str(primary_artist.id), primary_artist.name, getattr(primary_artist, "photo_url", None), "Artista")
-            b["songs"].append(
-                {
-                    "song_id": str(s.id),
-                    "cover_url": s.cover_url,
-                    "title": s.title,
-                    "interpreters": (interpreters_str.get(s.id) or "").strip() or ", ".join([a.name for a in getattr(s, 'artists', [])]) or "",
-                    "isrc": isrc_map.get(s.id) or s.isrc,
-                    "release_date": s.release_date.strftime("%d/%m/%Y") if s.release_date else "",
-                    "income": base_income,
-                    "pct": pct,
-                    "amount": amount,
-                }
-            )
-            b["total_amount"] += amount
-
-        # 2) Beneficiarios adicionales (terceros)
-        for r in extra_benef_rows:
-            p = getattr(r, "promoter", None)
-            if not p:
-                continue
-            song_id = getattr(r, "song_id", None)
-            if not song_id:
-                continue
-
-            base = (getattr(r, "base", "GROSS") or "GROSS").strip().upper()
-            if base not in ("GROSS", "NET", "PROFIT"):
-                base = "GROSS"
-            pct = float(getattr(r, "pct", 0) or 0)
-
-            g = gross_map.get(song_id, 0.0)
-            n = net_map.get(song_id, 0.0)
-            base_income = n if base in ("NET", "PROFIT") else g
-            amount = float(base_income) * (pct / 100.0)
-
-            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
-                continue
-
-            # Song meta (lo buscamos en 'songs' si está; si no, lo cargamos)
-            song_obj = next((x for x in songs if x.id == song_id), None)
-            if not song_obj:
-                song_obj = session_db.get(Song, song_id)
-                if song_obj:
-                    _ = song_obj.artists
-
-            if not song_obj:
-                continue
-
-            b = ensure_benef("PROMOTER", str(p.id), (p.nick or (p.first_name or "") + " " + (p.last_name or "")).strip() or "Beneficiario", getattr(p, "logo_url", None), "Beneficiario")
-            b["songs"].append(
-                {
-                    "song_id": str(song_obj.id),
-                    "cover_url": song_obj.cover_url,
-                    "title": song_obj.title,
-                    "interpreters": (interpreters_str.get(song_obj.id) or "").strip() or ", ".join([a.name for a in getattr(song_obj, 'artists', [])]) or "",
-                    "isrc": isrc_map.get(song_obj.id) or song_obj.isrc,
-                    "release_date": song_obj.release_date.strftime("%d/%m/%Y") if song_obj.release_date else "",
-                    "income": base_income,
-                    "pct": pct,
-                    "amount": amount,
-                }
-            )
-            b["total_amount"] += amount
-
-        # Enlazar estado de liquidación
-        for (k, bid), b in ben_map.items():
-            rec = liq_map.get((k, bid))
-            if rec:
-                b["liquidation_status"] = getattr(rec, "status", None)
-                lbl, col = liq_meta(b["liquidation_status"])
-                b["liquidation_label"] = lbl
-                b["liquidation_color"] = col
-
-        # Ordenación (artistas primero)
-        royalty_beneficiaries_artists = [b for (k, _bid), b in ben_map.items() if k == "ARTIST" and (b.get('songs') or [])]
-        royalty_beneficiaries_others = [b for (k, _bid), b in ben_map.items() if k == "PROMOTER" and (b.get('songs') or [])]
-
-        royalty_beneficiaries_artists.sort(key=lambda x: (x.get('name') or '').lower())
-        royalty_beneficiaries_others.sort(key=lambda x: (x.get('name') or '').lower())
-
-        # Ordenar canciones dentro de cada beneficiario por título
-        for b in royalty_beneficiaries_artists + royalty_beneficiaries_others:
-            b["songs"].sort(key=lambda x: (x.get('title') or '').lower())
-
-
+        royalty_beneficiaries_artists = royalty_payload.get("artists") or []
+        royalty_beneficiaries_others = royalty_payload.get("others") or []
+        royalty_filter_artists = royalty_payload.get("filter_artists") or []
 
     if section == "ingresos":
         # 1) Selección de periodos (meses / semestres)
@@ -4039,6 +4914,8 @@ def discografica_view():
         royalty_semester_tabs=royalty_semester_tabs,
         royalty_beneficiaries_artists=royalty_beneficiaries_artists,
         royalty_beneficiaries_others=royalty_beneficiaries_others,
+        royalty_filter_artists=royalty_filter_artists,
+        royalty_selected_artist_id=royalty_selected_artist_id,
     )
     session_db.close()
     return response
@@ -4383,11 +5260,12 @@ def discografica_income_entry_delete(entry_id):
 @app.post("/discografica/ingresos/upload")
 @admin_required
 def discografica_income_upload_csv():
-    """Importa ingresos desde CSV priorizando siempre el emparejado por ISRC.
+    """Importa ingresos desde CSV por ISRC y, adicionalmente, por código de producto de álbum.
 
-    Admite varios archivos simultáneamente y detecta automáticamente dos formatos:
-    - estándar: Track / ISRC / Net Revenue o Gross Revenue
-    - alternativo: PRODUCT CODE / PRICE
+    Reglas:
+    - Se prioriza siempre el match por ISRC para canciones.
+    - Si la fila no encuentra canción por ISRC, se intenta Product Code -> Álbum.
+    - Los Product Code no configurados en la app se ignoran sin aviso.
     """
 
     next_url = request.form.get("next") or url_for("discografica_view", section="ingresos")
@@ -4477,27 +5355,30 @@ def discografica_income_upload_csv():
             return redirect(next_url)
 
         cols = list(df.columns)
-        file_isrc_col = _pick_existing(cols, [isrc_col, "ISRC", "PRODUCT CODE", "Product Code", "Product code"])
-        file_track_col = _pick_existing(cols, [track_col, "Track", "TITLE", "Title", "Song Title", "Name"])
+        file_isrc_col = _pick_existing(cols, [isrc_col, "ISRC"])
+        file_product_code_col = _pick_existing(cols, ["Product Code", "PRODUCT CODE", "Product code"])
+        file_track_col = _pick_existing(cols, [track_col, "Track", "TITLE", "Title", "Song Title", "Name", "Album Title"])
         file_amount_col = _pick_existing(
             cols,
             [
                 amount_col,
+                "Revenue",
                 "PRICE",
                 "Price",
                 "Net Revenue" if amount_kind == "net" else "Gross Revenue",
                 "Gross Revenue" if amount_kind == "net" else "Net Revenue",
             ],
         )
-        if not file_isrc_col or not file_amount_col:
+        if not file_amount_col or (not file_isrc_col and not file_product_code_col):
             flash(
-                f"El archivo '{getattr(uploaded, 'filename', 'archivo')}' no contiene una columna de ISRC válida ni una columna de importe compatible.",
+                f"El archivo '{getattr(uploaded, 'filename', 'archivo')}' no contiene columnas compatibles (ISRC o Product Code) ni una columna de importe válida.",
                 "danger",
             )
             return redirect(next_url)
 
         df["__row_number"] = range(2, len(df) + 2)
-        df["__isrc"] = df[file_isrc_col].map(_clean_csv_cell).map(_norm_isrc)
+        df["__isrc"] = df[file_isrc_col].map(_clean_csv_cell).map(_norm_isrc) if file_isrc_col else ""
+        df["__product_code"] = df[file_product_code_col].map(_clean_csv_cell).map(_norm_product_code) if file_product_code_col else ""
         df["__amount"] = df[file_amount_col].apply(_parse_money_decimal).map(_money_norm)
         rows_total += int(len(df.index))
         files_processed += 1
@@ -4510,6 +5391,7 @@ def discografica_income_upload_csv():
                     "row_number": int(row.get("__row_number") or 0),
                     "raw_row": raw_row,
                     "isrc": str(row.get("__isrc") or ""),
+                    "product_code": str(row.get("__product_code") or ""),
                     "amount": _money_norm(row.get("__amount") or 0),
                     "track": _clean_csv_cell(row.get(file_track_col)) if file_track_col else "",
                     "primary_artist": _clean_csv_cell(row.get("Primary Artist") or row.get("ARTIST") or row.get("Artist")),
@@ -4543,17 +5425,102 @@ def discografica_income_upload_csv():
         for sid, code in code_rows:
             _register_isrc(code, sid)
 
+        product_code_to_album: dict[str, str] = {}
+        album_code_rows = session_db.query(AlbumProductCode.album_id, AlbumProductCode.code).all()
+        for aid, code in album_code_rows:
+            norm_code = _norm_product_code(code)
+            if norm_code and aid:
+                product_code_to_album[norm_code] = str(aid)
+
         aggregated_by_song: dict[str, dict] = {}
+        aggregated_by_album: dict[str, dict] = {}
         unmatched_rows: list[dict] = []
 
         for row in parsed_rows:
             row_number = int(row.get("row_number") or 0)
             raw_row = row.get("raw_row") or {}
             norm_isrc = str(row.get("isrc") or "")
+            norm_product_code = str(row.get("product_code") or "")
             amount = _money_norm(row.get("amount") or 0)
             track_name = row.get("track") or ""
             primary_artist_name = row.get("primary_artist") or ""
             file_name = row.get("file_name") or "archivo.csv"
+
+            if norm_isrc and norm_isrc in ambiguous_isrcs:
+                unmatched_rows.append(
+                    {
+                        "file_name": file_name,
+                        "row_number": row_number,
+                        "isrc": norm_isrc,
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "reason": "ISRC asociado a más de una canción en la base de datos.",
+                        "row": raw_row,
+                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
+                    }
+                )
+                continue
+
+            song_id = isrc_to_song.get(norm_isrc) if norm_isrc else None
+            album_id = product_code_to_album.get(norm_product_code) if norm_product_code else None
+
+            if song_id:
+                bucket = aggregated_by_song.setdefault(
+                    song_id,
+                    {
+                        "song_id": song_id,
+                        "amount": Decimal("0"),
+                        "matched_isrcs": set(),
+                        "source_tracks": set(),
+                        "rows": [],
+                    },
+                )
+                bucket["amount"] += amount
+                bucket["matched_isrcs"].add(norm_isrc)
+                if track_name:
+                    bucket["source_tracks"].add(track_name)
+                bucket["rows"].append(
+                    {
+                        "file_name": file_name,
+                        "row_number": row_number,
+                        "isrc": norm_isrc,
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "amount": str(amount),
+                    }
+                )
+                continue
+
+            if album_id:
+                bucket = aggregated_by_album.setdefault(
+                    album_id,
+                    {
+                        "album_id": album_id,
+                        "amount": Decimal("0"),
+                        "matched_product_codes": set(),
+                        "source_tracks": set(),
+                        "rows": [],
+                    },
+                )
+                bucket["amount"] += amount
+                bucket["matched_product_codes"].add(norm_product_code)
+                if track_name:
+                    bucket["source_tracks"].add(track_name)
+                bucket["rows"].append(
+                    {
+                        "file_name": file_name,
+                        "row_number": row_number,
+                        "product_code": norm_product_code,
+                        "track": track_name,
+                        "primary_artist": primary_artist_name,
+                        "amount": str(amount),
+                    }
+                )
+                continue
+
+            if norm_product_code and not norm_isrc:
+                # Product code no configurado en la app -> ignorar sin aviso.
+                continue
 
             if not norm_isrc:
                 unmatched_rows.append(
@@ -4570,64 +5537,23 @@ def discografica_income_upload_csv():
                 )
                 continue
 
-            if norm_isrc in ambiguous_isrcs:
-                unmatched_rows.append(
-                    {
-                        "file_name": file_name,
-                        "row_number": row_number,
-                        "isrc": norm_isrc,
-                        "track": track_name,
-                        "primary_artist": primary_artist_name,
-                        "reason": "ISRC asociado a más de una canción en la base de datos.",
-                        "row": raw_row,
-                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
-                    }
-                )
-                continue
-
-            song_id = isrc_to_song.get(norm_isrc)
-            if not song_id:
-                unmatched_rows.append(
-                    {
-                        "file_name": file_name,
-                        "row_number": row_number,
-                        "isrc": norm_isrc,
-                        "track": track_name,
-                        "primary_artist": primary_artist_name,
-                        "reason": "ISRC no encontrado o no relacionado con ninguna canción.",
-                        "row": raw_row,
-                        "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
-                    }
-                )
-                continue
-
-            bucket = aggregated_by_song.setdefault(
-                song_id,
-                {
-                    "song_id": song_id,
-                    "amount": Decimal("0"),
-                    "matched_isrcs": set(),
-                    "source_tracks": set(),
-                    "rows": [],
-                },
-            )
-            bucket["amount"] += amount
-            bucket["matched_isrcs"].add(norm_isrc)
-            if track_name:
-                bucket["source_tracks"].add(track_name)
-            bucket["rows"].append(
+            unmatched_rows.append(
                 {
                     "file_name": file_name,
                     "row_number": row_number,
                     "isrc": norm_isrc,
                     "track": track_name,
                     "primary_artist": primary_artist_name,
-                    "amount": str(amount),
+                    "reason": "ISRC no encontrado o no relacionado con ninguna canción.",
+                    "row": raw_row,
+                    "row_json": json.dumps(raw_row, ensure_ascii=False, indent=2),
                 }
             )
 
         matched_song_ids = list(aggregated_by_song.keys())
+        matched_album_ids = list(aggregated_by_album.keys())
         song_meta = _serialize_income_song_meta(session_db, matched_song_ids)
+        album_meta = _serialize_income_album_meta(session_db, matched_album_ids)
 
         existing_entries = []
         if matched_song_ids:
@@ -4643,7 +5569,6 @@ def discografica_income_upload_csv():
 
         immediate_items = []
         conflict_items = []
-
         for sid, bucket in aggregated_by_song.items():
             meta = song_meta.get(sid) or {"song_title": "", "artists_label": "", "display_isrc": "", "all_isrcs": []}
             amount = _money_norm(bucket.get("amount") or 0)
@@ -4675,6 +5600,34 @@ def discografica_income_upload_csv():
             amount_kind=amount_kind,
             strategy="replace",
         )
+
+        album_items = []
+        for aid, bucket in aggregated_by_album.items():
+            meta = album_meta.get(aid) or {"album_title": "", "artists_label": "", "display_code": "", "all_codes": []}
+            amount = _money_norm(bucket.get("amount") or 0)
+            album_items.append(
+                {
+                    "album_id": aid,
+                    "album_title": meta.get("album_title") or "",
+                    "artists_label": meta.get("artists_label") or "",
+                    "display_code": meta.get("display_code") or "",
+                    "matched_product_codes": sorted(bucket.get("matched_product_codes") or []),
+                    "source_tracks": sorted(bucket.get("source_tracks") or []),
+                    "row_count": len(bucket.get("rows") or []),
+                    "rows": bucket.get("rows") or [],
+                    "new_value": str(amount),
+                }
+            )
+
+        album_apply_result = _apply_album_income_import_items(
+            session_db,
+            album_items,
+            period_type=period_type,
+            period_start=ps,
+            period_end=pe,
+            amount_kind=amount_kind,
+            strategy="replace",
+        )
         session_db.commit()
 
         amount_kind_label = "Bruto" if amount_kind == "gross" else "Neto"
@@ -4686,6 +5639,19 @@ def discografica_income_upload_csv():
                     "song_title": action_item.get("song_title") or "",
                     "artists_label": action_item.get("artists_label") or "",
                     "display_isrc": action_item.get("display_isrc") or "",
+                    "amount": action_item.get("new_value") or "0.00",
+                    "action": action_item.get("action") or "updated",
+                }
+            )
+
+        applied_albums = []
+        for action_item in album_apply_result.get("actions") or []:
+            applied_albums.append(
+                {
+                    "album_id": action_item.get("album_id") or "",
+                    "album_title": action_item.get("album_title") or "",
+                    "artists_label": action_item.get("artists_label") or "",
+                    "display_code": action_item.get("display_code") or "",
                     "amount": action_item.get("new_value") or "0.00",
                     "action": action_item.get("action") or "updated",
                 }
@@ -4705,15 +5671,17 @@ def discografica_income_upload_csv():
                 "files_total": files_processed,
                 "rows_total": int(rows_total),
                 "matched_songs": len(matched_song_ids),
-                "created": int(apply_result.get("created") or 0),
-                "updated": int(apply_result.get("updated") or 0),
-                "unchanged": int(apply_result.get("unchanged") or 0),
-                "replaced": 0,
+                "matched_albums": len(matched_album_ids),
+                "created": int(apply_result.get("created") or 0) + int(album_apply_result.get("created") or 0),
+                "updated": int(apply_result.get("updated") or 0) + int(album_apply_result.get("updated") or 0),
+                "unchanged": int(apply_result.get("unchanged") or 0) + int(album_apply_result.get("unchanged") or 0),
+                "replaced": int(apply_result.get("replaced") or 0) + int(album_apply_result.get("replaced") or 0),
                 "kept": 0,
                 "conflicts_pending": len(conflict_items),
                 "unmatched_rows": len(unmatched_rows),
             },
             "applied_songs": applied_songs,
+            "applied_albums": applied_albums,
             "unmatched_rows": unmatched_rows,
         }
 
@@ -4741,8 +5709,8 @@ def discografica_income_upload_csv():
             return redirect(_update_url_query(next_url, {"upload_report": report_token, "import_review": review_token}))
 
     flash(
-        f"CSV procesado por ISRC. Archivos: {files_processed}. Canciones con match: {report_payload['summary']['matched_songs']}. Filas sin match: {report_payload['summary']['unmatched_rows']}.",
-        "success" if report_payload["summary"]["matched_songs"] else "warning",
+        f"CSV procesado. Archivos: {files_processed}. Canciones con match: {report_payload['summary']['matched_songs']}. Discos con match: {report_payload['summary']['matched_albums']}. Filas sin match: {report_payload['summary']['unmatched_rows']}.",
+        "success" if (report_payload["summary"]["matched_songs"] or report_payload["summary"]["matched_albums"]) else "warning",
     )
     return redirect(_update_url_query(next_url, {"upload_report": report_token}))
 
@@ -5182,16 +6150,6 @@ def discografica_income_report_pdf():
 @app.get("/discografica/royalties/liquidacion/pdf")
 @admin_required
 def discografica_royalties_liquidation_pdf():
-    """Genera y descarga la Liquidación de Royalties (PDF) para un beneficiario y semestre.
-
-    Query params:
-    - kind: ARTIST | PROMOTER
-    - bid: UUID del beneficiario
-    - s: semestre (YYYY-S1 / YYYY-S2)
-
-    Al generar, se crea/actualiza el registro en royalty_liquidations con estado GENERATED.
-    """
-
     kind = (request.args.get("kind") or "").strip().upper()
     bid_raw = (request.args.get("bid") or "").strip()
     sem_key = (request.args.get("s") or "").strip()
@@ -5200,272 +6158,109 @@ def discografica_royalties_liquidation_pdf():
     if not parsed_sem:
         abort(400)
     sem_year, sem_half = parsed_sem
-    sem_start, sem_end = _semester_range(sem_year, sem_half)
-
-    if kind not in ("ARTIST", "PROMOTER"):
-        abort(400)
 
     try:
-        bid = uuid.UUID(bid_raw)
+        beneficiary_uuid = uuid.UUID(bid_raw)
     except Exception:
         abort(400)
 
-    from io import BytesIO
-    from urllib.request import urlopen
-
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.units import cm
-    from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-    from reportlab.lib.styles import getSampleStyleSheet
-
-    def _fetch_img(url: str, w: float, h: float):
-        if not url:
-            return ""
+    with get_db() as session_db:
         try:
-            with urlopen(url, timeout=6) as resp:
-                data = resp.read()
-            bio = BytesIO(data)
-            img = Image(bio, width=w, height=h)
-            img.hAlign = "LEFT"
-            return img
+            pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=True,
+            )
+        except LookupError:
+            abort(404)
         except Exception:
-            return ""
+            abort(400)
 
-    def _song_kind(song: Song) -> str:
-        if song.is_distribution:
-            return "distribucion"
-        if song.is_catalog:
-            return "catalogo"
-        return "discografica"
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
 
-    def _concept_variants(song: Song) -> list[str]:
-        k = _song_kind(song)
-        if k == "distribucion":
-            return ["distribución", "distribucion"]
-        if k == "catalogo":
-            return ["catálogo", "catalogo"]
-        return ["discográfico", "discografico", "discográfica", "discografica"]
 
-    def _clean_filename(s: str) -> str:
-        s = (s or "").strip()
-        allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ "
-        s = "".join(ch for ch in s if ch in allowed)
-        s = "_".join([p for p in s.split() if p])
-        return s or "beneficiario"
+@app.get("/public/royalties/liquidacion/pdf")
+def public_royalty_liquidation_pdf():
+    token = (request.args.get("token") or "").strip()
+    payload = _parse_public_royalty_liquidation_token(token)
+    if not payload:
+        abort(404)
 
-    # Meses dentro del semestre (para sumar si no hay fila SEMESTER)
-    month_starts = []
-    cursor = date(sem_start.year, sem_start.month, 1)
-    for _ in range(6):
-        month_starts.append(cursor)
-        cursor = _add_months(cursor, 1)
+    kind = (payload.get("kind") or "").strip().upper()
+    bid_raw = (payload.get("bid") or "").strip()
+    sem_key = (payload.get("s") or "").strip()
+
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        abort(404)
+    sem_year, sem_half = parsed_sem
+
+    try:
+        beneficiary_uuid = uuid.UUID(bid_raw)
+    except Exception:
+        abort(404)
 
     with get_db() as session_db:
-        # Beneficiario
-        if kind == "ARTIST":
-            ben = session_db.get(Artist, bid)
-            if not ben:
-                abort(404)
-            ben_name = ben.name
-            ben_photo = getattr(ben, "photo_url", None)
-        else:
-            ben = session_db.get(Promoter, bid)
-            if not ben:
-                abort(404)
-            ben_name = (ben.nick or (ben.first_name or "") + " " + (ben.last_name or "")).strip() or "Beneficiario"
-            ben_photo = getattr(ben, "logo_url", None)
-
-        # Canciones del beneficiario
-        songs: list[Song] = []
-        if kind == "ARTIST":
-            songs = (
-                session_db.query(Song)
-                .join(SongArtist, Song.id == SongArtist.song_id)
-                .filter(SongArtist.artist_id == bid)
-                .options(selectinload(Song.artists))
-                .order_by(Song.release_date.desc())
-                .all()
+        try:
+            pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=False,
             )
-        else:
-            sids = [
-                sid
-                for (sid,) in (
-                    session_db.query(SongRoyaltyBeneficiary.song_id)
-                    .filter(SongRoyaltyBeneficiary.promoter_id == bid)
-                    .distinct()
-                    .all()
-                )
-                if sid
-            ]
-            if sids:
-                songs = (
-                    session_db.query(Song)
-                    .options(selectinload(Song.artists))
-                    .filter(Song.id.in_(sids))
-                    .order_by(Song.release_date.desc())
-                    .all()
-                )
+        except Exception:
+            abort(404)
 
-        song_ids = [s.id for s in songs]
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
 
-        # Ingresos agregados por canción (semestre: usa SEMESTER si existe, si no suma meses)
-        sem_totals = {}
-        month_totals = {}
-        if song_ids:
-            sem_totals = {
-                sid: (Decimal(g or 0), Decimal(n or 0))
-                for sid, g, n in (
-                    session_db.query(
-                        SongRevenueEntry.song_id,
-                        func.sum(SongRevenueEntry.gross),
-                        func.sum(SongRevenueEntry.net),
-                    )
-                    .filter(SongRevenueEntry.song_id.in_(song_ids))
-                    .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
-                    .filter(SongRevenueEntry.period_start == sem_start)
-                    .group_by(SongRevenueEntry.song_id)
-                    .all()
-                )
-                if sid
-            }
 
-            month_totals = {
-                sid: (Decimal(g or 0), Decimal(n or 0))
-                for sid, g, n in (
-                    session_db.query(
-                        SongRevenueEntry.song_id,
-                        func.sum(SongRevenueEntry.gross),
-                        func.sum(SongRevenueEntry.net),
-                    )
-                    .filter(SongRevenueEntry.song_id.in_(song_ids))
-                    .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
-                    .filter(SongRevenueEntry.period_start.in_(month_starts))
-                    .group_by(SongRevenueEntry.song_id)
-                    .all()
-                )
-                if sid
-            }
+@app.post("/discografica/royalties/liquidacion/send")
+@admin_required
+def discografica_royalties_liquidation_send():
+    next_url = request.form.get("next") or url_for("discografica_view", section="royalties")
+    kind = (request.form.get("kind") or "").strip().upper()
+    bid_raw = (request.form.get("bid") or "").strip()
+    sem_key = (request.form.get("s") or "").strip()
 
-        gross_map = {}
-        net_map = {}
-        for sid in song_ids:
-            if sid in sem_totals:
-                g, n = sem_totals[sid]
-            else:
-                g, n = month_totals.get(sid, (Decimal(0), Decimal(0)))
-            gross_map[sid] = float(g or 0)
-            net_map[sid] = float(n or 0)
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        flash("Semestre inválido.", "danger")
+        return redirect(next_url)
+    sem_year, sem_half = parsed_sem
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
 
-        # Intérpretes
-        interp_map = {sid: [] for sid in song_ids}
-        if song_ids:
-            rows = (
-                session_db.query(SongInterpreter)
-                .filter(SongInterpreter.song_id.in_(song_ids))
-                .order_by(SongInterpreter.song_id, SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
-                .all()
+    try:
+        beneficiary_uuid = uuid.UUID(bid_raw)
+    except Exception:
+        flash("Beneficiario inválido.", "danger")
+        return redirect(next_url)
+
+    with get_db() as session_db:
+        try:
+            pdf_bytes, filename, beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=False,
             )
-            for r in rows:
-                if r.song_id in interp_map and r.name:
-                    interp_map[r.song_id].append(r.name)
-        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+        except LookupError:
+            flash("No hay datos para enviar esta liquidación.", "warning")
+            return redirect(next_url)
+        except Exception as exc:
+            flash(f"No se pudo preparar la liquidación: {exc}", "danger")
+            return redirect(next_url)
 
-        # ISRC AUDIO principal
-        isrc_map = {}
-        if song_ids:
-            rows = (
-                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
-                .filter(SongISRCCode.song_id.in_(song_ids))
-                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
-                .filter(SongISRCCode.is_primary == True)  # noqa: E712
-                .all()
-            )
-            for sid, code in rows:
-                if sid and code:
-                    isrc_map[sid] = code
-
-        # Para PROMOTER: pct/base por canción (se asume 1 fila por canción y beneficiario)
-        prom_pct_base = {}
-        if kind == "PROMOTER" and song_ids:
-            rows = (
-                session_db.query(SongRoyaltyBeneficiary)
-                .filter(SongRoyaltyBeneficiary.promoter_id == bid)
-                .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
-                .all()
-            )
-            for r in rows:
-                prom_pct_base[r.song_id] = (float(getattr(r, 'pct', 0) or 0), (getattr(r, 'base', 'GROSS') or 'GROSS').strip().upper())
-
-        # Construimos filas
-        rows = []
-        total_amount = 0.0
-
-        for s in songs:
-            g = gross_map.get(s.id, 0.0)
-            n = net_map.get(s.id, 0.0)
-
-            # Excluir canciones sin ingresos
-            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
-                continue
-
-            if kind == "ARTIST":
-                m, _c = _pick_artist_commitment(session_db, bid, _concept_variants(s), material_date=getattr(s, "release_date", None), as_of_date=sem_end)
-                pct = float(getattr(m, 'pct_artist', 0) or 0) if m else 0.0
-                base = _norm_contract_base(getattr(m, 'base', 'GROSS') or 'GROSS') if m else 'GROSS'
-            else:
-                pct, base = prom_pct_base.get(s.id, (0.0, 'GROSS'))
-                base = (base or 'GROSS').upper()
-
-            if base not in ('GROSS','NET','PROFIT'):
-                base = 'GROSS'
-
-            income = n if base in ('NET','PROFIT') else g
-            amount = float(income) * (float(pct) / 100.0)
-            total_amount += amount
-
-            rows.append(
-                {
-                    'cover_url': s.cover_url,
-                    'title': s.title,
-                    'interpreters': (interpreters_str.get(s.id) or '').strip() or ", ".join([a.name for a in getattr(s, 'artists', [])]) or "",
-                    'isrc': _norm_isrc(isrc_map.get(s.id) or s.isrc),
-                    'release_date': s.release_date.strftime('%d/%m/%Y') if s.release_date else '',
-                    'income': float(income or 0),
-                    'pct': float(pct or 0),
-                    'amount': float(amount or 0),
-                }
-            )
-
-        # Upsert liquidación (si existe, mantenemos status; si no existe, queda GENERATED)
-        now_dt = datetime.now(TZ_MADRID)
-        rec = (
-            session_db.query(RoyaltyLiquidation)
-            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
-            .filter(RoyaltyLiquidation.beneficiary_id == bid)
-            .filter(RoyaltyLiquidation.period_start == sem_start)
-            .first()
-        )
-
-        if rec:
-            rec.period_end = sem_end
-            rec.generated_at = now_dt
-            rec.updated_at = now_dt
-            if not getattr(rec, 'status', None):
-                rec.status = 'GENERATED'
-        else:
-            rec = RoyaltyLiquidation(
-                beneficiary_kind=kind,
-                beneficiary_id=bid,
-                period_start=sem_start,
-                period_end=sem_end,
-                status='GENERATED',
-                generated_at=now_dt,
-                updated_at=now_dt,
-            )
-            session_db.add(rec)
-
-        session_db.commit()
+        to_email = (beneficiary.get("contact_email") or "").strip() or (_beneficiary_contact_email(session_db, kind, beneficiary_uuid) or "")
+        if not to_email:
+            flash("El beneficiario no tiene un email configurado para el envío de la liquidación.", "warning")
+            return redirect(next_url)
 
         pies_company = (
             session_db.query(GroupCompany)
@@ -5473,133 +6268,57 @@ def discografica_royalties_liquidation_pdf():
             .order_by(GroupCompany.name.asc())
             .first()
         )
-        pies_tax_info = (getattr(pies_company, 'tax_info', None) or 'poner los datos fiscales de la empresa del grupo PIES').strip()
-        pies_logo_url = getattr(pies_company, 'logo_url', None) or None
-
-        # ---------------- PDF ----------------
-        buf = BytesIO()
-        doc = SimpleDocTemplate(
-            buf,
-            pagesize=landscape(A4),
-            leftMargin=1.2 * cm,
-            rightMargin=1.2 * cm,
-            topMargin=1.0 * cm,
-            bottomMargin=1.0 * cm,
+        logo_url = (getattr(pies_company, 'logo_url', None) or '').strip() or _external_url_for('static', filename='img/logo.png')
+        photo_url = (beneficiary.get('photo_url') or '').strip() or _external_url_for('static', filename='img/logo.png')
+        period_label = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
+        public_token = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
+        download_url = _external_url_for('public_royalty_liquidation_pdf') + f"?token={quote_plus(public_token)}"
+        html_body, text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, download_url, logo_url, photo_url)
+        subject = f"Liquidación Royalties Semestre {sem_half} {sem_year}"
+        ok, error = _send_optional_email(
+            to_email,
+            subject,
+            html_body,
+            text_body=text_body,
+            attachments=[
+                {
+                    'data': pdf_bytes,
+                    'filename': filename,
+                    'mimetype': 'application/pdf',
+                }
+            ],
         )
-        styles = getSampleStyleSheet()
+        if not ok:
+            flash(f"No se pudo enviar la liquidación: {error}", "danger")
+            return redirect(next_url)
 
-        story = []
-
-        logo = _fetch_img(pies_logo_url or '', 3.2 * cm, 1.3 * cm)
-        if not logo:
-            try:
-                import os
-                logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
-                logo = Image(logo_path, width=3.2 * cm, height=1.3 * cm)
-            except Exception:
-                logo = ''
-
-        title = Paragraph("<b>Liquidación de Royalties</b>", styles['Title'])
-        header = Table([[logo, title]], colWidths=[4.0 * cm, None])
-        header.setStyle(
-            TableStyle(
-                [
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('ALIGN', (1, 0), (1, 0), 'CENTER'),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ]
+        now_dt = datetime.now(TZ_MADRID)
+        rec = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+            .filter(RoyaltyLiquidation.beneficiary_id == beneficiary_uuid)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .first()
+        )
+        if not rec:
+            rec = RoyaltyLiquidation(
+                beneficiary_kind=kind,
+                beneficiary_id=beneficiary_uuid,
+                period_start=sem_start,
+                period_end=sem_end,
+                status='SENT',
+                generated_at=now_dt,
+                updated_at=now_dt,
             )
-        )
-        story.append(header)
+            session_db.add(rec)
+        else:
+            rec.status = 'SENT'
+            rec.period_end = sem_end
+            rec.updated_at = now_dt
+        session_db.commit()
 
-        story.append(Spacer(1, 6))
-
-        period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
-        info = Paragraph(
-            f"<b>Beneficiario:</b> {ben_name}<br/><b>Periodo:</b> {period_str}",
-            styles['Normal'],
-        )
-        story.append(info)
-        story.append(Spacer(1, 10))
-
-        # Tabla canciones
-        def eur(v):
-            try:
-                return f"{float(v):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
-            except Exception:
-                return "0,00 €"
-
-        data = [["", "Canción", "ISRC", "Publicación", "Ingreso", "%", "A facturar"]]
-
-        for r in rows:
-            cover = _fetch_img(r.get('cover_url') or "", 0.9 * cm, 0.9 * cm)
-            title_cell = Paragraph(
-                f"<b>{(r.get('title') or '').replace('<','').replace('>','')}</b><br/><font size=8>{(r.get('interpreters') or '').replace('<','').replace('>','')}</font>",
-                styles['Normal'],
-            )
-            data.append(
-                [
-                    cover,
-                    title_cell,
-                    r.get('isrc') or "",
-                    r.get('release_date') or "",
-                    eur(r.get('income') or 0),
-                    f"{float(r.get('pct') or 0):.2f}%",
-                    eur(r.get('amount') or 0),
-                ]
-            )
-
-        tbl = Table(data, colWidths=[1.2 * cm, None, 4.0 * cm, 2.6 * cm, 3.0 * cm, 1.6 * cm, 3.0 * cm])
-        tbl.setStyle(
-            TableStyle(
-                [
-                    ('BACKGROUND', (0, 0), (-1, 0), colors.whitesmoke),
-                    ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-                    ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                    ('FONTSIZE', (0, 0), (-1, 0), 9),
-                    ('GRID', (0, 0), (-1, -1), 0.25, colors.lightgrey),
-                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-                    ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
-                    ('FONTSIZE', (0, 1), (-1, -1), 8),
-                    ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.Color(0.98, 0.98, 0.98)]),
-                ]
-            )
-        )
-        story.append(tbl)
-
-        story.append(Spacer(1, 10))
-        total_box = Table(
-            [[Paragraph(f"<para alignment='right'><b>Total a facturar:</b> {eur(total_amount)}</para>", styles['Normal'])]],
-            colWidths=[8.0 * cm],
-            hAlign='RIGHT',
-        )
-        total_box.setStyle(
-            TableStyle(
-                [
-                    ('BOX', (0, 0), (-1, -1), 0.5, colors.lightgrey),
-                    ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
-                    ('LEFTPADDING', (0, 0), (-1, -1), 8),
-                    ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-                    ('TOPPADDING', (0, 0), (-1, -1), 6),
-                    ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-                ]
-            )
-        )
-        story.append(total_box)
-        story.append(Spacer(1, 8))
-        note_style = styles['Normal']
-        safe_pies_tax_info = (pies_tax_info or "poner los datos fiscales de la empresa del grupo PIES").replace("<", "").replace(">", "")
-        story.append(Paragraph(f'Emitir factura a nombre de "{safe_pies_tax_info}"', note_style))
-        story.append(Spacer(1, 4))
-        story.append(Paragraph("<link href='https://www.piesrecords.com/facturacion'><u>Subir factura</u></link>", note_style))
-
-        doc.build(story)
-        buf.seek(0)
-
-        sem_year_num, sem_half_num = parsed_sem
-        semester_label_for_file = f"S{sem_half_num}"
-        fname = f"{_clean_filename(ben_name)}_Liquidación Royalties_{semester_label_for_file}_{sem_year_num}.pdf"
-        return send_file(buf, mimetype='application/pdf', as_attachment=True, download_name=fname)
+    flash(f"Liquidación enviada a {to_email}.", "success")
+    return redirect(next_url)
 
 
 @app.post("/discografica/royalties/liquidacion/status")
@@ -8622,8 +9341,10 @@ def api_create_ticketer():
 
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
+from email.utils import formataddr
 from difflib import SequenceMatcher
 from collections import defaultdict
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 
 def _parse_optional_decimal(value: str | None) -> Decimal | None:

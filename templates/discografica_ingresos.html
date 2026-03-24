@@ -1,7 +1,7 @@
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <div>
     <div class="fw-semibold">Periodo seleccionado: {{ income_period_label }}</div>
-    <div class="text-muted small">Puedes añadir ingresos brutos/netos por periodo o importarlos por CSV (por ISRC).</div>
+    <div class="text-muted small">Puedes añadir ingresos brutos/netos por periodo o importarlos por CSV (por ISRC de canción o Product Code de álbum).</div>
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#incomeReportModal">
@@ -31,7 +31,7 @@
             {% endif %}
           </div>
         {% elif sum.unmatched_rows %}
-          <span class="badge text-bg-warning">{{ sum.unmatched_rows }} ISRC sin match</span>
+          <span class="badge text-bg-warning">{{ sum.unmatched_rows }} filas sin match</span>
         {% else %}
           <span class="badge text-bg-success">Importación procesada</span>
         {% endif %}
@@ -41,8 +41,9 @@
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Archivos</div><div class="fw-semibold">{{ sum.files_total or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Filas CSV</div><div class="fw-semibold">{{ sum.rows_total or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Canciones con match</div><div class="fw-semibold">{{ sum.matched_songs or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Discos con match</div><div class="fw-semibold">{{ sum.matched_albums or 0 }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Creadas</div><div class="fw-semibold">{{ sum.created or 0 }}</div></div></div>
-        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Actualizadas</div><div class="fw-semibold">{{ sum.updated or 0 }}</div></div></div>
+        <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Actualizadas</div><div class="fw-semibold">{{ (sum.updated or 0) + (sum.replaced or 0) }}</div></div></div>
         <div class="col-6 col-lg-2"><div class="border rounded p-2 h-100"><div class="text-muted">Sin match</div><div class="fw-semibold">{{ sum.unmatched_rows or 0 }}</div></div></div>
       </div>
 
@@ -85,10 +86,49 @@
         </div>
       {% endif %}
 
+      {% if rpt.applied_albums %}
+        <div class="table-responsive mb-3">
+          <table class="table table-sm align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>Disco / EP</th>
+                <th>Artista</th>
+                <th class="text-nowrap">Código producto</th>
+                <th class="text-nowrap text-end">Importe</th>
+                <th class="text-nowrap">Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in rpt.applied_albums %}
+                <tr>
+                  <td class="fw-semibold"><a class="text-decoration-none" href="{{ url_for('discografica_album_detail', album_id=item.album_id, tab='informacion') }}">{{ item.album_title or '—' }}</a></td>
+                  <td>{{ item.artists_label or '—' }}</td>
+                  <td class="text-muted">{{ item.display_code or '—' }}</td>
+                  <td class="text-end">{{ item.amount|eur }}</td>
+                  <td>
+                    {% if item.action == 'created' %}
+                      <span class="badge text-bg-success">Creado</span>
+                    {% elif item.action == 'replaced' %}
+                      <span class="badge text-bg-warning">Reemplazado</span>
+                    {% elif item.action == 'kept' %}
+                      <span class="badge text-bg-secondary">Mantenido</span>
+                    {% elif item.action == 'unchanged' %}
+                      <span class="badge text-bg-light text-dark">Sin cambios</span>
+                    {% else %}
+                      <span class="badge text-bg-primary">Actualizado</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+
       {% if rpt.unmatched_rows %}
         <div class="border rounded p-3 bg-light-subtle">
-          <div class="fw-semibold mb-2">ISRC sin relación en la base de datos</div>
-          <div class="small text-muted mb-2">Estas filas no bloquean la importación del resto. Se muestran completas para que podáis corregir el repertorio.</div>
+          <div class="fw-semibold mb-2">Filas de canción sin relación en la base de datos</div>
+          <div class="small text-muted mb-2">Estas filas no bloquean la importación del resto. Los Product Code de discos no configurados en la app se ignoran sin aviso, así que aquí solo se muestran las filas de canciones que conviene revisar o corregir en el repertorio.</div>
           <div class="table-responsive">
             <table class="table table-sm align-middle mb-0">
               <thead class="table-light">
@@ -462,8 +502,9 @@
             <input class="form-control" type="file" name="csv_files" id="incomeUploadFile" accept=".csv,text/csv" multiple required>
             <div class="small text-muted mt-1">
               Formatos soportados: <span class="text-nowrap">Track / ISRC / Net Revenue</span>,
-              <span class="text-nowrap">Track / ISRC / Gross Revenue</span> y el formato con
-              <span class="text-nowrap">PRODUCT CODE</span> como ISRC y <span class="text-nowrap">PRICE</span> como importe.
+              <span class="text-nowrap">Track / ISRC / Gross Revenue</span>,
+              <span class="text-nowrap">Product Code / Revenue</span> para discos y el formato con
+              <span class="text-nowrap">PRODUCT CODE</span> como identificador y <span class="text-nowrap">PRICE</span> o <span class="text-nowrap">Revenue</span> como importe.
             </div>
           </div>
 
@@ -485,7 +526,7 @@
                 <label class="form-check-label" for="incomeAmtGross">Bruto</label>
               </div>
             </div>
-            <div class="small text-muted">Se actualizará el campo correspondiente (neto o bruto) para este periodo. Si el mismo ISRC aparece varias veces entre varios archivos, se suman sus importes.</div>
+            <div class="small text-muted">Se actualizará el campo correspondiente (neto o bruto) para este periodo. Si el mismo ISRC o Product Code aparece varias veces entre varios archivos, se suman sus importes. Los Product Code no configurados en la app se ignoran sin aviso.</div>
           </div>
 
         </div>

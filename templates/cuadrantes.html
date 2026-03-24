@@ -369,12 +369,35 @@
       </div>
 
       <div class="col-12 col-lg-6 mt-2">
-        <label class="form-label mb-1"># / gira / concepto</label>
-        <select name="concert_tag" class="form-select" multiple>
-          {% for tag in all_concert_tags %}
-            <option value="{{ tag }}" {% if tag in (f_concert_tags or []) %}selected{% endif %}>#{{ tag }}</option>
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+          <label class="form-label mb-1"># / gira / concepto</label>
+          <label class="form-check form-switch m-0">
+            <input class="form-check-input" type="checkbox" name="concert_tag_enabled" id="concertTagEnabled" value="1" {% if concert_tag_enabled %}checked{% endif %} {% if not selected_artist_ids %}disabled{% endif %}>
+            <span class="form-check-label small">Activar filtro</span>
+          </label>
+        </div>
+        <input
+          type="text"
+          name="concert_tag_text"
+          id="concertTagInput"
+          class="form-control"
+          list="concertTagsList"
+          value="{{ concert_tag_text or '' }}"
+          placeholder="Escribe o selecciona un #"
+          {% if not selected_artist_ids %}disabled{% endif %}
+        >
+        <datalist id="concertTagsList">
+          {% for tag in available_concert_tags %}
+            <option value="#{{ tag }}"></option>
           {% endfor %}
-        </select>
+        </datalist>
+        <div class="form-text">
+          {% if selected_artist_ids %}
+            Solo filtra cuando activas el interruptor. Las sugerencias se limitan a los # de los artistas seleccionados.
+          {% else %}
+            Selecciona primero uno o varios artistas para activar este filtro.
+          {% endif %}
+        </div>
       </div>
 
       <div class="col-12 mt-2">
@@ -695,6 +718,10 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <!-- Metemos el JSON aquí para que el editor no lo trate como JS -->
+<script id="quad-tags-by-artist-json" type="application/json">
+  {{ (concert_tags_by_artist or {}) | tojson }}
+</script>
+
 <script id="quad-events-json" type="application/json">
   {{ (events or []) | tojson }}
 </script>
@@ -703,6 +730,44 @@
   const EVENTS = JSON.parse(
     document.getElementById("quad-events-json")?.textContent || "[]"
   );
+  const CONCERT_TAGS_BY_ARTIST = JSON.parse(
+    document.getElementById("quad-tags-by-artist-json")?.textContent || "{}"
+  );
+
+  function refreshConcertTagOptions(){
+    const artistSelect = document.querySelector('select[name="artist_id"]');
+    const tagInput = document.getElementById('concertTagInput');
+    const tagList = document.getElementById('concertTagsList');
+    const tagToggle = document.getElementById('concertTagEnabled');
+    if (!artistSelect || !tagInput || !tagList || !tagToggle) return;
+
+    const selected = Array.from(artistSelect.selectedOptions || []).map(opt => opt.value).filter(Boolean);
+    const tags = Array.from(new Set(selected.flatMap(id => CONCERT_TAGS_BY_ARTIST[id] || []))).sort((a, b) => a.localeCompare(b, 'es', {sensitivity: 'base'}));
+
+    tagList.innerHTML = tags.map(tag => `<option value="#${String(tag || '').replace(/"/g, '&quot;')}"></option>`).join('');
+
+    const enabled = selected.length > 0;
+    tagInput.disabled = !enabled;
+    tagToggle.disabled = !enabled;
+    if (!enabled){
+      tagToggle.checked = false;
+      tagInput.value = '';
+      tagInput.placeholder = 'Selecciona artistas para activar el filtro';
+    } else {
+      tagInput.placeholder = 'Escribe o selecciona un #';
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const artistSelect = document.querySelector('select[name="artist_id"]');
+    if (artistSelect) {
+      artistSelect.addEventListener('change', refreshConcertTagOptions);
+      if (window.jQuery) {
+        window.jQuery(artistSelect).on('change', refreshConcertTagOptions);
+      }
+    }
+    refreshConcertTagOptions();
+  });
 
   // Ajuste para impresión: Leaflet necesita recalcular tamaños cuando cambia el layout (CSS de print).
   window.addEventListener("beforeprint", () => {

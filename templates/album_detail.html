@@ -481,7 +481,7 @@
                     <label class="form-check-label" for="albumProductModeGenerate">Generar siguiente disponible</label>
                   </div>
                 </div>
-                <div class="form-text">Configuración actual: {{ (product_code_config.prefix if product_code_config else 'REF') }} + {{ product_code_config.padding if product_code_config else 5 }} dígitos.</div>
+                <div class="form-text">Serie activa: {{ (current_product_code_series.prefix if current_product_code_series else (product_code_config.prefix if product_code_config else 'REF')) }} + {{ (current_product_code_series.padding if current_product_code_series else (product_code_config.padding if product_code_config else 5)) }} dígitos.</div>
               </div>
 
               <div class="mb-0" id="albumProductCodeWrap">

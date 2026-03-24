@@ -10,6 +10,7 @@ import mimetypes
 import zipfile
 import unicodedata
 import html
+import re
 from pathlib import Path
 from io import BytesIO
 from functools import wraps
@@ -118,6 +119,7 @@ from models import (
     SongEditorialShare,
     SongRevenueEntry,
     ProductCodeConfig,
+    ProductCodeSeries,
     AlbumRevenueEntry,
     Album,
     AlbumProductCode,
@@ -994,6 +996,8 @@ def artist_update(artist_id):
         session_db.close()
         return redirect(safe_next_or(url_for("artists_view")))
     a.name = request.form.get("name", a.name).strip()
+    email = (request.form.get("email") or "").strip() or None
+    a.email = email
     photo = request.files.get("photo")
     try:
         if photo and photo.filename:
@@ -2606,6 +2610,13 @@ def _norm_product_code(value) -> str:
     return "".join(raw.split()).upper()
 
 
+def _looks_like_email_address(value: str | None) -> bool:
+    email = (value or '').strip()
+    if not email or len(email) > 254:
+        return False
+    return bool(re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', email))
+
+
 def _current_user_row(session_db=None) -> User | None:
     user_id = session.get("user_id")
     if not user_id:
@@ -3331,10 +3342,19 @@ def _first_album_code_display_map(session_db, album_ids: list) -> dict[str, str]
 
 def _beneficiary_contact_email(session_db, kind: str, beneficiary_id) -> str | None:
     kind = (kind or "").strip().upper()
+    bid = to_uuid(beneficiary_id)
+    if not bid:
+        return None
+
+    if kind == "ARTIST":
+        artist = session_db.get(Artist, bid)
+        email = (getattr(artist, "email", None) or "").strip()
+        return email or None
+
     if kind != "PROMOTER":
         return None
 
-    promoter = session_db.get(Promoter, to_uuid(beneficiary_id))
+    promoter = session_db.get(Promoter, bid)
     if not promoter:
         return None
 
@@ -3582,9 +3602,6 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         for artist in getattr(song, "artists", []) or []:
             if getattr(artist, "id", None):
                 filter_artist_ids.add(artist.id)
-    for album in albums:
-        if getattr(album, "artist_id", None):
-            filter_artist_ids.add(album.artist_id)
 
     ben_map: dict[tuple[str, str], dict] = {}
 
@@ -3606,7 +3623,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "liquidation_label": None,
                 "liquidation_color": None,
                 "contact_email": contact_email or "",
-                "can_send_email": bool(contact_email),
+                "can_send_email": bool(contact_email and _looks_like_email_address(contact_email)),
             }
         return ben_map[key]
 
@@ -4778,6 +4795,10 @@ def discografica_view():
     editorial_registered_songs: list[Song] = []
     editorial_filter_artists: list[Artist] = []
     isrc_pending_songs: list[dict] = []
+    isrc_pending_filter_artists: list[Artist] = []
+    isrc_config_subtab = (request.args.get("config_tab") or "isrc").lower().strip()
+    if isrc_config_subtab not in ("isrc", "album_refs"):
+        isrc_config_subtab = "isrc"
 
     # Context (solo se usa cuando section == 'royalties')
     royalty_period_label = ""
@@ -4830,8 +4851,11 @@ def discografica_view():
     isrc_artist_settings = {}
     isrc_contract_artists = []
     isrc_filter_artists = []
+    isrc_current_filter_artists = []
     album_blocks = []
     product_code_config = None
+    current_product_code_series = None
+    product_code_series_rows = []
 
     if section == "canciones":
         if repertorio_tab == "canciones":
@@ -5344,6 +5368,7 @@ def discografica_view():
         )
         a_set = {r.artist_id for r in arows if r and r.artist_id}
         isrc_filter_artists = [a for a in artists if a.id in a_set]
+        isrc_current_filter_artists = list(isrc_filter_artists)
 
         if isrc_tab == "repertorio":
             # Repertorio ISRC agrupado por artista.
@@ -5429,6 +5454,8 @@ def discografica_view():
 
                 isrc_artist_blocks.append((a, enriched))
 
+            isrc_current_filter_artists = [artist for artist, rows in isrc_artist_blocks if rows]
+
         elif isrc_tab == "pendientes":
             song_rows = (
                 session_db.query(Song)
@@ -5465,6 +5492,7 @@ def discografica_view():
                 for row in rows:
                     codes_by_song[row.song_id].append(row)
 
+            pending_artist_ids = set()
             for song in song_rows:
                 st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
                 _sync_song_agedi_state(session_db, song.id, st)
@@ -5475,6 +5503,9 @@ def discografica_view():
                 pending_codes = [code for code in current_codes if code not in registered_codes]
                 if not pending_codes and bool(getattr(st, 'agedi_done', False)):
                     continue
+                for art in (song.artists or []):
+                    if art and getattr(art, 'id', None):
+                        pending_artist_ids.add(art.id)
                 isrc_pending_songs.append({
                     'song': song,
                     'artists_label': ", ".join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
@@ -5490,6 +5521,8 @@ def discografica_view():
                     ],
                     'status': st,
                 })
+            isrc_pending_filter_artists = [a for a in artists if a.id in pending_artist_ids]
+            isrc_current_filter_artists = list(isrc_pending_filter_artists)
             session_db.commit()
 
         else:
@@ -5508,6 +5541,8 @@ def discografica_view():
                 product_code_config = ProductCodeConfig(id=1)
                 session_db.add(product_code_config)
                 session_db.commit()
+            current_product_code_series = _active_product_code_series(session_db, create_if_missing=True)
+            product_code_series_rows = _product_code_series_rows(session_db)
             # Artistas con contrato discográfico / catálogo / distribución.
             # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
             isrc_contract_artists = contract_artists
@@ -5530,10 +5565,15 @@ def discografica_view():
         isrc_artist_blocks=isrc_artist_blocks,
         isrc_pending_songs=isrc_pending_songs,
         isrc_filter_artists=isrc_filter_artists,
+        isrc_current_filter_artists=isrc_current_filter_artists,
+        isrc_pending_filter_artists=isrc_pending_filter_artists,
         isrc_years=isrc_years,
         isrc_config=isrc_config,
+        isrc_config_subtab=isrc_config_subtab,
         isrc_artist_settings=isrc_artist_settings,
         product_code_config=product_code_config,
+        current_product_code_series=current_product_code_series,
+        product_code_series_rows=product_code_series_rows,
         isrc_contract_artists=isrc_contract_artists,
         selected_artist_id=str(f_artist_id) if section == "isrc" and 'f_artist_id' in locals() and f_artist_id else "",
         selected_year=str(f_year) if section == "isrc" and 'f_year' in locals() and f_year else "",
@@ -6906,7 +6946,10 @@ def discografica_royalties_liquidation_send():
 
         to_email = (beneficiary.get("contact_email") or "").strip() or (_beneficiary_contact_email(session_db, kind, beneficiary_uuid) or "")
         if not to_email:
-            flash("El beneficiario no tiene un email configurado para el envío de la liquidación.", "warning")
+            flash("El beneficiario no tiene un email configurado. Añade una dirección de correo en su ficha antes de enviar la liquidación.", "warning")
+            return redirect(next_url)
+        if not _looks_like_email_address(to_email):
+            flash("No se pudo enviar la liquidación: dirección de correo incorrecta o incompleta.", "danger")
             return redirect(next_url)
 
         pies_company = (
@@ -9033,24 +9076,68 @@ def _uploaded_file_is_image(file_storage) -> bool:
     return any(fname.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"))
 
 
-def _generate_next_product_code(session_db) -> tuple[str, int, ProductCodeConfig]:
-    cfg = session_db.get(ProductCodeConfig, 1)
-    if not cfg:
-        cfg = ProductCodeConfig(id=1, prefix="REF", padding=5)
-        session_db.add(cfg)
-        session_db.flush()
+def _active_product_code_series(session_db, create_if_missing: bool = True) -> ProductCodeSeries | None:
+    series = (
+        session_db.query(ProductCodeSeries)
+        .order_by(ProductCodeSeries.starts_at.desc(), ProductCodeSeries.created_at.desc())
+        .first()
+    )
+    if series or not create_if_missing:
+        return series
 
-    prefix = (cfg.prefix or "REF").strip().upper() or "REF"
+    cfg = session_db.get(ProductCodeConfig, 1)
+    prefix = ((getattr(cfg, 'prefix', None) or 'REF').strip().upper()) or 'REF'
     try:
-        padding = int(cfg.padding or 5)
+        padding = int(getattr(cfg, 'padding', 5) or 5)
     except Exception:
         padding = 5
     padding = max(1, min(12, padding))
 
-    max_seq = session_db.query(func.max(AlbumProductCode.generated_sequence)).scalar()
+    series = ProductCodeSeries(prefix=prefix, padding=padding, starts_at=datetime.now(TZ_MADRID))
+    session_db.add(series)
+    session_db.flush()
+    return series
+
+
+def _product_code_series_rows(session_db) -> list[dict]:
+    rows = (
+        session_db.query(ProductCodeSeries)
+        .order_by(ProductCodeSeries.starts_at.desc(), ProductCodeSeries.created_at.desc())
+        .all()
+    )
+    out = []
+    for idx, row in enumerate(rows):
+        max_seq = (
+            session_db.query(func.max(AlbumProductCode.generated_sequence))
+            .filter(AlbumProductCode.series_id == row.id)
+            .scalar()
+        )
+        out.append({
+            'series': row,
+            'is_active': idx == 0,
+            'last_sequence': int(max_seq or 0),
+            'next_code': f"{(row.prefix or 'REF').strip().upper()}{str(int(max_seq or 0) + 1).zfill(max(1, min(12, int(row.padding or 5))))}",
+        })
+    return out
+
+
+def _generate_next_product_code(session_db) -> tuple[str, int, ProductCodeSeries]:
+    series = _active_product_code_series(session_db, create_if_missing=True)
+    prefix = ((getattr(series, 'prefix', None) or 'REF').strip().upper()) or 'REF'
+    try:
+        padding = int(getattr(series, 'padding', 5) or 5)
+    except Exception:
+        padding = 5
+    padding = max(1, min(12, padding))
+
+    max_seq = (
+        session_db.query(func.max(AlbumProductCode.generated_sequence))
+        .filter(AlbumProductCode.series_id == getattr(series, 'id', None))
+        .scalar()
+    )
     seq = int(max_seq or 0) + 1
     code = f"{prefix}{str(seq).zfill(padding)}"
-    return code, seq, cfg
+    return code, seq, series
 
 
 def _renumber_album_tracks(session_db, album_id):
@@ -9089,15 +9176,66 @@ def discografica_product_code_config_update():
         cfg.prefix = prefix
         cfg.padding = padding
         cfg.updated_at = datetime.now(TZ_MADRID)
+
+        active_series = _active_product_code_series(session_db, create_if_missing=True)
+        if active_series:
+            active_series.prefix = prefix
+            active_series.padding = padding
+            active_series.updated_at = datetime.now(TZ_MADRID)
+            session_db.add(active_series)
+
         session_db.commit()
-        flash("Configuración de referencias guardada.", "success")
+        flash("Serie activa de referencias guardada.", "success")
     except Exception as e:
         session_db.rollback()
-        flash(f"Error guardando la configuración de referencias: {e}", "danger")
+        flash(f"Error guardando la serie de referencias: {e}", "danger")
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador"))
+    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador", config_tab="album_refs"))
+
+
+@app.post("/discografica/product-codes/series/new")
+@admin_required
+def discografica_product_code_series_create():
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para crear una nueva serie de referencias.")
+
+    prefix = (request.form.get("prefix") or "REF").strip().upper() or "REF"
+    padding_raw = (request.form.get("padding") or "5").strip()
+    try:
+        padding = int(padding_raw)
+    except Exception:
+        padding = 5
+    padding = max(1, min(12, padding))
+
+    session_db = db()
+    try:
+        series = ProductCodeSeries(
+            prefix=prefix,
+            padding=padding,
+            starts_at=datetime.now(TZ_MADRID),
+            updated_at=datetime.now(TZ_MADRID),
+        )
+        session_db.add(series)
+
+        cfg = session_db.get(ProductCodeConfig, 1)
+        if not cfg:
+            cfg = ProductCodeConfig(id=1)
+            session_db.add(cfg)
+        cfg.prefix = prefix
+        cfg.padding = padding
+        cfg.updated_at = datetime.now(TZ_MADRID)
+
+        session_db.commit()
+        flash("Nueva serie de referencias creada. La numeración empezará desde 001 en esta serie.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error creando la nueva serie de referencias: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_view", section="isrc", isrc_tab="configurador", config_tab="album_refs"))
 
 
 @app.post("/discografica/albumes/create")
@@ -9185,6 +9323,7 @@ def discografica_album_detail(album_id):
 
     artist = session_db.get(Artist, album.artist_id)
     product_code_config = session_db.get(ProductCodeConfig, 1)
+    current_product_code_series = _active_product_code_series(session_db, create_if_missing=True)
     contract_artist_ids = _artist_ids_with_discography_contracts(session_db)
     contract_artists = [
         a for a in session_db.query(Artist).order_by(Artist.name.asc()).all()
@@ -9347,6 +9486,7 @@ def discografica_album_detail(album_id):
         physical_labels=_album_physical_labels(album),
         default_copyright=_default_album_copy_text(getattr(album, "release_date", None)),
         product_code_config=product_code_config,
+        current_product_code_series=current_product_code_series,
         contract_artists=contract_artists,
         album_cert_groups=album_cert_groups,
         country_options=country_options,
@@ -9501,15 +9641,17 @@ def discografica_album_product_code_save(album_id):
             session_db.add(rec)
 
         if mode == "generate":
-            code, seq, _cfg = _generate_next_product_code(session_db)
+            code, seq, active_series = _generate_next_product_code(session_db)
             rec.code = code
             rec.generated_sequence = seq
+            rec.series_id = getattr(active_series, 'id', None)
         else:
             if not manual_code:
                 flash("Debes indicar el código de producto.", "warning")
                 return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
             rec.code = manual_code
             rec.generated_sequence = None
+            rec.series_id = None
 
         rec.format_kind = format_kind
         rec.other_label = other_label if format_kind == "OTHER" else None
@@ -16645,6 +16787,28 @@ def quadrantes_view():
             except Exception:
                 pass
 
+        concert_tags_by_artist = defaultdict(list)
+        tag_rows = (
+            session_db.query(Concert.artist_id, Concert.hashtags)
+            .filter(Concert.artist_id.isnot(None))
+            .all()
+        )
+        for artist_id, raw_tags in tag_rows:
+            values = []
+            if isinstance(raw_tags, list):
+                values = [x for x in raw_tags if x]
+            elif isinstance(raw_tags, str):
+                values = [x for x in raw_tags.split(',') if x]
+            concert_tags_by_artist[str(artist_id)].extend(_dedupe_concert_tags(values))
+        concert_tags_by_artist = {
+            key: sorted(_dedupe_concert_tags(values), key=lambda x: _norm_text_key(x))
+            for key, values in concert_tags_by_artist.items()
+        }
+        available_concert_tags = sorted(
+            _dedupe_concert_tags([tag for sid in selected_uuids for tag in concert_tags_by_artist.get(str(sid), [])]),
+            key=lambda x: _norm_text_key(x),
+        ) if selected_uuids else []
+
         try:
             year = int(request.args.get("year") or today_local().year)
         except Exception:
@@ -16674,7 +16838,6 @@ def quadrantes_view():
         if not f_sale_types:
             f_sale_types = list(CONCERT_SALE_TYPES_ALL)
 
-        f_concert_tags = _dedupe_concert_tags(request.args.getlist("concert_tag") or request.args.getlist("hashtag") or [])
         allowed_announcements = {"NO_ANNOUNCE", "UPCOMING", "ANNOUNCED"}
         f_announcements = [
             (a or "").strip().upper()
@@ -16690,6 +16853,19 @@ def quadrantes_view():
             if not vals:
                 return default
             return "1" in vals or "true" in vals or "on" in vals
+
+        concert_tag_enabled = _flag("concert_tag_enabled", False)
+        concert_tag_text = (request.args.get("concert_tag_text") or "").strip()
+        if concert_tag_text:
+            raw_tag_candidates = re.split(r"[\n,;]+", concert_tag_text)
+        else:
+            raw_tag_candidates = request.args.getlist("concert_tag") or request.args.getlist("hashtag") or []
+        requested_concert_tags = _dedupe_concert_tags(raw_tag_candidates)
+        if not selected_uuids:
+            concert_tag_enabled = False
+        f_concert_tags = requested_concert_tags if concert_tag_enabled else []
+        if not concert_tag_text and requested_concert_tags:
+            concert_tag_text = ", ".join([f"#{tag}" for tag in requested_concert_tags])
 
         show_calendar = _flag("show_calendar", True)
         show_map = _flag("show_map", True)
@@ -16881,6 +17057,10 @@ def quadrantes_view():
             events=events_flat,
             type_choices=type_choices,
             all_concert_tags=all_concert_tags,
+            available_concert_tags=available_concert_tags,
+            concert_tags_by_artist=concert_tags_by_artist,
+            concert_tag_enabled=concert_tag_enabled,
+            concert_tag_text=concert_tag_text,
             f_concert_tags=f_concert_tags,
             f_announcements=f_announcements,
             f_statuses=f_statuses,

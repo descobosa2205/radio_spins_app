@@ -44,6 +44,7 @@ class Artist(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False, unique=True)
     photo_url = Column(Text)
+    email = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     people = relationship(
@@ -650,13 +651,26 @@ class SongRevenueEntry(Base):
 
 
 class ProductCodeConfig(Base):
-    """Configuración global para generar referencias de producto."""
+    """Configuración global legacy para referencias de producto."""
 
     __tablename__ = "product_code_config"
 
     id = Column(Integer, primary_key=True, server_default=text("1"))
     prefix = Column(Text, nullable=False, server_default=text("'REF'"))
     padding = Column(Integer, nullable=False, server_default=text("5"))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProductCodeSeries(Base):
+    """Serie histórica para generar referencias de álbumes."""
+
+    __tablename__ = "product_code_series"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    prefix = Column(Text, nullable=False, server_default=text("'REF'"))
+    padding = Column(Integer, nullable=False, server_default=text("5"))
+    starts_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -746,6 +760,7 @@ class AlbumProductCode(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+    series_id = Column(PGUUID(as_uuid=True), ForeignKey("product_code_series.id", ondelete="SET NULL"))
 
     format_kind = Column(Text, nullable=False)  # CD | VINYL | CASSETTE | OTHER
     other_label = Column(Text)
@@ -756,6 +771,7 @@ class AlbumProductCode(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     album = relationship("Album")
+    series = relationship("ProductCodeSeries")
 
     __table_args__ = (
         UniqueConstraint("code", name="uq_album_product_code"),
@@ -1540,6 +1556,11 @@ def ensure_artist_feature_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_artist_contract_commitments_contract_id ON artist_contract_commitments(contract_id);',
+
+        """
+        ALTER TABLE IF EXISTS artists
+            ADD COLUMN IF NOT EXISTS email text;
+        """,
     ]
 
     with engine.begin() as conn:
@@ -2169,6 +2190,26 @@ def ensure_album_schema():
             ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
         """,
         """
+        CREATE TABLE IF NOT EXISTS product_code_series (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            prefix text NOT NULL DEFAULT 'REF',
+            padding integer NOT NULL DEFAULT 5,
+            starts_at timestamptz NOT NULL DEFAULT now(),
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_product_code_series_starts_at ON product_code_series(starts_at DESC);',
+        """
+        INSERT INTO product_code_series (prefix, padding, starts_at)
+        SELECT
+            COALESCE(NULLIF(trim(prefix), ''), 'REF'),
+            COALESCE(NULLIF(padding, 0), 5),
+            COALESCE(updated_at, now())
+        FROM product_code_config
+        WHERE NOT EXISTS (SELECT 1 FROM product_code_series);
+        """,
+        """
         CREATE TABLE IF NOT EXISTS albums (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE RESTRICT,
@@ -2216,6 +2257,7 @@ def ensure_album_schema():
         CREATE TABLE IF NOT EXISTS album_product_codes (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            series_id uuid REFERENCES product_code_series(id) ON DELETE SET NULL,
             format_kind text NOT NULL,
             other_label text,
             code text NOT NULL,
@@ -2226,7 +2268,26 @@ def ensure_album_schema():
             CONSTRAINT uq_album_product_code UNIQUE (code)
         );
         """,
+        """
+        ALTER TABLE IF EXISTS album_product_codes
+            ADD COLUMN IF NOT EXISTS series_id uuid REFERENCES product_code_series(id) ON DELETE SET NULL;
+        """,
         'CREATE INDEX IF NOT EXISTS idx_album_product_codes_album_id ON album_product_codes(album_id);',
+        'CREATE INDEX IF NOT EXISTS idx_album_product_codes_series_id ON album_product_codes(series_id);',
+        """
+        WITH current_series AS (
+            SELECT id, prefix
+            FROM product_code_series
+            ORDER BY starts_at DESC, created_at DESC
+            LIMIT 1
+        )
+        UPDATE album_product_codes apc
+           SET series_id = cs.id
+          FROM current_series cs
+         WHERE apc.series_id IS NULL
+           AND apc.generated_sequence IS NOT NULL
+           AND upper(apc.code) LIKE upper(cs.prefix) || '%';
+        """,
         """
         CREATE TABLE IF NOT EXISTS album_revenue_entries (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

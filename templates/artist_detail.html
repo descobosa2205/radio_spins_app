@@ -102,6 +102,12 @@
               </div>
 
               <div class="col-12">
+                <label class="form-label">Email</label>
+                <input type="email" name="email" class="form-control" value="{{ artist.email or '' }}" placeholder="Para envíos de royalties y notificaciones">
+                <div class="form-text">Se usará para enviar automáticamente las liquidaciones de royalties al artista.</div>
+              </div>
+
+              <div class="col-12">
                 <label class="form-label">Foto (PNG)</label>
                 <input type="file" name="photo" accept="image/png" class="form-control">
               </div>

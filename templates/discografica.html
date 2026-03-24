@@ -625,50 +625,59 @@
     <ul class="nav nav-pills">
       <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='repertorio' %}active{% endif %}"
-           href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio', artist_id=selected_artist_id, year=selected_year) }}">Repertorio</a>
+           href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio', year=selected_year or None) }}">Repertorio</a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='pendientes' %}active{% endif %}"
-           href="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', artist_id=selected_artist_id, year=selected_year) }}">Pendiente de registro <span class="badge text-bg-warning ms-1">{{ isrc_pending_songs|length }}</span></a>
+           href="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', year=selected_year or None) }}">Pendiente de registro <span class="badge text-bg-warning ms-1">{{ isrc_pending_songs|length }}</span></a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='configurador' %}active{% endif %}"
-           href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador') }}">Configurador</a>
+           href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador', config_tab=isrc_config_subtab or 'isrc') }}">Configurador</a>
       </li>
     </ul>
   </div>
 
   {% if isrc_tab in ['repertorio', 'pendientes'] %}
+    {% set isrc_filter_list = isrc_pending_filter_artists if isrc_tab == 'pendientes' else isrc_current_filter_artists %}
     <div class="card mb-3">
       <div class="card-body">
-        <form class="row g-2" method="get" action="{{ url_for('discografica_view') }}">
-          <input type="hidden" name="section" value="isrc">
-          <input type="hidden" name="isrc_tab" value="{{ isrc_tab }}">
-
-          <div class="col-12 col-md-6">
-            <label class="form-label">Artista</label>
-            <select class="form-select" name="artist_id">
-              <option value="">Todos</option>
-              {% for a in isrc_filter_artists %}
-                <option value="{{ a.id }}" {% if selected_artist_id==a.id|string %}selected{% endif %}>{{ a.name }}</option>
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-lg-8">
+            <label class="form-label">Filtrar por artistas</label>
+            <div class="d-flex flex-wrap gap-2" id="isrcArtistFilters">
+              <button type="button" class="btn btn-sm btn-dark active" data-isrc-artist-filter="all">Todos</button>
+              {% for artist in isrc_filter_list %}
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-isrc-artist-filter="{{ artist.id }}">
+                  <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+                  <span>{{ artist.name }}</span>
+                </button>
               {% endfor %}
-            </select>
+            </div>
           </div>
-
-          <div class="col-12 col-md-4">
-            <label class="form-label">Año (publicación)</label>
-            <select class="form-select" name="year">
-              <option value="">Todos</option>
-              {% for y in isrc_years %}
-                <option value="{{ y }}" {% if selected_year==y|string %}selected{% endif %}>{{ y }}</option>
-              {% endfor %}
-            </select>
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Buscar</label>
+            <input type="search" class="form-control" id="isrcSearchInput" placeholder="Buscar por canción, artista, colaborador, ISRC...">
           </div>
-
-          <div class="col-12 col-md-2 d-flex align-items-end">
-            <button class="btn btn-outline-primary w-100"><i class="fa fa-filter"></i> Filtrar</button>
+          <div class="col-12">
+            <form class="row g-2 align-items-end" method="get" action="{{ url_for('discografica_view') }}">
+              <input type="hidden" name="section" value="isrc">
+              <input type="hidden" name="isrc_tab" value="{{ isrc_tab }}">
+              <div class="col-12 col-md-4">
+                <label class="form-label">Año (publicación)</label>
+                <select class="form-select" name="year">
+                  <option value="">Todos</option>
+                  {% for y in isrc_years %}
+                    <option value="{{ y }}" {% if selected_year==y|string %}selected{% endif %}>{{ y }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-12 col-md-2 d-flex align-items-end">
+                <button class="btn btn-outline-primary w-100"><i class="fa fa-filter"></i> Filtrar</button>
+              </div>
+            </form>
           </div>
-        </form>
+        </div>
       </div>
     </div>
   {% endif %}
@@ -678,7 +687,7 @@
       <div class="text-muted">No hay canciones para los filtros seleccionados.</div>
     {% else %}
       {% for artist, rows in isrc_artist_blocks %}
-        <div class="mb-4">
+        <div class="mb-4 isrc-artist-block" data-isrc-artist-block="{{ artist.id }}">
           <div class="d-flex align-items-center gap-2 mb-2">
             <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
             <h5 class="m-0">{{ artist.name }}</h5>
@@ -707,9 +716,11 @@
                     {% set video = item.video_primary %}
                     {% set audio_subs = item.audio_subs or [] %}
                     {% set video_subs = item.video_subs or [] %}
-                    <tr class="clickable-row"
+                    <tr class="clickable-row isrc-search-row"
                         role="button"
                         tabindex="0"
+                        data-isrc-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else artist.id }}"
+                        data-isrc-search="{{ (s.title ~ ' ' ~ artist.name ~ ' ' ~ (s.collaborator or '') ~ ' ' ~ (audio or '') ~ ' ' ~ (video or '') ~ ' ' ~ (item.max_code or ''))|lower }}"
                         data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}"
                         onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}';"
                         onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}'; }">
@@ -786,7 +797,7 @@
     <div class="card">
       <div class="card-body">
         {% if not isrc_pending_songs or (isrc_pending_songs|length) == 0 %}
-          <div class="text-muted">No hay canciones pendientes de registrar en AGEDI para los filtros seleccionados.</div>
+          <div class="text-muted">No hay canciones pendientes de registrar en SGAE para los filtros seleccionados.</div>
         {% else %}
           <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -803,9 +814,11 @@
               <tbody>
                 {% for item in isrc_pending_songs %}
                   {% set s = item.song %}
-                  <tr class="clickable-row"
+                  <tr class="clickable-row isrc-search-row"
                       role="button"
                       tabindex="0"
+                      data-isrc-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else '' }}"
+                      data-isrc-search="{{ (s.title ~ ' ' ~ (item.artists_label or '') ~ ' ' ~ (s.collaborator or '') ~ ' pendiente registrado')|lower }}"
                       data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}"
                       onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}';"
                       onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}'; }">
@@ -838,9 +851,9 @@
                     <td class="text-end">
                       {% if CAN_EDIT_DISCOGRAFICA %}
                         <form method="post" action="{{ url_for('discografica_song_agedi_register', song_id=s.id) }}" class="d-inline">
-                          <input type="hidden" name="next" value="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', artist_id=selected_artist_id, year=selected_year) }}">
+                          <input type="hidden" name="next" value="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', year=selected_year) }}">
                           <button class="btn btn-sm btn-success">
-                            <i class="fa fa-check"></i> Marcar como registrado en AGEDI
+                            <i class="fa fa-check"></i> Marcar como registrado en SGAE
                           </button>
                         </form>
                       {% endif %}
@@ -855,86 +868,178 @@
     </div>
 
   {% else %}
-    <div class="card mb-3">
-      <div class="card-body">
-        <h6 class="mb-2">Matriz ISRC (global)</h6>
-        <form class="row g-2" method="post" action="{{ url_for('discografica_isrc_config_update') }}">
-          <div class="col-12 col-md-2">
-            <label class="form-label">País</label>
-            <input name="country_code" class="form-control" maxlength="2" value="{{ (isrc_config.country_code if isrc_config else 'ES') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-          </div>
-          <div class="col-12 col-md-5">
-            <label class="form-label">Matriz audio (3 dígitos)</label>
-            <input name="audio_matrix" class="form-control" value="{{ (isrc_config.audio_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-          </div>
-          <div class="col-12 col-md-5">
-            <label class="form-label">Matriz vídeo (3 dígitos)</label>
-            <input name="video_matrix" class="form-control" value="{{ (isrc_config.video_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-          </div>
-          <div class="col-12 d-grid mt-1">
-            {% if CAN_EDIT_DISCOGRAFICA %}
-              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración</button>
-            {% else %}
-              <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
-            {% endif %}
-          </div>
-        </form>
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+      <ul class="nav nav-pills">
+        <li class="nav-item">
+          <a class="nav-link {% if isrc_config_subtab=='isrc' %}active{% endif %}"
+             href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador', config_tab='isrc') }}">ISRC</a>
+        </li>
+        <li class="nav-item">
+          <a class="nav-link {% if isrc_config_subtab=='album_refs' %}active{% endif %}"
+             href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador', config_tab='album_refs') }}">Referencias Álbumes</a>
+        </li>
+      </ul>
     </div>
 
-    <div class="card mb-3">
-      <div class="card-body">
-        <h6 class="mb-2">Referencias de producto</h6>
-        <div class="text-muted small mb-3">Configuración usada para generar automáticamente los códigos de producto en los álbumes.</div>
-        <form class="row g-2" method="post" action="{{ url_for('discografica_product_code_config_update') }}">
-          <div class="col-12 col-md-6">
-            <label class="form-label">Prefijo</label>
-            <input name="prefix" class="form-control" maxlength="12" value="{{ (product_code_config.prefix if product_code_config else 'REF') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-          </div>
-          <div class="col-12 col-md-6">
-            <label class="form-label">Longitud numérica</label>
-            <input type="number" name="padding" class="form-control" min="1" max="12" value="{{ (product_code_config.padding if product_code_config else 5) }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-          </div>
-          <div class="col-12 d-grid mt-1">
-            {% if CAN_EDIT_DISCOGRAFICA %}
-              <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración de referencias</button>
-            {% else %}
-              <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
-            {% endif %}
-          </div>
-        </form>
+    {% if isrc_config_subtab == 'isrc' %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2">Matriz ISRC (global)</h6>
+          <form class="row g-2" method="post" action="{{ url_for('discografica_isrc_config_update') }}">
+            <div class="col-12 col-md-2">
+              <label class="form-label">País</label>
+              <input name="country_code" class="form-control" maxlength="2" value="{{ (isrc_config.country_code if isrc_config else 'ES') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-5">
+              <label class="form-label">Matriz audio (3 dígitos)</label>
+              <input name="audio_matrix" class="form-control" value="{{ (isrc_config.audio_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-5">
+              <label class="form-label">Matriz vídeo (3 dígitos)</label>
+              <input name="video_matrix" class="form-control" value="{{ (isrc_config.video_matrix if isrc_config else '270') }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 d-grid mt-1">
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar configuración</button>
+              {% else %}
+                <button class="btn btn-outline-secondary" disabled>Solo lectura</button>
+              {% endif %}
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
 
-    <div class="card">
-      <div class="card-body">
-        <h6 class="mb-2">Artistas con contrato discográfico / catálogo / distribución</h6>
-        <div class="text-muted small mb-3">Aquí se configura el número matriz del artista (2 dígitos) usado para generar ISRC.</div>
+      <div class="card">
+        <div class="card-body">
+          <h6 class="mb-2">Artistas con contrato discográfico / catálogo / distribución</h6>
+          <div class="text-muted small mb-3">Aquí se configura el número matriz del artista (2 dígitos) usado para generar ISRC.</div>
 
-        {% if not isrc_contract_artists or (isrc_contract_artists|length)==0 %}
-          <div class="text-muted">No hay artistas con ese tipo de contrato todavía.</div>
-        {% else %}
-          <div class="row g-2">
-            {% for a in isrc_contract_artists %}
-              {% set st = isrc_artist_settings.get(a.id) %}
-              <div class="col-12 col-lg-6">
-                <form method="post" action="{{ url_for('discografica_isrc_artist_set', artist_id=a.id) }}" class="border rounded p-2 bg-white d-flex gap-2 align-items-center">
-                  <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-                  <div class="flex-grow-1">
-                    <div class="fw-semibold">{{ a.name }}</div>
-                    <div class="small text-muted">Matriz artista (2 dígitos)</div>
-                  </div>
-                  <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
-                  {% if CAN_EDIT_DISCOGRAFICA %}
-                    <button class="btn btn-outline-primary"><i class="fa fa-save"></i></button>
-                  {% endif %}
-                </form>
-              </div>
-            {% endfor %}
-          </div>
-        {% endif %}
+          {% if not isrc_contract_artists or (isrc_contract_artists|length)==0 %}
+            <div class="text-muted">No hay artistas con ese tipo de contrato todavía.</div>
+          {% else %}
+            <div class="row g-2">
+              {% for a in isrc_contract_artists %}
+                {% set st = isrc_artist_settings.get(a.id) %}
+                <div class="col-12 col-lg-6">
+                  <form method="post" action="{{ url_for('discografica_isrc_artist_set', artist_id=a.id) }}" class="border rounded p-2 bg-white d-flex gap-2 align-items-center">
+                    <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                    <div class="flex-grow-1">
+                      <div class="fw-semibold">{{ a.name }}</div>
+                      <div class="small text-muted">Matriz artista (2 dígitos)</div>
+                    </div>
+                    <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <button class="btn btn-outline-primary"><i class="fa fa-save"></i></button>
+                    {% endif %}
+                  </form>
+                </div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
       </div>
-    </div>
+    {% else %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2">Serie activa de referencias</h6>
+          <div class="text-muted small mb-3">La referencia se genera con las letras configuradas y una numeración ascendente respecto a la última referencia creada en esta serie.</div>
+          <form class="row g-2" method="post" action="{{ url_for('discografica_product_code_config_update') }}">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Letras / prefijo</label>
+              <input name="prefix" class="form-control" maxlength="12" value="{{ (current_product_code_series.prefix if current_product_code_series else (product_code_config.prefix if product_code_config else 'REF')) }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Longitud numérica</label>
+              <input type="number" name="padding" class="form-control" min="1" max="12" value="{{ (current_product_code_series.padding if current_product_code_series else (product_code_config.padding if product_code_config else 3)) }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-3 d-flex align-items-end">
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button class="btn btn-primary w-100"><i class="fa fa-save"></i> Guardar serie activa</button>
+              {% else %}
+                <button class="btn btn-outline-secondary w-100" disabled>Solo lectura</button>
+              {% endif %}
+            </div>
+          </form>
+          {% if current_product_code_series %}
+            <div class="mt-3 small text-muted">Próximo código automático previsto: <span class="fw-semibold text-dark">{{ (product_code_series_rows[0].next_code if product_code_series_rows else '') }}</span></div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mb-3">
+        <div class="card-body">
+          <h6 class="mb-2">Añadir nuevo comienzo</h6>
+          <div class="text-muted small mb-3">Crea una nueva serie. Desde la fecha de creación, la generación automática empezará de nuevo en 001 dentro de esa serie.</div>
+          <form class="row g-2" method="post" action="{{ url_for('discografica_product_code_series_create') }}">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Letras / prefijo</label>
+              <input name="prefix" class="form-control" maxlength="12" placeholder="Ej: PIES" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Longitud numérica</label>
+              <input type="number" name="padding" class="form-control" min="1" max="12" value="3" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>
+            </div>
+            <div class="col-12 col-md-3 d-flex align-items-end">
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <button class="btn btn-outline-primary w-100"><i class="fa fa-plus"></i> Crear nueva serie</button>
+              {% else %}
+                <button class="btn btn-outline-secondary w-100" disabled>Solo lectura</button>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-body">
+          <h6 class="mb-2">Histórico de series</h6>
+          {% if not product_code_series_rows or (product_code_series_rows|length) == 0 %}
+            <div class="text-muted">Todavía no hay series configuradas.</div>
+          {% else %}
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-0">
+                <thead class="table-light">
+                  <tr>
+                    <th>Serie</th>
+                    <th>Creada</th>
+                    <th class="text-end">Último número</th>
+                    <th class="text-end">Próximo código</th>
+                    <th class="text-end">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for row in product_code_series_rows %}
+                    {% set series = row.series %}
+                    <tr>
+                      <td>
+                        <div class="fw-semibold">{{ series.prefix }}</div>
+                        <div class="small text-muted">{{ series.padding }} dígitos</div>
+                      </td>
+                      <td>
+                        {% if series.starts_at %}
+                          {{ series.starts_at.strftime('%d/%m/%Y %H:%M') }}
+                        {% else %}
+                          <span class="text-muted">—</span>
+                        {% endif %}
+                      </td>
+                      <td class="text-end">{{ row.last_sequence }}</td>
+                      <td class="text-end fw-semibold">{{ row.next_code }}</td>
+                      <td class="text-end">
+                        {% if row.is_active %}
+                          <span class="badge text-bg-dark">Activa</span>
+                        {% else %}
+                          <span class="badge text-bg-light text-dark">Histórica</span>
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
   {% endif %}
 
 {% else %}
@@ -1068,6 +1173,55 @@
   });
   if (editorialSearchInput) editorialSearchInput.addEventListener('input', applyEditorialFilters);
   applyEditorialFilters();
+
+  let selectedIsrcArtist = 'all';
+  const isrcSearchInput = document.getElementById('isrcSearchInput');
+  function applyIsrcFilters(){
+    const q = normalize(isrcSearchInput && isrcSearchInput.value);
+    document.querySelectorAll('.isrc-search-row').forEach(row => {
+      const artistIds = (row.getAttribute('data-isrc-artists') || '').split(',').filter(Boolean);
+      const haystack = normalize(row.getAttribute('data-isrc-search'));
+      const okArtist = selectedIsrcArtist === 'all' || artistIds.includes(selectedIsrcArtist);
+      const okSearch = !q || haystack.includes(q);
+      row.style.display = okArtist && okSearch ? '' : 'none';
+    });
+    document.querySelectorAll('.isrc-artist-block').forEach(block => {
+      const visibleRows = Array.from(block.querySelectorAll('.isrc-search-row')).filter(r => r.style.display !== 'none');
+      block.style.display = visibleRows.length ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('[data-isrc-artist-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedIsrcArtist = btn.getAttribute('data-isrc-artist-filter') || 'all';
+      refreshGroupButtons('#isrcArtistFilters', 'data-isrc-artist-filter', selectedIsrcArtist);
+      applyIsrcFilters();
+    });
+  });
+  if (isrcSearchInput) isrcSearchInput.addEventListener('input', applyIsrcFilters);
+  applyIsrcFilters();
+
+  const royaltySearchInput = document.getElementById('royaltySearchInput');
+  function applyRoyaltyFilters(){
+    const q = normalize(royaltySearchInput && royaltySearchInput.value);
+    document.querySelectorAll('.royalty-beneficiary-card').forEach(card => {
+      const beneficiaryHaystack = normalize(card.getAttribute('data-royalty-beneficiary-search'));
+      const beneficiaryMatch = !q || beneficiaryHaystack.includes(q);
+      let visibleRows = 0;
+      card.querySelectorAll('.royalty-search-row').forEach(row => {
+        const haystack = normalize(row.getAttribute('data-royalty-search'));
+        const ok = !q || beneficiaryMatch || haystack.includes(q);
+        row.style.display = ok ? '' : 'none';
+        if (ok) visibleRows += 1;
+      });
+      card.style.display = visibleRows > 0 ? '' : 'none';
+    });
+    document.querySelectorAll('[data-royalty-section-block]').forEach(section => {
+      const visibleCards = Array.from(section.querySelectorAll('.royalty-beneficiary-card')).filter(card => card.style.display !== 'none');
+      section.style.display = visibleCards.length ? '' : 'none';
+    });
+  }
+  if (royaltySearchInput) royaltySearchInput.addEventListener('input', applyRoyaltyFilters);
+  applyRoyaltyFilters();
 })();
 </script>
 

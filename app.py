@@ -2701,28 +2701,28 @@ def _certification_catalog() -> dict[str, dict]:
             "title": "Disco de Oro",
             "plural_title": "Discos de Oro",
             "copies_label": "Equivalente a 20.000 Copias",
-            "image": "img/certifications/disco_oro_recortado.png",
+            "image": "img/certifications/gold.svg",
             "order": 1,
         },
         "PLATINUM": {
             "title": "Disco de Platino",
             "plural_title": "Discos de Platino",
             "copies_label": "Equivalente a 40.000 Copias",
-            "image": "img/certifications/disco_platino_recortado.png",
+            "image": "img/certifications/platinum.svg",
             "order": 2,
         },
         "DIAMOND": {
             "title": "Disco de Diamante",
             "plural_title": "Discos de Diamante",
             "copies_label": "Equivalente a 1 millón de copias",
-            "image": "img/certifications/disco_diamante_recortado.png",
+            "image": "img/certifications/diamond.svg",
             "order": 3,
         },
         "URANIUM": {
             "title": "Disco de Uranio",
             "plural_title": "Discos de Uranio",
             "copies_label": "Equivalente a más de 50 millones de copias",
-            "image": "img/certifications/disco_uranio_recortado.png",
+            "image": "img/certifications/uranium.svg",
             "order": 4,
         },
     }
@@ -3887,7 +3887,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
     }
 
 
-def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int, touch_liquidation: bool = True) -> tuple[bytes, str, dict]:
+def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int) -> tuple[dict, date, date, UUID]:
     kind = (kind or "").strip().upper()
     if kind not in ("ARTIST", "PROMOTER"):
         raise ValueError("Beneficiario inválido")
@@ -3905,6 +3905,19 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             break
     if not beneficiary:
         raise LookupError("No hay datos de royalties para este beneficiario y semestre.")
+
+    return beneficiary, sem_start, sem_end, bid
+
+
+def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int, touch_liquidation: bool = True) -> tuple[bytes, str, dict]:
+    beneficiary, sem_start, sem_end, bid = _get_royalty_liquidation_beneficiary_data(
+        session_db,
+        kind,
+        beneficiary_id,
+        sem_year,
+        sem_half,
+    )
+    kind = (kind or "").strip().upper()
 
     if touch_liquidation:
         now_dt = datetime.now(TZ_MADRID)
@@ -3943,15 +3956,26 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
-    def _fetch_img(url: str, w: float, h: float):
+    image_cache: dict[str, bytes] = {}
+    lightweight_rows = len(beneficiary.get('items') or []) >= 60
+
+    def _fetch_img(url: str, w: float, h: float, *, align: str = "LEFT", allow_remote: bool = True):
         if not url:
             return ""
         try:
-            with urlopen(url, timeout=6) as resp:
-                data = resp.read()
-            bio = BytesIO(data)
-            img = Image(bio, width=w, height=h)
-            img.hAlign = "LEFT"
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                if not allow_remote:
+                    return ""
+                data = image_cache.get(url)
+                if data is None:
+                    with urlopen(url, timeout=4) as resp:
+                        data = resp.read()
+                    image_cache[url] = data
+                bio = BytesIO(data)
+                img = Image(bio, width=w, height=h)
+            else:
+                img = Image(url, width=w, height=h)
+            img.hAlign = align
             return img
         except Exception:
             return ""
@@ -4024,7 +4048,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     )
     story = []
 
-    logo = _fetch_img(pies_logo_url or '', 3.4 * cm, 1.4 * cm)
+    logo = _fetch_img(pies_logo_url or '', 3.4 * cm, 1.4 * cm, align='RIGHT')
     if not logo:
         try:
             logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
@@ -4046,7 +4070,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     story.append(Spacer(1, 4))
 
     period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
-    beneficiary_photo = _fetch_img(beneficiary.get('photo_url') or '', 1.8 * cm, 1.8 * cm)
+    beneficiary_photo = _fetch_img(beneficiary.get('photo_url') or '', 1.8 * cm, 1.8 * cm, allow_remote=not lightweight_rows)
     if not beneficiary_photo:
         beneficiary_photo = ''
     beneficiary_info = Paragraph(
@@ -4068,7 +4092,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     data = [["", "Repertorio", "Código", "Fecha", "Ingreso", "%", "A facturar"]]
     for item in beneficiary.get('items') or []:
-        cover = _fetch_img(item.get('cover_url') or '', 0.8 * cm, 0.8 * cm)
+        cover = _fetch_img(item.get('cover_url') or '', 0.8 * cm, 0.8 * cm, allow_remote=not lightweight_rows)
         subtitle = html.escape(item.get('subtitle') or '')
         badge_line = html.escape(' · '.join(item.get('badges') or []))
         title_html = f"<b>{html.escape(item.get('title') or '')}</b>"
@@ -4140,17 +4164,93 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
 
 def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, download_url: str, logo_url: str | None, beneficiary_photo_url: str | None) -> tuple[str, str]:
+    def _eur(value) -> str:
+        try:
+            return f"{float(value):,.2f} EUR".replace(",", "X").replace(".", ",").replace("X", ".")
+        except Exception:
+            return "0,00 EUR"
+
     ben_name = html.escape(beneficiary.get('name') or 'Beneficiario')
     period_label_safe = html.escape(period_label)
     logo_html = ''
     if logo_url:
-        logo_html = f'<img src="{html.escape(logo_url)}" alt="PIES" style="max-width:190px;height:auto;">'
+        logo_html = f'<img src="{html.escape(logo_url)}" alt="PIES" style="max-width:190px;height:auto;display:inline-block;">'
     photo_html = ''
     if beneficiary_photo_url:
-        photo_html = f'<img src="{html.escape(beneficiary_photo_url)}" alt="{ben_name}" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #e5e5e5;background:#fff;">'
+        photo_html = f'<img src="{html.escape(beneficiary_photo_url)}" alt="{ben_name}" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #e5e5e5;background:#fff;display:block;">'
+
+    rows_html = []
+    rows_text = []
+    for item in beneficiary.get('items') or []:
+        title = html.escape(item.get('title') or '—')
+        subtitle = html.escape(item.get('subtitle') or '')
+        badges = [html.escape(str(b)) for b in (item.get('badges') or []) if b]
+        code = html.escape(item.get('code') or '—')
+        release_date = html.escape(item.get('release_date') or '—')
+        income = _eur(item.get('income') or 0)
+        pct = f"{float(item.get('pct') or 0):.2f}%"
+        amount = _eur(item.get('amount') or 0)
+        subtitle_html = f'<div style="font-size:12px;color:#6b7280;margin-top:2px;">{subtitle}</div>' if subtitle else ''
+        badges_html = ''
+        if badges:
+            badge_chunks = ''.join(
+                f'<span style="display:inline-block;background:#f3f4f6;border:1px solid #e5e7eb;color:#374151;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:600;margin:4px 6px 0 0;">{badge}</span>'
+                for badge in badges
+            )
+            badges_html = f'<div style="margin-top:4px;">{badge_chunks}</div>'
+        rows_html.append(
+            f"""
+            <tr>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;">
+                <div style="font-weight:700;color:#111827;">{title}</div>
+                {subtitle_html}
+                {badges_html}
+              </td>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;white-space:nowrap;">{code}</td>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;white-space:nowrap;">{release_date}</td>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;text-align:right;white-space:nowrap;">{income}</td>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;text-align:right;white-space:nowrap;">{pct}</td>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#111827;text-align:right;white-space:nowrap;font-weight:700;">{amount}</td>
+            </tr>
+            """
+        )
+        badge_text = f" [{' | '.join(item.get('badges') or [])}]" if (item.get('badges') or []) else ''
+        subtitle_text = f" — {item.get('subtitle')}" if item.get('subtitle') else ''
+        rows_text.append(
+            f"- {item.get('title') or '—'}{subtitle_text}{badge_text} | Código: {item.get('code') or '—'} | Fecha: {item.get('release_date') or '—'} | Ingreso: {income} | %: {pct} | A facturar: {amount}"
+        )
+
+    if not rows_html:
+        rows_html.append('<tr><td colspan="6" style="padding:16px;border-top:1px solid #e5e7eb;color:#6b7280;">No hay líneas de liquidación para este periodo.</td></tr>')
+
+    summary_table = f"""
+      <div style="margin:22px 0 18px 0;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;background:#ffffff;">
+        <div style="padding:14px 16px;font-size:16px;font-weight:700;background:#f9fafb;color:#111827;border-bottom:1px solid #e5e7eb;">Liquidación</div>
+        <div style="overflow-x:auto;">
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="background:#f3f4f6;color:#111827;">
+                <th style="padding:12px 12px;text-align:left;font-size:12px;">Repertorio</th>
+                <th style="padding:12px 12px;text-align:left;font-size:12px;">Código</th>
+                <th style="padding:12px 12px;text-align:left;font-size:12px;">Fecha</th>
+                <th style="padding:12px 12px;text-align:right;font-size:12px;">Ingreso</th>
+                <th style="padding:12px 12px;text-align:right;font-size:12px;">%</th>
+                <th style="padding:12px 12px;text-align:right;font-size:12px;">A facturar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {''.join(rows_html)}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    """
+
+    invoice_name = 'PIES Compañía Discográfica SL | B82165283 | Avenida de Castilla, 2, 28830 San Fernando de Henares'
+    total_amount = _eur(beneficiary.get('total_amount') or 0)
 
     html_body = f"""
-    <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:720px;margin:0 auto;">
+    <div style="font-family:Arial,Helvetica,sans-serif;color:#111827;max-width:900px;margin:0 auto;background:#f3f4f6;padding:24px;">
       <div style="text-align:right;margin-bottom:18px;">{logo_html}</div>
       <div style="border:1px solid #e5e7eb;border-radius:18px;padding:24px;background:#ffffff;">
         <div style="font-size:28px;line-height:1.1;font-weight:700;margin-bottom:18px;">Liquidación de royalties</div>
@@ -4161,22 +4261,34 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
             <div style="font-size:14px;color:#6b7280;">{html.escape(beneficiary.get('kind_label') or '')}</div>
           </div>
         </div>
-        <div style="font-size:15px;color:#374151;margin-bottom:18px;"><strong>Periodo:</strong> {period_label_safe}</div>
-        <div style="margin:22px 0;">
-          <a href="{html.escape(download_url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Descargar liquidación</a>
+        <div style="font-size:15px;color:#374151;margin-bottom:8px;"><strong>Periodo:</strong> {period_label_safe}</div>
+        {summary_table}
+        <div style="margin:0 0 18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb;text-align:right;">
+          <span style="font-size:14px;color:#374151;">Total a facturar:</span>
+          <strong style="font-size:18px;color:#111827;margin-left:8px;">{total_amount}</strong>
         </div>
-        <div style="font-size:14px;color:#374151;margin-top:18px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrrecords.com">music@piesrrecords.com</a></div>
-        <div style="font-size:14px;color:#374151;margin-top:12px;">Puede subir su factura en <a href="https://www.piesrecords.com/facturacion">https://www.piesrecords.com/facturacion</a></div>
+        <div style="margin:22px 0 18px 0;">
+          <a href="{html.escape(download_url)}" style="display:inline-block;background:#111827;color:#ffffff;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;">Descargar PDF</a>
+        </div>
+        <div style="font-size:14px;color:#374151;margin-top:18px;">Emitir factura a nombre de &quot;{html.escape(invoice_name)}&quot;</div>
+        <div style="margin:16px 0 8px 0;">
+          <a href="https://www.piesrecords.com/facturacion" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;border:1px solid #d1d5db;">Subir factura</a>
+        </div>
+        <div style="font-size:14px;color:#374151;margin-top:16px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrrecords.com">music@piesrrecords.com</a></div>
       </div>
     </div>
     """
+    text_rows = "\n".join(rows_text) if rows_text else "- No hay líneas de liquidación para este periodo."
     text_body = (
         f"Liquidación de royalties\n\n"
         f"Beneficiario: {beneficiary.get('name') or 'Beneficiario'}\n"
         f"Periodo: {period_label}\n\n"
-        f"Descargar liquidación: {download_url}\n\n"
-        "Si tiene alguna duda contacte con music@piesrrecords.com\n"
-        "Puede subir su factura en https://www.piesrecords.com/facturacion"
+        f"Liquidación:\n{text_rows}\n\n"
+        f"Total a facturar: {total_amount}\n\n"
+        f"Descargar PDF: {download_url}\n\n"
+        f'Emitir factura a nombre de "{invoice_name}"\n'
+        "Subir factura: https://www.piesrecords.com/facturacion\n"
+        "Si tiene alguna duda contacte con music@piesrrecords.com"
     )
     return html_body, text_body
 
@@ -6929,13 +7041,12 @@ def discografica_royalties_liquidation_send():
 
     with get_db() as session_db:
         try:
-            pdf_bytes, filename, beneficiary = _build_royalty_liquidation_pdf_bytes(
+            beneficiary, _benef_sem_start, _benef_sem_end, _benef_bid = _get_royalty_liquidation_beneficiary_data(
                 session_db,
                 kind,
                 beneficiary_uuid,
                 sem_year,
                 sem_half,
-                touch_liquidation=False,
             )
         except LookupError:
             flash("No hay datos para enviar esta liquidación.", "warning")
@@ -6970,13 +7081,6 @@ def discografica_royalties_liquidation_send():
             subject,
             html_body,
             text_body=text_body,
-            attachments=[
-                {
-                    'data': pdf_bytes,
-                    'filename': filename,
-                    'mimetype': 'application/pdf',
-                }
-            ],
         )
         if not ok:
             flash(f"No se pudo enviar la liquidación: {error}", "danger")

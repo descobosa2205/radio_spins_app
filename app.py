@@ -152,7 +152,7 @@ from models import (
     ConcertTicketerTicketType,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, storage_public_url
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -2701,28 +2701,28 @@ def _certification_catalog() -> dict[str, dict]:
             "title": "Disco de Oro",
             "plural_title": "Discos de Oro",
             "copies_label": "Equivalente a 20.000 Copias",
-            "image": "img/certifications/gold.svg",
+            "image": "img/certifications/disco_oro_recortado.png",
             "order": 1,
         },
         "PLATINUM": {
             "title": "Disco de Platino",
             "plural_title": "Discos de Platino",
             "copies_label": "Equivalente a 40.000 Copias",
-            "image": "img/certifications/platinum.svg",
+            "image": "img/certifications/disco_diamante_recortado.png",
             "order": 2,
         },
         "DIAMOND": {
             "title": "Disco de Diamante",
             "plural_title": "Discos de Diamante",
             "copies_label": "Equivalente a 1 millón de copias",
-            "image": "img/certifications/diamond.svg",
+            "image": "img/certifications/disco_diamante_recortado.png",
             "order": 3,
         },
         "URANIUM": {
             "title": "Disco de Uranio",
             "plural_title": "Discos de Uranio",
             "copies_label": "Equivalente a más de 50 millones de copias",
-            "image": "img/certifications/uranium.svg",
+            "image": "img/certifications/disco_uranio_recortado.png",
             "order": 4,
         },
     }
@@ -3384,129 +3384,6 @@ def _royalty_status_meta(status: str | None) -> tuple[str, str]:
     return ("Generada", "secondary")
 
 
-def _normalize_royalty_pdf_status(status: str | None) -> str:
-    s = (status or "PENDING").strip().upper()
-    if s in {"PENDING", "QUEUED", "RUNNING", "READY", "FAILED", "STALE"}:
-        return s
-    return "PENDING"
-
-
-def _royalty_pdf_status_meta(status: str | None) -> tuple[str, str]:
-    s = _normalize_royalty_pdf_status(status)
-    if s == "QUEUED":
-        return ("En cola", "secondary")
-    if s == "RUNNING":
-        return ("Generando", "info")
-    if s == "READY":
-        return ("PDF listo", "success")
-    if s == "FAILED":
-        return ("Error", "danger")
-    if s == "STALE":
-        return ("Pendiente de actualizar", "warning")
-    return ("Pendiente", "secondary")
-
-
-def _get_royalty_liquidation_record(session_db, kind: str, beneficiary_id, period_start: date):
-    bid = to_uuid(beneficiary_id)
-    if not bid:
-        return None
-    return (
-        session_db.query(RoyaltyLiquidation)
-        .filter(RoyaltyLiquidation.beneficiary_kind == (kind or "").strip().upper())
-        .filter(RoyaltyLiquidation.beneficiary_id == bid)
-        .filter(RoyaltyLiquidation.period_start == period_start)
-        .first()
-    )
-
-
-def _royalty_liquidation_download_url(kind: str, beneficiary_id, sem_key: str) -> str:
-    return url_for(
-        "discografica_royalties_liquidation_pdf",
-        kind=(kind or "").strip().upper(),
-        bid=str(beneficiary_id),
-        s=sem_key,
-    )
-
-
-def _serialize_royalty_pdf_state(kind: str, beneficiary_id, sem_year: int, sem_half: int, rec: RoyaltyLiquidation | None) -> dict:
-    sem_key = _semester_key(sem_year, sem_half)
-    pdf_status = _normalize_royalty_pdf_status(getattr(rec, "pdf_status", None) if rec else None)
-    pdf_label, pdf_color = _royalty_pdf_status_meta(pdf_status)
-    ready = bool(rec and pdf_status == "READY" and getattr(rec, "pdf_storage_path", None))
-    return {
-        "ok": True,
-        "kind": (kind or "").strip().upper(),
-        "bid": str(beneficiary_id),
-        "semester_key": sem_key,
-        "pdf_status": pdf_status,
-        "pdf_label": pdf_label,
-        "pdf_color": pdf_color,
-        "ready": ready,
-        "download_url": _royalty_liquidation_download_url(kind, beneficiary_id, sem_key) if ready else None,
-        "error": (getattr(rec, "pdf_error", None) or "").strip() if rec else "",
-        "business_status": (getattr(rec, "status", None) or "GENERATED") if rec else "GENERATED",
-        "job_id": getattr(rec, "pdf_job_id", None) if rec else None,
-    }
-
-
-def _queue_royalty_liquidation_pdf_job(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int, *, force: bool = False) -> dict:
-    kind = (kind or "").strip().upper()
-    sem_start, sem_end = _semester_range(sem_year, sem_half)
-    bid = to_uuid(beneficiary_id)
-    if not bid:
-        raise ValueError("Beneficiario inválido")
-
-    rec = _get_royalty_liquidation_record(session_db, kind, bid, sem_start)
-    if rec:
-        current_pdf_status = _normalize_royalty_pdf_status(getattr(rec, "pdf_status", None))
-        if current_pdf_status == "READY" and getattr(rec, "pdf_storage_path", None) and not force:
-            return _serialize_royalty_pdf_state(kind, bid, sem_year, sem_half, rec)
-        if current_pdf_status in {"QUEUED", "RUNNING"} and not force:
-            return _serialize_royalty_pdf_state(kind, bid, sem_year, sem_half, rec)
-    else:
-        rec = RoyaltyLiquidation(
-            beneficiary_kind=kind,
-            beneficiary_id=bid,
-            period_start=sem_start,
-            period_end=sem_end,
-            status="GENERATED",
-            pdf_status="PENDING",
-            generated_at=None,
-            updated_at=datetime.now(TZ_MADRID),
-        )
-        session_db.add(rec)
-        session_db.flush()
-
-    now_dt = datetime.now(TZ_MADRID)
-    rec.period_end = sem_end
-    if not getattr(rec, "status", None):
-        rec.status = "GENERATED"
-    rec.pdf_status = "QUEUED"
-    rec.pdf_requested_at = now_dt
-    rec.pdf_started_at = None
-    rec.pdf_finished_at = None
-    rec.pdf_error = None
-    rec.updated_at = now_dt
-    session_db.commit()
-
-    try:
-        from tasks_royalties import generate_royalty_liquidation_pdf_task
-
-        async_result = generate_royalty_liquidation_pdf_task.delay(kind=kind, beneficiary_id=str(bid), sem_year=int(sem_year), sem_half=int(sem_half))
-        rec.pdf_job_id = getattr(async_result, "id", None)
-        rec.updated_at = datetime.now(TZ_MADRID)
-        session_db.commit()
-    except Exception as exc:
-        rec.pdf_status = "FAILED"
-        rec.pdf_error = str(exc)
-        rec.pdf_finished_at = datetime.now(TZ_MADRID)
-        rec.updated_at = rec.pdf_finished_at
-        session_db.commit()
-
-    session_db.refresh(rec)
-    return _serialize_royalty_pdf_state(kind, bid, sem_year, sem_half, rec)
-
-
 def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, selected_artist_id=None, only_beneficiary: tuple[str, str] | None = None) -> dict:
     selected_artist_id_str = str(selected_artist_id) if selected_artist_id else None
 
@@ -3745,11 +3622,6 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "liquidation_status": None,
                 "liquidation_label": None,
                 "liquidation_color": None,
-                "pdf_status": "PENDING",
-                "pdf_status_label": _royalty_pdf_status_meta("PENDING")[0],
-                "pdf_status_color": _royalty_pdf_status_meta("PENDING")[1],
-                "pdf_ready": False,
-                "pdf_error": "",
                 "contact_email": contact_email or "",
                 "can_send_email": bool(contact_email and _looks_like_email_address(contact_email)),
             }
@@ -3985,13 +3857,6 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
             lbl, color = _royalty_status_meta(bucket["liquidation_status"])
             bucket["liquidation_label"] = lbl
             bucket["liquidation_color"] = color
-            pdf_status = _normalize_royalty_pdf_status(getattr(rec, "pdf_status", None))
-            pdf_lbl, pdf_color = _royalty_pdf_status_meta(pdf_status)
-            bucket["pdf_status"] = pdf_status
-            bucket["pdf_status_label"] = pdf_lbl
-            bucket["pdf_status_color"] = pdf_color
-            bucket["pdf_ready"] = bool(pdf_status == "READY" and getattr(rec, "pdf_storage_path", None))
-            bucket["pdf_error"] = (getattr(rec, "pdf_error", None) or "").strip()
         bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
 
     artist_beneficiaries = [
@@ -7081,81 +6946,6 @@ def discografica_income_report_pdf():
 
 
 
-@app.post("/discografica/royalties/liquidacion/request")
-@admin_required
-def discografica_royalties_liquidation_request():
-    data = request.get_json(silent=True) or {}
-    kind = (data.get("kind") or request.form.get("kind") or "").strip().upper()
-    bid_raw = (data.get("bid") or request.form.get("bid") or "").strip()
-    sem_key = (data.get("s") or request.form.get("s") or "").strip()
-    force = bool(data.get("force"))
-
-    parsed_sem = _parse_semester_key(sem_key)
-    if not parsed_sem:
-        return jsonify({"ok": False, "error": "Semestre inválido."}), 400
-    sem_year, sem_half = parsed_sem
-
-    try:
-        beneficiary_uuid = uuid.UUID(bid_raw)
-    except Exception:
-        return jsonify({"ok": False, "error": "Beneficiario inválido."}), 400
-
-    with get_db() as session_db:
-        try:
-            _get_royalty_liquidation_beneficiary_data(
-                session_db,
-                kind,
-                beneficiary_uuid,
-                sem_year,
-                sem_half,
-            )
-        except LookupError:
-            return jsonify({"ok": False, "error": "No hay datos de royalties para este beneficiario y semestre."}), 404
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc) or "No se pudo preparar la liquidación."}), 400
-
-        try:
-            state = _queue_royalty_liquidation_pdf_job(
-                session_db,
-                kind,
-                beneficiary_uuid,
-                sem_year,
-                sem_half,
-                force=force,
-            )
-        except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc) or "No se pudo encolar la generación."}), 500
-
-    if (state.get("pdf_status") or "").upper() == "FAILED":
-        return jsonify(state), 500
-    code = 200 if state.get("ready") else 202
-    return jsonify(state), code
-
-
-@app.get("/discografica/royalties/liquidacion/request_status")
-@admin_required
-def discografica_royalties_liquidation_request_status():
-    kind = (request.args.get("kind") or "").strip().upper()
-    bid_raw = (request.args.get("bid") or "").strip()
-    sem_key = (request.args.get("s") or "").strip()
-
-    parsed_sem = _parse_semester_key(sem_key)
-    if not parsed_sem:
-        return jsonify({"ok": False, "error": "Semestre inválido."}), 400
-    sem_year, sem_half = parsed_sem
-    sem_start, _sem_end = _semester_range(sem_year, sem_half)
-
-    try:
-        beneficiary_uuid = uuid.UUID(bid_raw)
-    except Exception:
-        return jsonify({"ok": False, "error": "Beneficiario inválido."}), 400
-
-    with get_db() as session_db:
-        rec = _get_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        state = _serialize_royalty_pdf_state(kind, beneficiary_uuid, sem_year, sem_half, rec)
-    return jsonify(state)
-
-
 @app.get("/discografica/royalties/liquidacion/pdf")
 @admin_required
 def discografica_royalties_liquidation_pdf():
@@ -7167,7 +6957,6 @@ def discografica_royalties_liquidation_pdf():
     if not parsed_sem:
         abort(400)
     sem_year, sem_half = parsed_sem
-    sem_start, _sem_end = _semester_range(sem_year, sem_half)
 
     try:
         beneficiary_uuid = uuid.UUID(bid_raw)
@@ -7175,16 +6964,21 @@ def discografica_royalties_liquidation_pdf():
         abort(400)
 
     with get_db() as session_db:
-        rec = _get_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        state = _serialize_royalty_pdf_state(kind, beneficiary_uuid, sem_year, sem_half, rec)
-        if not state.get("ready"):
-            return jsonify(state), 409
         try:
-            target_url = storage_public_url(rec.pdf_storage_path)
+            pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=True,
+            )
+        except LookupError:
+            abort(404)
         except Exception:
-            return jsonify({"ok": False, "error": "No se pudo localizar el PDF almacenado."}), 404
+            abort(400)
 
-    return redirect(target_url, code=302)
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
 
 
 @app.get("/public/royalties/liquidacion/pdf")
@@ -7202,7 +6996,6 @@ def public_royalty_liquidation_pdf():
     if not parsed_sem:
         abort(404)
     sem_year, sem_half = parsed_sem
-    sem_start, _sem_end = _semester_range(sem_year, sem_half)
 
     try:
         beneficiary_uuid = uuid.UUID(bid_raw)
@@ -7210,16 +7003,19 @@ def public_royalty_liquidation_pdf():
         abort(404)
 
     with get_db() as session_db:
-        rec = _get_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        state = _serialize_royalty_pdf_state(kind, beneficiary_uuid, sem_year, sem_half, rec)
-        if not state.get("ready"):
-            abort(404)
         try:
-            target_url = storage_public_url(rec.pdf_storage_path)
+            pdf_bytes, filename, _beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=False,
+            )
         except Exception:
             abort(404)
 
-    return redirect(target_url, code=302)
+    return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
 
 
 @app.post("/discografica/royalties/liquidacion/send")
@@ -7244,12 +7040,6 @@ def discografica_royalties_liquidation_send():
         return redirect(next_url)
 
     with get_db() as session_db:
-        rec = _get_royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
-        pdf_state = _serialize_royalty_pdf_state(kind, beneficiary_uuid, sem_year, sem_half, rec)
-        if not pdf_state.get("ready"):
-            flash("La liquidación todavía no está lista. Genera o actualiza el PDF antes de enviarlo.", "warning")
-            return redirect(next_url)
-
         try:
             beneficiary, _benef_sem_start, _benef_sem_end, _benef_bid = _get_royalty_liquidation_beneficiary_data(
                 session_db,
@@ -7297,6 +7087,13 @@ def discografica_royalties_liquidation_send():
             return redirect(next_url)
 
         now_dt = datetime.now(TZ_MADRID)
+        rec = (
+            session_db.query(RoyaltyLiquidation)
+            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+            .filter(RoyaltyLiquidation.beneficiary_id == beneficiary_uuid)
+            .filter(RoyaltyLiquidation.period_start == sem_start)
+            .first()
+        )
         if not rec:
             rec = RoyaltyLiquidation(
                 beneficiary_kind=kind,
@@ -7304,7 +7101,6 @@ def discografica_royalties_liquidation_send():
                 period_start=sem_start,
                 period_end=sem_end,
                 status='SENT',
-                pdf_status='READY',
                 generated_at=now_dt,
                 updated_at=now_dt,
             )
@@ -7365,7 +7161,6 @@ def discografica_royalties_liquidation_status():
                 period_start=sem_start,
                 period_end=sem_end,
                 status=status,
-                pdf_status='PENDING',
                 generated_at=now_dt,
                 updated_at=now_dt,
             )

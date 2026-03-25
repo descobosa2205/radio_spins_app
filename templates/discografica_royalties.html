@@ -19,46 +19,23 @@
         </div>
 
         <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-          <div class="d-flex flex-column align-items-end gap-1">
-            <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
-              {% if b.liquidation_status %}
-                <div class="dropdown">
-                  <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                    {{ b.liquidation_label }}
-                  </button>
-                  <ul class="dropdown-menu">
-                    <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
-                    <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
-                    <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
-                    <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
-                  </ul>
-                </div>
-              {% endif %}
-            </div>
-            <div class="small d-flex align-items-center gap-1 text-nowrap" id="royPdfStateWrap_{{ b.kind }}_{{ b.id }}">
-              <span class="badge rounded-pill text-bg-{{ b.pdf_status_color or 'secondary' }}" id="royPdfState_{{ b.kind }}_{{ b.id }}">{{ b.pdf_status_label or 'Pendiente' }}</span>
-              {% if b.pdf_error %}
-                <span class="text-danger" id="royPdfError_{{ b.kind }}_{{ b.id }}">{{ b.pdf_error }}</span>
-              {% else %}
-                <span class="text-danger d-none" id="royPdfError_{{ b.kind }}_{{ b.id }}"></span>
-              {% endif %}
-            </div>
+          <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
+            {% if b.liquidation_status %}
+              <div class="dropdown">
+                <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                  {{ b.liquidation_label }}
+                </button>
+                <ul class="dropdown-menu">
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
+                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
+                </ul>
+              </div>
+            {% endif %}
           </div>
 
-          {% if b.pdf_ready %}
-            <a class="btn btn-outline-primary btn-sm" target="_blank" href="{{ url_for('discografica_royalties_liquidation_pdf', kind=b.kind, bid=b.id, s=royalty_semester_key) }}">
-              <i class="fa fa-file-pdf"></i> Descargar liquidación
-            </a>
-            <button class="btn btn-outline-secondary btn-sm" type="button" onclick="requestRoyaltyLiquidationPdf(this, '{{ b.kind }}', '{{ b.id }}', '{{ royalty_semester_key }}', true)">
-              <i class="fa fa-rotate-right"></i> Regenerar
-            </button>
-          {% else %}
-            <button class="btn btn-outline-primary btn-sm" type="button" onclick="requestRoyaltyLiquidationPdf(this, '{{ b.kind }}', '{{ b.id }}', '{{ royalty_semester_key }}', false)">
-              <i class="fa fa-file-pdf"></i> Generar liquidación
-            </button>
-          {% endif %}
-
-          {% if b.pdf_ready %}
+          {% if b.liquidation_status %}
             <form method="post" action="{{ url_for('discografica_royalties_liquidation_send') }}" class="d-inline">
               <input type="hidden" name="kind" value="{{ b.kind }}">
               <input type="hidden" name="bid" value="{{ b.id }}">
@@ -69,6 +46,10 @@
               </button>
             </form>
           {% endif %}
+
+          <button class="btn btn-outline-primary btn-sm" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+            <i class="fa fa-file-pdf"></i> Generar liquidación
+          </button>
         </div>
       </div>
 

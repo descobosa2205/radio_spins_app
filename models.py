@@ -851,9 +851,6 @@ class RoyaltyLiquidation(Base):
     Guardamos un registro por beneficiario (artista o tercero) y semestre,
     para poder marcar: Generada -> Enviada -> Facturada -> Pagado.
 
-    Además registramos el ciclo asíncrono del PDF para poder generarlo fuera
-    de la request web y servir siempre el último archivo persistido.
-
     beneficiary_kind: 'ARTIST' | 'PROMOTER'
     beneficiary_id: UUID del beneficiario (Artist.id o Promoter.id)
 
@@ -872,14 +869,6 @@ class RoyaltyLiquidation(Base):
 
     status = Column(Text, nullable=False, server_default=text("'GENERATED'"))
 
-    pdf_status = Column(Text, nullable=False, server_default=text("'PENDING'"))
-    pdf_storage_path = Column(Text)
-    pdf_error = Column(Text)
-    pdf_requested_at = Column(DateTime(timezone=True))
-    pdf_started_at = Column(DateTime(timezone=True))
-    pdf_finished_at = Column(DateTime(timezone=True))
-    pdf_job_id = Column(Text)
-
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -892,7 +881,6 @@ class RoyaltyLiquidation(Base):
         ),
         Index("idx_royalty_liquidations_period", "period_start"),
         Index("idx_royalty_liquidations_beneficiary", "beneficiary_kind", "beneficiary_id"),
-        Index("idx_royalty_liquidations_pdf_status", "pdf_status"),
     )
 
 
@@ -2144,13 +2132,6 @@ def ensure_royalty_liquidations_schema():
             period_end date NOT NULL,
 
             status text NOT NULL DEFAULT 'GENERATED',
-            pdf_status text NOT NULL DEFAULT 'PENDING',
-            pdf_storage_path text,
-            pdf_error text,
-            pdf_requested_at timestamptz,
-            pdf_started_at timestamptz,
-            pdf_finished_at timestamptz,
-            pdf_job_id text,
 
             generated_at timestamptz DEFAULT now(),
             updated_at timestamptz DEFAULT now(),
@@ -2173,46 +2154,6 @@ def ensure_royalty_liquidations_schema():
         """
         CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_beneficiary
         ON royalty_liquidations(beneficiary_kind, beneficiary_id);
-        """,
-
-        """
-        CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_pdf_status
-        ON royalty_liquidations(pdf_status);
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_status text NOT NULL DEFAULT 'PENDING';
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_storage_path text;
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_error text;
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_requested_at timestamptz;
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_started_at timestamptz;
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_finished_at timestamptz;
-        """,
-
-        """
-        ALTER TABLE royalty_liquidations
-        ADD COLUMN IF NOT EXISTS pdf_job_id text;
         """,
     ]
 

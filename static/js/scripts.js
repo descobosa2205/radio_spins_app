@@ -898,123 +898,35 @@ function _royaltyStatusMeta(status){
   return {label: 'Generada', color: 'secondary'};
 }
 
-function _royaltyPdfMeta(status){
-  const s = (status || '').toUpperCase();
-  if (s === 'QUEUED') return {label: 'En cola', color: 'secondary'};
-  if (s === 'RUNNING') return {label: 'Generando', color: 'info'};
-  if (s === 'READY') return {label: 'PDF listo', color: 'success'};
-  if (s === 'FAILED') return {label: 'Error', color: 'danger'};
-  if (s === 'STALE') return {label: 'Pendiente de actualizar', color: 'warning'};
-  return {label: 'Pendiente', color: 'secondary'};
-}
-
-function _setRoyaltyPdfState(kind, bid, state){
-  const meta = _royaltyPdfMeta(state && state.pdf_status);
-  const badge = document.getElementById(`royPdfState_${kind}_${bid}`);
-  if (badge) {
-    badge.textContent = (state && state.pdf_label) || meta.label;
-    badge.className = `badge rounded-pill text-bg-${(state && state.pdf_color) || meta.color}`;
-  }
-  const errorEl = document.getElementById(`royPdfError_${kind}_${bid}`);
-  if (errorEl) {
-    const err = (state && state.error) || '';
-    errorEl.textContent = err;
-    errorEl.classList.toggle('d-none', !err);
-  }
-}
-
-function _setRoyaltyPdfButtonLoading(button, loading, htmlWhenIdle){
-  if (!button) return;
-  if (!button.dataset.originalHtml) {
-    button.dataset.originalHtml = button.innerHTML;
-  }
-  if (loading) {
-    button.disabled = true;
-    button.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>Generando...';
-  } else {
-    button.disabled = false;
-    button.innerHTML = htmlWhenIdle || button.dataset.originalHtml || button.innerHTML;
-  }
-}
-
-async function requestRoyaltyLiquidationPdf(button, kind, bid, semesterKey, force){
-  const originalHtml = button && button.innerHTML ? button.innerHTML : '';
+async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey){
   try {
-    _setRoyaltyPdfButtonLoading(button, true, originalHtml);
+    const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`;
 
-    const r = await fetch('/discografica/royalties/liquidacion/request', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kind, bid, s: semesterKey, force: !!force })
-    });
-
-    const js = await r.json().catch(() => ({}));
-    if (!r.ok || !js.ok) {
-      throw new Error((js && js.error) || 'No se pudo encolar la liquidación');
+    const r = await fetch(url);
+    if (!r.ok) {
+      const t = await r.text();
+      throw new Error(t || 'No se pudo generar el PDF');
     }
 
-    _setRoyaltyPdfState(kind, bid, js);
+    const blob = await r.blob();
+    const objUrl = window.URL.createObjectURL(blob);
 
-    if (js.ready && js.download_url) {
-      window.open(js.download_url, '_blank');
-      setTimeout(() => { window.location.reload(); }, 400);
-      return;
-    }
+    const a = document.createElement('a');
+    a.href = objUrl;
+    a.download = `liquidacion_royalties_${semesterKey}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
 
-    let attempts = 0;
-    const maxAttempts = 180;
-    const poll = async () => {
-      attempts += 1;
-      try {
-        const sr = await fetch(`/discografica/royalties/liquidacion/request_status?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`);
-        const statusJson = await sr.json().catch(() => ({}));
-        if (!sr.ok || !statusJson.ok) {
-          throw new Error((statusJson && statusJson.error) || 'No se pudo consultar el estado');
-        }
-        _setRoyaltyPdfState(kind, bid, statusJson);
-        if (statusJson.ready && statusJson.download_url) {
-          _setRoyaltyPdfButtonLoading(button, false, originalHtml);
-          window.open(statusJson.download_url, '_blank');
-          setTimeout(() => { window.location.reload(); }, 700);
-          return true;
-        }
-        if ((statusJson.pdf_status || '').toUpperCase() === 'FAILED') {
-          throw new Error(statusJson.error || 'La generación del PDF ha fallado');
-        }
-        return false;
-      } catch (err) {
-        throw err;
-      }
-    };
+    window.URL.revokeObjectURL(objUrl);
 
-    while (attempts < maxAttempts) {
-      const done = await new Promise((resolve, reject) => {
-        setTimeout(async () => {
-          try {
-            resolve(await poll());
-          } catch (e) {
-            reject(e);
-          }
-        }, 2500);
-      });
-      if (done) {
-        return;
-      }
-    }
-
-    throw new Error('La generación está tardando demasiado. Recarga la página y vuelve a intentarlo en unos minutos.');
+    // Recargar para que aparezca la etiqueta de estado (Generada)
+    setTimeout(() => { window.location.reload(); }, 250);
 
   } catch (err) {
     console.error(err);
-    _setRoyaltyPdfState(kind, bid, { pdf_status: 'FAILED', error: (err && err.message ? err.message : String(err || 'Error')) });
-    _setRoyaltyPdfButtonLoading(button, false, originalHtml);
-    alert('Error al preparar la liquidación: ' + (err && err.message ? err.message : err));
+    alert('Error al generar la liquidación: ' + (err && err.message ? err.message : err));
   }
-}
-
-async function downloadRoyaltyLiquidationPdf(kind, bid, semesterKey){
-  const url = `/discografica/royalties/liquidacion/pdf?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`;
-  window.open(url, '_blank');
 }
 
 async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){

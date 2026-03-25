@@ -19,7 +19,7 @@ def supabase_client() -> Client:
     return _supabase
 
 
-def upload_bytes(data: bytes, key: str, content_type: str, *, upsert: bool = True) -> str:
+def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
     """Sube bytes a Supabase Storage y devuelve URL pública."""
     client = supabase_client()
 
@@ -29,22 +29,15 @@ def upload_bytes(data: bytes, key: str, content_type: str, *, upsert: bool = Tru
         file_options={
             "content-type": content_type,
             "cache-control": "3600",
-            "upsert": "true" if upsert else "false",
+            "upsert": "false",
         },
     )
 
+    # Algunas versiones devuelven dict con 'error'
     if isinstance(resp, dict) and resp.get("error"):
         msg = resp["error"].get("message", "Error subiendo a Storage")
         raise RuntimeError(msg)
 
-    return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
-
-
-def storage_public_url(key: str) -> str:
-    """Devuelve la URL pública de una clave ya almacenada en Supabase Storage."""
-    if not key:
-        raise ValueError("Storage key vacío")
-    client = supabase_client()
     return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
 
 
@@ -60,7 +53,7 @@ def upload_png(file_storage, folder: str) -> str | None:
     key = f"{folder}/{uuid4().hex}.png"
     data = file_storage.read()
     file_storage.stream.seek(0)
-    return upload_bytes(data, key, "image/png")
+    return _upload_bytes(data, key, "image/png")
 
 
 def upload_image(file_storage, folder: str) -> str | None:
@@ -107,7 +100,7 @@ def upload_image(file_storage, folder: str) -> str | None:
     key = f"{folder}/{uuid4().hex}{ext}"
     data = file_storage.read()
     file_storage.stream.seek(0)
-    return upload_bytes(data, key, content_type)
+    return _upload_bytes(data, key, content_type)
 
 
 def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None = None) -> str | None:
@@ -130,7 +123,7 @@ def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None =
     data = file_storage.read()
     file_storage.stream.seek(0)
     content_type = (getattr(file_storage, "mimetype", "") or "").strip() or "application/octet-stream"
-    return upload_bytes(data, key, content_type)
+    return _upload_bytes(data, key, content_type)
 
 
 def upload_pdf(file_storage, folder: str) -> str | None:
@@ -145,4 +138,4 @@ def upload_pdf(file_storage, folder: str) -> str | None:
     key = f"{folder}/{uuid4().hex}.pdf"
     data = file_storage.read()
     file_storage.stream.seek(0)
-    return upload_bytes(data, key, "application/pdf")
+    return _upload_bytes(data, key, "application/pdf")

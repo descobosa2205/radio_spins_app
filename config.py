@@ -33,6 +33,18 @@ class Settings:
     SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # server-only
     SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "media")
 
+    REDIS_URL = (
+        os.getenv("REDIS_URL")
+        or os.getenv("CELERY_BROKER_URL")
+        or os.getenv("KV_URL")
+        or os.getenv("KV_INTERNAL_URL")
+    )
+    PUBLIC_BASE_URL = (
+        os.getenv("PUBLIC_BASE_URL")
+        or os.getenv("APP_BASE_URL")
+        or os.getenv("RENDER_EXTERNAL_URL")
+    )
+
     BRAND_PRIMARY = os.getenv("BRAND_PRIMARY", "#1f7ae0")
     BRAND_ACCENT = os.getenv("BRAND_ACCENT", "#ffd000")
 

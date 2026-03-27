@@ -11,6 +11,8 @@ import zipfile
 import unicodedata
 import html
 import re
+import hashlib
+import tempfile
 from pathlib import Path
 from io import BytesIO
 from functools import wraps
@@ -1992,24 +1994,17 @@ def _sale_type_label(value: str | None) -> str:
     return CONCERT_SALE_TYPE_LABELS.get(key, key or "—")
 
 
-def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[str], material_date: date | None = None, as_of_date: date | None = None):
-    """Devuelve el compromiso de contrato más reciente para un concepto.
+def _pick_artist_commitment_from_rows(rows, concept_variants: list[str], material_date: date | None = None, as_of_date: date | None = None):
+    """Resuelve el compromiso más reciente a partir de filas ya precargadas.
 
-    Además de escoger por fecha de contrato/creación, soporta el alcance
-    `material_scope` para distinguir si un nuevo porcentaje afecta también a
-    materiales ya existentes o solo a materiales nuevos.
+    Separamos esta lógica del acceso a BD para poder reutilizarla en
+    liquidaciones individuales y evitar docenas de consultas repetidas al
+    generar PDFs grandes.
     """
-
-    rows = (
-        session_db.query(ArtistContractCommitment, ArtistContract)
-        .join(ArtistContract, ArtistContractCommitment.contract_id == ArtistContract.id)
-        .filter(ArtistContract.artist_id == artist_id)
-        .all()
-    )
 
     vset = {(_norm_text_key(x) or "") for x in (concept_variants or []) if (x or "").strip()}
     candidates = []
-    for m, c in rows:
+    for m, c in (rows or []):
         if not m or not c:
             continue
         if _norm_text_key(getattr(m, "concept", "")) not in vset:
@@ -2050,6 +2045,23 @@ def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[
     candidates.sort(key=key, reverse=True)
     chosen, contract, *_ = candidates[0]
     return chosen, contract
+
+
+def _pick_artist_commitment(session_db, artist_id: UUID, concept_variants: list[str], material_date: date | None = None, as_of_date: date | None = None):
+    """Devuelve el compromiso de contrato más reciente para un concepto.
+
+    Además de escoger por fecha de contrato/creación, soporta el alcance
+    `material_scope` para distinguir si un nuevo porcentaje afecta también a
+    materiales ya existentes o solo a materiales nuevos.
+    """
+
+    rows = (
+        session_db.query(ArtistContractCommitment, ArtistContract)
+        .join(ArtistContract, ArtistContractCommitment.contract_id == ArtistContract.id)
+        .filter(ArtistContract.artist_id == artist_id)
+        .all()
+    )
+    return _pick_artist_commitment_from_rows(rows, concept_variants, material_date=material_date, as_of_date=as_of_date)
 
 
 
@@ -3384,6 +3396,539 @@ def _royalty_status_meta(status: str | None) -> tuple[str, str]:
     return ("Generada", "secondary")
 
 
+def _semester_month_starts(sem_start: date) -> list[date]:
+    month_starts: list[date] = []
+    cursor = date(sem_start.year, sem_start.month, 1)
+    for _ in range(6):
+        month_starts.append(cursor)
+        cursor = _add_months(cursor, 1)
+    return month_starts
+
+
+def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date, kind: str, beneficiary_id) -> dict | None:
+    """Construye un único beneficiario sin recorrer todo el semestre.
+
+    Esta ruta se usa para liquidaciones individuales (PDF/email) y evita el
+    pico de RAM/CPU que provocaba montar todos los beneficiarios antes de
+    filtrar uno solo.
+    """
+
+    kind = (kind or "").strip().upper()
+    bid = to_uuid(beneficiary_id)
+    if kind not in ("ARTIST", "PROMOTER") or not bid:
+        return None
+
+    month_starts = _semester_month_starts(sem_start)
+
+    def _append_item(bucket: dict, item: dict):
+        bucket["items"].append(item)
+        bucket["total_amount"] += float(item.get("amount") or 0)
+
+    def _load_song_income_maps(song_ids: list[UUID]) -> tuple[dict, dict]:
+        gross_map: dict[UUID, float] = {}
+        net_map: dict[UUID, float] = {}
+        if not song_ids:
+            return gross_map, net_map
+        sem_rows = {
+            sid: (Decimal(g or 0), Decimal(n or 0))
+            for sid, g, n in (
+                session_db.query(
+                    SongRevenueEntry.song_id,
+                    func.sum(SongRevenueEntry.gross),
+                    func.sum(SongRevenueEntry.net),
+                )
+                .filter(SongRevenueEntry.song_id.in_(song_ids))
+                .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+                .filter(SongRevenueEntry.period_start == sem_start)
+                .group_by(SongRevenueEntry.song_id)
+                .all()
+            )
+            if sid
+        }
+        month_rows = {
+            sid: (Decimal(g or 0), Decimal(n or 0))
+            for sid, g, n in (
+                session_db.query(
+                    SongRevenueEntry.song_id,
+                    func.sum(SongRevenueEntry.gross),
+                    func.sum(SongRevenueEntry.net),
+                )
+                .filter(SongRevenueEntry.song_id.in_(song_ids))
+                .filter(func.upper(SongRevenueEntry.period_type) == "MONTH")
+                .filter(SongRevenueEntry.period_start.in_(month_starts))
+                .group_by(SongRevenueEntry.song_id)
+                .all()
+            )
+            if sid
+        }
+        for sid in song_ids:
+            g, n = sem_rows.get(sid, month_rows.get(sid, (Decimal(0), Decimal(0))))
+            gross_map[sid] = float(g or 0)
+            net_map[sid] = float(n or 0)
+        return gross_map, net_map
+
+    def _load_album_income_maps(album_ids: list[UUID]) -> tuple[dict, dict]:
+        gross_map: dict[UUID, float] = {}
+        net_map: dict[UUID, float] = {}
+        if not album_ids:
+            return gross_map, net_map
+        sem_rows = {
+            aid: (Decimal(g or 0), Decimal(n or 0))
+            for aid, g, n in (
+                session_db.query(
+                    AlbumRevenueEntry.album_id,
+                    func.sum(AlbumRevenueEntry.gross),
+                    func.sum(AlbumRevenueEntry.net),
+                )
+                .filter(AlbumRevenueEntry.album_id.in_(album_ids))
+                .filter(func.upper(AlbumRevenueEntry.period_type) == "SEMESTER")
+                .filter(AlbumRevenueEntry.period_start == sem_start)
+                .group_by(AlbumRevenueEntry.album_id)
+                .all()
+            )
+            if aid
+        }
+        month_rows = {
+            aid: (Decimal(g or 0), Decimal(n or 0))
+            for aid, g, n in (
+                session_db.query(
+                    AlbumRevenueEntry.album_id,
+                    func.sum(AlbumRevenueEntry.gross),
+                    func.sum(AlbumRevenueEntry.net),
+                )
+                .filter(AlbumRevenueEntry.album_id.in_(album_ids))
+                .filter(func.upper(AlbumRevenueEntry.period_type) == "MONTH")
+                .filter(AlbumRevenueEntry.period_start.in_(month_starts))
+                .group_by(AlbumRevenueEntry.album_id)
+                .all()
+            )
+            if aid
+        }
+        for aid in album_ids:
+            g, n = sem_rows.get(aid, month_rows.get(aid, (Decimal(0), Decimal(0))))
+            gross_map[aid] = float(g or 0)
+            net_map[aid] = float(n or 0)
+        return gross_map, net_map
+
+    if kind == "ARTIST":
+        artist = session_db.get(Artist, bid)
+        if not artist:
+            return None
+        bucket = {
+            "kind": "ARTIST",
+            "id": str(bid),
+            "name": artist.name,
+            "photo_url": getattr(artist, "photo_url", None),
+            "kind_label": "Artista",
+            "items": [],
+            "total_amount": 0.0,
+            "liquidation_status": None,
+            "liquidation_label": None,
+            "liquidation_color": None,
+            "contact_email": (_beneficiary_contact_email(session_db, "ARTIST", bid) or ""),
+        }
+
+        song_ids = [
+            sid
+            for (sid,) in (
+                session_db.query(SongRevenueEntry.song_id)
+                .join(SongArtist, SongArtist.song_id == SongRevenueEntry.song_id)
+                .filter(SongArtist.artist_id == bid)
+                .filter(
+                    or_(
+                        and_(func.upper(SongRevenueEntry.period_type) == "SEMESTER", SongRevenueEntry.period_start == sem_start),
+                        and_(func.upper(SongRevenueEntry.period_type) == "MONTH", SongRevenueEntry.period_start.in_(month_starts)),
+                    )
+                )
+                .distinct()
+                .all()
+            )
+            if sid
+        ]
+        album_ids = [
+            aid
+            for (aid,) in (
+                session_db.query(AlbumRevenueEntry.album_id)
+                .join(Album, Album.id == AlbumRevenueEntry.album_id)
+                .filter(Album.artist_id == bid)
+                .filter(
+                    or_(
+                        and_(func.upper(AlbumRevenueEntry.period_type) == "SEMESTER", AlbumRevenueEntry.period_start == sem_start),
+                        and_(func.upper(AlbumRevenueEntry.period_type) == "MONTH", AlbumRevenueEntry.period_start.in_(month_starts)),
+                    )
+                )
+                .distinct()
+                .all()
+            )
+            if aid
+        ]
+
+        songs = []
+        if song_ids:
+            songs = (
+                session_db.query(Song)
+                .options(selectinload(Song.artists))
+                .filter(Song.id.in_(song_ids))
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+
+        albums = []
+        if album_ids:
+            albums = (
+                session_db.query(Album)
+                .options(joinedload(Album.artist))
+                .filter(Album.id.in_(album_ids))
+                .order_by(Album.release_date.desc())
+                .all()
+            )
+
+        song_gross_map, song_net_map = _load_song_income_maps(song_ids)
+        album_gross_map, album_net_map = _load_album_income_maps(album_ids)
+
+        interp_map = {sid: [] for sid in song_ids}
+        if song_ids:
+            rows = (
+                session_db.query(SongInterpreter)
+                .filter(SongInterpreter.song_id.in_(song_ids))
+                .order_by(SongInterpreter.song_id.asc(), SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+                .all()
+            )
+            for row in rows:
+                if row.song_id in interp_map and row.name:
+                    interp_map[row.song_id].append(row.name)
+        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+
+        isrc_map = {}
+        if song_ids:
+            rows = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .filter(SongISRCCode.is_primary == True)
+                .all()
+            )
+            for sid, code in rows:
+                if sid and code and sid not in isrc_map:
+                    isrc_map[sid] = _norm_isrc(code)
+
+        album_code_map = _first_album_code_display_map(session_db, album_ids)
+
+        commitment_rows = None
+
+        def _pick_cached(concept_variants, material_date=None):
+            nonlocal commitment_rows
+            if commitment_rows is None:
+                commitment_rows = (
+                    session_db.query(ArtistContractCommitment, ArtistContract)
+                    .join(ArtistContract, ArtistContractCommitment.contract_id == ArtistContract.id)
+                    .filter(ArtistContract.artist_id == bid)
+                    .all()
+                )
+            return _pick_artist_commitment_from_rows(commitment_rows, concept_variants, material_date=material_date, as_of_date=sem_end)
+
+        for song in songs:
+            primary_artist = song.artists[0] if getattr(song, "artists", None) else None
+            if not primary_artist or getattr(primary_artist, "id", None) != bid:
+                continue
+            g = song_gross_map.get(song.id, 0.0)
+            n = song_net_map.get(song.id, 0.0)
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+            commitment, _contract = _pick_cached(_royalty_concept_variants_for_material(song), material_date=getattr(song, "release_date", None))
+            pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
+            base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
+            income = n if base in ("NET", "PROFIT") else g
+            amount = float(income) * (pct / 100.0)
+            badges = ["Canción"]
+            ownership_label = _royalty_item_ownership_label(song)
+            if ownership_label:
+                badges.append(ownership_label)
+            _append_item(
+                bucket,
+                {
+                    "item_kind": "SONG",
+                    "item_type_label": "Canción",
+                    "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
+                    "cover_url": song.cover_url,
+                    "title": song.title,
+                    "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
+                    "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
+                    "code_label": "ISRC",
+                    "release_date": song.release_date.strftime("%d/%m/%Y") if song.release_date else "",
+                    "income": float(income or 0),
+                    "pct": pct,
+                    "amount": amount,
+                    "badges": badges,
+                    "sort_title": (song.title or "").lower(),
+                },
+            )
+
+        for album in albums:
+            if getattr(album, "artist_id", None) != bid:
+                continue
+            g = album_gross_map.get(album.id, 0.0)
+            n = album_net_map.get(album.id, 0.0)
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+            commitment, _contract = _pick_cached(_royalty_concept_variants_for_material(album), material_date=getattr(album, "release_date", None))
+            pct = float(getattr(commitment, "pct_artist", 0) or 0) if commitment else 0.0
+            base = _norm_contract_base(getattr(commitment, "base", "GROSS") or "GROSS") if commitment else "GROSS"
+            income = n if base in ("NET", "PROFIT") else g
+            amount = float(income) * (pct / 100.0)
+            badges = ["Disco"]
+            ownership_label = _royalty_item_ownership_label(album)
+            if ownership_label:
+                badges.append(ownership_label)
+            code_display = album_code_map.get(str(album.id)) or ((_clean_csv_cell(getattr(album, "upc_code", None)) or "").strip()) or "—"
+            subtitle_bits = [artist.name]
+            kind_label = _album_kind_label(album)
+            if kind_label:
+                subtitle_bits.append(kind_label)
+            _append_item(
+                bucket,
+                {
+                    "item_kind": "ALBUM",
+                    "item_type_label": "Disco",
+                    "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
+                    "cover_url": album.cover_url,
+                    "title": album.title,
+                    "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
+                    "code": code_display,
+                    "code_label": "Código",
+                    "release_date": album.release_date.strftime("%d/%m/%Y") if album.release_date else "",
+                    "income": float(income or 0),
+                    "pct": pct,
+                    "amount": amount,
+                    "badges": badges,
+                    "sort_title": (album.title or "").lower(),
+                },
+            )
+
+    else:
+        promoter = session_db.get(Promoter, bid)
+        if not promoter:
+            return None
+        display_name = (promoter.nick or ((promoter.first_name or "") + " " + (promoter.last_name or ""))).strip() or "Beneficiario"
+        bucket = {
+            "kind": "PROMOTER",
+            "id": str(bid),
+            "name": display_name,
+            "photo_url": getattr(promoter, "logo_url", None),
+            "kind_label": "Beneficiario",
+            "items": [],
+            "total_amount": 0.0,
+            "liquidation_status": None,
+            "liquidation_label": None,
+            "liquidation_color": None,
+            "contact_email": (_beneficiary_contact_email(session_db, "PROMOTER", bid) or ""),
+        }
+
+        song_ids = [
+            sid
+            for (sid,) in (
+                session_db.query(SongRevenueEntry.song_id)
+                .join(SongRoyaltyBeneficiary, SongRoyaltyBeneficiary.song_id == SongRevenueEntry.song_id)
+                .filter(SongRoyaltyBeneficiary.promoter_id == bid)
+                .filter(
+                    or_(
+                        and_(func.upper(SongRevenueEntry.period_type) == "SEMESTER", SongRevenueEntry.period_start == sem_start),
+                        and_(func.upper(SongRevenueEntry.period_type) == "MONTH", SongRevenueEntry.period_start.in_(month_starts)),
+                    )
+                )
+                .distinct()
+                .all()
+            )
+            if sid
+        ]
+        album_ids = [
+            aid
+            for (aid,) in (
+                session_db.query(AlbumRevenueEntry.album_id)
+                .join(AlbumRoyaltyBeneficiary, AlbumRoyaltyBeneficiary.album_id == AlbumRevenueEntry.album_id)
+                .filter(AlbumRoyaltyBeneficiary.promoter_id == bid)
+                .filter(
+                    or_(
+                        and_(func.upper(AlbumRevenueEntry.period_type) == "SEMESTER", AlbumRevenueEntry.period_start == sem_start),
+                        and_(func.upper(AlbumRevenueEntry.period_type) == "MONTH", AlbumRevenueEntry.period_start.in_(month_starts)),
+                    )
+                )
+                .distinct()
+                .all()
+            )
+            if aid
+        ]
+
+        songs = []
+        if song_ids:
+            songs = (
+                session_db.query(Song)
+                .options(selectinload(Song.artists))
+                .filter(Song.id.in_(song_ids))
+                .order_by(Song.release_date.desc())
+                .all()
+            )
+        albums = []
+        if album_ids:
+            albums = (
+                session_db.query(Album)
+                .options(joinedload(Album.artist))
+                .filter(Album.id.in_(album_ids))
+                .order_by(Album.release_date.desc())
+                .all()
+            )
+
+        song_lookup = {song.id: song for song in songs}
+        album_lookup = {album.id: album for album in albums}
+        song_gross_map, song_net_map = _load_song_income_maps(song_ids)
+        album_gross_map, album_net_map = _load_album_income_maps(album_ids)
+
+        interp_map = {sid: [] for sid in song_ids}
+        if song_ids:
+            rows = (
+                session_db.query(SongInterpreter)
+                .filter(SongInterpreter.song_id.in_(song_ids))
+                .order_by(SongInterpreter.song_id.asc(), SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+                .all()
+            )
+            for row in rows:
+                if row.song_id in interp_map and row.name:
+                    interp_map[row.song_id].append(row.name)
+        interpreters_str = {sid: ", ".join(names) for sid, names in interp_map.items()}
+
+        isrc_map = {}
+        if song_ids:
+            rows = (
+                session_db.query(SongISRCCode.song_id, SongISRCCode.code)
+                .filter(SongISRCCode.song_id.in_(song_ids))
+                .filter(func.upper(SongISRCCode.kind) == "AUDIO")
+                .filter(SongISRCCode.is_primary == True)
+                .all()
+            )
+            for sid, code in rows:
+                if sid and code and sid not in isrc_map:
+                    isrc_map[sid] = _norm_isrc(code)
+
+        album_code_map = _first_album_code_display_map(session_db, album_ids)
+
+        extra_song_rows = []
+        if song_ids:
+            extra_song_rows = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .filter(SongRoyaltyBeneficiary.promoter_id == bid)
+                .filter(SongRoyaltyBeneficiary.song_id.in_(song_ids))
+                .all()
+            )
+        extra_album_rows = []
+        if album_ids:
+            extra_album_rows = (
+                session_db.query(AlbumRoyaltyBeneficiary)
+                .filter(AlbumRoyaltyBeneficiary.promoter_id == bid)
+                .filter(AlbumRoyaltyBeneficiary.album_id.in_(album_ids))
+                .all()
+            )
+
+        for row in extra_song_rows:
+            song = song_lookup.get(getattr(row, "song_id", None))
+            if not song:
+                continue
+            g = song_gross_map.get(song.id, 0.0)
+            n = song_net_map.get(song.id, 0.0)
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+            base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
+            if base not in ("GROSS", "NET", "PROFIT"):
+                base = "GROSS"
+            pct = float(getattr(row, "pct", 0) or 0)
+            income = n if base in ("NET", "PROFIT") else g
+            amount = float(income) * (pct / 100.0)
+            badges = ["Canción"]
+            ownership_label = _royalty_item_ownership_label(song)
+            if ownership_label:
+                badges.append(ownership_label)
+            _append_item(
+                bucket,
+                {
+                    "item_kind": "SONG",
+                    "item_type_label": "Canción",
+                    "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
+                    "cover_url": song.cover_url,
+                    "title": song.title,
+                    "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
+                    "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
+                    "code_label": "ISRC",
+                    "release_date": song.release_date.strftime("%d/%m/%Y") if song.release_date else "",
+                    "income": float(income or 0),
+                    "pct": pct,
+                    "amount": amount,
+                    "badges": badges,
+                    "sort_title": (song.title or "").lower(),
+                },
+            )
+
+        for row in extra_album_rows:
+            album = album_lookup.get(getattr(row, "album_id", None))
+            if not album:
+                continue
+            g = album_gross_map.get(album.id, 0.0)
+            n = album_net_map.get(album.id, 0.0)
+            if abs(float(g)) < 1e-9 and abs(float(n)) < 1e-9:
+                continue
+            base = (getattr(row, "base", "GROSS") or "GROSS").strip().upper()
+            if base not in ("GROSS", "NET", "PROFIT"):
+                base = "GROSS"
+            pct = float(getattr(row, "pct", 0) or 0)
+            income = n if base in ("NET", "PROFIT") else g
+            amount = float(income) * (pct / 100.0)
+            badges = ["Disco"]
+            ownership_label = _royalty_item_ownership_label(album)
+            if ownership_label:
+                badges.append(ownership_label)
+            code_display = album_code_map.get(str(album.id)) or ((_clean_csv_cell(getattr(album, "upc_code", None)) or "").strip()) or "—"
+            album_artist = getattr(album, "artist", None)
+            subtitle_bits = [getattr(album_artist, "name", None) or ""]
+            kind_label = _album_kind_label(album)
+            if kind_label:
+                subtitle_bits.append(kind_label)
+            _append_item(
+                bucket,
+                {
+                    "item_kind": "ALBUM",
+                    "item_type_label": "Disco",
+                    "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
+                    "cover_url": album.cover_url,
+                    "title": album.title,
+                    "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
+                    "code": code_display,
+                    "code_label": "Código",
+                    "release_date": album.release_date.strftime("%d/%m/%Y") if album.release_date else "",
+                    "income": float(income or 0),
+                    "pct": pct,
+                    "amount": amount,
+                    "badges": badges,
+                    "sort_title": (album.title or "").lower(),
+                },
+            )
+
+    bucket["can_send_email"] = bool(bucket.get("contact_email") and _looks_like_email_address(bucket.get("contact_email")))
+
+    rec = (
+        session_db.query(RoyaltyLiquidation)
+        .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+        .filter(RoyaltyLiquidation.beneficiary_id == bid)
+        .filter(RoyaltyLiquidation.period_start == sem_start)
+        .first()
+    )
+    if rec:
+        bucket["liquidation_status"] = getattr(rec, "status", None)
+        lbl, color = _royalty_status_meta(bucket["liquidation_status"])
+        bucket["liquidation_label"] = lbl
+        bucket["liquidation_color"] = color
+
+    bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
+    return bucket if (bucket.get("items") or []) else None
+
+
 def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, selected_artist_id=None, only_beneficiary: tuple[str, str] | None = None) -> dict:
     selected_artist_id_str = str(selected_artist_id) if selected_artist_id else None
 
@@ -3897,12 +4442,13 @@ def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary
     if not bid:
         raise ValueError("Beneficiario inválido")
 
-    payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end, only_beneficiary=(kind, str(bid)))
-    beneficiary = None
-    for row in (payload.get("artists") or []) + (payload.get("others") or []):
-        if row.get("kind") == kind and row.get("id") == str(bid):
-            beneficiary = row
-            break
+    beneficiary = _build_royalty_single_beneficiary(session_db, sem_start, sem_end, kind, bid)
+    if not beneficiary:
+        payload = _build_royalty_beneficiaries(session_db, sem_start, sem_end, only_beneficiary=(kind, str(bid)))
+        for row in (payload.get("artists") or []) + (payload.get("others") or []):
+            if row.get("kind") == kind and row.get("id") == str(bid):
+                beneficiary = row
+                break
     if not beneficiary:
         raise LookupError("No hay datos de royalties para este beneficiario y semestre.")
 
@@ -3947,38 +4493,12 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             session_db.add(rec)
         session_db.commit()
 
-    from io import BytesIO
-    from urllib.request import urlopen
-
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import cm
     from reportlab.lib import colors
-    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-
-    image_cache: dict[str, bytes] = {}
-    lightweight_rows = len(beneficiary.get('items') or []) >= 60
-
-    def _fetch_img(url: str, w: float, h: float, *, align: str = "LEFT", allow_remote: bool = True):
-        if not url:
-            return ""
-        try:
-            if isinstance(url, str) and url.startswith(("http://", "https://")):
-                if not allow_remote:
-                    return ""
-                data = image_cache.get(url)
-                if data is None:
-                    with urlopen(url, timeout=4) as resp:
-                        data = resp.read()
-                    image_cache[url] = data
-                bio = BytesIO(data)
-                img = Image(bio, width=w, height=h)
-            else:
-                img = Image(url, width=w, height=h)
-            img.hAlign = align
-            return img
-        except Exception:
-            return ""
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    from reportlab.pdfgen import canvas
 
     def _clean_filename(value: str) -> str:
         safe = (value or "").strip()
@@ -3993,6 +4513,183 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         except Exception:
             return "0,00 EUR"
 
+    def _wrap_text(text_value: str, max_width: float, font_name: str, font_size: float, max_lines: int = 1) -> list[str]:
+        txt = (text_value or "").strip()
+        if not txt:
+            return []
+        words = txt.split()
+        if not words:
+            return []
+        lines: list[str] = []
+        current = words[0]
+        used_count = 1
+        for word in words[1:]:
+            candidate = f"{current} {word}"
+            if stringWidth(candidate, font_name, font_size) <= max_width:
+                current = candidate
+                used_count += 1
+            else:
+                lines.append(current)
+                current = word
+                used_count += 1
+                if len(lines) >= max_lines:
+                    break
+        if len(lines) < max_lines and current:
+            lines.append(current)
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+        full_joined = " ".join(words)
+        current_joined = " ".join(lines)
+        if len(lines) == max_lines and current_joined != full_joined:
+            line = lines[-1]
+            ellipsis = "..."
+            while line and stringWidth(line + ellipsis, font_name, font_size) > max_width:
+                line = line[:-1]
+            lines[-1] = (line.rstrip() + ellipsis) if line else ellipsis
+        return lines
+
+    def _truncate(text_value: str, max_width: float, font_name: str, font_size: float) -> str:
+        lines = _wrap_text(text_value, max_width, font_name, font_size, max_lines=1)
+        return lines[0] if lines else ""
+
+    def _cache_dir() -> str:
+        cache_dir = os.path.join(tempfile.gettempdir(), "radio_spins_royalty_pdf_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        return cache_dir
+
+    def _cleanup_cache(folder: str, max_age_seconds: int = 7 * 24 * 3600):
+        try:
+            now_ts = datetime.now().timestamp()
+            for name in os.listdir(folder):
+                if not name.lower().endswith('.pdf'):
+                    continue
+                fp = os.path.join(folder, name)
+                try:
+                    if (now_ts - os.path.getmtime(fp)) > max_age_seconds:
+                        os.remove(fp)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
+        payload = {
+            "renderer": "royalty_pdf_v2",
+            "kind": beneficiary.get("kind"),
+            "id": beneficiary.get("id"),
+            "name": beneficiary.get("name"),
+            "period": [sem_start.isoformat(), sem_end.isoformat()],
+            "logo": pies_logo_url or "",
+            "tax": pies_tax_info or "",
+            "total": round(float(beneficiary.get("total_amount") or 0), 4),
+            "items": [
+                {
+                    "item_kind": item.get("item_kind"),
+                    "cover_url": item.get("cover_url") or "",
+                    "title": item.get("title") or "",
+                    "subtitle": item.get("subtitle") or "",
+                    "code": item.get("code") or "",
+                    "release_date": item.get("release_date") or "",
+                    "income": round(float(item.get("income") or 0), 4),
+                    "pct": round(float(item.get("pct") or 0), 4),
+                    "amount": round(float(item.get("amount") or 0), 4),
+                    "badges": item.get("badges") or [],
+                }
+                for item in (beneficiary.get("items") or [])
+            ],
+        }
+        raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        return hashlib.sha256(raw).hexdigest()
+
+    def _cache_path(signature: str) -> str:
+        return os.path.join(_cache_dir(), f"{signature}.pdf")
+
+    def _read_cached_pdf(signature: str) -> bytes | None:
+        fp = _cache_path(signature)
+        if not os.path.exists(fp):
+            return None
+        try:
+            with open(fp, 'rb') as fh:
+                return fh.read()
+        except Exception:
+            return None
+
+    def _write_cached_pdf(signature: str, pdf_bytes: bytes):
+        folder = _cache_dir()
+        _cleanup_cache(folder)
+        fp = _cache_path(signature)
+        tmp = fp + '.tmp'
+        try:
+            with open(tmp, 'wb') as fh:
+                fh.write(pdf_bytes)
+            os.replace(tmp, fp)
+        except Exception:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
+
+    def _read_bytes_limited(url: str, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
+        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urlopen(req, timeout=4) as resp:
+            chunks = []
+            total = 0
+            while True:
+                chunk = resp.read(262144)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
+
+    image_reader_cache: dict[tuple[str, int], object | None] = {}
+
+    def _image_reader(url: str | None, max_px: int) -> object | None:
+        if not url:
+            return None
+        key = (url, max_px)
+        if key in image_reader_cache:
+            return image_reader_cache[key]
+        try:
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                raw = _read_bytes_limited(url)
+                if not raw:
+                    image_reader_cache[key] = None
+                    return None
+            else:
+                with open(url, 'rb') as fh:
+                    raw = fh.read()
+
+            if PILLOW_AVAILABLE and PILImage is not None:
+                bio = BytesIO(raw)
+                with PILImage.open(bio) as img:
+                    try:
+                        img.seek(0)
+                    except Exception:
+                        pass
+                    if img.mode not in ("RGB", "L"):
+                        img = img.convert("RGB")
+                    resampling = getattr(getattr(PILImage, "Resampling", PILImage), "LANCZOS", getattr(PILImage, "LANCZOS", 1))
+                    img.thumbnail((max_px, max_px), resampling)
+                    out = BytesIO()
+                    save_format = "JPEG" if img.mode == "RGB" else "PNG"
+                    save_kwargs = {"format": save_format, "optimize": True}
+                    if save_format == "JPEG":
+                        save_kwargs["quality"] = 72
+                    img.save(out, **save_kwargs)
+                    out.seek(0)
+                    reader = ImageReader(out)
+            else:
+                reader = ImageReader(BytesIO(raw))
+            image_reader_cache[key] = reader
+            return reader
+        except Exception:
+            image_reader_cache[key] = None
+            return None
+
     pies_company = (
         session_db.query(GroupCompany)
         .filter(func.lower(GroupCompany.name).like('%pies%'))
@@ -4002,164 +4699,185 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     pies_tax_info = (getattr(pies_company, 'tax_info', None) or 'poner los datos fiscales de la empresa del grupo PIES').strip()
     pies_logo_url = getattr(pies_company, 'logo_url', None) or None
 
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'royalty_pdf_title',
-        parent=styles['Title'],
-        fontName='Helvetica-Bold',
-        fontSize=17,
-        leading=20,
-        spaceAfter=4,
-        textColor=colors.black,
-    )
-    meta_style = ParagraphStyle(
-        'royalty_pdf_meta',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=9,
-        leading=11,
-        textColor=colors.HexColor('#555555'),
-    )
-    cell_style = ParagraphStyle(
-        'royalty_pdf_cell',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=8,
-        leading=10,
-        spaceAfter=0,
-    )
-    small_style = ParagraphStyle(
-        'royalty_pdf_small',
-        parent=styles['Normal'],
-        fontName='Helvetica',
-        fontSize=7,
-        leading=8.4,
-        textColor=colors.HexColor('#666666'),
-    )
+    signature = _payload_signature(pies_logo_url, pies_tax_info)
+    filename = f"{_clean_filename(beneficiary.get('name') or 'beneficiario')}_Liquidacion_Royalties_S{sem_half}_{sem_year}.pdf"
+    cached_pdf = _read_cached_pdf(signature)
+    if cached_pdf:
+        return cached_pdf, filename, beneficiary
 
     buf = BytesIO()
-    doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        leftMargin=1.2 * cm,
-        rightMargin=1.2 * cm,
-        topMargin=1.1 * cm,
-        bottomMargin=1.1 * cm,
-    )
-    story = []
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    pdf.setPageCompression(1)
+    pdf.setTitle(f"Liquidación Royalties {beneficiary.get('name') or ''}")
 
-    logo = _fetch_img(pies_logo_url or '', 3.4 * cm, 1.4 * cm, align='RIGHT')
-    if not logo:
-        try:
-            logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
-            logo = Image(logo_path, width=3.4 * cm, height=1.4 * cm)
-            logo.hAlign = 'RIGHT'
-        except Exception:
-            logo = ''
+    page_width, page_height = A4
+    left = 1.2 * cm
+    right = page_width - (1.2 * cm)
+    top = page_height - (1.0 * cm)
+    bottom = 1.0 * cm
 
-    header_table = Table(
-        [[Paragraph('<b>Liquidación de Royalties</b>', title_style), logo]],
-        colWidths=[None, 3.8 * cm],
-    )
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-        ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
-    ]))
-    story.append(header_table)
-    story.append(Spacer(1, 4))
+    col_widths = [24, 180, 82, 56, 72, 34, 79]
+    col_titles = ["", "Repertorio", "Código", "Fecha", "Ingreso", "%", "A facturar"]
+    col_starts = [left]
+    for width in col_widths[:-1]:
+        col_starts.append(col_starts[-1] + width)
 
+    row_h = 34
+    table_header_h = 18
+    logo_reader = _image_reader(pies_logo_url, 300)
+    if not logo_reader:
+        logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
+        if os.path.exists(logo_path):
+            logo_reader = _image_reader(logo_path, 300)
+    beneficiary_reader = _image_reader(beneficiary.get('photo_url'), 140)
     period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
-    beneficiary_photo = _fetch_img(beneficiary.get('photo_url') or '', 1.8 * cm, 1.8 * cm, allow_remote=not lightweight_rows)
-    if not beneficiary_photo:
-        beneficiary_photo = ''
-    beneficiary_info = Paragraph(
-        f"<b>{html.escape(beneficiary.get('name') or '')}</b><br/>{html.escape(beneficiary.get('kind_label') or '')}<br/><font size='9'>{html.escape(period_str)}</font>",
-        meta_style,
-    )
-    beneficiary_box = Table([[beneficiary_photo, beneficiary_info]], colWidths=[2.1 * cm, None])
-    beneficiary_box.setStyle(TableStyle([
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#DDDDDD')),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8F8F8')),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 8),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
-    ]))
-    story.append(beneficiary_box)
-    story.append(Spacer(1, 10))
 
-    data = [["", "Repertorio", "Código", "Fecha", "Ingreso", "%", "A facturar"]]
-    for item in beneficiary.get('items') or []:
-        cover = _fetch_img(item.get('cover_url') or '', 0.8 * cm, 0.8 * cm, allow_remote=not lightweight_rows)
-        subtitle = html.escape(item.get('subtitle') or '')
-        badge_line = html.escape(' · '.join(item.get('badges') or []))
-        title_html = f"<b>{html.escape(item.get('title') or '')}</b>"
+    def _draw_page_header(page_no: int) -> float:
+        y = top
+        pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(left, y, "Liquidación de Royalties")
+        if logo_reader:
+            try:
+                pdf.drawImage(logo_reader, right - 96, y - 6, width=96, height=38, preserveAspectRatio=True, mask='auto', anchor='ne')
+            except Exception:
+                pass
+        y -= 20
+        pdf.setFont("Helvetica", 9)
+        pdf.setFillColor(colors.HexColor('#555555'))
+        pdf.drawString(left, y, period_str)
+        y -= 8
+        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+        pdf.line(left, y, right, y)
+        y -= 10
+
+        box_h = 50
+        pdf.setFillColor(colors.HexColor('#F8F8F8'))
+        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+        pdf.roundRect(left, y - box_h, right - left, box_h, 6, fill=1, stroke=1)
+        if beneficiary_reader:
+            try:
+                pdf.drawImage(beneficiary_reader, left + 8, y - box_h + 8, width=34, height=34, preserveAspectRatio=True, mask='auto', anchor='c')
+            except Exception:
+                pass
+        text_x = left + 50
+        pdf.setFillColor(colors.black)
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(text_x, y - 18, (beneficiary.get('name') or 'Beneficiario').strip())
+        pdf.setFont("Helvetica", 9)
+        pdf.setFillColor(colors.HexColor('#555555'))
+        pdf.drawString(text_x, y - 31, (beneficiary.get('kind_label') or '').strip())
+        pdf.drawString(text_x, y - 42, period_str)
+        y -= box_h + 12
+
+        pdf.setFillColor(colors.HexColor('#F1F1F1'))
+        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+        pdf.rect(left, y - table_header_h + 2, right - left, table_header_h, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        pdf.setFont("Helvetica-Bold", 8)
+        for idx, (x, title, width) in enumerate(zip(col_starts, col_titles, col_widths)):
+            if idx >= 4:
+                pdf.drawRightString(x + width - 4, y - 10, title)
+            else:
+                pdf.drawString(x + 4, y - 10, title)
+        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+        pdf.line(left, y - table_header_h + 1, right, y - table_header_h + 1)
+        return y - table_header_h - 2
+
+    def _draw_row(y: float, item: dict, row_index: int) -> float:
+        if row_index % 2 == 0:
+            pdf.setFillColor(colors.HexColor('#FAFAFA'))
+            pdf.rect(left, y - row_h + 2, right - left, row_h, fill=1, stroke=0)
+        pdf.setStrokeColor(colors.HexColor('#EFEFEF'))
+        pdf.line(left, y - row_h + 2, right, y - row_h + 2)
+
+        cover_reader = _image_reader(item.get('cover_url'), 96)
+        if cover_reader:
+            try:
+                pdf.drawImage(cover_reader, col_starts[0] + 2, y - row_h + 6, width=20, height=20, preserveAspectRatio=True, mask='auto', anchor='c')
+            except Exception:
+                pass
+
+        rep_x = col_starts[1] + 4
+        rep_w = col_widths[1] - 8
+        title = _truncate(item.get('title') or '', rep_w, 'Helvetica-Bold', 8.2)
+        subtitle = _truncate(item.get('subtitle') or '', rep_w, 'Helvetica', 7.1)
+        badges = _truncate(' · '.join(item.get('badges') or []), rep_w, 'Helvetica', 6.6)
+
+        pdf.setFillColor(colors.black)
+        pdf.setFont('Helvetica-Bold', 8.2)
+        pdf.drawString(rep_x, y - 10, title or '—')
+        pdf.setFont('Helvetica', 7.1)
+        pdf.setFillColor(colors.HexColor('#555555'))
         if subtitle:
-            title_html += f"<br/><font size='7'>{subtitle}</font>"
-        if badge_line:
-            title_html += f"<br/><font size='7' color='#666666'>{badge_line}</font>"
-        title_cell = Paragraph(title_html, cell_style)
-        code_html = html.escape(item.get('code') or '—')
+            pdf.drawString(rep_x, y - 20, subtitle)
+        if badges:
+            pdf.setFillColor(colors.HexColor('#777777'))
+            pdf.setFont('Helvetica', 6.6)
+            pdf.drawString(rep_x, y - 29, badges)
+
+        code_txt = item.get('code') or '—'
         if item.get('item_kind') == 'SONG':
-            code_html = html.escape(_norm_isrc(item.get('code') or '') or '—')
-        data.append([
-            cover,
-            title_cell,
-            Paragraph(code_html, cell_style),
-            Paragraph(html.escape(item.get('release_date') or ''), cell_style),
-            Paragraph(f"<para alignment='right'>{_eur(item.get('income') or 0)}</para>", cell_style),
-            Paragraph(f"<para alignment='right'>{float(item.get('pct') or 0):.2f}%</para>", cell_style),
-            Paragraph(f"<para alignment='right'><b>{_eur(item.get('amount') or 0)}</b></para>", cell_style),
-        ])
+            code_txt = _norm_isrc(code_txt) or '—'
+        pdf.setFillColor(colors.black)
+        pdf.setFont('Helvetica', 7.6)
+        baseline = y - 18
+        pdf.drawString(col_starts[2] + 4, baseline, _truncate(code_txt, col_widths[2] - 8, 'Helvetica', 7.6) or '—')
+        pdf.drawString(col_starts[3] + 4, baseline, _truncate(item.get('release_date') or '', col_widths[3] - 8, 'Helvetica', 7.6))
+        pdf.drawRightString(col_starts[4] + col_widths[4] - 4, baseline, _eur(item.get('income') or 0))
+        pdf.drawRightString(col_starts[5] + col_widths[5] - 4, baseline, f"{float(item.get('pct') or 0):.2f}%")
+        pdf.setFont('Helvetica-Bold', 7.8)
+        pdf.drawRightString(col_starts[6] + col_widths[6] - 4, baseline, _eur(item.get('amount') or 0))
+        return y - row_h
 
-    table = Table(
-        data,
-        colWidths=[1.0 * cm, 6.0 * cm, 2.7 * cm, 2.0 * cm, 2.3 * cm, 1.2 * cm, 2.7 * cm],
-        repeatRows=1,
-    )
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F1F1F1')),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 8),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
-        ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor('#DDDDDD')),
-        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('LEFTPADDING', (0, 0), (-1, -1), 5),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
-        ('TOPPADDING', (0, 0), (-1, -1), 5),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#FAFAFA')]),
-        ('ALIGN', (4, 1), (-1, -1), 'RIGHT'),
-    ]))
-    story.append(table)
-    story.append(Spacer(1, 10))
+    y = _draw_page_header(1)
+    page_no = 1
+    items = beneficiary.get('items') or []
 
-    total_box = Table(
-        [[Paragraph(f"<para alignment='right'><b>Total a facturar:</b> {_eur(beneficiary.get('total_amount') or 0)}</para>", meta_style)]],
-        colWidths=[6.6 * cm],
-        hAlign='RIGHT',
-    )
-    total_box.setStyle(TableStyle([
-        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#DDDDDD')),
-        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F8F8F8')),
-        ('LEFTPADDING', (0, 0), (-1, -1), 8),
-        ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        ('TOPPADDING', (0, 0), (-1, -1), 6),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
-    ]))
-    story.append(total_box)
-    story.append(Spacer(1, 8))
+    if not items:
+        pdf.setFillColor(colors.HexColor('#666666'))
+        pdf.setFont('Helvetica', 10)
+        pdf.drawString(left, y - 12, 'No hay líneas de liquidación para este periodo.')
+        y -= 28
+    else:
+        for idx, item in enumerate(items):
+            if y - row_h < bottom + 80:
+                pdf.showPage()
+                page_no += 1
+                y = _draw_page_header(page_no)
+            y = _draw_row(y, item, idx)
 
-    safe_pies_tax_info = html.escape(pies_tax_info or 'poner los datos fiscales de la empresa del grupo PIES')
-    story.append(Paragraph(f'Emitir factura a nombre de "{safe_pies_tax_info}"', meta_style))
-    story.append(Spacer(1, 4))
-    story.append(Paragraph("<link href='https://www.piesrecords.com/facturacion'><u>Subir factura</u></link>", small_style))
+    if y < bottom + 72:
+        pdf.showPage()
+        page_no += 1
+        y = _draw_page_header(page_no)
 
-    doc.build(story)
+    box_w = 180
+    box_h = 26
+    pdf.setFillColor(colors.HexColor('#F8F8F8'))
+    pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+    pdf.roundRect(right - box_w, y - box_h, box_w, box_h, 6, fill=1, stroke=1)
+    pdf.setFillColor(colors.black)
+    pdf.setFont('Helvetica-Bold', 9.5)
+    pdf.drawRightString(right - 8, y - 16, f"Total a facturar: {_eur(beneficiary.get('total_amount') or 0)}")
+    y -= box_h + 12
+
+    pdf.setFillColor(colors.HexColor('#555555'))
+    pdf.setFont('Helvetica', 8.5)
+    footer_lines = _wrap_text(f'Emitir factura a nombre de "{pies_tax_info or "poner los datos fiscales de la empresa del grupo PIES"}"', right - left, 'Helvetica', 8.5, max_lines=3)
+    for line in footer_lines:
+        pdf.drawString(left, y, line)
+        y -= 10
+    pdf.setFillColor(colors.HexColor('#0b5ed7'))
+    pdf.setFont('Helvetica-Bold', 8.5)
+    link_text = 'Subir factura'
+    pdf.drawString(left, y, link_text)
+    pdf.linkURL('https://www.piesrecords.com/facturacion', (left, y - 2, left + stringWidth(link_text, 'Helvetica-Bold', 8.5), y + 8), relative=0)
+
+    pdf.save()
     pdf_bytes = buf.getvalue()
-    filename = f"{_clean_filename(beneficiary.get('name') or 'beneficiario')}_Liquidacion_Royalties_S{sem_half}_{sem_year}.pdf"
+    buf.close()
+    _write_cached_pdf(signature, pdf_bytes)
     return pdf_bytes, filename, beneficiary
 
 

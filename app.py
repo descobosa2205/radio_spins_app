@@ -3651,6 +3651,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
                     "item_type_label": "Canción",
                     "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
                     "cover_url": song.cover_url,
+                "item_id": str(song.id),
                     "title": song.title,
                     "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
                     "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
@@ -3692,6 +3693,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
                     "item_type_label": "Disco",
                     "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
                     "cover_url": album.cover_url,
+                "item_id": str(album.id),
                     "title": album.title,
                     "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
                     "code": code_display,
@@ -3853,6 +3855,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
                     "item_type_label": "Canción",
                     "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
                     "cover_url": song.cover_url,
+                "item_id": str(song.id),
                     "title": song.title,
                     "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
                     "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
@@ -3897,6 +3900,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
                     "item_type_label": "Disco",
                     "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
                     "cover_url": album.cover_url,
+                "item_id": str(album.id),
                     "title": album.title,
                     "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
                     "code": code_display,
@@ -4217,6 +4221,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "item_type_label": "Canción",
                 "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
                 "cover_url": song.cover_url,
+                "item_id": str(song.id),
                 "title": song.title,
                 "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
                 "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
@@ -4266,6 +4271,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "item_type_label": "Canción",
                 "detail_url": url_for("discografica_song_detail", song_id=str(song.id), tab="royalties"),
                 "cover_url": song.cover_url,
+                "item_id": str(song.id),
                 "title": song.title,
                 "subtitle": (interpreters_str.get(song.id) or "").strip() or ", ".join([a.name for a in getattr(song, "artists", [])]) or "",
                 "code": _norm_isrc(isrc_map.get(song.id) or song.isrc) or "—",
@@ -4325,6 +4331,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "item_type_label": "Disco",
                 "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
                 "cover_url": album.cover_url,
+                "item_id": str(album.id),
                 "title": album.title,
                 "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
                 "code": code_display,
@@ -4382,6 +4389,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "item_type_label": "Disco",
                 "detail_url": url_for("discografica_album_detail", album_id=str(album.id), tab="informacion"),
                 "cover_url": album.cover_url,
+                "item_id": str(album.id),
                 "title": album.title,
                 "subtitle": " · ".join([bit for bit in subtitle_bits if bit]),
                 "code": code_display,
@@ -4574,7 +4582,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v3",
+            "renderer": "royalty_pdf_v4",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -4630,20 +4638,27 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
             except Exception:
                 pass
 
-    def _read_bytes_limited(url: str, max_bytes: int = 8 * 1024 * 1024) -> bytes | None:
-        req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urlopen(req, timeout=4) as resp:
-            chunks = []
-            total = 0
-            while True:
-                chunk = resp.read(262144)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    return None
-                chunks.append(chunk)
-            return b"".join(chunks)
+    def _read_bytes_limited(url: str, max_bytes: int = 12 * 1024 * 1024) -> bytes | None:
+        last_error = None
+        for timeout_sec in (4, 8):
+            try:
+                req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*,*/*;q=0.8"})
+                with urlopen(req, timeout=timeout_sec) as resp:
+                    chunks = []
+                    total = 0
+                    while True:
+                        chunk = resp.read(262144)
+                        if not chunk:
+                            break
+                        total += len(chunk)
+                        if total > max_bytes:
+                            return None
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+            except Exception as exc:
+                last_error = exc
+                continue
+        return None
 
     image_asset_cache: dict[tuple[str, int], dict | None] = {}
 
@@ -4716,6 +4731,105 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         except Exception:
             return
 
+    def _song_cover_material_map(song_ids: list[UUID]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        if not song_ids:
+            return result
+        rows = (
+            session_db.query(SongMaterial.song_id, SongMaterial.file_url)
+            .filter(SongMaterial.song_id.in_(song_ids))
+            .filter(func.upper(SongMaterial.category) == "COVER")
+            .order_by(SongMaterial.song_id.asc(), SongMaterial.updated_at.desc(), SongMaterial.created_at.desc())
+            .all()
+        )
+        for sid, file_url in rows:
+            key = str(sid)
+            if key not in result and file_url:
+                result[key] = (file_url or "").strip()
+        return result
+
+    def _song_album_cover_map(song_ids: list[UUID]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        if not song_ids:
+            return result
+        rows = (
+            session_db.query(AlbumTrack.song_id, Album.cover_url, AlbumMaterial.file_url)
+            .join(Album, Album.id == AlbumTrack.album_id)
+            .outerjoin(
+                AlbumMaterial,
+                and_(AlbumMaterial.album_id == Album.id, func.upper(AlbumMaterial.category) == "COVER"),
+            )
+            .filter(AlbumTrack.song_id.in_(song_ids))
+            .order_by(AlbumTrack.song_id.asc(), Album.release_date.desc(), AlbumTrack.track_number.asc(), AlbumMaterial.created_at.desc())
+            .all()
+        )
+        for sid, cover_url, material_url in rows:
+            key = str(sid)
+            if key in result:
+                continue
+            chosen = (cover_url or material_url or "").strip()
+            if chosen:
+                result[key] = chosen
+        return result
+
+    def _album_cover_material_map(album_ids: list[UUID]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        if not album_ids:
+            return result
+        rows = (
+            session_db.query(AlbumMaterial.album_id, AlbumMaterial.file_url)
+            .filter(AlbumMaterial.album_id.in_(album_ids))
+            .filter(func.upper(AlbumMaterial.category) == "COVER")
+            .order_by(AlbumMaterial.album_id.asc(), AlbumMaterial.created_at.desc())
+            .all()
+        )
+        for aid, file_url in rows:
+            key = str(aid)
+            if key not in result and file_url:
+                result[key] = (file_url or "").strip()
+        return result
+
+    def _enrich_royalty_item_cover_urls(items: list[dict]):
+        if not items:
+            return
+        song_ids: list[UUID] = []
+        album_ids: list[UUID] = []
+        for item in items:
+            item_id = to_uuid(item.get("item_id"))
+            if not item_id:
+                continue
+            if (item.get("item_kind") or "").upper() == "SONG":
+                song_ids.append(item_id)
+            elif (item.get("item_kind") or "").upper() == "ALBUM":
+                album_ids.append(item_id)
+
+        song_material_map = _song_cover_material_map(song_ids)
+        song_album_map = _song_album_cover_map(song_ids)
+        album_material_map = _album_cover_material_map(album_ids)
+
+        for item in items:
+            item_id_str = str(item.get("item_id") or "")
+            primary = (item.get("cover_url") or "").strip()
+            fallback = ""
+            item_kind = (item.get("item_kind") or "").upper()
+            if item_kind == "SONG":
+                material_cover = (song_material_map.get(item_id_str) or "").strip()
+                album_cover = (song_album_map.get(item_id_str) or "").strip()
+                if not primary:
+                    primary = material_cover or album_cover
+                for candidate in (material_cover, album_cover):
+                    if candidate and candidate != primary:
+                        fallback = candidate
+                        break
+            elif item_kind == "ALBUM":
+                material_cover = (album_material_map.get(item_id_str) or "").strip()
+                if not primary:
+                    primary = material_cover
+                elif material_cover and material_cover != primary:
+                    fallback = material_cover
+            item["cover_url"] = primary
+            item["fallback_cover_url"] = fallback
+
     pies_company = (
         session_db.query(GroupCompany)
         .filter(func.lower(GroupCompany.name).like('%pies%'))
@@ -4724,6 +4838,8 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     )
     pies_tax_info = (getattr(pies_company, 'tax_info', None) or 'poner los datos fiscales de la empresa del grupo PIES').strip()
     pies_logo_url = getattr(pies_company, 'logo_url', None) or None
+
+    _enrich_royalty_item_cover_urls(beneficiary.get('items') or [])
 
     signature = _payload_signature(pies_logo_url, pies_tax_info)
     filename = f"{_clean_filename(beneficiary.get('name') or 'beneficiario')}_Liquidacion_Royalties_S{sem_half}_{sem_year}.pdf"
@@ -4820,6 +4936,8 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         pdf.line(left, y - row_h + 2, right, y - row_h + 2)
 
         cover_asset = _image_asset(item.get('cover_url'), 160)
+        if not cover_asset and item.get('fallback_cover_url'):
+            cover_asset = _image_asset(item.get('fallback_cover_url'), 160)
         _draw_contained_image(cover_asset, col_starts[0] + 3, y - row_h + 6, 26, 26, pad=0, draw_placeholder=True)
 
         rep_x = col_starts[1] + 4

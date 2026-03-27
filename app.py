@@ -37,7 +37,7 @@ from sqlalchemy import func, text, or_, and_
 
 from werkzeug.security import check_password_hash, generate_password_hash
 import calendar as _cal
-from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode
+from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
 from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
@@ -60,11 +60,12 @@ except Exception:
     REPORTLAB_AVAILABLE = False
 
 try:
-    from PIL import Image as PILImage
+    from PIL import Image as PILImage, ImageOps
     PILLOW_AVAILABLE = True
 except Exception:
     PILLOW_AVAILABLE = False
     PILImage = None
+    ImageOps = None
 
 try:
     from pydub import AudioSegment
@@ -154,7 +155,7 @@ from models import (
     ConcertTicketerTicketType,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, supabase_client
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -4582,7 +4583,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v4",
+            "renderer": "royalty_pdf_v5",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -4639,11 +4640,17 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                 pass
 
     def _read_bytes_limited(url: str, max_bytes: int = 12 * 1024 * 1024) -> bytes | None:
-        last_error = None
-        for timeout_sec in (4, 8):
+        for timeout_sec, read_limit in ((4, max_bytes), (8, max(max_bytes, 18 * 1024 * 1024))):
             try:
                 req = Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "image/*,*/*;q=0.8"})
                 with urlopen(req, timeout=timeout_sec) as resp:
+                    content_length = None
+                    try:
+                        content_length = int(resp.headers.get('Content-Length') or 0) or None
+                    except Exception:
+                        content_length = None
+                    if content_length and content_length > read_limit:
+                        continue
                     chunks = []
                     total = 0
                     while True:
@@ -4651,14 +4658,102 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                         if not chunk:
                             break
                         total += len(chunk)
-                        if total > max_bytes:
-                            return None
+                        if total > read_limit:
+                            chunks = []
+                            break
                         chunks.append(chunk)
-                    return b"".join(chunks)
-            except Exception as exc:
-                last_error = exc
+                    if chunks:
+                        return b"".join(chunks)
+            except Exception:
                 continue
         return None
+
+    def _supabase_storage_ref_from_url(url: str | None) -> tuple[str, str] | None:
+        if not url or not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return None
+        try:
+            parsed = urlsplit(url)
+            path = parsed.path or ''
+            match = re.search(r"/storage/v1/object/(?:public|authenticated|sign)/([^/]+)/(.+)$", path)
+            if not match:
+                return None
+            bucket = unquote((match.group(1) or '').strip())
+            object_path = unquote((match.group(2) or '').strip())
+            if not bucket or not object_path:
+                return None
+            return bucket, object_path
+        except Exception:
+            return None
+
+    def _download_supabase_image(bucket: str, object_path: str, max_px: int, *, transformed: bool = True) -> bytes | None:
+        try:
+            client = supabase_client()
+            options = {}
+            if transformed:
+                options = {
+                    "transform": {
+                        "width": int(max_px),
+                        "height": int(max_px),
+                        "resize": "contain",
+                        "quality": 78,
+                        "format": "origin",
+                    }
+                }
+            data = client.storage.from_(bucket).download(object_path, options)
+            if isinstance(data, (bytes, bytearray)):
+                if len(data) > (24 * 1024 * 1024):
+                    return None
+                return bytes(data)
+        except Exception:
+            return None
+        return None
+
+    def _iter_image_sources(url: str | None, max_px: int):
+        if not url:
+            return
+        seen: set[tuple] = set()
+        ref = _supabase_storage_ref_from_url(url)
+        if ref:
+            bucket, object_path = ref
+            for source in (
+                ("supabase", bucket, object_path, max_px, True),
+                ("supabase", bucket, object_path, max_px, False),
+            ):
+                if source not in seen:
+                    seen.add(source)
+                    yield source
+            transformed_url = _maybe_apply_remote_thumb_params(url, max_px)
+            if transformed_url and transformed_url != url:
+                source = ("remote", transformed_url, min(4 * 1024 * 1024, max(2 * 1024 * 1024, max_px * max_px * 3)))
+                if source not in seen:
+                    seen.add(source)
+                    yield source
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            source = ("remote", url, 18 * 1024 * 1024)
+            if source not in seen:
+                seen.add(source)
+                yield source
+        else:
+            source = ("local", url)
+            if source not in seen:
+                yield source
+
+    def _maybe_apply_remote_thumb_params(url: str | None, max_px: int) -> str | None:
+        if not url or not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            return None
+        try:
+            parsed = urlsplit(url)
+            if '/storage/v1/object/' not in (parsed.path or ''):
+                return None
+            params = parse_qs(parsed.query, keep_blank_values=True)
+            params.setdefault('width', [str(int(max_px))])
+            params.setdefault('height', [str(int(max_px))])
+            params.setdefault('resize', ['contain'])
+            params.setdefault('quality', ['78'])
+            new_query = urlencode(params, doseq=True)
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
+        except Exception:
+            return None
 
     image_asset_cache: dict[tuple[str, int], dict | None] = {}
 
@@ -4669,14 +4764,24 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         if key in image_asset_cache:
             return image_asset_cache[key]
         try:
-            if isinstance(url, str) and url.startswith(("http://", "https://")):
-                raw = _read_bytes_limited(url)
-                if not raw:
-                    image_asset_cache[key] = None
-                    return None
-            else:
-                with open(url, 'rb') as fh:
-                    raw = fh.read()
+            raw = None
+            for source in _iter_image_sources(url, max_px):
+                source_type = source[0]
+                if source_type == 'supabase':
+                    _, bucket, object_path, px, transformed = source
+                    raw = _download_supabase_image(bucket, object_path, px, transformed=transformed)
+                elif source_type == 'remote':
+                    _, remote_url, max_bytes = source
+                    raw = _read_bytes_limited(remote_url, max_bytes=max_bytes)
+                else:
+                    _, local_path = source
+                    with open(local_path, 'rb') as fh:
+                        raw = fh.read()
+                if raw:
+                    break
+            if not raw:
+                image_asset_cache[key] = None
+                return None
 
             if PILLOW_AVAILABLE and PILImage is not None:
                 bio = BytesIO(raw)
@@ -4685,6 +4790,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                         img.seek(0)
                     except Exception:
                         pass
+                    img = ImageOps.exif_transpose(img) if ImageOps is not None else img
                     if img.mode not in ("RGB", "L"):
                         img = img.convert("RGB")
                     resampling = getattr(getattr(PILImage, "Resampling", PILImage), "LANCZOS", getattr(PILImage, "LANCZOS", 1))

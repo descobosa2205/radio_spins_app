@@ -4574,7 +4574,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _payload_signature(pies_logo_url: str | None, pies_tax_info: str | None) -> str:
         payload = {
-            "renderer": "royalty_pdf_v2",
+            "renderer": "royalty_pdf_v3",
             "kind": beneficiary.get("kind"),
             "id": beneficiary.get("id"),
             "name": beneficiary.get("name"),
@@ -4645,19 +4645,19 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                 chunks.append(chunk)
             return b"".join(chunks)
 
-    image_reader_cache: dict[tuple[str, int], object | None] = {}
+    image_asset_cache: dict[tuple[str, int], dict | None] = {}
 
-    def _image_reader(url: str | None, max_px: int) -> object | None:
+    def _image_asset(url: str | None, max_px: int) -> dict | None:
         if not url:
             return None
         key = (url, max_px)
-        if key in image_reader_cache:
-            return image_reader_cache[key]
+        if key in image_asset_cache:
+            return image_asset_cache[key]
         try:
             if isinstance(url, str) and url.startswith(("http://", "https://")):
                 raw = _read_bytes_limited(url)
                 if not raw:
-                    image_reader_cache[key] = None
+                    image_asset_cache[key] = None
                     return None
             else:
                 with open(url, 'rb') as fh:
@@ -4678,17 +4678,43 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
                     save_format = "JPEG" if img.mode == "RGB" else "PNG"
                     save_kwargs = {"format": save_format, "optimize": True}
                     if save_format == "JPEG":
-                        save_kwargs["quality"] = 72
+                        save_kwargs["quality"] = 76
                     img.save(out, **save_kwargs)
                     out.seek(0)
                     reader = ImageReader(out)
+                    width, height = img.size
+                    asset = {"reader": reader, "width": width, "height": height, "handle": out}
             else:
-                reader = ImageReader(BytesIO(raw))
-            image_reader_cache[key] = reader
-            return reader
+                bio = BytesIO(raw)
+                reader = ImageReader(bio)
+                width, height = reader.getSize()
+                asset = {"reader": reader, "width": width, "height": height, "handle": bio}
+            image_asset_cache[key] = asset
+            return asset
         except Exception:
-            image_reader_cache[key] = None
+            image_asset_cache[key] = None
             return None
+
+    def _draw_contained_image(asset: dict | None, x: float, y: float, box_w: float, box_h: float, pad: float = 0, draw_placeholder: bool = False):
+        if draw_placeholder:
+            pdf.setFillColor(colors.HexColor('#F4F4F4'))
+            pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+            pdf.roundRect(x, y, box_w, box_h, 3, fill=1, stroke=1)
+        if not asset:
+            return
+        try:
+            iw = float(asset.get('width') or box_w or 1)
+            ih = float(asset.get('height') or box_h or 1)
+            avail_w = max(1.0, float(box_w) - (pad * 2))
+            avail_h = max(1.0, float(box_h) - (pad * 2))
+            scale = min(avail_w / iw, avail_h / ih)
+            draw_w = max(1.0, iw * scale)
+            draw_h = max(1.0, ih * scale)
+            dx = x + ((box_w - draw_w) / 2.0)
+            dy = y + ((box_h - draw_h) / 2.0)
+            pdf.drawImage(asset['reader'], dx, dy, width=draw_w, height=draw_h, preserveAspectRatio=True, mask='auto')
+        except Exception:
+            return
 
     pies_company = (
         session_db.query(GroupCompany)
@@ -4715,34 +4741,39 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     right = page_width - (1.2 * cm)
     top = page_height - (1.0 * cm)
     bottom = 1.0 * cm
+    footer_reserved = 22
 
-    col_widths = [24, 180, 82, 56, 72, 34, 79]
+    col_widths = [32, 172, 80, 52, 72, 34, 85]
     col_titles = ["", "Repertorio", "Código", "Fecha", "Ingreso", "%", "A facturar"]
     col_starts = [left]
     for width in col_widths[:-1]:
         col_starts.append(col_starts[-1] + width)
 
-    row_h = 34
+    row_h = 40
     table_header_h = 18
-    logo_reader = _image_reader(pies_logo_url, 300)
-    if not logo_reader:
+    logo_asset = _image_asset(pies_logo_url, 420)
+    if not logo_asset:
         logo_path = os.path.join(app.root_path, 'static', 'img', 'logo.png')
         if os.path.exists(logo_path):
-            logo_reader = _image_reader(logo_path, 300)
-    beneficiary_reader = _image_reader(beneficiary.get('photo_url'), 140)
+            logo_asset = _image_asset(logo_path, 420)
+    beneficiary_asset = _image_asset(beneficiary.get('photo_url'), 160)
     period_str = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
+
+    def _draw_page_footer(page_no: int):
+        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+        pdf.line(left, bottom - 1, right, bottom - 1)
+        pdf.setFillColor(colors.HexColor('#666666'))
+        pdf.setFont('Helvetica', 8)
+        pdf.drawRightString(right, bottom - 14, f"Página {page_no}")
 
     def _draw_page_header(page_no: int) -> float:
         y = top
         pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
         pdf.setFillColor(colors.black)
         pdf.drawString(left, y, "Liquidación de Royalties")
-        if logo_reader:
-            try:
-                pdf.drawImage(logo_reader, right - 96, y - 6, width=96, height=38, preserveAspectRatio=True, mask='auto', anchor='ne')
-            except Exception:
-                pass
-        y -= 20
+        if logo_asset:
+            _draw_contained_image(logo_asset, right - 110, y - 10, 110, 34)
+        y -= 20 if page_no == 1 else 18
         pdf.setFont("Helvetica", 9)
         pdf.setFillColor(colors.HexColor('#555555'))
         pdf.drawString(left, y, period_str)
@@ -4751,24 +4782,21 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         pdf.line(left, y, right, y)
         y -= 10
 
-        box_h = 50
-        pdf.setFillColor(colors.HexColor('#F8F8F8'))
-        pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
-        pdf.roundRect(left, y - box_h, right - left, box_h, 6, fill=1, stroke=1)
-        if beneficiary_reader:
-            try:
-                pdf.drawImage(beneficiary_reader, left + 8, y - box_h + 8, width=34, height=34, preserveAspectRatio=True, mask='auto', anchor='c')
-            except Exception:
-                pass
-        text_x = left + 50
-        pdf.setFillColor(colors.black)
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(text_x, y - 18, (beneficiary.get('name') or 'Beneficiario').strip())
-        pdf.setFont("Helvetica", 9)
-        pdf.setFillColor(colors.HexColor('#555555'))
-        pdf.drawString(text_x, y - 31, (beneficiary.get('kind_label') or '').strip())
-        pdf.drawString(text_x, y - 42, period_str)
-        y -= box_h + 12
+        if page_no == 1:
+            box_h = 52
+            pdf.setFillColor(colors.HexColor('#F8F8F8'))
+            pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
+            pdf.roundRect(left, y - box_h, right - left, box_h, 6, fill=1, stroke=1)
+            _draw_contained_image(beneficiary_asset, left + 8, y - box_h + 7, 38, 38, pad=0, draw_placeholder=True)
+            text_x = left + 56
+            pdf.setFillColor(colors.black)
+            pdf.setFont("Helvetica-Bold", 11)
+            pdf.drawString(text_x, y - 18, _truncate((beneficiary.get('name') or 'Beneficiario').strip(), right - text_x - 12, 'Helvetica-Bold', 11))
+            pdf.setFont("Helvetica", 9)
+            pdf.setFillColor(colors.HexColor('#555555'))
+            pdf.drawString(text_x, y - 31, _truncate((beneficiary.get('kind_label') or '').strip(), right - text_x - 12, 'Helvetica', 9))
+            pdf.drawString(text_x, y - 42, _truncate(period_str, right - text_x - 12, 'Helvetica', 9))
+            y -= box_h + 12
 
         pdf.setFillColor(colors.HexColor('#F1F1F1'))
         pdf.setStrokeColor(colors.HexColor('#DDDDDD'))
@@ -4791,37 +4819,33 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         pdf.setStrokeColor(colors.HexColor('#EFEFEF'))
         pdf.line(left, y - row_h + 2, right, y - row_h + 2)
 
-        cover_reader = _image_reader(item.get('cover_url'), 96)
-        if cover_reader:
-            try:
-                pdf.drawImage(cover_reader, col_starts[0] + 2, y - row_h + 6, width=20, height=20, preserveAspectRatio=True, mask='auto', anchor='c')
-            except Exception:
-                pass
+        cover_asset = _image_asset(item.get('cover_url'), 160)
+        _draw_contained_image(cover_asset, col_starts[0] + 3, y - row_h + 6, 26, 26, pad=0, draw_placeholder=True)
 
         rep_x = col_starts[1] + 4
         rep_w = col_widths[1] - 8
-        title = _truncate(item.get('title') or '', rep_w, 'Helvetica-Bold', 8.2)
-        subtitle = _truncate(item.get('subtitle') or '', rep_w, 'Helvetica', 7.1)
-        badges = _truncate(' · '.join(item.get('badges') or []), rep_w, 'Helvetica', 6.6)
+        title = _truncate(item.get('title') or '', rep_w, 'Helvetica-Bold', 8.4)
+        subtitle = _truncate(item.get('subtitle') or '', rep_w, 'Helvetica', 7.2)
+        badges = _truncate(' · '.join(item.get('badges') or []), rep_w, 'Helvetica', 6.7)
 
         pdf.setFillColor(colors.black)
-        pdf.setFont('Helvetica-Bold', 8.2)
+        pdf.setFont('Helvetica-Bold', 8.4)
         pdf.drawString(rep_x, y - 10, title or '—')
-        pdf.setFont('Helvetica', 7.1)
+        pdf.setFont('Helvetica', 7.2)
         pdf.setFillColor(colors.HexColor('#555555'))
         if subtitle:
-            pdf.drawString(rep_x, y - 20, subtitle)
+            pdf.drawString(rep_x, y - 21, subtitle)
         if badges:
             pdf.setFillColor(colors.HexColor('#777777'))
-            pdf.setFont('Helvetica', 6.6)
-            pdf.drawString(rep_x, y - 29, badges)
+            pdf.setFont('Helvetica', 6.7)
+            pdf.drawString(rep_x, y - 32, badges)
 
         code_txt = item.get('code') or '—'
         if item.get('item_kind') == 'SONG':
             code_txt = _norm_isrc(code_txt) or '—'
         pdf.setFillColor(colors.black)
         pdf.setFont('Helvetica', 7.6)
-        baseline = y - 18
+        baseline = y - 20
         pdf.drawString(col_starts[2] + 4, baseline, _truncate(code_txt, col_widths[2] - 8, 'Helvetica', 7.6) or '—')
         pdf.drawString(col_starts[3] + 4, baseline, _truncate(item.get('release_date') or '', col_widths[3] - 8, 'Helvetica', 7.6))
         pdf.drawRightString(col_starts[4] + col_widths[4] - 4, baseline, _eur(item.get('income') or 0))
@@ -4841,13 +4865,15 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
         y -= 28
     else:
         for idx, item in enumerate(items):
-            if y - row_h < bottom + 80:
+            if y - row_h < bottom + footer_reserved + 58:
+                _draw_page_footer(page_no)
                 pdf.showPage()
                 page_no += 1
                 y = _draw_page_header(page_no)
             y = _draw_row(y, item, idx)
 
-    if y < bottom + 72:
+    if y < bottom + footer_reserved + 72:
+        _draw_page_footer(page_no)
         pdf.showPage()
         page_no += 1
         y = _draw_page_header(page_no)
@@ -4874,6 +4900,7 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
     pdf.drawString(left, y, link_text)
     pdf.linkURL('https://www.piesrecords.com/facturacion', (left, y - 2, left + stringWidth(link_text, 'Helvetica-Bold', 8.5), y + 8), relative=0)
 
+    _draw_page_footer(page_no)
     pdf.save()
     pdf_bytes = buf.getvalue()
     buf.close()

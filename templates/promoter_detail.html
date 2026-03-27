@@ -39,7 +39,7 @@
       {% endif %}
     </div>
 
-    <div class="row g-3">
+    <div class="row g-3 mb-4">
       {% for company in promoter.companies %}
         <div class="col-12 col-lg-6">
           <div class="card h-100">
@@ -72,6 +72,65 @@
           <div class="alert alert-light border mb-0">Este tercero todavía no tiene sociedades vinculadas.</div>
         </div>
       {% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+          <div>
+            <h5 class="mb-0">Emails adicionales</h5>
+            <div class="text-muted small">Conceptos como royalties, gestor, administración, etc.</div>
+          </div>
+        </div>
+
+        {% if promoter_email_addresses and (promoter_email_addresses|length) > 0 %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>Concepto</th>
+                  <th>Email</th>
+                  <th class="text-end">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in promoter_email_addresses %}
+                  <form id="promoter-email-update-{{ row.id }}" method="post" action="{{ url_for('promoter_email_update', pid=promoter.id, email_id=row.id) }}"></form>
+                  <form id="promoter-email-delete-{{ row.id }}" method="post" action="{{ url_for('promoter_email_delete', pid=promoter.id, email_id=row.id) }}" onsubmit="return confirm('¿Eliminar este correo?');"></form>
+                  <tr>
+                    <td>
+                      <input form="promoter-email-update-{{ row.id }}" class="form-control form-control-sm" name="concept" value="{{ row.concept }}" {% if not CAN_EDIT_SONGS_PROMOTERS %}disabled{% endif %} required>
+                    </td>
+                    <td>
+                      <input form="promoter-email-update-{{ row.id }}" type="email" class="form-control form-control-sm" name="email" value="{{ row.email }}" {% if not CAN_EDIT_SONGS_PROMOTERS %}disabled{% endif %} required>
+                    </td>
+                    <td class="text-end">
+                      {% if CAN_EDIT_SONGS_PROMOTERS %}
+                        <button form="promoter-email-update-{{ row.id }}" class="btn btn-outline-primary btn-sm"><i class="fa fa-save"></i></button>
+                        <button form="promoter-email-delete-{{ row.id }}" class="btn btn-outline-danger btn-sm"><i class="fa fa-trash"></i></button>
+                      {% else %}
+                        <span class="text-muted">—</span>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="text-muted small">Todavía no hay correos adicionales configurados.</div>
+        {% endif %}
+
+        {% if CAN_EDIT_SONGS_PROMOTERS %}
+          <hr>
+          <h6 class="mb-2">Añadir correo adicional</h6>
+          <form method="post" action="{{ url_for('promoter_email_create', pid=promoter.id) }}" class="row g-2 align-items-end">
+            <div class="col-md-5"><label class="form-label">Concepto</label><input class="form-control" name="concept" placeholder="Ej: Royalties, gestor" required></div>
+            <div class="col-md-5"><label class="form-label">Email</label><input type="email" class="form-control" name="email" required></div>
+            <div class="col-md-2 d-grid"><button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button></div>
+          </form>
+        {% endif %}
+      </div>
     </div>
   {% else %}
     <div class="d-flex justify-content-between align-items-center mb-3">
@@ -141,7 +200,7 @@
           <div class="col-md-6"><label class="form-label">Nick</label><input class="form-control" name="nick" value="{{ promoter.nick }}" required></div>
           <div class="col-md-3"><label class="form-label">CIF</label><input class="form-control" name="tax_id" value="{{ promoter.tax_id or '' }}"></div>
           <div class="col-md-3"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
-          <div class="col-md-6"><label class="form-label">Email</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
+          <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
           <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
         </div>
         <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>

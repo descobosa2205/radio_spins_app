@@ -139,3 +139,13 @@ def upload_pdf(file_storage, folder: str) -> str | None:
     data = file_storage.read()
     file_storage.stream.seek(0)
     return _upload_bytes(data, key, "application/pdf")
+
+
+def upload_pdf_bytes(data: bytes, folder: str) -> str:
+    """Sube bytes de un PDF y devuelve URL pública."""
+    if data is None:
+        raise ValueError("No se indicó contenido PDF.")
+    if not isinstance(data, (bytes, bytearray)) or len(data) == 0:
+        raise ValueError("El PDF a subir está vacío.")
+    key = f"{folder}/{uuid4().hex}.pdf"
+    return _upload_bytes(bytes(data), key, "application/pdf")

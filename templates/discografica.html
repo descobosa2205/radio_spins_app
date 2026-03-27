@@ -1206,19 +1206,22 @@
     document.querySelectorAll('.royalty-beneficiary-card').forEach(card => {
       const beneficiaryHaystack = normalize(card.getAttribute('data-royalty-beneficiary-search'));
       const beneficiaryMatch = !q || beneficiaryHaystack.includes(q);
+      const rows = Array.from(card.querySelectorAll('.royalty-search-row'));
       let visibleRows = 0;
-      card.querySelectorAll('.royalty-search-row').forEach(row => {
+      rows.forEach(row => {
         const haystack = normalize(row.getAttribute('data-royalty-search'));
         const ok = !q || beneficiaryMatch || haystack.includes(q);
         row.style.display = ok ? '' : 'none';
         if (ok) visibleRows += 1;
       });
-      card.style.display = visibleRows > 0 ? '' : 'none';
+      const cardVisible = rows.length ? (visibleRows > 0) : beneficiaryMatch;
+      card.style.display = cardVisible ? '' : 'none';
     });
     document.querySelectorAll('[data-royalty-section-block]').forEach(section => {
       const visibleCards = Array.from(section.querySelectorAll('.royalty-beneficiary-card')).filter(card => card.style.display !== 'none');
       section.style.display = visibleCards.length ? '' : 'none';
     });
+    if (window.updateRoyaltySemesterScrollButtons) window.updateRoyaltySemesterScrollButtons();
   }
   if (royaltySearchInput) royaltySearchInput.addEventListener('input', applyRoyaltyFilters);
   applyRoyaltyFilters();

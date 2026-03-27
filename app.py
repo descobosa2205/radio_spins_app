@@ -99,6 +99,7 @@ from models import (
     User,
     Artist,
     ArtistPerson,
+    ArtistEmail,
     ArtistContract,
     ArtistContractCommitment,
     Song,
@@ -117,6 +118,7 @@ from models import (
     Promoter,
     PromoterCompany,
     PromoterContact,
+    PromoterEmail,
     SongRoyaltyBeneficiary,
     PublishingCompany,
     SongEditorialShare,
@@ -155,7 +157,7 @@ from models import (
     ConcertTicketerTicketType,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, supabase_client
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 
@@ -890,6 +892,12 @@ def artist_detail_view(artist_id):
             .order_by(ArtistPerson.created_at.asc())
             .all()
         )
+        artist_email_addresses = (
+            session_db.query(ArtistEmail)
+            .filter(ArtistEmail.artist_id == artist.id)
+            .order_by(ArtistEmail.created_at.asc(), ArtistEmail.concept.asc())
+            .all()
+        )
 
         # Contratos (nivel artista)
         contracts = (
@@ -974,6 +982,7 @@ def artist_detail_view(artist_id):
             tab=tab,
             disc_tab=disc_tab,
             people=people,
+            artist_email_addresses=artist_email_addresses,
             contracts=contracts,
             songs=songs,
             albums=albums,
@@ -1013,6 +1022,84 @@ def artist_update(artist_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("artists_view")))
+
+@app.post("/artistas/<artist_id>/emails/create", endpoint="artist_email_create")
+@admin_required
+def artist_email_create(artist_id):
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            flash("Artista no encontrado.", "warning")
+            return redirect(url_for("artists_view"))
+        concept = (request.form.get("concept") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        if not concept or not email:
+            flash("Debes indicar concepto y email.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist.id, tab="datos")))
+        if not _looks_like_email_address(email):
+            flash("La dirección de correo no es válida.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist.id, tab="datos")))
+        session_db.add(ArtistEmail(artist_id=artist.id, concept=concept, email=email))
+        session_db.commit()
+        flash("Correo añadido.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist.id, tab="datos")))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error guardando correo: {exc}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/<artist_id>/emails/<email_id>/update", endpoint="artist_email_update")
+@admin_required
+def artist_email_update(artist_id, email_id):
+    session_db = db()
+    try:
+        row = session_db.get(ArtistEmail, to_uuid(email_id))
+        if not row or str(row.artist_id) != str(artist_id):
+            flash("Correo no encontrado.", "warning")
+            return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="datos"))
+        concept = (request.form.get("concept") or "").strip()
+        email = (request.form.get("email") or "").strip()
+        if not concept or not email:
+            flash("Debes indicar concepto y email.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+        if not _looks_like_email_address(email):
+            flash("La dirección de correo no es válida.", "warning")
+            return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+        row.concept = concept
+        row.email = email
+        row.updated_at = datetime.now(TZ_MADRID)
+        session_db.commit()
+        flash("Correo actualizado.", "success")
+        return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error actualizando correo: {exc}", "danger")
+        return redirect(safe_next_or(url_for("artists_view")))
+    finally:
+        session_db.close()
+
+
+@app.post("/artistas/<artist_id>/emails/<email_id>/delete", endpoint="artist_email_delete")
+@admin_required
+def artist_email_delete(artist_id, email_id):
+    session_db = db()
+    try:
+        row = session_db.get(ArtistEmail, to_uuid(email_id))
+        if row and str(row.artist_id) == str(artist_id):
+            session_db.delete(row)
+            session_db.commit()
+            flash("Correo eliminado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"Error eliminando correo: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("artist_detail_view", artist_id=artist_id, tab="datos")))
+
 
 @app.post("/artistas/<artist_id>/delete")
 @admin_required
@@ -1456,15 +1543,35 @@ def _smtp_enabled() -> bool:
 
 
 def _send_optional_email(
-    to_email: str,
+    to_email: str | list[str] | tuple[str, ...] | set[str],
     subject: str,
     html_body: str,
     text_body: str | None = None,
     reply_to: str | None = None,
     attachments: list[dict] | None = None,
 ) -> tuple[bool, str | None]:
-    to_email = (to_email or '').strip()
-    if not to_email:
+    raw_recipients: list[str] = []
+    if isinstance(to_email, (list, tuple, set)):
+        iterable = list(to_email)
+    else:
+        iterable = [to_email]
+
+    for value in iterable:
+        for chunk in re.split(r'[;,\n]+', str(value or '')):
+            email = chunk.strip()
+            if email:
+                raw_recipients.append(email)
+
+    recipients: list[str] = []
+    seen: set[str] = set()
+    for email in raw_recipients:
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        recipients.append(email)
+
+    if not recipients:
         return False, 'No se indicó email destino.'
     host = (os.getenv('SMTP_HOST') or '').strip()
     if not host:
@@ -1487,7 +1594,7 @@ def _send_optional_email(
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = f'{sender_name} <{sender}>' if sender else sender_name
-    msg['To'] = to_email
+    msg['To'] = ', '.join(recipients)
     if reply_to_header:
         msg['Reply-To'] = reply_to_header
     msg.set_content(text_body or 'Este mensaje contiene una versión HTML del contenido.')
@@ -1511,14 +1618,14 @@ def _send_optional_email(
             with smtplib.SMTP_SSL(host, port, timeout=20) as smtp:
                 if username:
                     smtp.login(username, password)
-                smtp.send_message(msg)
+                smtp.send_message(msg, to_addrs=recipients)
         else:
             with smtplib.SMTP(host, port, timeout=20) as smtp:
                 if use_tls:
                     smtp.starttls()
                 if username:
                     smtp.login(username, password)
-                smtp.send_message(msg)
+                smtp.send_message(msg, to_addrs=recipients)
         return True, None
     except Exception as exc:
         return False, str(exc)
@@ -2475,6 +2582,45 @@ def _semester_label(year: int, half: int) -> str:
     return f"S2 {year} (Jul-Dic)"
 
 
+def _royalty_available_semesters(session_db, selected_sem_start: date | None = None) -> list[tuple[int, int]]:
+    available: set[tuple[int, int]] = set()
+
+    def _add_from_period(period_type, period_start):
+        if not period_start:
+            return
+        year = int(period_start.year)
+        month = int(period_start.month)
+        half = 1 if month <= 6 else 2
+        available.add((year, half))
+
+    for period_type, period_start in (
+        session_db.query(SongRevenueEntry.period_type, SongRevenueEntry.period_start)
+        .filter(SongRevenueEntry.period_start.isnot(None))
+        .distinct()
+        .all()
+    ):
+        _add_from_period(period_type, period_start)
+
+    for period_type, period_start in (
+        session_db.query(AlbumRevenueEntry.period_type, AlbumRevenueEntry.period_start)
+        .filter(AlbumRevenueEntry.period_start.isnot(None))
+        .distinct()
+        .all()
+    ):
+        _add_from_period(period_type, period_start)
+
+    today = today_local()
+    if today.month <= 6:
+        available.add((today.year - 1, 2))
+    else:
+        available.add((today.year, 1))
+
+    if selected_sem_start:
+        available.add((selected_sem_start.year, 1 if selected_sem_start.month <= 6 else 2))
+
+    return sorted(available, key=lambda value: (value[0], value[1]), reverse=True)
+
+
 def _isrc_key(val: str | None) -> str:
     if not val:
         return ""
@@ -3353,37 +3499,214 @@ def _first_album_code_display_map(session_db, album_ids: list) -> dict[str, str]
     return out
 
 
-def _beneficiary_contact_email(session_db, kind: str, beneficiary_id) -> str | None:
-    kind = (kind or "").strip().upper()
+def _dedupe_valid_email_addresses(values) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values or []:
+        email = (value or '').strip()
+        if not _looks_like_email_address(email):
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(email)
+    return out
+
+
+
+def _format_madrid_datetime_label(value) -> str:
+    if not value:
+        return ''
+    try:
+        dt_value = value
+        if getattr(dt_value, 'tzinfo', None) is None:
+            dt_value = dt_value.replace(tzinfo=TZ_MADRID)
+        else:
+            dt_value = dt_value.astimezone(TZ_MADRID)
+        return dt_value.strftime('%d/%m/%Y %H:%M')
+    except Exception:
+        try:
+            return str(value)
+        except Exception:
+            return ''
+
+
+
+def _beneficiary_extra_email_rows(session_db, kind: str, beneficiary_id) -> list[dict]:
+    kind = (kind or '').strip().upper()
+    bid = to_uuid(beneficiary_id)
+    if not bid:
+        return []
+
+    rows = []
+    if kind == 'ARTIST':
+        rows = (
+            session_db.query(ArtistEmail)
+            .filter(ArtistEmail.artist_id == bid)
+            .order_by(ArtistEmail.created_at.asc(), ArtistEmail.concept.asc())
+            .all()
+        )
+    elif kind == 'PROMOTER':
+        rows = (
+            session_db.query(PromoterEmail)
+            .filter(PromoterEmail.promoter_id == bid)
+            .order_by(PromoterEmail.created_at.asc(), PromoterEmail.concept.asc())
+            .all()
+        )
+
+    payload = []
+    for row in rows or []:
+        payload.append({
+            'id': str(getattr(row, 'id', '') or ''),
+            'concept': (getattr(row, 'concept', None) or '').strip(),
+            'email': (getattr(row, 'email', None) or '').strip(),
+        })
+    return payload
+
+
+
+def _primary_beneficiary_email(session_db, kind: str, beneficiary_id) -> str | None:
+    kind = (kind or '').strip().upper()
     bid = to_uuid(beneficiary_id)
     if not bid:
         return None
-
-    if kind == "ARTIST":
+    if kind == 'ARTIST':
         artist = session_db.get(Artist, bid)
-        email = (getattr(artist, "email", None) or "").strip()
+        email = (getattr(artist, 'email', None) or '').strip()
         return email or None
+    if kind == 'PROMOTER':
+        promoter = session_db.get(Promoter, bid)
+        email = (getattr(promoter, 'contact_email', None) or '').strip()
+        return email or None
+    return None
 
-    if kind != "PROMOTER":
-        return None
 
-    promoter = session_db.get(Promoter, bid)
-    if not promoter:
-        return None
 
-    email = (getattr(promoter, "contact_email", None) or "").strip()
-    if email:
-        return email
+def _beneficiary_email_delivery_data(session_db, kind: str, beneficiary_id) -> dict:
+    kind = (kind or '').strip().upper()
+    bid = to_uuid(beneficiary_id)
+    if kind not in ('ARTIST', 'PROMOTER') or not bid:
+        return {
+            'primary_email': '',
+            'default_recipients': [],
+            'suggested_recipients': [],
+            'extra_rows': [],
+            'fallback_email': '',
+        }
 
-    contact = (
-        session_db.query(PromoterContact)
-        .filter(PromoterContact.promoter_id == promoter.id)
-        .filter(PromoterContact.email.isnot(None))
-        .order_by(PromoterContact.created_at.asc())
-        .first()
-    )
-    email = (getattr(contact, "email", None) or "").strip()
-    return email or None
+    primary_email = (_primary_beneficiary_email(session_db, kind, bid) or '').strip()
+    extra_rows = _beneficiary_extra_email_rows(session_db, kind, bid)
+    royalty_extra = [row.get('email') for row in extra_rows if 'royalties' in _norm_text_key(row.get('concept') or '')]
+    extra_emails = [row.get('email') for row in extra_rows]
+
+    fallback_email = ''
+    if kind == 'PROMOTER':
+        contact = (
+            session_db.query(PromoterContact)
+            .filter(PromoterContact.promoter_id == bid)
+            .filter(PromoterContact.email.isnot(None))
+            .order_by(PromoterContact.created_at.asc())
+            .first()
+        )
+        fallback_email = (getattr(contact, 'email', None) or '').strip()
+
+    default_recipients = _dedupe_valid_email_addresses([primary_email] + royalty_extra)
+    if not default_recipients and fallback_email:
+        default_recipients = _dedupe_valid_email_addresses([fallback_email])
+
+    suggested_recipients = _dedupe_valid_email_addresses(default_recipients + extra_emails + ([fallback_email] if fallback_email else []))
+    return {
+        'primary_email': primary_email,
+        'default_recipients': default_recipients,
+        'suggested_recipients': suggested_recipients,
+        'extra_rows': extra_rows,
+        'fallback_email': fallback_email,
+    }
+
+
+
+def _beneficiary_contact_email(session_db, kind: str, beneficiary_id) -> str | None:
+    delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_id)
+    primary_email = (delivery.get('primary_email') or '').strip()
+    if primary_email:
+        return primary_email
+    defaults = delivery.get('default_recipients') or []
+    if defaults:
+        return defaults[0]
+    suggested = delivery.get('suggested_recipients') or []
+    if suggested:
+        return suggested[0]
+    return None
+
+
+
+def _royalty_liquidation_snapshot(beneficiary: dict, sem_start: date, sem_end: date) -> dict:
+    items = []
+    for item in (beneficiary.get('items') or []):
+        items.append({
+            'item_id': item.get('item_id') or '',
+            'item_kind': item.get('item_kind') or '',
+            'item_type_label': item.get('item_type_label') or '',
+            'title': item.get('title') or '',
+            'subtitle': item.get('subtitle') or '',
+            'code': item.get('code') or '',
+            'code_label': item.get('code_label') or '',
+            'release_date': item.get('release_date') or '',
+            'income': float(item.get('income') or 0),
+            'pct': float(item.get('pct') or 0),
+            'amount': float(item.get('amount') or 0),
+            'badges': list(item.get('badges') or []),
+            'cover_url': (item.get('cover_url') or '').strip(),
+            'fallback_cover_url': (item.get('fallback_cover_url') or '').strip(),
+        })
+    return {
+        'kind': beneficiary.get('kind') or '',
+        'id': beneficiary.get('id') or '',
+        'name': beneficiary.get('name') or '',
+        'kind_label': beneficiary.get('kind_label') or '',
+        'photo_url': (beneficiary.get('photo_url') or '').strip(),
+        'period_start': sem_start.isoformat(),
+        'period_end': sem_end.isoformat(),
+        'total_amount': float(beneficiary.get('total_amount') or 0),
+        'total_income': float(beneficiary.get('total_income') or 0),
+        'items': items,
+    }
+
+
+
+def _royalty_liquidation_snapshot_signature(snapshot: dict) -> str:
+    raw = json.dumps(snapshot or {}, ensure_ascii=False, sort_keys=True, default=str).encode('utf-8')
+    return hashlib.sha256(raw).hexdigest()
+
+
+
+def _apply_royalty_liquidation_meta(bucket: dict, rec: RoyaltyLiquidation | None) -> None:
+    if not bucket:
+        return
+    if not rec:
+        bucket['has_sent_info'] = False
+        bucket['last_sent_to'] = []
+        bucket['last_sent_at_label'] = ''
+        bucket['last_sent_pdf_url'] = ''
+        bucket['last_sent_signature'] = ''
+        return
+
+    bucket['liquidation_status'] = getattr(rec, 'status', None)
+    if bucket['liquidation_status']:
+        lbl, color = _royalty_status_meta(bucket['liquidation_status'])
+        bucket['liquidation_label'] = lbl
+        bucket['liquidation_color'] = color
+
+    sent_to = getattr(rec, 'last_sent_to', None) or []
+    if not isinstance(sent_to, list):
+        sent_to = []
+    bucket['last_sent_to'] = [str(x).strip() for x in sent_to if str(x or '').strip()]
+    bucket['last_sent_at'] = getattr(rec, 'last_sent_at', None)
+    bucket['last_sent_at_label'] = _format_madrid_datetime_label(bucket['last_sent_at'])
+    bucket['last_sent_pdf_url'] = (getattr(rec, 'last_sent_pdf_url', None) or '').strip()
+    bucket['last_sent_signature'] = (getattr(rec, 'last_sent_signature', None) or '').strip()
+    bucket['has_sent_info'] = bool(bucket['last_sent_at'] and bucket['last_sent_pdf_url'])
 
 
 def _royalty_status_meta(status: str | None) -> tuple[str, str]:
@@ -3423,6 +3746,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
 
     def _append_item(bucket: dict, item: dict):
         bucket["items"].append(item)
+        bucket["total_income"] += float(item.get("income") or 0)
         bucket["total_amount"] += float(item.get("amount") or 0)
 
     def _load_song_income_maps(song_ids: list[UUID]) -> tuple[dict, dict]:
@@ -3515,6 +3839,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
         artist = session_db.get(Artist, bid)
         if not artist:
             return None
+        delivery = _beneficiary_email_delivery_data(session_db, "ARTIST", bid)
         bucket = {
             "kind": "ARTIST",
             "id": str(bid),
@@ -3522,11 +3847,16 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             "photo_url": getattr(artist, "photo_url", None),
             "kind_label": "Artista",
             "items": [],
+            "total_income": 0.0,
             "total_amount": 0.0,
             "liquidation_status": None,
             "liquidation_label": None,
             "liquidation_color": None,
-            "contact_email": (_beneficiary_contact_email(session_db, "ARTIST", bid) or ""),
+            "contact_email": (delivery.get("primary_email") or _beneficiary_contact_email(session_db, "ARTIST", bid) or ""),
+            "default_recipients": list(delivery.get("default_recipients") or []),
+            "suggested_recipients": list(delivery.get("suggested_recipients") or []),
+            "extra_email_rows": list(delivery.get("extra_rows") or []),
+            "can_send_email": bool((delivery.get("default_recipients") or []) or (delivery.get("suggested_recipients") or [])),
         }
 
         song_ids = [
@@ -3713,6 +4043,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
         if not promoter:
             return None
         display_name = (promoter.nick or ((promoter.first_name or "") + " " + (promoter.last_name or ""))).strip() or "Beneficiario"
+        delivery = _beneficiary_email_delivery_data(session_db, "PROMOTER", bid)
         bucket = {
             "kind": "PROMOTER",
             "id": str(bid),
@@ -3720,11 +4051,16 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
             "photo_url": getattr(promoter, "logo_url", None),
             "kind_label": "Beneficiario",
             "items": [],
+            "total_income": 0.0,
             "total_amount": 0.0,
             "liquidation_status": None,
             "liquidation_label": None,
             "liquidation_color": None,
-            "contact_email": (_beneficiary_contact_email(session_db, "PROMOTER", bid) or ""),
+            "contact_email": (delivery.get("primary_email") or _beneficiary_contact_email(session_db, "PROMOTER", bid) or ""),
+            "default_recipients": list(delivery.get("default_recipients") or []),
+            "suggested_recipients": list(delivery.get("suggested_recipients") or []),
+            "extra_email_rows": list(delivery.get("extra_rows") or []),
+            "can_send_email": bool((delivery.get("default_recipients") or []) or (delivery.get("suggested_recipients") or [])),
         }
 
         song_ids = [
@@ -3915,8 +4251,6 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
                 },
             )
 
-    bucket["can_send_email"] = bool(bucket.get("contact_email") and _looks_like_email_address(bucket.get("contact_email")))
-
     rec = (
         session_db.query(RoyaltyLiquidation)
         .filter(RoyaltyLiquidation.beneficiary_kind == kind)
@@ -3924,11 +4258,7 @@ def _build_royalty_single_beneficiary(session_db, sem_start: date, sem_end: date
         .filter(RoyaltyLiquidation.period_start == sem_start)
         .first()
     )
-    if rec:
-        bucket["liquidation_status"] = getattr(rec, "status", None)
-        lbl, color = _royalty_status_meta(bucket["liquidation_status"])
-        bucket["liquidation_label"] = lbl
-        bucket["liquidation_color"] = color
+    _apply_royalty_liquidation_meta(bucket, rec)
 
     bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
     return bucket if (bucket.get("items") or []) else None
@@ -4160,7 +4490,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         if only_beneficiary and key != only_beneficiary:
             return None
         if key not in ben_map:
-            contact_email = _beneficiary_contact_email(session_db, kind, bid)
+            delivery = _beneficiary_email_delivery_data(session_db, kind, bid)
             ben_map[key] = {
                 "kind": kind,
                 "id": bid,
@@ -4168,12 +4498,16 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
                 "photo_url": photo_url,
                 "kind_label": kind_label,
                 "items": [],
+                "total_income": 0.0,
                 "total_amount": 0.0,
                 "liquidation_status": None,
                 "liquidation_label": None,
                 "liquidation_color": None,
-                "contact_email": contact_email or "",
-                "can_send_email": bool(contact_email and _looks_like_email_address(contact_email)),
+                "contact_email": (delivery.get("primary_email") or _beneficiary_contact_email(session_db, kind, bid) or ""),
+                "default_recipients": list(delivery.get("default_recipients") or []),
+                "suggested_recipients": list(delivery.get("suggested_recipients") or []),
+                "extra_email_rows": list(delivery.get("extra_rows") or []),
+                "can_send_email": bool((delivery.get("default_recipients") or []) or (delivery.get("suggested_recipients") or [])),
             }
         return ben_map[key]
 
@@ -4181,6 +4515,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
         if not bucket:
             return
         bucket["items"].append(item)
+        bucket["total_income"] += float(item.get("income") or 0)
         bucket["total_amount"] += float(item.get("amount") or 0)
 
     for song in songs:
@@ -4406,11 +4741,7 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
 
     for (kind, bid), bucket in ben_map.items():
         rec = liq_map.get((kind, bid))
-        if rec:
-            bucket["liquidation_status"] = getattr(rec, "status", None)
-            lbl, color = _royalty_status_meta(bucket["liquidation_status"])
-            bucket["liquidation_label"] = lbl
-            bucket["liquidation_color"] = color
+        _apply_royalty_liquidation_meta(bucket, rec)
         bucket["items"].sort(key=lambda item: ((item.get("sort_title") or ""), item.get("release_date") or ""))
 
     artist_beneficiaries = [
@@ -4990,11 +5321,13 @@ def _build_royalty_liquidation_pdf_bytes(session_db, kind: str, beneficiary_id, 
 
     def _draw_page_header(page_no: int) -> float:
         y = top
+        title_x = left
+        if page_no == 1 and logo_asset:
+            _draw_contained_image(logo_asset, left, y - 10, 110, 34)
+            title_x = left + 120
         pdf.setFont("Helvetica-Bold", 17 if page_no == 1 else 14)
         pdf.setFillColor(colors.black)
-        pdf.drawString(left, y, "Liquidación de Royalties")
-        if logo_asset:
-            _draw_contained_image(logo_asset, right - 110, y - 10, 110, 34)
+        pdf.drawString(title_x, y, "Liquidación de Royalties")
         y -= 20 if page_no == 1 else 18
         pdf.setFont("Helvetica", 9)
         pdf.setFillColor(colors.HexColor('#555555'))
@@ -5159,6 +5492,10 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         income = _eur(item.get('income') or 0)
         pct = f"{float(item.get('pct') or 0):.2f}%"
         amount = _eur(item.get('amount') or 0)
+        cover_url = html.escape((item.get('cover_url') or item.get('fallback_cover_url') or ''))
+        cover_html = ''
+        if cover_url:
+            cover_html = f'<img src="{cover_url}" alt="" style="width:52px;height:52px;object-fit:cover;border-radius:10px;border:1px solid #e5e7eb;background:#fff;display:block;">'
         subtitle_html = f'<div style="font-size:12px;color:#6b7280;margin-top:2px;">{subtitle}</div>' if subtitle else ''
         badges_html = ''
         if badges:
@@ -5167,14 +5504,22 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
                 for badge in badges
             )
             badges_html = f'<div style="margin-top:4px;">{badge_chunks}</div>'
-        rows_html.append(
-            f"""
+        repertory_cell = f"""
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="border-collapse:collapse;">
             <tr>
-              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;">
+              <td style="padding:0 12px 0 0;vertical-align:top;width:56px;">{cover_html}</td>
+              <td style="padding:0;vertical-align:top;">
                 <div style="font-weight:700;color:#111827;">{title}</div>
                 {subtitle_html}
                 {badges_html}
               </td>
+            </tr>
+          </table>
+        """
+        rows_html.append(
+            f"""
+            <tr>
+              <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;">{repertory_cell}</td>
               <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;white-space:nowrap;">{code}</td>
               <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;white-space:nowrap;">{release_date}</td>
               <td style="padding:12px;border-top:1px solid #e5e7eb;vertical-align:top;color:#374151;text-align:right;white-space:nowrap;">{income}</td>
@@ -5243,7 +5588,7 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         <div style="margin:16px 0 8px 0;">
           <a href="https://www.piesrecords.com/facturacion" style="display:inline-block;background:#ffffff;color:#111827;text-decoration:none;padding:12px 18px;border-radius:10px;font-weight:700;border:1px solid #d1d5db;">Subir factura</a>
         </div>
-        <div style="font-size:14px;color:#374151;margin-top:16px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrrecords.com">music@piesrrecords.com</a></div>
+        <div style="font-size:14px;color:#374151;margin-top:16px;">Si tiene alguna duda contacte con <a href="mailto:music@piesrecords.com">music@piesrecords.com</a></div>
       </div>
     </div>
     """
@@ -5257,9 +5602,99 @@ def _build_royalty_liquidation_email_body(beneficiary: dict, period_label: str, 
         f"Descargar PDF: {download_url}\n\n"
         f'Emitir factura a nombre de "{invoice_name}"\n'
         "Subir factura: https://www.piesrecords.com/facturacion\n"
-        "Si tiene alguna duda contacte con music@piesrrecords.com"
+        "Si tiene alguna duda contacte con music@piesrecords.com"
     )
     return html_body, text_body
+
+
+def _royalty_liquidation_record(session_db, kind: str, beneficiary_id, sem_start: date) -> RoyaltyLiquidation | None:
+    kind = (kind or '').strip().upper()
+    bid = to_uuid(beneficiary_id)
+    if kind not in ('ARTIST', 'PROMOTER') or not bid or not sem_start:
+        return None
+    return (
+        session_db.query(RoyaltyLiquidation)
+        .filter(RoyaltyLiquidation.beneficiary_kind == kind)
+        .filter(RoyaltyLiquidation.beneficiary_id == bid)
+        .filter(RoyaltyLiquidation.period_start == sem_start)
+        .first()
+    )
+
+
+def _royalty_liquidation_period_label_from_dates(period_start, period_end) -> str:
+    start_value = period_start if isinstance(period_start, date) else parse_date(str(period_start or '').strip())
+    end_value = period_end if isinstance(period_end, date) else parse_date(str(period_end or '').strip())
+    if not start_value or not end_value:
+        return ''
+    half = 1 if start_value.month <= 6 else 2
+    return f"{_semester_label(start_value.year, half)} ({start_value.strftime('%d/%m/%Y')} - {end_value.strftime('%d/%m/%Y')})"
+
+
+def _royalty_liquidation_subject(sem_year: int, sem_half: int) -> str:
+    return f"Liquidación Royalties Semestre {sem_half} {sem_year}"
+
+
+def _royalty_liquidation_brand_assets(session_db, beneficiary: dict | None = None) -> tuple[str, str]:
+    pies_company = (
+        session_db.query(GroupCompany)
+        .filter(func.lower(GroupCompany.name).like('%pies%'))
+        .order_by(GroupCompany.name.asc())
+        .first()
+    )
+    logo_url = (getattr(pies_company, 'logo_url', None) or '').strip() or _external_url_for('static', filename='img/logo.png')
+
+    beneficiary = beneficiary or {}
+    fallback_photo = 'img/default_promoter.png' if (beneficiary.get('kind') or '').strip().upper() == 'PROMOTER' else 'img/logo.png'
+    photo_url = (beneficiary.get('photo_url') or '').strip() or _external_url_for('static', filename=fallback_photo)
+    return logo_url, photo_url
+
+
+def _wants_json_response() -> bool:
+    if request.is_json:
+        return True
+    accept = (request.headers.get('Accept') or '').lower()
+    return 'application/json' in accept
+
+
+def _royalty_send_response(ok: bool, message: str, *, redirect_url: str, status_code: int = 200, category: str = 'success', extra: dict | None = None):
+    payload = {'ok': bool(ok), 'message': message}
+    if extra:
+        payload.update(extra)
+    if _wants_json_response():
+        return jsonify(payload), status_code
+    flash(message, category if ok else 'danger')
+    return redirect(redirect_url)
+
+
+def _ensure_snapshot_defaults(snapshot: dict | None, fallback: dict | None = None) -> dict:
+    payload = dict(snapshot or {})
+    fallback = fallback or {}
+    for key in ('kind', 'id', 'name', 'kind_label', 'photo_url', 'total_amount', 'total_income'):
+        if key not in payload or payload.get(key) in (None, ''):
+            if fallback.get(key) not in (None, ''):
+                payload[key] = fallback.get(key)
+    payload['items'] = list(payload.get('items') or [])
+    return payload
+
+
+def _ensure_royalty_liquidation_row(session_db, kind: str, beneficiary_id, sem_start: date, sem_end: date) -> RoyaltyLiquidation:
+    rec = _royalty_liquidation_record(session_db, kind, beneficiary_id, sem_start)
+    now_dt = datetime.now(TZ_MADRID)
+    if rec:
+        rec.period_end = sem_end
+        rec.updated_at = now_dt
+        return rec
+    rec = RoyaltyLiquidation(
+        beneficiary_kind=kind,
+        beneficiary_id=to_uuid(beneficiary_id),
+        period_start=sem_start,
+        period_end=sem_end,
+        status='GENERATED',
+        generated_at=now_dt,
+        updated_at=now_dt,
+    )
+    session_db.add(rec)
+    return rec
 
 
 def _ensure_song_status_row(session_db, song_or_id) -> SongStatus:
@@ -5889,6 +6324,7 @@ def discografica_view():
     royalty_beneficiaries_others: list[dict] = []
     royalty_filter_artists: list[Artist] = []
     royalty_selected_artist_id = ""
+    royalty_tab = "liquidaciones"
 
     # Para redirecciones tras POST
     income_next_url = _update_url_query(request.full_path.rstrip("?"), {"upload_report": None, "import_review": None})
@@ -6048,6 +6484,10 @@ def discografica_view():
         else:
             sem_year, sem_half = parsed_sem
 
+        royalty_tab = (request.args.get("roy_tab") or "liquidaciones").strip().lower()
+        if royalty_tab not in ("liquidaciones", "resumen"):
+            royalty_tab = "liquidaciones"
+
         royalty_semester_key = _semester_key(sem_year, sem_half)
         sem_start, sem_end = _semester_range(sem_year, sem_half)
         royalty_period_label = _semester_label(sem_year, sem_half)
@@ -6057,8 +6497,7 @@ def discografica_view():
             royalty_selected_artist_id = ""
 
         royalty_semester_tabs = []
-        for i in range(12):
-            y, h = _add_semesters(sem_year, sem_half, -i)
+        for y, h in _royalty_available_semesters(session_db, sem_start):
             k = _semester_key(y, h)
             royalty_semester_tabs.append(
                 {
@@ -6069,6 +6508,7 @@ def discografica_view():
                         "discografica_view",
                         section="royalties",
                         s=k,
+                        roy_tab=royalty_tab,
                         artist=royalty_selected_artist_id or None,
                     ),
                 }
@@ -6085,6 +6525,7 @@ def discografica_view():
         royalty_filter_artists = royalty_payload.get("filter_artists") or []
 
     if section == "ingresos":
+
         # 1) Selección de periodos (meses / semestres)
         today = today_local()
         current_month_start = date(today.year, today.month, 1)
@@ -6684,6 +7125,7 @@ def discografica_view():
         royalty_beneficiaries_others=royalty_beneficiaries_others,
         royalty_filter_artists=royalty_filter_artists,
         royalty_selected_artist_id=royalty_selected_artist_id,
+        royalty_tab=royalty_tab,
     )
     session_db.close()
     return response
@@ -7987,101 +8429,263 @@ def public_royalty_liquidation_pdf():
     return send_file(BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=True, download_name=filename)
 
 
-@app.post("/discografica/royalties/liquidacion/send")
+@app.get("/discografica/royalties/liquidacion/preview")
 @admin_required
-def discografica_royalties_liquidation_send():
-    next_url = request.form.get("next") or url_for("discografica_view", section="royalties")
-    kind = (request.form.get("kind") or "").strip().upper()
-    bid_raw = (request.form.get("bid") or "").strip()
-    sem_key = (request.form.get("s") or "").strip()
+def discografica_royalties_liquidation_preview():
+    kind = (request.args.get('kind') or '').strip().upper()
+    bid_raw = (request.args.get('bid') or '').strip()
+    sem_key = (request.args.get('s') or '').strip()
+
+    if kind not in ('ARTIST', 'PROMOTER'):
+        return jsonify({'ok': False, 'message': 'Beneficiario inválido.'}), 400
 
     parsed_sem = _parse_semester_key(sem_key)
     if not parsed_sem:
-        flash("Semestre inválido.", "danger")
-        return redirect(next_url)
+        return jsonify({'ok': False, 'message': 'Semestre inválido.'}), 400
     sem_year, sem_half = parsed_sem
     sem_start, sem_end = _semester_range(sem_year, sem_half)
 
     try:
         beneficiary_uuid = uuid.UUID(bid_raw)
     except Exception:
-        flash("Beneficiario inválido.", "danger")
-        return redirect(next_url)
+        return jsonify({'ok': False, 'message': 'Beneficiario inválido.'}), 400
 
     with get_db() as session_db:
         try:
-            beneficiary, _benef_sem_start, _benef_sem_end, _benef_bid = _get_royalty_liquidation_beneficiary_data(
+            _pdf_bytes, _filename, beneficiary = _build_royalty_liquidation_pdf_bytes(
                 session_db,
                 kind,
                 beneficiary_uuid,
                 sem_year,
                 sem_half,
+                touch_liquidation=False,
             )
         except LookupError:
-            flash("No hay datos para enviar esta liquidación.", "warning")
-            return redirect(next_url)
+            return jsonify({'ok': False, 'message': 'No hay datos para esta liquidación.'}), 404
         except Exception as exc:
-            flash(f"No se pudo preparar la liquidación: {exc}", "danger")
-            return redirect(next_url)
+            return jsonify({'ok': False, 'message': f'No se pudo preparar la liquidación: {exc}'}), 400
 
-        to_email = (beneficiary.get("contact_email") or "").strip() or (_beneficiary_contact_email(session_db, kind, beneficiary_uuid) or "")
-        if not to_email:
-            flash("El beneficiario no tiene un email configurado. Añade una dirección de correo en su ficha antes de enviar la liquidación.", "warning")
-            return redirect(next_url)
-        if not _looks_like_email_address(to_email):
-            flash("No se pudo enviar la liquidación: dirección de correo incorrecta o incompleta.", "danger")
-            return redirect(next_url)
+        delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_uuid)
+        rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
 
-        pies_company = (
-            session_db.query(GroupCompany)
-            .filter(func.lower(GroupCompany.name).like('%pies%'))
-            .order_by(GroupCompany.name.asc())
-            .first()
-        )
-        logo_url = (getattr(pies_company, 'logo_url', None) or '').strip() or _external_url_for('static', filename='img/logo.png')
-        photo_url = (beneficiary.get('photo_url') or '').strip() or _external_url_for('static', filename='img/logo.png')
-        period_label = f"{_semester_label(sem_year, sem_half)} ({sem_start.strftime('%d/%m/%Y')} - {sem_end.strftime('%d/%m/%Y')})"
+        period_label = _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
+        logo_url, photo_url = _royalty_liquidation_brand_assets(session_db, beneficiary)
+        subject = _royalty_liquidation_subject(sem_year, sem_half)
         public_token = _make_public_royalty_liquidation_token(kind, str(beneficiary_uuid), sem_key)
-        download_url = _external_url_for('public_royalty_liquidation_pdf') + f"?token={quote_plus(public_token)}"
-        html_body, text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, download_url, logo_url, photo_url)
-        subject = f"Liquidación Royalties Semestre {sem_half} {sem_year}"
-        ok, error = _send_optional_email(
-            to_email,
-            subject,
-            html_body,
-            text_body=text_body,
-        )
-        if not ok:
-            flash(f"No se pudo enviar la liquidación: {error}", "danger")
-            return redirect(next_url)
+        download_url = _external_url_for('public_royalty_liquidation_pdf') + f'?token={quote_plus(public_token)}'
+        html_body, _text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, download_url, logo_url, photo_url)
 
-        now_dt = datetime.now(TZ_MADRID)
-        rec = (
-            session_db.query(RoyaltyLiquidation)
-            .filter(RoyaltyLiquidation.beneficiary_kind == kind)
-            .filter(RoyaltyLiquidation.beneficiary_id == beneficiary_uuid)
-            .filter(RoyaltyLiquidation.period_start == sem_start)
-            .first()
-        )
-        if not rec:
-            rec = RoyaltyLiquidation(
-                beneficiary_kind=kind,
-                beneficiary_id=beneficiary_uuid,
-                period_start=sem_start,
-                period_end=sem_end,
-                status='SENT',
-                generated_at=now_dt,
-                updated_at=now_dt,
+        current_snapshot = _royalty_liquidation_snapshot(beneficiary, sem_start, sem_end)
+        current_signature = _royalty_liquidation_snapshot_signature(current_snapshot)
+
+        previous_snapshot = _ensure_snapshot_defaults(getattr(rec, 'last_sent_snapshot', None) if rec else None, beneficiary)
+        previous_signature = (getattr(rec, 'last_sent_signature', None) or '').strip() if rec else ''
+        if not previous_signature and previous_snapshot.get('items'):
+            previous_signature = _royalty_liquidation_snapshot_signature(previous_snapshot)
+        previous_html_body = ''
+        can_send_previous = bool(rec and getattr(rec, 'last_sent_pdf_url', None) and previous_snapshot.get('items'))
+        if can_send_previous:
+            prev_start = parse_date(str(previous_snapshot.get('period_start') or '').strip()) or sem_start
+            prev_end = parse_date(str(previous_snapshot.get('period_end') or '').strip()) or sem_end
+            prev_label = _royalty_liquidation_period_label_from_dates(prev_start, prev_end) or period_label
+            previous_html_body, _previous_text_body = _build_royalty_liquidation_email_body(
+                previous_snapshot,
+                prev_label,
+                (getattr(rec, 'last_sent_pdf_url', None) or '').strip() or download_url,
+                logo_url,
+                (previous_snapshot.get('photo_url') or photo_url),
             )
-            session_db.add(rec)
-        else:
+
+        default_recipients = list(delivery.get('default_recipients') or [])
+        suggested_recipients = list(delivery.get('suggested_recipients') or [])
+        if not default_recipients and suggested_recipients:
+            default_recipients = suggested_recipients[:1]
+
+        return jsonify({
+            'ok': True,
+            'subject': subject,
+            'html_body': html_body,
+            'previous_html_body': previous_html_body,
+            'default_recipients': default_recipients,
+            'suggested_recipients': suggested_recipients,
+            'has_changes': bool(can_send_previous and previous_signature and previous_signature != current_signature),
+            'can_send_previous': can_send_previous,
+            'last_sent_at_label': _format_madrid_datetime_label(getattr(rec, 'last_sent_at', None) if rec else None),
+            'last_sent_to': list(getattr(rec, 'last_sent_to', None) or []) if rec else [],
+            'last_sent_pdf_url': (getattr(rec, 'last_sent_pdf_url', None) or '').strip() if rec else '',
+        })
+
+
+@app.get("/discografica/royalties/liquidacion/info")
+@admin_required
+def discografica_royalties_liquidation_info():
+    kind = (request.args.get('kind') or '').strip().upper()
+    bid_raw = (request.args.get('bid') or '').strip()
+    sem_key = (request.args.get('s') or '').strip()
+
+    if kind not in ('ARTIST', 'PROMOTER'):
+        return jsonify({'ok': False, 'message': 'Beneficiario inválido.'}), 400
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        return jsonify({'ok': False, 'message': 'Semestre inválido.'}), 400
+    sem_year, sem_half = parsed_sem
+    sem_start, _sem_end = _semester_range(sem_year, sem_half)
+
+    try:
+        beneficiary_uuid = uuid.UUID(bid_raw)
+    except Exception:
+        return jsonify({'ok': False, 'message': 'Beneficiario inválido.'}), 400
+
+    with get_db() as session_db:
+        rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+        if not rec or not getattr(rec, 'last_sent_at', None):
+            return jsonify({'ok': True, 'has_info': False})
+        return jsonify({
+            'ok': True,
+            'has_info': True,
+            'sent_at_label': _format_madrid_datetime_label(getattr(rec, 'last_sent_at', None)),
+            'sent_to': list(getattr(rec, 'last_sent_to', None) or []),
+            'pdf_url': (getattr(rec, 'last_sent_pdf_url', None) or '').strip(),
+        })
+
+
+@app.post("/discografica/royalties/liquidacion/send")
+@admin_required
+def discografica_royalties_liquidation_send():
+    payload = request.get_json(silent=True) if request.is_json else {}
+    payload = payload or {}
+
+    next_url = (payload.get('next') if isinstance(payload, dict) else None) or request.form.get('next') or url_for('discografica_view', section='royalties')
+    kind = ((payload.get('kind') if isinstance(payload, dict) else None) or request.form.get('kind') or '').strip().upper()
+    bid_raw = ((payload.get('bid') if isinstance(payload, dict) else None) or request.form.get('bid') or '').strip()
+    sem_key = ((payload.get('s') if isinstance(payload, dict) else None) or request.form.get('s') or '').strip()
+    mode = ((payload.get('mode') if isinstance(payload, dict) else None) or request.form.get('mode') or 'current').strip().lower()
+
+    if kind not in ('ARTIST', 'PROMOTER'):
+        return _royalty_send_response(False, 'Beneficiario inválido.', redirect_url=next_url, status_code=400)
+
+    parsed_sem = _parse_semester_key(sem_key)
+    if not parsed_sem:
+        return _royalty_send_response(False, 'Semestre inválido.', redirect_url=next_url, status_code=400)
+    sem_year, sem_half = parsed_sem
+    sem_start, sem_end = _semester_range(sem_year, sem_half)
+
+    try:
+        beneficiary_uuid = uuid.UUID(bid_raw)
+    except Exception:
+        return _royalty_send_response(False, 'Beneficiario inválido.', redirect_url=next_url, status_code=400)
+
+    recipient_values = []
+    if isinstance(payload, dict):
+        raw = payload.get('recipients')
+        if isinstance(raw, (list, tuple, set)):
+            recipient_values.extend([str(v or '') for v in raw])
+        elif isinstance(raw, str):
+            recipient_values.append(raw)
+    recipient_values.extend(request.form.getlist('recipients'))
+
+    with get_db() as session_db:
+        delivery = _beneficiary_email_delivery_data(session_db, kind, beneficiary_uuid)
+        if not recipient_values:
+            recipient_values = list(delivery.get('default_recipients') or []) or list(delivery.get('suggested_recipients') or [])
+        recipients = _dedupe_valid_email_addresses(recipient_values)
+        if not recipients:
+            return _royalty_send_response(
+                False,
+                'El beneficiario no tiene un email válido configurado. Añade una dirección en su ficha antes de enviar la liquidación.',
+                redirect_url=next_url,
+                status_code=400,
+            )
+
+        subject = _royalty_liquidation_subject(sem_year, sem_half)
+        now_dt = datetime.now(TZ_MADRID)
+
+        if mode == 'previous':
+            rec = _royalty_liquidation_record(session_db, kind, beneficiary_uuid, sem_start)
+            snapshot = _ensure_snapshot_defaults(getattr(rec, 'last_sent_snapshot', None) if rec else None)
+            pdf_url = (getattr(rec, 'last_sent_pdf_url', None) or '').strip() if rec else ''
+            if not rec or not pdf_url or not snapshot.get('items'):
+                return _royalty_send_response(False, 'No existe un envío anterior guardado para reutilizar.', redirect_url=next_url, status_code=400)
+
+            logo_url, photo_url = _royalty_liquidation_brand_assets(session_db, snapshot)
+            prev_start = parse_date(str(snapshot.get('period_start') or '').strip()) or sem_start
+            prev_end = parse_date(str(snapshot.get('period_end') or '').strip()) or sem_end
+            period_label = _royalty_liquidation_period_label_from_dates(prev_start, prev_end) or _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
+            html_body, text_body = _build_royalty_liquidation_email_body(snapshot, period_label, pdf_url, logo_url, snapshot.get('photo_url') or photo_url)
+            ok, error = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+            if not ok:
+                return _royalty_send_response(False, f'No se pudo enviar la liquidación: {error}', redirect_url=next_url, status_code=400)
+
             rec.status = 'SENT'
             rec.period_end = sem_end
             rec.updated_at = now_dt
+            rec.last_sent_at = now_dt
+            rec.last_sent_to = recipients
+            if not getattr(rec, 'last_sent_signature', None):
+                rec.last_sent_signature = _royalty_liquidation_snapshot_signature(snapshot)
+            session_db.commit()
+            return _royalty_send_response(
+                True,
+                f'Liquidación anterior enviada a {", ".join(recipients)}.',
+                redirect_url=next_url,
+                extra={
+                    'sent_at_label': _format_madrid_datetime_label(now_dt),
+                    'sent_to': recipients,
+                    'pdf_url': pdf_url,
+                },
+            )
+
+        try:
+            pdf_bytes, _filename, beneficiary = _build_royalty_liquidation_pdf_bytes(
+                session_db,
+                kind,
+                beneficiary_uuid,
+                sem_year,
+                sem_half,
+                touch_liquidation=True,
+            )
+        except LookupError:
+            return _royalty_send_response(False, 'No hay datos para enviar esta liquidación.', redirect_url=next_url, status_code=404)
+        except Exception as exc:
+            return _royalty_send_response(False, f'No se pudo preparar la liquidación: {exc}', redirect_url=next_url, status_code=400)
+
+        snapshot = _royalty_liquidation_snapshot(beneficiary, sem_start, sem_end)
+        signature = _royalty_liquidation_snapshot_signature(snapshot)
+        logo_url, photo_url = _royalty_liquidation_brand_assets(session_db, beneficiary)
+        period_label = _royalty_liquidation_period_label_from_dates(sem_start, sem_end)
+
+        try:
+            pdf_url = upload_pdf_bytes(pdf_bytes, 'royalty_liquidations')
+        except Exception as exc:
+            return _royalty_send_response(False, f'No se pudo guardar el PDF del envío: {exc}', redirect_url=next_url, status_code=500)
+
+        html_body, text_body = _build_royalty_liquidation_email_body(beneficiary, period_label, pdf_url, logo_url, photo_url)
+        ok, error = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+        if not ok:
+            return _royalty_send_response(False, f'No se pudo enviar la liquidación: {error}', redirect_url=next_url, status_code=400)
+
+        rec = _ensure_royalty_liquidation_row(session_db, kind, beneficiary_uuid, sem_start, sem_end)
+        rec.status = 'SENT'
+        rec.updated_at = now_dt
+        rec.last_sent_at = now_dt
+        rec.last_sent_to = recipients
+        rec.last_sent_signature = signature
+        rec.last_sent_snapshot = snapshot
+        rec.last_sent_pdf_url = pdf_url
+        if not getattr(rec, 'generated_at', None):
+            rec.generated_at = now_dt
         session_db.commit()
 
-    flash(f"Liquidación enviada a {to_email}.", "success")
-    return redirect(next_url)
+        return _royalty_send_response(
+            True,
+            f'Liquidación enviada a {", ".join(recipients)}.',
+            redirect_url=next_url,
+            extra={
+                'sent_at_label': _format_madrid_datetime_label(now_dt),
+                'sent_to': recipients,
+                'pdf_url': pdf_url,
+            },
+        )
 
 
 @app.post("/discografica/royalties/liquidacion/status")
@@ -16940,6 +17544,12 @@ def promoter_detail_view(pid):
         tab = (request.args.get('tab') or 'general').strip().lower()
         if tab not in {'general', 'contactos'}:
             tab = 'general'
+        promoter_email_addresses = (
+            session.query(PromoterEmail)
+            .filter(PromoterEmail.promoter_id == promoter.id)
+            .order_by(PromoterEmail.created_at.asc(), PromoterEmail.concept.asc())
+            .all()
+        )
         grouped = defaultdict(list)
         for contact in promoter.contacts or []:
             key = (contact.title or 'Sin título').strip() or 'Sin título'
@@ -16949,9 +17559,86 @@ def promoter_detail_view(pid):
             promoter=promoter,
             tab=tab,
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
+            promoter_email_addresses=promoter_email_addresses,
         )
     finally:
         session.close()
+
+
+@app.post('/promotores/<pid>/emails/create', endpoint='promoter_email_create')
+@admin_required
+def promoter_email_create(pid):
+    session = db()
+    try:
+        promoter = session.get(Promoter, to_uuid(pid))
+        if not promoter:
+            flash('Tercero no encontrado.', 'warning')
+            return redirect(url_for('promoters_view'))
+        concept = (request.form.get('concept') or '').strip()
+        email = (request.form.get('email') or '').strip()
+        if not concept or not email:
+            flash('Debes indicar concepto y email.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        if not _looks_like_email_address(email):
+            flash('La dirección de correo no es válida.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        session.add(PromoterEmail(promoter_id=promoter.id, concept=concept, email=email))
+        session.commit()
+        flash('Correo añadido.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error creando correo: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+
+
+@app.post('/promotores/<pid>/emails/<email_id>/update', endpoint='promoter_email_update')
+@admin_required
+def promoter_email_update(pid, email_id):
+    session = db()
+    try:
+        row = session.get(PromoterEmail, to_uuid(email_id))
+        if not row or str(row.promoter_id) != str(pid):
+            flash('Correo no encontrado.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        concept = (request.form.get('concept') or '').strip()
+        email = (request.form.get('email') or '').strip()
+        if not concept or not email:
+            flash('Debes indicar concepto y email.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        if not _looks_like_email_address(email):
+            flash('La dirección de correo no es válida.', 'warning')
+            return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+        row.concept = concept
+        row.email = email
+        row.updated_at = datetime.now(TZ_MADRID)
+        session.commit()
+        flash('Correo actualizado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error actualizando correo: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
+
+
+@app.post('/promotores/<pid>/emails/<email_id>/delete', endpoint='promoter_email_delete')
+@admin_required
+def promoter_email_delete(pid, email_id):
+    session = db()
+    try:
+        row = session.get(PromoterEmail, to_uuid(email_id))
+        if row and str(row.promoter_id) == str(pid):
+            session.delete(row)
+            session.commit()
+            flash('Correo eliminado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error eliminando correo: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('promoter_detail_view', pid=pid, tab='general'))
 
 
 @app.post('/promotores/<pid>/sociedades/create', endpoint='promoter_company_create')

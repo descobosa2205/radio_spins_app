@@ -77,6 +77,26 @@ class ArtistPerson(Base):
     artist = relationship("Artist", back_populates="people")
 
 
+class ArtistEmail(Base):
+    """Correos adicionales asociados a un artista.
+
+    El correo principal se mantiene en `artists.email`.
+    """
+
+    __tablename__ = "artist_emails"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("artists.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    concept = Column(Text, nullable=False)
+    email = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ArtistContract(Base):
     """Contratos a nivel artista (no confundir con contratos de conciertos)."""
 
@@ -513,6 +533,26 @@ class PromoterContact(Base):
     promoter = relationship("Promoter", back_populates="contacts")
 
 
+class PromoterEmail(Base):
+    """Correos adicionales asociados a un tercero.
+
+    El correo principal se mantiene en `promoters.contact_email`.
+    """
+
+    __tablename__ = "promoter_emails"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promoter_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("promoters.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    concept = Column(Text, nullable=False)
+    email = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class SongRoyaltyBeneficiary(Base):
     """Beneficiarios de royalties por canción (otros beneficiarios).
 
@@ -871,6 +911,11 @@ class RoyaltyLiquidation(Base):
 
     generated_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_sent_at = Column(DateTime(timezone=True))
+    last_sent_to = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    last_sent_signature = Column(Text)
+    last_sent_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    last_sent_pdf_url = Column(Text)
 
     __table_args__ = (
         UniqueConstraint(
@@ -1561,6 +1606,17 @@ def ensure_artist_feature_schema():
         ALTER TABLE IF EXISTS artists
             ADD COLUMN IF NOT EXISTS email text;
         """,
+        """
+        CREATE TABLE IF NOT EXISTS artist_emails (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            concept text NOT NULL,
+            email text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_emails_artist_id ON artist_emails(artist_id);',
     ]
 
     with engine.begin() as conn:
@@ -2019,6 +2075,17 @@ def ensure_song_royalties_schema():
             ADD COLUMN IF NOT EXISTS contact_email text,
             ADD COLUMN IF NOT EXISTS contact_phone text;
         """,
+        """
+        CREATE TABLE IF NOT EXISTS promoter_emails (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promoter_id uuid NOT NULL REFERENCES promoters(id) ON DELETE CASCADE,
+            concept text NOT NULL,
+            email text NOT NULL,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promoter_emails_promoter_id ON promoter_emails(promoter_id);',
 
         # Beneficiarios adicionales por canción
         """
@@ -2154,6 +2221,14 @@ def ensure_royalty_liquidations_schema():
         """
         CREATE INDEX IF NOT EXISTS idx_royalty_liquidations_beneficiary
         ON royalty_liquidations(beneficiary_kind, beneficiary_id);
+        """,
+        """
+        ALTER TABLE IF EXISTS royalty_liquidations
+            ADD COLUMN IF NOT EXISTS last_sent_at timestamptz,
+            ADD COLUMN IF NOT EXISTS last_sent_to jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS last_sent_signature text,
+            ADD COLUMN IF NOT EXISTS last_sent_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS last_sent_pdf_url text;
         """,
     ]
 

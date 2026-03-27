@@ -1,8 +1,115 @@
-{#
-  Discográfica > Royalties (por semestre)
-#}
+{# Discográfica > Royalties (por semestre) #}
 
-{% macro render_beneficiary_card(b, default_avatar) %}
+{% macro render_breakdown_table(b, default_avatar) %}
+  {% set beneficiary_items = b.get('items') or [] %}
+  <div class="table-responsive mt-3">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr>
+          <th style="width:52px;"></th>
+          <th>Repertorio</th>
+          <th style="width:140px;">Código</th>
+          <th style="width:110px;">Publicación</th>
+          <th class="text-end" style="width:140px;">Ingreso</th>
+          <th class="text-end" style="width:90px;">%</th>
+          <th class="text-end" style="width:160px;">A facturar</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in beneficiary_items %}
+          {% set item_badges = (item.badges or []) | join(' ') %}
+          <tr class="royalty-search-row" data-royalty-search="{{ ((item.title or '') ~ ' ' ~ (item.subtitle or '') ~ ' ' ~ (item.code or '') ~ ' ' ~ (item.release_date or '') ~ ' ' ~ item_badges)|lower }}">
+            <td>
+              <a href="{{ item.detail_url }}">
+                <img src="{{ item.cover_url or item.fallback_cover_url or default_avatar }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
+              </a>
+            </td>
+            <td>
+              <div class="fw-semibold"><a class="text-decoration-none" href="{{ item.detail_url }}">{{ item.title }}</a></div>
+              <div class="small text-muted">{{ item.subtitle }}</div>
+              {% if item.badges %}
+                <div class="d-flex flex-wrap gap-1 mt-1">
+                  {% for badge in item.badges %}
+                    {% if badge == 'Disco' %}
+                      <span class="badge text-bg-light text-dark">Disco</span>
+                    {% elif badge == 'Canción' %}
+                      <span class="badge text-bg-light text-dark">Canción</span>
+                    {% elif badge == 'Distribución' %}
+                      <span class="badge text-bg-info">Distribución</span>
+                    {% elif badge == 'Catálogo' %}
+                      <span class="badge text-bg-secondary">Catálogo</span>
+                    {% else %}
+                      <span class="badge text-bg-dark">{{ badge }}</span>
+                    {% endif %}
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </td>
+            <td class="small text-muted">
+              {% if item.item_kind == 'SONG' %}
+                {{ (item.code or '—')|isrc }}
+              {% else %}
+                {{ item.code or '—' }}
+              {% endif %}
+            </td>
+            <td class="small">{{ item.release_date }}</td>
+            <td class="text-end">{{ item.income | eur }}</td>
+            <td class="text-end">{{ '%.2f'|format(item.pct or 0) }}%</td>
+            <td class="text-end fw-semibold">{{ item.amount | eur }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="d-flex justify-content-end mt-3 flex-wrap gap-3">
+    <div><span class="text-muted">Beneficio:</span> <span class="fw-semibold">{{ b.total_income | eur }}</span></div>
+    <div><span class="text-muted">Total a facturar:</span> <span class="fw-semibold">{{ b.total_amount | eur }}</span></div>
+  </div>
+{% endmacro %}
+
+{% macro render_status_badge(b) %}
+  <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
+    {% if b.liquidation_status %}
+      <div class="dropdown">
+        <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+          {{ b.liquidation_label }}
+        </button>
+        <ul class="dropdown-menu">
+          <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
+          <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
+          <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
+          <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% macro render_actions(b) %}
+  <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
+    {{ render_status_badge(b) }}
+
+    <button class="btn btn-sm {% if b.can_send_email %}btn-outline-success{% else %}btn-outline-warning{% endif %}"
+            type="button"
+            onclick="openRoyaltyLiquidationPreview('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')"
+            {% if not b.can_send_email %}title="Añade un email válido en la ficha del beneficiario para poder enviarla"{% endif %}>
+      <i class="fa fa-paper-plane"></i> Enviar liquidación
+    </button>
+
+    {% if b.has_sent_info %}
+      <button class="btn btn-outline-secondary btn-sm" type="button" onclick="showRoyaltyLiquidationInfo('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+        <i class="fa fa-circle-info"></i> Información
+      </button>
+    {% endif %}
+
+    <button class="btn btn-outline-primary btn-sm" type="button" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
+      <i class="fa fa-file-pdf"></i> Generar liquidación
+    </button>
+  </div>
+{% endmacro %}
+
+{% macro render_liquidation_card(b, default_avatar) %}
   {% set beneficiary_search = ((b.name or '') ~ ' ' ~ (b.kind_label or '') ~ ' ' ~ (b.contact_email or ''))|lower %}
   <div class="card mb-3 royalty-beneficiary-card" data-royalty-beneficiary-search="{{ beneficiary_search }}">
     <div class="card-body">
@@ -17,115 +124,82 @@
             {% endif %}
           </div>
         </div>
+        {{ render_actions(b) }}
+      </div>
+      {{ render_breakdown_table(b, default_avatar) }}
+    </div>
+  </div>
+{% endmacro %}
 
-        <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-          <div class="roy-liq-badge-wrap" id="royLiqBadgeWrap_{{ b.kind }}_{{ b.id }}">
-            {% if b.liquidation_status %}
-              <div class="dropdown">
-                <button class="badge rounded-pill text-bg-{{ b.liquidation_color }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                  {{ b.liquidation_label }}
-                </button>
-                <ul class="dropdown-menu">
-                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','GENERATED')">Generada</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','SENT')">Enviada</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','INVOICED')">Facturada</button></li>
-                  <li><button class="dropdown-item" type="button" onclick="setRoyaltyLiquidationStatus('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}','PAID')">Pagado</button></li>
-                </ul>
-              </div>
-            {% endif %}
+{% macro render_summary_card(b, default_avatar) %}
+  {% set beneficiary_search = ((b.name or '') ~ ' ' ~ (b.kind_label or '') ~ ' ' ~ (b.contact_email or ''))|lower %}
+  <div class="card mb-3 royalty-beneficiary-card summary-card-btn"
+       role="button"
+       tabindex="0"
+       data-bs-toggle="modal"
+       data-bs-target="#royaltySummaryModal_{{ b.kind }}_{{ b.id }}"
+       data-royalty-beneficiary-search="{{ beneficiary_search }}"
+       onkeydown="if(event && (event.key==='Enter' || event.key===' ')){ event.preventDefault(); bootstrap.Modal.getOrCreateInstance(document.getElementById('royaltySummaryModal_{{ b.kind }}_{{ b.id }}')).show(); }">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div class="d-flex align-items-center gap-3">
+          <img src="{{ b.photo_url or default_avatar }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid #eee;background:#fff">
+          <div>
+            <div class="fw-semibold">{{ b.name }}</div>
+            <div class="small text-muted">{{ b.kind_label }}</div>
+            {% if b.contact_email %}<div class="small text-muted">{{ b.contact_email }}</div>{% endif %}
           </div>
-
-          {% if b.liquidation_status %}
-            <form method="post" action="{{ url_for('discografica_royalties_liquidation_send') }}" class="d-inline">
-              <input type="hidden" name="kind" value="{{ b.kind }}">
-              <input type="hidden" name="bid" value="{{ b.id }}">
-              <input type="hidden" name="s" value="{{ royalty_semester_key }}">
-              <input type="hidden" name="next" value="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None) }}">
-              <button class="btn btn-sm {% if b.can_send_email %}btn-outline-success{% else %}btn-outline-warning{% endif %}" {% if not b.can_send_email %}title="Añade un email válido en la ficha del beneficiario para poder enviarla"{% endif %}>
-                <i class="fa fa-paper-plane"></i> Enviar liquidación
-              </button>
-            </form>
-          {% endif %}
-
-          <button class="btn btn-outline-primary btn-sm" onclick="downloadRoyaltyLiquidationPdf('{{ b.kind }}','{{ b.id }}','{{ royalty_semester_key }}')">
-            <i class="fa fa-file-pdf"></i> Generar liquidación
-          </button>
+        </div>
+        <div class="text-end">
+          <div class="small text-muted">Beneficio</div>
+          <div class="fw-semibold">{{ b.total_income | eur }}</div>
+          <div class="small text-muted mt-2">Importe total a facturar</div>
+          <div class="fw-semibold">{{ b.total_amount | eur }}</div>
         </div>
       </div>
+      <div class="small text-primary mt-3"><i class="fa fa-magnifying-glass me-1"></i> Ver desglose</div>
+    </div>
+  </div>
+{% endmacro %}
 
-      {% set beneficiary_items = b.get('items') or [] %}
-      <div class="table-responsive mt-3">
-        <table class="table table-sm align-middle mb-0">
-          <thead>
-            <tr>
-              <th style="width:52px;"></th>
-              <th>Repertorio</th>
-              <th style="width:140px;">Código</th>
-              <th style="width:110px;">Publicación</th>
-              <th class="text-end" style="width:140px;">Ingreso</th>
-              <th class="text-end" style="width:90px;">%</th>
-              <th class="text-end" style="width:160px;">A facturar</th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for item in beneficiary_items %}
-              {% set item_badges = (item.badges or []) | join(' ') %}
-              <tr class="royalty-search-row" data-royalty-search="{{ ((item.title or '') ~ ' ' ~ (item.subtitle or '') ~ ' ' ~ (item.code or '') ~ ' ' ~ (item.release_date or '') ~ ' ' ~ item_badges)|lower }}">
-                <td>
-                  <a href="{{ item.detail_url }}">
-                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff">
-                  </a>
-                </td>
-                <td>
-                  <div class="fw-semibold"><a class="text-decoration-none" href="{{ item.detail_url }}">{{ item.title }}</a></div>
-                  <div class="small text-muted">{{ item.subtitle }}</div>
-                  {% if item.badges %}
-                    <div class="d-flex flex-wrap gap-1 mt-1">
-                      {% for badge in item.badges %}
-                        {% if badge == 'Disco' %}
-                          <span class="badge text-bg-light text-dark">Disco</span>
-                        {% elif badge == 'Canción' %}
-                          <span class="badge text-bg-light text-dark">Canción</span>
-                        {% elif badge == 'Distribución' %}
-                          <span class="badge text-bg-info">Distribución</span>
-                        {% elif badge == 'Catálogo' %}
-                          <span class="badge text-bg-secondary">Catálogo</span>
-                        {% else %}
-                          <span class="badge text-bg-dark">{{ badge }}</span>
-                        {% endif %}
-                      {% endfor %}
-                    </div>
-                  {% endif %}
-                </td>
-                <td class="small text-muted">
-                  {% if item.item_kind == 'SONG' %}
-                    {{ (item.code or '—')|isrc }}
-                  {% else %}
-                    {{ item.code or '—' }}
-                  {% endif %}
-                </td>
-                <td class="small">{{ item.release_date }}</td>
-                <td class="text-end">{{ item.income | eur }}</td>
-                <td class="text-end">{{ '%.2f'|format(item.pct or 0) }}%</td>
-                <td class="text-end fw-semibold">{{ item.amount | eur }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-
-      <div class="d-flex justify-content-end mt-2">
-        <div class="fw-semibold">Total a facturar: {{ b.total_amount | eur }}</div>
+{% macro render_summary_modal(b, default_avatar) %}
+  <div class="modal fade" id="royaltySummaryModal_{{ b.kind }}_{{ b.id }}" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title mb-0">{{ b.name }}</h5>
+            <div class="small text-muted">{{ b.kind_label }} · {{ royalty_period_label }}</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          {{ render_breakdown_table(b, default_avatar) }}
+        </div>
       </div>
     </div>
   </div>
 {% endmacro %}
+
+<style>
+  #royaltySemesterScroller{ scrollbar-width:none; -ms-overflow-style:none; }
+  #royaltySemesterScroller::-webkit-scrollbar{ display:none; }
+  .summary-card-btn:hover,
+  .summary-card-btn:focus{ box-shadow:0 .5rem 1rem rgba(0,0,0,.08); }
+  .royalty-preview-recipient-row{ display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem; }
+  .royalty-preview-recipient-row input{ flex:1 1 auto; }
+</style>
 
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
   <div>
     <h5 class="m-0">Royalties</h5>
     <div class="text-muted">Liquidaciones por semestre.</div>
   </div>
+</div>
+
+<div class="d-flex gap-2 flex-wrap mb-3">
+  <a class="btn {% if royalty_tab == 'liquidaciones' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='liquidaciones') }}">Liquidaciones</a>
+  <a class="btn {% if royalty_tab == 'resumen' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='resumen') }}">Resumen</a>
 </div>
 
 <div class="card mb-3">
@@ -135,14 +209,20 @@
       <div class="small text-muted">Periodo activo: <span class="fw-semibold">{{ royalty_period_label }}</span></div>
     </div>
 
-    <div class="mt-2" style="overflow:auto;">
-      <ul class="nav nav-pills flex-nowrap" style="gap:.35rem;">
-        {% for t in royalty_semester_tabs %}
-          <li class="nav-item">
-            <a class="nav-link {% if t.is_active %}active{% endif %}" href="{{ t.url }}">{{ t.label }}</a>
-          </li>
-        {% endfor %}
-      </ul>
+    <div class="d-flex align-items-center gap-2 mt-2">
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="royaltySemesterPrevBtn" onclick="scrollRoyaltySemesters(-1)">
+        <i class="fa fa-chevron-left"></i>
+      </button>
+      <div class="flex-grow-1 overflow-hidden">
+        <div class="d-flex flex-nowrap gap-2" id="royaltySemesterScroller" style="overflow:auto;scroll-behavior:smooth;">
+          {% for t in royalty_semester_tabs %}
+            <a class="btn btn-sm {% if t.is_active %}btn-dark{% else %}btn-outline-secondary{% endif %} flex-shrink-0" href="{{ t.url }}">{{ t.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="royaltySemesterNextBtn" onclick="scrollRoyaltySemesters(1)">
+        <i class="fa fa-chevron-right"></i>
+      </button>
     </div>
   </div>
 </div>
@@ -152,9 +232,9 @@
     <div class="card-body">
       <label class="form-label">Filtrar por artistas</label>
       <div class="d-flex flex-wrap gap-2">
-        <a class="btn btn-sm {% if not royalty_selected_artist_id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key) }}">Todos</a>
+        <a class="btn btn-sm {% if not royalty_selected_artist_id %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, roy_tab=royalty_tab) }}">Todos</a>
         {% for artist in royalty_filter_artists %}
-          <a class="btn btn-sm d-inline-flex align-items-center gap-2 {% if royalty_selected_artist_id == (artist.id|string) %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=artist.id) }}">
+          <a class="btn btn-sm d-inline-flex align-items-center gap-2 {% if royalty_selected_artist_id == (artist.id|string) %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=artist.id, roy_tab=royalty_tab) }}">
             <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
             <span>{{ artist.name }}</span>
           </a>
@@ -171,26 +251,115 @@
   </div>
 </div>
 
-{% if (royalty_beneficiaries_artists|length) == 0 and (royalty_beneficiaries_others|length) == 0 %}
+{% set total_beneficiaries = (royalty_beneficiaries_artists|length) + (royalty_beneficiaries_others|length) %}
+{% if total_beneficiaries == 0 %}
   <div class="text-muted">No hay datos de ingresos en este semestre{% if royalty_selected_artist_id %} para el artista filtrado{% endif %} o no hay beneficiarios configurados.</div>
 {% else %}
 
-  {% if (royalty_beneficiaries_artists|length) > 0 %}
-    <div class="royalty-section-block" data-royalty-section-block>
-      <div class="mb-2 text-muted royalty-section-title">Artistas</div>
-      {% for b in royalty_beneficiaries_artists %}
-        {{ render_beneficiary_card(b, url_for('static', filename='img/logo.png')) }}
-      {% endfor %}
-    </div>
-  {% endif %}
+  {% if royalty_tab == 'liquidaciones' %}
+    {% if (royalty_beneficiaries_artists|length) > 0 %}
+      <div class="royalty-section-block" data-royalty-section-block>
+        <div class="mb-2 text-muted royalty-section-title">Artistas</div>
+        {% for b in royalty_beneficiaries_artists %}
+          {{ render_liquidation_card(b, url_for('static', filename='img/logo.png')) }}
+        {% endfor %}
+      </div>
+    {% endif %}
 
-  {% if (royalty_beneficiaries_others|length) > 0 %}
-    <div class="royalty-section-block" data-royalty-section-block>
-      <div class="mb-2 mt-4 text-muted royalty-section-title">Otros beneficiarios</div>
-      {% for b in royalty_beneficiaries_others %}
-        {{ render_beneficiary_card(b, url_for('static', filename='img/default_promoter.png')) }}
-      {% endfor %}
-    </div>
-  {% endif %}
+    {% if (royalty_beneficiaries_others|length) > 0 %}
+      <div class="royalty-section-block" data-royalty-section-block>
+        <div class="mb-2 mt-4 text-muted royalty-section-title">Otros beneficiarios</div>
+        {% for b in royalty_beneficiaries_others %}
+          {{ render_liquidation_card(b, url_for('static', filename='img/default_promoter.png')) }}
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% else %}
+    {% if (royalty_beneficiaries_artists|length) > 0 %}
+      <div class="royalty-section-block" data-royalty-section-block>
+        <div class="mb-2 text-muted royalty-section-title">Artistas</div>
+        {% for b in royalty_beneficiaries_artists %}
+          {{ render_summary_card(b, url_for('static', filename='img/logo.png')) }}
+        {% endfor %}
+      </div>
+    {% endif %}
 
+    {% if (royalty_beneficiaries_others|length) > 0 %}
+      <div class="royalty-section-block" data-royalty-section-block>
+        <div class="mb-2 mt-4 text-muted royalty-section-title">Otros beneficiarios</div>
+        {% for b in royalty_beneficiaries_others %}
+          {{ render_summary_card(b, url_for('static', filename='img/default_promoter.png')) }}
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% for b in royalty_beneficiaries_artists %}
+      {{ render_summary_modal(b, url_for('static', filename='img/logo.png')) }}
+    {% endfor %}
+    {% for b in royalty_beneficiaries_others %}
+      {{ render_summary_modal(b, url_for('static', filename='img/default_promoter.png')) }}
+    {% endfor %}
+  {% endif %}
 {% endif %}
+
+<div class="modal fade" id="royaltyLiquidationPreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div>
+          <h5 class="modal-title mb-0">Previsualización del correo</h5>
+          <div class="small text-muted" id="royaltyPreviewSubject"></div>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div id="royaltyPreviewAlertWrap"></div>
+
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Enviar a:</label>
+          <div id="royaltyPreviewRecipients"></div>
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="addRoyaltyPreviewRecipient()"><i class="fa fa-plus"></i> Añadir correo</button>
+          </div>
+          <div id="royaltyPreviewSuggestions" class="d-flex flex-wrap gap-2 mt-2"></div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2 flex-wrap mb-3">
+          <button class="btn btn-success" type="button" id="royaltyPreviewSendBtn" onclick="sendRoyaltyLiquidationPreview()"><i class="fa fa-paper-plane"></i> Enviar</button>
+          <div class="btn-group btn-group-sm d-none" id="royaltyPreviewModeButtons" role="group" aria-label="Modo de envío">
+            <button type="button" class="btn btn-outline-primary" id="royaltyPreviewModeCurrent" onclick="setRoyaltyPreviewMode('current')">Generar y enviar nueva</button>
+            <button type="button" class="btn btn-outline-primary" id="royaltyPreviewModePrevious" onclick="setRoyaltyPreviewMode('previous')">Enviar anterior</button>
+          </div>
+        </div>
+
+        <div class="border rounded overflow-hidden">
+          <iframe id="royaltyLiquidationPreviewFrame" style="width:100%;height:72vh;border:0;background:#fff;"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="royaltyLiquidationInfoModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Información del envío</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <div class="small text-muted">Fecha de envío</div>
+          <div class="fw-semibold" id="royaltyInfoSentAt">—</div>
+        </div>
+        <div class="mb-3">
+          <div class="small text-muted">Direcciones</div>
+          <ul class="mb-0" id="royaltyInfoRecipients"></ul>
+        </div>
+        <a href="#" class="btn btn-outline-primary" id="royaltyInfoPdfLink" target="_blank" rel="noopener noreferrer">
+          <i class="fa fa-file-pdf"></i> Descargar PDF enviado
+        </a>
+      </div>
+    </div>
+  </div>
+</div>

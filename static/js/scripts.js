@@ -966,3 +966,293 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     alert('Error al actualizar estado: ' + (err && err.message ? err.message : err));
   }
 }
+
+(function(){
+  function getRoyaltyPreviewState(){
+    if (!window.__royaltyPreviewState) {
+      window.__royaltyPreviewState = {
+        kind: '',
+        bid: '',
+        semesterKey: '',
+        subject: '',
+        currentHtml: '',
+        previousHtml: '',
+        mode: 'current',
+        hasChanges: false,
+        canSendPrevious: false,
+        recipients: [],
+        suggestedRecipients: [],
+        lastSentAtLabel: '',
+        lastSentTo: []
+      };
+    }
+    return window.__royaltyPreviewState;
+  }
+
+  function getRoyaltyPreviewModal(){
+    const el = document.getElementById('royaltyLiquidationPreviewModal');
+    return el ? bootstrap.Modal.getOrCreateInstance(el) : null;
+  }
+
+  function getRoyaltyInfoModal(){
+    const el = document.getElementById('royaltyLiquidationInfoModal');
+    return el ? bootstrap.Modal.getOrCreateInstance(el) : null;
+  }
+
+  function renderRoyaltyPreviewRecipients(){
+    const state = getRoyaltyPreviewState();
+    const wrap = document.getElementById('royaltyPreviewRecipients');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    if (!Array.isArray(state.recipients) || state.recipients.length === 0) {
+      state.recipients = [''];
+    }
+    state.recipients.forEach((value, index) => {
+      const row = document.createElement('div');
+      row.className = 'royalty-preview-recipient-row';
+
+      const input = document.createElement('input');
+      input.type = 'email';
+      input.className = 'form-control';
+      input.placeholder = 'correo@dominio.com';
+      input.value = value || '';
+      input.addEventListener('input', () => {
+        state.recipients[index] = input.value || '';
+      });
+      row.appendChild(input);
+
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn btn-outline-danger btn-sm';
+      removeBtn.innerHTML = '<i class="fa fa-trash"></i>';
+      removeBtn.disabled = state.recipients.length <= 1;
+      removeBtn.addEventListener('click', () => {
+        state.recipients.splice(index, 1);
+        renderRoyaltyPreviewRecipients();
+        renderRoyaltyPreviewSuggestions();
+      });
+      row.appendChild(removeBtn);
+
+      wrap.appendChild(row);
+    });
+  }
+
+  function renderRoyaltyPreviewSuggestions(){
+    const state = getRoyaltyPreviewState();
+    const wrap = document.getElementById('royaltyPreviewSuggestions');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    const current = (state.recipients || []).map(v => String(v || '').trim().toLowerCase()).filter(Boolean);
+    (state.suggestedRecipients || []).forEach((email) => {
+      const normalized = String(email || '').trim().toLowerCase();
+      if (!normalized || current.includes(normalized)) return;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-outline-secondary btn-sm';
+      btn.textContent = email;
+      btn.addEventListener('click', () => {
+        state.recipients.push(email);
+        renderRoyaltyPreviewRecipients();
+        renderRoyaltyPreviewSuggestions();
+      });
+      wrap.appendChild(btn);
+    });
+  }
+
+  function collectRoyaltyPreviewRecipients(){
+    const state = getRoyaltyPreviewState();
+    const values = [];
+    document.querySelectorAll('#royaltyPreviewRecipients input').forEach((input) => {
+      const email = (input.value || '').trim();
+      if (email) values.push(email);
+    });
+    state.recipients = values;
+    return values;
+  }
+
+  function renderRoyaltyPreviewAlert(){
+    const state = getRoyaltyPreviewState();
+    const wrap = document.getElementById('royaltyPreviewAlertWrap');
+    const modeButtons = document.getElementById('royaltyPreviewModeButtons');
+    if (!wrap || !modeButtons) return;
+    wrap.innerHTML = '';
+    if (state.hasChanges && state.canSendPrevious) {
+      const details = state.lastSentAtLabel ? ` Último envío: ${state.lastSentAtLabel}.` : '';
+      wrap.innerHTML = `<div class="alert alert-warning mb-3">Ha habido cambios respecto a la última liquidación enviada.${details} Puedes generar y enviar una nueva o reenviar la anterior.</div>`;
+      modeButtons.classList.remove('d-none');
+    } else {
+      modeButtons.classList.add('d-none');
+    }
+  }
+
+  function renderRoyaltyPreviewFrame(){
+    const state = getRoyaltyPreviewState();
+    const frame = document.getElementById('royaltyLiquidationPreviewFrame');
+    if (!frame) return;
+    const usePrevious = state.mode === 'previous' && state.canSendPrevious && state.previousHtml;
+    frame.srcdoc = usePrevious ? state.previousHtml : (state.currentHtml || '<div style="padding:24px;font-family:Arial,sans-serif;">Sin previsualización.</div>');
+  }
+
+  window.setRoyaltyPreviewMode = function setRoyaltyPreviewMode(mode){
+    const state = getRoyaltyPreviewState();
+    state.mode = mode === 'previous' ? 'previous' : 'current';
+    const currentBtn = document.getElementById('royaltyPreviewModeCurrent');
+    const previousBtn = document.getElementById('royaltyPreviewModePrevious');
+    if (currentBtn) currentBtn.className = `btn ${state.mode === 'current' ? 'btn-primary' : 'btn-outline-primary'}`;
+    if (previousBtn) previousBtn.className = `btn ${state.mode === 'previous' ? 'btn-primary' : 'btn-outline-primary'}`;
+    renderRoyaltyPreviewFrame();
+  };
+
+  window.addRoyaltyPreviewRecipient = function addRoyaltyPreviewRecipient(value){
+    const state = getRoyaltyPreviewState();
+    state.recipients.push(value || '');
+    renderRoyaltyPreviewRecipients();
+    renderRoyaltyPreviewSuggestions();
+  };
+
+  window.openRoyaltyLiquidationPreview = async function openRoyaltyLiquidationPreview(kind, bid, semesterKey){
+    try {
+      const r = await fetch(`/discografica/royalties/liquidacion/preview?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`);
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo cargar la previsualización');
+
+      const state = getRoyaltyPreviewState();
+      state.kind = kind;
+      state.bid = bid;
+      state.semesterKey = semesterKey;
+      state.subject = js.subject || '';
+      state.currentHtml = js.html_body || '';
+      state.previousHtml = js.previous_html_body || '';
+      state.hasChanges = !!js.has_changes;
+      state.canSendPrevious = !!js.can_send_previous;
+      state.suggestedRecipients = Array.isArray(js.suggested_recipients) ? js.suggested_recipients.slice() : [];
+      state.recipients = Array.isArray(js.default_recipients) && js.default_recipients.length
+        ? js.default_recipients.slice()
+        : (state.suggestedRecipients.length ? [state.suggestedRecipients[0]] : ['']);
+      state.lastSentAtLabel = js.last_sent_at_label || '';
+      state.lastSentTo = Array.isArray(js.last_sent_to) ? js.last_sent_to.slice() : [];
+      state.mode = 'current';
+
+      const subjectEl = document.getElementById('royaltyPreviewSubject');
+      if (subjectEl) subjectEl.textContent = state.subject;
+
+      renderRoyaltyPreviewAlert();
+      renderRoyaltyPreviewRecipients();
+      renderRoyaltyPreviewSuggestions();
+      window.setRoyaltyPreviewMode('current');
+
+      const modal = getRoyaltyPreviewModal();
+      if (modal) modal.show();
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo abrir la previsualización: ' + (err && err.message ? err.message : err));
+    }
+  };
+
+  window.sendRoyaltyLiquidationPreview = async function sendRoyaltyLiquidationPreview(){
+    const state = getRoyaltyPreviewState();
+    const recipients = collectRoyaltyPreviewRecipients();
+    if (!recipients.length) {
+      alert('Debes indicar al menos una dirección de correo.');
+      return;
+    }
+
+    const btn = document.getElementById('royaltyPreviewSendBtn');
+    const originalHtml = btn ? btn.innerHTML : '';
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Enviando...';
+      }
+      const r = await fetch('/discografica/royalties/liquidacion/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({
+          kind: state.kind,
+          bid: state.bid,
+          s: state.semesterKey,
+          mode: state.mode,
+          recipients
+        })
+      });
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo enviar la liquidación');
+
+      const modal = getRoyaltyPreviewModal();
+      if (modal) modal.hide();
+      alert(js.message || 'Liquidación enviada.');
+      window.location.reload();
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo enviar la liquidación: ' + (err && err.message ? err.message : err));
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = originalHtml;
+      }
+    }
+  };
+
+  window.showRoyaltyLiquidationInfo = async function showRoyaltyLiquidationInfo(kind, bid, semesterKey){
+    try {
+      const r = await fetch(`/discografica/royalties/liquidacion/info?kind=${encodeURIComponent(kind)}&bid=${encodeURIComponent(bid)}&s=${encodeURIComponent(semesterKey)}`);
+      const js = await r.json().catch(() => ({}));
+      if (!r.ok || !js.ok) throw new Error((js && js.message) || 'No se pudo cargar la información');
+      if (!js.has_info) {
+        alert('Todavía no hay información de envío guardada para esta liquidación.');
+        return;
+      }
+      const sentAt = document.getElementById('royaltyInfoSentAt');
+      if (sentAt) sentAt.textContent = js.sent_at_label || '—';
+      const recipientsWrap = document.getElementById('royaltyInfoRecipients');
+      if (recipientsWrap) {
+        recipientsWrap.innerHTML = '';
+        (js.sent_to || []).forEach((email) => {
+          const li = document.createElement('li');
+          li.textContent = email;
+          recipientsWrap.appendChild(li);
+        });
+      }
+      const pdfLink = document.getElementById('royaltyInfoPdfLink');
+      if (pdfLink) {
+        pdfLink.href = js.pdf_url || '#';
+        pdfLink.classList.toggle('disabled', !js.pdf_url);
+      }
+      const modal = getRoyaltyInfoModal();
+      if (modal) modal.show();
+    } catch (err) {
+      console.error(err);
+      alert('No se pudo cargar la información del envío: ' + (err && err.message ? err.message : err));
+    }
+  };
+
+  window.scrollRoyaltySemesters = function scrollRoyaltySemesters(direction){
+    const scroller = document.getElementById('royaltySemesterScroller');
+    if (!scroller) return;
+    const delta = Math.max(220, Math.round(scroller.clientWidth * 0.75));
+    scroller.scrollBy({ left: direction < 0 ? -delta : delta, behavior: 'smooth' });
+    setTimeout(updateRoyaltySemesterScrollButtons, 250);
+  };
+
+  function updateRoyaltySemesterScrollButtons(){
+    const scroller = document.getElementById('royaltySemesterScroller');
+    const prevBtn = document.getElementById('royaltySemesterPrevBtn');
+    const nextBtn = document.getElementById('royaltySemesterNextBtn');
+    if (!scroller || !prevBtn || !nextBtn) return;
+    const maxScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const hasOverflow = maxScroll > 4;
+    prevBtn.style.visibility = hasOverflow ? 'visible' : 'hidden';
+    nextBtn.style.visibility = hasOverflow ? 'visible' : 'hidden';
+    prevBtn.disabled = !hasOverflow || scroller.scrollLeft <= 4;
+    nextBtn.disabled = !hasOverflow || scroller.scrollLeft >= (maxScroll - 4);
+  }
+
+  window.updateRoyaltySemesterScrollButtons = updateRoyaltySemesterScrollButtons;
+  window.addEventListener('resize', updateRoyaltySemesterScrollButtons);
+  window.addEventListener('load', () => {
+    const scroller = document.getElementById('royaltySemesterScroller');
+    if (!scroller) return;
+    scroller.addEventListener('scroll', updateRoyaltySemesterScrollButtons, { passive: true });
+    updateRoyaltySemesterScrollButtons();
+  });
+})();

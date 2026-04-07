@@ -91,6 +91,58 @@
       </div>
     </div>
 
+    <div class="song-status-bar mb-3">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <span class="song-status-item" data-bs-toggle="tooltip"
+              title="{% if album_status and album_status.cover_updated_at %}{{ album_status.cover_updated_at.strftime('%d/%m/%Y') }}{% elif album_materials_status and album_materials_status.last_cover_at %}{{ album_materials_status.last_cover_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+          <i class="fa fa-image {% if album_status and album_status.cover_done %}text-success{% else %}text-danger{% endif %}"></i>
+          <span class="small">Portada</span>
+        </span>
+
+        <span class="song-status-item" data-bs-toggle="tooltip"
+              title="{% if album_status and album_status.materials_updated_at %}{{ album_status.materials_updated_at.strftime('%d/%m/%Y') }}{% elif album_materials_status and album_materials_status.last_material_at %}{{ album_materials_status.last_material_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+          <i class="fa fa-box-open {{ album_materials_status.text_class if album_materials_status else ('text-success' if album_status and album_status.materials_done else 'text-danger') }}"></i>
+          <span class="small">Materiales</span>
+        </span>
+
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0">
+            <input type="hidden" name="key" value="agedi">
+            <input type="hidden" name="next" value="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion') }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if album_status and album_status.agedi_updated_at %}{{ album_status.agedi_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-clipboard-check {% if album_status and album_status.agedi_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">AGEDI</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if album_status and album_status.agedi_updated_at %}{{ album_status.agedi_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-clipboard-check {% if album_status and album_status.agedi_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">AGEDI</span>
+          </span>
+        {% endif %}
+
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0">
+            <input type="hidden" name="key" value="distributed">
+            <input type="hidden" name="next" value="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion') }}">
+            <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
+                    title="{% if album_status and album_status.distributed_updated_at %}{{ album_status.distributed_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+              <i class="fa fa-truck {% if album_status and album_status.distributed_done %}text-success{% else %}text-danger{% endif %}"></i>
+              <span class="small">Distribuido</span>
+            </button>
+          </form>
+        {% else %}
+          <span class="song-status-item" data-bs-toggle="tooltip"
+                title="{% if album_status and album_status.distributed_updated_at %}{{ album_status.distributed_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+            <i class="fa fa-truck {% if album_status and album_status.distributed_done %}text-success{% else %}text-danger{% endif %}"></i>
+            <span class="small">Distribuido</span>
+          </span>
+        {% endif %}
+      </div>
+    </div>
+
     {% if edit and CAN_EDIT_DISCOGRAFICA %}
       <form id="albumInfoForm" method="post" action="{{ url_for('discografica_album_info_update', album_id=album.id) }}" enctype="multipart/form-data">
         <div class="row g-3">

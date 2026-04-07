@@ -25,6 +25,12 @@
     </a>
   </li>
   <li class="nav-item">
+    <a class="nav-link {% if section=='registros' %}active{% endif %}"
+       href="{{ url_for('discografica_view', section='registros', registros_tab='sgae') }}">
+      Registros
+    </a>
+  </li>
+  <li class="nav-item">
     <a class="nav-link {% if section=='ingresos' %}active{% endif %}"
        href="{{ url_for('discografica_view', section='ingresos') }}">
       Ingresos
@@ -482,138 +488,63 @@
     </div>
   </div>
 
-  <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-    <ul class="nav nav-pills">
-      <li class="nav-item">
-        <a class="nav-link {% if editorial_tab=='pendientes' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='pendientes') }}">Pendientes de registro <span class="badge text-bg-warning ms-1">{{ editorial_pending_songs|length }}</span></a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link {% if editorial_tab=='repertorio' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='repertorio') }}">Repertorio</a>
-      </li>
-    </ul>
+  <div class="card">
+    <div class="card-body">
+      {% if editorial_registered_songs and (editorial_registered_songs|length) > 0 %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:72px;">Portada</th>
+                <th>Canción</th>
+                <th>Artistas</th>
+                <th class="text-nowrap">Publicación</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for s in editorial_registered_songs %}
+                <tr class="clickable-row editorial-search-row"
+                    role="button"
+                    tabindex="0"
+                    data-editorial-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else '' }}"
+                    data-editorial-search="{{ (s.title ~ ' ' ~ (s.editorial_artists_str or '') ~ ' ' ~ ('modificacion' if s.editorial_modification_pending else 'registrada'))|lower }}"
+                    data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
+                    onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
+                    onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
+                  <td>
+                    <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  </td>
+                  <td>
+                    <div class="fw-semibold">{{ s.title }}</div>
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                      <span class="badge text-bg-success">Registrada en SGAE</span>
+                      {% if s.editorial_modification_pending %}
+                        <span class="badge text-bg-warning">Modificación pendiente</span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td>{{ s.editorial_artists_str or '—' }}</td>
+                  <td>
+                    {% if s.release_date %}
+                      {{ s.release_date.strftime('%d/%m/%Y') }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted">Todavía no hay canciones registradas en SGAE para Plataforma Musical.</div>
+      {% endif %}
+    </div>
   </div>
 
-  {% if editorial_tab == 'pendientes' %}
-    <div class="card">
-      <div class="card-body">
-        {% if editorial_pending_songs and (editorial_pending_songs|length) > 0 %}
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width:72px;">Portada</th>
-                  <th>Canción</th>
-                  <th>Artistas</th>
-                  <th class="text-nowrap">Publicación</th>
-                  <th style="width:180px;"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for s in editorial_pending_songs %}
-                  <tr class="clickable-row editorial-search-row"
-                      role="button"
-                      tabindex="0"
-                      data-editorial-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else '' }}"
-                      data-editorial-search="{{ (s.title ~ ' ' ~ (s.editorial_artists_str or '') ~ ' ' ~ ('modificacion' if s.editorial_modification_pending else 'pendiente'))|lower }}"
-                      data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
-                      onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
-                      onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
-                    <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
-                    </td>
-                    <td>
-                      <div class="fw-semibold">{{ s.title }}</div>
-                      <div class="d-flex gap-1 flex-wrap mt-1">
-                        {% if s.editorial_modification_pending %}
-                          <span class="badge text-bg-warning">Modificación</span>
-                        {% else %}
-                          <span class="badge text-bg-danger">Pendiente SGAE</span>
-                        {% endif %}
-                      </div>
-                    </td>
-                    <td>{{ s.editorial_artists_str or '—' }}</td>
-                    <td>
-                      {% if s.release_date %}
-                        {{ s.release_date.strftime('%d/%m/%Y') }}
-                      {% else %}
-                        <span class="text-muted">—</span>
-                      {% endif %}
-                    </td>
-                    <td class="text-end">
-                      {% if CAN_EDIT_DISCOGRAFICA %}
-                        <form method="post" action="{{ url_for('discografica_song_sgae_register', song_id=s.id) }}" class="d-inline">
-                          <input type="hidden" name="next" value="{{ url_for('discografica_view', section='editorial', editorial_tab='pendientes') }}">
-                          <button class="btn btn-sm btn-success">
-                            <i class="fa fa-check"></i> Marcar registrada en SGAE
-                          </button>
-                        </form>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="text-muted">No hay canciones pendientes de registrar en SGAE para Plataforma Musical.</div>
-        {% endif %}
-      </div>
-    </div>
-  {% else %}
-    <div class="card">
-      <div class="card-body">
-        {% if editorial_registered_songs and (editorial_registered_songs|length) > 0 %}
-          <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0">
-              <thead class="table-light">
-                <tr>
-                  <th style="width:72px;">Portada</th>
-                  <th>Canción</th>
-                  <th>Artistas</th>
-                  <th class="text-nowrap">Publicación</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for s in editorial_registered_songs %}
-                  <tr class="clickable-row editorial-search-row"
-                      role="button"
-                      tabindex="0"
-                      data-editorial-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else '' }}"
-                      data-editorial-search="{{ (s.title ~ ' ' ~ (s.editorial_artists_str or '') ~ ' ' ~ ('modificacion' if s.editorial_modification_pending else 'registrada'))|lower }}"
-                      data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
-                      onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
-                      onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
-                    <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
-                    </td>
-                    <td>
-                      <div class="fw-semibold">{{ s.title }}</div>
-                      <div class="d-flex gap-1 flex-wrap mt-1">
-                        <span class="badge text-bg-success">Registrada en SGAE</span>
-                        {% if s.editorial_modification_pending %}
-                          <span class="badge text-bg-warning">Modificación pendiente</span>
-                        {% endif %}
-                      </div>
-                    </td>
-                    <td>{{ s.editorial_artists_str or '—' }}</td>
-                    <td>
-                      {% if s.release_date %}
-                        {{ s.release_date.strftime('%d/%m/%Y') }}
-                      {% else %}
-                        <span class="text-muted">—</span>
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        {% else %}
-          <div class="text-muted">Todavía no hay canciones registradas en SGAE para Plataforma Musical.</div>
-        {% endif %}
-      </div>
-    </div>
-  {% endif %}
+{% elif section == 'registros' %}
+
+  {% include 'discografica_registros.html' %}
 
 {% elif section == 'ingresos' %}
 
@@ -626,10 +557,6 @@
       <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='repertorio' %}active{% endif %}"
            href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio', year=selected_year or None) }}">Repertorio</a>
-      </li>
-      <li class="nav-item">
-        <a class="nav-link {% if isrc_tab=='pendientes' %}active{% endif %}"
-           href="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', year=selected_year or None) }}">Pendiente de registro <span class="badge text-bg-warning ms-1">{{ isrc_pending_songs|length }}</span></a>
       </li>
       <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='configurador' %}active{% endif %}"
@@ -797,7 +724,7 @@
     <div class="card">
       <div class="card-body">
         {% if not isrc_pending_songs or (isrc_pending_songs|length) == 0 %}
-          <div class="text-muted">No hay canciones pendientes de registrar en SGAE para los filtros seleccionados.</div>
+          <div class="text-muted">No hay canciones pendientes de registrar en AGEDI para los filtros seleccionados.</div>
         {% else %}
           <div class="table-responsive">
             <table class="table table-hover align-middle mb-0">
@@ -853,7 +780,7 @@
                         <form method="post" action="{{ url_for('discografica_song_agedi_register', song_id=s.id) }}" class="d-inline">
                           <input type="hidden" name="next" value="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', year=selected_year) }}">
                           <button class="btn btn-sm btn-success">
-                            <i class="fa fa-check"></i> Marcar como registrado en SGAE
+                            <i class="fa fa-check"></i> Marcar como registrado en AGEDI
                           </button>
                         </form>
                       {% endif %}

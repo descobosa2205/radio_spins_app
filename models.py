@@ -411,6 +411,32 @@ class SongStatus(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AlbumStatus(Base):
+    """Barra de estados de la ficha de álbum (iconos rojo/verde + fecha)."""
+
+    __tablename__ = "album_status"
+
+    album_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("albums.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    cover_done = Column(Boolean, nullable=False, server_default=text("false"))
+    cover_updated_at = Column(DateTime(timezone=True))
+
+    materials_done = Column(Boolean, nullable=False, server_default=text("false"))
+    materials_updated_at = Column(DateTime(timezone=True))
+
+    agedi_done = Column(Boolean, nullable=False, server_default=text("false"))
+    agedi_updated_at = Column(DateTime(timezone=True))
+
+    distributed_done = Column(Boolean, nullable=False, server_default=text("false"))
+    distributed_updated_at = Column(DateTime(timezone=True))
+
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class SongArtist(Base):
     __tablename__ = "songs_artists"
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), primary_key=True)
@@ -2407,6 +2433,41 @@ def ensure_album_schema():
         """,
         'CREATE INDEX IF NOT EXISTS idx_album_materials_album_id ON album_materials(album_id);',
         'CREATE INDEX IF NOT EXISTS idx_album_materials_category ON album_materials(category);',
+        """
+        CREATE TABLE IF NOT EXISTS album_status (
+            album_id uuid PRIMARY KEY REFERENCES albums(id) ON DELETE CASCADE,
+            cover_done boolean NOT NULL DEFAULT false,
+            cover_updated_at timestamptz,
+            materials_done boolean NOT NULL DEFAULT false,
+            materials_updated_at timestamptz,
+            agedi_done boolean NOT NULL DEFAULT false,
+            agedi_updated_at timestamptz,
+            distributed_done boolean NOT NULL DEFAULT false,
+            distributed_updated_at timestamptz,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        ALTER TABLE IF EXISTS album_status
+            ADD COLUMN IF NOT EXISTS cover_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS cover_updated_at timestamptz,
+            ADD COLUMN IF NOT EXISTS materials_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS materials_updated_at timestamptz,
+            ADD COLUMN IF NOT EXISTS agedi_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS agedi_updated_at timestamptz,
+            ADD COLUMN IF NOT EXISTS distributed_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS distributed_updated_at timestamptz,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+        """,
+        """
+        INSERT INTO album_status (album_id, cover_done, cover_updated_at, updated_at)
+        SELECT a.id,
+               (a.cover_url IS NOT NULL AND btrim(a.cover_url) <> '') AS cover_done,
+               CASE WHEN a.cover_url IS NOT NULL AND btrim(a.cover_url) <> '' THEN now() ELSE NULL END,
+               now()
+        FROM albums a
+        WHERE NOT EXISTS (SELECT 1 FROM album_status ast WHERE ast.album_id = a.id);
+        """,
         """
         CREATE TABLE IF NOT EXISTS album_certifications (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

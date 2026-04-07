@@ -130,6 +130,7 @@ from models import (
     AlbumProductCode,
     AlbumTrack,
     AlbumMaterial,
+    AlbumStatus,
     AlbumCertification,
     AlbumRoyaltyBeneficiary,
     RoyaltyLiquidation,
@@ -3172,6 +3173,107 @@ def _refresh_song_material_status(session_db, song_or_id, material_rows: list[So
     return meta
 
 
+def _album_material_completion_meta(album: Album, material_rows: list[AlbumMaterial]) -> dict:
+    required = {
+        "DDP": False,
+        "BODEGON": False,
+    }
+    if bool(getattr(album, "physical_cd", False)) or bool(getattr(album, "physical_vinyl", False)):
+        required["PHYSICAL_DESIGN"] = False
+
+    any_non_cover = False
+    last_cover_at = None
+    last_material_at = None
+    cover_exists = bool((getattr(album, "cover_url", None) or "").strip())
+
+    for row in material_rows or []:
+        category = (getattr(row, "category", None) or "").strip().upper()
+        dt = getattr(row, "created_at", None)
+        if category == "COVER":
+            cover_exists = True
+            if dt and (last_cover_at is None or dt > last_cover_at):
+                last_cover_at = dt
+            continue
+        any_non_cover = True
+        if dt and (last_material_at is None or dt > last_material_at):
+            last_material_at = dt
+        if category in required:
+            required[category] = True
+
+    completed_required = sum(1 for value in required.values() if value)
+    total_required = len(required)
+    if total_required and completed_required == total_required:
+        state = "complete"
+    elif completed_required > 0 or any_non_cover:
+        state = "partial"
+    else:
+        state = "none"
+
+    return {
+        "cover_done": cover_exists,
+        "last_cover_at": last_cover_at,
+        "last_material_at": last_material_at,
+        "completed_required": completed_required,
+        "total_required": total_required,
+        "state": state,
+        "text_class": "text-success" if state == "complete" else ("text-warning" if state == "partial" else "text-danger"),
+        "badge_class": "text-bg-success" if state == "complete" else ("text-bg-warning text-dark" if state == "partial" else "text-bg-danger"),
+    }
+
+
+def _ensure_album_status_row(session_db, album_or_id) -> AlbumStatus:
+    if isinstance(album_or_id, Album):
+        album = album_or_id
+        aid = album.id
+    else:
+        aid = album_or_id
+        album = session_db.get(Album, aid) if aid else None
+
+    st = session_db.get(AlbumStatus, aid) if aid else None
+    if not st and aid:
+        st = AlbumStatus(album_id=aid)
+        if album is not None:
+            st.cover_done = bool((getattr(album, "cover_url", None) or "").strip())
+            if st.cover_done:
+                st.cover_updated_at = datetime.now(TZ_MADRID)
+        session_db.add(st)
+        session_db.flush()
+    return st
+
+
+def _refresh_album_material_status(session_db, album_or_id, material_rows: list[AlbumMaterial] | None = None, status_obj: AlbumStatus | None = None) -> dict:
+    album = album_or_id if isinstance(album_or_id, Album) else session_db.get(Album, to_uuid(album_or_id))
+    if not album:
+        return {"state": "none", "text_class": "text-danger", "badge_class": "text-bg-danger"}
+    if material_rows is None:
+        material_rows = (
+            session_db.query(AlbumMaterial)
+            .filter(AlbumMaterial.album_id == album.id)
+            .order_by(AlbumMaterial.created_at.asc())
+            .all()
+        )
+    meta = _album_material_completion_meta(album, material_rows)
+    st = status_obj or _ensure_album_status_row(session_db, album.id)
+    now_dt = datetime.now(TZ_MADRID)
+    st.cover_done = bool(meta["cover_done"])
+    st.cover_updated_at = meta["last_cover_at"] or (st.cover_updated_at if meta["cover_done"] else None)
+    st.materials_done = meta["state"] == "complete"
+    st.materials_updated_at = meta["last_material_at"]
+    st.updated_at = now_dt
+    session_db.add(st)
+    return meta
+
+
+def _mark_album_agedi_registered(session_db, album_id) -> AlbumStatus:
+    aid = to_uuid(album_id) if not isinstance(album_id, UUID) else album_id
+    st = _ensure_album_status_row(session_db, aid)
+    st.agedi_done = True
+    st.agedi_updated_at = datetime.now(TZ_MADRID)
+    st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st
+
+
 def _build_song_material_context(session_db, song: Song, material_rows: list[SongMaterial] | None = None) -> dict:
     if material_rows is None:
         material_rows = (
@@ -3639,6 +3741,351 @@ def _beneficiary_contact_email(session_db, kind: str, beneficiary_id) -> str | N
         return suggested[0]
     return None
 
+
+
+def _promoter_display_name(promoter: Promoter | None) -> str:
+    if not promoter:
+        return ""
+    full_name = " ".join(
+        [
+            x
+            for x in [
+                (getattr(promoter, "first_name", None) or "").strip(),
+                (getattr(promoter, "last_name", None) or "").strip(),
+            ]
+            if x
+        ]
+    ).strip()
+    return full_name or (getattr(promoter, "nick", None) or "").strip()
+
+
+def _song_interpreters_label(session_db, song: Song) -> str:
+    if not song or not getattr(song, 'id', None):
+        return '—'
+    rows = (
+        session_db.query(SongInterpreter)
+        .filter(SongInterpreter.song_id == song.id)
+        .order_by(SongInterpreter.is_main.desc(), SongInterpreter.created_at.asc())
+        .all()
+    )
+    names = [
+        (getattr(row, 'name', None) or '').strip()
+        for row in rows
+        if (getattr(row, 'name', None) or '').strip()
+    ]
+    if not names:
+        names = [
+            (getattr(artist, 'name', None) or '').strip()
+            for artist in (getattr(song, 'artists', None) or [])
+            if (getattr(artist, 'name', None) or '').strip()
+        ]
+    out = []
+    seen = set()
+    for name in names:
+        key = name.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return ', '.join(out) or '—'
+
+
+def _platforma_musical_brand_assets(session_db) -> dict:
+    publishing_company = (
+        session_db.query(PublishingCompany)
+        .filter(func.lower(PublishingCompany.name) == 'plataforma musical')
+        .first()
+    )
+    group_company = (
+        session_db.query(GroupCompany)
+        .filter(func.lower(GroupCompany.name).like('%plataforma musical%'))
+        .order_by(GroupCompany.name.asc())
+        .first()
+    )
+    logo_url = (getattr(group_company, 'logo_url', None) or getattr(publishing_company, 'logo_url', None) or '').strip()
+    if not logo_url:
+        try:
+            logo_url = url_for('static', filename='img/logo.png', _external=True)
+        except Exception:
+            logo_url = ''
+    company_name = (getattr(group_company, 'name', None) or getattr(publishing_company, 'name', None) or 'Plataforma Musical').strip()
+    return {
+        'logo_url': logo_url,
+        'company_name': company_name or 'Plataforma Musical',
+        'publishing_company_id': getattr(publishing_company, 'id', None),
+    }
+
+
+def _song_sgae_editorial_rows(session_db, song: Song) -> tuple[list[dict], float]:
+    if not song or not getattr(song, 'id', None):
+        return [], 0.0
+    shares = (
+        session_db.query(SongEditorialShare)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
+        .filter(SongEditorialShare.song_id == song.id)
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+    role_labels = {
+        'AUTHOR': 'Autor',
+        'COMPOSER': 'Compositor',
+        'AUTHOR_COMPOSER': 'Autor y Compositor',
+    }
+    rows = []
+    total_pct = 0.0
+    for share in shares or []:
+        promoter = share.promoter
+        publisher = getattr(promoter, 'publishing_company', None) if promoter else None
+        pct = float(getattr(share, 'pct', 0) or 0)
+        total_pct += pct
+        rows.append(
+            {
+                'promoter_id': str(getattr(promoter, 'id', '') or ''),
+                'full_name': _promoter_display_name(promoter) or '—',
+                'publisher_name': (getattr(publisher, 'name', None) or '').strip() or '—',
+                'role': (getattr(share, 'role', None) or '').strip().upper(),
+                'role_label': role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
+                'pct': pct,
+            }
+        )
+    return rows, round(total_pct, 2)
+
+
+def _song_sgae_platform_author_delivery(session_db, song: Song) -> dict:
+    brand = _platforma_musical_brand_assets(session_db)
+    publishing_company_id = brand.get('publishing_company_id')
+    if not song or not getattr(song, 'id', None) or not publishing_company_id:
+        return {
+            'authors': [],
+            'default_recipients': [],
+            'suggested_recipients': [],
+        }
+
+    shares = (
+        session_db.query(SongEditorialShare)
+        .join(Promoter, Promoter.id == SongEditorialShare.promoter_id)
+        .filter(SongEditorialShare.song_id == song.id)
+        .filter(Promoter.publishing_company_id == publishing_company_id)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+
+    authors = []
+    default_recipients = []
+    suggested_recipients = []
+    seen_authors = set()
+
+    for share in shares or []:
+        promoter = share.promoter
+        promoter_id = getattr(promoter, 'id', None)
+        if not promoter or not promoter_id or promoter_id in seen_authors:
+            continue
+        seen_authors.add(promoter_id)
+
+        delivery = _beneficiary_email_delivery_data(session_db, 'PROMOTER', promoter_id)
+        email_options = []
+        seen_emails = set()
+
+        primary_email = (delivery.get('primary_email') or '').strip()
+        fallback_email = (delivery.get('fallback_email') or '').strip()
+        default_email = primary_email or fallback_email
+        if default_email and _looks_like_email_address(default_email):
+            seen_emails.add(default_email.lower())
+            email_options.append(
+                {
+                    'email': default_email,
+                    'label': 'Principal' if primary_email else 'Contacto',
+                    'checked': True,
+                    'is_default': True,
+                }
+            )
+            default_recipients.append(default_email)
+
+        for extra in (delivery.get('extra_rows') or []):
+            email = (extra.get('email') or '').strip()
+            if not _looks_like_email_address(email):
+                continue
+            key = email.lower()
+            if key in seen_emails:
+                continue
+            seen_emails.add(key)
+            email_options.append(
+                {
+                    'email': email,
+                    'label': (extra.get('concept') or 'Otro correo').strip() or 'Otro correo',
+                    'checked': False,
+                    'is_default': False,
+                }
+            )
+
+        suggested_recipients.extend([opt.get('email') for opt in email_options if opt.get('email')])
+        authors.append(
+            {
+                'promoter_id': str(promoter_id),
+                'name': _promoter_display_name(promoter) or '—',
+                'publisher_name': (getattr(getattr(promoter, 'publishing_company', None), 'name', None) or '').strip() or 'Plataforma Musical',
+                'default_email': default_email,
+                'email_options': email_options,
+            }
+        )
+
+    return {
+        'authors': authors,
+        'default_recipients': _dedupe_valid_email_addresses(default_recipients),
+        'suggested_recipients': _dedupe_valid_email_addresses(suggested_recipients),
+    }
+
+
+def _build_song_sgae_notification_email(session_db, song: Song, registration_dt=None) -> dict:
+    if not song:
+        raise LookupError('Canción no encontrada.')
+
+    brand = _platforma_musical_brand_assets(session_db)
+    editorial_rows, total_pct = _song_sgae_editorial_rows(session_db, song)
+    delivery = _song_sgae_platform_author_delivery(session_db, song)
+    interpreters_label = _song_interpreters_label(session_db, song)
+
+    reg_dt = registration_dt or datetime.now(TZ_MADRID)
+    if getattr(reg_dt, 'tzinfo', None) is None:
+        reg_dt = reg_dt.replace(tzinfo=TZ_MADRID)
+    else:
+        reg_dt = reg_dt.astimezone(TZ_MADRID)
+
+    registration_label = reg_dt.strftime('%d/%m/%Y')
+    publication_label = song.release_date.strftime('%d/%m/%Y') if getattr(song, 'release_date', None) else '—'
+    subject = f"Su obra {song.title} ya se ha registrado en SGAE."
+
+    logo_html = ''
+    if brand.get('logo_url'):
+        logo_html = f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "Plataforma Musical")}" style="display:block;max-width:180px;max-height:64px;object-fit:contain;">'
+
+    cover_url = (getattr(song, 'cover_url', None) or '').strip()
+    if not cover_url:
+        try:
+            cover_url = url_for('static', filename='img/logo.png', _external=True)
+        except Exception:
+            cover_url = ''
+
+    cover_html = ''
+    if cover_url:
+        cover_html = f'<img src="{html.escape(cover_url)}" alt="{html.escape(song.title or "Canción")}" style="display:block;width:104px;height:104px;object-fit:cover;border-radius:14px;border:1px solid #e5e7eb;background:#ffffff;">'
+
+    detail_table_html = f'''
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+        <tr>
+          <td width="124" valign="top">{cover_html}</td>
+          <td valign="top" style="padding-left:16px;">
+            <div style="font-size:22px;line-height:1.2;font-weight:700;color:#111827;">{html.escape(song.title or '—')}</div>
+            <div style="margin-top:8px;font-size:14px;color:#4b5563;"><strong>Intérpretes:</strong> {html.escape(interpreters_label)}</div>
+            <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;">
+              <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:13px;"><strong>Fecha de registro:</strong> {html.escape(registration_label)}</span>
+              <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;"><strong>Fecha de publicación:</strong> {html.escape(publication_label)}</span>
+            </div>
+          </td>
+        </tr>
+      </table>
+    '''
+
+    row_html = ''
+    for row in editorial_rows:
+        row_html += f'''
+          <tr>
+            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;">{html.escape(row.get('full_name') or '—')}</td>
+            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#4b5563;">{html.escape(row.get('publisher_name') or '—')}</td>
+            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;text-align:center;white-space:nowrap;">{row.get('pct', 0):.2f}%</td>
+            <td style="padding:12px 10px;border-bottom:1px solid #e5e7eb;font-size:14px;color:#111827;">{html.escape(row.get('role_label') or '—')}</td>
+          </tr>
+        '''
+
+    if not row_html:
+        row_html = '''
+          <tr>
+            <td colspan="4" style="padding:14px 10px;color:#6b7280;font-size:14px;text-align:center;">No hay reparto autoral registrado todavía.</td>
+          </tr>
+        '''
+
+    html_body = f'''
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:20px;overflow:hidden;">
+        <div style="padding:28px 30px 18px;">
+          {logo_html}
+          <div style="margin-top:18px;font-size:28px;line-height:1.15;font-weight:700;color:#111827;">Registro Autoral</div>
+          <p style="margin:16px 0 0;font-size:15px;line-height:1.7;color:#374151;">El registro de tu obra ya se ha presentado a registro en SGAE.</p>
+        </div>
+
+        <div style="padding:0 30px 28px;">
+          <div style="border:1px solid #e5e7eb;border-radius:18px;padding:18px;background:#fcfcfd;">
+            {detail_table_html}
+          </div>
+
+          <div style="margin-top:26px;font-size:18px;font-weight:700;color:#111827;">Autores</div>
+          <div style="margin-top:12px;border:1px solid #e5e7eb;border-radius:16px;overflow:hidden;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+              <thead>
+                <tr style="background:#f8fafc;">
+                  <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Autor</th>
+                  <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Compañía editorial</th>
+                  <th align="center" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Porcentaje</th>
+                  <th align="left" style="padding:12px 10px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#6b7280;">Rol</th>
+                </tr>
+              </thead>
+              <tbody>{row_html}</tbody>
+              <tfoot>
+                <tr style="background:#f8fafc;">
+                  <td colspan="2" style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;">Porcentaje total de la obra</td>
+                  <td style="padding:13px 10px;font-size:14px;font-weight:700;color:#111827;text-align:center;white-space:nowrap;">{total_pct:.2f}%</td>
+                  <td style="padding:13px 10px;"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <div style="margin-top:22px;padding:16px 18px;border-radius:18px;background:#eef6ff;border:1px solid #cfe0ff;color:#1f3b73;font-size:14px;line-height:1.7;">Recuerda que SGAE lleva una gran demora desde que se inscriben las obras hasta que aparecen reflejadas en su plataforma, pero esto no implica que se pierdan los ingresos generados durante ese periodo.</div>
+          <div style="margin-top:14px;padding:16px 18px;border-radius:18px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:14px;line-height:1.7;">Por favor avísanos si detectas cualquier error.</div>
+        </div>
+      </div>
+    </div>
+    '''
+
+    text_lines = [
+        'Registro Autoral',
+        '',
+        'El registro de tu obra ya se ha presentado a registro en SGAE.',
+        '',
+        f'Canción: {song.title or "—"}',
+        f'Intérpretes: {interpreters_label}',
+        f'Fecha de registro: {registration_label}',
+        f'Fecha de publicación: {publication_label}',
+        '',
+        'Autores:',
+    ]
+    for row in editorial_rows:
+        text_lines.append(
+            f"- {row.get('full_name') or '—'} | {row.get('publisher_name') or '—'} | {row.get('pct', 0):.2f}% | {row.get('role_label') or '—'}"
+        )
+    text_lines.extend(
+        [
+            '',
+            f'Porcentaje total de la obra: {total_pct:.2f}%',
+            '',
+            'Recuerda que SGAE lleva una gran demora desde que se inscriben las obras hasta que aparecen reflejadas en su plataforma, pero esto no implica que se pierdan los ingresos generados durante ese periodo.',
+            'Por favor avísanos si detectas cualquier error.',
+        ]
+    )
+
+    return {
+        'subject': subject,
+        'html_body': html_body,
+        'text_body': '\n'.join(text_lines),
+        'delivery': delivery,
+        'editorial_rows': editorial_rows,
+        'total_pct': total_pct,
+        'registration_label': registration_label,
+        'publication_label': publication_label,
+        'interpreters_label': interpreters_label,
+        'logo_url': brand.get('logo_url') or '',
+    }
 
 
 def _royalty_liquidation_snapshot(beneficiary: dict, sem_start: date, sem_end: date) -> dict:
@@ -6316,6 +6763,18 @@ def discografica_view():
     if isrc_config_subtab not in ("isrc", "album_refs"):
         isrc_config_subtab = "isrc"
 
+    registros_tab = (request.args.get("registros_tab") or "sgae").lower().strip()
+    if registros_tab not in ("sgae", "agedi", "ritmonet"):
+        registros_tab = "sgae"
+    registros_upcoming_releases: list[dict] = []
+    registros_sgae_pending_songs: list[Song] = []
+    registros_agedi_items: list[dict] = []
+    registros_ritmonet_songs: list[dict] = []
+    registros_filter_artists: list[Artist] = []
+    registros_filter_years: list[int] = []
+    registros_selected_artist_id = ""
+    registros_selected_year = ""
+
     # Context (solo se usa cuando section == 'royalties')
     royalty_period_label = ""
     royalty_semester_key = ""
@@ -6337,12 +6796,12 @@ def discografica_view():
     income_upload_report = None
     income_import_review = None
 
-    if section not in ("canciones", "royalties", "editorial", "ingresos", "isrc"):
+    if section not in ("canciones", "royalties", "editorial", "registros", "ingresos", "isrc"):
         section = "canciones"
 
-    editorial_tab = (request.args.get("editorial_tab") or "pendientes").lower().strip()
+    editorial_tab = (request.args.get("editorial_tab") or "repertorio").lower().strip()
     if editorial_tab not in ("pendientes", "repertorio"):
-        editorial_tab = "pendientes"
+        editorial_tab = "repertorio"
 
     # subpestañas ISRC
     isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
@@ -6416,7 +6875,7 @@ def discografica_view():
 
 
 
-    if section == "editorial":
+    if section in ("editorial", "registros"):
         plataforma = (
             session_db.query(PublishingCompany)
             .filter(func.lower(PublishingCompany.name) == "plataforma musical")
@@ -7069,6 +7528,306 @@ def discografica_view():
             # Reutilizamos el cálculo robusto (sin acentos) para evitar listas vacías por variantes.
             isrc_contract_artists = contract_artists
 
+    if section == "registros":
+        f_artist_id = to_uuid((request.args.get("artist_id") or "").strip())
+        f_year = None
+        try:
+            f_year = int((request.args.get("year") or "").strip())
+        except Exception:
+            f_year = None
+
+        registros_selected_artist_id = str(f_artist_id) if f_artist_id else ""
+        registros_selected_year = str(f_year) if f_year else ""
+
+        ownership_cond = (
+            (func.coalesce(Song.master_ownership_pct, 0) > 1)
+            | (func.coalesce(Song.is_distribution, False) == True)  # noqa: E712
+        )
+        today = today_local()
+
+        upcoming_song_rows = []
+        if contract_artist_ids:
+            upcoming_song_rows = (
+                session_db.query(Song)
+                .join(SongArtist, Song.id == SongArtist.song_id)
+                .filter(SongArtist.artist_id.in_(list(contract_artist_ids)))
+                .filter(Song.release_date >= today)
+                .distinct()
+                .options(selectinload(Song.artists))
+                .order_by(Song.release_date.asc(), Song.title.asc())
+                .all()
+            )
+        seen_song_ids = set()
+        for song in upcoming_song_rows:
+            if not song or song.id in seen_song_ids:
+                continue
+            seen_song_ids.add(song.id)
+            artist_names = [
+                (getattr(artist, 'name', None) or '').strip()
+                for artist in (song.artists or [])
+                if (getattr(artist, 'name', None) or '').strip()
+            ]
+            days_remaining = None
+            if getattr(song, 'release_date', None):
+                try:
+                    days_remaining = (song.release_date - today).days
+                except Exception:
+                    days_remaining = None
+            registros_upcoming_releases.append(
+                {
+                    'kind': 'SONG',
+                    'kind_label': 'Canción',
+                    'title': getattr(song, 'title', None) or '—',
+                    'artist_label': ', '.join(artist_names) or '—',
+                    'collaborator': (getattr(song, 'collaborator', None) or '').strip(),
+                    'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+                    'release_date': getattr(song, 'release_date', None),
+                    'days_remaining': days_remaining,
+                    'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion'),
+                }
+            )
+
+        upcoming_album_rows = []
+        if contract_artist_ids:
+            upcoming_album_rows = (
+                session_db.query(Album)
+                .options(joinedload(Album.artist))
+                .filter(Album.artist_id.in_(list(contract_artist_ids)))
+                .filter(Album.release_date >= today)
+                .order_by(Album.release_date.asc(), Album.title.asc())
+                .all()
+            )
+        for album in upcoming_album_rows:
+            days_remaining = None
+            if getattr(album, 'release_date', None):
+                try:
+                    days_remaining = (album.release_date - today).days
+                except Exception:
+                    days_remaining = None
+            registros_upcoming_releases.append(
+                {
+                    'kind': 'ALBUM',
+                    'kind_label': 'EP' if (getattr(album, 'album_type', None) or '').upper() == 'EP' else 'Disco',
+                    'title': getattr(album, 'title', None) or '—',
+                    'artist_label': (getattr(getattr(album, 'artist', None), 'name', None) or '').strip() or '—',
+                    'collaborator': '',
+                    'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+                    'release_date': getattr(album, 'release_date', None),
+                    'days_remaining': days_remaining,
+                    'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion'),
+                }
+            )
+        registros_upcoming_releases.sort(
+            key=lambda item: (
+                item.get('release_date') or date.max,
+                0 if item.get('kind') == 'SONG' else 1,
+                (item.get('title') or '').casefold(),
+            )
+        )
+
+        registros_sgae_pending_songs = list(editorial_pending_songs or [])
+
+        agedi_song_rows = (
+            session_db.query(Song)
+            .join(SongArtist, Song.id == SongArtist.song_id)
+            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+            .filter(ownership_cond)
+            .distinct()
+            .options(selectinload(Song.artists))
+            .order_by(Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+        if f_artist_id:
+            agedi_song_rows = [
+                song
+                for song in agedi_song_rows
+                if any(getattr(artist, 'id', None) == f_artist_id for artist in (song.artists or []))
+            ]
+        if f_year:
+            agedi_song_rows = [
+                song
+                for song in agedi_song_rows
+                if getattr(song, 'release_date', None) and song.release_date.year == f_year
+            ]
+
+        agedi_song_ids = [song.id for song in agedi_song_rows]
+        agedi_status_map = {}
+        if agedi_song_ids:
+            agedi_status_map = {
+                row.song_id: row
+                for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_(agedi_song_ids)).all()
+                if row and row.song_id
+            }
+
+        registros_artist_ids = set()
+        registros_year_set = set()
+        for song in agedi_song_rows:
+            st = agedi_status_map.get(song.id) or _ensure_song_status_row(session_db, song)
+            _sync_song_agedi_state(session_db, song.id, st)
+            current_codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
+            if not current_codes:
+                continue
+            registered_codes = set(_norm_isrc_list(getattr(st, 'agedi_registered_isrcs', []) or []))
+            pending_codes = [code for code in current_codes if code not in registered_codes]
+            if not pending_codes and bool(getattr(st, 'agedi_done', False)):
+                continue
+            for artist in (song.artists or []):
+                if artist and getattr(artist, 'id', None):
+                    registros_artist_ids.add(artist.id)
+            if getattr(song, 'release_date', None):
+                registros_year_set.add(song.release_date.year)
+            registros_agedi_items.append(
+                {
+                    'kind': 'SONG',
+                    'song': song,
+                    'item_id': str(song.id),
+                    'title': getattr(song, 'title', None) or '—',
+                    'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+                    'artists_label': ', '.join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
+                    'artist_ids': [str(a.id) for a in (song.artists or []) if getattr(a, 'id', None)],
+                    'collaborator': (getattr(song, 'collaborator', None) or '').strip(),
+                    'release_date': getattr(song, 'release_date', None),
+                    'all_codes': [
+                        {
+                            'code': code,
+                            'registered': code in registered_codes,
+                            'pending': code not in registered_codes,
+                        }
+                        for code in current_codes
+                    ],
+                    'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion'),
+                    'register_url': url_for('discografica_song_agedi_register', song_id=song.id),
+                    'album_kind_label': '',
+                }
+            )
+
+        agedi_album_rows = (
+            session_db.query(Album)
+            .options(joinedload(Album.artist))
+            .filter(Album.artist_id.in_(list(contract_artist_ids)) if contract_artist_ids else text('1=0'))
+            .order_by(Album.release_date.desc(), Album.title.asc())
+            .all()
+        ) if contract_artist_ids else []
+        if f_artist_id:
+            agedi_album_rows = [album for album in agedi_album_rows if getattr(album, 'artist_id', None) == f_artist_id]
+        if f_year:
+            agedi_album_rows = [
+                album
+                for album in agedi_album_rows
+                if getattr(album, 'release_date', None) and album.release_date.year == f_year
+            ]
+        agedi_album_ids = [album.id for album in agedi_album_rows]
+        agedi_album_status_map = {}
+        if agedi_album_ids:
+            agedi_album_status_map = {
+                row.album_id: row
+                for row in session_db.query(AlbumStatus).filter(AlbumStatus.album_id.in_(agedi_album_ids)).all()
+                if row and row.album_id
+            }
+        for album in agedi_album_rows:
+            st = agedi_album_status_map.get(album.id) or _ensure_album_status_row(session_db, album)
+            if bool(getattr(st, 'agedi_done', False)):
+                continue
+            artist = getattr(album, 'artist', None)
+            if artist and getattr(artist, 'id', None):
+                registros_artist_ids.add(artist.id)
+            if getattr(album, 'release_date', None):
+                registros_year_set.add(album.release_date.year)
+            registros_agedi_items.append(
+                {
+                    'kind': 'ALBUM',
+                    'album': album,
+                    'item_id': str(album.id),
+                    'title': getattr(album, 'title', None) or '—',
+                    'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+                    'artists_label': (getattr(artist, 'name', None) or '').strip() or '—',
+                    'artist_ids': [str(getattr(artist, 'id', None) or '')] if getattr(artist, 'id', None) else [],
+                    'collaborator': '',
+                    'release_date': getattr(album, 'release_date', None),
+                    'all_codes': [],
+                    'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion'),
+                    'register_url': url_for('discografica_album_status_toggle', album_id=album.id),
+                    'album_kind_label': 'EP' if (getattr(album, 'album_type', None) or '').upper() == 'EP' else 'Disco',
+                }
+            )
+
+        registros_agedi_items.sort(
+            key=lambda item: (
+                item.get('release_date') or date.min,
+                (item.get('title') or '').casefold(),
+            ),
+            reverse=True,
+        )
+
+        ritmonet_song_rows = (
+            session_db.query(Song)
+            .join(SongArtist, Song.id == SongArtist.song_id)
+            .join(SongISRCCode, SongISRCCode.song_id == Song.id)
+            .filter(ownership_cond)
+            .distinct()
+            .options(selectinload(Song.artists))
+            .order_by(Song.release_date.desc(), Song.title.asc())
+            .all()
+        )
+        if f_artist_id:
+            ritmonet_song_rows = [
+                song
+                for song in ritmonet_song_rows
+                if any(getattr(artist, 'id', None) == f_artist_id for artist in (song.artists or []))
+            ]
+        if f_year:
+            ritmonet_song_rows = [
+                song
+                for song in ritmonet_song_rows
+                if getattr(song, 'release_date', None) and song.release_date.year == f_year
+            ]
+        ritmonet_song_ids = [song.id for song in ritmonet_song_rows]
+        ritmonet_status_map = {}
+        if ritmonet_song_ids:
+            ritmonet_status_map = {
+                row.song_id: row
+                for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_(ritmonet_song_ids)).all()
+                if row and row.song_id
+            }
+        ritmonet_artist_ids = set()
+        ritmonet_year_set = set()
+        for song in ritmonet_song_rows:
+            st = ritmonet_status_map.get(song.id) or _ensure_song_status_row(session_db, song)
+            current_codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
+            if not current_codes or bool(getattr(st, 'ritmonet_done', False)):
+                continue
+            for artist in (song.artists or []):
+                if artist and getattr(artist, 'id', None):
+                    ritmonet_artist_ids.add(artist.id)
+            if getattr(song, 'release_date', None):
+                ritmonet_year_set.add(song.release_date.year)
+            registros_ritmonet_songs.append(
+                {
+                    'song': song,
+                    'item_id': str(song.id),
+                    'title': getattr(song, 'title', None) or '—',
+                    'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+                    'artists_label': ', '.join([a.name for a in (song.artists or []) if getattr(a, 'name', None)]) or '—',
+                    'artist_ids': [str(a.id) for a in (song.artists or []) if getattr(a, 'id', None)],
+                    'collaborator': (getattr(song, 'collaborator', None) or '').strip(),
+                    'release_date': getattr(song, 'release_date', None),
+                    'all_codes': [{'code': code} for code in current_codes],
+                    'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='informacion'),
+                }
+            )
+
+        if registros_tab == 'sgae':
+            registros_filter_artists = list(editorial_filter_artists or [])
+            registros_filter_years = []
+        elif registros_tab == 'agedi':
+            registros_filter_artists = [artist for artist in artists if artist.id in registros_artist_ids]
+            registros_filter_years = sorted(registros_year_set, reverse=True)
+        else:
+            registros_filter_artists = [artist for artist in artists if artist.id in ritmonet_artist_ids]
+            registros_filter_years = sorted(ritmonet_year_set, reverse=True)
+
+        session_db.commit()
+
     response = render_template(
         "discografica.html",
         section=section,
@@ -7126,6 +7885,16 @@ def discografica_view():
         royalty_filter_artists=royalty_filter_artists,
         royalty_selected_artist_id=royalty_selected_artist_id,
         royalty_tab=royalty_tab,
+        # Registros
+        registros_tab=registros_tab,
+        registros_upcoming_releases=registros_upcoming_releases,
+        registros_sgae_pending_songs=registros_sgae_pending_songs,
+        registros_agedi_items=registros_agedi_items,
+        registros_ritmonet_songs=registros_ritmonet_songs,
+        registros_filter_artists=registros_filter_artists,
+        registros_filter_years=registros_filter_years,
+        registros_selected_artist_id=registros_selected_artist_id,
+        registros_selected_year=registros_selected_year,
     )
     session_db.close()
     return response
@@ -9312,7 +10081,7 @@ def discografica_song_agedi_register(song_id):
     if not can_edit_discografica():
         return forbid("No tienes permisos para actualizar AGEDI.")
 
-    nxt = safe_next_or(request.form.get("next") or url_for("discografica_view", section="isrc", isrc_tab="pendientes"))
+    nxt = safe_next_or(request.form.get("next") or url_for("discografica_view", section="registros", registros_tab="agedi"))
     session_db = db()
     try:
         sid = to_uuid(song_id)
@@ -9337,23 +10106,166 @@ def discografica_song_agedi_register(song_id):
 @admin_required
 def discografica_song_sgae_register(song_id):
     if not can_edit_discografica():
+        if request.is_json:
+            return jsonify({"ok": False, "message": "No tienes permisos para actualizar SGAE."}), 403
         return forbid("No tienes permisos para actualizar SGAE.")
 
-    nxt = safe_next_or(request.form.get("next") or url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
+    payload = request.get_json(silent=True) if request.is_json else {}
+    payload = payload or {}
+    nxt = safe_next_or(
+        (payload.get("next") if isinstance(payload, dict) else None)
+        or request.form.get("next")
+        or url_for("discografica_song_detail", song_id=song_id, tab="editorial")
+    )
+
     session_db = db()
     try:
         sid = to_uuid(song_id)
         s = session_db.get(Song, sid)
         if not s:
+            if request.is_json:
+                return jsonify({"ok": False, "message": "Canción no encontrada."}), 404
             flash("Canción no encontrada.", "warning")
             return redirect(url_for("discografica_view", section="canciones"))
 
+        st = _ensure_song_status_row(session_db, sid)
+        already_done = bool(getattr(st, "sgae_done", False))
         _mark_song_sgae_registered(session_db, sid)
         session_db.commit()
+
+        s = session_db.get(Song, sid)
+        st = session_db.get(SongStatus, sid)
+        email_payload = _build_song_sgae_notification_email(
+            session_db,
+            s,
+            registration_dt=getattr(st, "sgae_updated_at", None) or datetime.now(TZ_MADRID),
+        )
+
+        message = "La canción ya se ha marcado como registrada en SGAE."
+        if already_done:
+            message = "La canción ya estaba marcada como registrada en SGAE."
+
+        if request.is_json:
+            return jsonify(
+                {
+                    "ok": True,
+                    "message": message,
+                    "song": {
+                        "id": str(getattr(s, "id", "") or ""),
+                        "title": getattr(s, "title", None) or "",
+                        "cover_url": (getattr(s, "cover_url", None) or "").strip(),
+                        "interpreters_label": email_payload.get("interpreters_label") or "—",
+                        "registration_label": email_payload.get("registration_label") or "",
+                        "publication_label": email_payload.get("publication_label") or "",
+                    },
+                    "delivery": {
+                        "authors": email_payload.get("delivery", {}).get("authors") or [],
+                        "default_recipients": email_payload.get("delivery", {}).get("default_recipients") or [],
+                        "suggested_recipients": email_payload.get("delivery", {}).get("suggested_recipients") or [],
+                        "smtp_enabled": _smtp_enabled(),
+                    },
+                    "editorial_rows": email_payload.get("editorial_rows") or [],
+                    "total_pct": email_payload.get("total_pct") or 0,
+                }
+            )
+
         flash("Marcado como registrado en SGAE.", "success")
     except Exception as e:
         session_db.rollback()
+        if request.is_json:
+            return jsonify({"ok": False, "message": f"Error marcando SGAE: {e}"}), 400
         flash(f"Error marcando SGAE: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(nxt)
+
+
+@app.post("/discografica/canciones/<song_id>/editorial/sgae/notify")
+@admin_required
+def discografica_song_sgae_notify(song_id):
+    if not can_edit_discografica():
+        if request.is_json:
+            return jsonify({"ok": False, "message": "No tienes permisos para enviar avisos de SGAE."}), 403
+        return forbid("No tienes permisos para enviar avisos de SGAE.")
+
+    payload = request.get_json(silent=True) if request.is_json else {}
+    payload = payload or {}
+    nxt = safe_next_or(
+        (payload.get("next") if isinstance(payload, dict) else None)
+        or request.form.get("next")
+        or url_for("discografica_view", section="registros", registros_tab="sgae")
+    )
+
+    recipient_values: list[str] = []
+    if isinstance(payload, dict):
+        raw = payload.get("recipients")
+        if isinstance(raw, (list, tuple, set)):
+            recipient_values.extend([str(v or "") for v in raw])
+        elif isinstance(raw, str):
+            recipient_values.append(raw)
+        custom = payload.get("custom_recipients")
+        if isinstance(custom, (list, tuple, set)):
+            recipient_values.extend([str(v or "") for v in custom])
+        elif isinstance(custom, str):
+            recipient_values.append(custom)
+    recipient_values.extend(request.form.getlist("recipients"))
+    recipient_values.extend(request.form.getlist("custom_recipients"))
+
+    expanded_values: list[str] = []
+    for value in recipient_values:
+        expanded_values.extend(re.split(r"[;,\n]+", str(value or "")))
+    recipients = _dedupe_valid_email_addresses(expanded_values)
+    if not recipients:
+        message = "Selecciona al menos un correo válido para enviar la comunicación."
+        if request.is_json:
+            return jsonify({"ok": False, "message": message}), 400
+        flash(message, "warning")
+        return redirect(nxt)
+
+    session_db = db()
+    try:
+        sid = to_uuid(song_id)
+        s = session_db.get(Song, sid)
+        if not s:
+            if request.is_json:
+                return jsonify({"ok": False, "message": "Canción no encontrada."}), 404
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+
+        st = _ensure_song_status_row(session_db, sid)
+        if not bool(getattr(st, "sgae_done", False)):
+            _mark_song_sgae_registered(session_db, sid)
+            session_db.commit()
+            st = session_db.get(SongStatus, sid)
+
+        email_payload = _build_song_sgae_notification_email(
+            session_db,
+            s,
+            registration_dt=getattr(st, "sgae_updated_at", None) or datetime.now(TZ_MADRID),
+        )
+        ok, error = _send_optional_email(
+            recipients,
+            email_payload.get("subject") or f"Su obra {getattr(s, 'title', '')} ya se ha registrado en SGAE.",
+            email_payload.get("html_body") or "",
+            text_body=email_payload.get("text_body") or None,
+        )
+        if not ok:
+            message = f"No se pudo enviar el correo: {error}"
+            if request.is_json:
+                return jsonify({"ok": False, "message": message}), 400
+            flash(message, "danger")
+            return redirect(nxt)
+
+        message = f"Correo enviado a {', '.join(recipients)}."
+        if request.is_json:
+            return jsonify({"ok": True, "message": message, "sent_to": recipients})
+        flash(message, "success")
+    except Exception as e:
+        session_db.rollback()
+        if request.is_json:
+            return jsonify({"ok": False, "message": f"Error enviando el correo: {e}"}), 400
+        flash(f"Error enviando el correo: {e}", "danger")
     finally:
         session_db.close()
 
@@ -10390,6 +11302,17 @@ def discografica_song_certification_delete(song_id):
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
         for row in rows:
             session_db.delete(row)
+        session_db.flush()
+
+        album_material_rows = (
+            session_db.query(AlbumMaterial)
+            .filter(AlbumMaterial.album_id == album.id)
+            .order_by(AlbumMaterial.created_at.asc())
+            .all()
+        )
+        album_status = _ensure_album_status_row(session_db, album)
+        _refresh_album_material_status(session_db, album, material_rows=album_material_rows, status_obj=album_status)
+
         session_db.commit()
         flash("Certificación eliminada.", "success")
     except Exception as e:
@@ -11075,6 +11998,10 @@ def discografica_album_detail(album_id):
         .order_by(AlbumMaterial.created_at.asc())
         .all()
     )
+    album_status = _ensure_album_status_row(session_db, album)
+    album_materials_status = _refresh_album_material_status(session_db, album, material_rows=materials, status_obj=album_status)
+    session_db.commit()
+
     material_groups = {"COVER": [], "DDP": [], "BODEGON": [], "PHYSICAL_DESIGN": []}
     for row in materials:
         material_groups.setdefault((row.category or "").upper(), []).append(row)
@@ -11154,6 +12081,8 @@ def discografica_album_detail(album_id):
         product_codes=product_codes,
         track_rows=track_rows,
         material_groups=material_groups,
+        album_status=album_status,
+        album_materials_status=album_materials_status,
         royalties_artist=royalties_artist,
         royalty_other_beneficiaries=royalty_other_beneficiaries,
         days_remaining=days_remaining,
@@ -11247,6 +12176,15 @@ def discografica_album_info_update(album_id):
             session_db.flush()
             _renumber_album_tracks(session_db, album.id)
 
+        album_material_rows = (
+            session_db.query(AlbumMaterial)
+            .filter(AlbumMaterial.album_id == album.id)
+            .order_by(AlbumMaterial.created_at.asc())
+            .all()
+        )
+        album_status = _ensure_album_status_row(session_db, album)
+        _refresh_album_material_status(session_db, album, material_rows=album_material_rows, status_obj=album_status)
+
         session_db.commit()
         flash("Ficha del álbum actualizada.", "success")
     except Exception as e:
@@ -11280,6 +12218,61 @@ def discografica_album_delete(album_id):
         session_db.close()
 
     return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+
+@app.post("/discografica/albumes/<album_id>/status/toggle")
+@admin_required
+def discografica_album_status_toggle(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para actualizar estados del álbum.")
+
+    key = (request.form.get("key") or "").strip().lower()
+    allowed = {
+        "agedi": ("agedi_done", "agedi_updated_at"),
+        "distributed": ("distributed_done", "distributed_updated_at"),
+    }
+    nxt = safe_next_or(request.form.get("next") or url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    if key not in allowed:
+        flash("Estado no válido.", "warning")
+        return redirect(nxt)
+
+    session_db = db()
+    try:
+        aid = to_uuid(album_id)
+        album = session_db.get(Album, aid)
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+        material_rows = (
+            session_db.query(AlbumMaterial)
+            .filter(AlbumMaterial.album_id == album.id)
+            .order_by(AlbumMaterial.created_at.asc())
+            .all()
+        )
+        st = _ensure_album_status_row(session_db, album)
+        _refresh_album_material_status(session_db, album, material_rows=material_rows, status_obj=st)
+
+        done_attr, ts_attr = allowed[key]
+        current = bool(getattr(st, done_attr) or False)
+        now_dt = datetime.now(TZ_MADRID)
+
+        if key == "agedi" and not current:
+            _mark_album_agedi_registered(session_db, aid)
+        else:
+            setattr(st, done_attr, not current)
+            setattr(st, ts_attr, now_dt)
+            st.updated_at = now_dt
+            session_db.add(st)
+
+        session_db.commit()
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando estado del álbum: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(nxt)
 
 
 @app.post("/discografica/albumes/<album_id>/product-codes/save")
@@ -11568,6 +12561,16 @@ def discografica_album_material_upload(album_id):
             album.cover_url = file_url
         album.updated_at = datetime.now(TZ_MADRID)
         session_db.add(album)
+
+        album_material_rows = (
+            session_db.query(AlbumMaterial)
+            .filter(AlbumMaterial.album_id == album.id)
+            .order_by(AlbumMaterial.created_at.asc())
+            .all()
+        )
+        album_status = _ensure_album_status_row(session_db, album)
+        _refresh_album_material_status(session_db, album, material_rows=album_material_rows, status_obj=album_status)
+
         session_db.commit()
         flash("Material subido.", "success")
     except Exception as e:

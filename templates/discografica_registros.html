@@ -1,0 +1,694 @@
+{% set registros_sgae_count = registros_sgae_pending_songs|length %}
+{% set registros_agedi_count = registros_agedi_items|length %}
+{% set registros_ritmonet_count = registros_ritmonet_songs|length %}
+{% set registros_current_next = url_for('discografica_view', section='registros', registros_tab=registros_tab, year=registros_selected_year or None) %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h5 class="m-0">Registros</h5>
+    <div class="text-muted small">Control centralizado de altas pendientes en SGAE, AGEDI y Ritmonet.</div>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
+      <div>
+        <h6 class="m-0">Próximos lanzamientos</h6>
+        <div class="text-muted small">Ordenados del más próximo al más lejano.</div>
+      </div>
+      <span class="badge text-bg-light border">{{ registros_upcoming_releases|length }} elemento{% if registros_upcoming_releases|length != 1 %}s{% endif %}</span>
+    </div>
+
+    {% if registros_upcoming_releases and (registros_upcoming_releases|length) > 0 %}
+      <div class="d-flex flex-column gap-3 mt-3">
+        {% for item in registros_upcoming_releases %}
+          <a href="{{ item.detail_url }}" class="text-decoration-none text-reset">
+            <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap bg-white">
+              <div class="d-flex align-items-start gap-3">
+                <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ item.title }}" class="cover-square" style="width:72px;height:72px;">
+                <div>
+                  <div class="d-flex gap-1 flex-wrap mb-1">
+                    <span class="badge text-bg-light border">{{ item.kind_label }}</span>
+                  </div>
+                  <div class="fw-semibold">{{ item.title }}</div>
+                  <div class="text-muted small">{{ item.artist_label or '—' }}</div>
+                  {% if item.collaborator %}
+                    <div class="small text-muted mt-1">Colaboradores: {{ item.collaborator }}</div>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="text-end">
+                <div class="fw-semibold">
+                  {% if item.release_date %}{{ item.release_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}
+                </div>
+                {% if item.days_remaining is not none %}
+                  {% if item.days_remaining <= 0 %}
+                    <span class="badge text-bg-success mt-1">Sale hoy</span>
+                  {% else %}
+                    <span class="badge text-bg-warning text-dark mt-1">Faltan {{ item.days_remaining }} día{% if item.days_remaining != 1 %}s{% endif %}</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-muted mt-3">No hay próximos lanzamientos pendientes de publicación.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mb-2">
+  <h5 class="m-0">Pendientes de registro</h5>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <ul class="nav nav-pills">
+    <li class="nav-item">
+      <a class="nav-link {% if registros_tab=='sgae' %}active{% endif %}" href="{{ url_for('discografica_view', section='registros', registros_tab='sgae') }}">
+        SGAE <span class="badge text-bg-warning text-dark ms-1" id="registrosCountBadge-sgae">{{ registros_sgae_count }}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if registros_tab=='agedi' %}active{% endif %}" href="{{ url_for('discografica_view', section='registros', registros_tab='agedi', year=registros_selected_year or None) }}">
+        AGEDI <span class="badge text-bg-warning text-dark ms-1" id="registrosCountBadge-agedi">{{ registros_agedi_count }}</span>
+      </a>
+    </li>
+    <li class="nav-item">
+      <a class="nav-link {% if registros_tab=='ritmonet' %}active{% endif %}" href="{{ url_for('discografica_view', section='registros', registros_tab='ritmonet', year=registros_selected_year or None) }}">
+        Ritmonet <span class="badge text-bg-warning text-dark ms-1" id="registrosCountBadge-ritmonet">{{ registros_ritmonet_count }}</span>
+      </a>
+    </li>
+  </ul>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-lg-8">
+        <label class="form-label">Filtrar por artistas</label>
+        <div class="d-flex flex-wrap gap-2" id="registrosArtistFilters">
+          <button type="button" class="btn btn-sm btn-dark active" data-registros-artist-filter="all">Todos</button>
+          {% for artist in registros_filter_artists %}
+            <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-registros-artist-filter="{{ artist.id }}">
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-mini" alt="">
+              <span>{{ artist.name }}</span>
+            </button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 col-lg-4">
+        <label class="form-label">Buscar</label>
+        <input type="search" class="form-control" id="registrosSearchInput"
+               placeholder="{% if registros_tab == 'sgae' %}Buscar por canción, artista o editorial...{% elif registros_tab == 'agedi' %}Buscar por canción, disco, EP, artista o ISRC...{% else %}Buscar por canción, artista, colaborador o ISRC...{% endif %}">
+      </div>
+      {% if registros_tab in ['agedi', 'ritmonet'] %}
+        <div class="col-12">
+          <form class="row g-2 align-items-end" method="get" action="{{ url_for('discografica_view') }}">
+            <input type="hidden" name="section" value="registros">
+            <input type="hidden" name="registros_tab" value="{{ registros_tab }}">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Año (publicación)</label>
+              <select class="form-select" name="year">
+                <option value="">Todos</option>
+                {% for y in registros_filter_years %}
+                  <option value="{{ y }}" {% if registros_selected_year == y|string %}selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-2 d-flex align-items-end">
+              <button class="btn btn-outline-primary w-100"><i class="fa fa-filter"></i> Filtrar</button>
+            </div>
+          </form>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% if registros_tab == 'sgae' %}
+  <div class="card">
+    <div class="card-body">
+      <div class="table-responsive" id="registrosSgaeTableWrap" {% if not registros_sgae_pending_songs %}style="display:none;"{% endif %}>
+        <table class="table table-hover align-middle mb-0">
+          <thead class="table-light">
+            <tr>
+              <th style="width:72px;">Portada</th>
+              <th>Canción</th>
+              <th>Artistas</th>
+              <th class="text-nowrap">Publicación</th>
+              <th style="width:220px;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in registros_sgae_pending_songs %}
+              <tr class="clickable-row registros-search-row"
+                  id="registros-sgae-row-{{ s.id }}"
+                  data-registros-sgae-row="{{ s.id }}"
+                  role="button"
+                  tabindex="0"
+                  data-registros-artists="{{ s.artists | map(attribute='id') | join(',') if s.artists else '' }}"
+                  data-registros-search="{{ (s.title ~ ' ' ~ (s.editorial_artists_str or '') ~ ' ' ~ (s.collaborator or '') ~ ' ' ~ ('modificacion' if s.editorial_modification_pending else 'pendiente sgae'))|lower }}"
+                  data-href="{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}"
+                  onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
+                  onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
+                <td>
+                  <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                </td>
+                <td>
+                  <div class="fw-semibold">{{ s.title }}</div>
+                  <div class="d-flex gap-1 flex-wrap mt-1">
+                    {% if s.editorial_modification_pending %}
+                      <span class="badge text-bg-warning">Modificación</span>
+                    {% else %}
+                      <span class="badge text-bg-danger">Pendiente SGAE</span>
+                    {% endif %}
+                  </div>
+                </td>
+                <td>
+                  <div>{{ s.editorial_artists_str or '—' }}</div>
+                  {% if s.collaborator %}
+                    <div class="small text-muted">Colaboradores: {{ s.collaborator }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if s.release_date %}
+                    {{ s.release_date.strftime('%d/%m/%Y') }}
+                  {% else %}
+                    <span class="text-muted">—</span>
+                  {% endif %}
+                </td>
+                <td class="text-end">
+                  {% if CAN_EDIT_DISCOGRAFICA %}
+                    <button type="button"
+                            class="btn btn-sm btn-success js-registros-sgae-register"
+                            data-song-id="{{ s.id }}"
+                            data-register-url="{{ url_for('discografica_song_sgae_register', song_id=s.id) }}"
+                            data-notify-url="{{ url_for('discografica_song_sgae_notify', song_id=s.id) }}"
+                            data-next-url="{{ url_for('discografica_view', section='registros', registros_tab='sgae') }}">
+                      <i class="fa fa-check"></i> Marcar como registrada en SGAE
+                    </button>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="text-muted{% if registros_sgae_pending_songs %} d-none{% endif %}" id="registrosSgaeEmpty">No hay canciones pendientes de registrar en SGAE para Plataforma Musical.</div>
+    </div>
+  </div>
+
+  {% if CAN_EDIT_DISCOGRAFICA %}
+    <div class="modal fade" id="registrosSgaeModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Registro SGAE</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <div class="alert alert-success" id="registrosSgaeMessage">La canción ya se ha marcado como registrada en SGAE.</div>
+
+            <div class="border rounded p-3 mb-3 bg-light-subtle">
+              <div class="d-flex gap-3 flex-wrap align-items-start">
+                <img id="registrosSgaeSongCover" src="{{ url_for('static', filename='img/logo.png') }}" alt="" class="cover-square" style="width:96px;height:96px;">
+                <div class="flex-grow-1">
+                  <div class="fw-semibold fs-5" id="registrosSgaeSongTitle">—</div>
+                  <div class="text-muted" id="registrosSgaeSongInterpreters">—</div>
+                  <div class="d-flex gap-2 flex-wrap mt-2">
+                    <span class="badge text-bg-light border">Fecha de registro: <span id="registrosSgaeRegistrationDate">—</span></span>
+                    <span class="badge text-bg-light border">Fecha de publicación: <span id="registrosSgaePublicationDate">—</span></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="form-check form-switch mb-3">
+              <input class="form-check-input" type="checkbox" role="switch" id="registrosSgaeNotifyToggle" checked>
+              <label class="form-check-label" for="registrosSgaeNotifyToggle">Comunicar al autor que ya está registrada en SGAE</label>
+            </div>
+
+            <div id="registrosSgaeNotifyContent">
+              <div class="alert alert-warning d-none" id="registrosSgaeSmtpAlert">El envío de correo no está configurado en la aplicación en este momento.</div>
+              <div class="mb-3">
+                <div class="fw-semibold mb-1">Destinatarios</div>
+                <div class="text-muted small mb-2">Se seleccionan por defecto los correos principales de los autores de Plataforma Musical vinculados a la obra.</div>
+                <div id="registrosSgaeRecipients" class="d-flex flex-column gap-2"></div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label" for="registrosSgaeCustomRecipients">Añadir otros correos</label>
+                <textarea id="registrosSgaeCustomRecipients" class="form-control" rows="3" placeholder="Separa varios correos por comas, punto y coma o saltos de línea"></textarea>
+              </div>
+              <div>
+                <div class="fw-semibold mb-2">Reparto autoral</div>
+                <div class="table-responsive border rounded">
+                  <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                      <tr>
+                        <th>Autor</th>
+                        <th>Editorial</th>
+                        <th class="text-nowrap">Porcentaje</th>
+                        <th>Rol</th>
+                      </tr>
+                    </thead>
+                    <tbody id="registrosSgaeEditorialBody"></tbody>
+                    <tfoot>
+                      <tr>
+                        <th colspan="2">Total obra</th>
+                        <th class="text-nowrap" id="registrosSgaeEditorialTotal">0 %</th>
+                        <th></th>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+            <button type="button" class="btn btn-primary" id="registrosSgaeSendBtn"><i class="fa fa-paper-plane"></i> Enviar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endif %}
+
+{% elif registros_tab == 'agedi' %}
+  <div class="card">
+    <div class="card-body">
+      {% if registros_agedi_items and (registros_agedi_items|length) > 0 %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:72px;">Portada</th>
+                <th>Referencia</th>
+                <th>Artista</th>
+                <th class="text-nowrap">Publicación</th>
+                <th>ISRC / Códigos</th>
+                <th style="width:220px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in registros_agedi_items %}
+                <tr class="clickable-row registros-search-row"
+                    role="button"
+                    tabindex="0"
+                    data-registros-artists="{{ item.artist_ids | join(',') if item.artist_ids else '' }}"
+                    data-registros-search="{{ (item.title ~ ' ' ~ (item.artists_label or '') ~ ' ' ~ (item.collaborator or '') ~ ' ' ~ (item.album_kind_label or '') ~ ' ' ~ (item.all_codes | map(attribute='code') | join(' ')))|lower }}"
+                    data-href="{{ item.detail_url }}"
+                    onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ item.detail_url }}';"
+                    onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ item.detail_url }}'; }">
+                  <td>
+                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  </td>
+                  <td>
+                    <div class="fw-semibold">{{ item.title }}</div>
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                      {% if item.kind == 'ALBUM' %}
+                        <span class="badge text-bg-light border">{{ item.album_kind_label }}</span>
+                      {% else %}
+                        <span class="badge text-bg-danger">Pendiente AGEDI</span>
+                      {% endif %}
+                    </div>
+                  </td>
+                  <td>
+                    <div>{{ item.artists_label or '—' }}</div>
+                    {% if item.collaborator %}
+                      <div class="small text-muted">Colaboradores: {{ item.collaborator }}</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item.release_date %}
+                      {{ item.release_date.strftime('%d/%m/%Y') }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item.all_codes and (item.all_codes|length) > 0 %}
+                      <div class="d-flex flex-wrap gap-1">
+                        {% for code in item.all_codes %}
+                          {% if code.registered %}
+                            <span class="badge text-bg-success">{{ code.code|isrc }}</span>
+                          {% else %}
+                            <span class="badge text-bg-warning text-dark">{{ code.code|isrc }}</span>
+                          {% endif %}
+                        {% endfor %}
+                      </div>
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end">
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      {% if item.kind == 'SONG' %}
+                        <form method="post" action="{{ item.register_url }}" class="d-inline">
+                          <input type="hidden" name="next" value="{{ url_for('discografica_view', section='registros', registros_tab='agedi', year=registros_selected_year or None) }}">
+                          <button class="btn btn-sm btn-success">
+                            <i class="fa fa-check"></i> Marcar como registrado en AGEDI
+                          </button>
+                        </form>
+                      {% else %}
+                        <form method="post" action="{{ item.register_url }}" class="d-inline">
+                          <input type="hidden" name="key" value="agedi">
+                          <input type="hidden" name="next" value="{{ url_for('discografica_view', section='registros', registros_tab='agedi', year=registros_selected_year or None) }}">
+                          <button class="btn btn-sm btn-success">
+                            <i class="fa fa-check"></i> Marcar como registrado en AGEDI
+                          </button>
+                        </form>
+                      {% endif %}
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted">No hay canciones, discos o EP pendientes de registrar en AGEDI para los filtros seleccionados.</div>
+      {% endif %}
+    </div>
+  </div>
+
+{% else %}
+  <div class="card">
+    <div class="card-body">
+      {% if registros_ritmonet_songs and (registros_ritmonet_songs|length) > 0 %}
+        <div class="table-responsive">
+          <table class="table table-hover align-middle mb-0">
+            <thead class="table-light">
+              <tr>
+                <th style="width:72px;">Portada</th>
+                <th>Canción</th>
+                <th>Artista</th>
+                <th class="text-nowrap">Publicación</th>
+                <th>ISRC</th>
+                <th style="width:240px;"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in registros_ritmonet_songs %}
+                {% set s = item.song %}
+                <tr class="clickable-row registros-search-row"
+                    role="button"
+                    tabindex="0"
+                    data-registros-artists="{{ item.artist_ids | join(',') if item.artist_ids else '' }}"
+                    data-registros-search="{{ (item.title ~ ' ' ~ (item.artists_label or '') ~ ' ' ~ (item.collaborator or '') ~ ' ' ~ (item.all_codes | map(attribute='code') | join(' ')))|lower }}"
+                    data-href="{{ item.detail_url }}"
+                    onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ item.detail_url }}';"
+                    onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ item.detail_url }}'; }">
+                  <td>
+                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  </td>
+                  <td>
+                    <div class="fw-semibold">{{ item.title }}</div>
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                      <span class="badge text-bg-danger">Pendiente Ritmonet</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div>{{ item.artists_label or '—' }}</div>
+                    {% if item.collaborator %}
+                      <div class="small text-muted">Colaboradores: {{ item.collaborator }}</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item.release_date %}
+                      {{ item.release_date.strftime('%d/%m/%Y') }}
+                    {% else %}
+                      <span class="text-muted">—</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <div class="d-flex flex-wrap gap-1">
+                      {% for code in item.all_codes %}
+                        <span class="badge text-bg-light border text-dark">{{ code.code|isrc }}</span>
+                      {% endfor %}
+                    </div>
+                  </td>
+                  <td class="text-end">
+                    {% if CAN_EDIT_DISCOGRAFICA %}
+                      <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=s.id) }}" class="d-inline">
+                        <input type="hidden" name="key" value="ritmonet">
+                        <input type="hidden" name="next" value="{{ url_for('discografica_view', section='registros', registros_tab='ritmonet', year=registros_selected_year or None) }}">
+                        <button class="btn btn-sm btn-success">
+                          <i class="fa fa-check"></i> Marcar como publicado en Ritmonet
+                        </button>
+                      </form>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="text-muted">No hay canciones pendientes de publicar en Ritmonet para los filtros seleccionados.</div>
+      {% endif %}
+    </div>
+  </div>
+{% endif %}
+
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const normalize = (v) => (v || '').toString().toLowerCase().trim();
+  let selectedRegistrosArtist = 'all';
+  const registrosSearchInput = document.getElementById('registrosSearchInput');
+
+  function refreshRegistrosButtons(){
+    document.querySelectorAll('[data-registros-artist-filter]').forEach(btn => {
+      const current = btn.getAttribute('data-registros-artist-filter') || 'all';
+      const active = current === selectedRegistrosArtist;
+      btn.classList.toggle('active', active);
+      if (current !== 'all') {
+        btn.classList.toggle('btn-dark', active);
+        btn.classList.toggle('btn-outline-secondary', !active);
+      }
+    });
+  }
+
+  function applyRegistrosFilters(){
+    const q = normalize(registrosSearchInput && registrosSearchInput.value);
+    document.querySelectorAll('.registros-search-row').forEach(row => {
+      const artistIds = (row.getAttribute('data-registros-artists') || '').split(',').filter(Boolean);
+      const haystack = normalize(row.getAttribute('data-registros-search'));
+      const okArtist = selectedRegistrosArtist === 'all' || artistIds.includes(selectedRegistrosArtist);
+      const okSearch = !q || haystack.includes(q);
+      row.style.display = okArtist && okSearch ? '' : 'none';
+    });
+  }
+
+  document.querySelectorAll('[data-registros-artist-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedRegistrosArtist = btn.getAttribute('data-registros-artist-filter') || 'all';
+      refreshRegistrosButtons();
+      applyRegistrosFilters();
+    });
+  });
+  if (registrosSearchInput) registrosSearchInput.addEventListener('input', applyRegistrosFilters);
+  refreshRegistrosButtons();
+  applyRegistrosFilters();
+
+  const modalEl = document.getElementById('registrosSgaeModal');
+  if (!modalEl) return;
+
+  const fallbackLogo = {{ url_for('static', filename='img/logo.png')|tojson }};
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const messageEl = document.getElementById('registrosSgaeMessage');
+  const songCoverEl = document.getElementById('registrosSgaeSongCover');
+  const songTitleEl = document.getElementById('registrosSgaeSongTitle');
+  const songInterpretersEl = document.getElementById('registrosSgaeSongInterpreters');
+  const regDateEl = document.getElementById('registrosSgaeRegistrationDate');
+  const pubDateEl = document.getElementById('registrosSgaePublicationDate');
+  const recipientsEl = document.getElementById('registrosSgaeRecipients');
+  const editorialBodyEl = document.getElementById('registrosSgaeEditorialBody');
+  const editorialTotalEl = document.getElementById('registrosSgaeEditorialTotal');
+  const notifyToggleEl = document.getElementById('registrosSgaeNotifyToggle');
+  const notifyContentEl = document.getElementById('registrosSgaeNotifyContent');
+  const customRecipientsEl = document.getElementById('registrosSgaeCustomRecipients');
+  const sendBtnEl = document.getElementById('registrosSgaeSendBtn');
+  const smtpAlertEl = document.getElementById('registrosSgaeSmtpAlert');
+
+  let currentNotifyUrl = '';
+  let currentNextUrl = {{ registros_current_next|tojson }};
+  let smtpEnabled = true;
+
+  function escapeHtml(value){
+    return (value || '').toString()
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function updateSmtpState(){
+    if (smtpAlertEl) smtpAlertEl.classList.toggle('d-none', !!smtpEnabled);
+    sendBtnEl.disabled = !smtpEnabled || !notifyToggleEl.checked;
+  }
+
+  function updateNotifyVisibility(){
+    notifyContentEl.style.display = notifyToggleEl.checked ? '' : 'none';
+    updateSmtpState();
+  }
+
+  function populateRecipients(authors){
+    if (!authors || !authors.length) {
+      recipientsEl.innerHTML = '<div class="text-muted">No se han encontrado autores de Plataforma Musical con correos guardados para esta obra. Puedes añadir direcciones manualmente más abajo.</div>';
+      return;
+    }
+
+    recipientsEl.innerHTML = authors.map(author => {
+      const options = Array.isArray(author.email_options) ? author.email_options : [];
+      const optionsHtml = options.length
+        ? options.map((option, index) => {
+            const checkboxId = 'registrosSgaeRecipient_' + escapeHtml(author.promoter_id || 'x') + '_' + index;
+            return '<div class="form-check">'
+              + '<input class="form-check-input js-registros-sgae-recipient" type="checkbox" id="' + checkboxId + '" value="' + escapeHtml(option.email || '') + '" ' + (option.checked ? 'checked' : '') + '>'
+              + '<label class="form-check-label" for="' + checkboxId + '">' + escapeHtml(option.email || '')
+              + ' <span class="text-muted">(' + escapeHtml(option.label || 'Correo') + ')</span></label>'
+              + '</div>';
+          }).join('')
+        : '<div class="text-muted small">Este autor no tiene correos guardados en su ficha.</div>';
+
+      return '<div class="border rounded p-3">'
+        + '<div class="fw-semibold">' + escapeHtml(author.name || '—') + '</div>'
+        + '<div class="small text-muted mb-2">' + escapeHtml(author.publisher_name || 'Plataforma Musical') + '</div>'
+        + optionsHtml
+        + '</div>';
+    }).join('');
+  }
+
+  function populateEditorialRows(rows, totalPct){
+    if (!rows || !rows.length) {
+      editorialBodyEl.innerHTML = '<tr><td colspan="4" class="text-muted">No hay reparto editorial cargado.</td></tr>';
+      editorialTotalEl.textContent = '0 %';
+      return;
+    }
+    editorialBodyEl.innerHTML = rows.map(row => {
+      return '<tr>'
+        + '<td>' + escapeHtml(row.full_name || '—') + '</td>'
+        + '<td>' + escapeHtml(row.publisher_name || '—') + '</td>'
+        + '<td>' + escapeHtml((row.pct != null ? row.pct : 0) + ' %') + '</td>'
+        + '<td>' + escapeHtml(row.role_label || '—') + '</td>'
+        + '</tr>';
+    }).join('');
+    editorialTotalEl.textContent = ((totalPct != null ? totalPct : 0) + ' %');
+  }
+
+  function setMessage(text, kind){
+    messageEl.textContent = text || '';
+    messageEl.classList.remove('alert-success', 'alert-danger', 'alert-warning', 'alert-info');
+    messageEl.classList.add('alert-' + (kind || 'success'));
+  }
+
+  function updateSgaePendingCount(){
+    const count = document.querySelectorAll('[data-registros-sgae-row]').length;
+    const badge = document.getElementById('registrosCountBadge-sgae');
+    if (badge) badge.textContent = String(count);
+    const tableWrap = document.getElementById('registrosSgaeTableWrap');
+    const emptyEl = document.getElementById('registrosSgaeEmpty');
+    if (tableWrap) tableWrap.style.display = count ? '' : 'none';
+    if (emptyEl) emptyEl.classList.toggle('d-none', !!count);
+  }
+
+  function collectSelectedRecipients(){
+    return Array.from(document.querySelectorAll('.js-registros-sgae-recipient:checked')).map(el => (el.value || '').trim()).filter(Boolean);
+  }
+
+  document.addEventListener('click', async (event) => {
+    const btn = event.target.closest('.js-registros-sgae-register');
+    if (!btn) return;
+    event.preventDefault();
+    const registerUrl = btn.getAttribute('data-register-url') || '';
+    currentNotifyUrl = btn.getAttribute('data-notify-url') || '';
+    currentNextUrl = btn.getAttribute('data-next-url') || currentNextUrl;
+    if (!registerUrl) return;
+
+    const originalHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Actualizando';
+    try {
+      const response = await fetch(registerUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ next: currentNextUrl })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) {
+        throw new Error(data.message || 'No se pudo marcar la canción en SGAE.');
+      }
+
+      setMessage(data.message || 'La canción ya se ha marcado como registrada en SGAE.', 'success');
+      songCoverEl.src = (data.song && data.song.cover_url) ? data.song.cover_url : fallbackLogo;
+      songTitleEl.textContent = (data.song && data.song.title) ? data.song.title : '—';
+      songInterpretersEl.textContent = (data.song && data.song.interpreters_label) ? data.song.interpreters_label : '—';
+      regDateEl.textContent = (data.song && data.song.registration_label) ? data.song.registration_label : '—';
+      pubDateEl.textContent = (data.song && data.song.publication_label) ? data.song.publication_label : '—';
+      smtpEnabled = !data.delivery || data.delivery.smtp_enabled !== false;
+      populateRecipients(data.delivery && data.delivery.authors ? data.delivery.authors : []);
+      populateEditorialRows(data.editorial_rows || [], data.total_pct || 0);
+      if (customRecipientsEl) customRecipientsEl.value = '';
+      notifyToggleEl.checked = true;
+      updateNotifyVisibility();
+
+      const row = document.querySelector('[data-registros-sgae-row="' + (btn.getAttribute('data-song-id') || '') + '"]');
+      if (row) row.remove();
+      updateSgaePendingCount();
+      modal.show();
+    } catch (error) {
+      window.alert(error.message || 'No se pudo marcar la canción en SGAE.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  });
+
+  if (notifyToggleEl) notifyToggleEl.addEventListener('change', updateNotifyVisibility);
+  updateNotifyVisibility();
+
+  if (sendBtnEl) {
+    sendBtnEl.addEventListener('click', async () => {
+      if (!notifyToggleEl.checked) return;
+      if (!currentNotifyUrl) return;
+      const recipients = collectSelectedRecipients();
+      const customRecipients = (customRecipientsEl && customRecipientsEl.value) ? customRecipientsEl.value : '';
+
+      const originalHtml = sendBtnEl.innerHTML;
+      sendBtnEl.disabled = true;
+      sendBtnEl.innerHTML = '<i class="fa fa-spinner fa-spin"></i> Enviando';
+      try {
+        const response = await fetch(currentNotifyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({
+            next: currentNextUrl,
+            recipients: recipients,
+            custom_recipients: customRecipients ? [customRecipients] : []
+          })
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) {
+          throw new Error(data.message || 'No se pudo enviar el correo.');
+        }
+        setMessage(data.message || 'Correo enviado correctamente.', 'success');
+      } catch (error) {
+        setMessage(error.message || 'No se pudo enviar el correo.', 'danger');
+      } finally {
+        sendBtnEl.innerHTML = originalHtml;
+        updateSmtpState();
+      }
+    });
+  }
+});
+</script>

@@ -175,6 +175,11 @@ def _safe_ensure(fn, name: str):
         # No interrumpir el arranque por DDL idempotente.
         print(f"[schema] Aviso: no se pudo ejecutar {name}: {e}")
 
+# Primero creamos las tablas base conocidas por SQLAlchemy.
+# Esto evita que las migraciones ligeras posteriores fallen por depender
+# de tablas que aún no existían (por ejemplo `promoters`).
+_safe_ensure(init_db, "init_db")
+
 for _fn, _name in [
     (ensure_artist_feature_schema, "ensure_artist_feature_schema"),
     (ensure_discografica_schema, "ensure_discografica_schema"),

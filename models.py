@@ -1840,6 +1840,25 @@ class InvoiceRecord(Base):
     )
 
 
+def _exec_ddl_statements(stmts, label: str = "schema"):
+    """Ejecuta DDL idempotente sentencia a sentencia.
+
+    Evita que un fallo tardío haga rollback de cambios previos ya válidos
+    (por ejemplo, un ``ALTER TABLE ... ADD COLUMN`` aplicado antes de una
+    sentencia que referencia otra tabla todavía inexistente).
+    """
+
+    for idx, stmt in enumerate(stmts, start=1):
+        s = (stmt or "").strip()
+        if not s:
+            continue
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql(s)
+        except Exception as exc:
+            print(f"[schema:{label}] Aviso en sentencia {idx}: {exc}")
+
+
 def ensure_artist_feature_schema():
     """Asegura que existan las tablas nuevas del apartado *Artistas*.
 
@@ -1923,12 +1942,7 @@ def ensure_artist_feature_schema():
         'CREATE INDEX IF NOT EXISTS idx_artist_emails_artist_id ON artist_emails(artist_id);',
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or '').strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "artist_feature")
 
 
 
@@ -2254,12 +2268,7 @@ def ensure_isrc_and_song_detail_schema():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "song_detail")
 
 
 def ensure_editorial_schema():
@@ -2368,12 +2377,7 @@ def ensure_editorial_schema():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "editorial")
 
 
 def ensure_song_royalties_schema():
@@ -2438,12 +2442,7 @@ def ensure_song_royalties_schema():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "song_royalties")
 
 
 def ensure_ingresos_schema():
@@ -2493,12 +2492,7 @@ def ensure_ingresos_schema():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "ingresos")
 
 
 
@@ -2552,12 +2546,7 @@ def ensure_royalty_liquidations_schema():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "royalty_liquidations")
 
 
 def ensure_album_schema():
@@ -2819,12 +2808,7 @@ def ensure_album_schema():
         'CREATE INDEX IF NOT EXISTS idx_album_royalty_beneficiaries_promoter_id ON album_royalty_beneficiaries(promoter_id);',
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or '').strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "album")
 
 
 def ensure_concerts_schema_enhancements():
@@ -2892,12 +2876,7 @@ def ensure_concerts_schema_enhancements():
         """,
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or "").strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "concerts")
 
 
 
@@ -3077,12 +3056,7 @@ def ensure_third_party_and_contract_sheet_schema():
         'CREATE INDEX IF NOT EXISTS idx_concert_contract_sheets_status ON concert_contract_sheets(status);',
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or '').strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "third_party")
 
 def ensure_concert_artwork_schema():
     """Asegura el esquema de cartelería de conciertos."""
@@ -3138,12 +3112,7 @@ def ensure_concert_artwork_schema():
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_is_archived ON concert_artwork_assets(is_archived);',
     ]
 
-    with engine.begin() as conn:
-        for stmt in stmts:
-            s = (stmt or '').strip()
-            if not s:
-                continue
-            conn.exec_driver_sql(s)
+    _exec_ddl_statements(stmts, "concert_artwork")
 
 
 

@@ -348,6 +348,26 @@ class SongCertification(Base):
     )
 
 
+class SongProductionContract(Base):
+    __tablename__ = "song_production_contracts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    producer_name = Column(Text, nullable=False)
+    pdf_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    has_royalties = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    song = relationship("Song")
+
+    __table_args__ = (
+        Index("idx_song_production_contracts_song_id", "song_id"),
+        Index("idx_song_production_contracts_song_producer", "song_id", "producer_name"),
+    )
+
+
 class AlbumCertification(Base):
     __tablename__ = "album_certifications"
 
@@ -427,6 +447,9 @@ class AlbumStatus(Base):
 
     materials_done = Column(Boolean, nullable=False, server_default=text("false"))
     materials_updated_at = Column(DateTime(timezone=True))
+
+    production_contract_done = Column(Boolean, nullable=False, server_default=text("false"))
+    production_contract_updated_at = Column(DateTime(timezone=True))
 
     agedi_done = Column(Boolean, nullable=False, server_default=text("false"))
     agedi_updated_at = Column(DateTime(timezone=True))
@@ -785,6 +808,7 @@ class Album(Base):
     mastering_engineer = Column(Text)
     edited_by = Column(Text)
     distributed_by = Column(Text)
+    producers = Column(JSONB)
 
     physical_cd = Column(Boolean, nullable=False, server_default=text("false"))
     physical_vinyl = Column(Boolean, nullable=False, server_default=text("false"))
@@ -882,6 +906,26 @@ class AlbumMaterial(Base):
     __table_args__ = (
         Index("idx_album_materials_album_id", "album_id"),
         Index("idx_album_materials_category", "category"),
+    )
+
+
+class AlbumProductionContract(Base):
+    __tablename__ = "album_production_contracts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("albums.id", ondelete="CASCADE"), nullable=False)
+    producer_name = Column(Text, nullable=False)
+    pdf_url = Column(Text, nullable=False)
+    original_name = Column(Text)
+    has_royalties = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    album = relationship("Album")
+
+    __table_args__ = (
+        Index("idx_album_production_contracts_album_id", "album_id"),
+        Index("idx_album_production_contracts_album_producer", "album_id", "producer_name"),
     )
 
 
@@ -1932,6 +1976,22 @@ def ensure_isrc_and_song_detail_schema():
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',
 
+        # Contratos de producción de canción
+        """
+        CREATE TABLE IF NOT EXISTS song_production_contracts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            producer_name text NOT NULL,
+            pdf_url text NOT NULL,
+            original_name text,
+            has_royalties boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_song_production_contracts_song_id ON song_production_contracts(song_id);',
+        'CREATE INDEX IF NOT EXISTS idx_song_production_contracts_song_producer ON song_production_contracts(song_id, producer_name);',
+
         # Certificaciones de canción
         """
         CREATE TABLE IF NOT EXISTS song_certifications (
@@ -2343,6 +2403,7 @@ def ensure_album_schema():
             ADD COLUMN IF NOT EXISTS mastering_engineer text,
             ADD COLUMN IF NOT EXISTS edited_by text,
             ADD COLUMN IF NOT EXISTS distributed_by text,
+            ADD COLUMN IF NOT EXISTS producers jsonb,
             ADD COLUMN IF NOT EXISTS physical_cd boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS physical_vinyl boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS is_distribution boolean NOT NULL DEFAULT false,
@@ -2440,6 +2501,8 @@ def ensure_album_schema():
             cover_updated_at timestamptz,
             materials_done boolean NOT NULL DEFAULT false,
             materials_updated_at timestamptz,
+            production_contract_done boolean NOT NULL DEFAULT false,
+            production_contract_updated_at timestamptz,
             agedi_done boolean NOT NULL DEFAULT false,
             agedi_updated_at timestamptz,
             distributed_done boolean NOT NULL DEFAULT false,
@@ -2453,12 +2516,28 @@ def ensure_album_schema():
             ADD COLUMN IF NOT EXISTS cover_updated_at timestamptz,
             ADD COLUMN IF NOT EXISTS materials_done boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS materials_updated_at timestamptz,
+            ADD COLUMN IF NOT EXISTS production_contract_done boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS production_contract_updated_at timestamptz,
             ADD COLUMN IF NOT EXISTS agedi_done boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS agedi_updated_at timestamptz,
             ADD COLUMN IF NOT EXISTS distributed_done boolean NOT NULL DEFAULT false,
             ADD COLUMN IF NOT EXISTS distributed_updated_at timestamptz,
             ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
         """,
+        """
+        CREATE TABLE IF NOT EXISTS album_production_contracts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES albums(id) ON DELETE CASCADE,
+            producer_name text NOT NULL,
+            pdf_url text NOT NULL,
+            original_name text,
+            has_royalties boolean NOT NULL DEFAULT false,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_album_production_contracts_album_id ON album_production_contracts(album_id);',
+        'CREATE INDEX IF NOT EXISTS idx_album_production_contracts_album_producer ON album_production_contracts(album_id, producer_name);',
         """
         INSERT INTO album_status (album_id, cover_done, cover_updated_at, updated_at)
         SELECT a.id,

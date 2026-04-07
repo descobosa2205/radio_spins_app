@@ -109,6 +109,7 @@ from models import (
     SongISRCCode,
     SongMaterial,
     SongCertification,
+    SongProductionContract,
     SongStatus,
     SongArtist,
     RadioStation,
@@ -130,6 +131,7 @@ from models import (
     AlbumProductCode,
     AlbumTrack,
     AlbumMaterial,
+    AlbumProductionContract,
     AlbumStatus,
     AlbumCertification,
     AlbumRoyaltyBeneficiary,
@@ -364,7 +366,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_pdf", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"}
     if request.endpoint in allowed:
         return
 
@@ -2855,37 +2857,74 @@ def _parse_public_song_share_token(token: str | None, max_age: int = 31536000) -
     return data if isinstance(data, dict) else None
 
 
-def _certification_catalog() -> dict[str, dict]:
-    return {
+def _format_equivalent_copies(value) -> str:
+    try:
+        amount = int(round(float(value or 0)))
+    except Exception:
+        amount = 0
+    return f"{amount:,}".replace(",", ".")
+
+
+def _safe_download_filename(value: str | None, fallback: str = "archivo") -> str:
+    raw = (value or "").strip() or fallback
+    raw = raw.replace("/", "-").replace("\\", "-")
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_ .()"
+    cleaned = "".join(ch for ch in raw if ch in allowed)
+    cleaned = " ".join(cleaned.split()).strip(" ._")
+    return cleaned or fallback
+
+
+def _certification_catalog(media_kind: str = "SONG") -> dict[str, dict]:
+    media_kind = (media_kind or "SONG").strip().upper()
+    equivalents = {
+        "SONG": {
+            "GOLD": 50000,
+            "PLATINUM": 100000,
+            "DIAMOND": 1000000,
+            "URANIUM": 50000000,
+        },
+        "ALBUM": {
+            "GOLD": 20000,
+            "PLATINUM": 40000,
+            "DIAMOND": 1000000,
+            "URANIUM": 50000000,
+        },
+    }
+    base = {
         "GOLD": {
             "title": "Disco de Oro",
             "plural_title": "Discos de Oro",
-            "copies_label": "Equivalente a 20.000 Copias",
             "image": "img/certifications/disco_oro_recortado.png",
             "order": 1,
         },
         "PLATINUM": {
             "title": "Disco de Platino",
             "plural_title": "Discos de Platino",
-            "copies_label": "Equivalente a 40.000 Copias",
-            "image": "img/certifications/disco_diamante_recortado.png",
+            "image": "img/certifications/disco_platino_recortado.png",
             "order": 2,
         },
         "DIAMOND": {
             "title": "Disco de Diamante",
             "plural_title": "Discos de Diamante",
-            "copies_label": "Equivalente a 1 millón de copias",
             "image": "img/certifications/disco_diamante_recortado.png",
             "order": 3,
         },
         "URANIUM": {
             "title": "Disco de Uranio",
             "plural_title": "Discos de Uranio",
-            "copies_label": "Equivalente a más de 50 millones de copias",
             "image": "img/certifications/disco_uranio_recortado.png",
             "order": 4,
         },
     }
+    selected = equivalents.get(media_kind, equivalents["SONG"])
+    out = {}
+    for key, meta in base.items():
+        equivalent_copies = int(selected.get(key) or 0)
+        row = dict(meta)
+        row["equivalent_copies"] = equivalent_copies
+        row["copies_label"] = f"Equivalente a {_format_equivalent_copies(equivalent_copies)} copias"
+        out[key] = row
+    return out
 
 
 def _country_flag_emoji(country_code: str | None) -> str:
@@ -2945,8 +2984,15 @@ def _resolve_country_choice(raw_value: str | None) -> dict | None:
     return None
 
 
-def _group_certifications(rows) -> list[dict]:
-    catalog = _certification_catalog()
+def _certification_group_title(meta: dict, count: int) -> str:
+    count = max(1, int(count or 1))
+    if count <= 1:
+        return meta.get("title") or "Certificación"
+    return f"{count} {meta.get('plural_title') or meta.get('title') or 'Certificaciones'}"
+
+
+def _group_certifications(rows, media_kind: str = "SONG") -> list[dict]:
+    catalog = _certification_catalog(media_kind)
     grouped = {}
     for row in rows or []:
         cert_type = (getattr(row, "certification_type", None) or "").strip().upper()
@@ -2969,16 +3015,25 @@ def _group_certifications(rows) -> list[dict]:
     out = []
     for payload in grouped.values():
         meta = catalog[payload["certification_type"]]
-        count = payload["count"]
+        count = max(1, int(payload["count"] or 1))
+        equivalent_unit = int(meta.get("equivalent_copies") or 0)
+        equivalent_total = equivalent_unit * count
+        flag = _country_flag_emoji(payload["country_code"])
+        country_label = ((flag + " ") if flag else "") + (payload.get("country_name") or payload.get("country_code") or "")
         payload.update({
+            "media_kind": (media_kind or "SONG").strip().upper(),
             "title": meta["title"],
             "plural_title": meta["plural_title"],
+            "display_title": _certification_group_title(meta, count),
+            "display_title_short": meta["title"] if count == 1 else f"{count} {meta['plural_title']}",
             "copies_label": meta["copies_label"],
+            "equivalent_copies_unit": equivalent_unit,
+            "equivalent_copies_total": equivalent_total,
+            "equivalent_copies_total_label": f"Equivalente a {_format_equivalent_copies(equivalent_total)} copias",
             "image_url": url_for("static", filename=meta["image"]),
-            "flag": _country_flag_emoji(payload["country_code"]),
-            "stack_count": min(max(count, 1), 4),
-            "display_title": meta["title"] if count == 1 else meta["plural_title"],
-            "summary": f"{count} {meta['title'] if count == 1 else meta['plural_title']} ({meta['copies_label']}) en {(_country_flag_emoji(payload['country_code']) + ' ') if _country_flag_emoji(payload['country_code']) else ''}{payload['country_name']}",
+            "flag": flag,
+            "stack_count": min(max(count, 1), 6),
+            "summary": f"{_certification_group_title(meta, count)} · Equivalente a {_format_equivalent_copies(equivalent_total)} copias · {country_label}",
             "sort_order": (meta["order"], payload["country_name"].casefold()),
         })
         out.append(payload)
@@ -2986,6 +3041,416 @@ def _group_certifications(rows) -> list[dict]:
     out.sort(key=lambda item: item["sort_order"])
     return out
 
+
+
+
+def _pies_brand_assets(session_db) -> dict:
+    group_company = (
+        session_db.query(GroupCompany)
+        .filter(func.lower(GroupCompany.name).like('%pies%'))
+        .order_by(GroupCompany.name.asc())
+        .first()
+    )
+    logo_url = (getattr(group_company, 'logo_url', None) or '').strip()
+    if not logo_url:
+        try:
+            logo_url = url_for('static', filename='img/logo.png', _external=True)
+        except Exception:
+            logo_url = ''
+    return {
+        'company_name': (getattr(group_company, 'name', None) or 'PIES').strip() or 'PIES',
+        'logo_url': logo_url,
+    }
+
+
+def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
+    if not artist or not getattr(artist, 'id', None):
+        return {
+            'is_group': False,
+            'primary_email': '',
+            'default_recipients': [],
+            'suggested_recipients': [],
+            'email_options': [],
+        }
+
+    primary_email = (getattr(artist, 'email', None) or '').strip()
+    people_count = session_db.query(ArtistPerson).filter(ArtistPerson.artist_id == artist.id).count()
+    is_group = people_count > 1
+    extra_rows = (
+        session_db.query(ArtistEmail)
+        .filter(ArtistEmail.artist_id == artist.id)
+        .order_by(ArtistEmail.created_at.asc(), ArtistEmail.concept.asc())
+        .all()
+    )
+
+    ordered_emails = []
+    if primary_email:
+        ordered_emails.append((primary_email, 'Principal'))
+    for row in extra_rows or []:
+        email = (getattr(row, 'email', None) or '').strip()
+        if not email:
+            continue
+        ordered_emails.append((email, (getattr(row, 'concept', None) or 'Otro correo').strip() or 'Otro correo'))
+
+    deduped = []
+    seen = set()
+    for email, label in ordered_emails:
+        if not _looks_like_email_address(email):
+            continue
+        key = email.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append((email, label))
+
+    default_limit = 2 if is_group else 1
+    default_recipients = [email for email, _ in deduped[:default_limit]]
+    suggested_recipients = [email for email, _ in deduped]
+    email_options = []
+    for idx, (email, label) in enumerate(deduped):
+        email_options.append({
+            'email': email,
+            'label': label,
+            'checked': email in default_recipients,
+            'is_default': idx < default_limit,
+        })
+
+    return {
+        'is_group': is_group,
+        'primary_email': primary_email,
+        'default_recipients': _dedupe_valid_email_addresses(default_recipients),
+        'suggested_recipients': _dedupe_valid_email_addresses(suggested_recipients),
+        'email_options': email_options,
+    }
+
+
+def _all_user_emails(session_db) -> list[str]:
+    rows = session_db.query(User.email).filter(User.email.isnot(None)).all()
+    return _dedupe_valid_email_addresses([email for (email,) in rows])
+
+
+def _song_primary_artist(session_db, song: Song | None) -> Artist | None:
+    if not song:
+        return None
+    artists = list(getattr(song, 'artists', None) or [])
+    if artists:
+        return artists[0]
+    return (
+        session_db.query(Artist)
+        .join(SongArtist, SongArtist.artist_id == Artist.id)
+        .filter(SongArtist.song_id == song.id)
+        .order_by(Artist.name.asc())
+        .first()
+    )
+
+
+def _build_song_certification_delivery(session_db, song: Song) -> dict:
+    artist = _song_primary_artist(session_db, song)
+    delivery = _artist_email_delivery_data(session_db, artist)
+    delivery['artist'] = artist
+    delivery['team_recipients'] = _all_user_emails(session_db)
+    return delivery
+
+
+def _build_album_certification_delivery(session_db, album: Album) -> dict:
+    artist = session_db.get(Artist, getattr(album, 'artist_id', None)) if getattr(album, 'artist_id', None) else None
+    delivery = _artist_email_delivery_data(session_db, artist)
+    delivery['artist'] = artist
+    delivery['team_recipients'] = _all_user_emails(session_db)
+    return delivery
+
+
+def _certification_notification_subject(media_label: str, title: str) -> str:
+    if title:
+        return f"¡Enhorabuena! {title} ya ha sido certificado"
+    return f"¡Enhorabuena! Nueva certificación de {media_label}"
+
+
+def _build_certification_notification_email(session_db, media_kind: str, item, cert_group: dict, artist: Artist | None) -> dict:
+    media_kind = (media_kind or 'SONG').strip().upper()
+    brand = _pies_brand_assets(session_db)
+    cover_url = (getattr(item, 'cover_url', None) or '').strip()
+    if not cover_url:
+        try:
+            cover_url = url_for('static', filename='img/logo.png', _external=True)
+        except Exception:
+            cover_url = ''
+
+    if media_kind == 'SONG':
+        media_label = 'Canción'
+        interpreters_label = _song_interpreters_label(session_db, item)
+    else:
+        media_label = 'Álbum'
+        interpreters_label = (getattr(artist, 'name', None) or '').strip() or '—'
+
+    title = (getattr(item, 'title', None) or '').strip() or 'Lanzamiento'
+    publication_label = getattr(item, 'release_date', None).strftime('%d/%m/%Y') if getattr(item, 'release_date', None) else '—'
+    cert_title = cert_group.get('display_title_short') or cert_group.get('display_title') or cert_group.get('title') or 'Certificación'
+    total_copies = cert_group.get('equivalent_copies_total') or 0
+    icon_url = cert_group.get('image_url') or ''
+    icon_count = min(max(int(cert_group.get('count') or 1), 1), 6)
+    icon_html = ''.join(
+        f'<img src="{html.escape(icon_url)}" alt="{html.escape(cert_group.get("title") or "Certificación")}" style="width:62px;height:62px;object-fit:contain;display:block;">'
+        for _ in range(icon_count)
+    ) if icon_url else ''
+    confetti_html = ''.join(
+        f'<span style="position:absolute;top:{top}%;left:{left}%;font-size:{size}px;opacity:.88;">{shape}</span>'
+        for top, left, size, shape in [(7, 7, 18, '🎉'), (15, 22, 16, '✨'), (9, 84, 18, '🎊'), (18, 70, 16, '✨'), (20, 52, 15, '•')]
+    )
+    logo_html = ''
+    if brand.get('logo_url'):
+        logo_html = f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "PIES")}" style="display:block;max-width:180px;max-height:64px;object-fit:contain;">'
+    cover_html = ''
+    if cover_url:
+        cover_html = f'<img src="{html.escape(cover_url)}" alt="{html.escape(title)}" style="display:block;width:118px;height:118px;object-fit:cover;border-radius:16px;border:1px solid #e5e7eb;background:#fff;">'
+
+    html_body = f"""
+    <div style="margin:0;padding:24px;background:#f5f7fb;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+      <div style="max-width:760px;margin:0 auto;background:#ffffff;border:1px solid #e5e7eb;border-radius:22px;overflow:hidden;">
+        <div style="position:relative;padding:28px 30px 18px;background:linear-gradient(180deg,#fff7ed 0%,#ffffff 100%);">
+          {confetti_html}
+          {logo_html}
+          <div style="margin-top:18px;font-size:34px;line-height:1.1;font-weight:800;color:#b45309;">¡ENHORABUENA!</div>
+        </div>
+        <div style="padding:18px 30px 30px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
+            <tr>
+              <td width="136" valign="top">{cover_html}</td>
+              <td valign="top" style="padding-left:18px;">
+                <div style="font-size:24px;line-height:1.2;font-weight:700;color:#111827;">{html.escape(title)}</div>
+                <div style="margin-top:8px;font-size:14px;color:#4b5563;">{html.escape(interpreters_label)}</div>
+                <div style="margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;">
+                  <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:13px;">{html.escape(media_label)}</span>
+                  <span style="display:inline-block;padding:6px 10px;border-radius:999px;background:#f3f4f6;color:#111827;font-size:13px;">Publicación: {html.escape(publication_label)}</span>
+                </div>
+              </td>
+            </tr>
+          </table>
+          <div style="margin-top:24px;font-size:15px;color:#374151;">Ha sido certificado con:</div>
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:14px;border-collapse:collapse;">
+            <tr>
+              <td width="210" valign="middle">
+                <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">{icon_html}</div>
+              </td>
+              <td valign="middle" style="padding-left:10px;">
+                <div style="font-size:24px;font-weight:800;color:#111827;">{html.escape(cert_title)}</div>
+                <div style="margin-top:8px;font-size:15px;color:#374151;">Por haber superado el equivalente a {html.escape(_format_equivalent_copies(total_copies))} copias.</div>
+              </td>
+            </tr>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+    text_body = (
+        f"¡ENHORABUENA!\n\n"
+        f"{title} · {media_label}\n"
+        f"Intérpretes: {interpreters_label}\n"
+        f"Fecha de publicación: {publication_label}\n\n"
+        f"Ha sido certificado con {cert_title}.\n"
+        f"Por haber superado el equivalente a {_format_equivalent_copies(total_copies)} copias.\n"
+    )
+    return {
+        'subject': _certification_notification_subject(media_label, title),
+        'html_body': html_body,
+        'text_body': text_body,
+    }
+
+
+def _song_label_copy_share_token(song_id) -> str:
+    return _song_public_serializer().dumps({'kind': 'LABEL_COPY_PDF', 'sid': str(song_id)})
+
+
+def _song_contract_share_token(song_id, contract_id) -> str:
+    return _song_public_serializer().dumps({'kind': 'PRODUCTION_CONTRACT', 'sid': str(song_id), 'ref': str(contract_id)})
+
+
+def _album_public_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt='album-share')
+
+
+def _album_label_copy_share_token(album_id) -> str:
+    return _album_public_serializer().dumps({'kind': 'LABEL_COPY_PDF', 'aid': str(album_id)})
+
+
+def _album_contract_share_token(album_id, contract_id) -> str:
+    return _album_public_serializer().dumps({'kind': 'PRODUCTION_CONTRACT', 'aid': str(album_id), 'ref': str(contract_id)})
+
+
+def _parse_public_album_share_token(token: str | None, max_age: int = 31536000) -> dict | None:
+    token = (token or '').strip()
+    if not token:
+        return None
+    try:
+        data = _album_public_serializer().loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _album_producers_list(album: Album | None) -> list[str]:
+    values = getattr(album, 'producers', None) or []
+    out = []
+    seen = set()
+    for value in values:
+        name = (value or '').strip()
+        if not name:
+            continue
+        key = _norm_text_key(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return out
+
+
+def _contract_list_for_item(session_db, item, media_kind: str) -> list:
+    media_kind = (media_kind or 'SONG').strip().upper()
+    if media_kind == 'ALBUM':
+        return (
+            session_db.query(AlbumProductionContract)
+            .filter(AlbumProductionContract.album_id == item.id)
+            .order_by(AlbumProductionContract.created_at.asc())
+            .all()
+        )
+    return (
+        session_db.query(SongProductionContract)
+        .filter(SongProductionContract.song_id == item.id)
+        .order_by(SongProductionContract.created_at.asc())
+        .all()
+    )
+
+
+def _contract_map_by_producer(contracts) -> dict[str, list]:
+    out = defaultdict(list)
+    for row in contracts or []:
+        key = _norm_text_key(getattr(row, 'producer_name', None) or '')
+        if not key:
+            continue
+        out[key].append(row)
+    return out
+
+
+def _sync_song_production_contract_status(session_db, song_or_id, status_obj: SongStatus | None = None) -> SongStatus | None:
+    song = song_or_id if isinstance(song_or_id, Song) else session_db.get(Song, to_uuid(song_or_id))
+    if not song:
+        return None
+    st = status_obj or _ensure_song_status_row(session_db, song.id)
+    rows = _contract_list_for_item(session_db, song, 'SONG')
+    last_dt = None
+    for row in rows:
+        dt = getattr(row, 'updated_at', None) or getattr(row, 'created_at', None)
+        if dt and (last_dt is None or dt > last_dt):
+            last_dt = dt
+    st.production_contract_done = bool(rows)
+    st.production_contract_updated_at = last_dt if rows else None
+    st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st
+
+
+def _sync_album_production_contract_status(session_db, album_or_id, status_obj: AlbumStatus | None = None) -> AlbumStatus | None:
+    album = album_or_id if isinstance(album_or_id, Album) else session_db.get(Album, to_uuid(album_or_id))
+    if not album:
+        return None
+    st = status_obj or _ensure_album_status_row(session_db, album.id)
+    rows = _contract_list_for_item(session_db, album, 'ALBUM')
+    last_dt = None
+    for row in rows:
+        dt = getattr(row, 'updated_at', None) or getattr(row, 'created_at', None)
+        if dt and (last_dt is None or dt > last_dt):
+            last_dt = dt
+    st.production_contract_done = bool(rows)
+    st.production_contract_updated_at = last_dt if rows else None
+    st.updated_at = datetime.now(TZ_MADRID)
+    session_db.add(st)
+    return st
+
+
+def _producer_contract_public_url(media_kind: str, item_id, contract_id) -> str:
+    media_kind = (media_kind or 'SONG').strip().upper()
+    if media_kind == 'ALBUM':
+        return url_for('public_album_production_contract_download', token=_album_contract_share_token(item_id, contract_id), _external=True)
+    return url_for('public_song_production_contract_download', token=_song_contract_share_token(item_id, contract_id), _external=True)
+
+
+def _label_copy_public_url(media_kind: str, item_id) -> str:
+    media_kind = (media_kind or 'SONG').strip().upper()
+    if media_kind == 'ALBUM':
+        return url_for('public_album_label_copy_pdf', token=_album_label_copy_share_token(item_id), _external=True)
+    return url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id), _external=True)
+
+
+def _resolve_or_create_promoter_for_contract(session_db, nick: str, tax_id: str = '', contact_email: str = '', contact_phone: str = '') -> Promoter:
+    nickname = (nick or '').strip()
+    promoter = None
+    if nickname:
+        promoter = (
+            session_db.query(Promoter)
+            .filter(func.lower(Promoter.nick) == nickname.lower())
+            .first()
+        )
+    if not promoter:
+        promoter = Promoter(nick=nickname or 'Beneficiario')
+        session_db.add(promoter)
+        session_db.flush()
+    if nickname:
+        promoter.nick = nickname
+    if tax_id:
+        promoter.tax_id = tax_id
+    if contact_email:
+        promoter.contact_email = contact_email
+    if contact_phone:
+        promoter.contact_phone = contact_phone
+    session_db.add(promoter)
+    return promoter
+
+
+def _save_contract_royalty_rows(session_db, media_kind: str, item_id, rows_payload: list[dict]):
+    media_kind = (media_kind or 'SONG').strip().upper()
+    created = []
+    for row in rows_payload or []:
+        nick = (row.get('nick') or '').strip()
+        if not nick:
+            continue
+        promoter = _resolve_or_create_promoter_for_contract(
+            session_db,
+            nick=nick,
+            tax_id=(row.get('tax_id') or '').strip(),
+            contact_email=(row.get('contact_email') or '').strip(),
+            contact_phone=(row.get('contact_phone') or '').strip(),
+        )
+        pct = _parse_pct(row.get('pct'))
+        base = _norm_contract_base(row.get('base'))
+        profit_scope = _norm_profit_scope(row.get('profit_scope')) if base == 'PROFIT' else None
+        if media_kind == 'ALBUM':
+            rec = (
+                session_db.query(AlbumRoyaltyBeneficiary)
+                .filter(AlbumRoyaltyBeneficiary.album_id == item_id)
+                .filter(AlbumRoyaltyBeneficiary.promoter_id == promoter.id)
+                .first()
+            )
+            if not rec:
+                rec = AlbumRoyaltyBeneficiary(album_id=item_id, promoter_id=promoter.id)
+                session_db.add(rec)
+        else:
+            rec = (
+                session_db.query(SongRoyaltyBeneficiary)
+                .filter(SongRoyaltyBeneficiary.song_id == item_id)
+                .filter(SongRoyaltyBeneficiary.promoter_id == promoter.id)
+                .first()
+            )
+            if not rec:
+                rec = SongRoyaltyBeneficiary(song_id=item_id, promoter_id=promoter.id)
+                session_db.add(rec)
+        rec.promoter_id = promoter.id
+        rec.pct = pct
+        rec.base = base
+        rec.profit_scope = profit_scope
+        rec.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(rec)
+        created.append(rec)
+    return created
 
 def _song_material_slot_label(category: str | None, slot_key: str | None, display_name: str | None = None) -> str:
     cat = (category or "").strip().upper()
@@ -3548,6 +4013,255 @@ def _build_song_lyrics_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     filename = f"Letra - {song.title}".replace("/", "-").replace("\\", "-").strip() or "Letra"
     return buf.getvalue(), f"{filename}.pdf"
 
+
+
+
+def _rl_image_flowable_from_url(file_url: str | None, width_cm: float, height_cm: float):
+    if not file_url:
+        return None
+    try:
+        from reportlab.lib.units import cm
+        data, _ = _download_remote_content(file_url)
+        return RLImage(BytesIO(data), width=width_cm * cm, height=height_cm * cm)
+    except Exception:
+        return None
+
+
+def _song_label_copy_author_rows(session_db, song: Song) -> tuple[list[list[str]], float]:
+    shares = (
+        session_db.query(SongEditorialShare)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
+        .filter(SongEditorialShare.song_id == song.id)
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+    role_labels = {
+        'AUTHOR': 'Autor',
+        'COMPOSER': 'Compositor',
+        'AUTHOR_COMPOSER': 'Autor y Compositor',
+    }
+    rows = []
+    total_pct = 0.0
+    for share in shares or []:
+        promoter = share.promoter
+        publisher = getattr(promoter, 'publishing_company', None) if promoter else None
+        pct = float(getattr(share, 'pct', 0) or 0)
+        total_pct += pct
+        rows.append([
+            _promoter_display_name(promoter) or '—',
+            role_labels.get((getattr(share, 'role', None) or '').strip().upper(), '—'),
+            (getattr(publisher, 'name', None) or '').strip() or '—',
+            f"{pct:.2f}%",
+        ])
+    return rows, round(total_pct, 2)
+
+
+def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
+    rows = (
+        session_db.query(SongISRCCode)
+        .filter(SongISRCCode.song_id == song.id)
+        .order_by(SongISRCCode.kind.asc(), SongISRCCode.is_primary.desc(), SongISRCCode.created_at.asc())
+        .all()
+    )
+    lines = []
+    seen = set()
+    for row in rows or []:
+        code = _norm_isrc(getattr(row, 'code', None))
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        kind = (getattr(row, 'kind', None) or '').strip().upper()
+        lines.append(f"{'Vídeo' if kind == 'VIDEO' else 'Audio'}: {code}")
+    main_isrc = _norm_isrc(getattr(song, 'isrc', None))
+    if main_isrc and main_isrc not in seen:
+        lines.insert(0, f"Audio: {main_isrc}")
+    return lines
+
+
+def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError('ReportLab no está disponible.')
+    song = session_db.get(Song, to_uuid(song_id))
+    if not song:
+        raise LookupError('Canción no encontrada.')
+    artist = _song_primary_artist(session_db, song)
+    artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+    interpreters_label = _song_interpreters_label(session_db, song)
+    brand = _pies_brand_assets(session_db)
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('LCSongTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=18, leading=21, textColor=colors.HexColor('#111827'))
+    small_style = ParagraphStyle('LCSmall', parent=styles['BodyText'], fontSize=9.2, leading=12, textColor=colors.HexColor('#374151'))
+    label_style = ParagraphStyle('LCLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=9.3, leading=12, textColor=colors.HexColor('#111827'))
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.5*cm, rightMargin=1.5*cm, topMargin=1.2*cm, bottomMargin=1.2*cm)
+    story = []
+    logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.4, 1.2)
+    if logo:
+        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.2*cm, 4.3*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+        story.append(header)
+    story.append(Paragraph('Label Copy', title_style))
+    story.append(Spacer(1, 0.25*cm))
+
+    cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or brand.get('logo_url'), 3.2, 3.2)
+    links = []
+    for label, value in [('Spotify', song.spotify_url), ('Apple Music', song.apple_music_url), ('Amazon Music', song.amazon_music_url), ('TikTok', song.tiktok_url), ('YouTube', song.youtube_url)]:
+        if (value or '').strip():
+            links.append(f"<b>{html.escape(label)}:</b> {html.escape(value)}")
+    left_col = [cover] if cover else [Paragraph('Sin portada', small_style)]
+    right_html = f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}"
+    if links:
+        right_html += '<br/><br/>' + '<br/>'.join(links)
+    header_table = Table([[left_col[0], Paragraph(right_html, small_style)]], colWidths=[3.7*cm, 13.2*cm])
+    header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
+    story.append(header_table)
+    story.append(Spacer(1, 0.35*cm))
+
+    isrc_lines = _song_label_copy_isrc_lines(session_db, song)
+    author_rows, author_total = _song_label_copy_author_rows(session_db, song)
+    musicians = []
+    for row in (getattr(song, 'musicians', None) or []):
+        instrument = (row.get('instrument') or '').strip() if isinstance(row, dict) else ''
+        name = (row.get('name') or '').strip() if isinstance(row, dict) else ''
+        if instrument or name:
+            musicians.append((f"{instrument}: " if instrument else '') + name)
+    info_rows = []
+    def add_row(label, value):
+        value = value if isinstance(value, str) else ('' if value is None else str(value))
+        value = value.strip()
+        if value:
+            info_rows.append([Paragraph(html.escape(label), label_style), Paragraph(html.escape(value).replace('\n','<br/>'), small_style)])
+    add_row('Título', song.title)
+    add_row('Intérpretes', interpreters_label)
+    add_row('Versión', song.version)
+    add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
+    add_row('Códigos ISRC', '\n'.join(isrc_lines))
+    add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
+    add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
+    add_row('BMP', str(song.bpm or ''))
+    add_row('Género', song.genre)
+    add_row('Copyright', song.copyright_text)
+    add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
+    add_row('Ingeniero de grabación', song.recording_engineer)
+    add_row('Estudio de grabación', song.studio)
+    add_row('Fecha de grabación', song.recording_date.strftime('%d/%m/%Y') if song.recording_date else '')
+    add_row('Ingeniero de mezcla', song.mixing_engineer)
+    add_row('Ingeniero de mastering', song.mastering_engineer)
+    add_row('Arreglista', ', '.join([x for x in (song.arrangers or []) if (x or '').strip()]))
+    add_row('Músicos', '\n'.join(musicians))
+    table = Table(info_rows, colWidths=[4.7*cm, 12.2*cm], repeatRows=0)
+    table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f9fafb')),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ('TOPPADDING', (0,0), (-1,-1), 5),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+    ]))
+    story.append(table)
+    if author_rows:
+        story.append(Spacer(1, 0.3*cm))
+        story.append(Paragraph('Reparto autoras', label_style))
+        author_table = Table([
+            [Paragraph('Autor', label_style), Paragraph('Rol', label_style), Paragraph('Editorial', label_style), Paragraph('%', label_style)]
+        ] + [[Paragraph(html.escape(col), small_style) for col in row] for row in author_rows] + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[4.4*cm, 3.2*cm, 6.0*cm, 2.1*cm])
+        author_table.setStyle(TableStyle([
+            ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
+            ('BACKGROUND', (0,-1), (-1,-1), colors.HexColor('#fff7ed')),
+            ('VALIGN', (0,0), (-1,-1), 'TOP'),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 4),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4),
+        ]))
+        story.append(author_table)
+    doc.build(story)
+    filename = f"LC_{song.title}_{artist_name}.pdf"
+    return buf.getvalue(), _safe_download_filename(filename, 'LC_cancion.pdf')
+
+
+def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]:
+    if not REPORTLAB_AVAILABLE:
+        raise RuntimeError('ReportLab no está disponible.')
+    album = session_db.get(Album, to_uuid(album_id))
+    if not album:
+        raise LookupError('Álbum no encontrado.')
+    artist = session_db.get(Artist, getattr(album, 'artist_id', None)) if getattr(album, 'artist_id', None) else None
+    artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+    brand = _pies_brand_assets(session_db)
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('LCAlbumTitle', parent=styles['Heading1'], fontName='Helvetica-Bold', fontSize=15, leading=18, textColor=colors.HexColor('#111827'))
+    small_style = ParagraphStyle('LCAlbumSmall', parent=styles['BodyText'], fontSize=8.2, leading=10, textColor=colors.HexColor('#374151'))
+    label_style = ParagraphStyle('LCAlbumLabel', parent=styles['BodyText'], fontName='Helvetica-Bold', fontSize=8.3, leading=10, textColor=colors.HexColor('#111827'))
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=1.0*cm, rightMargin=1.0*cm, topMargin=0.9*cm, bottomMargin=0.9*cm)
+    story = []
+    logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.0, 1.0)
+    if logo:
+        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.8*cm, 4.2*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+        story.append(header)
+    story.append(Paragraph('Label Copy', title_style))
+    story.append(Spacer(1, 0.15*cm))
+    cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or brand.get('logo_url'), 2.8, 2.8)
+    header_table = Table([[cover or Paragraph('Sin portada', small_style), Paragraph(f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}", small_style)]], colWidths=[3.2*cm, 14.0*cm])
+    header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
+    story.append(header_table)
+    story.append(Spacer(1, 0.2*cm))
+    code_rows = (
+        session_db.query(AlbumProductCode)
+        .filter(AlbumProductCode.album_id == album.id)
+        .order_by(AlbumProductCode.created_at.asc())
+        .all()
+    )
+    tracks = (
+        session_db.query(AlbumTrack)
+        .options(joinedload(AlbumTrack.song))
+        .filter(AlbumTrack.album_id == album.id)
+        .order_by(AlbumTrack.track_number.asc())
+        .all()
+    )
+    info_rows = []
+    def add_row(label, value):
+        value = value if isinstance(value, str) else ('' if value is None else str(value))
+        value = value.strip()
+        if value:
+            info_rows.append([Paragraph(html.escape(label), label_style), Paragraph(html.escape(value).replace('\n','<br/>'), small_style)])
+    add_row('Título', album.title)
+    add_row('Artista', artist_name)
+    add_row('Tipo', _album_kind_label(album))
+    add_row('Fecha de publicación', album.release_date.strftime('%d/%m/%Y') if album.release_date else '')
+    add_row('UPC', album.upc_code)
+    add_row('Depósito legal', album.legal_deposit_code)
+    add_row('Label Code', album.label_code)
+    add_row('Códigos de producto', '\n'.join([f"{_album_product_format_label(row)}: {row.code}" for row in code_rows]))
+    add_row('Especificaciones', album.specifications)
+    add_row('Copyright', album.copyright_text)
+    add_row('Productor', ', '.join(_album_producers_list(album)))
+    add_row('Ingeniero de mastering', album.mastering_engineer)
+    add_row('Editado por', album.edited_by)
+    add_row('Distribuido por', album.distributed_by)
+    add_row('Tracklist', '\n'.join([f"{row.track_number}. {(getattr(row.song, 'title', None) or '—')}" for row in tracks]))
+    table = Table(info_rows, colWidths=[4.8*cm, 12.4*cm])
+    table.setStyle(TableStyle([
+        ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
+        ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f9fafb')),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),
+        ('LEFTPADDING', (0,0), (-1,-1), 4),
+        ('RIGHTPADDING', (0,0), (-1,-1), 4),
+        ('TOPPADDING', (0,0), (-1,-1), 3),
+        ('BOTTOMPADDING', (0,0), (-1,-1), 3),
+    ]))
+    story.append(table)
+    doc.build(story)
+    filename = f"LC_{album.title}_{artist_name}.pdf"
+    return buf.getvalue(), _safe_download_filename(filename, 'LC_album.pdf')
 
 def _royalty_item_type_label(item_kind: str) -> str:
     return "Disco" if (item_kind or "").upper() == "ALBUM" else "Canción"
@@ -9559,6 +10273,7 @@ def discografica_song_detail(song_id):
     # Asegurar estado
     st = _ensure_song_status_row(session_db, s)
     materials_status = _refresh_song_material_status(session_db, s, material_rows=material_rows, status_obj=st)
+    _sync_song_production_contract_status(session_db, s, status_obj=st)
     _sync_song_agedi_state(session_db, s.id, st)
     session_db.commit()
 
@@ -9593,8 +10308,44 @@ def discografica_song_detail(song_id):
         .order_by(SongCertification.created_at.asc())
         .all()
     )
-    song_cert_groups = _group_certifications(song_cert_rows)
+    song_cert_groups = _group_certifications(song_cert_rows, media_kind="SONG")
     country_options = _country_choices()
+    song_cert_delivery = _build_song_certification_delivery(session_db, s)
+    song_contracts = _contract_list_for_item(session_db, s, 'SONG')
+    song_contract_map = _contract_map_by_producer(song_contracts)
+    song_producer_rows = []
+    seen_song_producer_keys = set()
+    for producer_name in [x for x in (getattr(s, 'producers', None) or []) if (x or '').strip()]:
+        key = _norm_text_key(producer_name)
+        if key in seen_song_producer_keys:
+            continue
+        seen_song_producer_keys.add(key)
+        rows = song_contract_map.get(key, [])
+        latest = rows[-1] if rows else None
+        song_producer_rows.append({
+            'name': producer_name,
+            'key': key,
+            'contracts': rows,
+            'latest_contract': latest,
+            'has_contract': bool(latest),
+            'share_url': _producer_contract_public_url('SONG', s.id, latest.id) if latest else '',
+        })
+    for row in song_contracts:
+        producer_name = (getattr(row, 'producer_name', None) or '').strip()
+        key = _norm_text_key(producer_name)
+        if not producer_name or key in seen_song_producer_keys:
+            continue
+        seen_song_producer_keys.add(key)
+        rows = song_contract_map.get(key, [])
+        latest = rows[-1] if rows else None
+        song_producer_rows.append({
+            'name': producer_name,
+            'key': key,
+            'contracts': rows,
+            'latest_contract': latest,
+            'has_contract': bool(latest),
+            'share_url': _producer_contract_public_url('SONG', s.id, latest.id) if latest else '',
+        })
 
     lyrics_public_token = _make_public_song_share_token("LYRICS_PDF", str(s.id))
     lyrics_public_url = _external_url_for("public_song_lyrics_pdf") + f"?token={quote_plus(lyrics_public_token)}"
@@ -9871,6 +10622,15 @@ def discografica_song_detail(song_id):
         song_cert_groups=song_cert_groups,
         country_options=country_options,
         lyrics_public_url=lyrics_public_url,
+        label_copy_public_url=_label_copy_public_url('SONG', s.id),
+        song_producer_rows=song_producer_rows,
+        song_cert_delivery=song_cert_delivery,
+        song_team_recipients=song_cert_delivery.get('team_recipients') or [],
+        song_cert_auto_open={
+            'open': bool((request.args.get('open_cert_notify') or '').strip()),
+            'certification_type': (request.args.get('certification_type') or '').strip().upper(),
+            'country_code': (request.args.get('country_code') or '').strip().upper(),
+        },
     )
     session_db.close()
     return response
@@ -11214,7 +11974,7 @@ def discografica_song_certification_save(song_id):
         return forbid("No tienes permisos para editar certificaciones.")
 
     cert_type = (request.form.get("certification_type") or "").strip().upper()
-    if cert_type not in _certification_catalog():
+    if cert_type not in _certification_catalog("SONG"):
         flash("Tipo de certificación no válido.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
 
@@ -11273,7 +12033,7 @@ def discografica_song_certification_save(song_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion", open_cert_notify=1, certification_type=cert_type, country_code=country["code"]))
 
 
 @app.post("/discografica/canciones/<song_id>/certifications/delete")
@@ -11302,17 +12062,6 @@ def discografica_song_certification_delete(song_id):
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
         for row in rows:
             session_db.delete(row)
-        session_db.flush()
-
-        album_material_rows = (
-            session_db.query(AlbumMaterial)
-            .filter(AlbumMaterial.album_id == album.id)
-            .order_by(AlbumMaterial.created_at.asc())
-            .all()
-        )
-        album_status = _ensure_album_status_row(session_db, album)
-        _refresh_album_material_status(session_db, album, material_rows=album_material_rows, status_obj=album_status)
-
         session_db.commit()
         flash("Certificación eliminada.", "success")
     except Exception as e:
@@ -11331,7 +12080,7 @@ def discografica_album_certification_save(album_id):
         return forbid("No tienes permisos para editar certificaciones.")
 
     cert_type = (request.form.get("certification_type") or "").strip().upper()
-    if cert_type not in _certification_catalog():
+    if cert_type not in _certification_catalog("ALBUM"):
         flash("Tipo de certificación no válido.", "warning")
         return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
 
@@ -11390,7 +12139,7 @@ def discografica_album_certification_save(album_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion", open_cert_notify=1, certification_type=cert_type, country_code=country["code"]))
 
 
 @app.post("/discografica/albumes/<album_id>/certifications/delete")
@@ -11427,6 +12176,446 @@ def discografica_album_certification_delete(album_id):
     finally:
         session_db.close()
 
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+
+def _notification_emails_from_form(form, checkbox_name: str = 'recipients', extra_name: str = 'extra_emails') -> list[str]:
+    values = []
+    values.extend(form.getlist(checkbox_name) or [])
+    extra = (form.get(extra_name) or '').strip()
+    if extra:
+        values.extend(re.split(r'[;,\n]+', extra))
+    return _dedupe_valid_email_addresses(values)
+
+
+@app.post("/discografica/canciones/<song_id>/certifications/notify")
+@admin_required
+def discografica_song_certification_notify(song_id):
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        cert_type = (request.form.get("certification_type") or "").strip().upper()
+        country_code = (request.form.get("country_code") or "").strip().upper()
+        groups = _group_certifications(
+            session_db.query(SongCertification)
+            .filter(SongCertification.song_id == song.id)
+            .order_by(SongCertification.created_at.asc())
+            .all(),
+            media_kind="SONG",
+        )
+        group = next((g for g in groups if g.get('certification_type') == cert_type and g.get('country_code') == country_code), None)
+        if not group:
+            flash("No se encontró la certificación seleccionada.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        delivery = _build_song_certification_delivery(session_db, song)
+        recipients = _notification_emails_from_form(request.form)
+        if request.form.get('notify_team'):
+            recipients = _dedupe_valid_email_addresses(recipients + (delivery.get('team_recipients') or []))
+        if not recipients:
+            flash("Selecciona al menos un correo válido para notificar.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        email_payload = _build_certification_notification_email(session_db, 'SONG', song, group, delivery.get('artist'))
+        ok, err = _send_optional_email(recipients, email_payload['subject'], email_payload['html_body'], email_payload.get('text_body'))
+        if ok:
+            flash("Notificación enviada correctamente.", "success")
+        else:
+            flash(err or "No se pudo enviar la notificación.", "warning")
+    except Exception as e:
+        flash(f"Error enviando la notificación: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/certifications/notify")
+@admin_required
+def discografica_album_certification_notify(album_id):
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+        cert_type = (request.form.get("certification_type") or "").strip().upper()
+        country_code = (request.form.get("country_code") or "").strip().upper()
+        groups = _group_certifications(
+            session_db.query(AlbumCertification)
+            .filter(AlbumCertification.album_id == album.id)
+            .order_by(AlbumCertification.created_at.asc())
+            .all(),
+            media_kind="ALBUM",
+        )
+        group = next((g for g in groups if g.get('certification_type') == cert_type and g.get('country_code') == country_code), None)
+        if not group:
+            flash("No se encontró la certificación seleccionada.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        delivery = _build_album_certification_delivery(session_db, album)
+        recipients = _notification_emails_from_form(request.form)
+        if request.form.get('notify_team'):
+            recipients = _dedupe_valid_email_addresses(recipients + (delivery.get('team_recipients') or []))
+        if not recipients:
+            flash("Selecciona al menos un correo válido para notificar.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        email_payload = _build_certification_notification_email(session_db, 'ALBUM', album, group, delivery.get('artist'))
+        ok, err = _send_optional_email(recipients, email_payload['subject'], email_payload['html_body'], email_payload.get('text_body'))
+        if ok:
+            flash("Notificación enviada correctamente.", "success")
+        else:
+            flash(err or "No se pudo enviar la notificación.", "warning")
+    except Exception as e:
+        flash(f"Error enviando la notificación: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.get("/discografica/canciones/<song_id>/label-copy/pdf")
+@admin_required
+def discografica_song_label_copy_pdf(song_id):
+    session_db = db()
+    try:
+        pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, song_id)
+        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f"No se pudo generar el Label Copy: {e}", "danger")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/song-label-copy/pdf")
+def public_song_label_copy_pdf():
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    sid_raw = (payload.get("sid") or "").strip()
+    try:
+        sid = to_uuid(sid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        try:
+            pdf_bytes, filename = _build_song_label_copy_pdf_bytes(session_db, sid)
+        except Exception:
+            abort(404)
+    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.get("/discografica/albumes/<album_id>/label-copy/pdf")
+@admin_required
+def discografica_album_label_copy_pdf(album_id):
+    session_db = db()
+    try:
+        pdf_bytes, filename = _build_album_label_copy_pdf_bytes(session_db, album_id)
+        return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f"No se pudo generar el Label Copy: {e}", "danger")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/album-label-copy/pdf")
+def public_album_label_copy_pdf():
+    payload = _parse_public_album_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    aid_raw = (payload.get("aid") or "").strip()
+    try:
+        aid = to_uuid(aid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        try:
+            pdf_bytes, filename = _build_album_label_copy_pdf_bytes(session_db, aid)
+        except Exception:
+            abort(404)
+    return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.post("/discografica/canciones/<song_id>/production-contracts/save")
+@admin_required
+def discografica_song_production_contract_save(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar contratos de producción.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        contract_id = (request.form.get('contract_id') or '').strip()
+        producer_name = (request.form.get('producer_name') or '').strip()
+        if not producer_name:
+            flash("Debes indicar el productor.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        contract = session_db.get(SongProductionContract, to_uuid(contract_id)) if contract_id else None
+        if contract_id and (not contract or contract.song_id != song.id):
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        if not contract:
+            contract = SongProductionContract(song_id=song.id)
+            session_db.add(contract)
+        contract.producer_name = producer_name
+        has_royalties = (request.form.get('has_royalties') or 'no').strip().lower() in ('1','true','yes','si','sí')
+        contract.has_royalties = has_royalties
+        pdf_file = request.files.get('contract_pdf')
+        if pdf_file and getattr(pdf_file, 'filename', ''):
+            contract.pdf_url = upload_pdf(pdf_file, 'production_contracts')
+            contract.original_name = (pdf_file.filename or '').strip() or contract.original_name
+        elif not getattr(contract, 'pdf_url', None):
+            flash("Debes subir un contrato en PDF.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        contract.updated_at = datetime.now(TZ_MADRID)
+        session_db.flush()
+        if has_royalties:
+            rows_payload = []
+            for nick, tax_id, contact_email, contact_phone, pct, base, profit_scope in zip(
+                request.form.getlist('benef_nick[]'),
+                request.form.getlist('benef_tax_id[]'),
+                request.form.getlist('benef_contact_email[]'),
+                request.form.getlist('benef_contact_phone[]'),
+                request.form.getlist('benef_pct[]'),
+                request.form.getlist('benef_base[]'),
+                request.form.getlist('benef_profit_scope[]'),
+            ):
+                if not (nick or '').strip():
+                    continue
+                rows_payload.append({
+                    'nick': nick,
+                    'tax_id': tax_id,
+                    'contact_email': contact_email,
+                    'contact_phone': contact_phone,
+                    'pct': pct,
+                    'base': base,
+                    'profit_scope': profit_scope,
+                })
+            _save_contract_royalty_rows(session_db, 'SONG', song.id, rows_payload)
+        _sync_song_production_contract_status(session_db, song)
+        session_db.commit()
+        flash("Contrato de producción guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando el contrato de producción: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.get("/discografica/canciones/<song_id>/production-contracts/<contract_id>/pdf")
+@admin_required
+def discografica_song_production_contract_pdf(song_id, contract_id):
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        contract = session_db.get(SongProductionContract, to_uuid(contract_id))
+        if not song or not contract or contract.song_id != song.id:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        data, _ = _download_remote_content(contract.pdf_url)
+        artist = _song_primary_artist(session_db, song)
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        filename = _safe_download_filename(f"contrato producción_{song.title}_{artist_name}.pdf", 'contrato_produccion_cancion.pdf')
+        return send_file(BytesIO(data), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f"No se pudo descargar el contrato: {e}", "danger")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/song-production-contract/pdf")
+def public_song_production_contract_download():
+    payload = _parse_public_song_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "PRODUCTION_CONTRACT":
+        abort(404)
+    try:
+        sid = to_uuid((payload.get('sid') or '').strip())
+        cid = to_uuid((payload.get('ref') or '').strip())
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        song = session_db.get(Song, sid)
+        contract = session_db.get(SongProductionContract, cid)
+        if not song or not contract or contract.song_id != song.id:
+            abort(404)
+        try:
+            data, _ = _download_remote_content(contract.pdf_url)
+        except Exception:
+            abort(404)
+        artist = _song_primary_artist(session_db, song)
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        filename = _safe_download_filename(f"contrato producción_{song.title}_{artist_name}.pdf", 'contrato_produccion_cancion.pdf')
+    return send_file(BytesIO(data), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.post("/discografica/canciones/<song_id>/production-contracts/<contract_id>/delete")
+@admin_required
+def discografica_song_production_contract_delete(song_id, contract_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para borrar contratos de producción.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        contract = session_db.get(SongProductionContract, to_uuid(contract_id))
+        if not song or not contract or contract.song_id != song.id:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+        session_db.delete(contract)
+        session_db.flush()
+        _sync_song_production_contract_status(session_db, song)
+        session_db.commit()
+        flash("Contrato eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el contrato: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+
+
+@app.post("/discografica/albumes/<album_id>/production-contracts/save")
+@admin_required
+def discografica_album_production_contract_save(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar contratos de producción.")
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        if not album:
+            flash("Álbum no encontrado.", "warning")
+            return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+        contract_id = (request.form.get('contract_id') or '').strip()
+        producer_name = (request.form.get('producer_name') or '').strip()
+        if not producer_name:
+            flash("Debes indicar el productor.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        contract = session_db.get(AlbumProductionContract, to_uuid(contract_id)) if contract_id else None
+        if contract_id and (not contract or contract.album_id != album.id):
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        if not contract:
+            contract = AlbumProductionContract(album_id=album.id)
+            session_db.add(contract)
+        contract.producer_name = producer_name
+        has_royalties = (request.form.get('has_royalties') or 'no').strip().lower() in ('1','true','yes','si','sí')
+        contract.has_royalties = has_royalties
+        pdf_file = request.files.get('contract_pdf')
+        if pdf_file and getattr(pdf_file, 'filename', ''):
+            contract.pdf_url = upload_pdf(pdf_file, 'production_contracts')
+            contract.original_name = (pdf_file.filename or '').strip() or contract.original_name
+        elif not getattr(contract, 'pdf_url', None):
+            flash("Debes subir un contrato en PDF.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        contract.updated_at = datetime.now(TZ_MADRID)
+        session_db.flush()
+        if has_royalties:
+            rows_payload = []
+            for nick, tax_id, contact_email, contact_phone, pct, base, profit_scope in zip(
+                request.form.getlist('benef_nick[]'),
+                request.form.getlist('benef_tax_id[]'),
+                request.form.getlist('benef_contact_email[]'),
+                request.form.getlist('benef_contact_phone[]'),
+                request.form.getlist('benef_pct[]'),
+                request.form.getlist('benef_base[]'),
+                request.form.getlist('benef_profit_scope[]'),
+            ):
+                if not (nick or '').strip():
+                    continue
+                rows_payload.append({
+                    'nick': nick,
+                    'tax_id': tax_id,
+                    'contact_email': contact_email,
+                    'contact_phone': contact_phone,
+                    'pct': pct,
+                    'base': base,
+                    'profit_scope': profit_scope,
+                })
+            _save_contract_royalty_rows(session_db, 'ALBUM', album.id, rows_payload)
+        _sync_album_production_contract_status(session_db, album)
+        session_db.commit()
+        flash("Contrato de producción guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando el contrato de producción: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+
+@app.get("/discografica/albumes/<album_id>/production-contracts/<contract_id>/pdf")
+@admin_required
+def discografica_album_production_contract_pdf(album_id, contract_id):
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        contract = session_db.get(AlbumProductionContract, to_uuid(contract_id))
+        if not album or not contract or contract.album_id != album.id:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        data, _ = _download_remote_content(contract.pdf_url)
+        artist = session_db.get(Artist, getattr(album, 'artist_id', None)) if getattr(album, 'artist_id', None) else None
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        filename = _safe_download_filename(f"contrato producción_{album.title}_{artist_name}.pdf", 'contrato_produccion_album.pdf')
+        return send_file(BytesIO(data), mimetype="application/pdf", as_attachment=True, download_name=filename)
+    except Exception as e:
+        flash(f"No se pudo descargar el contrato: {e}", "danger")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    finally:
+        session_db.close()
+
+
+@app.get("/public/album-production-contract/pdf")
+def public_album_production_contract_download():
+    payload = _parse_public_album_share_token(request.args.get("token"))
+    if not payload or (payload.get("kind") or "").upper() != "PRODUCTION_CONTRACT":
+        abort(404)
+    try:
+        aid = to_uuid((payload.get('aid') or '').strip())
+        cid = to_uuid((payload.get('ref') or '').strip())
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        album = session_db.get(Album, aid)
+        contract = session_db.get(AlbumProductionContract, cid)
+        if not album or not contract or contract.album_id != album.id:
+            abort(404)
+        try:
+            data, _ = _download_remote_content(contract.pdf_url)
+        except Exception:
+            abort(404)
+        artist = session_db.get(Artist, getattr(album, 'artist_id', None)) if getattr(album, 'artist_id', None) else None
+        artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+        filename = _safe_download_filename(f"contrato producción_{album.title}_{artist_name}.pdf", 'contrato_produccion_album.pdf')
+    return send_file(BytesIO(data), mimetype="application/pdf", as_attachment=True, download_name=filename)
+
+
+@app.post("/discografica/albumes/<album_id>/production-contracts/<contract_id>/delete")
+@admin_required
+def discografica_album_production_contract_delete(album_id, contract_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para borrar contratos de producción.")
+    session_db = db()
+    try:
+        album = session_db.get(Album, to_uuid(album_id))
+        contract = session_db.get(AlbumProductionContract, to_uuid(contract_id))
+        if not album or not contract or contract.album_id != album.id:
+            flash("Contrato no encontrado.", "warning")
+            return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+        session_db.delete(contract)
+        session_db.flush()
+        _sync_album_production_contract_status(session_db, album)
+        session_db.commit()
+        flash("Contrato eliminado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error eliminando el contrato: {e}", "danger")
+    finally:
+        session_db.close()
     return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
 
 
@@ -12000,6 +13189,7 @@ def discografica_album_detail(album_id):
     )
     album_status = _ensure_album_status_row(session_db, album)
     album_materials_status = _refresh_album_material_status(session_db, album, material_rows=materials, status_obj=album_status)
+    _sync_album_production_contract_status(session_db, album, status_obj=album_status)
     session_db.commit()
 
     material_groups = {"COVER": [], "DDP": [], "BODEGON": [], "PHYSICAL_DESIGN": []}
@@ -12062,8 +13252,44 @@ def discografica_album_detail(album_id):
         .order_by(AlbumCertification.created_at.asc())
         .all()
     )
-    album_cert_groups = _group_certifications(album_cert_rows)
+    album_cert_groups = _group_certifications(album_cert_rows, media_kind="ALBUM")
     country_options = _country_choices()
+    album_cert_delivery = _build_album_certification_delivery(session_db, album)
+    album_contracts = _contract_list_for_item(session_db, album, 'ALBUM')
+    album_contract_map = _contract_map_by_producer(album_contracts)
+    album_producer_rows = []
+    seen_album_producer_keys = set()
+    for producer_name in _album_producers_list(album):
+        key = _norm_text_key(producer_name)
+        if key in seen_album_producer_keys:
+            continue
+        seen_album_producer_keys.add(key)
+        rows = album_contract_map.get(key, [])
+        latest = rows[-1] if rows else None
+        album_producer_rows.append({
+            'name': producer_name,
+            'key': key,
+            'contracts': rows,
+            'latest_contract': latest,
+            'has_contract': bool(latest),
+            'share_url': _producer_contract_public_url('ALBUM', album.id, latest.id) if latest else '',
+        })
+    for row in album_contracts:
+        producer_name = (getattr(row, 'producer_name', None) or '').strip()
+        key = _norm_text_key(producer_name)
+        if not producer_name or key in seen_album_producer_keys:
+            continue
+        seen_album_producer_keys.add(key)
+        rows = album_contract_map.get(key, [])
+        latest = rows[-1] if rows else None
+        album_producer_rows.append({
+            'name': producer_name,
+            'key': key,
+            'contracts': rows,
+            'latest_contract': latest,
+            'has_contract': bool(latest),
+            'share_url': _producer_contract_public_url('ALBUM', album.id, latest.id) if latest else '',
+        })
 
     days_remaining = None
     if album.release_date and album.release_date > today_local():
@@ -12096,6 +13322,15 @@ def discografica_album_detail(album_id):
         contract_artists=contract_artists,
         album_cert_groups=album_cert_groups,
         country_options=country_options,
+        label_copy_public_url=_label_copy_public_url('ALBUM', album.id),
+        album_producer_rows=album_producer_rows,
+        album_cert_delivery=album_cert_delivery,
+        album_team_recipients=album_cert_delivery.get('team_recipients') or [],
+        album_cert_auto_open={
+            'open': bool((request.args.get('open_cert_notify') or '').strip()),
+            'certification_type': (request.args.get('certification_type') or '').strip().upper(),
+            'country_code': (request.args.get('country_code') or '').strip().upper(),
+        },
     )
     session_db.close()
     return response
@@ -12131,6 +13366,8 @@ def discografica_album_info_update(album_id):
             album.release_date = parse_date(rd)
 
         album.specifications = (request.form.get("specifications") or "").strip() or None
+        raw_album_producers = (request.form.get("producers") or "").replace("\r", "")
+        album.producers = [line.strip() for line in raw_album_producers.split("\n") if line.strip()] or None
         album.mastering_engineer = (request.form.get("mastering_engineer") or "").strip() or None
         album.edited_by = (request.form.get("edited_by") or "").strip() or "PIES Compañía Discográfica"
         album.distributed_by = (request.form.get("distributed_by") or "").strip() or None

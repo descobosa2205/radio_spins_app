@@ -74,6 +74,18 @@
         <div class="text-muted small">Ficha general del álbum y códigos de producto.</div>
       </div>
       <div class="d-flex gap-2 flex-wrap">
+        <div class="dropdown">
+          <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fa fa-share-alt"></i> Compartir LC
+          </button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}">Descargar en PDF</a></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por WhatsApp</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por correo</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por SMS</button></li>
+            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')">Copiar enlace</button></li>
+          </ul>
+        </div>
         {% if CAN_EDIT_DISCOGRAFICA %}
           {% if edit %}
             <form method="post" action="{{ url_for('discografica_album_delete', album_id=album.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar este álbum? Esta acción no se puede deshacer.');">
@@ -103,6 +115,12 @@
               title="{% if album_status and album_status.materials_updated_at %}{{ album_status.materials_updated_at.strftime('%d/%m/%Y') }}{% elif album_materials_status and album_materials_status.last_material_at %}{{ album_materials_status.last_material_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
           <i class="fa fa-box-open {{ album_materials_status.text_class if album_materials_status else ('text-success' if album_status and album_status.materials_done else 'text-danger') }}"></i>
           <span class="small">Materiales</span>
+        </span>
+
+        <span class="song-status-item" data-bs-toggle="tooltip"
+              title="{% if album_status and album_status.production_contract_updated_at %}{{ album_status.production_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
+          <i class="fa fa-file-signature {% if album_status and album_status.production_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
+          <span class="small">Contrato prod.</span>
         </span>
 
         {% if CAN_EDIT_DISCOGRAFICA %}
@@ -182,6 +200,12 @@
                   <div class="col-12">
                     <label class="form-label">Especificaciones</label>
                     <input name="specifications" class="form-control" value="{{ album.specifications or '' }}" placeholder="Etiqueta de texto opcional a cumplimentar">
+                  </div>
+
+                  <div class="col-12">
+                    <label class="form-label">Productores (1 por línea)</label>
+                    <textarea name="producers" class="form-control" rows="4">{% if album.producers %}{{ album.producers|join('
+') }}{% endif %}</textarea>
                   </div>
 
                   <div class="col-12">
@@ -350,6 +374,48 @@
                   <div class="small text-muted text-uppercase">Distribuido por</div>
                   <div>{{ album.distributed_by or '—' }}</div>
                 </div>
+                <div class="col-12">
+                  <div class="small text-muted text-uppercase">Productores</div>
+                  {% if album_producer_rows and (album_producer_rows|length) > 0 %}
+                    <div class="d-flex flex-column gap-2 mt-2">
+                      {% for row in album_producer_rows %}
+                        <div class="border rounded px-2 py-2 d-flex justify-content-between align-items-center gap-2 flex-wrap">
+                          <div class="d-flex align-items-center gap-2 flex-wrap">
+                            <span>{{ row.name }}</span>
+                            <i class="fa fa-file-signature {% if row.has_contract %}text-success{% else %}text-danger{% endif %}" title="{% if row.has_contract %}Contrato subido{% else %}Contrato pendiente{% endif %}"></i>
+                          </div>
+                          {% if CAN_EDIT_DISCOGRAFICA %}
+                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                              {% if row.has_contract %}
+                                <div class="dropdown">
+                                  <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
+                                  <ul class="dropdown-menu dropdown-menu-end">
+                                    <li><a class="dropdown-item" href="{{ url_for('discografica_album_production_contract_pdf', album_id=album.id, contract_id=row.latest_contract.id) }}">Descargar en PDF</a></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareByMail('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por Mail</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por WhatsApp</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareBySms('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por SMS</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ row.share_url }}')">Copiar enlace</button></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><button class="dropdown-item" type="button" onclick="openAlbumProductionContractModal('{{ row.name|e }}', '{{ row.latest_contract.id }}', '{{ 'yes' if row.latest_contract.has_royalties else 'no' }}')">Editar</button></li>
+                                    <li>
+                                      <form method="post" action="{{ url_for('discografica_album_production_contract_delete', album_id=album.id, contract_id=row.latest_contract.id) }}" onsubmit="return confirm('¿Eliminar este contrato de producción?');">
+                                        <button class="dropdown-item text-danger">Eliminar</button>
+                                      </form>
+                                    </li>
+                                  </ul>
+                                </div>
+                              {% else %}
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="openAlbumProductionContractModal('{{ row.name|e }}', '', 'no')"><i class="fa fa-upload"></i> Subir contrato</button>
+                              {% endif %}
+                            </div>
+                          {% endif %}
+                        </div>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <div>—</div>
+                  {% endif %}
+                </div>
                 <div class="col-12 col-md-4">
                   <div class="small text-muted text-uppercase">Fecha de publicación</div>
                   <div>{% if album.release_date %}{{ album.release_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</div>
@@ -471,6 +537,16 @@
                                       data-count="{{ group.count }}"
                                       onclick="openAlbumCertificationEdit(this)">
                                 Editar
+                              </button>
+                            </li>
+                            <li>
+                              <button type="button" class="dropdown-item album-cert-notify-btn"
+                                      data-cert-type="{{ group.certification_type }}"
+                                      data-country-code="{{ group.country_code }}"
+                                      data-display-title="{{ group.display_title_short }}"
+                                      data-summary="{{ group.summary }}"
+                                      onclick="openAlbumCertificationNotify(this)">
+                                Notificar
                               </button>
                             </li>
                             <li>
@@ -608,6 +684,150 @@
             </div>
           </form>
         </div>
+      <div class="modal fade" id="albumCertificationNotifyModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_album_certification_notify', album_id=album.id) }}">
+            <div class="modal-header">
+              <h5 class="modal-title">Notificar certificación</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="certification_type" id="albumCertNotifyType">
+              <input type="hidden" name="country_code" id="albumCertNotifyCountryCode">
+              <p class="mb-2">La certificación ya se ha guardado correctamente.</p>
+              <div class="alert alert-light border mb-3">
+                <div class="fw-semibold" id="albumCertNotifyTitle">Certificación</div>
+                <div class="small text-muted" id="albumCertNotifySummary"></div>
+              </div>
+              <div class="fw-semibold mb-2">Enviar a:</div>
+              {% if album_cert_delivery.email_options and (album_cert_delivery.email_options|length) > 0 %}
+                <div class="d-flex flex-column gap-2 mb-3">
+                  {% for option in album_cert_delivery.email_options %}
+                    <label class="form-check border rounded px-3 py-2">
+                      <input class="form-check-input me-2" type="checkbox" name="recipients" value="{{ option.email }}" {% if option.checked %}checked{% endif %}>
+                      <span class="fw-semibold">{{ option.email }}</span>
+                      <span class="text-muted small">· {{ option.label }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="text-muted small mb-3">No hay correos guardados en la ficha del artista.</div>
+              {% endif %}
+              <div class="mb-3">
+                <label class="form-label">Añadir más correos</label>
+                <textarea class="form-control" name="extra_emails" rows="3" placeholder="Puedes añadir varios separados por coma, punto y coma o salto de línea."></textarea>
+              </div>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" value="1" id="albumCertNotifyTeam" name="notify_team">
+                <label class="form-check-label" for="albumCertNotifyTeam">Notificar también a todo el equipo</label>
+              </div>
+              {% if album_team_recipients and (album_team_recipients|length) > 0 %}
+                <div class="small text-muted">Equipo: {{ album_team_recipients|join(', ') }}</div>
+              {% endif %}
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-paper-plane"></i> Enviar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="modal fade" id="albumProductionContractModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <form class="modal-content" method="post" action="{{ url_for('discografica_album_production_contract_save', album_id=album.id) }}" enctype="multipart/form-data">
+            <div class="modal-header">
+              <h5 class="modal-title" id="albumProductionContractModalTitle">Contrato de producción</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="contract_id" id="albumProductionContractId">
+              <div class="row g-3">
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Productor</label>
+                  <input class="form-control" name="producer_name" id="albumProductionContractProducer" readonly required>
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Contrato en PDF</label>
+                  <input type="file" class="form-control" name="contract_pdf" accept="application/pdf,.pdf">
+                  <div class="form-text">Si estás editando, solo súbelo de nuevo si quieres reemplazar el PDF actual.</div>
+                </div>
+              </div>
+              <hr>
+              <div class="mb-2 fw-semibold">¿El contrato tiene % de royalties?</div>
+              <div class="d-flex gap-3 flex-wrap mb-3">
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="has_royalties" id="albumContractHasRoyaltiesYes" value="yes">
+                  <label class="form-check-label" for="albumContractHasRoyaltiesYes">Sí</label>
+                </div>
+                <div class="form-check">
+                  <input class="form-check-input" type="radio" name="has_royalties" id="albumContractHasRoyaltiesNo" value="no" checked>
+                  <label class="form-check-label" for="albumContractHasRoyaltiesNo">No</label>
+                </div>
+              </div>
+              <div id="albumContractRoyaltyWrap" style="display:none;">
+                <div class="d-flex justify-content-between align-items-center gap-2 mb-2 flex-wrap">
+                  <div>
+                    <div class="fw-semibold">Beneficiarios de royalties</div>
+                    <div class="small text-muted">Puedes añadir varios beneficiarios sin salir del popup.</div>
+                  </div>
+                  <button type="button" class="btn btn-sm btn-outline-primary" onclick="addAlbumContractBeneficiaryRow()"><i class="fa fa-plus"></i> Añadir beneficiario</button>
+                </div>
+                <div id="albumContractBeneficiaries" class="d-flex flex-column gap-2"></div>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button class="btn btn-primary"><i class="fa fa-save"></i> Añadir</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <template id="albumContractBeneficiaryTemplate">
+        <div class="border rounded p-2 album-contract-beneficiary-row">
+          <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-4">
+              <label class="form-label">Nombre</label>
+              <input class="form-control" name="benef_nick[]" placeholder="Nombre o Nick">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Email</label>
+              <input class="form-control" name="benef_contact_email[]" placeholder="correo@ejemplo.com">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Teléfono</label>
+              <input class="form-control" name="benef_contact_phone[]" placeholder="Teléfono">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">CIF/DNI</label>
+              <input class="form-control" name="benef_tax_id[]" placeholder="CIF/DNI">
+            </div>
+            <div class="col-12 col-md-2">
+              <label class="form-label">%</label>
+              <input type="number" class="form-control" name="benef_pct[]" min="0" max="100" step="0.01" placeholder="0">
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Base</label>
+              <select class="form-select album-contract-base" name="benef_base[]" onchange="albumContractProfitScopeVisibility(this)">
+                <option value="GROSS">Bruto</option>
+                <option value="NET">Neto</option>
+                <option value="PROFIT">Beneficio</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-3 album-contract-profit-scope" style="display:none;">
+              <label class="form-label">Alcance beneficio</label>
+              <select class="form-select" name="benef_profit_scope[]">
+                <option value="CONCEPT_ONLY">Solo concepto</option>
+                <option value="CONCEPT_PLUS_GENERAL">Concepto + general</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-1 d-grid">
+              <button type="button" class="btn btn-outline-danger" onclick="this.closest('.album-contract-beneficiary-row').remove()"><i class="fa fa-times"></i></button>
+            </div>
+          </div>
+        </div>
+      </template>
       </div>
     {% endif %}
 
@@ -970,12 +1190,36 @@
   {% endif %}
 </div>
 
+
+<script>
+  function _shareUrl(mode, title, url){
+    const subject = encodeURIComponent(title || 'Compartir');
+    const body = encodeURIComponent((title ? title + '\\n\\n' : '') + (url || ''));
+    if (mode === 'mail') return window.open(`mailto:?subject=${subject}&body=${body}`, '_self');
+    if (mode === 'wa') return window.open(`https://wa.me/?text=${body}`, '_blank');
+    if (mode === 'sms') return window.open(`sms:?body=${body}`, '_self');
+  }
+  function shareByMail(title, url){ _shareUrl('mail', title, url); }
+  function shareByWhatsapp(title, url){ _shareUrl('wa', title, url); }
+  function shareBySms(title, url){ _shareUrl('sms', title, url); }
+  async function copyShareLink(url){
+    try {
+      await navigator.clipboard.writeText(url || '');
+      alert('Enlace copiado al portapapeles.');
+    } catch (e) {
+      window.prompt('Copia este enlace:', url || '');
+    }
+  }
+</script>
+
 {% if CAN_EDIT_DISCOGRAFICA %}
 <script>
   let _albumProductCodeModal;
   let _albumSongSearchModal;
   let _albumRoyaltyModal;
   let _albumSongSearchTimer;
+  let _albumCertificationNotifyModal;
+  let _albumProductionContractModal;
 
   function applyAlbumInfoEditState(){
     const noPhysical = document.getElementById('albumInfoNoPhysical');
@@ -1242,6 +1486,92 @@
     _albumCertificationModal.show();
   }
 
+  function resetAlbumCertificationNotifyModal(){
+    const title = document.getElementById('albumCertNotifyTitle');
+    const summary = document.getElementById('albumCertNotifySummary');
+    const type = document.getElementById('albumCertNotifyType');
+    const country = document.getElementById('albumCertNotifyCountryCode');
+    if (title) title.textContent = 'Certificación';
+    if (summary) summary.textContent = '';
+    if (type) type.value = '';
+    if (country) country.value = '';
+  }
+
+  function openAlbumCertificationNotify(btn){
+    resetAlbumCertificationNotifyModal();
+    document.getElementById('albumCertNotifyType').value = btn.dataset.certType || '';
+    document.getElementById('albumCertNotifyCountryCode').value = btn.dataset.countryCode || '';
+    document.getElementById('albumCertNotifyTitle').textContent = btn.dataset.displayTitle || 'Certificación';
+    document.getElementById('albumCertNotifySummary').textContent = btn.dataset.summary || '';
+    _albumCertificationNotifyModal = new bootstrap.Modal(document.getElementById('albumCertificationNotifyModal'));
+    _albumCertificationNotifyModal.show();
+  }
+
+  function albumContractProfitScopeVisibility(selectEl){
+    const row = selectEl?.closest('.album-contract-beneficiary-row');
+    if (!row) return;
+    const wrap = row.querySelector('.album-contract-profit-scope');
+    if (!wrap) return;
+    wrap.style.display = (selectEl.value === 'PROFIT') ? '' : 'none';
+  }
+
+  function addAlbumContractBeneficiaryRow(data){
+    const tpl = document.getElementById('albumContractBeneficiaryTemplate');
+    const container = document.getElementById('albumContractBeneficiaries');
+    if (!tpl || !container) return;
+    const node = tpl.content.firstElementChild.cloneNode(true);
+    const values = data || {};
+    node.querySelector('input[name="benef_nick[]"]').value = values.nick || '';
+    node.querySelector('input[name="benef_contact_email[]"]').value = values.contact_email || '';
+    node.querySelector('input[name="benef_contact_phone[]"]').value = values.contact_phone || '';
+    node.querySelector('input[name="benef_tax_id[]"]').value = values.tax_id || '';
+    node.querySelector('input[name="benef_pct[]"]').value = values.pct || '';
+    const base = node.querySelector('select[name="benef_base[]"]');
+    if (base) {
+      base.value = values.base || 'GROSS';
+      albumContractProfitScopeVisibility(base);
+    }
+    const scope = node.querySelector('select[name="benef_profit_scope[]"]');
+    if (scope) scope.value = values.profit_scope || 'CONCEPT_ONLY';
+    container.appendChild(node);
+  }
+
+  function updateAlbumContractRoyaltyVisibility(){
+    const show = document.getElementById('albumContractHasRoyaltiesYes')?.checked;
+    const wrap = document.getElementById('albumContractRoyaltyWrap');
+    if (wrap) wrap.style.display = show ? '' : 'none';
+    if (show && !document.querySelector('#albumContractBeneficiaries .album-contract-beneficiary-row')) {
+      addAlbumContractBeneficiaryRow();
+    }
+  }
+
+  function resetAlbumProductionContractModal(){
+    document.getElementById('albumProductionContractModalTitle').textContent = 'Contrato de producción';
+    document.getElementById('albumProductionContractId').value = '';
+    document.getElementById('albumProductionContractProducer').value = '';
+    const file = document.querySelector('#albumProductionContractModal input[name="contract_pdf"]');
+    if (file) file.value = '';
+    document.getElementById('albumContractHasRoyaltiesNo').checked = true;
+    document.getElementById('albumContractHasRoyaltiesYes').checked = false;
+    const beneficiaries = document.getElementById('albumContractBeneficiaries');
+    if (beneficiaries) beneficiaries.innerHTML = '';
+    updateAlbumContractRoyaltyVisibility();
+  }
+
+  function openAlbumProductionContractModal(producerName, contractId, hasRoyalties){
+    resetAlbumProductionContractModal();
+    document.getElementById('albumProductionContractProducer').value = producerName || '';
+    document.getElementById('albumProductionContractId').value = contractId || '';
+    if (contractId) document.getElementById('albumProductionContractModalTitle').textContent = 'Editar contrato de producción';
+    if ((hasRoyalties || '').toLowerCase() === 'yes') {
+      document.getElementById('albumContractHasRoyaltiesYes').checked = true;
+      document.getElementById('albumContractHasRoyaltiesNo').checked = false;
+    }
+    updateAlbumContractRoyaltyVisibility();
+    _albumProductionContractModal = new bootstrap.Modal(document.getElementById('albumProductionContractModal'));
+    _albumProductionContractModal.show();
+  }
+
   document.addEventListener('DOMContentLoaded', () => {
     ['albumInfoNoPhysical', 'albumInfoTypeOwn', 'albumInfoTypeDist'].forEach(id => {
       const el = document.getElementById(id);
@@ -1271,6 +1601,18 @@
     if (baseSel) {
       baseSel.addEventListener('change', albumRoyBenBaseVisibility);
       albumRoyBenBaseVisibility();
+    }
+
+    ['albumContractHasRoyaltiesYes', 'albumContractHasRoyaltiesNo'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('change', updateAlbumContractRoyaltyVisibility);
+    });
+    updateAlbumContractRoyaltyVisibility();
+
+    const autoAlbumCert = {{ album_cert_auto_open|tojson }};
+    if (autoAlbumCert && autoAlbumCert.open) {
+      const btn = document.querySelector('.album-cert-notify-btn[data-cert-type="' + (autoAlbumCert.certification_type || '') + '"][data-country-code="' + (autoAlbumCert.country_code || '') + '"]');
+      if (btn) setTimeout(() => openAlbumCertificationNotify(btn), 250);
     }
   });
 </script>

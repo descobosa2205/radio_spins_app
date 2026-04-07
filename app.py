@@ -44,6 +44,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 from difflib import SequenceMatcher
 from collections import defaultdict
+from types import SimpleNamespace
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
 # PDF (informe de ventas)
@@ -22366,6 +22367,38 @@ def _resolve_request_resource_key() -> str | None:
     return _infer_group_key_from_path(request.path)
 
 
+def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | None:
+    if not profile:
+        return None
+    return SimpleNamespace(
+        user_id=str(getattr(profile, "user_id", "") or ""),
+        nick=(getattr(profile, "nick", None) or "").strip(),
+        photo_url=(getattr(profile, "photo_url", None) or "").strip(),
+        first_name=(getattr(profile, "first_name", None) or "").strip(),
+        last_name=(getattr(profile, "last_name", None) or "").strip(),
+        dni=(getattr(profile, "dni", None) or "").strip(),
+        birth_date=getattr(profile, "birth_date", None),
+        mobile_phones=list(getattr(profile, "mobile_phones", None) or []),
+        departments=list(getattr(profile, "departments", None) or []),
+        legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
+    )
+
+
+def _snapshot_user_security(security: UserSecurity | None) -> SimpleNamespace | None:
+    if not security:
+        return None
+    return SimpleNamespace(
+        user_id=str(getattr(security, "user_id", "") or ""),
+        is_blocked=bool(getattr(security, "is_blocked", False)),
+        blocked_at=getattr(security, "blocked_at", None),
+        is_deleted=bool(getattr(security, "is_deleted", False)),
+        deleted_at=getattr(security, "deleted_at", None),
+        last_login_at=getattr(security, "last_login_at", None),
+        password_last_changed_at=getattr(security, "password_last_changed_at", None),
+        password_reset_sent_at=getattr(security, "password_reset_sent_at", None),
+    )
+
+
 def _current_user_state() -> dict:
     cached = getattr(g, "_current_user_state", None)
     if cached is not None:
@@ -22404,17 +22437,19 @@ def _current_user_state() -> dict:
                 "can_view_econ": bool(grant.can_view_econ),
                 "can_edit": bool(grant.can_edit),
             }
+        profile_snapshot = _snapshot_user_profile(profile)
+        security_snapshot = _snapshot_user_security(security)
         state.update({
             "user_id": str(user.id),
             "email": (user.email or "").strip(),
             "role": int(getattr(user, "role", 10) or 10),
-            "profile": profile,
-            "security": security,
+            "profile": profile_snapshot,
+            "security": security_snapshot,
             "grants": grants,
-            "nick": (getattr(profile, "nick", None) or _email_to_nick(user.email or "")).strip(),
-            "departments": list(getattr(profile, "departments", None) or []),
-            "photo_url": (getattr(profile, "photo_url", None) or "").strip(),
-            "full_name": _profile_full_name(profile),
+            "nick": (getattr(profile_snapshot, "nick", None) or _email_to_nick(user.email or "")).strip(),
+            "departments": list(getattr(profile_snapshot, "departments", None) or []),
+            "photo_url": (getattr(profile_snapshot, "photo_url", None) or "").strip(),
+            "full_name": _profile_full_name(profile_snapshot),
         })
         g._current_user_state = state
         return state

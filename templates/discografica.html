@@ -6,42 +6,62 @@
 </div>
 
 <ul class="nav nav-tabs mb-3">
-  <li class="nav-item">
-    <a class="nav-link {% if section=='lanzamientos' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='lanzamientos') }}">
-      Lanzamientos
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if section=='canciones' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
-      Repertorio
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if section=='royalties' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='royalties') }}">
-      Royalties
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if section=='editorial' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='editorial') }}">
-      Editorial
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if section=='ingresos' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='ingresos') }}">
-      Ingresos
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if section=='isrc' %}active{% endif %}"
-       href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio') }}">
-      ISRC
-    </a>
-  </li>
+  {% if has_access_key('discografica.lanzamientos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='lanzamientos' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='lanzamientos') }}">
+        Lanzamientos
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.canciones', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='canciones' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
+        Repertorio
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.royalties', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='royalties' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='royalties') }}">
+        Royalties
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.editorial', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='editorial' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='editorial') }}">
+        Editorial
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.registros', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='registros' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='registros') }}">
+        Registros
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.ingresos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='ingresos' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='ingresos') }}">
+        Ingresos
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('discografica.isrc', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if section=='isrc' %}active{% endif %}"
+         href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio') }}">
+        ISRC
+      </a>
+    </li>
+  {% endif %}
 </ul>
 
 {% if section == 'lanzamientos' %}

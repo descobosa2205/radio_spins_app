@@ -1,304 +1,124 @@
 {% extends "layout.html" %}
 {% block content %}
-
-{#
-  Dashboard por roles:
-  - No mostramos acciones que el rol no puede usar.
-  - Priorizamos (visual) la parte que cada rol usa más.
-#}
-
 <div class="dash-hero mb-4">
-  <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
-    <div class="d-flex align-items-center gap-3">
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES" class="dash-hero__logo">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+    <div class="d-flex align-items-center gap-3 flex-wrap">
+      <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
       <div>
-        {% if ROLE == 2 %}
-          <h3 class="dash-hero__title">Panel de Radio</h3>
-          <p class="dash-hero__subtitle">Edición de tocadas + consulta global</p>
-        {% elif ROLE == 3 %}
-          <h3 class="dash-hero__title">Panel de Ventas</h3>
-          <p class="dash-hero__subtitle">Edición de ventas + economía habilitada</p>
-        {% elif ROLE in (5, 6) %}
-          <h3 class="dash-hero__title">Panel de Conciertos</h3>
-          <p class="dash-hero__subtitle">Gestión de conciertos y bases de datos</p>
-        {% elif ROLE == 4 %}
-          <h3 class="dash-hero__title">Panel de Consulta</h3>
-          <p class="dash-hero__subtitle">Acceso completo en modo lectura (incluye economía)</p>
-        {% elif ROLE == 10 %}
-          <h3 class="dash-hero__title">Panel Master</h3>
-          <p class="dash-hero__subtitle">Acceso total a la aplicación</p>
-        {% else %}
-          <h3 class="dash-hero__title">Panel de Consulta</h3>
-          <p class="dash-hero__subtitle">Acceso en modo lectura</p>
+        <h2 class="dash-hero__title mb-1">{{ CURRENT_USER.nick if CURRENT_USER else 'Back Office' }}</h2>
+        <div class="text-muted">{{ CURRENT_USER.email if CURRENT_USER else '' }}</div>
+        {% if CURRENT_USER and CURRENT_USER.departments %}
+          <div class="d-flex flex-wrap gap-1 mt-2">
+            {% for dept in CURRENT_USER.departments %}
+              <span class="badge text-bg-light border">{{ dept }}</span>
+            {% endfor %}
+          </div>
         {% endif %}
-        <div class="small text-muted">Rol {{ ROLE }} · {{ ROLE_LABEL }}</div>
       </div>
     </div>
-
     <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
       {% if CAN_VIEW_ECON %}
-        <span class="badge text-bg-success"><i class="fa fa-euro-sign me-1"></i> Economía visible</span>
+        <span class="badge text-bg-success"><i class="fa fa-euro-sign me-1"></i> Datos económicos visibles</span>
       {% else %}
-        <span class="badge text-bg-secondary"><i class="fa fa-eye-slash me-1"></i> Vista general ventas</span>
+        <span class="badge text-bg-secondary"><i class="fa fa-eye-slash me-1"></i> Vista sin economía</span>
       {% endif %}
-      {% if CAN_EDIT_RADIO %}<span class="badge text-bg-primary">Edición radio</span>{% endif %}
-      {% if CAN_EDIT_SALES %}<span class="badge text-bg-primary">Edición ventas</span>{% endif %}
-      {% if CAN_EDIT_CONCERTS %}<span class="badge text-bg-primary">Edición conciertos</span>{% endif %}
-      {% if CAN_EDIT_CATALOGS %}<span class="badge text-bg-primary">Edición BBDD</span>{% endif %}
+      <span class="badge text-bg-light border">{{ HOME_SECTIONS|length }} áreas activas</span>
     </div>
   </div>
 </div>
 
-
-{# =========================
-   Acciones rápidas (rol-dependiente)
-   ========================= #}
-
-{% set show_quick = CAN_EDIT_RADIO or CAN_EDIT_SALES or CAN_EDIT_CONCERTS or CAN_EDIT_CATALOGS or IS_MASTER %}
-{% if show_quick %}
-  <div class="d-flex align-items-center justify-content-between mb-2">
-    <h5 class="dash-section-title m-0">Acciones rápidas</h5>
+<div class="row g-4 mb-4">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div>
+            <h5 class="mb-0">Enlaces rápidos</h5>
+            <div class="small text-muted">Funciones que más has usado en las últimas semanas.</div>
+          </div>
+        </div>
+        {% if HOME_QUICK_LINKS %}
+          <div class="row g-3">
+            {% for item in HOME_QUICK_LINKS %}
+              <div class="col-12 col-md-6">
+                <a href="{{ item.url }}" class="text-decoration-none">
+                  <div class="dash-tile h-100">
+                    <div class="d-flex align-items-center gap-3">
+                      <div class="dash-tile__icon"><i class="fa {{ item.icon }}"></i></div>
+                      <div>
+                        <div class="dash-tile__title">{{ item.label }}</div>
+                        <div class="dash-tile__text">
+                          {% if item.count %}{{ item.count }} accesos recientes{% else %}Acceso directo{% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </a>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">Todavía no hay suficiente uso reciente para destacar accesos rápidos.</div>
+        {% endif %}
+      </div>
+    </div>
   </div>
-
-  <div class="row g-3 mb-4">
-
-    {% if CAN_EDIT_RADIO %}
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('plays_view') }}" class="text-decoration-none">
-        <div class="dash-tile">
-          <div class="d-flex align-items-center gap-3">
-            <div class="dash-tile__icon"><i class="fa fa-broadcast-tower"></i></div>
-            <div>
-              <p class="dash-tile__title">Actualizar tocadas</p>
-              <p class="dash-tile__text">Carga semanal por emisora</p>
+  <div class="col-12 col-xl-5">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="mb-1">Actividad del Back Office</h5>
+        <div class="small text-muted mb-3">Accesos disponibles para tu usuario en esta versión.</div>
+        <div class="row g-3">
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-card__label">Medios</div>
+              <div class="metric-card__value">{{ SECTION_STATS.media or 0 }}</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-card__label">Bolsas activas</div>
+              <div class="metric-card__value">{{ SECTION_STATS.bags_active or 0 }}</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-card__label">Facturas</div>
+              <div class="metric-card__value">{{ SECTION_STATS.invoices or 0 }}</div>
+            </div>
+          </div>
+          <div class="col-6">
+            <div class="metric-card">
+              <div class="metric-card__label">Usuarios</div>
+              <div class="metric-card__value">{{ SECTION_STATS.users or 0 }}</div>
             </div>
           </div>
         </div>
-      </a>
+      </div>
     </div>
-    {% endif %}
-
-    {% if CAN_EDIT_SALES %}
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('sales_update_view') }}" class="text-decoration-none">
-        <div class="dash-tile">
-          <div class="d-flex align-items-center gap-3">
-            <div class="dash-tile__icon"><i class="fa fa-pen"></i></div>
-            <div>
-              <p class="dash-tile__title">Actualizar ventas</p>
-              <p class="dash-tile__text">Entradas vendidas por día</p>
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endif %}
-
-    {% if CAN_EDIT_CONCERTS %}
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('concerts_view', tab='alta') }}" class="text-decoration-none">
-        <div class="dash-tile">
-          <div class="d-flex align-items-center gap-3">
-            <div class="dash-tile__icon"><i class="fa fa-plus"></i></div>
-            <div>
-              <p class="dash-tile__title">Alta de concierto</p>
-              <p class="dash-tile__text">Crear un nuevo evento</p>
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endif %}
-
-    {% if CAN_EDIT_CATALOGS %}
-    <div class="col-12 col-md-6 col-lg-4">
-      <a href="{{ url_for('artists_view') }}" class="text-decoration-none">
-        <div class="dash-tile">
-          <div class="d-flex align-items-center gap-3">
-            <div class="dash-tile__icon"><i class="fa fa-database"></i></div>
-            <div>
-              <p class="dash-tile__title">Editar bases de datos</p>
-              <p class="dash-tile__text">Artistas, recintos, ticketeras…</p>
-            </div>
-          </div>
-        </div>
-      </a>
-    </div>
-    {% endif %}
-
   </div>
+</div>
+
+<h5 class="dash-section-title mb-3">Tus áreas</h5>
+{% if HOME_SECTIONS %}
+  <div class="row g-3">
+    {% for section in HOME_SECTIONS %}
+      <div class="col-12 col-md-6 col-xl-4">
+        <a href="{{ section.url }}" class="text-decoration-none">
+          <div class="dash-tile h-100">
+            <div class="d-flex align-items-center gap-3">
+              <div class="dash-tile__icon"><i class="fa {{ section.icon }}"></i></div>
+              <div>
+                <div class="dash-tile__title">{{ section.label }}</div>
+                <div class="dash-tile__text">Acceso directo a la sección</div>
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="alert alert-light border">Tu usuario todavía no tiene áreas asignadas. Puedes iniciar sesión y permanecer en inicio hasta que se te concedan permisos.</div>
 {% endif %}
-
-
-{# =========================
-   Reportes (para todos)
-   ========================= #}
-
-<h5 class="dash-section-title mb-2">Reportes</h5>
-<div class="row g-3 mb-4">
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('summary_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-chart-simple"></i></div>
-          <div>
-            <p class="dash-tile__title">Reporte de radios</p>
-            <p class="dash-tile__text">Evolución semanal por emisoras</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('sales_report_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-chart-line"></i></div>
-          <div>
-            <p class="dash-tile__title">Reporte de ventas</p>
-            <p class="dash-tile__text">Resumen y evolución{% if CAN_VIEW_ECON %} (con economía){% else %} (Vista general){% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('quadrantes_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-table"></i></div>
-          <div>
-            <p class="dash-tile__title">Cuadrantes</p>
-            <p class="dash-tile__text">Planificación y consulta</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-</div>
-
-
-{# =========================
-   Gestión / Catálogos
-   ========================= #}
-
-<h5 class="dash-section-title mb-2">Gestión</h5>
-<div class="row g-3">
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('concerts_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-music"></i></div>
-          <div>
-            <p class="dash-tile__title">Conciertos</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CONCERTS %}Alta y edición{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('artists_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-user-group"></i></div>
-          <div>
-            <p class="dash-tile__title">Artistas</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('discografica_view', section='canciones') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-compact-disc"></i></div>
-          <div>
-            <p class="dash-tile__title">Discográfica</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('promoters_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-handshake"></i></div>
-          <div>
-            <p class="dash-tile__title">Terceros</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('stations_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-radio"></i></div>
-          <div>
-            <p class="dash-tile__title">Emisoras</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('venues_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-city"></i></div>
-          <div>
-            <p class="dash-tile__title">Recintos</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('ticketers_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-ticket"></i></div>
-          <div>
-            <p class="dash-tile__title">Ticketeras</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-  <div class="col-12 col-md-6 col-lg-4">
-    <a href="{{ url_for('companies_view') }}" class="text-decoration-none">
-      <div class="dash-tile">
-        <div class="d-flex align-items-center gap-3">
-          <div class="dash-tile__icon"><i class="fa fa-building"></i></div>
-          <div>
-            <p class="dash-tile__title">Empresas del grupo</p>
-            <p class="dash-tile__text">{% if CAN_EDIT_CATALOGS %}Gestión{% else %}Consulta{% endif %}</p>
-          </div>
-        </div>
-      </div>
-    </a>
-  </div>
-
-</div>
-
 {% endblock %}

@@ -1,0 +1,216 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">Personal</h3>
+    <div class="text-muted">Gestión de usuarios, departamentos y accesos del Back Office.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
+    <i class="fa fa-plus me-1"></i> Añadir usuario
+  </button>
+</div>
+
+<div class="row g-3">
+  {% for user, profile, security in users %}
+    {% set photo = (profile.photo_url if profile else None) or url_for('static', filename='img/logo.png') %}
+    {% set nick = (profile.nick if profile else None) or user.email.split('@')[0] %}
+    {% set departments = profile.departments if profile and profile.departments else [] %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="card h-100 personnel-card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+            <a href="{{ url_for('personnel_detail_view', user_id=user.id) }}" class="d-flex gap-3 text-decoration-none text-dark flex-grow-1">
+              <img src="{{ photo }}" alt="{{ nick }}" class="personnel-card__avatar">
+              <div class="flex-grow-1">
+                <div class="fw-semibold">{{ nick }}</div>
+                <div class="small text-muted">{{ user.email }}</div>
+                {% if security and security.is_blocked %}
+                  <span class="badge text-bg-danger mt-2">Bloqueado</span>
+                {% endif %}
+              </div>
+            </a>
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item trigger-password-view" data-password-url="{{ url_for('personnel_user_password_view', user_id=user.id) }}" data-user-label="{{ nick }}">Ver contraseña</button></li>
+                <li>
+                  <form method="post" action="{{ url_for('personnel_user_password_send_reset', user_id=user.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <button class="dropdown-item">Enviar recuperación</button>
+                  </form>
+                </li>
+                <li>
+                  <form method="post" action="{{ url_for('personnel_user_password_regenerate', user_id=user.id) }}">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <button class="dropdown-item">Crear nueva contraseña</button>
+                  </form>
+                </li>
+                <li><hr class="dropdown-divider"></li>
+                {% if security and security.is_blocked %}
+                  <li>
+                    <form method="post" action="{{ url_for('personnel_user_unblock', user_id=user.id) }}">
+                      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                      <button class="dropdown-item">Desbloquear usuario</button>
+                    </form>
+                  </li>
+                {% else %}
+                  <li>
+                    <form method="post" action="{{ url_for('personnel_user_block', user_id=user.id) }}">
+                      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                      <button class="dropdown-item">Bloquear usuario</button>
+                    </form>
+                  </li>
+                {% endif %}
+                <li>
+                  <form method="post" action="{{ url_for('personnel_user_delete', user_id=user.id) }}" onsubmit="return confirm('¿Seguro que quieres eliminar este usuario?');">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <button class="dropdown-item text-danger">Eliminar usuario</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          </div>
+          {% if departments %}
+            <div class="d-flex flex-wrap gap-1">
+              {% for dept in departments %}
+                <span class="badge text-bg-light border">{{ dept }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="small text-muted">Sin departamento asignado</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% else %}
+    <div class="col-12"><div class="alert alert-light border">No hay usuarios creados todavía.</div></div>
+  {% endfor %}
+</div>
+
+<div class="modal fade" id="newUserModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nuevo usuario</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Nick *</label>
+              <input type="text" name="nick" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email *</label>
+              <input type="email" name="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Nombre</label>
+              <input type="text" name="first_name" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Apellidos</label>
+              <input type="text" name="last_name" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">DNI</label>
+              <input type="text" name="dni" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" name="birth_date" class="form-control">
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Foto</label>
+              <input type="file" name="photo" class="form-control" accept="image/*">
+            </div>
+            <div class="col-12">
+              <label class="form-label d-block">Departamentos</label>
+              <div class="row g-2">
+                {% for dept in PERSONNEL_DEPARTMENTS %}
+                  <div class="col-6 col-md-4 col-lg-3">
+                    <label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2">{{ dept }}</label>
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="col-12">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <label class="form-label m-0">Teléfonos móviles</label>
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="addPhoneRow"><i class="fa fa-plus me-1"></i>Añadir móvil</button>
+              </div>
+              <div id="phoneRows">
+                <div class="row g-2 phone-row mb-2">
+                  <div class="col-md-4"><input type="text" name="phone_label" class="form-control" placeholder="Título"></div>
+                  <div class="col-md-8"><input type="text" name="phone_value" class="form-control" placeholder="Número"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear usuario</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="passwordViewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Contraseña actual</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2" id="passwordViewUserLabel"></div>
+        <div class="password-preview-box" id="passwordViewValue">—</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const phoneRows = document.getElementById('phoneRows');
+  const addPhoneRow = document.getElementById('addPhoneRow');
+  if (addPhoneRow && phoneRows) {
+    addPhoneRow.addEventListener('click', function(){
+      const row = document.createElement('div');
+      row.className = 'row g-2 phone-row mb-2';
+      row.innerHTML = '<div class="col-md-4"><input type="text" name="phone_label" class="form-control" placeholder="Título"></div><div class="col-md-7"><input type="text" name="phone_value" class="form-control" placeholder="Número"></div><div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-phone-row"><i class="fa fa-trash"></i></button></div>';
+      phoneRows.appendChild(row);
+    });
+    phoneRows.addEventListener('click', function(ev){
+      const btn = ev.target.closest('.remove-phone-row');
+      if (!btn) return;
+      btn.closest('.phone-row')?.remove();
+    });
+  }
+
+  const passwordModal = document.getElementById('passwordViewModal');
+  const passwordLabel = document.getElementById('passwordViewUserLabel');
+  const passwordValue = document.getElementById('passwordViewValue');
+  document.querySelectorAll('.trigger-password-view').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      passwordLabel.textContent = btn.dataset.userLabel || '';
+      passwordValue.textContent = 'Cargando...';
+      const modal = new bootstrap.Modal(passwordModal);
+      modal.show();
+      try {
+        const res = await fetch(btn.dataset.passwordUrl, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
+        const data = await res.json();
+        passwordValue.textContent = data.password || data.message || 'No disponible';
+      } catch (err) {
+        passwordValue.textContent = 'No se pudo cargar la contraseña.';
+      }
+    });
+  });
+})();
+</script>
+{% endblock %}

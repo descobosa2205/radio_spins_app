@@ -39,48 +39,62 @@
 </div>
 
 <ul class="nav nav-tabs mb-3">
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='datos' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-      Datos del artista
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='contratos' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
-      Contratos
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='conciertos' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='conciertos') }}">
-      Conciertos
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='discografica' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica') }}">
-      Discográfica
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='agenda' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='agenda') }}">
-      Agenda
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='promocion' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='promocion') }}">
-      Promoción
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link {% if tab=='liquidaciones' %}active{% endif %}"
-       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='liquidaciones') }}">
-      Liquidaciones
-    </a>
-  </li>
+  {% if has_access_key('artists.datos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='datos' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+        Datos del artista
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.contratos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='contratos' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='contratos') }}">
+        Contratos
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.conciertos', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='conciertos' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='conciertos') }}">
+        Conciertos
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.discografica', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='discografica' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='discografica') }}">
+        Discográfica
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.agenda', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='agenda' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='agenda') }}">
+        Agenda
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.promocion', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='promocion' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='promocion') }}">
+        Promoción
+      </a>
+    </li>
+  {% endif %}
+  {% if has_access_key('artists.liquidaciones', include_descendants=True) %}
+    <li class="nav-item">
+      <a class="nav-link {% if tab=='liquidaciones' %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='liquidaciones') }}">
+        Liquidaciones
+      </a>
+    </li>
+  {% endif %}
 </ul>
 
 {# ===================== TAB: DATOS ===================== #}

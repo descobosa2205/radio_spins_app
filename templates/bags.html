@@ -1,0 +1,67 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">Bolsas</h3>
+    <div class="text-muted">Seguimiento de bolsas activas y archivadas generadas a lo largo de la app.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newBagModal"><i class="fa fa-plus me-1"></i>Nueva bolsa</button>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {% if tab=='active' %}active{% endif %}" href="{{ url_for('bags_view', tab='active') }}">Bolsas activas</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab=='archived' %}active{% endif %}" href="{{ url_for('bags_view', tab='archived') }}">Bolsas archivadas</a></li>
+</ul>
+
+<form method="get" class="card card-body mb-4">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-3"><label class="form-label">Artista</label><select name="artist" class="form-select"><option value="">Todos</option>{% for artist in artists %}<option value="{{ artist.id }}" {% if filter_artist == (artist.id|string) %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">Año</label><select name="year" class="form-select"><option value="">Todos</option>{% for year in years %}<option value="{{ year }}" {% if filter_year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Empresa del grupo</label><select name="company" class="form-select"><option value="">Todas</option>{% for company in companies %}<option value="{{ company.id }}" {% if filter_company == (company.id|string) %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">Desde</label><input type="date" name="start" class="form-control" value="{{ filter_start }}"></div>
+    <div class="col-md-2"><label class="form-label">Hasta</label><input type="date" name="end" class="form-control" value="{{ filter_end }}"></div>
+    <div class="col-md-8"><label class="form-label">Buscar</label><input type="text" name="q" class="form-control" value="{{ filter_q }}" placeholder="Título, estado, descripción..."></div>
+    <div class="col-md-4 d-flex justify-content-end gap-2"><a href="{{ url_for('bags_view', tab=tab) }}" class="btn btn-outline-secondary">Limpiar</a><button class="btn btn-primary">Filtrar</button></div>
+  </div>
+</form>
+
+<div class="list-group">
+  {% for bag in bags %}
+    <a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="list-group-item list-group-item-action">
+      <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap">
+        <div>
+          <div class="fw-semibold">{{ bag.title }}</div>
+          <div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · {{ bag.company.name if bag.company else 'Sin empresa' }}</div>
+          <div class="small text-muted">{{ bag.start_date.strftime('%d/%m/%Y') if bag.start_date else 'Sin inicio' }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}</div>
+        </div>
+        <span class="badge text-bg-light border">{{ bag.status }}</span>
+      </div>
+    </a>
+  {% else %}
+    <div class="alert alert-light border">No hay bolsas en esta pestaña.</div>
+  {% endfor %}
+</div>
+
+<div class="modal fade" id="newBagModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post">
+        <div class="modal-header"><h5 class="modal-title">Nueva bolsa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" required></div>
+            <div class="col-md-3"><label class="form-label">Artista</label><select name="artist_id" class="form-select"><option value="">Sin artista</option>{% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Empresa del grupo</label><select name="company_id" class="form-select"><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Inicio</label><input type="date" name="start_date" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label">Fin</label><input type="date" name="end_date" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select">{% for option in bag_status_options %}<option value="{{ option }}">{{ option }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label">Descripción</label><textarea name="description" class="form-control" rows="3"></textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Crear bolsa</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

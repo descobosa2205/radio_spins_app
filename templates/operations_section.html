@@ -1,0 +1,72 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">{{ title }}</h3>
+    <div class="text-muted">{{ subtitle }}</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  {% for card in cards %}
+    <div class="col-12 col-md-6">
+      <a href="{{ card.url }}" class="text-decoration-none">
+        <div class="dash-tile h-100">
+          <div class="d-flex align-items-center gap-3">
+            <div class="dash-tile__icon"><i class="fa {{ card.icon }}"></i></div>
+            <div>
+              <div class="dash-tile__title">{{ card.title }}</div>
+              <div class="small text-muted">{{ card.description }}</div>
+              <div class="h3 mt-2 mb-0 text-dark">{{ card.value }}</div>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+  {% endfor %}
+</div>
+
+<div class="row g-4">
+  <div class="col-12 col-lg-7">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="mb-3">{{ recent_title }}</h5>
+        {% if recent_items %}
+          <div class="list-group list-group-flush">
+            {% for item in recent_items %}
+              <a href="{{ item.url }}" class="list-group-item list-group-item-action px-0">
+                <div class="fw-semibold">{{ item.title }}</div>
+                <div class="small text-muted">{{ item.subtitle }}</div>
+                {% if item.badge %}
+                  <span class="badge text-bg-light border mt-2">{{ item.badge }}</span>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">Todavía no hay elementos recientes en esta sección.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="mb-3">{{ secondary_title or 'Accesos rápidos' }}</h5>
+        {% if secondary_items %}
+          <div class="list-group list-group-flush">
+            {% for item in secondary_items %}
+              <a href="{{ item.url }}" class="list-group-item list-group-item-action px-0">
+                <div class="fw-semibold">{{ item.title }}</div>
+                <div class="small text-muted">{{ item.subtitle }}</div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">No hay elementos adicionales para mostrar en esta vista.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

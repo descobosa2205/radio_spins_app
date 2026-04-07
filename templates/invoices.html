@@ -1,0 +1,184 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">Facturas</h3>
+    <div class="text-muted">Centralización de facturas recibidas y emitidas.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newInvoiceModal"><i class="fa fa-plus me-1"></i>Nueva factura</button>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  {% for value, label in invoice_kinds %}
+    <li class="nav-item"><a class="nav-link {% if tab == value %}active{% endif %}" href="{{ url_for('invoices_view', tab=value) }}">{{ label }}</a></li>
+  {% endfor %}
+</ul>
+
+<form method="get" class="card card-body mb-4">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="row g-3 align-items-end">
+    <div class="col-md-3"><label class="form-label">Artista</label><select name="artist" class="form-select"><option value="">Todos</option>{% for artist in artists %}<option value="{{ artist.id }}" {% if filter_artist == (artist.id|string) %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">Año</label><select name="year" class="form-select"><option value="">Todos</option>{% for year in years %}<option value="{{ year }}" {% if filter_year == year %}selected{% endif %}>{{ year }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Empresa</label><select name="company" class="form-select"><option value="">Todas</option>{% for company in companies %}<option value="{{ company.id }}" {% if filter_company == (company.id|string) %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">Estado</label><select name="status" class="form-select"><option value="">Todos</option>{% for status in invoice_status_options %}<option value="{{ status }}" {% if filter_status == status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label">Desde</label><input type="date" name="start" class="form-control" value="{{ filter_start }}"></div>
+    <div class="col-md-2"><label class="form-label">Hasta</label><input type="date" name="end" class="form-control" value="{{ filter_end }}"></div>
+    <div class="col-md-6"><label class="form-label">Buscar</label><input type="text" name="q" class="form-control" value="{{ filter_q }}" placeholder="Número, tercero, bolsa, notas..."></div>
+    <div class="col-md-4 d-flex justify-content-end gap-2"><a href="{{ url_for('invoices_view', tab=tab) }}" class="btn btn-outline-secondary">Limpiar</a><button class="btn btn-primary">Filtrar</button></div>
+  </div>
+</form>
+
+<div class="table-responsive">
+  <table class="table align-middle bg-white">
+    <thead>
+      <tr>
+        <th>Número</th>
+        <th>Tercero / proveedor</th>
+        <th>Fecha</th>
+        <th>Estado</th>
+        <th>Bolsa</th>
+        <th class="text-end">Importe</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for invoice in invoices %}
+        <tr class="invoice-row" data-bs-toggle="modal" data-bs-target="#invoicePreviewModal" data-number="{{ invoice.invoice_number }}" data-third-party="{{ invoice.third_party_name }}" data-date="{{ invoice.issue_date.strftime('%d/%m/%Y') if invoice.issue_date else '—' }}" data-status="{{ invoice.status }}" data-bag="{{ invoice.bag.title if invoice.bag else 'Sin bolsa' }}" data-notes="{{ invoice.notes or '' }}" data-pdf="{{ invoice.pdf_url or '' }}">
+          <td>{{ invoice.invoice_number }}</td>
+          <td>{{ invoice.third_party_name }}</td>
+          <td>{{ invoice.issue_date.strftime('%d/%m/%Y') if invoice.issue_date else '—' }}</td>
+          <td><span class="badge text-bg-light border">{{ invoice.status }}</span></td>
+          <td>{{ invoice.bag.title if invoice.bag else 'Sin asignar' }}</td>
+          <td class="text-end">{{ invoice.total_amount | eur }}</td>
+          <td class="text-end" onclick="event.stopPropagation();">
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="{{ invoice.pdf_url }}" target="_blank">Descargar factura en PDF</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="mailto:?subject=Factura {{ invoice.invoice_number }}&body={{ invoice.pdf_url|urlencode }}">Compartir por Mail</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ invoice.pdf_url|urlencode }}">Compartir por WhatsApp</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="sms:?body={{ invoice.pdf_url|urlencode }}">Compartir por SMS</a></li>{% endif %}
+                {% if invoice.bag %}<li><a class="dropdown-item" href="{{ url_for('bag_detail_view', bag_id=invoice.bag.id) }}">Ver bolsa</a></li>{% endif %}
+                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#assignBagModal" data-invoice-id="{{ invoice.id }}" data-current-bag="{{ invoice.bag_id or '' }}">{% if invoice.bag %}Cambiar bolsa{% else %}Asignar a una bolsa{% endif %}</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('invoice_delete', invoice_id=invoice.id) }}" onsubmit="return confirm('¿Eliminar factura?');">
+                    <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                    <button class="dropdown-item text-danger">Eliminar</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="7"><div class="alert alert-light border my-2">No hay facturas con los filtros seleccionados.</div></td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal fade" id="newInvoiceModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header"><h5 class="modal-title">Nueva factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Tipo</label><select name="invoice_kind" class="form-select">{% for value, label in invoice_kinds %}<option value="{{ value }}" {% if value == tab %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Número de factura</label><input type="text" name="invoice_number" class="form-control" required></div>
+            <div class="col-md-3"><label class="form-label">Tercero o proveedor</label><input type="text" name="third_party_name" class="form-control" required></div>
+            <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select">{% for status in invoice_status_options %}<option value="{{ status }}">{{ status }}</option>{% endfor %}</select></div>
+            <div class="col-md-3"><label class="form-label">Fecha de emisión</label><input type="date" name="issue_date" class="form-control" required></div>
+            <div class="col-md-3"><label class="form-label">Fecha de vencimiento</label><input type="date" name="due_date" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label">Importe</label><input type="number" step="0.01" name="total_amount" class="form-control"></div>
+            <div class="col-md-3"><label class="form-label">PDF</label><input type="file" name="pdf" class="form-control" accept="application/pdf"></div>
+            <div class="col-md-4"><label class="form-label">Artista</label><select name="artist_id" class="form-select"><option value="">Sin artista</option>{% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}</select></div>
+            <div class="col-md-4"><label class="form-label">Empresa del grupo</label><select name="company_id" class="form-select"><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}">{{ company.name }}</option>{% endfor %}</select></div>
+            <div class="col-md-4"><label class="form-label">Bolsa</label><select name="bag_id" class="form-select"><option value="">Sin bolsa</option>{% for bag in bags %}<option value="{{ bag.id }}">{{ bag.title }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label">Notas</label><textarea name="notes" class="form-control" rows="3"></textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar factura</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="assignBagModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" id="assignBagForm">
+        <div class="modal-header"><h5 class="modal-title">Asignar a bolsa</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+          <label class="form-label">Selecciona una bolsa</label>
+          <select name="bag_id" class="form-select">
+            <option value="">Sin bolsa</option>
+            {% for bag in bags %}<option value="{{ bag.id }}">{{ bag.title }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="invoicePreviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Vista de factura</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-3"><div class="small text-muted">Número</div><div class="fw-semibold" data-field="number"></div></div>
+          <div class="col-md-3"><div class="small text-muted">Tercero</div><div class="fw-semibold" data-field="third-party"></div></div>
+          <div class="col-md-2"><div class="small text-muted">Fecha</div><div class="fw-semibold" data-field="date"></div></div>
+          <div class="col-md-2"><div class="small text-muted">Estado</div><div class="fw-semibold" data-field="status"></div></div>
+          <div class="col-md-2"><div class="small text-muted">Bolsa</div><div class="fw-semibold" data-field="bag"></div></div>
+        </div>
+        <div class="mb-3"><div class="small text-muted">Notas</div><div data-field="notes"></div></div>
+        <div data-field="pdf-wrap" class="d-none">
+          <iframe data-field="pdf" class="invoice-preview-frame"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const assignModal = document.getElementById('assignBagModal');
+  const assignForm = document.getElementById('assignBagForm');
+  assignModal?.addEventListener('show.bs.modal', function(ev){
+    const btn = ev.relatedTarget;
+    if (!btn) return;
+    assignForm.action = '{{ url_for("invoice_assign_bag", invoice_id="__ID__") }}'.replace('__ID__', btn.dataset.invoiceId);
+    const select = assignForm.querySelector('select[name="bag_id"]');
+    if (select) select.value = btn.dataset.currentBag || '';
+  });
+
+  const previewModal = document.getElementById('invoicePreviewModal');
+  previewModal?.addEventListener('show.bs.modal', function(ev){
+    const row = ev.relatedTarget;
+    if (!row) return;
+    previewModal.querySelector('[data-field="number"]').textContent = row.dataset.number || '—';
+    previewModal.querySelector('[data-field="third-party"]').textContent = row.dataset.thirdParty || '—';
+    previewModal.querySelector('[data-field="date"]').textContent = row.dataset.date || '—';
+    previewModal.querySelector('[data-field="status"]').textContent = row.dataset.status || '—';
+    previewModal.querySelector('[data-field="bag"]').textContent = row.dataset.bag || '—';
+    previewModal.querySelector('[data-field="notes"]').textContent = row.dataset.notes || 'Sin notas';
+    const pdfWrap = previewModal.querySelector('[data-field="pdf-wrap"]');
+    const frame = previewModal.querySelector('[data-field="pdf"]');
+    if (row.dataset.pdf) {
+      pdfWrap.classList.remove('d-none');
+      frame.src = row.dataset.pdf;
+    } else {
+      pdfWrap.classList.add('d-none');
+      frame.src = '';
+    }
+  });
+})();
+</script>
+{% endblock %}

@@ -23,14 +23,18 @@
   <div>
     <h4 class="mb-2">Conciertos</h4>
     <ul class="nav nav-tabs">
-      <li class="nav-item"><a class="nav-link {% if active_tab == 'vista' %}active{% endif %}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
-      <li class="nav-item"><a class="nav-link {% if active_tab == 'facturacion' %}active{% endif %}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-      {% if CAN_EDIT_CONCERTS %}
+      {% if has_access_key('concerts.vista', include_descendants=True) %}
+        <li class="nav-item"><a class="nav-link {% if active_tab == 'vista' %}active{% endif %}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+      {% endif %}
+      {% if has_access_key('concerts.facturacion', include_descendants=True) %}
+        <li class="nav-item"><a class="nav-link {% if active_tab == 'facturacion' %}active{% endif %}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+      {% endif %}
+      {% if CAN_EDIT_CONCERTS and has_access_key('concerts.alta', include_descendants=True) %}
         <li class="nav-item"><a class="nav-link {% if active_tab == 'alta' %}active{% endif %}" href="{{ url_for('concerts_view', tab='alta') }}">Formulario clásico</a></li>
       {% endif %}
     </ul>
   </div>
-  {% if CAN_EDIT_CONCERTS and active_tab != 'alta' %}
+  {% if CAN_EDIT_CONCERTS and has_access_key('concerts.alta', include_descendants=True) and active_tab != 'alta' %}
     <div class="d-flex gap-2">
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
         <i class="fa fa-plus"></i> Alta concierto

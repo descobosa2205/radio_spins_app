@@ -52,12 +52,12 @@
 
 <ul class="nav nav-tabs mt-3">
   {% set tabs = [
-    ('informacion','Información'),
-    ('canciones','Canciones'),
-    ('materiales','Materiales'),
-    ('beneficiarios','Beneficiarios')
+    ('informacion','Información','discografica.canciones'),
+    ('canciones','Canciones','discografica.canciones'),
+    ('materiales','Materiales','discografica.canciones'),
+    ('beneficiarios','Beneficiarios','discografica.royalties')
   ] %}
-  {% for k, label in tabs %}
+  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_album_detail', album_id=album.id, tab=k) }}">{{ label }}</a>
     </li>

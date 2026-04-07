@@ -1,0 +1,147 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('personnel_view') }}" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Volver</a>
+  {% if security and security.is_blocked %}<span class="badge text-bg-danger">Bloqueado</span>{% endif %}
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <img src="{{ profile.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="Foto usuario">
+    <div class="flex-grow-1">
+      <h3 class="m-0">{{ profile.nick }}</h3>
+      <div class="small text-muted">{{ user.email }}</div>
+      {% if profile.departments %}
+        <div class="d-flex flex-wrap gap-1 mt-2">
+          {% for dept in profile.departments %}
+            <span class="badge text-bg-light border">{{ dept }}</span>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {% if tab=='accesos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='accesos') }}">Accesos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab=='datos' %}active{% endif %}" href="{{ url_for('personnel_detail_view', user_id=user.id, tab='datos') }}">Datos</a></li>
+</ul>
+
+{% if tab == 'datos' %}
+  <div class="card">
+    <div class="card-body">
+      <form method="post" enctype="multipart/form-data">
+        <input type="hidden" name="mode" value="datos">
+        <div class="row g-3">
+          <div class="col-md-6"><label class="form-label">Nick</label><input type="text" name="nick" class="form-control" value="{{ profile.nick }}" required></div>
+          <div class="col-md-6"><label class="form-label">Email</label><input type="email" name="email" class="form-control" value="{{ user.email }}" required></div>
+          <div class="col-md-6"><label class="form-label">Nombre</label><input type="text" name="first_name" class="form-control" value="{{ profile.first_name or '' }}"></div>
+          <div class="col-md-6"><label class="form-label">Apellidos</label><input type="text" name="last_name" class="form-control" value="{{ profile.last_name or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">DNI</label><input type="text" name="dni" class="form-control" value="{{ profile.dni or '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Fecha de nacimiento</label><input type="date" name="birth_date" class="form-control" value="{{ profile.birth_date.isoformat() if profile.birth_date else '' }}"></div>
+          <div class="col-md-4"><label class="form-label">Foto</label><input type="file" name="photo" class="form-control" accept="image/*"></div>
+          <div class="col-12">
+            <label class="form-label d-block">Departamentos</label>
+            <div class="row g-2">
+              {% for dept in PERSONNEL_DEPARTMENTS %}
+                <div class="col-6 col-md-4 col-lg-3"><label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2" {% if dept in (profile.departments or []) %}checked{% endif %}>{{ dept }}</label></div>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <label class="form-label m-0">Teléfonos móviles</label>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="addPhoneRowDetail"><i class="fa fa-plus me-1"></i>Añadir móvil</button>
+            </div>
+            <div id="phoneRowsDetail">
+              {% for phone in profile.mobile_phones or [] %}
+                <div class="row g-2 phone-row mb-2">
+                  <div class="col-md-4"><input type="text" name="phone_label" class="form-control" value="{{ phone.label or phone['label'] if phone else '' }}" placeholder="Título"></div>
+                  <div class="col-md-7"><input type="text" name="phone_value" class="form-control" value="{{ phone.phone or phone['phone'] if phone else '' }}" placeholder="Número"></div>
+                  <div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-phone-row"><i class="fa fa-trash"></i></button></div>
+                </div>
+              {% else %}
+                <div class="row g-2 phone-row mb-2">
+                  <div class="col-md-4"><input type="text" name="phone_label" class="form-control" placeholder="Título"></div>
+                  <div class="col-md-7"><input type="text" name="phone_value" class="form-control" placeholder="Número"></div>
+                  <div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-phone-row"><i class="fa fa-trash"></i></button></div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 d-flex justify-content-end"><button class="btn btn-primary">Guardar cambios</button></div>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body">
+      <form method="post">
+        <input type="hidden" name="mode" value="accesos">
+        <div class="table-responsive">
+          <table class="table align-middle access-table">
+            <thead>
+              <tr>
+                <th>Sección / pestaña</th>
+                <th class="text-center">Ver sin datos económicos</th>
+                <th class="text-center">Ver con datos económicos</th>
+                <th class="text-center">Editar</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for group in access_rows %}
+                {% set section = group.section %}
+                {% set grant = grants.get(section.key) %}
+                <tr class="table-light">
+                  <td><div class="fw-semibold">{{ section.label }}</div></td>
+                  <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ section.key }}__view" value="1" {% if grant and grant.can_view_basic %}checked{% endif %}></td>
+                  <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ section.key }}__econ" value="1" {% if grant and grant.can_view_econ %}checked{% endif %} {% if not section.economic_capable %}disabled{% endif %}></td>
+                  <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ section.key }}__edit" value="1" {% if grant and grant.can_edit %}checked{% endif %}></td>
+                </tr>
+                {% for item in group.children %}
+                  {% set g = grants.get(item.key) %}
+                  <tr>
+                    <td>
+                      <div class="ps-{{ 2 if item.level == 'TAB' else 4 }} {{ 'text-muted' if item.level == 'SUBTAB' else '' }}">
+                        {% if item.level == 'SUBTAB' %}<i class="fa fa-caret-right me-1 text-muted"></i>{% endif %}
+                        {{ item.label }}
+                      </div>
+                    </td>
+                    <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ item.key }}__view" value="1" {% if g and g.can_view_basic %}checked{% endif %}></td>
+                    <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ item.key }}__econ" value="1" {% if g and g.can_view_econ %}checked{% endif %} {% if not item.economic_capable %}disabled{% endif %}></td>
+                    <td class="text-center"><input type="checkbox" class="form-check-input permission-check" name="perm__{{ item.key }}__edit" value="1" {% if g and g.can_edit %}checked{% endif %}></td>
+                  </tr>
+                {% endfor %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex justify-content-end mt-3"><button class="btn btn-primary">Guardar accesos</button></div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const wrap = document.getElementById('phoneRowsDetail');
+  const addBtn = document.getElementById('addPhoneRowDetail');
+  if (wrap && addBtn) {
+    addBtn.addEventListener('click', function(){
+      const row = document.createElement('div');
+      row.className = 'row g-2 phone-row mb-2';
+      row.innerHTML = '<div class="col-md-4"><input type="text" name="phone_label" class="form-control" placeholder="Título"></div><div class="col-md-7"><input type="text" name="phone_value" class="form-control" placeholder="Número"></div><div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-phone-row"><i class="fa fa-trash"></i></button></div>';
+      wrap.appendChild(row);
+    });
+    wrap.addEventListener('click', function(ev){
+      const btn = ev.target.closest('.remove-phone-row');
+      if (!btn) return;
+      btn.closest('.phone-row')?.remove();
+    });
+  }
+})();
+</script>
+{% endblock %}

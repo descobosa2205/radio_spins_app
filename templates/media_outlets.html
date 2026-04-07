@@ -1,0 +1,141 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">Medios</h3>
+    <div class="text-muted">Base de datos de medios y contactos para la sección de promoción.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newMediaModal"><i class="fa fa-plus me-1"></i>Añadir medio</button>
+</div>
+
+<form class="card card-body mb-4" method="get">
+  <div class="row g-3 align-items-end">
+    <div class="col-12 col-lg-6">
+      <label class="form-label">Buscar</label>
+      <input type="text" name="q" value="{{ query_text }}" class="form-control" placeholder="Nombre, tipo, dirección...">
+    </div>
+    <div class="col-12 col-lg-6">
+      <label class="form-label d-block">Tipo de medio</label>
+      <div class="d-flex flex-wrap gap-2">
+        {% for media_type in media_types %}
+          <label class="border rounded-pill px-3 py-2 bg-light-subtle"><input type="checkbox" class="form-check-input me-2" name="type" value="{{ media_type }}" {% if media_type in selected_types %}checked{% endif %}>{{ media_type }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="col-12 d-flex justify-content-end gap-2">
+      <a href="{{ url_for('media_outlets_view') }}" class="btn btn-outline-secondary">Limpiar</a>
+      <button class="btn btn-primary">Filtrar</button>
+    </div>
+  </div>
+</form>
+
+<div class="row g-3">
+  {% for outlet in media_rows %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <a href="{{ url_for('media_outlet_detail_view', media_id=outlet.id) }}" class="text-decoration-none text-dark">
+        <div class="card media-card h-100">
+          <div class="card-body d-flex gap-3 align-items-center">
+            <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" alt="{{ outlet.name }}" class="media-card__logo">
+            <div>
+              <div class="fw-semibold">{{ outlet.name }}</div>
+              <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
+              <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+  {% else %}
+    <div class="col-12"><div class="alert alert-light border">No hay medios que coincidan con los filtros.</div></div>
+  {% endfor %}
+</div>
+
+<div class="modal fade" id="newMediaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data" id="newMediaForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Nuevo medio</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="media-step" data-step="1">
+            <h6 class="mb-3">1. ¿Qué tipo de medio es?</h6>
+            <div class="row g-3">
+              {% for media_type in media_types %}
+                <div class="col-6 col-md-4 col-lg-2">
+                  <label class="border rounded p-3 w-100 text-center bg-light-subtle h-100"><input type="radio" class="form-check-input d-block mx-auto mb-2" name="media_type" value="{{ media_type }}" {% if loop.first %}checked{% endif %}>{{ media_type }}</label>
+                </div>
+              {% endfor %}
+              <div class="col-md-6"><label class="form-label">Nombre del medio</label><input type="text" name="name" class="form-control" required></div>
+              <div class="col-md-6"><label class="form-label">Logotipo PNG</label><input type="file" name="logo" class="form-control" accept="image/png"></div>
+              <div class="col-12"><label class="form-label">Dirección</label><input type="text" name="address" class="form-control"></div>
+            </div>
+          </div>
+          <div class="media-step d-none" data-step="2">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="m-0">2. Contactos del medio</h6>
+              <button type="button" class="btn btn-sm btn-outline-secondary" id="addMediaContactRow"><i class="fa fa-plus me-1"></i>Añadir contacto</button>
+            </div>
+            <div id="mediaContactRows">
+              <div class="row g-2 media-contact-row mb-2">
+                <div class="col-md-3"><input type="text" name="contact_program" class="form-control" placeholder="Programa"></div>
+                <div class="col-md-2"><input type="text" name="contact_role" class="form-control" placeholder="Cargo"></div>
+                <div class="col-md-2"><input type="text" name="contact_first_name" class="form-control" placeholder="Nombre"></div>
+                <div class="col-md-2"><input type="text" name="contact_last_name" class="form-control" placeholder="Apellidos"></div>
+                <div class="col-md-1"><input type="text" name="contact_phone" class="form-control" placeholder="Tel."></div>
+                <div class="col-md-2"><input type="email" name="contact_email" class="form-control" placeholder="Email"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <div>
+            <button type="button" class="btn btn-outline-secondary d-none" id="mediaPrevStep">Volver</button>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-primary" id="mediaNextStep">Siguiente</button>
+            <button type="submit" class="btn btn-primary d-none" id="mediaSubmitButton">Crear medio</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const form = document.getElementById('newMediaForm');
+  if (!form) return;
+  let currentStep = 1;
+  const nextBtn = document.getElementById('mediaNextStep');
+  const prevBtn = document.getElementById('mediaPrevStep');
+  const submitBtn = document.getElementById('mediaSubmitButton');
+  const steps = form.querySelectorAll('.media-step');
+  function syncSteps(){
+    steps.forEach((step) => step.classList.toggle('d-none', Number(step.dataset.step) !== currentStep));
+    prevBtn.classList.toggle('d-none', currentStep === 1);
+    nextBtn.classList.toggle('d-none', currentStep === 2);
+    submitBtn.classList.toggle('d-none', currentStep !== 2);
+  }
+  nextBtn?.addEventListener('click', () => { currentStep = 2; syncSteps(); });
+  prevBtn?.addEventListener('click', () => { currentStep = 1; syncSteps(); });
+  syncSteps();
+
+  const rowsWrap = document.getElementById('mediaContactRows');
+  document.getElementById('addMediaContactRow')?.addEventListener('click', function(){
+    const row = document.createElement('div');
+    row.className = 'row g-2 media-contact-row mb-2';
+    row.innerHTML = '<div class="col-md-3"><input type="text" name="contact_program" class="form-control" placeholder="Programa"></div><div class="col-md-2"><input type="text" name="contact_role" class="form-control" placeholder="Cargo"></div><div class="col-md-2"><input type="text" name="contact_first_name" class="form-control" placeholder="Nombre"></div><div class="col-md-2"><input type="text" name="contact_last_name" class="form-control" placeholder="Apellidos"></div><div class="col-md-1"><input type="text" name="contact_phone" class="form-control" placeholder="Tel."></div><div class="col-md-1"><input type="email" name="contact_email" class="form-control" placeholder="Email"></div><div class="col-md-1 d-grid"><button type="button" class="btn btn-outline-danger remove-media-contact"><i class="fa fa-trash"></i></button></div>';
+    rowsWrap.appendChild(row);
+  });
+  rowsWrap?.addEventListener('click', function(ev){
+    const btn = ev.target.closest('.remove-media-contact');
+    if (!btn) return;
+    btn.closest('.media-contact-row')?.remove();
+  });
+})();
+</script>
+{% endblock %}

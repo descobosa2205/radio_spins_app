@@ -1606,6 +1606,240 @@ class ConcertEquipmentNote(Base):
 # ==============================
 
 
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+
+    user_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    nick = Column(Text, nullable=False)
+    photo_url = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    dni = Column(Text)
+    birth_date = Column(Date)
+    mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    legacy_permissions_seeded = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+
+class UserSecurity(Base):
+    __tablename__ = "user_security"
+
+    user_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    is_blocked = Column(Boolean, nullable=False, server_default=text("false"))
+    blocked_at = Column(DateTime(timezone=True))
+    is_deleted = Column(Boolean, nullable=False, server_default=text("false"))
+    deleted_at = Column(DateTime(timezone=True))
+    password_preview = Column(Text)
+    password_last_changed_at = Column(DateTime(timezone=True))
+    password_reset_sent_at = Column(DateTime(timezone=True))
+    last_login_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+
+class UserAccessResource(Base):
+    __tablename__ = "user_access_resources"
+
+    key = Column(Text, primary_key=True)
+    parent_key = Column(Text, ForeignKey("user_access_resources.key", ondelete="CASCADE"))
+    section_key = Column(Text, nullable=False)
+    label = Column(Text, nullable=False)
+    level = Column(Text, nullable=False, server_default=text("'SECTION'"))
+    economic_capable = Column(Boolean, nullable=False, server_default=text("false"))
+    route_hint = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserAccessGrant(Base):
+    __tablename__ = "user_access_grants"
+
+    user_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    resource_key = Column(
+        Text,
+        ForeignKey("user_access_resources.key", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    can_view_basic = Column(Boolean, nullable=False, server_default=text("false"))
+    can_view_econ = Column(Boolean, nullable=False, server_default=text("false"))
+    can_edit = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+    resource = relationship("UserAccessResource")
+
+
+class UserActivityLog(Base):
+    __tablename__ = "user_activity_logs"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    resource_key = Column(Text)
+    endpoint = Column(Text)
+    path = Column(Text)
+    method = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+
+    __table_args__ = (
+        Index("idx_user_activity_logs_user_created", "user_id", "created_at"),
+        Index("idx_user_activity_logs_resource", "resource_key"),
+    )
+
+
+class MediaOutlet(Base):
+    __tablename__ = "media_outlets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    media_type = Column(Text, nullable=False)
+    name = Column(Text, nullable=False)
+    logo_url = Column(Text)
+    address = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    contacts = relationship(
+        "MediaContact",
+        back_populates="media",
+        cascade="all, delete-orphan",
+        order_by="MediaContact.created_at",
+    )
+    history_rows = relationship(
+        "MediaPromotionRecord",
+        back_populates="media",
+        cascade="all, delete-orphan",
+        order_by="MediaPromotionRecord.promoted_at.desc()",
+    )
+
+    __table_args__ = (
+        Index("idx_media_outlets_type_name", "media_type", "name"),
+    )
+
+
+class MediaContact(Base):
+    __tablename__ = "media_contacts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
+    program = Column(Text)
+    role = Column(Text)
+    first_name = Column(Text)
+    last_name = Column(Text)
+    phone = Column(Text)
+    email = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    media = relationship("MediaOutlet", back_populates="contacts")
+
+    __table_args__ = (
+        Index("idx_media_contacts_media_id", "media_id"),
+    )
+
+
+class MediaPromotionRecord(Base):
+    __tablename__ = "media_promotion_records"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    promotion_title = Column(Text)
+    program_name = Column(Text)
+    promoted_at = Column(Date, nullable=False)
+    artist_performed = Column(Boolean, nullable=False, server_default=text("false"))
+    performed_song = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    media = relationship("MediaOutlet", back_populates="history_rows")
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        Index("idx_media_promotion_records_media_date", "media_id", "promoted_at"),
+        Index("idx_media_promotion_records_artist_date", "artist_id", "promoted_at"),
+    )
+
+
+class WorkflowBag(Base):
+    __tablename__ = "workflow_bags"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    title = Column(Text, nullable=False)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    start_date = Column(Date)
+    end_date = Column(Date)
+    description = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVA'"))
+    is_archived = Column(Boolean, nullable=False, server_default=text("false"))
+    archived_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    company = relationship("GroupCompany")
+
+    __table_args__ = (
+        Index("idx_workflow_bags_archived", "is_archived", "start_date"),
+        Index("idx_workflow_bags_artist_company", "artist_id", "company_id"),
+    )
+
+
+class InvoiceRecord(Base):
+    __tablename__ = "invoice_records"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    invoice_kind = Column(Text, nullable=False)
+    invoice_number = Column(Text, nullable=False)
+    third_party_name = Column(Text, nullable=False)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    issue_date = Column(Date, nullable=False)
+    due_date = Column(Date)
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    total_amount = Column(Numeric, nullable=False, server_default=text("0"))
+    pdf_url = Column(Text)
+    original_name = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    company = relationship("GroupCompany")
+    bag = relationship("WorkflowBag")
+
+    __table_args__ = (
+        Index("idx_invoice_records_kind_date", "invoice_kind", "issue_date"),
+        Index("idx_invoice_records_status", "status"),
+        Index("idx_invoice_records_company_artist", "company_id", "artist_id"),
+    )
+
+
 def ensure_artist_feature_schema():
     """Asegura que existan las tablas nuevas del apartado *Artistas*.
 
@@ -2911,6 +3145,12 @@ def ensure_concert_artwork_schema():
                 continue
             conn.exec_driver_sql(s)
 
+
+
+
+def ensure_personnel_and_operations_schema():
+    """Crea tablas de Personal y nuevas bases de datos operativas."""
+    Base.metadata.create_all(bind=engine)
 
 def init_db():
     Base.metadata.create_all(bind=engine)

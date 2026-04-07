@@ -91,16 +91,16 @@
 <!-- Pestañas ficha -->
 <ul class="nav nav-tabs mt-3">
   {% set tabs = [
-    ('informacion','Información'),
-    ('editorial','Editorial'),
-    ('materiales','Materiales'),
-    ('royalties','Royalties'),
-    ('ingresos','Ingresos'),
-    ('gastos','Gastos'),
-    ('promocion','Promoción'),
-    ('radio','Radio')
+    ('informacion','Información','discografica.canciones'),
+    ('editorial','Editorial','discografica.editorial'),
+    ('materiales','Materiales','discografica.canciones'),
+    ('royalties','Royalties','discografica.royalties'),
+    ('ingresos','Ingresos','discografica.ingresos'),
+    ('gastos','Gastos','contabilidad'),
+    ('promocion','Promoción','promocion'),
+    ('radio','Radio','radio.reportes')
   ] %}
-  {% for k, label in tabs %}
+  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
     </li>

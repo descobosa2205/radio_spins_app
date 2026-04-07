@@ -1,0 +1,173 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('media_outlets_view') }}" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Volver</a>
+  <form method="post" action="{{ url_for('media_outlet_delete', media_id=outlet.id) }}" onsubmit="return confirm('¿Eliminar este medio?');">
+    <button class="btn btn-outline-danger">Eliminar</button>
+  </form>
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="{{ outlet.name }}">
+    <div class="flex-grow-1">
+      <h3 class="m-0">{{ outlet.name }}</h3>
+      <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
+      <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+    </div>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" class="row g-3">
+      <input type="hidden" name="mode" value="edit_outlet">
+      <div class="col-md-4"><label class="form-label">Tipo</label><select name="media_type" class="form-select">{% for option in media_types %}<option value="{{ option }}" {% if option == outlet.media_type %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-md-4"><label class="form-label">Nombre</label><input type="text" name="name" class="form-control" value="{{ outlet.name }}"></div>
+      <div class="col-md-4"><label class="form-label">Logotipo PNG</label><input type="file" name="logo" class="form-control" accept="image/png"></div>
+      <div class="col-12"><label class="form-label">Dirección</label><input type="text" name="address" class="form-control" value="{{ outlet.address or '' }}"></div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar datos básicos</button></div>
+    </form>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {% if tab=='contactos' %}active{% endif %}" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='contactos') }}">Contactos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab=='historico' %}active{% endif %}" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='historico') }}">Histórico</a></li>
+</ul>
+
+{% if tab == 'contactos' %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="mb-3">Añadir contacto</h5>
+      <form method="post" class="row g-2">
+        <input type="hidden" name="mode" value="add_contact">
+        <div class="col-md-3"><input type="text" name="program" class="form-control" placeholder="Programa"></div>
+        <div class="col-md-2"><input type="text" name="role" class="form-control" placeholder="Cargo"></div>
+        <div class="col-md-2"><input type="text" name="first_name" class="form-control" placeholder="Nombre"></div>
+        <div class="col-md-2"><input type="text" name="last_name" class="form-control" placeholder="Apellidos"></div>
+        <div class="col-md-1"><input type="text" name="phone" class="form-control" placeholder="Tel."></div>
+        <div class="col-md-2"><input type="email" name="email" class="form-control" placeholder="Email"></div>
+        <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Añadir contacto</button></div>
+      </form>
+    </div>
+  </div>
+  <div class="row g-3">
+    {% for contact in contacts %}
+      <div class="col-12 col-lg-6">
+        <div class="card h-100">
+          <div class="card-body d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">{{ [contact.first_name, contact.last_name]|select|join(' ') or 'Contacto' }}</div>
+              <div class="small text-muted">{{ contact.program or 'Sin programa' }}{% if contact.role %} · {{ contact.role }}{% endif %}</div>
+              <div class="small mt-2">{{ contact.phone or 'Sin teléfono' }}</div>
+              <div class="small text-muted">{{ contact.email or 'Sin email' }}</div>
+            </div>
+            <div class="dropdown">
+              <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                {% set share_text = ([outlet.name, contact.program, contact.role, [contact.first_name, contact.last_name]|select|join(' '), contact.phone, contact.email]|select|join(' · ')) %}
+                {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}">Compartir por Mail</a></li>{% endif %}
+                {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}">Compartir por WhatsApp</a></li>{% endif %}
+                {% if contact.phone %}<li><a class="dropdown-item" href="sms:{{ contact.phone }}?body={{ share_text|urlencode }}">Compartir por SMS</a></li>{% endif %}
+                <li><button type="button" class="dropdown-item copy-media-contact" data-share-text="{{ share_text }}">Copiar enlace</button></li>
+                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editContactModal{{ contact.id }}">Editar</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('media_contact_delete', media_id=outlet.id, contact_id=contact.id) }}" onsubmit="return confirm('¿Eliminar contacto?');">
+                    <button class="dropdown-item text-danger">Eliminar</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+          <div class="modal fade" id="editContactModal{{ contact.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+              <div class="modal-content">
+                <form method="post">
+                  <input type="hidden" name="mode" value="update_contact">
+                  <input type="hidden" name="contact_id" value="{{ contact.id }}">
+                  <div class="modal-header"><h5 class="modal-title">Editar contacto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body">
+                    <div class="row g-3">
+                      <div class="col-md-3"><label class="form-label">Programa</label><input type="text" name="program" class="form-control" value="{{ contact.program or '' }}"></div>
+                      <div class="col-md-2"><label class="form-label">Cargo</label><input type="text" name="role" class="form-control" value="{{ contact.role or '' }}"></div>
+                      <div class="col-md-2"><label class="form-label">Nombre</label><input type="text" name="first_name" class="form-control" value="{{ contact.first_name or '' }}"></div>
+                      <div class="col-md-2"><label class="form-label">Apellidos</label><input type="text" name="last_name" class="form-control" value="{{ contact.last_name or '' }}"></div>
+                      <div class="col-md-1"><label class="form-label">Tel.</label><input type="text" name="phone" class="form-control" value="{{ contact.phone or '' }}"></div>
+                      <div class="col-md-2"><label class="form-label">Email</label><input type="email" name="email" class="form-control" value="{{ contact.email or '' }}"></div>
+                    </div>
+                  </div>
+                  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar cambios</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="col-12"><div class="alert alert-light border">Todavía no hay contactos en este medio.</div></div>
+    {% endfor %}
+  </div>
+{% else %}
+  <form class="card card-body mb-3" method="get">
+    <input type="hidden" name="tab" value="historico">
+    <div class="row g-3 align-items-end">
+      <div class="col-md-4">
+        <label class="form-label">Artista</label>
+        <select name="artist" class="form-select">
+          <option value="">Todos</option>
+          {% for artist in artists %}<option value="{{ artist.id }}" {% if filter_artist == (artist.id|string) %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2"><label class="form-label">Desde</label><input type="date" name="start" class="form-control" value="{{ filter_start }}"></div>
+      <div class="col-md-2"><label class="form-label">Hasta</label><input type="date" name="end" class="form-control" value="{{ filter_end }}"></div>
+      <div class="col-md-4"><label class="form-label">Buscar</label><input type="text" name="search" class="form-control" value="{{ filter_search }}" placeholder="Programa, promoción, canción..."></div>
+      <div class="col-12 d-flex justify-content-end gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='historico') }}">Limpiar</a><button class="btn btn-primary">Filtrar</button></div>
+    </div>
+  </form>
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="mb-3">Añadir registro al histórico</h5>
+      <form method="post" class="row g-2">
+        <input type="hidden" name="mode" value="add_history">
+        <div class="col-md-3"><select name="artist_id" class="form-select"><option value="">Artista</option>{% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><input type="text" name="promotion_title" class="form-control" placeholder="Promoción"></div>
+        <div class="col-md-2"><input type="text" name="program_name" class="form-control" placeholder="Programa"></div>
+        <div class="col-md-2"><input type="date" name="promoted_at" class="form-control"></div>
+        <div class="col-md-2"><input type="text" name="performed_song" class="form-control" placeholder="Qué cantó"></div>
+        <div class="col-12"><label class="form-check"><input type="checkbox" name="artist_performed" value="1" class="form-check-input me-2">El artista cantó</label></div>
+        <div class="col-12"><textarea name="notes" class="form-control" rows="2" placeholder="Notas"></textarea></div>
+        <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar en histórico</button></div>
+      </form>
+    </div>
+  </div>
+  <div class="list-group">
+    {% for row in history_rows %}
+      <div class="list-group-item">
+        <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
+        <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
+        <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
+      </div>
+    {% else %}
+      <div class="alert alert-light border">No hay promociones registradas para este medio.</div>
+    {% endfor %}
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('.copy-media-contact').forEach(function(btn){
+  btn.addEventListener('click', async function(){
+    try {
+      await navigator.clipboard.writeText(btn.dataset.shareText || '');
+      btn.textContent = 'Copiado';
+      setTimeout(() => { btn.textContent = 'Copiar enlace'; }, 1200);
+    } catch (err) {}
+  });
+});
+</script>
+{% endblock %}

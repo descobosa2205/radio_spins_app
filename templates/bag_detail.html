@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <a href="{{ url_for('bags_view', tab='archived' if bag.is_archived else 'active') }}" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Volver</a>
+  <div class="d-flex gap-2">
+    {% if bag.is_archived %}
+      <form method="post" action="{{ url_for('bag_restore', bag_id=bag.id) }}"><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-outline-success">Reactivar</button></form>
+    {% else %}
+      <form method="post" action="{{ url_for('bag_archive', bag_id=bag.id) }}"><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-outline-danger">Archivar</button></form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="artist-hero mb-3">
+  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+    <div>
+      <h3 class="m-0">{{ bag.title }}</h3>
+      <div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · {{ bag.company.name if bag.company else 'Sin empresa' }}</div>
+      <div class="small text-muted">{{ bag.start_date.strftime('%d/%m/%Y') if bag.start_date else 'Sin inicio' }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}</div>
+    </div>
+    <span class="badge text-bg-light border">{{ bag.status }}</span>
+  </div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <form method="post" class="row g-3">
+      <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" value="{{ bag.title }}"></div>
+      <div class="col-md-3"><label class="form-label">Artista</label><select name="artist_id" class="form-select"><option value="">Sin artista</option>{% for artist in artists %}<option value="{{ artist.id }}" {% if bag.artist_id == artist.id %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">Empresa</label><select name="company_id" class="form-select"><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}" {% if bag.company_id == company.id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
+      <div class="col-md-3"><label class="form-label">Inicio</label><input type="date" name="start_date" class="form-control" value="{{ bag.start_date.isoformat() if bag.start_date else '' }}"></div>
+      <div class="col-md-3"><label class="form-label">Fin</label><input type="date" name="end_date" class="form-control" value="{{ bag.end_date.isoformat() if bag.end_date else '' }}"></div>
+      <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select">{% for option in bag_status_options %}<option value="{{ option }}" {% if bag.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+      <div class="col-12"><label class="form-label">Descripción</label><textarea name="description" class="form-control" rows="3">{{ bag.description or '' }}</textarea></div>
+      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar bolsa</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Facturas vinculadas</h5>
+      <a href="{{ url_for('invoices_view') }}" class="btn btn-sm btn-outline-secondary">Ir a facturas</a>
+    </div>
+    {% if invoices %}
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th>Número</th><th>Tercero</th><th>Fecha</th><th>Estado</th><th class="text-end">Importe</th></tr></thead>
+          <tbody>
+            {% for inv in invoices %}
+              <tr>
+                <td>{{ inv.invoice_number }}</td>
+                <td>{{ inv.third_party_name }}</td>
+                <td>{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
+                <td><span class="badge text-bg-light border">{{ inv.status }}</span></td>
+                <td class="text-end">{{ inv.total_amount | eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="alert alert-light border mb-0">Todavía no hay facturas vinculadas a esta bolsa.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

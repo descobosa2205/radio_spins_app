@@ -21694,6 +21694,2111 @@ def quadrantes_view():
     finally:
         session_db.close()
 
+# =========================================================
+# Personal + nuevas secciones + nuevas bases de datos
+# =========================================================
+from flask import g
+from models import (
+    UserProfile,
+    UserSecurity,
+    UserAccessResource,
+    UserAccessGrant,
+    UserActivityLog,
+    MediaOutlet,
+    MediaContact,
+    MediaPromotionRecord,
+    WorkflowBag,
+    InvoiceRecord,
+    ensure_personnel_and_operations_schema,
+)
+
+_safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
+
+PERSONNEL_DEPARTMENTS = [
+    "Dirección",
+    "Ticketing",
+    "Contratación",
+    "Administracion",
+    "Contabilidad",
+    "Promoción",
+    "Sello",
+    "Derechos",
+    "Diseño",
+    "Redes sociales",
+]
+
+MEDIA_TYPES = ["TV", "Radio", "Prensa", "Digital", "Agencia", "Podcast"]
+INVOICE_KINDS = [("RECEIVED", "Recibidas"), ("ISSUED", "Emitidas")]
+INVOICE_STATUS_OPTIONS = [
+    "PENDIENTE",
+    "RECIBIDA",
+    "EMITIDA",
+    "PAGADA",
+    "VENCIDA",
+    "ANULADA",
+]
+BAG_STATUS_OPTIONS = ["ACTIVA", "EN_GESTION", "CERRADA", "ARCHIVADA"]
+
+_ACCESS_BOOTSTRAP_DONE = False
+_ACCESS_RESOURCE_MAP = {}
+_ACCESS_CHILDREN = defaultdict(list)
+
+CURATED_ACCESS_RESOURCES = [
+    {"key": "home", "label": "Inicio", "section_key": "home", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 10},
+    {"key": "radio", "label": "Radio", "section_key": "radio", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 20},
+    {"key": "radio.reportes", "label": "Reporte de radios", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 21},
+    {"key": "radio.actualizar", "label": "Actualizar tocadas", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 22},
+    {"key": "radio.emisoras", "label": "Emisoras", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 23},
+
+    {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 30},
+    {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 31},
+    {"key": "ventas.actualizar", "label": "Actualizar ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 32},
+
+    {"key": "artists", "label": "Artistas", "section_key": "artists", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 40},
+    {"key": "artists.datos", "label": "Datos del artista", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 41},
+    {"key": "artists.contratos", "label": "Contratos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 42},
+    {"key": "artists.conciertos", "label": "Conciertos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 43},
+    {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 44},
+    {"key": "artists.agenda", "label": "Agenda", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 45},
+    {"key": "artists.promocion", "label": "Promoción", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 46},
+    {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 47},
+
+    {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 50},
+    {"key": "discografica.lanzamientos", "label": "Lanzamientos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 51},
+    {"key": "discografica.canciones", "label": "Repertorio", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 52},
+    {"key": "discografica.royalties", "label": "Royalties", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 53},
+    {"key": "discografica.royalties.liquidaciones", "label": "Liquidaciones", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 54},
+    {"key": "discografica.royalties.resumen", "label": "Resumen", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 55},
+    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 56},
+    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 57},
+    {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 58},
+    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 59},
+
+    {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 60},
+
+    {"key": "concerts", "label": "Conciertos", "section_key": "concerts", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 70},
+    {"key": "concerts.vista", "label": "Conciertos", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 71},
+    {"key": "concerts.facturacion", "label": "Facturación", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": True, "sort_order": 72},
+    {"key": "concerts.alta", "label": "Formulario clásico", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 73},
+
+    {"key": "quadrantes", "label": "Cuadrantes", "section_key": "quadrantes", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 80},
+
+    {"key": "promocion", "label": "Promoción", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
+    {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100},
+    {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 110},
+    {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 120},
+
+    {"key": "personal", "label": "Personal", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 130},
+    {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 131},
+    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 132},
+
+    {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 140},
+    {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 141},
+    {"key": "databases.ticketers", "label": "Ticketeras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 142},
+    {"key": "databases.publishing_companies", "label": "Editoriales", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 143},
+    {"key": "databases.group_companies", "label": "Empresas del grupo", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 144},
+    {"key": "databases.media", "label": "Medios", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 145},
+    {"key": "databases.bags", "label": "Bolsas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 146},
+    {"key": "databases.invoices", "label": "Facturas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": True, "sort_order": 147},
+]
+
+AUTO_SEGMENT_PARENT = {
+    "artistas": "artists",
+    "discografica": "discografica",
+    "promotores": "third_parties",
+    "conciertos": "concerts",
+    "cuadrantes": "quadrantes",
+    "emisoras": "radio",
+    "tocadas": "radio",
+    "ventas": "ventas",
+    "recintos": "databases.venues",
+    "ticketeras": "databases.ticketers",
+    "editoriales": "databases.publishing_companies",
+    "empresas": "databases.group_companies",
+    "medios": "databases.media",
+    "bolsas": "databases.bags",
+    "facturas": "databases.invoices",
+    "personal": "personal",
+    "promocion": "promocion",
+    "produccion": "produccion",
+    "administracion": "administracion",
+    "contabilidad": "contabilidad",
+}
+
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set"}
+
+
+def _resource_label_from_key(key: str) -> str:
+    return (
+        (key or "")
+        .replace("_", " ")
+        .replace(".", " · ")
+        .strip()
+        .title()
+    ) or "Función"
+
+
+def _now_madrid():
+    return datetime.now(TZ_MADRID)
+
+
+def _current_user_email() -> str:
+    state = _current_user_state()
+    return (state.get("email") or "").strip()
+
+
+def _email_to_nick(email: str) -> str:
+    local = (email or "usuario").split("@", 1)[0].strip()
+    local = re.sub(r"[._-]+", " ", local).strip()
+    return (local.title() or "Usuario")[:80]
+
+
+def _normalize_departments(values) -> list[str]:
+    allowed = {d.casefold(): d for d in PERSONNEL_DEPARTMENTS}
+    out = []
+    seen = set()
+    for raw in values or []:
+        val = allowed.get((raw or "").strip().casefold())
+        if not val:
+            continue
+        if val in seen:
+            continue
+        seen.add(val)
+        out.append(val)
+    return out
+
+
+def _normalize_phone_rows(rows) -> list[dict]:
+    out = []
+    seen = set()
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        label = (row.get("label") or row.get("title") or "").strip()
+        phone = (row.get("phone") or row.get("value") or "").strip()
+        if not label and not phone:
+            continue
+        key = (label.casefold(), phone)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"label": label or "Móvil", "phone": phone})
+    return out
+
+
+def _parse_phone_rows_from_form(form, prefix: str = "phone") -> list[dict]:
+    labels = form.getlist(f"{prefix}_label")
+    numbers = form.getlist(f"{prefix}_value")
+    rows = []
+    for label, number in zip(labels or [], numbers or []):
+        label = (label or "").strip()
+        number = (number or "").strip()
+        if not label and not number:
+            continue
+        rows.append({"label": label or "Móvil", "phone": number})
+    return _normalize_phone_rows(rows)
+
+
+def _profile_full_name(profile: UserProfile | None) -> str:
+    if not profile:
+        return ""
+    return " ".join([x for x in [
+        (getattr(profile, "first_name", None) or "").strip(),
+        (getattr(profile, "last_name", None) or "").strip(),
+    ] if x]).strip()
+
+
+def _password_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="backoffice-password")
+
+
+def _make_password_token(user_id, purpose: str = "set") -> str:
+    payload = {"user_id": str(user_id), "purpose": purpose}
+    return _password_serializer().dumps(payload)
+
+
+def _load_password_token(token: str, max_age: int = 60 * 60 * 24 * 7) -> dict | None:
+    try:
+        data = _password_serializer().loads(token, max_age=max_age)
+        if not isinstance(data, dict):
+            return None
+        return data
+    except (BadSignature, SignatureExpired):
+        return None
+
+
+def _welcome_email_html(user: User, profile: UserProfile | None, token: str) -> str:
+    logo_33 = _external_url_for("static", filename="img/logo_33_producciones.png")
+    logo_pies = _external_url_for("static", filename="img/logo.png")
+    create_url = _external_url_for("password_set", token=token)
+    login_url = _external_url_for("admin_login")
+    nick = html.escape((getattr(profile, "nick", None) or _email_to_nick(user.email or "")).strip())
+    email = html.escape((user.email or "").strip())
+    return f"""
+    <div style=\"background:#f4f6f8;padding:32px 16px;font-family:Arial,sans-serif;color:#111827;\">
+      <div style=\"max-width:640px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e5e7eb;\">
+        <div style=\"display:flex;align-items:center;gap:16px;margin-bottom:20px;\">
+          <img src=\"{logo_33}\" alt=\"Treinta y tres\" style=\"height:48px;object-fit:contain;\">
+          <img src=\"{logo_pies}\" alt=\"PIES\" style=\"height:48px;object-fit:contain;\">
+        </div>
+        <h1 style=\"margin:0 0 12px 0;font-size:28px;\">¡Bienvenido al Back Office!</h1>
+        <p style=\"margin:0 0 12px 0;font-size:15px;line-height:1.6;\">Hola <strong>{nick}</strong>, ya tienes tu alta creada en la aplicación.</p>
+        <div style=\"background:#f9fafb;border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin:18px 0;\">
+          <div style=\"font-size:13px;color:#6b7280;\">Tu usuario de acceso</div>
+          <div style=\"font-size:18px;font-weight:700;\">{email}</div>
+        </div>
+        <div style=\"display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;\">
+          <a href=\"{create_url}\" style=\"display:inline-block;padding:14px 18px;background:#111827;color:#fff;text-decoration:none;border-radius:12px;font-weight:700;\">Crear contraseña de acceso</a>
+          <a href=\"{login_url}\" style=\"display:inline-block;padding:14px 18px;background:#ffffff;color:#111827;text-decoration:none;border-radius:12px;font-weight:700;border:1px solid #d1d5db;\">Acceder a Back Office</a>
+        </div>
+      </div>
+    </div>
+    """
+
+
+def _password_reset_email_html(user: User, profile: UserProfile | None, token: str) -> str:
+    logo_33 = _external_url_for("static", filename="img/logo_33_producciones.png")
+    logo_pies = _external_url_for("static", filename="img/logo.png")
+    backoffice_logo = _external_url_for("static", filename="img/Banner.png")
+    reset_url = _external_url_for("password_set", token=token)
+    nick = html.escape((getattr(profile, "nick", None) or _email_to_nick(user.email or "")).strip())
+    return f"""
+    <div style=\"background:#f4f6f8;padding:32px 16px;font-family:Arial,sans-serif;color:#111827;\">
+      <div style=\"max-width:640px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e5e7eb;\">
+        <div style=\"display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;\">
+          <img src=\"{logo_33}\" alt=\"Treinta y tres\" style=\"height:44px;object-fit:contain;\">
+          <img src=\"{logo_pies}\" alt=\"PIES\" style=\"height:44px;object-fit:contain;\">
+          <img src=\"{backoffice_logo}\" alt=\"Back Office\" style=\"height:36px;object-fit:contain;\">
+        </div>
+        <h1 style=\"margin:0 0 12px 0;font-size:28px;\">Restablecer contraseña</h1>
+        <p style=\"margin:0 0 14px 0;font-size:15px;line-height:1.6;\">Hola <strong>{nick}</strong>, hemos recibido una solicitud para cambiar tu contraseña de acceso al Back Office.</p>
+        <a href=\"{reset_url}\" style=\"display:inline-block;padding:14px 18px;background:#111827;color:#fff;text-decoration:none;border-radius:12px;font-weight:700;\">Cambiar contraseña</a>
+      </div>
+    </div>
+    """
+
+
+def _generate_temporary_password(length: int = 12) -> str:
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+    digest = hashlib.sha256(f"{uuid.uuid4()}::{_now_madrid().isoformat()}".encode("utf-8")).hexdigest()
+    chars = []
+    for idx in range(length):
+        chars.append(alphabet[int(digest[idx * 2: idx * 2 + 2], 16) % len(alphabet)])
+    return "".join(chars)
+
+
+def _build_access_resources_from_app() -> list[dict]:
+    rows = [dict(item) for item in CURATED_ACCESS_RESOURCES]
+    known = {row["key"] for row in rows}
+    dynamic_sort = 1000
+    for rule in app.url_map.iter_rules():
+        endpoint = (rule.endpoint or "").strip()
+        if not endpoint or endpoint in known or endpoint in {"static", "landing", "admin_login", "admin_logout"}:
+            continue
+        if endpoint.startswith("public_") or endpoint in PUBLIC_ENDPOINTS_EXTRA:
+            continue
+        if "GET" not in rule.methods:
+            continue
+        if rule.arguments:
+            continue
+        path = (rule.rule or "").strip("/")
+        if not path:
+            continue
+        segment = path.split("/", 1)[0]
+        parent = AUTO_SEGMENT_PARENT.get(segment)
+        if not parent:
+            continue
+        key = f"auto.{endpoint}"
+        if key in known:
+            continue
+        known.add(key)
+        rows.append({
+            "key": key,
+            "label": _resource_label_from_key(segment),
+            "section_key": (parent.split(".", 1)[0] if "." in parent else parent),
+            "parent_key": parent,
+            "level": "TAB",
+            "economic_capable": False,
+            "sort_order": dynamic_sort,
+        })
+        dynamic_sort += 1
+    return rows
+
+
+def _rebuild_resource_caches(resource_rows: list[dict]):
+    global _ACCESS_RESOURCE_MAP, _ACCESS_CHILDREN
+    _ACCESS_RESOURCE_MAP = {row["key"]: row for row in resource_rows}
+    children = defaultdict(list)
+    for row in resource_rows:
+        parent = row.get("parent_key")
+        if parent:
+            children[parent].append(row["key"])
+    _ACCESS_CHILDREN = children
+
+
+def _sync_access_resources(session_db):
+    resource_rows = _build_access_resources_from_app()
+    _rebuild_resource_caches(resource_rows)
+    existing = {r.key: r for r in session_db.query(UserAccessResource).all()}
+    for row in resource_rows:
+        rec = existing.get(row["key"])
+        if not rec:
+            rec = UserAccessResource(
+                key=row["key"],
+                parent_key=row.get("parent_key"),
+                section_key=row.get("section_key") or row["key"],
+                label=row.get("label") or _resource_label_from_key(row["key"]),
+                level=row.get("level") or "SECTION",
+                economic_capable=bool(row.get("economic_capable")),
+                sort_order=int(row.get("sort_order") or 0),
+            )
+            session_db.add(rec)
+        else:
+            rec.parent_key = row.get("parent_key")
+            rec.section_key = row.get("section_key") or row["key"]
+            rec.label = row.get("label") or rec.label
+            rec.level = row.get("level") or rec.level
+            rec.economic_capable = bool(row.get("economic_capable"))
+            rec.sort_order = int(row.get("sort_order") or 0)
+    session_db.flush()
+    return resource_rows
+
+
+def _ensure_user_profile(session_db, user: User, legacy_full_seed: bool = False, **kwargs) -> UserProfile:
+    profile = session_db.get(UserProfile, user.id)
+    if profile:
+        changed = False
+        if legacy_full_seed and not profile.legacy_permissions_seeded:
+            profile.legacy_permissions_seeded = True
+            changed = True
+        for attr, value in kwargs.items():
+            if value is None:
+                continue
+            if getattr(profile, attr, None) != value:
+                setattr(profile, attr, value)
+                changed = True
+        if changed:
+            profile.updated_at = _now_madrid()
+        return profile
+    profile = UserProfile(
+        user_id=user.id,
+        nick=(kwargs.get("nick") or _email_to_nick(user.email or "")).strip() or "Usuario",
+        photo_url=kwargs.get("photo_url"),
+        first_name=kwargs.get("first_name"),
+        last_name=kwargs.get("last_name"),
+        dni=kwargs.get("dni"),
+        birth_date=kwargs.get("birth_date"),
+        mobile_phones=_normalize_phone_rows(kwargs.get("mobile_phones") or []),
+        departments=_normalize_departments(kwargs.get("departments") or []),
+        legacy_permissions_seeded=bool(legacy_full_seed),
+    )
+    session_db.add(profile)
+    session_db.flush()
+    return profile
+
+
+def _ensure_user_security(session_db, user: User, password_preview: str | None = None) -> UserSecurity:
+    security = session_db.get(UserSecurity, user.id)
+    if security:
+        if password_preview and not security.password_preview:
+            security.password_preview = password_preview
+            security.updated_at = _now_madrid()
+        return security
+    security = UserSecurity(
+        user_id=user.id,
+        password_preview=password_preview,
+    )
+    session_db.add(security)
+    session_db.flush()
+    return security
+
+
+def _sync_user_access_grants(session_db, user: User, profile: UserProfile):
+    resources = session_db.query(UserAccessResource).order_by(UserAccessResource.sort_order.asc(), UserAccessResource.label.asc()).all()
+    existing = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
+    if not existing:
+        for resource in resources:
+            if profile.legacy_permissions_seeded:
+                grant = UserAccessGrant(
+                    user_id=user.id,
+                    resource_key=resource.key,
+                    can_view_basic=True,
+                    can_view_econ=bool(resource.economic_capable),
+                    can_edit=(resource.key != "home"),
+                )
+            else:
+                grant = UserAccessGrant(
+                    user_id=user.id,
+                    resource_key=resource.key,
+                    can_view_basic=(resource.key == "home"),
+                    can_view_econ=False,
+                    can_edit=False,
+                )
+            session_db.add(grant)
+        session_db.flush()
+        return
+    for resource in resources:
+        if resource.key in existing:
+            continue
+        session_db.add(UserAccessGrant(
+            user_id=user.id,
+            resource_key=resource.key,
+            can_view_basic=False,
+            can_view_econ=False,
+            can_edit=False,
+        ))
+    session_db.flush()
+
+
+def _bootstrap_access_and_personnel():
+    global _ACCESS_BOOTSTRAP_DONE
+    if _ACCESS_BOOTSTRAP_DONE:
+        return
+    ensure_personnel_and_operations_schema()
+    session_db = db()
+    try:
+        _sync_access_resources(session_db)
+        txt_users = load_users_from_txt()
+        for email, rec in txt_users.items():
+            email = (email or "").strip().lower()
+            if not email:
+                continue
+            user = session_db.query(User).filter(func.lower(User.email) == email).first()
+            if not user:
+                user = User(
+                    email=email,
+                    password_hash=generate_password_hash((rec.get("password") or _generate_temporary_password())),
+                    role=int(rec.get("role") or 10),
+                )
+                session_db.add(user)
+                session_db.flush()
+            else:
+                try:
+                    user.role = int(rec.get("role") or getattr(user, "role", 10) or 10)
+                except Exception:
+                    pass
+            _ensure_user_profile(session_db, user, legacy_full_seed=True, nick=_email_to_nick(email))
+            _ensure_user_security(session_db, user, password_preview=(rec.get("password") or None))
+        users = session_db.query(User).all()
+        for user in users:
+            profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
+            _ensure_user_security(session_db, user)
+            _sync_user_access_grants(session_db, user, profile)
+        session_db.commit()
+        _ACCESS_BOOTSTRAP_DONE = True
+    finally:
+        session_db.close()
+
+
+def _resource_ancestors(key: str) -> list[str]:
+    out = []
+    seen = set()
+    current = (_ACCESS_RESOURCE_MAP.get(key) or {}).get("parent_key")
+    while current and current not in seen:
+        out.append(current)
+        seen.add(current)
+        current = (_ACCESS_RESOURCE_MAP.get(current) or {}).get("parent_key")
+    return out
+
+
+def _descendant_keys(key: str) -> list[str]:
+    out = []
+    queue = list(_ACCESS_CHILDREN.get(key, []))
+    while queue:
+        item = queue.pop(0)
+        out.append(item)
+        queue.extend(_ACCESS_CHILDREN.get(item, []))
+    return out
+
+
+def _grant_matches(grant: dict | None, *, edit: bool = False, econ: bool = False) -> bool:
+    if not grant:
+        return False
+    if edit:
+        return bool(grant.get("can_edit"))
+    if econ:
+        return bool(grant.get("can_view_econ") or grant.get("can_edit"))
+    return bool(grant.get("can_view_basic") or grant.get("can_view_econ") or grant.get("can_edit"))
+
+
+def _state_has_access(state: dict, key: str | None, *, edit: bool = False, econ: bool = False, include_descendants: bool = False) -> bool:
+    if not key:
+        return False
+    if int(state.get("role") or 0) == 10:
+        return True
+    grants = state.get("grants") or {}
+    keys_to_check = [key] + _resource_ancestors(key)
+    if include_descendants:
+        keys_to_check.extend(_descendant_keys(key))
+    seen = set()
+    for candidate in keys_to_check:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        if _grant_matches(grants.get(candidate), edit=edit, econ=econ):
+            return True
+    return False
+
+
+def _infer_group_key_from_path(path: str) -> str | None:
+    path = (path or "").strip()
+    if not path or path == "/":
+        return "home"
+    for prefix, key in [
+        ("/artistas", "artists"),
+        ("/discografica", "discografica"),
+        ("/promotores", "third_parties"),
+        ("/conciertos", "concerts"),
+        ("/cuadrantes", "quadrantes"),
+        ("/emisoras", "radio.emisoras"),
+        ("/tocadas", "radio.actualizar"),
+        ("/ventas", "ventas"),
+        ("/recintos", "databases.venues"),
+        ("/ticketeras", "databases.ticketers"),
+        ("/editoriales", "databases.publishing_companies"),
+        ("/empresas", "databases.group_companies"),
+        ("/medios", "databases.media"),
+        ("/bolsas", "databases.bags"),
+        ("/facturas", "databases.invoices"),
+        ("/personal", "personal"),
+        ("/promocion", "promocion"),
+        ("/produccion", "produccion"),
+        ("/administracion", "administracion"),
+        ("/contabilidad", "contabilidad"),
+    ]:
+        if path.startswith(prefix):
+            return key
+    return None
+
+
+def _resolve_request_resource_key() -> str | None:
+    endpoint = (request.endpoint or "").strip()
+    if not endpoint:
+        return None
+    if endpoint in {"landing", "admin_login", "admin_logout"} | PUBLIC_ENDPOINTS_EXTRA:
+        return None
+    if endpoint == "home":
+        return "home"
+    if endpoint == "summary_view":
+        return "radio.reportes"
+    if endpoint == "plays_view":
+        return "radio.actualizar"
+    if endpoint == "stations_view":
+        return "radio.emisoras"
+    if endpoint == "sales_report_view":
+        return "ventas.reportes"
+    if endpoint == "sales_update_view":
+        return "ventas.actualizar"
+    if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
+        return "artists"
+    if endpoint == "artist_detail_view":
+        tab = (request.args.get("tab") or "datos").strip().lower()
+        if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "liquidaciones"}:
+            return f"artists.{tab}"
+        return "artists"
+    if endpoint == "discografica_view":
+        section = (request.args.get("section") or "canciones").strip().lower()
+        if section == "royalties":
+            royalty_tab = (request.args.get("royalty_tab") or request.args.get("tab") or "liquidaciones").strip().lower()
+            if royalty_tab in {"liquidaciones", "resumen"}:
+                return f"discografica.royalties.{royalty_tab}"
+        if section in {"lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc"}:
+            return f"discografica.{section}"
+        return "discografica"
+    if endpoint == "discografica_song_detail":
+        tab = (request.args.get("tab") or "informacion").strip().lower()
+        mapping = {
+            "informacion": "discografica.canciones",
+            "materiales": "discografica.canciones",
+            "editorial": "discografica.editorial",
+            "royalties": "discografica.royalties",
+            "ingresos": "discografica.ingresos",
+            "radio": "radio.reportes",
+            "promocion": "promocion",
+            "gastos": "contabilidad",
+        }
+        return mapping.get(tab, "discografica.canciones")
+    if endpoint == "discografica_album_detail":
+        tab = (request.args.get("tab") or "informacion").strip().lower()
+        mapping = {
+            "informacion": "discografica.canciones",
+            "canciones": "discografica.canciones",
+            "materiales": "discografica.canciones",
+            "beneficiarios": "discografica.royalties",
+        }
+        return mapping.get(tab, "discografica.canciones")
+    if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
+        return "third_parties"
+    if endpoint == "venues_view" or endpoint.startswith("venue_"):
+        return "databases.venues"
+    if endpoint == "ticketers_view" or endpoint.startswith("ticketer_"):
+        return "databases.ticketers"
+    if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
+        return "databases.publishing_companies"
+    if endpoint == "companies_view" or endpoint.startswith("company_"):
+        return "databases.group_companies"
+    if endpoint == "concerts_view":
+        tab = (request.args.get("tab") or "vista").strip().lower()
+        if tab in {"vista", "facturacion", "alta"}:
+            return f"concerts.{tab}"
+        return "concerts"
+    if endpoint == "quadrantes_view":
+        return "quadrantes"
+    if endpoint in {"promocion_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
+        mapping = {
+            "promocion_view": "promocion",
+            "produccion_view": "produccion",
+            "administracion_view": "administracion",
+            "contabilidad_view": "contabilidad",
+            "personnel_view": "personal.usuarios",
+            "personnel_detail_view": "personal.usuarios.accesos",
+        }
+        return mapping.get(endpoint)
+    if endpoint.startswith("media_"):
+        return "databases.media"
+    if endpoint.startswith("bag_") or endpoint == "bags_view":
+        return "databases.bags"
+    if endpoint.startswith("invoice_") or endpoint == "invoices_view":
+        return "databases.invoices"
+    auto_key = f"auto.{endpoint}"
+    if auto_key in _ACCESS_RESOURCE_MAP:
+        return auto_key
+    return _infer_group_key_from_path(request.path)
+
+
+def _current_user_state() -> dict:
+    cached = getattr(g, "_current_user_state", None)
+    if cached is not None:
+        return cached
+    state = {
+        "user_id": None,
+        "email": "",
+        "role": current_role(),
+        "profile": None,
+        "security": None,
+        "grants": {},
+        "nick": "",
+        "departments": [],
+        "photo_url": "",
+        "full_name": "",
+    }
+    uid = session.get("user_id")
+    if not uid:
+        g._current_user_state = state
+        return state
+    _bootstrap_access_and_personnel()
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(uid))
+        if not user:
+            g._current_user_state = state
+            return state
+        profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
+        security = _ensure_user_security(session_db, user)
+        _sync_user_access_grants(session_db, user, profile)
+        session_db.commit()
+        grants = {}
+        for grant in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all():
+            grants[grant.resource_key] = {
+                "can_view_basic": bool(grant.can_view_basic),
+                "can_view_econ": bool(grant.can_view_econ),
+                "can_edit": bool(grant.can_edit),
+            }
+        state.update({
+            "user_id": str(user.id),
+            "email": (user.email or "").strip(),
+            "role": int(getattr(user, "role", 10) or 10),
+            "profile": profile,
+            "security": security,
+            "grants": grants,
+            "nick": (getattr(profile, "nick", None) or _email_to_nick(user.email or "")).strip(),
+            "departments": list(getattr(profile, "departments", None) or []),
+            "photo_url": (getattr(profile, "photo_url", None) or "").strip(),
+            "full_name": _profile_full_name(profile),
+        })
+        g._current_user_state = state
+        return state
+    finally:
+        session_db.close()
+
+
+def has_access_key(key: str | None, *, edit: bool = False, econ: bool = False, include_descendants: bool = False) -> bool:
+    state = _current_user_state()
+    return _state_has_access(state, key, edit=edit, econ=econ, include_descendants=include_descendants)
+
+
+def can_view_economics() -> bool:
+    state = _current_user_state()
+    key = _resolve_request_resource_key() or _infer_group_key_from_path(request.path)
+    if key and _state_has_access(state, key, econ=True, include_descendants=True):
+        return True
+    return int(state.get("role") or 0) in (3, 4, 6, 10)
+
+
+def can_edit_radio() -> bool:
+    return has_access_key("radio", edit=True, include_descendants=True) or current_role() in (2, 10)
+
+
+def can_edit_concerts() -> bool:
+    return has_access_key("concerts", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
+
+
+def can_edit_catalogs() -> bool:
+    return (
+        has_access_key("artists", edit=True, include_descendants=True)
+        or has_access_key("third_parties", edit=True, include_descendants=True)
+        or has_access_key("databases", edit=True, include_descendants=True)
+        or current_role() in (5, 6, 10)
+    )
+
+
+def can_edit_discografica() -> bool:
+    return has_access_key("discografica", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10)
+
+
+def can_edit_artists_stations() -> bool:
+    return (
+        has_access_key("artists", edit=True, include_descendants=True)
+        or has_access_key("radio.emisoras", edit=True)
+        or current_role() in (2, 5, 6, 10)
+    )
+
+
+def can_edit_sales() -> bool:
+    return has_access_key("ventas", edit=True, include_descendants=True) or current_role() in (3, 10)
+
+
+def can_view_sales_report() -> bool:
+    return has_access_key("ventas.reportes", include_descendants=True) or can_edit_sales() or is_master()
+
+
+def _build_current_user_summary() -> dict:
+    state = _current_user_state()
+    profile = state.get("profile")
+    return {
+        "id": state.get("user_id"),
+        "nick": state.get("nick") or "Usuario",
+        "email": state.get("email") or "",
+        "photo_url": state.get("photo_url") or url_for("static", filename="img/logo.png"),
+        "departments": list(state.get("departments") or []),
+        "full_name": state.get("full_name") or "",
+        "phones": list(getattr(profile, "mobile_phones", None) or []),
+    }
+
+
+def _resource_default_url(key: str) -> str:
+    mapping = {
+        "home": url_for("home"),
+        "radio": url_for("summary_view"),
+        "radio.reportes": url_for("summary_view"),
+        "radio.actualizar": url_for("plays_view"),
+        "radio.emisoras": url_for("stations_view"),
+        "ventas": url_for("sales_report_view"),
+        "ventas.reportes": url_for("sales_report_view"),
+        "ventas.actualizar": url_for("sales_update_view"),
+        "artists": url_for("artists_view"),
+        "artists.datos": url_for("artists_view"),
+        "artists.contratos": url_for("artists_view"),
+        "artists.conciertos": url_for("artists_view"),
+        "artists.discografica": url_for("artists_view"),
+        "artists.agenda": url_for("artists_view"),
+        "artists.promocion": url_for("artists_view"),
+        "artists.liquidaciones": url_for("artists_view"),
+        "discografica": url_for("discografica_view", section="lanzamientos"),
+        "discografica.lanzamientos": url_for("discografica_view", section="lanzamientos"),
+        "discografica.canciones": url_for("discografica_view", section="canciones", rep_tab="canciones"),
+        "discografica.royalties": url_for("discografica_view", section="royalties"),
+        "discografica.royalties.liquidaciones": url_for("discografica_view", section="royalties", royalty_tab="liquidaciones"),
+        "discografica.royalties.resumen": url_for("discografica_view", section="royalties", royalty_tab="resumen"),
+        "discografica.editorial": url_for("discografica_view", section="editorial"),
+        "discografica.registros": url_for("discografica_view", section="registros"),
+        "discografica.ingresos": url_for("discografica_view", section="ingresos"),
+        "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
+        "third_parties": url_for("promoters_view"),
+        "concerts": url_for("concerts_view"),
+        "concerts.vista": url_for("concerts_view", tab="vista"),
+        "concerts.facturacion": url_for("concerts_view", tab="facturacion"),
+        "concerts.alta": url_for("concerts_view", tab="alta"),
+        "quadrantes": url_for("quadrantes_view"),
+        "promocion": url_for("promocion_view"),
+        "produccion": url_for("produccion_view"),
+        "administracion": url_for("administracion_view"),
+        "contabilidad": url_for("contabilidad_view"),
+        "personal": url_for("personnel_view"),
+        "personal.usuarios": url_for("personnel_view"),
+        "personal.usuarios.accesos": url_for("personnel_view"),
+        "databases": url_for("venues_view"),
+        "databases.venues": url_for("venues_view"),
+        "databases.ticketers": url_for("ticketers_view"),
+        "databases.publishing_companies": url_for("publishing_companies_view"),
+        "databases.group_companies": url_for("companies_view"),
+        "databases.media": url_for("media_outlets_view"),
+        "databases.bags": url_for("bags_view"),
+        "databases.invoices": url_for("invoices_view"),
+    }
+    return mapping.get(key) or url_for("home")
+
+
+def _resource_icon(key: str) -> str:
+    for prefix, icon in [
+        ("radio", "fa-broadcast-tower"),
+        ("ventas", "fa-chart-line"),
+        ("artists", "fa-user-group"),
+        ("discografica", "fa-compact-disc"),
+        ("third_parties", "fa-handshake"),
+        ("concerts", "fa-music"),
+        ("quadrantes", "fa-table"),
+        ("promocion", "fa-bullhorn"),
+        ("produccion", "fa-sliders"),
+        ("administracion", "fa-briefcase"),
+        ("contabilidad", "fa-file-invoice-dollar"),
+        ("personal", "fa-users-cog"),
+        ("databases.media", "fa-newspaper"),
+        ("databases.bags", "fa-folder-open"),
+        ("databases.invoices", "fa-file-invoice"),
+        ("databases", "fa-database"),
+    ]:
+        if key == prefix or key.startswith(prefix + "."):
+            return icon
+    return "fa-circle"
+
+
+def _build_nav_menu() -> list[dict]:
+    raw = [
+        {"type": "link", "key": "home", "label": "Inicio", "url": _resource_default_url("home")},
+        {"type": "dropdown", "key": "radio", "label": "Radio", "children": [
+            {"key": "radio.reportes", "label": "Reporte de radios", "url": _resource_default_url("radio.reportes")},
+            {"key": "radio.actualizar", "label": "Actualizar tocadas", "url": _resource_default_url("radio.actualizar")},
+            {"key": "radio.emisoras", "label": "Emisoras", "url": _resource_default_url("radio.emisoras")},
+        ]},
+        {"type": "dropdown", "key": "ventas", "label": "Ventas", "children": [
+            {"key": "ventas.reportes", "label": "Reporte de ventas", "url": _resource_default_url("ventas.reportes")},
+            {"key": "ventas.actualizar", "label": "Actualizar ventas", "url": _resource_default_url("ventas.actualizar")},
+        ]},
+        {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
+        {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
+        {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
+        {"type": "link", "key": "concerts", "label": "Conciertos", "url": _resource_default_url("concerts")},
+        {"type": "link", "key": "quadrantes", "label": "Cuadrantes", "url": _resource_default_url("quadrantes")},
+        {"type": "link", "key": "promocion", "label": "Promoción", "url": _resource_default_url("promocion")},
+        {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
+        {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
+        {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
+        {"type": "link", "key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
+        {"type": "dropdown", "key": "databases", "label": "Bases de datos", "children": [
+            {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
+            {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},
+            {"key": "databases.publishing_companies", "label": "Editoriales", "url": _resource_default_url("databases.publishing_companies")},
+            {"key": "databases.group_companies", "label": "Empresas del grupo", "url": _resource_default_url("databases.group_companies")},
+            {"key": "databases.media", "label": "Medios", "url": _resource_default_url("databases.media")},
+            {"key": "databases.bags", "label": "Bolsas", "url": _resource_default_url("databases.bags")},
+            {"key": "databases.invoices", "label": "Facturas", "url": _resource_default_url("databases.invoices")},
+        ]},
+    ]
+    items = []
+    for item in raw:
+        if item["type"] == "link":
+            if has_access_key(item["key"], include_descendants=True):
+                items.append(item)
+            continue
+        children = [child for child in item.get("children", []) if has_access_key(child["key"], include_descendants=True)]
+        if children:
+            item = dict(item)
+            item["children"] = children
+            items.append(item)
+        elif has_access_key(item["key"], include_descendants=True):
+            items.append({"type": "link", "key": item["key"], "label": item["label"], "url": _resource_default_url(item["key"])})
+    return items
+
+
+def _build_home_quick_links(limit: int = 6) -> list[dict]:
+    state = _current_user_state()
+    if not state.get("user_id"):
+        return []
+    session_db = db()
+    try:
+        cutoff = _now_madrid() - timedelta(days=21)
+        rows = (
+            session_db.query(UserActivityLog.resource_key, func.count(UserActivityLog.id))
+            .filter(UserActivityLog.user_id == to_uuid(state["user_id"]))
+            .filter(UserActivityLog.created_at >= cutoff)
+            .filter(UserActivityLog.resource_key.isnot(None))
+            .group_by(UserActivityLog.resource_key)
+            .order_by(func.count(UserActivityLog.id).desc())
+            .limit(limit)
+            .all()
+        )
+        links = []
+        seen = set()
+        for key, count in rows:
+            if not key or key in seen or not has_access_key(key, include_descendants=True):
+                continue
+            seen.add(key)
+            resource = _ACCESS_RESOURCE_MAP.get(key) or {}
+            links.append({
+                "key": key,
+                "label": resource.get("label") or _resource_label_from_key(key),
+                "url": _resource_default_url(key),
+                "icon": _resource_icon(key),
+                "count": int(count or 0),
+            })
+        if links:
+            return links[:limit]
+        fallback_keys = [
+            "discografica.lanzamientos",
+            "concerts.vista",
+            "artists",
+            "third_parties",
+            "databases.media",
+            "databases.invoices",
+        ]
+        for key in fallback_keys:
+            if len(links) >= limit:
+                break
+            if not has_access_key(key, include_descendants=True):
+                continue
+            links.append({
+                "key": key,
+                "label": (_ACCESS_RESOURCE_MAP.get(key) or {}).get("label") or _resource_label_from_key(key),
+                "url": _resource_default_url(key),
+                "icon": _resource_icon(key),
+                "count": 0,
+            })
+        return links
+    finally:
+        session_db.close()
+
+
+def _build_home_sections() -> list[dict]:
+    sections = [
+        ("discografica", "Discográfica", _resource_default_url("discografica"), "fa-compact-disc"),
+        ("concerts", "Conciertos", _resource_default_url("concerts"), "fa-music"),
+        ("promocion", "Promoción", _resource_default_url("promocion"), "fa-bullhorn"),
+        ("contabilidad", "Contabilidad", _resource_default_url("contabilidad"), "fa-file-invoice-dollar"),
+        ("databases", "Bases de datos", _resource_default_url("databases.venues"), "fa-database"),
+        ("personal", "Personal", _resource_default_url("personal"), "fa-users-cog"),
+    ]
+    out = []
+    for key, label, url, icon in sections:
+        if has_access_key(key, include_descendants=True):
+            out.append({"key": key, "label": label, "url": url, "icon": icon})
+    return out
+
+
+def _build_personnel_access_rows() -> list[dict]:
+    session_db = db()
+    try:
+        rows = session_db.query(UserAccessResource).order_by(UserAccessResource.sort_order.asc(), UserAccessResource.label.asc()).all()
+        grouped = []
+        section_map = {}
+        for row in rows:
+            if row.level == "SECTION":
+                section_entry = {"section": row, "children": []}
+                grouped.append(section_entry)
+                section_map[row.key] = section_entry
+        for row in rows:
+            if row.level == "SECTION":
+                continue
+            parent = section_map.get(row.section_key) or section_map.get(row.parent_key)
+            if parent is None:
+                continue
+            parent["children"].append(row)
+        return grouped
+    finally:
+        session_db.close()
+
+
+def _media_contact_display(contact: MediaContact | None) -> str:
+    if not contact:
+        return ""
+    name = " ".join([x for x in [
+        (contact.first_name or "").strip(),
+        (contact.last_name or "").strip(),
+    ] if x]).strip()
+    pieces = [
+        (contact.program or "").strip(),
+        (contact.role or "").strip(),
+        name,
+        (contact.phone or "").strip(),
+        (contact.email or "").strip(),
+    ]
+    return " · ".join([p for p in pieces if p])
+
+
+def _section_stats_counts() -> dict:
+    session_db = db()
+    try:
+        return {
+            "media": session_db.query(MediaOutlet).count(),
+            "bags_active": session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).count(),  # noqa: E712
+            "invoices": session_db.query(InvoiceRecord).count(),
+            "users": session_db.query(User).count(),
+        }
+    finally:
+        session_db.close()
+
+
+@app.context_processor
+def inject_personnel_globals():
+    current_user = _build_current_user_summary() if session.get("user_id") else None
+    return {
+        "CURRENT_USER": current_user,
+        "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
+        "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
+        "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
+        "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
+        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "administracion_view", "contabilidad_view", "produccion_view", "personnel_view"} and session.get("user_id") else {},
+        "has_access_key": has_access_key,
+    }
+
+
+@app.before_request
+def ensure_personnel_bootstrap():
+    _bootstrap_access_and_personnel()
+
+
+@app.after_request
+def track_user_activity(response):
+    try:
+        if request.method != "GET":
+            return response
+        if response.status_code >= 400:
+            return response
+        uid = session.get("user_id")
+        if not uid:
+            return response
+        key = _resolve_request_resource_key()
+        if not key:
+            return response
+        session_db = db()
+        try:
+            session_db.add(UserActivityLog(
+                user_id=to_uuid(uid),
+                resource_key=key,
+                endpoint=request.endpoint,
+                path=request.path,
+                method=request.method,
+            ))
+            session_db.commit()
+        finally:
+            session_db.close()
+    except Exception:
+        pass
+    return response
+
+
+def _require_login_v2():
+    if request.endpoint == "static":
+        return
+    if session.get("user_id"):
+        return
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_pdf", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"} | PUBLIC_ENDPOINTS_EXTRA
+    if request.endpoint in allowed:
+        return
+    if not request.endpoint:
+        return
+    nxt = request.full_path if request.query_string else request.path
+    return redirect(url_for("admin_login", next=nxt))
+
+
+def _enforce_role_permissions_v2():
+    if not session.get("user_id"):
+        return
+    state = _current_user_state()
+    security = state.get("security")
+    if security and getattr(security, "is_deleted", False):
+        session.clear()
+        flash("El usuario no existe.", "danger")
+        return redirect(url_for("admin_login"))
+    if security and getattr(security, "is_blocked", False):
+        session.clear()
+        flash("Lo sentimos ya no tienes acceso al Back Office", "danger")
+        return redirect(url_for("admin_login"))
+
+    key = _resolve_request_resource_key() or _infer_group_key_from_path(request.path)
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if key and not has_access_key(key, edit=True, include_descendants=True):
+            return forbid("Tu usuario no tiene permisos de edición para esta sección.")
+        if not key and not is_master():
+            return forbid("Tu usuario no tiene permisos para modificar datos en esta sección.")
+    else:
+        if key and key != "home" and not has_access_key(key, include_descendants=True):
+            return forbid("Tu usuario no tiene acceso a esta sección.")
+
+
+def _admin_login_extended():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        password = (request.form.get("password") or "").strip()
+        nxt = request.form.get("next") or url_for("home")
+        txt_users = load_users_from_txt()
+        session_db = db()
+        try:
+            user = session_db.query(User).filter(func.lower(User.email) == email).first()
+            security = session_db.get(UserSecurity, user.id) if user else None
+            if user and security and getattr(security, "is_deleted", False):
+                flash("El usuario no existe.", "danger")
+                return render_template("login.html", next_url=request.args.get("next") or "")
+            if user and security and getattr(security, "is_blocked", False):
+                flash("Lo sentimos ya no tienes acceso al Back Office", "danger")
+                return render_template("login.html", next_url=request.args.get("next") or "")
+            if user and check_password_hash(user.password_hash, password):
+                profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
+                security = _ensure_user_security(session_db, user)
+                security.last_login_at = _now_madrid()
+                _sync_user_access_grants(session_db, user, profile)
+                session_db.commit()
+                session["user_id"] = str(user.id)
+                session["role"] = int(getattr(user, "role", 10) or 10)
+                flash(f"Bienvenido, {(profile.nick or _email_to_nick(user.email)).strip()}.", "success")
+                return redirect(nxt)
+            rec = txt_users.get(email)
+            if rec and rec.get("password") == password:
+                role = int(rec.get("role") or 10)
+                if not user:
+                    user = User(email=email, password_hash=generate_password_hash(password), role=role)
+                    session_db.add(user)
+                    session_db.flush()
+                else:
+                    user.password_hash = generate_password_hash(password)
+                    user.role = role
+                profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
+                security = _ensure_user_security(session_db, user, password_preview=password)
+                security.last_login_at = _now_madrid()
+                _sync_user_access_grants(session_db, user, profile)
+                session_db.commit()
+                session["user_id"] = str(user.id)
+                session["role"] = role
+                flash(f"Bienvenido, {(profile.nick or _email_to_nick(user.email)).strip()}.", "success")
+                return redirect(nxt)
+            flash("Usuario o contraseña incorrectos.", "danger")
+        finally:
+            session_db.close()
+    next_param = request.args.get("next") or ""
+    return render_template("login.html", next_url=next_param)
+
+
+def _replace_before_request(name: str, func_obj):
+    funcs = app.before_request_funcs.setdefault(None, [])
+    for idx, fn in enumerate(funcs):
+        if getattr(fn, "__name__", "") == name:
+            funcs[idx] = func_obj
+            return
+    funcs.append(func_obj)
+
+
+_replace_before_request("require_login", _require_login_v2)
+_replace_before_request("enforce_role_permissions", _enforce_role_permissions_v2)
+app.view_functions["admin_login"] = _admin_login_extended
+
+
+@app.route("/password/forgot", methods=["GET", "POST"], endpoint="password_forgot")
+def password_forgot():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        session_db = db()
+        try:
+            user = session_db.query(User).filter(func.lower(User.email) == email).first()
+            security = session_db.get(UserSecurity, user.id) if user else None
+            if user and (not security or (not security.is_deleted and not security.is_blocked)):
+                profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
+                security = _ensure_user_security(session_db, user)
+                token = _make_password_token(user.id, purpose="reset")
+                ok, err = _send_optional_email(
+                    user.email,
+                    "Restablecer contraseña · Back Office",
+                    _password_reset_email_html(user, profile, token),
+                    text_body="Usa el enlace del correo para cambiar tu contraseña.",
+                )
+                if ok:
+                    security.password_reset_sent_at = _now_madrid()
+                    session_db.commit()
+            flash("Si el usuario existe, le hemos enviado un correo para cambiar la contraseña.", "success")
+        finally:
+            session_db.close()
+        return redirect(url_for("admin_login"))
+    return render_template("password_forgot.html")
+
+
+@app.route("/password/set/<token>", methods=["GET", "POST"], endpoint="password_set")
+def password_set(token):
+    payload = _load_password_token(token)
+    if not payload:
+        flash("El enlace para crear o cambiar la contraseña ya no es válido.", "danger")
+        return redirect(url_for("admin_login"))
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(payload.get("user_id")))
+        if not user:
+            flash("El usuario no existe.", "danger")
+            return redirect(url_for("admin_login"))
+        security = _ensure_user_security(session_db, user)
+        if security.is_deleted:
+            flash("El usuario no existe.", "danger")
+            return redirect(url_for("admin_login"))
+        if request.method == "POST":
+            password = (request.form.get("password") or "").strip()
+            password_confirm = (request.form.get("password_confirm") or "").strip()
+            if len(password) < 8:
+                flash("La contraseña debe tener al menos 8 caracteres.", "danger")
+                return render_template("password_set.html", token=token, email=user.email)
+            if password != password_confirm:
+                flash("Las contraseñas no coinciden.", "danger")
+                return render_template("password_set.html", token=token, email=user.email)
+            user.password_hash = generate_password_hash(password)
+            security.password_preview = password
+            security.password_last_changed_at = _now_madrid()
+            security.is_blocked = False
+            security.blocked_at = None
+            session_db.commit()
+            flash("Tu contraseña se ha guardado correctamente. Ya puedes acceder al Back Office.", "success")
+            return redirect(url_for("admin_login"))
+        return render_template("password_set.html", token=token, email=user.email)
+    finally:
+        session_db.close()
+
+
+@app.route("/promocion", endpoint="promocion_view")
+@admin_required
+def promocion_view():
+    session_db = db()
+    try:
+        recent_media = session_db.query(MediaOutlet).order_by(MediaOutlet.created_at.desc()).limit(6).all()
+        upcoming = []
+        today = today_local()
+        songs = session_db.query(Song).options(selectinload(Song.artists)).filter(Song.release_date >= today).order_by(Song.release_date.asc()).limit(5).all()
+        _annotate_song_display_fields(session_db, songs, persist=True)
+        for song in songs:
+            upcoming.append({
+                "title": song.title,
+                "subtitle": ", ".join([a.name for a in (song.artists or []) if getattr(a, "name", None)]) or "—",
+                "badge": f"{(song.release_date - today).days} días",
+                "url": url_for("discografica_song_detail", song_id=song.id, tab="informacion"),
+            })
+        return render_template(
+            "operations_section.html",
+            title="Promoción",
+            subtitle="Seguimiento de medios, campañas y próximos lanzamientos.",
+            cards=[
+                {"title": "Medios", "value": session_db.query(MediaOutlet).count(), "url": url_for("media_outlets_view"), "icon": "fa-newspaper", "description": "Base de datos de medios y contactos."},
+                {"title": "Próximos lanzamientos", "value": len(upcoming), "url": url_for("discografica_view", section="lanzamientos"), "icon": "fa-calendar-star", "description": "Lanzamientos activos para acciones promocionales."},
+            ],
+            recent_items=upcoming,
+            recent_title="Lanzamientos a vigilar",
+            secondary_items=[{"title": m.name, "subtitle": (m.media_type or "—"), "url": url_for("media_outlet_detail_view", media_id=m.id)} for m in recent_media],
+            secondary_title="Medios recientes",
+        )
+    finally:
+        session_db.close()
+
+
+@app.route("/produccion", endpoint="produccion_view")
+@admin_required
+def produccion_view():
+    session_db = db()
+    try:
+        recent_song_contracts = session_db.query(SongProductionContract).order_by(SongProductionContract.created_at.desc()).limit(5).all()
+        recent_album_contracts = session_db.query(AlbumProductionContract).order_by(AlbumProductionContract.created_at.desc()).limit(5).all()
+        recent_items = []
+        for row in recent_song_contracts:
+            song = session_db.get(Song, row.song_id)
+            if song:
+                recent_items.append({"title": row.producer_name, "subtitle": f"Canción · {song.title}", "url": url_for("discografica_song_detail", song_id=song.id, tab="informacion")})
+        for row in recent_album_contracts:
+            album = session_db.get(Album, row.album_id)
+            if album:
+                recent_items.append({"title": row.producer_name, "subtitle": f"Álbum · {album.title}", "url": url_for("discografica_album_detail", album_id=album.id, tab="informacion")})
+        recent_items = recent_items[:6]
+        return render_template(
+            "operations_section.html",
+            title="Producción",
+            subtitle="Visión general del trabajo de producción y contratos asociados.",
+            cards=[
+                {"title": "Contratos de producción", "value": session_db.query(SongProductionContract).count() + session_db.query(AlbumProductionContract).count(), "url": url_for("discografica_view", section="canciones"), "icon": "fa-file-signature", "description": "Contratos de producción subidos en canciones y álbumes."},
+                {"title": "Discográfica", "value": session_db.query(Song).count() + session_db.query(Album).count(), "url": url_for("discografica_view", section="canciones"), "icon": "fa-compact-disc", "description": "Acceso directo al repertorio y materiales."},
+            ],
+            recent_items=recent_items,
+            recent_title="Contratos recientes",
+            secondary_items=[],
+            secondary_title="",
+        )
+    finally:
+        session_db.close()
+
+
+@app.route("/administracion", endpoint="administracion_view")
+@admin_required
+def administracion_view():
+    session_db = db()
+    try:
+        active_bags = session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).limit(6).all()  # noqa: E712
+        return render_template(
+            "operations_section.html",
+            title="Administración",
+            subtitle="Control interno de bolsas y gestión administrativa.",
+            cards=[
+                {"title": "Bolsas activas", "value": session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).count(), "url": url_for("bags_view", tab="active"), "icon": "fa-folder-open", "description": "Seguimiento de procesos en curso."},  # noqa: E712
+                {"title": "Usuarios activos", "value": session_db.query(UserSecurity).filter(or_(UserSecurity.is_deleted == False, UserSecurity.is_deleted.is_(None))).count(), "url": url_for("personnel_view"), "icon": "fa-users", "description": "Personas con acceso al Back Office."},  # noqa: E712
+            ],
+            recent_items=[{"title": b.title, "subtitle": (getattr(getattr(b, "artist", None), "name", None) or "Sin artista"), "url": url_for("bag_detail_view", bag_id=b.id)} for b in active_bags],
+            recent_title="Bolsas activas",
+            secondary_items=[],
+            secondary_title="",
+        )
+    finally:
+        session_db.close()
+
+
+@app.route("/contabilidad", endpoint="contabilidad_view")
+@admin_required
+def contabilidad_view():
+    session_db = db()
+    try:
+        recent_invoices = session_db.query(InvoiceRecord).order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).limit(8).all()
+        issued_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "ISSUED").count()
+        received_count = session_db.query(InvoiceRecord).filter(InvoiceRecord.invoice_kind == "RECEIVED").count()
+        return render_template(
+            "operations_section.html",
+            title="Contabilidad",
+            subtitle="Facturas emitidas y recibidas centralizadas en un único lugar.",
+            cards=[
+                {"title": "Facturas emitidas", "value": issued_count, "url": url_for("invoices_view", tab="ISSUED"), "icon": "fa-file-invoice-dollar", "description": "Facturas emitidas desde la app."},
+                {"title": "Facturas recibidas", "value": received_count, "url": url_for("invoices_view", tab="RECEIVED"), "icon": "fa-file-invoice", "description": "Documentación recibida y asignación a bolsas."},
+            ],
+            recent_items=[{"title": inv.invoice_number, "subtitle": f"{inv.third_party_name} · {inv.status}", "url": url_for("invoices_view", tab=inv.invoice_kind)} for inv in recent_invoices],
+            recent_title="Últimas facturas",
+            secondary_items=[],
+            secondary_title="",
+        )
+    finally:
+        session_db.close()
+
+
+@app.route("/personal", methods=["GET", "POST"], endpoint="personnel_view")
+@admin_required
+def personnel_view():
+    session_db = db()
+    try:
+        if request.method == "POST":
+            email = (request.form.get("email") or "").strip().lower()
+            nick = (request.form.get("nick") or "").strip()
+            if not email or not nick:
+                flash("Nick y email son obligatorios.", "danger")
+                return redirect(url_for("personnel_view"))
+            if session_db.query(User).filter(func.lower(User.email) == email).first():
+                flash("Ya existe un usuario con ese email.", "danger")
+                return redirect(url_for("personnel_view"))
+            photo = request.files.get("photo")
+            photo_url = upload_image(photo, "users") if (photo and getattr(photo, "filename", "")) else None
+            temp_password = _generate_temporary_password()
+            user = User(email=email, password_hash=generate_password_hash(temp_password), role=1)
+            session_db.add(user)
+            session_db.flush()
+            profile = _ensure_user_profile(
+                session_db,
+                user,
+                legacy_full_seed=False,
+                nick=nick,
+                photo_url=photo_url,
+                first_name=(request.form.get("first_name") or "").strip() or None,
+                last_name=(request.form.get("last_name") or "").strip() or None,
+                dni=(request.form.get("dni") or "").strip() or None,
+                birth_date=parse_optional_date(request.form.get("birth_date")),
+                mobile_phones=_parse_phone_rows_from_form(request.form),
+                departments=_normalize_departments(request.form.getlist("departments")),
+            )
+            _ensure_user_security(session_db, user, password_preview=temp_password)
+            _sync_user_access_grants(session_db, user, profile)
+            token = _make_password_token(user.id, purpose="welcome")
+            ok, err = _send_optional_email(
+                user.email,
+                "Bienvenido al Back Office",
+                _welcome_email_html(user, profile, token),
+                text_body="Te hemos dado de alta en el Back Office. Revisa el enlace para crear tu contraseña.",
+            )
+            session_db.commit()
+            if ok:
+                flash("Usuario creado y correo de bienvenida enviado.", "success")
+            else:
+                flash(f"Usuario creado. No se pudo enviar el correo de bienvenida: {err}", "warning")
+            return redirect(url_for("personnel_view"))
+
+        users = (
+            session_db.query(User, UserProfile, UserSecurity)
+            .outerjoin(UserProfile, UserProfile.user_id == User.id)
+            .outerjoin(UserSecurity, UserSecurity.user_id == User.id)
+            .filter(or_(UserSecurity.is_deleted == False, UserSecurity.is_deleted.is_(None)))  # noqa: E712
+            .order_by(func.lower(func.coalesce(UserProfile.nick, User.email)).asc())
+            .all()
+        )
+        access_rows = _build_personnel_access_rows()
+        return render_template("personnel.html", users=users, access_rows=access_rows)
+    finally:
+        session_db.close()
+
+
+@app.route("/personal/<user_id>", methods=["GET", "POST"], endpoint="personnel_detail_view")
+@admin_required
+def personnel_detail_view(user_id):
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            flash("Usuario no encontrado.", "warning")
+            return redirect(url_for("personnel_view"))
+        profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
+        security = _ensure_user_security(session_db, user)
+        _sync_user_access_grants(session_db, user, profile)
+        tab = (request.args.get("tab") or "accesos").strip().lower()
+        if tab not in {"accesos", "datos"}:
+            tab = "accesos"
+
+        if request.method == "POST":
+            mode = (request.form.get("mode") or "").strip().lower()
+            if mode == "datos":
+                photo = request.files.get("photo")
+                if photo and getattr(photo, "filename", ""):
+                    profile.photo_url = upload_image(photo, "users")
+                profile.nick = (request.form.get("nick") or profile.nick or "").strip() or profile.nick
+                profile.first_name = (request.form.get("first_name") or "").strip() or None
+                profile.last_name = (request.form.get("last_name") or "").strip() or None
+                profile.dni = (request.form.get("dni") or "").strip() or None
+                profile.birth_date = parse_optional_date(request.form.get("birth_date"))
+                profile.mobile_phones = _parse_phone_rows_from_form(request.form)
+                profile.departments = _normalize_departments(request.form.getlist("departments"))
+                user.email = (request.form.get("email") or user.email or "").strip().lower() or user.email
+                session_db.commit()
+                flash("Usuario actualizado.", "success")
+                return redirect(url_for("personnel_detail_view", user_id=user.id, tab="datos"))
+            if mode == "accesos":
+                grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
+                resources = session_db.query(UserAccessResource).order_by(UserAccessResource.sort_order.asc(), UserAccessResource.label.asc()).all()
+                for resource in resources:
+                    grant = grants.get(resource.key)
+                    if not grant:
+                        grant = UserAccessGrant(user_id=user.id, resource_key=resource.key)
+                        session_db.add(grant)
+                    view_basic = request.form.get(f"perm__{resource.key}__view") == "1"
+                    view_econ = bool(resource.economic_capable) and request.form.get(f"perm__{resource.key}__econ") == "1"
+                    can_edit_flag = request.form.get(f"perm__{resource.key}__edit") == "1"
+                    if can_edit_flag:
+                        view_basic = True
+                        if resource.economic_capable:
+                            view_econ = True
+                    grant.can_view_basic = view_basic
+                    grant.can_view_econ = view_econ
+                    grant.can_edit = can_edit_flag
+                session_db.commit()
+                flash("Accesos actualizados.", "success")
+                return redirect(url_for("personnel_detail_view", user_id=user.id, tab="accesos"))
+
+        grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
+        access_rows = _build_personnel_access_rows()
+        return render_template(
+            "personnel_detail.html",
+            user=user,
+            profile=profile,
+            security=security,
+            tab=tab,
+            access_rows=access_rows,
+            grants=grants,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/personal/<user_id>/block")
+@admin_required
+def personnel_user_block(user_id):
+    session_db = db()
+    try:
+        security = session_db.get(UserSecurity, to_uuid(user_id))
+        if security:
+            security.is_blocked = True
+            security.blocked_at = _now_madrid()
+            session_db.commit()
+            flash("Usuario bloqueado.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("personnel_view")))
+
+
+@app.post("/personal/<user_id>/unblock")
+@admin_required
+def personnel_user_unblock(user_id):
+    session_db = db()
+    try:
+        security = session_db.get(UserSecurity, to_uuid(user_id))
+        if security:
+            security.is_blocked = False
+            security.blocked_at = None
+            session_db.commit()
+            flash("Usuario desbloqueado.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("personnel_view")))
+
+
+@app.post("/personal/<user_id>/delete")
+@admin_required
+def personnel_user_delete(user_id):
+    session_db = db()
+    try:
+        security = session_db.get(UserSecurity, to_uuid(user_id))
+        if security:
+            security.is_deleted = True
+            security.deleted_at = _now_madrid()
+            security.is_blocked = True
+            security.blocked_at = _now_madrid()
+            session_db.commit()
+            flash("Usuario eliminado.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("personnel_view")))
+
+
+@app.get("/personal/<user_id>/password/view")
+@admin_required
+def personnel_user_password_view(user_id):
+    session_db = db()
+    try:
+        security = session_db.get(UserSecurity, to_uuid(user_id))
+        if not security:
+            return jsonify({"ok": False, "message": "No hay información de contraseña."}), 404
+        if security.password_preview:
+            return jsonify({"ok": True, "password": security.password_preview})
+        return jsonify({"ok": False, "message": "La contraseña aún no se ha definido."}), 404
+    finally:
+        session_db.close()
+
+
+@app.post("/personal/<user_id>/password/send-reset")
+@admin_required
+def personnel_user_password_send_reset(user_id):
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            flash("Usuario no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("personnel_view")))
+        profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
+        security = _ensure_user_security(session_db, user)
+        token = _make_password_token(user.id, purpose="reset")
+        ok, err = _send_optional_email(
+            user.email,
+            "Recuperación de contraseña · Back Office",
+            _password_reset_email_html(user, profile, token),
+            text_body="Sigue el enlace para cambiar tu contraseña.",
+        )
+        if ok:
+            security.password_reset_sent_at = _now_madrid()
+            session_db.commit()
+            flash("Correo de recuperación enviado.", "success")
+        else:
+            flash(f"No se pudo enviar el correo: {err}", "danger")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("personnel_view")))
+
+
+@app.post("/personal/<user_id>/password/regenerate")
+@admin_required
+def personnel_user_password_regenerate(user_id):
+    session_db = db()
+    try:
+        user = session_db.get(User, to_uuid(user_id))
+        if not user:
+            flash("Usuario no encontrado.", "warning")
+            return redirect(safe_next_or(url_for("personnel_view")))
+        security = _ensure_user_security(session_db, user)
+        new_password = _generate_temporary_password()
+        user.password_hash = generate_password_hash(new_password)
+        security.password_preview = new_password
+        security.password_last_changed_at = _now_madrid()
+        security.is_blocked = False
+        security.blocked_at = None
+        session_db.commit()
+        flash(f"Nueva contraseña generada para {user.email}: {new_password}", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("personnel_view")))
+
+
+@app.route("/medios", methods=["GET", "POST"], endpoint="media_outlets_view")
+@admin_required
+def media_outlets_view():
+    session_db = db()
+    try:
+        if request.method == "POST":
+            media_type = (request.form.get("media_type") or "").strip()
+            name = (request.form.get("name") or "").strip()
+            if media_type not in MEDIA_TYPES or not name:
+                flash("Debes indicar el tipo y el nombre del medio.", "danger")
+                return redirect(url_for("media_outlets_view"))
+            logo = request.files.get("logo")
+            logo_url = upload_png(logo, "media") if (logo and getattr(logo, "filename", "")) else None
+            outlet = MediaOutlet(
+                media_type=media_type,
+                name=name,
+                logo_url=logo_url,
+                address=(request.form.get("address") or "").strip() or None,
+            )
+            session_db.add(outlet)
+            session_db.flush()
+            programs = request.form.getlist("contact_program")
+            roles = request.form.getlist("contact_role")
+            first_names = request.form.getlist("contact_first_name")
+            last_names = request.form.getlist("contact_last_name")
+            phones = request.form.getlist("contact_phone")
+            emails = request.form.getlist("contact_email")
+            for program, role, first_name, last_name, phone, email in zip(programs, roles, first_names, last_names, phones, emails):
+                if not any([(program or "").strip(), (role or "").strip(), (first_name or "").strip(), (last_name or "").strip(), (phone or "").strip(), (email or "").strip()]):
+                    continue
+                session_db.add(MediaContact(
+                    media_id=outlet.id,
+                    program=(program or "").strip() or None,
+                    role=(role or "").strip() or None,
+                    first_name=(first_name or "").strip() or None,
+                    last_name=(last_name or "").strip() or None,
+                    phone=(phone or "").strip() or None,
+                    email=(email or "").strip() or None,
+                ))
+            session_db.commit()
+            flash("Medio creado.", "success")
+            return redirect(url_for("media_outlet_detail_view", media_id=outlet.id))
+
+        f_types = [(x or "").strip() for x in request.args.getlist("type") if (x or "").strip()]
+        q = (request.args.get("q") or "").strip()
+        query = session_db.query(MediaOutlet)
+        if f_types:
+            query = query.filter(MediaOutlet.media_type.in_(f_types))
+        if q:
+            like = f"%{q}%"
+            query = (
+                query.outerjoin(MediaContact, MediaContact.media_id == MediaOutlet.id)
+                .filter(or_(
+                    MediaOutlet.name.ilike(like),
+                    MediaOutlet.address.ilike(like),
+                    MediaOutlet.media_type.ilike(like),
+                    MediaContact.program.ilike(like),
+                    MediaContact.role.ilike(like),
+                    MediaContact.first_name.ilike(like),
+                    MediaContact.last_name.ilike(like),
+                    MediaContact.phone.ilike(like),
+                    MediaContact.email.ilike(like),
+                ))
+                .distinct()
+            )
+        media_rows = query.order_by(func.lower(MediaOutlet.name).asc()).all()
+        return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES, selected_types=f_types, query_text=q)
+    finally:
+        session_db.close()
+
+
+@app.route("/medios/<media_id>", methods=["GET", "POST"], endpoint="media_outlet_detail_view")
+@admin_required
+def media_outlet_detail_view(media_id):
+    session_db = db()
+    try:
+        outlet = session_db.get(MediaOutlet, to_uuid(media_id))
+        if not outlet:
+            flash("Medio no encontrado.", "warning")
+            return redirect(url_for("media_outlets_view"))
+        tab = (request.args.get("tab") or "contactos").strip().lower()
+        if tab not in {"contactos", "historico"}:
+            tab = "contactos"
+        if request.method == "POST":
+            mode = (request.form.get("mode") or "").strip().lower()
+            if mode == "edit_outlet":
+                outlet.media_type = (request.form.get("media_type") or outlet.media_type or "").strip() or outlet.media_type
+                outlet.name = (request.form.get("name") or outlet.name or "").strip() or outlet.name
+                outlet.address = (request.form.get("address") or "").strip() or None
+                logo = request.files.get("logo")
+                if logo and getattr(logo, "filename", ""):
+                    outlet.logo_url = upload_png(logo, "media")
+                session_db.commit()
+                flash("Medio actualizado.", "success")
+                return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab=tab))
+            if mode == "add_contact":
+                session_db.add(MediaContact(
+                    media_id=outlet.id,
+                    program=(request.form.get("program") or "").strip() or None,
+                    role=(request.form.get("role") or "").strip() or None,
+                    first_name=(request.form.get("first_name") or "").strip() or None,
+                    last_name=(request.form.get("last_name") or "").strip() or None,
+                    phone=(request.form.get("phone") or "").strip() or None,
+                    email=(request.form.get("email") or "").strip() or None,
+                ))
+                session_db.commit()
+                flash("Contacto añadido.", "success")
+                return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
+            if mode == "update_contact":
+                contact_id = (request.form.get("contact_id") or "").strip()
+                contact = session_db.get(MediaContact, to_uuid(contact_id)) if contact_id else None
+                if contact and contact.media_id == outlet.id:
+                    contact.program = (request.form.get("program") or "").strip() or None
+                    contact.role = (request.form.get("role") or "").strip() or None
+                    contact.first_name = (request.form.get("first_name") or "").strip() or None
+                    contact.last_name = (request.form.get("last_name") or "").strip() or None
+                    contact.phone = (request.form.get("phone") or "").strip() or None
+                    contact.email = (request.form.get("email") or "").strip() or None
+                    session_db.commit()
+                    flash("Contacto actualizado.", "success")
+                return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="contactos"))
+            if mode == "add_history":
+                session_db.add(MediaPromotionRecord(
+                    media_id=outlet.id,
+                    artist_id=to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None,
+                    promotion_title=(request.form.get("promotion_title") or "").strip() or None,
+                    program_name=(request.form.get("program_name") or "").strip() or None,
+                    promoted_at=parse_optional_date(request.form.get("promoted_at")) or today_local(),
+                    artist_performed=_truthy(request.form.get("artist_performed")),
+                    performed_song=(request.form.get("performed_song") or "").strip() or None,
+                    notes=(request.form.get("notes") or "").strip() or None,
+                ))
+                session_db.commit()
+                flash("Histórico añadido.", "success")
+                return redirect(url_for("media_outlet_detail_view", media_id=outlet.id, tab="historico"))
+
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        contacts = session_db.query(MediaContact).filter(MediaContact.media_id == outlet.id).order_by(MediaContact.created_at.asc()).all()
+        history_query = session_db.query(MediaPromotionRecord).options(joinedload(MediaPromotionRecord.artist)).filter(MediaPromotionRecord.media_id == outlet.id)
+        f_artist = (request.args.get("artist") or "").strip()
+        f_search = (request.args.get("search") or "").strip()
+        f_start = parse_optional_date(request.args.get("start"))
+        f_end = parse_optional_date(request.args.get("end"))
+        if f_artist:
+            history_query = history_query.filter(MediaPromotionRecord.artist_id == to_uuid(f_artist))
+        if f_start:
+            history_query = history_query.filter(MediaPromotionRecord.promoted_at >= f_start)
+        if f_end:
+            history_query = history_query.filter(MediaPromotionRecord.promoted_at <= f_end)
+        if f_search:
+            like = f"%{f_search}%"
+            history_query = history_query.filter(or_(MediaPromotionRecord.promotion_title.ilike(like), MediaPromotionRecord.program_name.ilike(like), MediaPromotionRecord.performed_song.ilike(like), MediaPromotionRecord.notes.ilike(like)))
+        history_rows = history_query.order_by(MediaPromotionRecord.promoted_at.desc(), MediaPromotionRecord.created_at.desc()).all()
+        return render_template(
+            "media_outlet_detail.html",
+            outlet=outlet,
+            tab=tab,
+            contacts=contacts,
+            history_rows=history_rows,
+            artists=artists,
+            filter_artist=f_artist,
+            filter_search=f_search,
+            filter_start=f_start.isoformat() if f_start else "",
+            filter_end=f_end.isoformat() if f_end else "",
+            media_types=MEDIA_TYPES,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/medios/<media_id>/delete")
+@admin_required
+def media_outlet_delete(media_id):
+    session_db = db()
+    try:
+        outlet = session_db.get(MediaOutlet, to_uuid(media_id))
+        if outlet:
+            session_db.delete(outlet)
+            session_db.commit()
+            flash("Medio eliminado.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("media_outlets_view"))
+
+
+@app.post("/medios/<media_id>/contactos/<contact_id>/delete")
+@admin_required
+def media_contact_delete(media_id, contact_id):
+    session_db = db()
+    try:
+        contact = session_db.get(MediaContact, to_uuid(contact_id))
+        if contact:
+            session_db.delete(contact)
+            session_db.commit()
+            flash("Contacto eliminado.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("media_outlet_detail_view", media_id=media_id, tab="contactos"))
+
+
+@app.route("/bolsas", methods=["GET", "POST"], endpoint="bags_view")
+@admin_required
+def bags_view():
+    session_db = db()
+    try:
+        if request.method == "POST":
+            title = (request.form.get("title") or "").strip()
+            if not title:
+                flash("El título de la bolsa es obligatorio.", "danger")
+                return redirect(url_for("bags_view"))
+            bag = WorkflowBag(
+                title=title,
+                artist_id=to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None,
+                company_id=to_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None,
+                start_date=parse_optional_date(request.form.get("start_date")),
+                end_date=parse_optional_date(request.form.get("end_date")),
+                description=(request.form.get("description") or "").strip() or None,
+                status=(request.form.get("status") or "ACTIVA").strip().upper(),
+                is_archived=False,
+            )
+            session_db.add(bag)
+            session_db.commit()
+            flash("Bolsa creada.", "success")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+
+        tab = (request.args.get("tab") or "active").strip().lower()
+        if tab not in {"active", "archived"}:
+            tab = "active"
+        query = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
+        query = query.outerjoin(Artist, WorkflowBag.artist_id == Artist.id).outerjoin(GroupCompany, WorkflowBag.company_id == GroupCompany.id)
+        query = query.filter(WorkflowBag.is_archived == (tab == "archived"))
+        f_artist = (request.args.get("artist") or "").strip()
+        f_year = (request.args.get("year") or "").strip()
+        f_company = (request.args.get("company") or "").strip()
+        f_start = parse_optional_date(request.args.get("start"))
+        f_end = parse_optional_date(request.args.get("end"))
+        f_q = (request.args.get("q") or "").strip()
+        if f_artist:
+            query = query.filter(WorkflowBag.artist_id == to_uuid(f_artist))
+        if f_company:
+            query = query.filter(WorkflowBag.company_id == to_uuid(f_company))
+        if f_year:
+            try:
+                year = int(f_year)
+                query = query.filter(or_(func.extract("year", WorkflowBag.start_date) == year, func.extract("year", WorkflowBag.end_date) == year))
+            except Exception:
+                pass
+        if f_start:
+            query = query.filter(or_(WorkflowBag.start_date.is_(None), WorkflowBag.start_date >= f_start))
+        if f_end:
+            query = query.filter(or_(WorkflowBag.end_date.is_(None), WorkflowBag.end_date <= f_end))
+        if f_q:
+            like = f"%{f_q}%"
+            query = query.filter(or_(
+                WorkflowBag.title.ilike(like),
+                WorkflowBag.description.ilike(like),
+                WorkflowBag.status.ilike(like),
+                Artist.name.ilike(like),
+                GroupCompany.name.ilike(like),
+            ))
+        bags = query.distinct().order_by(WorkflowBag.created_at.desc()).all()
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        years = sorted({str(getattr(b.start_date, "year", None) or getattr(b.end_date, "year", None)) for b in session_db.query(WorkflowBag).all() if getattr(b, "start_date", None) or getattr(b, "end_date", None)}, reverse=True)
+        return render_template(
+            "bags.html",
+            bags=bags,
+            tab=tab,
+            artists=artists,
+            companies=companies,
+            years=years,
+            filter_artist=f_artist,
+            filter_year=f_year,
+            filter_company=f_company,
+            filter_start=f_start.isoformat() if f_start else "",
+            filter_end=f_end.isoformat() if f_end else "",
+            filter_q=f_q,
+            bag_status_options=BAG_STATUS_OPTIONS,
+        )
+    finally:
+        session_db.close()
+
+
+@app.route("/bolsas/<bag_id>", methods=["GET", "POST"], endpoint="bag_detail_view")
+@admin_required
+def bag_detail_view(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company)).filter(WorkflowBag.id == to_uuid(bag_id)).first()
+        if not bag:
+            flash("Bolsa no encontrada.", "warning")
+            return redirect(url_for("bags_view"))
+        if request.method == "POST":
+            bag.title = (request.form.get("title") or bag.title or "").strip() or bag.title
+            bag.artist_id = to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None
+            bag.company_id = to_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None
+            bag.start_date = parse_optional_date(request.form.get("start_date"))
+            bag.end_date = parse_optional_date(request.form.get("end_date"))
+            bag.description = (request.form.get("description") or "").strip() or None
+            bag.status = (request.form.get("status") or bag.status or "ACTIVA").strip().upper()
+            session_db.commit()
+            flash("Bolsa actualizada.", "success")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company)).filter(InvoiceRecord.bag_id == bag.id).order_by(InvoiceRecord.issue_date.desc()).all()
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        return render_template("bag_detail.html", bag=bag, invoices=invoices, artists=artists, companies=companies, bag_status_options=BAG_STATUS_OPTIONS)
+    finally:
+        session_db.close()
+
+
+@app.post("/bolsas/<bag_id>/archive")
+@admin_required
+def bag_archive(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if bag:
+            bag.is_archived = True
+            bag.archived_at = _now_madrid()
+            bag.status = "ARCHIVADA"
+            session_db.commit()
+            flash("Bolsa archivada.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("bags_view", tab="active")))
+
+
+@app.post("/bolsas/<bag_id>/restore")
+@admin_required
+def bag_restore(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if bag:
+            bag.is_archived = False
+            bag.archived_at = None
+            if (bag.status or "").upper() == "ARCHIVADA":
+                bag.status = "ACTIVA"
+            session_db.commit()
+            flash("Bolsa reactivada.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("bags_view", tab="archived")))
+
+
+@app.route("/facturas", methods=["GET", "POST"], endpoint="invoices_view")
+@admin_required
+def invoices_view():
+    session_db = db()
+    try:
+        if request.method == "POST":
+            invoice_number = (request.form.get("invoice_number") or "").strip()
+            third_party_name = (request.form.get("third_party_name") or "").strip()
+            invoice_kind = (request.form.get("invoice_kind") or "RECEIVED").strip().upper()
+            issue_date = parse_optional_date(request.form.get("issue_date"))
+            if not invoice_number or not third_party_name or invoice_kind not in {"RECEIVED", "ISSUED"} or not issue_date:
+                flash("Completa número, tercero, tipo y fecha de emisión.", "danger")
+                return redirect(url_for("invoices_view", tab=invoice_kind))
+            pdf = request.files.get("pdf")
+            pdf_url = upload_pdf(pdf, "invoices") if (pdf and getattr(pdf, "filename", "")) else None
+            row = InvoiceRecord(
+                invoice_kind=invoice_kind,
+                invoice_number=invoice_number,
+                third_party_name=third_party_name,
+                artist_id=to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None,
+                company_id=to_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None,
+                bag_id=to_uuid(request.form.get("bag_id")) if (request.form.get("bag_id") or "").strip() else None,
+                issue_date=issue_date,
+                due_date=parse_optional_date(request.form.get("due_date")),
+                status=(request.form.get("status") or "PENDIENTE").strip().upper(),
+                total_amount=_safe_decimal(request.form.get("total_amount")) or Decimal("0"),
+                pdf_url=pdf_url,
+                original_name=getattr(pdf, "filename", None) if pdf_url else None,
+                notes=(request.form.get("notes") or "").strip() or None,
+            )
+            session_db.add(row)
+            session_db.commit()
+            flash("Factura guardada.", "success")
+            return redirect(url_for("invoices_view", tab=invoice_kind))
+
+        tab = (request.args.get("tab") or "RECEIVED").strip().upper()
+        if tab not in {"RECEIVED", "ISSUED"}:
+            tab = "RECEIVED"
+        query = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).outerjoin(Artist, InvoiceRecord.artist_id == Artist.id).outerjoin(GroupCompany, InvoiceRecord.company_id == GroupCompany.id).outerjoin(WorkflowBag, InvoiceRecord.bag_id == WorkflowBag.id).filter(InvoiceRecord.invoice_kind == tab)
+        f_artist = (request.args.get("artist") or "").strip()
+        f_year = (request.args.get("year") or "").strip()
+        f_company = (request.args.get("company") or "").strip()
+        f_status = (request.args.get("status") or "").strip().upper()
+        f_start = parse_optional_date(request.args.get("start"))
+        f_end = parse_optional_date(request.args.get("end"))
+        f_q = (request.args.get("q") or "").strip()
+        if f_artist:
+            query = query.filter(InvoiceRecord.artist_id == to_uuid(f_artist))
+        if f_company:
+            query = query.filter(InvoiceRecord.company_id == to_uuid(f_company))
+        if f_status:
+            query = query.filter(InvoiceRecord.status == f_status)
+        if f_start:
+            query = query.filter(InvoiceRecord.issue_date >= f_start)
+        if f_end:
+            query = query.filter(InvoiceRecord.issue_date <= f_end)
+        if f_year:
+            try:
+                year = int(f_year)
+                query = query.filter(func.extract("year", InvoiceRecord.issue_date) == year)
+            except Exception:
+                pass
+        if f_q:
+            like = f"%{f_q}%"
+            query = query.filter(or_(
+                InvoiceRecord.invoice_number.ilike(like),
+                InvoiceRecord.third_party_name.ilike(like),
+                InvoiceRecord.notes.ilike(like),
+                InvoiceRecord.status.ilike(like),
+                Artist.name.ilike(like),
+                GroupCompany.name.ilike(like),
+                WorkflowBag.title.ilike(like),
+            ))
+        invoices = query.distinct().order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).all()
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        bags = session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).all()  # noqa: E712
+        years = sorted({str(getattr(inv.issue_date, "year", None)) for inv in session_db.query(InvoiceRecord).all() if getattr(inv, "issue_date", None)}, reverse=True)
+        return render_template(
+            "invoices.html",
+            invoices=invoices,
+            tab=tab,
+            artists=artists,
+            companies=companies,
+            bags=bags,
+            years=years,
+            invoice_kinds=INVOICE_KINDS,
+            invoice_status_options=INVOICE_STATUS_OPTIONS,
+            filter_artist=f_artist,
+            filter_year=f_year,
+            filter_company=f_company,
+            filter_status=f_status,
+            filter_start=f_start.isoformat() if f_start else "",
+            filter_end=f_end.isoformat() if f_end else "",
+            filter_q=f_q,
+        )
+    finally:
+        session_db.close()
+
+
+@app.post("/facturas/<invoice_id>/assign-bag")
+@admin_required
+def invoice_assign_bag(invoice_id):
+    session_db = db()
+    try:
+        row = session_db.get(InvoiceRecord, to_uuid(invoice_id))
+        if row:
+            row.bag_id = to_uuid(request.form.get("bag_id")) if (request.form.get("bag_id") or "").strip() else None
+            session_db.commit()
+            flash("Factura asignada a la bolsa.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("invoices_view")))
+
+
+@app.post("/facturas/<invoice_id>/delete")
+@admin_required
+def invoice_delete(invoice_id):
+    session_db = db()
+    try:
+        row = session_db.get(InvoiceRecord, to_uuid(invoice_id))
+        if row:
+            session_db.delete(row)
+            session_db.commit()
+            flash("Factura eliminada.", "success")
+    finally:
+        session_db.close()
+    return redirect(safe_next_or(url_for("invoices_view")))
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)

@@ -359,3 +359,172 @@ button.song-status-item:focus {
 .income-table td {
   vertical-align: middle;
 }
+
+/* =========================================================
+   Personal / nuevas secciones / bases de datos
+   ========================================================= */
+.user-nav-avatar{
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,.08);
+  background: #fff;
+}
+
+.user-nav-avatar--lg{
+  width: 56px;
+  height: 56px;
+}
+
+.user-nav-menu{
+  min-width: 320px;
+}
+
+.home-user-card,
+.personnel-card,
+.media-card,
+.metric-card,
+.operations-card,
+.invoice-preview-frame{
+  border: 1px solid rgba(0,0,0,.06);
+  background: #fff;
+  border-radius: 18px;
+}
+
+.home-user-card{
+  padding: 1.25rem;
+}
+
+.home-user-avatar{
+  width: 92px;
+  height: 92px;
+  border-radius: 22px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,.08);
+  background: #fff;
+}
+
+.metric-card{
+  padding: 1rem;
+  height: 100%;
+}
+
+.metric-card__value{
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.metric-card__label{
+  color: #6c757d;
+  font-size: .95rem;
+}
+
+.quick-link-card,
+.section-shortcut-card{
+  display: block;
+  border: 1px solid rgba(0,0,0,.06);
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem;
+  text-decoration: none;
+  color: inherit;
+  height: 100%;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.quick-link-card:hover,
+.section-shortcut-card:hover,
+.personnel-card:hover,
+.media-card:hover{
+  transform: translateY(-2px);
+  box-shadow: 0 .75rem 1.4rem rgba(17,24,39,.08);
+}
+
+.personnel-card,
+.media-card{
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  padding: 1rem;
+  height: 100%;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.personnel-card__avatar,
+.media-card__logo{
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  object-fit: cover;
+  border: 1px solid rgba(0,0,0,.08);
+  background: #fff;
+}
+
+.media-card__logo{
+  object-fit: contain;
+}
+
+.personnel-card__meta,
+.media-card__meta{
+  color: #6c757d;
+  font-size: .92rem;
+}
+
+.password-preview-box{
+  border: 1px dashed rgba(0,0,0,.16);
+  border-radius: 14px;
+  background: #f8f9fa;
+  padding: 1rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 1.05rem;
+}
+
+.access-table th,
+.access-table td{
+  vertical-align: middle;
+}
+
+.access-table .form-check-input:checked{
+  background-color: #198754;
+  border-color: #198754;
+}
+
+.invoice-preview-frame{
+  min-height: 360px;
+  overflow: hidden;
+}
+
+.invoice-preview-frame iframe,
+.invoice-preview-frame embed,
+.invoice-preview-frame object,
+.invoice-preview-frame img{
+  width: 100%;
+  min-height: 360px;
+  border: 0;
+  object-fit: contain;
+  background: #fff;
+}
+
+.operations-empty{
+  border: 1px dashed rgba(0,0,0,.12);
+  border-radius: 18px;
+  background: rgba(248,249,250,.8);
+  padding: 1.25rem;
+}
+
+.contact-chip{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 999px;
+  padding: .2rem .6rem;
+  background: #fff;
+  font-size: .83rem;
+}
+
+.media-history-item{
+  border: 1px solid rgba(0,0,0,.06);
+  border-radius: 16px;
+  padding: .95rem 1rem;
+  background: #fff;
+}

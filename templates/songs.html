@@ -22,9 +22,35 @@
         <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
         {% endif %}
       </div>
-      <div class="col-md-4">
-        <label class="form-label">Artista colaborador (opcional)</label>
-        <input name="collaborator" class="form-control" placeholder="Si se deja en blanco, no se mostrará" />
+      <div class="col-12">
+        <div class="small text-muted">Los colaboradores se calculan automáticamente a partir de los intérpretes que no sean el propio artista.</div>
+      </div>
+      <div class="col-12">
+        <div class="border rounded p-3 bg-light-subtle">
+          <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+            <label class="form-label m-0">Intérpretes</label>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addSongInterpreterRow">
+              <i class="fa fa-plus me-1"></i>Añadir intérprete
+            </button>
+          </div>
+          <div class="small text-muted mb-2">Añade todos los intérpretes de la canción. Los colaboradores se mostrarán automáticamente con quienes no sean el propio artista.</div>
+          <div id="songCreateInterpretersContainer" class="d-flex flex-column gap-2">
+            <div class="row g-2 align-items-center interpreter-row">
+              <div class="col-md-8">
+                <input type="text" name="interpreter_name[]" class="form-control" placeholder="Nombre del intérprete" autocomplete="off">
+              </div>
+              <div class="col-md-3">
+                <select name="interpreter_is_main[]" class="form-select">
+                  <option value="1">Main Artist</option>
+                  <option value="0">Intérprete</option>
+                </select>
+              </div>
+              <div class="col-md-1 d-grid">
+                <button type="button" class="btn btn-outline-danger remove-row"><i class="fa fa-trash"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="col-md-4">
         <label class="form-label">Portada (imagen)</label>
@@ -78,14 +104,58 @@
                           {% endfor %}
                         </select>
                       </div>
-                      <div class="col-md-3">
-                        <label class="form-label">Colaborador</label>
-                        <input name="collaborator" class="form-control" value="{{ s.collaborator or '' }}" placeholder="opcional">
-                      </div>
                       <div class="col-md-2">
                         <label class="form-label">Lanzamiento</label>
                         <input type="date" name="release_date" class="form-control"
                                value="{{ s.release_date.isoformat() if s.release_date else '' }}">
+                      </div>
+                      <div class="col-12">
+                        <div class="border rounded p-3 bg-light-subtle">
+                          <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                            <label class="form-label m-0">Intérpretes</label>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="addLegacySongInterpreterRow('editInterpreters{{ s.id }}')">
+                              <i class="fa fa-plus me-1"></i>Añadir intérprete
+                            </button>
+                          </div>
+                          <div id="editInterpreters{{ s.id }}" class="d-flex flex-column gap-2">
+                            {% set interpreter_rows = s.interpreters if s.interpreters else [] %}
+                            {% if interpreter_rows %}
+                              {% for interpreter in interpreter_rows %}
+                              <div class="row g-2 align-items-center interpreter-row">
+                                <div class="col-md-8">
+                                  <input type="text" name="interpreter_name[]" class="form-control" value="{{ interpreter.name }}" placeholder="Nombre del intérprete" autocomplete="off">
+                                </div>
+                                <div class="col-md-3">
+                                  <select name="interpreter_is_main[]" class="form-select">
+                                    <option value="1" {% if interpreter.is_main %}selected{% endif %}>Main Artist</option>
+                                    <option value="0" {% if not interpreter.is_main %}selected{% endif %}>Intérprete</option>
+                                  </select>
+                                </div>
+                                <div class="col-md-1 d-grid">
+                                  <button type="button" class="btn btn-outline-danger remove-row"><i class="fa fa-trash"></i></button>
+                                </div>
+                              </div>
+                              {% endfor %}
+                            {% else %}
+                              {% for artist_name in (s.artists | map(attribute='name') | list) %}
+                              <div class="row g-2 align-items-center interpreter-row">
+                                <div class="col-md-8">
+                                  <input type="text" name="interpreter_name[]" class="form-control" value="{{ artist_name }}" placeholder="Nombre del intérprete" autocomplete="off">
+                                </div>
+                                <div class="col-md-3">
+                                  <select name="interpreter_is_main[]" class="form-select">
+                                    <option value="1" selected>Main Artist</option>
+                                    <option value="0">Intérprete</option>
+                                  </select>
+                                </div>
+                                <div class="col-md-1 d-grid">
+                                  <button type="button" class="btn btn-outline-danger remove-row"><i class="fa fa-trash"></i></button>
+                                </div>
+                              </div>
+                              {% endfor %}
+                            {% endif %}
+                          </div>
+                        </div>
                       </div>
                       <div class="col-md-6">
                         <label class="form-label">Portada (imagen)</label>
@@ -142,7 +212,7 @@
               <div class="flex-grow-1">
                 <div class="fw-semibold">{{ s.title }}</div>
                 <div class="small text-muted">
-                  {% if s.collaborator %}Feat. {{ s.collaborator }} · {% endif %}
+                  {% if s.display_collaborator or s.collaborator %}Feat. {{ s.display_collaborator or s.collaborator }} · {% endif %}
                   {{ s.release_date.strftime('%d/%m/%Y') if s.release_date else '' }}
                 </div>
               </div>
@@ -154,6 +224,48 @@
       </div>
     </div>
   </div>
+
 {% endfor %}
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+  function addLegacySongInterpreterRow(containerId){
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const row = document.createElement('div');
+    row.className = 'row g-2 align-items-center interpreter-row';
+    row.innerHTML = `
+      <div class="col-md-8">
+        <input type="text" name="interpreter_name[]" class="form-control" placeholder="Nombre del intérprete" autocomplete="off" data-lpignore="true">
+      </div>
+      <div class="col-md-3">
+        <select name="interpreter_is_main[]" class="form-select">
+          <option value="1">Main Artist</option>
+          <option value="0">Intérprete</option>
+        </select>
+      </div>
+      <div class="col-md-1 d-grid">
+        <button type="button" class="btn btn-outline-danger remove-row"><i class="fa fa-trash"></i></button>
+      </div>`;
+    container.appendChild(row);
+    const input = row.querySelector('input[name="interpreter_name[]"]');
+    if (input){
+      input.value = '';
+      setTimeout(() => input.focus(), 0);
+    }
+    row.querySelector('.remove-row')?.addEventListener('click', function(){
+      row.remove();
+    });
+  }
+
+  document.addEventListener('click', function(ev){
+    const btn = ev.target.closest('.remove-row');
+    if (!btn) return;
+    ev.preventDefault();
+    btn.closest('.interpreter-row')?.remove();
+  });
+</script>
 {% endblock %}

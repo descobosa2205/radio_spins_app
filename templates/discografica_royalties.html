@@ -44,6 +44,14 @@
                   {% endfor %}
                 </div>
               {% endif %}
+              {% if item.deductions %}
+                <div class="mt-2 small text-danger">
+                  {% for deduction in item.deductions %}
+                    <div>- {{ deduction.name }}: {{ deduction.amount | eur }}</div>
+                  {% endfor %}
+                  <div class="text-dark fw-semibold mt-1">Total descontado: {{ item.deduction_total | eur }} · Total recaudado neto: {{ item.amount | eur }}</div>
+                </div>
+              {% endif %}
             </td>
             <td class="small text-muted">
               {% if item.item_kind == 'SONG' %}
@@ -63,7 +71,7 @@
   </div>
 
   <div class="d-flex justify-content-end mt-3 flex-wrap gap-3">
-    <div><span class="text-muted">Beneficio:</span> <span class="fw-semibold">{{ b.total_income | eur }}</span></div>
+    <div><span class="text-muted">Total recaudado:</span> <span class="fw-semibold">{{ b.total_income | eur }}</span></div>
     <div><span class="text-muted">Total a facturar:</span> <span class="fw-semibold">{{ b.total_amount | eur }}</span></div>
   </div>
 {% endmacro %}
@@ -151,13 +159,20 @@
           </div>
         </div>
         <div class="text-end">
-          <div class="small text-muted">Beneficio</div>
+          <div class="small text-muted">Total recaudado</div>
           <div class="fw-semibold">{{ b.total_income | eur }}</div>
           <div class="small text-muted mt-2">Importe total a facturar</div>
           <div class="fw-semibold">{{ b.total_amount | eur }}</div>
         </div>
       </div>
-      <div class="small text-primary mt-3"><i class="fa fa-magnifying-glass me-1"></i> Ver desglose</div>
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mt-3">
+        <button type="button" class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation(); bootstrap.Modal.getOrCreateInstance(document.getElementById('royaltySummaryModal_{{ b.kind }}_{{ b.id }}')).show();">
+          <i class="fa fa-magnifying-glass me-1"></i> Ver desglose
+        </button>
+        <div onclick="event.stopPropagation();">
+          {{ render_actions(b) }}
+        </div>
+      </div>
     </div>
   </div>
 {% endmacro %}
@@ -171,7 +186,10 @@
             <h5 class="modal-title mb-0">{{ b.name }}</h5>
             <div class="small text-muted">{{ b.kind_label }} · {{ royalty_period_label }}</div>
           </div>
-          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            {{ render_actions(b) }}
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
         </div>
         <div class="modal-body">
           {{ render_breakdown_table(b, default_avatar) }}
@@ -243,6 +261,32 @@
     </div>
   </div>
 {% endif %}
+
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-3 align-items-end">
+      <input type="hidden" name="section" value="royalties">
+      <input type="hidden" name="s" value="{{ royalty_semester_key }}">
+      <input type="hidden" name="roy_tab" value="{{ royalty_tab }}">
+      {% if royalty_selected_artist_id %}<input type="hidden" name="artist" value="{{ royalty_selected_artist_id }}">{% endif %}
+      <div class="col-12">
+        <label class="form-label">Filtrar por estado de la liquidación</label>
+        <div class="d-flex flex-wrap gap-3">
+          {% for value, label in [('GENERATED','Generada'),('SENT','Enviada'),('INVOICED','Facturada'),('PAID','Pagado')] %}
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="roy_status" value="{{ value }}" id="royStatus_{{ value }}" {% if value in royalty_selected_statuses %}checked{% endif %}>
+              <label class="form-check-label" for="royStatus_{{ value }}">{{ label }}</label>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 d-flex gap-2 flex-wrap">
+        <button class="btn btn-primary btn-sm"><i class="fa fa-filter"></i> Aplicar filtro</button>
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, roy_tab=royalty_tab, artist=royalty_selected_artist_id or None) }}">Todos los estados</a>
+      </div>
+    </form>
+  </div>
+</div>
 
 <div class="card mb-3">
   <div class="card-body">

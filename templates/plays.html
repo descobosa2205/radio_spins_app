@@ -59,7 +59,7 @@
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                   <div>
                     <div class="fw-semibold">{{ s.title }}</div>
-                    {% if s.collaborator %}<div class="text-muted"><small>con {{ s.collaborator }}</small></div>{% endif %}
+                    {% if s.display_collaborator or s.collaborator %}<div class="text-muted"><small>con {{ s.display_collaborator or s.collaborator }}</small></div>{% endif %}
                     <div class="text-muted"><small>Lanzamiento: {{ s.release_date.strftime('%d/%m/%Y') }}</small></div>
                   </div>
                   <div class="d-flex align-items-center gap-2">

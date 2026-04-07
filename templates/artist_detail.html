@@ -670,7 +670,7 @@
                   <div class="fw-semibold">{{ s.title }}</div>
                 </td>
                 <td>
-                  <span class="text-muted">{{ s.collaborator or '—' }}</span>
+                  <span class="text-muted">{{ s.display_collaborator or s.collaborator or '—' }}</span>
                 </td>
                 <td>
                   <span class="text-muted">{{ (s.isrc or '—')|isrc }}</span>

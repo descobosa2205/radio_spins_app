@@ -1,9 +1,9 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <div>
     <h4 class="mb-0">Terceros</h4>
-    <div class="text-muted small">Accede a la ficha completa de cada tercero para gestionar sociedades y contactos.</div>
+    <div class="text-muted small">Búsqueda rápida, filtros por etiquetas y acceso directo a la ficha completa de cada tercero.</div>
   </div>
   {% if CAN_EDIT_SONGS_PROMOTERS %}
     <span class="badge text-bg-primary">Edición</span>
@@ -20,23 +20,23 @@
         <label class="form-label">Nick</label>
         <input required name="nick" class="form-control" />
       </div>
-      <div class="col-12 col-md-3">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Email de contacto</label>
+        <input required type="email" name="contact_email" class="form-control" />
+      </div>
+      <div class="col-12 col-md-2">
         <label class="form-label">CIF <span class="text-muted">(opcional)</span></label>
         <input name="tax_id" class="form-control" />
       </div>
-      <div class="col-12 col-md-3">
-        <label class="form-label">Email <span class="text-muted">(opcional)</span></label>
-        <input type="email" name="contact_email" class="form-control" />
-      </div>
       <div class="col-12 col-md-2">
-        <label class="form-label">Logo</label>
-        <input type="file" name="logo" class="form-control" accept="image/*" />
-      </div>
-      <div class="col-12 col-md-3">
         <label class="form-label">Teléfono <span class="text-muted">(opcional)</span></label>
         <input name="contact_phone" class="form-control" />
       </div>
-      <div class="col-12 col-md-2 d-grid">
+      <div class="col-12 col-md-4">
+        <label class="form-label">Logo <span class="text-muted">(opcional)</span></label>
+        <input type="file" name="logo" class="form-control" accept="image/*" />
+      </div>
+      <div class="col-12 col-md-3 d-grid">
         <button class="btn btn-primary">Crear tercero</button>
       </div>
     </form>
@@ -44,43 +44,94 @@
 </div>
 {% endif %}
 
-<div class="row g-3">
-  {% for p in promoters %}
-    <div class="col-12 col-md-6 col-xl-4">
-      <div class="card h-100 shadow-sm">
-        <div class="card-body d-flex gap-3 align-items-start">
-          <img src="{{ p.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:60px;height:60px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
-          <div class="flex-grow-1">
-            <div class="d-flex justify-content-between gap-2 align-items-start">
-              <div>
-                <div class="fw-semibold">{{ p.nick }}</div>
-                {% if p.tax_id %}<div class="text-muted small">{{ p.tax_id }}</div>{% endif %}
-                {% if p.contact_email %}<div class="text-muted small">{{ p.contact_email }}</div>{% endif %}
-              </div>
-              <a class="btn btn-sm btn-outline-primary" href="{{ url_for('promoter_detail_view', pid=p.id) }}">Abrir ficha</a>
-            </div>
-            {% if CAN_EDIT_SONGS_PROMOTERS %}
-              <form method="post" enctype="multipart/form-data" action="{{ url_for('promoter_update', pid=p.id) }}" class="row g-2 mt-2">
-                <input type="hidden" name="next" value="{{ url_for('promoters_view') }}">
-                <div class="col-12"><input class="form-control form-control-sm" name="nick" value="{{ p.nick }}"></div>
-                <div class="col-6"><input class="form-control form-control-sm" name="tax_id" value="{{ p.tax_id or '' }}" placeholder="CIF"></div>
-                <div class="col-6"><input class="form-control form-control-sm" name="contact_phone" value="{{ p.contact_phone or '' }}" placeholder="Teléfono"></div>
-                <div class="col-12"><input class="form-control form-control-sm" name="contact_email" value="{{ p.contact_email or '' }}" placeholder="Email"></div>
-                <div class="col-8"><input type="file" name="logo" class="form-control form-control-sm" accept="image/*"></div>
-                <div class="col-4 d-flex gap-2 justify-content-end">
-                  <button class="btn btn-sm btn-outline-primary">Guardar</button>
-                  <button class="btn btn-sm btn-outline-danger" formaction="{{ url_for('promoter_delete', pid=p.id) }}" onclick="return confirm('¿Borrar tercero?');"><i class="fa fa-trash"></i></button>
-                </div>
-              </form>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
-  {% else %}
-    <div class="col-12">
-      <div class="alert alert-light border mb-0">Todavía no hay terceros registrados.</div>
-    </div>
+<div class="card mb-3">
+  <div class="card-body">
+    <label class="form-label">Buscar tercero</label>
+    <input type="search" class="form-control" id="promotersSearchInput" placeholder="Escribe para filtrar por nick, email, etiquetas o CIF...">
+  </div>
+</div>
+
+<div class="d-flex flex-wrap gap-2 mb-3" id="promotersTagTabs">
+  <button type="button" class="btn btn-dark btn-sm active" data-promoter-tag="all">Todos</button>
+  {% for tag in promoter_tag_tabs or [] %}
+    <button type="button" class="btn btn-outline-secondary btn-sm" data-promoter-tag="{{ tag }}">{{ tag }}</button>
   {% endfor %}
 </div>
+
+<div class="card">
+  <div class="list-group list-group-flush" id="promotersListWrap">
+    {% for p in promoters %}
+      {% set search_blob = ((p.nick or '') ~ ' ' ~ (p.contact_email or '') ~ ' ' ~ (p.tax_id or '') ~ ' ' ~ (p.contact_phone or '') ~ ' ' ~ ((p.display_tags or [])|join(' ')))|lower %}
+      {% set tags_attr = ((p.display_tags or [])|join('||')) %}
+      <a href="{{ url_for('promoter_detail_view', pid=p.id) }}"
+         class="list-group-item list-group-item-action py-3 promoter-list-row"
+         data-promoter-search="{{ search_blob }}"
+         data-promoter-tags="{{ tags_attr }}">
+        <div class="d-flex align-items-center justify-content-between gap-3 flex-wrap">
+          <div class="d-flex align-items-center gap-3">
+            <img src="{{ p.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:56px;height:56px;border-radius:14px;object-fit:contain;border:1px solid #eee;background:#fff;">
+            <div>
+              <div class="fw-semibold">{{ p.nick }}</div>
+              <div class="small text-muted d-flex flex-wrap gap-3">
+                {% if p.contact_email %}<span><i class="fa fa-envelope me-1"></i>{{ p.contact_email }}</span>{% endif %}
+                {% if p.tax_id %}<span><i class="fa fa-id-card me-1"></i>{{ p.tax_id }}</span>{% endif %}
+                {% if p.contact_phone %}<span><i class="fa fa-phone me-1"></i>{{ p.contact_phone }}</span>{% endif %}
+              </div>
+              {% if p.display_tags %}
+                <div class="d-flex flex-wrap gap-1 mt-2">
+                  {% for tag in p.display_tags %}
+                    <span class="badge text-bg-light text-dark">{{ tag }}</span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="text-muted small">
+            <i class="fa fa-chevron-right"></i>
+          </div>
+        </div>
+      </a>
+    {% else %}
+      <div class="list-group-item text-muted">Todavía no hay terceros registrados.</div>
+    {% endfor %}
+  </div>
+</div>
+
+<script>
+  (function(){
+    const searchInput = document.getElementById('promotersSearchInput');
+    const tabsWrap = document.getElementById('promotersTagTabs');
+    const rows = Array.from(document.querySelectorAll('.promoter-list-row'));
+    let activeTag = 'all';
+
+    function applyFilters(){
+      const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+      rows.forEach((row) => {
+        const searchBlob = (row.dataset.promoterSearch || '').toLowerCase();
+        const tags = (row.dataset.promoterTags || '').split('||').filter(Boolean);
+        const matchesSearch = !q || searchBlob.includes(q);
+        const matchesTag = activeTag === 'all' || tags.includes(activeTag);
+        row.style.display = (matchesSearch && matchesTag) ? '' : 'none';
+      });
+    }
+
+    if (searchInput){
+      searchInput.addEventListener('input', applyFilters);
+    }
+    if (tabsWrap){
+      tabsWrap.addEventListener('click', (event) => {
+        const btn = event.target.closest('[data-promoter-tag]');
+        if (!btn) return;
+        activeTag = btn.dataset.promoterTag || 'all';
+        tabsWrap.querySelectorAll('[data-promoter-tag]').forEach((item) => {
+          item.classList.toggle('btn-dark', item === btn);
+          item.classList.toggle('active', item === btn);
+          item.classList.toggle('btn-outline-secondary', item !== btn);
+        });
+        applyFilters();
+      });
+    }
+    applyFilters();
+  })();
+</script>
 {% endblock %}

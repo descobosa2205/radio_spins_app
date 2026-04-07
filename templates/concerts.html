@@ -1069,6 +1069,10 @@
               <input id="promoter_new_nick" class="form-control" required>
             </div>
             <div class="col-md-6">
+              <label class="form-label">Email de contacto</label>
+              <input id="promoter_new_email" type="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
               <label class="form-label">Logo (PNG) <small class="text-muted">(opcional)</small></label>
               <input type="file" id="promoter_new_logo" accept="image/png" class="form-control">
             </div>
@@ -1316,6 +1320,7 @@
 
     const fd = new FormData();
     fd.append('nick', document.getElementById('promoter_new_nick').value.trim());
+    fd.append('contact_email', document.getElementById('promoter_new_email').value.trim());
     const f = document.getElementById('promoter_new_logo').files[0];
     if(f) fd.append('logo', f);
 

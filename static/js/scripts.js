@@ -338,16 +338,16 @@ function initBootstrapTooltips(){
 }
 
 function initDynamicRows(){
-  // Intérpretes
-  const addInterpreterBtn = document.getElementById('addInterpreterRow');
-  const interpretersContainer = document.getElementById('interpretersContainer');
-  if (addInterpreterBtn && interpretersContainer){
-    addInterpreterBtn.addEventListener('click', () => {
+  const bindInterpreterRows = (buttonId, containerId) => {
+    const addBtn = document.getElementById(buttonId);
+    const container = document.getElementById(containerId);
+    if (!addBtn || !container) return;
+    addBtn.addEventListener('click', () => {
       const row = document.createElement('div');
       row.className = 'row g-2 interpreter-row';
       row.innerHTML = `
         <div class="col-12 col-md-7">
-          <input class="form-control" name="interpreter_name[]" placeholder="Nombre" required>
+          <input class="form-control" name="interpreter_name[]" placeholder="Nombre" autocomplete="off" data-lpignore="true" required>
         </div>
         <div class="col-8 col-md-4">
           <select class="form-select" name="interpreter_is_main[]">
@@ -359,9 +359,19 @@ function initDynamicRows(){
           <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
         </div>
       `;
-      interpretersContainer.appendChild(row);
+      container.appendChild(row);
+      const input = row.querySelector('input[name="interpreter_name[]"]');
+      if (input){
+        input.value = '';
+        input.setAttribute('autocomplete', 'off');
+        setTimeout(() => { try { input.focus(); } catch (_) {} }, 30);
+      }
     });
-  }
+  };
+
+  // Intérpretes
+  bindInterpreterRows('addInterpreterRow', 'interpretersContainer');
+  bindInterpreterRows('addSongInterpreterRow', 'songCreateInterpretersContainer');
 
   // Músicos
   const addMusicianBtn = document.getElementById('addMusicianRow');

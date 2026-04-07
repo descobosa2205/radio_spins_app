@@ -21,8 +21,9 @@
             <img src="{{ primary_artist.photo_url if primary_artist else (url_for('static', filename='img/logo.png')) }}" class="artist-avatar" alt="">
             <div>
               <div class="fw-semibold">{{ primary_artist.name if primary_artist else '—' }}</div>
-              {% if song.collaborator %}
-                <div class="text-muted small">Colaboradores: {{ song.collaborator }}</div>
+              {% set song_collaborators = song.display_collaborator or song.collaborator %}
+              {% if song_collaborators %}
+                <div class="text-muted small">Colaboradores: {{ song_collaborators }}</div>
               {% endif %}
               <div class="mt-1">
                 <span class="badge {{ song_type_badge_class }}">{{ song_type_label }}</span>
@@ -147,7 +148,7 @@
     </div>
 
     <!-- Barra de estados -->
-    {% set has_collabs = (song.collaborator or '')|trim != '' %}
+    {% set has_collabs = (song.display_collaborator or song.collaborator or '')|trim != '' %}
     <div class="song-status-bar mt-3">
       <div class="d-flex flex-wrap gap-2 align-items-center">
 
@@ -312,10 +313,6 @@
                   <input type="date" name="release_date" class="form-control" value="{{ song.release_date.strftime('%Y-%m-%d') if song.release_date else '' }}" required>
                 </div>
 
-                <div class="col-12">
-                  <label class="form-label">Colaboradores (opcional)</label>
-                  <input name="collaborator" class="form-control" value="{{ song.collaborator or '' }}" placeholder="Ej: Artista X, Artista Y">
-                </div>
 
                 <div class="col-12 col-md-6 d-flex align-items-end">
                   <div class="form-check">
@@ -418,7 +415,7 @@
                   {% for it in interpreters %}
                     <div class="row g-2 interpreter-row">
                       <div class="col-12 col-md-7">
-                        <input class="form-control" name="interpreter_name[]" value="{{ it.name }}" placeholder="Nombre" required>
+                        <input class="form-control" name="interpreter_name[]" value="{{ it.name }}" placeholder="Nombre" autocomplete="off" required>
                       </div>
                       <div class="col-8 col-md-4">
                         <select class="form-select" name="interpreter_is_main[]">
@@ -434,7 +431,7 @@
                 {% else %}
                   <div class="row g-2 interpreter-row">
                     <div class="col-12 col-md-7">
-                      <input class="form-control" name="interpreter_name[]" value="{{ primary_artist.name if primary_artist else '' }}" placeholder="Nombre" required>
+                      <input class="form-control" name="interpreter_name[]" value="{{ primary_artist.name if primary_artist else '' }}" placeholder="Nombre" autocomplete="off" required>
                     </div>
                     <div class="col-8 col-md-4">
                       <select class="form-select" name="interpreter_is_main[]">

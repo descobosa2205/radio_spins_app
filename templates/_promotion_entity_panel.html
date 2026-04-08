@@ -1,0 +1,124 @@
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+  <div>
+    <h5 class="mb-0">Promoción</h5>
+    <div class="text-muted small">Solicita y consulta las acciones promocionales vinculadas a esta ficha.</div>
+  </div>
+  {% if has_access_key('promocion', edit=True, include_descendants=True) %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#promotionRequestModal{{ promotion_source_type|lower }}{{ promotion_source_id|string|replace('-', '') }}">
+      <i class="fa fa-bullhorn me-1"></i> Solicitar promoción
+    </button>
+  {% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-3">Solicitudes</div>
+        {% if promotion_requests_display %}
+          <div class="list-group list-group-flush">
+            {% for item in promotion_requests_display %}
+              <div class="list-group-item px-0">
+                <div class="d-flex gap-3 align-items-start">
+                  <img src="{{ item.cover_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
+                  <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between gap-2 flex-wrap">
+                      <div>
+                        <div class="fw-semibold">{{ item.title }}</div>
+                        <div class="small text-muted">{{ item.subtitle or item.kind_label }}</div>
+                      </div>
+                      <div class="text-end">
+                        <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                        <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                      </div>
+                    </div>
+                    {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                    {% if item.budget_notes %}<div class="small text-muted"><strong>Presupuesto:</strong> {{ item.budget_notes }}</div>{% endif %}
+                    {% if item.rejection_reason %}<div class="small text-danger"><strong>Motivo rechazo:</strong> {{ item.rejection_reason }}</div>{% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">No hay solicitudes de promoción registradas para esta ficha.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-3">Promociones</div>
+        {% if promotion_entries_display %}
+          <div class="list-group list-group-flush">
+            {% for item in promotion_entries_display %}
+              <a href="{{ item.detail_url }}" class="list-group-item list-group-item-action px-0">
+                <div class="d-flex gap-3 align-items-start">
+                  <img src="{{ item.cover_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
+                  <div class="flex-grow-1">
+                    <div class="d-flex justify-content-between gap-2 flex-wrap">
+                      <div>
+                        <div class="fw-semibold">{{ item.title }}</div>
+                        <div class="small text-muted">{{ item.subtitle or item.kind_label }}</div>
+                      </div>
+                      <div class="text-end">
+                        <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                        <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                      </div>
+                    </div>
+                    {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                    {% if item.company_label %}<div class="small text-muted">Empresa: {{ item.company_label }}</div>{% endif %}
+                  </div>
+                </div>
+              </a>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">Todavía no hay promociones creadas para esta ficha.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if has_access_key('promocion', edit=True, include_descendants=True) %}
+<div class="modal fade" id="promotionRequestModal{{ promotion_source_type|lower }}{{ promotion_source_id|string|replace('-', '') }}" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <form class="modal-content" method="post" action="{{ url_for('promotion_request_create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title">Solicitar promoción</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" name="source_type" value="{{ promotion_source_type }}">
+        <input type="hidden" name="source_id" value="{{ promotion_source_id }}">
+        <input type="hidden" name="next" value="{{ request.url }}">
+
+        <div class="border rounded p-3 bg-light-subtle mb-3">
+          <div class="d-flex gap-3 align-items-center">
+            <img src="{{ promotion_source_snapshot.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #eee;background:#fff;">
+            <div>
+              <div class="fw-semibold">{{ promotion_source_snapshot.title or 'Elemento' }}</div>
+              <div class="text-muted small">{{ promotion_source_snapshot.kind_label or promotion_source_type }} · {{ promotion_source_snapshot.subtitle or promotion_source_snapshot.artist_label or '' }}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-3">
+          <label class="form-label">Objetivos de la promoción</label>
+          <textarea class="form-control" name="objectives_notes" rows="4" placeholder="Describe qué se busca conseguir con esta promoción"></textarea>
+        </div>
+        <div>
+          <label class="form-label">Notas de presupuesto</label>
+          <textarea class="form-control" name="budget_notes" rows="3" placeholder="Límites, observaciones o necesidades de presupuesto"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button class="btn btn-primary">Enviar solicitud</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}

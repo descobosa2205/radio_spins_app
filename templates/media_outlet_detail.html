@@ -146,11 +146,19 @@
   </div>
   <div class="list-group">
     {% for row in history_rows %}
-      <div class="list-group-item">
-        <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
-        <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
-        <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
-      </div>
+      {% if row.promotion_id %}
+        <a href="{{ url_for('promotion_detail_view', promotion_id=row.promotion_id) }}" class="list-group-item list-group-item-action">
+          <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
+          <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
+          <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
+        </a>
+      {% else %}
+        <div class="list-group-item">
+          <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
+          <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
+          <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
+        </div>
+      {% endif %}
     {% else %}
       <div class="alert alert-light border">No hay promociones registradas para este medio.</div>
     {% endfor %}

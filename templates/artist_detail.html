@@ -759,8 +759,13 @@
     {% endif %}
   {% endif %}
 
-{# ===================== TAB: AGENDA / PROMOCIÓN / LIQUIDACIONES ===================== #}
-{% elif tab in ['agenda','promocion','liquidaciones'] %}
+{# ===================== TAB: PROMOCIÓN ===================== #}
+{% elif tab == 'promocion' %}
+
+  {% include "_promotion_entity_panel.html" %}
+
+{# ===================== TAB: AGENDA / LIQUIDACIONES ===================== #}
+{% elif tab in ['agenda','liquidaciones'] %}
 
   <div class="card">
     <div class="card-body">

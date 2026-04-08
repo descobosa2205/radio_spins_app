@@ -1,0 +1,638 @@
+{% extends "layout.html" %}
+{% block content %}
+{% set creator = promotion_creator_datasets or {} %}
+{% set creator_subjects = creator.subjects or {} %}
+<style>
+  .promo-cover{width:64px;height:64px;object-fit:cover;border-radius:14px;border:1px solid #eee;background:#fff;}
+  .promo-cover-sm{width:38px;height:38px;object-fit:cover;border-radius:10px;border:1px solid #eee;background:#fff;}
+  .promo-day-card{min-height:104px;border:1px solid #ebecef;border-radius:14px;padding:10px;background:#fff;}
+  .promo-day-card--muted{background:#f8f9fb;color:#9aa1ac;}
+  .promo-day-number{font-size:.9rem;font-weight:700;}
+  .promo-mini-stack{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;}
+  .promo-mini-stack img{width:26px;height:26px;object-fit:cover;border-radius:8px;border:1px solid #e8e8e8;background:#fff;}
+  .promo-subject-card{border:1px solid #ececf2;border-radius:14px;padding:12px;cursor:pointer;transition:.15s ease; background:#fff;}
+  .promo-subject-card:hover{border-color:#cdd6f4;box-shadow:0 10px 26px rgba(18,38,63,.06);}
+  .promo-subject-card.is-selected{border-color:#0d6efd;background:#eef5ff;box-shadow:0 10px 26px rgba(13,110,253,.12);}
+  .promo-artist-pill{display:flex;align-items:center;gap:10px;border:1px solid #ececf2;border-radius:14px;padding:8px 10px;background:#fff;cursor:pointer;}
+  .promo-artist-pill input{margin:0;}
+  .promo-artist-pill img{width:40px;height:40px;object-fit:cover;border-radius:50%;border:1px solid #eee;background:#fff;}
+  .promo-activity-badge{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#f4f6fb;font-size:.8rem;font-weight:600;color:#3d4a63;}
+</style>
+
+<div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-4">
+  <div>
+    <h3 class="m-0">Promoción</h3>
+    <div class="text-muted">Gestión de solicitudes, promociones activas y acciones promocionales de artistas, lanzamientos y conciertos.</div>
+  </div>
+  {% if can_edit_promocion %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#promotionCreateModal">
+      <i class="fa fa-plus me-1"></i> Promoción
+    </button>
+  {% endif %}
+</div>
+
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item"><a class="nav-link {% if tab == 'active' %}active{% endif %}" href="{{ url_for('promocion_view', tab='active') }}">Promociones activas <span class="badge text-bg-light border ms-1">{{ active_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'archived' %}active{% endif %}" href="{{ url_for('promocion_view', tab='archived') }}">Promociones archivadas <span class="badge text-bg-light border ms-1">{{ archived_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'requested' %}active{% endif %}" href="{{ url_for('promocion_view', tab='requested') }}">Promociones solicitadas <span class="badge text-bg-warning ms-1">{{ request_count }}</span></a></li>
+</ul>
+
+{% if tab == 'active' %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h5 class="mb-0">Promociones requeridas</h5>
+      <div class="small text-muted">Solicitudes pendientes de gestión, ordenadas de la más próxima a la más lejana.</div>
+    </div>
+  </div>
+  <div class="row g-4 mb-4">
+    <div class="col-12 col-xl-7">
+      <div class="card h-100">
+        <div class="card-body">
+          {% if requested_items %}
+            <div class="list-group list-group-flush">
+              {% for item in requested_items %}
+                <div class="list-group-item px-0">
+                  <div class="d-flex gap-3 align-items-start">
+                    <img src="{{ item.cover_url }}" alt="" class="promo-cover">
+                    <div class="flex-grow-1">
+                      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                          <div class="fw-semibold">{{ item.title }}</div>
+                          <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
+                          {% if item.requested_by %}<div class="small text-muted mt-1">Solicitada por {{ item.requested_by }}</div>{% endif %}
+                        </div>
+                        <div class="text-end">
+                          <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                          <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                        </div>
+                      </div>
+                      {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                      {% if item.budget_notes %}<div class="small text-muted"><strong>Presupuesto:</strong> {{ item.budget_notes }}</div>{% endif %}
+                      <div class="d-flex gap-2 flex-wrap mt-3">
+                        {% if item.detail_url %}
+                          <a class="btn btn-sm btn-outline-secondary" href="{{ item.detail_url }}"><i class="fa fa-up-right-from-square me-1"></i> Ver ficha</a>
+                        {% endif %}
+                        {% if can_edit_promocion %}
+                          <button type="button" class="btn btn-sm btn-primary js-open-request-create"
+                                  data-request-id="{{ item.id }}"
+                                  data-title="{{ item.title }}"
+                                  data-kind="{{ item.kind_label }}"
+                                  data-company-id="{{ item.snapshot.company_id or '' }}"
+                                  data-company-label="{{ item.snapshot.company_label or '' }}"
+                                  data-bs-toggle="modal" data-bs-target="#promotionCreateFromRequestModal">
+                            <i class="fa fa-plus me-1"></i>Añadir promoción
+                          </button>
+                          <button type="button" class="btn btn-sm btn-outline-danger js-open-request-reject"
+                                  data-request-id="{{ item.id }}"
+                                  data-title="{{ item.title }}"
+                                  data-bs-toggle="modal" data-bs-target="#promotionRejectModal">
+                            <i class="fa fa-xmark me-1"></i>Rechazar
+                          </button>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay solicitudes pendientes de promoción.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="fw-semibold mb-3">Calendario de solicitudes</div>
+          {% if promotion_calendar_months %}
+            {% for month in promotion_calendar_months %}
+              <div class="mb-4 {% if not loop.last %}pb-3 border-bottom{% endif %}">
+                <div class="fw-semibold mb-2">{{ month.label }}</div>
+                <div class="small text-muted d-grid" style="grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;">
+                  {% for wd in ['L', 'M', 'X', 'J', 'V', 'S', 'D'] %}<div class="text-center">{{ wd }}</div>{% endfor %}
+                </div>
+                <div class="d-grid mt-2" style="grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;">
+                  {% for week in month.weeks %}
+                    {% for day in week %}
+                      <div class="promo-day-card {% if not day.in_month %}promo-day-card--muted{% endif %}">
+                        <div class="d-flex justify-content-between align-items-start gap-2">
+                          <div class="promo-day-number">{{ day.date.day }}</div>
+                          {% if day['items'] %}<span class="badge text-bg-warning">{{ day['items']|length }}</span>{% endif %}
+                        </div>
+                        {% if day['items'] %}
+                          <div class="promo-mini-stack">
+                            {% for item in day['items'][:4] %}
+                              <img src="{{ item.cover_url }}" title="{{ item.title }}">
+                            {% endfor %}
+                          </div>
+                          <div class="small mt-2 text-muted">{{ day['items'][0].title }}{% if day['items']|length > 1 %} y {{ day['items']|length - 1 }} más{% endif %}</div>
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                  {% endfor %}
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay elementos para mostrar en el calendario.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h5 class="mb-0">Promociones añadidas</h5>
+      <div class="small text-muted">Promociones activas ordenadas por la fecha del evento, lanzamiento o acción principal.</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-body">
+      {% if active_promotions %}
+        <div class="list-group list-group-flush">
+          {% for item in active_promotions %}
+            <a href="{{ item.detail_url }}" class="list-group-item list-group-item-action px-0">
+              <div class="d-flex gap-3 align-items-start">
+                <img src="{{ item.cover_url }}" alt="" class="promo-cover">
+                <div class="flex-grow-1">
+                  <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                    <div>
+                      <div class="fw-semibold">{{ item.title }}</div>
+                      <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
+                      {% if item.company_label %}<div class="small text-muted mt-1">Empresa: {{ item.company_label }}</div>{% endif %}
+                    </div>
+                    <div class="text-end">
+                      <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                      <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                    </div>
+                  </div>
+                  {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                </div>
+              </div>
+            </a>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="alert alert-light border mb-0">Todavía no hay promociones activas creadas.</div>
+      {% endif %}
+    </div>
+  </div>
+
+{% elif tab == 'requested' %}
+  <div class="card">
+    <div class="card-body">
+      {% if requested_items %}
+        <div class="list-group list-group-flush">
+          {% for item in requested_items %}
+            <div class="list-group-item px-0">
+              <div class="d-flex gap-3 align-items-start">
+                <img src="{{ item.cover_url }}" alt="" class="promo-cover">
+                <div class="flex-grow-1">
+                  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                    <div>
+                      <div class="fw-semibold">{{ item.title }}</div>
+                      <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
+                      {% if item.requested_by %}<div class="small text-muted mt-1">Solicitada por {{ item.requested_by }}</div>{% endif %}
+                    </div>
+                    <div class="text-end">
+                      <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                      <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                    </div>
+                  </div>
+                  {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
+                  {% if item.budget_notes %}<div class="small text-muted"><strong>Presupuesto:</strong> {{ item.budget_notes }}</div>{% endif %}
+                  <div class="d-flex gap-2 flex-wrap mt-3">
+                    {% if item.detail_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ item.detail_url }}">Ver ficha</a>{% endif %}
+                    {% if can_edit_promocion %}
+                      <button type="button" class="btn btn-sm btn-primary js-open-request-create"
+                              data-request-id="{{ item.id }}"
+                              data-title="{{ item.title }}"
+                              data-kind="{{ item.kind_label }}"
+                              data-company-id="{{ item.snapshot.company_id or '' }}"
+                              data-company-label="{{ item.snapshot.company_label or '' }}"
+                              data-bs-toggle="modal" data-bs-target="#promotionCreateFromRequestModal">Añadir promoción</button>
+                      <button type="button" class="btn btn-sm btn-outline-danger js-open-request-reject"
+                              data-request-id="{{ item.id }}"
+                              data-title="{{ item.title }}"
+                              data-bs-toggle="modal" data-bs-target="#promotionRejectModal">Rechazar</button>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="alert alert-light border mb-0">No hay promociones solicitadas pendientes.</div>
+      {% endif %}
+    </div>
+  </div>
+
+{% else %}
+  <div class="row g-4">
+    <div class="col-12 col-xl-7">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="mb-3">Promociones archivadas</h5>
+          {% if archived_promotions %}
+            <div class="list-group list-group-flush">
+              {% for item in archived_promotions %}
+                <a href="{{ item.detail_url }}" class="list-group-item list-group-item-action px-0">
+                  <div class="d-flex gap-3 align-items-start">
+                    <img src="{{ item.cover_url }}" alt="" class="promo-cover">
+                    <div class="flex-grow-1">
+                      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                        <div>
+                          <div class="fw-semibold">{{ item.title }}</div>
+                          <div class="small text-muted">{{ item.kind_label }} · {{ item.subtitle or 'Sin detalle adicional' }}</div>
+                        </div>
+                        <div class="text-end">
+                          <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                          <div class="small text-muted mt-1">{{ item.date_label }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay promociones archivadas.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="mb-3">Solicitudes rechazadas</h5>
+          {% if rejected_requests %}
+            <div class="list-group list-group-flush">
+              {% for item in rejected_requests %}
+                <div class="list-group-item px-0">
+                  <div class="d-flex gap-3 align-items-start">
+                    <img src="{{ item.cover_url }}" alt="" class="promo-cover-sm">
+                    <div class="flex-grow-1">
+                      <div class="d-flex justify-content-between gap-2 flex-wrap">
+                        <div>
+                          <div class="fw-semibold small">{{ item.title }}</div>
+                          <div class="small text-muted">{{ item.kind_label }} · {{ item.date_label }}</div>
+                        </div>
+                        <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
+                      </div>
+                      {% if item.rejection_reason %}<div class="small text-danger mt-2"><strong>Motivo:</strong> {{ item.rejection_reason }}</div>{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay solicitudes rechazadas archivadas.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% if can_edit_promocion %}
+  <div class="modal fade" id="promotionCreateFromRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+      <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Añadir promoción desde solicitud</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="source_request_id" id="requestCreateId">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <div class="alert alert-light border">
+            <div class="fw-semibold" id="requestCreateTitle">Solicitud</div>
+            <div class="small text-muted" id="requestCreateKind"></div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Empresa del grupo que emite los gastos</label>
+            <select class="form-select" name="company_id" id="requestCreateCompany">
+              <option value="">Selecciona empresa</option>
+              {% for company in creator.companies or [] %}
+                <option value="{{ company.id }}">{{ company.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="small text-muted mt-1" id="requestCreateCompanyHint"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Añadir promoción</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="promotionRejectModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <form class="modal-content" method="post" action="{{ url_for('promotion_request_reject', request_id='00000000-0000-0000-0000-000000000000') }}" id="promotionRejectForm">
+        <div class="modal-header">
+          <h5 class="modal-title">Rechazar solicitud</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <div class="alert alert-light border mb-3">Vas a rechazar la solicitud de <strong id="rejectRequestTitle">promoción</strong>.</div>
+          <label class="form-label">Motivo del rechazo</label>
+          <textarea class="form-control" rows="4" name="reason" required placeholder="Explica por qué se rechaza la solicitud"></textarea>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger">Rechazar solicitud</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal fade" id="promotionCreateModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+      <form class="modal-content" method="post" action="{{ url_for('promotion_create') }}" id="promotionCreateForm">
+        <div class="modal-header">
+          <div>
+            <h5 class="modal-title mb-1">Nueva promoción</h5>
+            <div class="small text-muted">Completa las pantallas para añadir una nueva promoción manualmente.</div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="next" value="{{ request.url }}">
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <span class="promo-activity-badge js-create-step-pill" data-step="1">1 · Artistas</span>
+            <span class="promo-activity-badge js-create-step-pill" data-step="2">2 · Qué se promociona</span>
+            <span class="promo-activity-badge js-create-step-pill" data-step="3">3 · Empresa y notas</span>
+          </div>
+
+          <div class="js-create-step" data-step="1">
+            <div class="mb-3">
+              <label class="form-label">Buscar artista</label>
+              <input type="text" class="form-control" id="promotionArtistSearch" placeholder="Escribe para filtrar artistas">
+            </div>
+            <div class="row g-2" id="promotionArtistGrid">
+              {% for artist in creator.artists or [] %}
+                <div class="col-12 col-md-6 col-xl-4 js-promotion-artist-item" data-search="{{ (artist.name or '')|lower }}">
+                  <label class="promo-artist-pill w-100">
+                    <input type="checkbox" name="artist_ids" value="{{ artist.id }}" class="form-check-input js-promotion-artist-checkbox">
+                    <img src="{{ artist.photo_url }}" alt="{{ artist.name }}">
+                    <span class="fw-semibold">{{ artist.name }}</span>
+                  </label>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="js-create-step d-none" data-step="2">
+            <div class="row g-3">
+              <div class="col-12 col-lg-4">
+                <label class="form-label">Qué se promociona</label>
+                <select class="form-select" name="subject_type" id="promotionSubjectType" required>
+                  <option value="">Selecciona</option>
+                  <option value="ARTIST">Artista</option>
+                  <option value="SONG">Canción</option>
+                  <option value="ALBUM">Álbum</option>
+                  <option value="CONCERT">Concierto</option>
+                  <option value="GIRA">Gira</option>
+                </select>
+              </div>
+              <div class="col-12 col-lg-8" id="promotionManualTitleWrap" style="display:none;">
+                <label class="form-label">Nombre de la gira</label>
+                <input type="text" class="form-control" name="manual_title" id="promotionManualTitle" placeholder="Ej. Gira verano 2026">
+              </div>
+            </div>
+            <input type="hidden" name="subject_id" id="promotionSubjectId">
+            <div class="mt-3" id="promotionSubjectEmpty">
+              <div class="alert alert-light border mb-0">Selecciona artista(s) y el tipo de promoción para ver las opciones disponibles.</div>
+            </div>
+            <div class="row g-3 mt-1" id="promotionSubjectGrid"></div>
+          </div>
+
+          <div class="js-create-step d-none" data-step="3">
+            <div class="mb-3">
+              <label class="form-label">Empresa del grupo que emite los gastos</label>
+              <select class="form-select" name="company_id" id="promotionCompanySelect">
+                <option value="">Selecciona empresa</option>
+                {% for company in creator.companies or [] %}
+                  <option value="{{ company.id }}">{{ company.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Objetivos</label>
+              <textarea class="form-control" rows="4" name="objectives_notes" placeholder="Objetivos, enfoque o resultados esperados"></textarea>
+            </div>
+            <div>
+              <label class="form-label">Notas de presupuesto</label>
+              <textarea class="form-control" rows="3" name="budget_notes" placeholder="Presupuesto, límites o indicaciones económicas"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer justify-content-between">
+          <div>
+            <button type="button" class="btn btn-outline-secondary d-none" id="promotionCreatePrev">Anterior</button>
+          </div>
+          <div class="d-flex gap-2">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="button" class="btn btn-primary" id="promotionCreateNext">Siguiente</button>
+            <button type="submit" class="btn btn-primary d-none" id="promotionCreateSubmit">Añadir promoción</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if can_edit_promocion %}
+<script>
+(function(){
+  const createData = {{ creator|tojson }};
+  const createModal = document.getElementById('promotionCreateModal');
+  if (createModal) {
+    const stepEls = Array.from(createModal.querySelectorAll('.js-create-step'));
+    const pillEls = Array.from(createModal.querySelectorAll('.js-create-step-pill'));
+    const btnPrev = document.getElementById('promotionCreatePrev');
+    const btnNext = document.getElementById('promotionCreateNext');
+    const btnSubmit = document.getElementById('promotionCreateSubmit');
+    const artistSearch = document.getElementById('promotionArtistSearch');
+    const subjectType = document.getElementById('promotionSubjectType');
+    const manualTitleWrap = document.getElementById('promotionManualTitleWrap');
+    const subjectGrid = document.getElementById('promotionSubjectGrid');
+    const subjectEmpty = document.getElementById('promotionSubjectEmpty');
+    const subjectIdInput = document.getElementById('promotionSubjectId');
+    const companySelect = document.getElementById('promotionCompanySelect');
+    let currentStep = 1;
+
+    function updateSteps(){
+      stepEls.forEach(el => el.classList.toggle('d-none', Number(el.dataset.step) !== currentStep));
+      pillEls.forEach(el => {
+        const active = Number(el.dataset.step) === currentStep;
+        el.style.background = active ? '#e8f1ff' : '#f4f6fb';
+        el.style.color = active ? '#0d6efd' : '#3d4a63';
+      });
+      btnPrev.classList.toggle('d-none', currentStep === 1);
+      btnNext.classList.toggle('d-none', currentStep === 3);
+      btnSubmit.classList.toggle('d-none', currentStep !== 3);
+    }
+
+    function selectedArtistIds(){
+      return Array.from(createModal.querySelectorAll('.js-promotion-artist-checkbox:checked')).map(el => el.value);
+    }
+
+    function artistMatch(itemIds, selectedIds){
+      if (!selectedIds.length) return false;
+      const own = Array.isArray(itemIds) ? itemIds : [];
+      return own.some(id => selectedIds.includes(id));
+    }
+
+    function buildSubjectCard(item){
+      const col = document.createElement('div');
+      col.className = 'col-12 col-lg-6';
+      col.innerHTML = `
+        <label class="promo-subject-card w-100 js-promo-subject-card" data-id="${item.id || ''}" data-default-company-id="${item.default_company_id || ''}">
+          <input type="radio" class="form-check-input d-none js-promo-subject-radio" name="__subject_radio" value="${item.id || ''}">
+          <div class="d-flex gap-3 align-items-start">
+            <img src="${item.cover_url || ''}" alt="" class="promo-cover-sm">
+            <div class="flex-grow-1">
+              <div class="fw-semibold">${item.title || 'Elemento'}</div>
+              <div class="small text-muted">${item.subtitle || ''}</div>
+              <div class="small text-muted">${item.meta || ''}${item.date ? (item.meta ? ' · ' : '') + item.date.split('-').reverse().join('/') : ''}</div>
+            </div>
+          </div>
+        </label>`;
+      const label = col.querySelector('.js-promo-subject-card');
+      const radio = col.querySelector('.js-promo-subject-radio');
+      label.addEventListener('click', function(){
+        subjectGrid.querySelectorAll('.js-promo-subject-card').forEach(card => card.classList.remove('is-selected'));
+        label.classList.add('is-selected');
+        radio.checked = true;
+        subjectIdInput.value = item.id || '';
+        if (item.default_company_id && companySelect && !companySelect.value) {
+          companySelect.value = item.default_company_id;
+        }
+      });
+      return col;
+    }
+
+    function renderSubjectOptions(){
+      const type = subjectType.value || '';
+      const selectedIds = selectedArtistIds();
+      subjectGrid.innerHTML = '';
+      subjectIdInput.value = '';
+      manualTitleWrap.style.display = type === 'GIRA' ? '' : 'none';
+      if (!type) {
+        subjectEmpty.classList.remove('d-none');
+        subjectEmpty.querySelector('.alert').textContent = 'Selecciona artista(s) y el tipo de promoción para ver las opciones disponibles.';
+        return;
+      }
+      if (!selectedIds.length && type !== 'GIRA') {
+        subjectEmpty.classList.remove('d-none');
+        subjectEmpty.querySelector('.alert').textContent = 'Selecciona al menos un artista en la primera pantalla.';
+        return;
+      }
+      if (type === 'GIRA') {
+        subjectEmpty.classList.remove('d-none');
+        subjectEmpty.querySelector('.alert').textContent = 'Indica el nombre de la gira y continúa a la siguiente pantalla.';
+        return;
+      }
+      let items = (createData.subjects && createData.subjects[type]) ? createData.subjects[type] : [];
+      items = items.filter(item => artistMatch(item.artist_ids || [], selectedIds));
+      if (!items.length) {
+        subjectEmpty.classList.remove('d-none');
+        subjectEmpty.querySelector('.alert').textContent = 'No hay opciones disponibles para los artistas seleccionados.';
+        return;
+      }
+      subjectEmpty.classList.add('d-none');
+      items.forEach(item => subjectGrid.appendChild(buildSubjectCard(item)));
+    }
+
+    function validateStep(step){
+      if (step === 1) {
+        if (!selectedArtistIds().length) {
+          alert('Selecciona al menos un artista para continuar.');
+          return false;
+        }
+      }
+      if (step === 2) {
+        const type = subjectType.value || '';
+        if (!type) {
+          alert('Selecciona qué se promociona.');
+          return false;
+        }
+        if (type === 'GIRA') {
+          const manualTitle = document.getElementById('promotionManualTitle').value.trim();
+          if (!manualTitle) {
+            alert('Indica el nombre de la gira.');
+            return false;
+          }
+          return true;
+        }
+        if (!subjectIdInput.value) {
+          alert('Selecciona el elemento concreto que se promociona.');
+          return false;
+        }
+      }
+      return true;
+    }
+
+    artistSearch && artistSearch.addEventListener('input', function(){
+      const q = (artistSearch.value || '').trim().toLowerCase();
+      createModal.querySelectorAll('.js-promotion-artist-item').forEach(function(item){
+        item.classList.toggle('d-none', q && !item.dataset.search.includes(q));
+      });
+    });
+    createModal.querySelectorAll('.js-promotion-artist-checkbox').forEach(el => el.addEventListener('change', renderSubjectOptions));
+    subjectType && subjectType.addEventListener('change', renderSubjectOptions);
+    btnPrev && btnPrev.addEventListener('click', function(){ if (currentStep > 1) { currentStep -= 1; updateSteps(); } });
+    btnNext && btnNext.addEventListener('click', function(){ if (!validateStep(currentStep)) return; if (currentStep < 3) { currentStep += 1; updateSteps(); } });
+    createModal.addEventListener('show.bs.modal', function(){
+      currentStep = 1;
+      createModal.querySelector('form').reset();
+      subjectGrid.innerHTML = '';
+      subjectIdInput.value = '';
+      subjectEmpty.classList.remove('d-none');
+      subjectEmpty.querySelector('.alert').textContent = 'Selecciona artista(s) y el tipo de promoción para ver las opciones disponibles.';
+      manualTitleWrap.style.display = 'none';
+      createModal.querySelectorAll('.js-promo-subject-card').forEach(card => card.classList.remove('is-selected'));
+      updateSteps();
+    });
+    updateSteps();
+  }
+
+  document.querySelectorAll('.js-open-request-create').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const idEl = document.getElementById('requestCreateId');
+      const titleEl = document.getElementById('requestCreateTitle');
+      const kindEl = document.getElementById('requestCreateKind');
+      const companyEl = document.getElementById('requestCreateCompany');
+      const hintEl = document.getElementById('requestCreateCompanyHint');
+      if (idEl) idEl.value = btn.dataset.requestId || '';
+      if (titleEl) titleEl.textContent = btn.dataset.title || 'Solicitud';
+      if (kindEl) kindEl.textContent = btn.dataset.kind || '';
+      if (companyEl) companyEl.value = btn.dataset.companyId || '';
+      if (hintEl) hintEl.textContent = btn.dataset.companyLabel ? ('Empresa sugerida: ' + btn.dataset.companyLabel) : 'Selecciona la empresa del grupo que asumirá los gastos.';
+    });
+  });
+
+  document.querySelectorAll('.js-open-request-reject').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const form = document.getElementById('promotionRejectForm');
+      const titleEl = document.getElementById('rejectRequestTitle');
+      if (form) {
+        form.action = "{{ url_for('promotion_request_reject', request_id='__RID__') }}".replace('__RID__', btn.dataset.requestId || '');
+      }
+      if (titleEl) titleEl.textContent = btn.dataset.title || 'promoción';
+    });
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

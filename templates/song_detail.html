@@ -2465,6 +2465,8 @@
       </div>
     </div>
 
+  {% elif tab == 'promocion' %}
+    {% include "_promotion_entity_panel.html" %}
   {% else %}
     {% set ns = namespace(lbl='') %}
     {% for k, label in tabs %}

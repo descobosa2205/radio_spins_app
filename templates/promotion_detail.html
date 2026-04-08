@@ -1,0 +1,423 @@
+{% extends "layout.html" %}
+{% block content %}
+{% set snap = promotion_display.snapshot or {} %}
+<style>
+  .promo-hero-cover{width:96px;height:96px;object-fit:cover;border-radius:18px;border:1px solid #ececf2;background:#fff;}
+  .promo-step-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;background:#f4f6fb;font-size:.8rem;font-weight:600;color:#3d4a63;}
+  .promo-route-time{min-width:84px;font-size:.95rem;font-weight:700;color:#24324a;}
+  .promo-route-card{border:1px solid #ececf2;border-radius:16px;padding:14px;background:#fff;}
+  .promo-route-card + .promo-route-card{margin-top:12px;}
+  .promo-list-cover{width:46px;height:46px;object-fit:cover;border-radius:12px;border:1px solid #ececf2;background:#fff;}
+  .promo-day-group{border-left:3px solid #dbe5ff;padding-left:14px;}
+  .promo-subject-card{border:1px solid #ececf2;border-radius:14px;padding:12px;cursor:pointer;transition:.15s ease; background:#fff;}
+  .promo-subject-card.is-selected{border-color:#0d6efd;background:#eef5ff;box-shadow:0 10px 26px rgba(13,110,253,.12);}
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+  <a href="{{ url_for('promocion_view', tab='active' if promotion.status != 'ARCHIVED' else 'archived') }}" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Volver</a>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if snap.detail_url %}<a class="btn btn-outline-secondary" href="{{ snap.detail_url }}"><i class="fa fa-up-right-from-square me-1"></i> Abrir ficha origen</a>{% endif %}
+    {% if can_edit_promocion %}
+      <form method="post" action="{{ url_for('promotion_archive_toggle', promotion_id=promotion.id) }}">
+        <input type="hidden" name="next" value="{{ request.url }}">
+        <button class="btn btn-{{ 'outline-success' if promotion.status == 'ARCHIVED' else 'outline-danger' }}">{{ 'Reactivar' if promotion.status == 'ARCHIVED' else 'Archivar' }}</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+
+<div class="artist-hero mb-4">
+  <div class="d-flex flex-wrap gap-3 align-items-center">
+    <img src="{{ promotion_display.cover_url }}" class="promo-hero-cover" alt="{{ promotion_display.title }}">
+    <div class="flex-grow-1">
+      <div class="d-flex gap-2 align-items-center flex-wrap mb-2">
+        <span class="badge {{ promotion_display.status_badge.class }}">{{ promotion_display.status_badge.label }}</span>
+        <span class="badge text-bg-light border">{{ promotion_display.kind_label }}</span>
+        {% if promotion_display.company_label %}<span class="badge text-bg-light border">{{ promotion_display.company_label }}</span>{% endif %}
+      </div>
+      <h3 class="m-0">{{ promotion_display.title }}</h3>
+      <div class="text-muted mt-1">{{ promotion_display.subtitle or snap.artist_label or 'Sin detalle adicional' }}</div>
+      <div class="small text-muted mt-2">Fecha objetivo: {{ promotion_display.date_label }}</div>
+      {% if artist_rows %}
+        <div class="d-flex flex-wrap gap-1 mt-2">
+          {% for artist in artist_rows %}<span class="badge text-bg-light border">{{ artist.name }}</span>{% endfor %}
+        </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-lg-8">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-2">Objetivos</div>
+        <div class="text-muted">{{ promotion.objectives_notes or 'Sin notas de objetivos.' }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="fw-semibold mb-2">Presupuesto</div>
+        <div class="text-muted">{{ promotion.budget_notes or 'Sin notas de presupuesto.' }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-4">
+  <li class="nav-item"><a class="nav-link {% if tab == 'hoja_ruta' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='hoja_ruta') }}">Hoja de ruta</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='gastos') }}">Gastos</a></li>
+</ul>
+
+{% if tab == 'hoja_ruta' %}
+  <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div>
+      <h5 class="mb-0">Actividades promocionales</h5>
+      <div class="small text-muted">Agrupadas por día y ordenadas por hora.</div>
+    </div>
+    {% if can_edit_promocion %}
+      <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#promotionActivityModal"><i class="fa fa-plus me-1"></i> Añadir</button>
+    {% endif %}
+  </div>
+
+  {% if activity_days %}
+    <div class="d-flex flex-column gap-4">
+      {% for day in activity_days %}
+        <div class="promo-day-group">
+          <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+            <h5 class="m-0">{{ day.label }}</h5>
+            <span class="badge text-bg-light border">{{ day.items|length }} actividad{{ 'es' if day.items|length != 1 else '' }}</span>
+          </div>
+          {% for item in day.items %}
+            <div class="promo-route-card">
+              <div class="d-flex gap-3 align-items-start">
+                <div class="promo-route-time">{{ item.time_label }}</div>
+                <div class="flex-grow-1">
+                  <div class="d-flex justify-content-between gap-2 align-items-start flex-wrap">
+                    <div>
+                      <div class="fw-semibold">{{ item.label }}</div>
+                      {% if item.subtitle %}<div class="small text-muted">{{ item.subtitle }}</div>{% endif %}
+                    </div>
+                    {% if item.created_by_nick %}<div class="small text-muted">Alta por {{ item.created_by_nick }}</div>{% endif %}
+                  </div>
+                  {% if item.description %}<div class="small mt-2">{{ item.description }}</div>{% endif %}
+                  {% if item.artist_performed %}
+                    <div class="small mt-2"><strong>El artista canta.</strong>{% if item.performed_song_labels %} {{ item.performed_song_labels|join(', ') }}{% endif %}</div>
+                  {% endif %}
+                  {% if item.has_fee %}<div class="small mt-2"><strong>Cache:</strong> {{ '%.2f'|format(item.fee_amount or 0) }} €</div>{% endif %}
+                  {% if item.covered_costs %}<div class="small text-muted"><strong>Cubren gastos:</strong> {{ item.covered_costs|join(', ') }}</div>{% endif %}
+                  {% if item.cost_note %}<div class="small text-muted"><strong>Nota de gastos:</strong> {{ item.cost_note }}</div>{% endif %}
+                  {% if item.details.notes %}<div class="small text-muted"><strong>Notas:</strong> {{ item.details.notes }}</div>{% endif %}
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border">Todavía no hay actividades en la hoja de ruta de esta promoción.</div>
+  {% endif %}
+
+  {% if can_edit_promocion %}
+    <div class="modal fade" id="promotionActivityModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
+        <form class="modal-content" method="post" action="{{ url_for('promotion_activity_create', promotion_id=promotion.id) }}" id="promotionActivityForm">
+          <div class="modal-header">
+            <div>
+              <h5 class="modal-title mb-1">Añadir actividad</h5>
+              <div class="small text-muted">Completa las pantallas para registrar una acción dentro de la promoción.</div>
+            </div>
+            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" name="next" value="{{ request.url }}">
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <span class="promo-step-pill js-activity-step-pill" data-step="1">1 · Fecha y tipo</span>
+              <span class="promo-step-pill js-activity-step-pill" data-step="2">2 · Datos</span>
+              <span class="promo-step-pill js-activity-step-pill" data-step="3">3 · Horario y tareas</span>
+            </div>
+
+            <div class="js-activity-step" data-step="1">
+              <div class="row g-3">
+                <div class="col-md-4"><label class="form-label">Fecha</label><input type="date" class="form-control" name="activity_date" required></div>
+                <div class="col-md-4">
+                  <label class="form-label">Tipo</label>
+                  <select class="form-select" name="activity_kind" id="activityKind" required>
+                    <option value="">Selecciona</option>
+                    <option value="PROMOCION">Promoción</option>
+                    <option value="LOGISTICA">Logística</option>
+                    <option value="ALOJAMIENTO">Alojamiento</option>
+                  </select>
+                </div>
+                <div class="col-md-4" id="activitySubtypeWrap" style="display:none;">
+                  <label class="form-label">Subtipo</label>
+                  <select class="form-select" name="subtype" id="activitySubtype"></select>
+                </div>
+              </div>
+            </div>
+
+            <div class="js-activity-step d-none" data-step="2">
+              <div id="activityPromotionFields" style="display:none;">
+                <div class="row g-3">
+                  <div class="col-md-4">
+                    <label class="form-label">Tipo de medio</label>
+                    <select class="form-select" name="media_type" id="activityMediaType">
+                      <option value="">Selecciona tipo</option>
+                      {% for option in ['TV','Radio','Prensa','Digital','Agencia','Podcast'] %}<option value="{{ option }}">{{ option }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-8">
+                    <label class="form-label">Medio</label>
+                    <select class="form-select" name="media_id" id="activityMediaId">
+                      <option value="">Selecciona medio</option>
+                      {% for media in media_outlets %}<option value="{{ media.id }}" data-type="{{ media.media_type }}">{{ media.name }}{% if media.media_type %} · {{ media.media_type }}{% endif %}</option>{% endfor %}
+                    </select>
+                    <div class="small text-muted mt-1">Puedes buscar escribiendo el nombre del medio.</div>
+                  </div>
+                  <div class="col-md-4"><label class="form-label">Programa</label><input type="text" class="form-control" name="program_name" placeholder="Nombre del programa"></div>
+                  <div class="col-md-4"><label class="form-label">Dirección de la promoción</label><input type="text" class="form-control" name="direction" placeholder="Dirección o ubicación"></div>
+                  <div class="col-md-4"><label class="form-label">Contacto existente</label>
+                    <select class="form-select" name="media_contact_id" id="activityMediaContact">
+                      <option value="">Selecciona contacto</option>
+                    </select>
+                  </div>
+                  <div class="col-12"><div class="fw-semibold small text-muted">O crear nuevo contacto sobre la marcha</div></div>
+                  <div class="col-md-3"><input type="text" class="form-control" name="new_contact_first_name" placeholder="Nombre"></div>
+                  <div class="col-md-3"><input type="text" class="form-control" name="new_contact_last_name" placeholder="Apellidos"></div>
+                  <div class="col-md-2"><input type="text" class="form-control" name="new_contact_role" placeholder="Cargo"></div>
+                  <div class="col-md-2"><input type="text" class="form-control" name="new_contact_phone" placeholder="Teléfono"></div>
+                  <div class="col-md-2"><input type="email" class="form-control" name="new_contact_email" placeholder="Email"></div>
+                </div>
+              </div>
+
+              <div id="activityLogisticsFields" style="display:none;">
+                <div class="row g-3">
+                  <div class="col-md-3"><label class="form-label">Origen</label><input type="text" class="form-control" name="origin"></div>
+                  <div class="col-md-3"><label class="form-label">Destino</label><input type="text" class="form-control" name="destination"></div>
+                  <div class="col-md-3"><label class="form-label">Proveedor</label><input type="text" class="form-control" name="provider"></div>
+                  <div class="col-md-3"><label class="form-label">Referencia</label><input type="text" class="form-control" name="booking_reference"></div>
+                  <div class="col-12"><label class="form-label">Notas</label><textarea class="form-control" name="details_note" rows="3"></textarea></div>
+                </div>
+              </div>
+
+              <div id="activityHotelFields" style="display:none;">
+                <div class="row g-3">
+                  <div class="col-md-4"><label class="form-label">Hotel</label><input type="text" class="form-control" name="hotel_name"></div>
+                  <div class="col-md-4"><label class="form-label">Ciudad</label><input type="text" class="form-control" name="hotel_city"></div>
+                  <div class="col-md-2"><label class="form-label">Check-in</label><input type="date" class="form-control" name="check_in"></div>
+                  <div class="col-md-2"><label class="form-label">Check-out</label><input type="date" class="form-control" name="check_out"></div>
+                  <div class="col-12"><label class="form-label">Notas</label><textarea class="form-control" name="details_note" rows="3"></textarea></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="js-activity-step d-none" data-step="3">
+              <div class="row g-3">
+                <div class="col-md-3"><label class="form-label">Hora inicio</label><input type="time" class="form-control" name="start_time"></div>
+                <div class="col-md-3"><label class="form-label">Hora fin</label><input type="time" class="form-control" name="end_time"></div>
+                <div class="col-md-3 d-flex align-items-end"><label class="form-check mb-2"><input type="checkbox" class="form-check-input me-2" name="time_tbc" value="1">Horario TBC</label></div>
+                <div class="col-md-3 d-flex align-items-end"><label class="form-check mb-2"><input type="checkbox" class="form-check-input me-2" name="show_as_tbc" value="1">Hora aproximada, mostrar TBC</label></div>
+                <div class="col-12"><label class="form-label">Qué tiene que hacer el artista</label><textarea class="form-control" name="task_description" rows="3" placeholder="Describe la actividad o cometido"></textarea></div>
+                <div class="col-12"><label class="form-check"><input type="checkbox" class="form-check-input me-2" name="artist_performed" value="1" id="activityArtistPerformed">El artista canta</label></div>
+                <div class="col-12" id="performedSongsWrap" style="display:none;">
+                  <label class="form-label">Canciones que interpreta</label>
+                  <select class="form-select" name="performed_song_ids" multiple size="6">
+                    {% for song in song_options %}<option value="{{ song.id }}">{{ song.title }}{% if song.release_date %} · {{ song.release_date.strftime('%d/%m/%Y') }}{% endif %}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-4"><label class="form-check mt-4"><input type="checkbox" class="form-check-input me-2" name="has_fee" value="1" id="activityHasFee">Hay cache</label></div>
+                <div class="col-md-4" id="activityFeeWrap" style="display:none;"><label class="form-label">Importe del cache</label><input type="number" step="0.01" min="0" class="form-control" name="fee_amount"></div>
+                <div class="col-12">
+                  <label class="form-label">Cubren gastos</label>
+                  <div class="d-flex flex-wrap gap-3">
+                    {% for option in covered_cost_options %}
+                      <label class="form-check"><input type="checkbox" class="form-check-input me-2" name="covered_costs" value="{{ option[0] }}">{{ option[1] }}</label>
+                    {% endfor %}
+                  </div>
+                </div>
+                <div class="col-12"><label class="form-label">Nota sobre gastos</label><textarea class="form-control" name="cost_note" rows="2" placeholder="Límite de gastos, observaciones, etc."></textarea></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer justify-content-between">
+            <div><button type="button" class="btn btn-outline-secondary d-none" id="activityPrev">Anterior</button></div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-primary" id="activityNext">Siguiente</button>
+              <button type="submit" class="btn btn-primary d-none" id="activitySubmit">Añadir actividad</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  {% endif %}
+
+{% else %}
+  <div class="row g-4">
+    <div class="col-12 col-lg-5">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="mb-3">Bolsa de gastos</h5>
+          {% if promotion.bag %}
+            <div class="fw-semibold">{{ promotion.bag.title }}</div>
+            <div class="small text-muted">Estado: {{ promotion.bag.status }}{% if promotion.bag.start_date %} · Inicio {{ promotion.bag.start_date.strftime('%d/%m/%Y') }}{% endif %}</div>
+            {% if promotion.bag.description %}<div class="small mt-2 text-muted">{{ promotion.bag.description }}</div>{% endif %}
+            <div class="d-flex gap-2 mt-3 flex-wrap">
+              <a href="{{ url_for('bag_detail_view', bag_id=promotion.bag.id) }}" class="btn btn-outline-primary btn-sm">Abrir bolsa</a>
+              <a href="{{ url_for('invoices_view') }}" class="btn btn-outline-secondary btn-sm">Ver facturas</a>
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">Esta promoción todavía no tiene bolsa asociada.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-7">
+      <div class="card h-100">
+        <div class="card-body">
+          <h5 class="mb-3">Facturas vinculadas</h5>
+          {% if invoices %}
+            <div class="list-group list-group-flush">
+              {% for invoice in invoices %}
+                <div class="list-group-item px-0">
+                  <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+                    <div>
+                      <div class="fw-semibold">{{ invoice.invoice_number }}</div>
+                      <div class="small text-muted">{{ invoice.third_party_name }} · {{ invoice.issue_date.strftime('%d/%m/%Y') if invoice.issue_date else 'Sin fecha' }}</div>
+                    </div>
+                    <div class="text-end">
+                      <span class="badge text-bg-light border">{{ invoice.status }}</span>
+                      <div class="small text-muted mt-1">{{ '%.2f'|format(invoice.total_amount or 0) }} €</div>
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay facturas asignadas a la bolsa de esta promoción.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+{% if can_edit_promocion and tab == 'hoja_ruta' %}
+<script>
+(function(){
+  const mediaContacts = {{ media_contacts_payload|tojson }};
+  const modal = document.getElementById('promotionActivityModal');
+  if (!modal) return;
+  const stepEls = Array.from(modal.querySelectorAll('.js-activity-step'));
+  const pillEls = Array.from(modal.querySelectorAll('.js-activity-step-pill'));
+  const btnPrev = document.getElementById('activityPrev');
+  const btnNext = document.getElementById('activityNext');
+  const btnSubmit = document.getElementById('activitySubmit');
+  const kindEl = document.getElementById('activityKind');
+  const subtypeWrap = document.getElementById('activitySubtypeWrap');
+  const subtypeEl = document.getElementById('activitySubtype');
+  const promoFields = document.getElementById('activityPromotionFields');
+  const logisticsFields = document.getElementById('activityLogisticsFields');
+  const hotelFields = document.getElementById('activityHotelFields');
+  const mediaTypeEl = document.getElementById('activityMediaType');
+  const mediaEl = document.getElementById('activityMediaId');
+  const contactEl = document.getElementById('activityMediaContact');
+  const performedEl = document.getElementById('activityArtistPerformed');
+  const performedWrap = document.getElementById('performedSongsWrap');
+  const hasFeeEl = document.getElementById('activityHasFee');
+  const feeWrap = document.getElementById('activityFeeWrap');
+  let currentStep = 1;
+
+  const subtypeOptions = {
+    PROMOCION: ['TV','Radio','Prensa','Digital','Agencia','Podcast'],
+    LOGISTICA: {{ transport_types|tojson }},
+    ALOJAMIENTO: []
+  };
+
+  function updateSteps(){
+    stepEls.forEach(el => el.classList.toggle('d-none', Number(el.dataset.step) !== currentStep));
+    pillEls.forEach(el => {
+      const active = Number(el.dataset.step) === currentStep;
+      el.style.background = active ? '#e8f1ff' : '#f4f6fb';
+      el.style.color = active ? '#0d6efd' : '#3d4a63';
+    });
+    btnPrev.classList.toggle('d-none', currentStep === 1);
+    btnNext.classList.toggle('d-none', currentStep === 3);
+    btnSubmit.classList.toggle('d-none', currentStep !== 3);
+  }
+
+  function refreshKindFields(){
+    const kind = kindEl.value || '';
+    promoFields.style.display = kind === 'PROMOCION' ? '' : 'none';
+    logisticsFields.style.display = kind === 'LOGISTICA' ? '' : 'none';
+    hotelFields.style.display = kind === 'ALOJAMIENTO' ? '' : 'none';
+    const opts = subtypeOptions[kind] || [];
+    subtypeEl.innerHTML = '<option value="">Selecciona</option>';
+    if (kind === 'PROMOCION' || kind === 'LOGISTICA') {
+      subtypeWrap.style.display = '';
+      if (kind === 'PROMOCION') {
+        opts.forEach(opt => subtypeEl.insertAdjacentHTML('beforeend', `<option value="${opt}">${opt}</option>`));
+      } else {
+        opts.forEach(opt => subtypeEl.insertAdjacentHTML('beforeend', `<option value="${opt[0]}">${opt[1]}</option>`));
+      }
+    } else {
+      subtypeWrap.style.display = 'none';
+    }
+  }
+
+  function refreshMediaOptions(){
+    const type = mediaTypeEl.value || '';
+    Array.from(mediaEl.options).forEach(opt => {
+      if (!opt.value) { opt.hidden = false; return; }
+      opt.hidden = !!type && opt.dataset.type !== type;
+    });
+    if (mediaEl.selectedOptions[0] && mediaEl.selectedOptions[0].hidden) {
+      mediaEl.value = '';
+    }
+    refreshContactOptions();
+  }
+
+  function refreshContactOptions(){
+    const mediaId = mediaEl.value || '';
+    contactEl.innerHTML = '<option value="">Selecciona contacto</option>';
+    mediaContacts.filter(item => item.media_id === mediaId).forEach(item => {
+      contactEl.insertAdjacentHTML('beforeend', `<option value="${item.id}">${item.label || 'Contacto'}</option>`);
+    });
+  }
+
+  function validateStep(step){
+    if (step === 1) {
+      const dateField = modal.querySelector('[name="activity_date"]');
+      if (!dateField.value) { alert('Indica la fecha de la actividad.'); return false; }
+      if (!kindEl.value) { alert('Selecciona el tipo de actividad.'); return false; }
+    }
+    return true;
+  }
+
+  kindEl.addEventListener('change', refreshKindFields);
+  mediaTypeEl.addEventListener('change', refreshMediaOptions);
+  mediaEl.addEventListener('change', refreshContactOptions);
+  performedEl.addEventListener('change', function(){ performedWrap.style.display = performedEl.checked ? '' : 'none'; });
+  hasFeeEl.addEventListener('change', function(){ feeWrap.style.display = hasFeeEl.checked ? '' : 'none'; });
+  btnPrev.addEventListener('click', function(){ if (currentStep > 1) { currentStep -= 1; updateSteps(); } });
+  btnNext.addEventListener('click', function(){ if (!validateStep(currentStep)) return; if (currentStep < 3) { currentStep += 1; updateSteps(); } });
+  modal.addEventListener('show.bs.modal', function(){
+    modal.querySelector('form').reset();
+    currentStep = 1;
+    refreshKindFields();
+    refreshMediaOptions();
+    performedWrap.style.display = 'none';
+    feeWrap.style.display = 'none';
+    updateSteps();
+  });
+  updateSteps();
+})();
+</script>
+{% endif %}
+{% endblock %}

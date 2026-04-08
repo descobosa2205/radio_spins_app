@@ -1766,6 +1766,7 @@ class MediaPromotionRecord(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="CASCADE"), nullable=False)
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    promotion_id = Column(PGUUID(as_uuid=True), ForeignKey("promotions.id", ondelete="SET NULL"))
     promotion_title = Column(Text)
     program_name = Column(Text)
     promoted_at = Column(Date, nullable=False)
@@ -1777,10 +1778,114 @@ class MediaPromotionRecord(Base):
 
     media = relationship("MediaOutlet", back_populates="history_rows")
     artist = relationship("Artist")
+    promotion = relationship("Promotion")
 
     __table_args__ = (
         Index("idx_media_promotion_records_media_date", "media_id", "promoted_at"),
         Index("idx_media_promotion_records_artist_date", "artist_id", "promoted_at"),
+        Index("idx_media_promotion_records_promotion_id", "promotion_id"),
+    )
+
+
+
+
+class PromotionRequest(Base):
+    __tablename__ = "promotion_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    source_type = Column(Text, nullable=False)
+    source_id = Column(PGUUID(as_uuid=True))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    subject_date = Column(Date)
+    objectives_notes = Column(Text)
+    budget_notes = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_email = Column(Text)
+    requested_by_nick = Column(Text)
+    reviewed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_by_nick = Column(Text)
+    rejection_reason = Column(Text)
+    reviewed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_promotion_requests_status_date", "status", "subject_date"),
+        Index("idx_promotion_requests_source", "source_type", "source_id"),
+        Index("idx_promotion_requests_requested_by", "requested_by_user_id", "created_at"),
+    )
+
+
+class Promotion(Base):
+    __tablename__ = "promotions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    subject_type = Column(Text, nullable=False)
+    subject_id = Column(PGUUID(as_uuid=True))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    source_request_id = Column(PGUUID(as_uuid=True), ForeignKey("promotion_requests.id", ondelete="SET NULL"))
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    objectives_notes = Column(Text)
+    budget_notes = Column(Text)
+    target_date = Column(Date)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    archived_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    company = relationship("GroupCompany")
+    bag = relationship("WorkflowBag")
+    source_request = relationship("PromotionRequest")
+
+    __table_args__ = (
+        Index("idx_promotions_status_date", "status", "target_date"),
+        Index("idx_promotions_subject", "subject_type", "subject_id"),
+        Index("idx_promotions_company", "company_id", "target_date"),
+    )
+
+
+class PromotionActivity(Base):
+    __tablename__ = "promotion_activities"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    promotion_id = Column(PGUUID(as_uuid=True), ForeignKey("promotions.id", ondelete="CASCADE"), nullable=False)
+    activity_date = Column(Date, nullable=False)
+    start_time = Column(Text)
+    end_time = Column(Text)
+    time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
+    show_as_tbc = Column(Boolean, nullable=False, server_default=text("false"))
+    activity_kind = Column(Text, nullable=False)
+    subtype = Column(Text)
+    media_type = Column(Text)
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"))
+    media_contact_id = Column(PGUUID(as_uuid=True), ForeignKey("media_contacts.id", ondelete="SET NULL"))
+    details_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    task_description = Column(Text)
+    artist_performed = Column(Boolean, nullable=False, server_default=text("false"))
+    performed_song_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    has_fee = Column(Boolean, nullable=False, server_default=text("false"))
+    fee_amount = Column(Numeric, nullable=False, server_default=text("0"))
+    covered_costs = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    cost_note = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promotion = relationship("Promotion")
+    media = relationship("MediaOutlet")
+    media_contact = relationship("MediaContact")
+
+    __table_args__ = (
+        Index("idx_promotion_activities_promotion_date", "promotion_id", "activity_date"),
+        Index("idx_promotion_activities_kind", "activity_kind", "activity_date"),
+        Index("idx_promotion_activities_media", "media_id", "activity_date"),
     )
 
 
@@ -3118,8 +3223,108 @@ def ensure_concert_artwork_schema():
 
 
 def ensure_personnel_and_operations_schema():
-    """Crea tablas de Personal y nuevas bases de datos operativas."""
+    """Crea tablas de Personal, Promoción y nuevas bases de datos operativas."""
     Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS promotion_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            source_type text NOT NULL,
+            source_id uuid,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            subject_date date,
+            objectives_notes text,
+            budget_notes text,
+            status text NOT NULL DEFAULT 'REQUESTED',
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_email text,
+            requested_by_nick text,
+            reviewed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            reviewed_by_nick text,
+            rejection_reason text,
+            reviewed_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotion_requests_status_date ON promotion_requests(status, subject_date);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_requests_source ON promotion_requests(source_type, source_id);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_requests_requested_by ON promotion_requests(requested_by_user_id, created_at);',
+        """
+        CREATE TABLE IF NOT EXISTS promotions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            subject_type text NOT NULL,
+            subject_id uuid,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            source_request_id uuid REFERENCES promotion_requests(id) ON DELETE SET NULL,
+            company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            objectives_notes text,
+            budget_notes text,
+            target_date date,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            archived_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotions_status_date ON promotions(status, target_date);',
+        'CREATE INDEX IF NOT EXISTS idx_promotions_subject ON promotions(subject_type, subject_id);',
+        'CREATE INDEX IF NOT EXISTS idx_promotions_company ON promotions(company_id, target_date);',
+        """
+        CREATE TABLE IF NOT EXISTS promotion_activities (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            promotion_id uuid NOT NULL REFERENCES promotions(id) ON DELETE CASCADE,
+            activity_date date NOT NULL,
+            start_time text,
+            end_time text,
+            time_tbc boolean NOT NULL DEFAULT false,
+            show_as_tbc boolean NOT NULL DEFAULT false,
+            activity_kind text NOT NULL,
+            subtype text,
+            media_type text,
+            media_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL,
+            media_contact_id uuid REFERENCES media_contacts(id) ON DELETE SET NULL,
+            details_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            task_description text,
+            artist_performed boolean NOT NULL DEFAULT false,
+            performed_song_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            has_fee boolean NOT NULL DEFAULT false,
+            fee_amount numeric NOT NULL DEFAULT 0,
+            covered_costs jsonb NOT NULL DEFAULT '[]'::jsonb,
+            cost_note text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_promotion_date ON promotion_activities(promotion_id, activity_date);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_kind ON promotion_activities(activity_kind, activity_date);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_media ON promotion_activities(media_id, activity_date);',
+        'ALTER TABLE IF EXISTS media_promotion_records ADD COLUMN IF NOT EXISTS promotion_id uuid;',
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='media_promotion_records'
+                  AND constraint_name='media_promotion_records_promotion_id_fkey'
+            ) THEN
+                ALTER TABLE media_promotion_records
+                    ADD CONSTRAINT media_promotion_records_promotion_id_fkey
+                    FOREIGN KEY (promotion_id) REFERENCES promotions(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_media_promotion_records_promotion_id ON media_promotion_records(promotion_id);',
+    ]
+    _exec_ddl_statements(stmts, "personnel_operations_promotions")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

@@ -101,7 +101,7 @@
                           <td class="align-top {% if not day.in_month %}bg-light text-muted{% endif %}" style="height:128px;">
                             <div class="small fw-semibold mb-2">{{ day.date.day }}</div>
                             <div class="d-flex flex-column gap-2">
-                              {% for item in day.items %}
+                              {% for item in day["items"] %}
                                 <a href="{{ item.detail_url }}" class="text-decoration-none text-reset d-flex gap-2 align-items-start">
                                   <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff;">
                                   <div class="small lh-sm">

@@ -81,9 +81,9 @@
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}">Descargar en PDF</a></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por WhatsApp</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por correo</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_public_url }}')">Enviar por SMS</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por WhatsApp</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por correo</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por SMS</button></li>
             <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')">Copiar enlace</button></li>
           </ul>
         </div>
@@ -118,11 +118,6 @@
           <span class="small">Materiales</span>
         </span>
 
-        <span class="song-status-item" data-bs-toggle="tooltip"
-              title="{% if album_status and album_status.production_contract_updated_at %}{{ album_status.production_contract_updated_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
-          <i class="fa fa-file-signature {% if album_status and album_status.production_contract_done %}text-success{% else %}text-danger{% endif %}"></i>
-          <span class="small">Contrato prod.</span>
-        </span>
 
         {% if CAN_EDIT_DISCOGRAFICA %}
           <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0">

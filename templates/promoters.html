@@ -105,9 +105,9 @@
     let activeTag = 'all';
 
     function applyFilters(){
-      const q = (searchInput && searchInput.value ? searchInput.value : '').trim().toLowerCase();
+      const q = window.normalizeSearchText ? window.normalizeSearchText(searchInput && searchInput.value) : (searchInput && searchInput.value ? searchInput.value : '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
       rows.forEach((row) => {
-        const searchBlob = (row.dataset.promoterSearch || '').toLowerCase();
+        const searchBlob = window.normalizeSearchText ? window.normalizeSearchText(row.dataset.promoterSearch || '') : (row.dataset.promoterSearch || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
         const tags = (row.dataset.promoterTags || '').split('||').filter(Boolean);
         const matchesSearch = !q || searchBlob.includes(q);
         const matchesTag = activeTag === 'all' || tags.includes(activeTag);

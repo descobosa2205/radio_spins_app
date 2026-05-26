@@ -455,7 +455,7 @@
 
 <script>
 document.addEventListener('DOMContentLoaded', function(){
-  const normalize = (v) => (v || '').toString().toLowerCase().trim();
+  const normalize = (v) => (window.normalizeSearchText ? window.normalizeSearchText(v) : (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
   let selectedRegistrosArtist = 'all';
   const registrosSearchInput = document.getElementById('registrosSearchInput');
 

@@ -6,7 +6,9 @@
       <div class="card-body p-4 p-lg-5">
         <div class="text-center mb-4">
           <div class="d-flex justify-content-center align-items-center gap-3 flex-wrap mb-3">
-            <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" style="height:50px;" alt="33 Producciones">
+            {% if TT_PRODUCCIONES_LOGO_URL %}
+              <img src="{{ TT_PRODUCCIONES_LOGO_URL }}" style="height:50px;object-fit:contain;" alt="Treinta y Tres Producciones">
+            {% endif %}
             <img src="{{ url_for('static', filename='img/logo.png') }}" style="height:60px;" alt="PIES">
           </div>
           <h4 class="mt-2 mb-1">Iniciar sesión</h4>

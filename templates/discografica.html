@@ -69,101 +69,108 @@
   <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div>
       <h5 class="m-0">Próximos lanzamientos</h5>
-      <div class="text-muted small">Calendario y listado de canciones y álbumes ordenados por fecha de publicación.</div>
+      <div class="text-muted small">Calendario y listado en pantalla partida. Solo se muestran meses con lanzamientos.</div>
     </div>
   </div>
 
-  <div class="card mb-3">
-    <div class="card-body">
-      <div class="fw-semibold mb-3">Calendario</div>
-      {% if launches_calendar_months and (launches_calendar_months|length) > 0 %}
-        <div class="d-flex flex-column gap-4">
-          {% for month in launches_calendar_months %}
-            <div>
-              <div class="fw-semibold mb-2">{{ month.label }}</div>
-              <div class="table-responsive">
-                <table class="table table-bordered align-middle bg-white mb-0" style="table-layout:fixed;min-width:860px;">
-                  <thead class="table-light">
-                    <tr>
-                      <th class="text-center small">Lun</th>
-                      <th class="text-center small">Mar</th>
-                      <th class="text-center small">Mié</th>
-                      <th class="text-center small">Jue</th>
-                      <th class="text-center small">Vie</th>
-                      <th class="text-center small">Sáb</th>
-                      <th class="text-center small">Dom</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {% for week in month.weeks %}
-                      <tr>
-                        {% for day in week %}
-                          <td class="align-top {% if not day.in_month %}bg-light text-muted{% endif %}" style="height:128px;">
-                            <div class="small fw-semibold mb-2">{{ day.date.day }}</div>
-                            <div class="d-flex flex-column gap-2">
-                              {% for item in day["items"] %}
-                                <a href="{{ item.detail_url }}" class="text-decoration-none text-reset d-flex gap-2 align-items-start">
-                                  <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff;">
-                                  <div class="small lh-sm">
-                                    <div class="fw-semibold">{{ item.title }}</div>
-                                    <div class="text-muted">{{ item.artist_label }}</div>
-                                  </div>
-                                </a>
-                              {% endfor %}
-                            </div>
-                          </td>
-                        {% endfor %}
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="text-muted">No hay lanzamientos próximos en el calendario.</div>
-      {% endif %}
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-body">
-      <div class="fw-semibold mb-3">Listado de lanzamientos</div>
-      {% if launches_items and (launches_items|length) > 0 %}
-        <div class="d-flex flex-column gap-3">
-          {% for item in launches_items %}
-            <a href="{{ item.detail_url }}" class="text-decoration-none text-reset border rounded p-3 bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
-              <div class="d-flex align-items-center gap-3">
-                <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:68px;height:68px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
+  <div class="row g-3 align-items-start">
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="fw-semibold mb-3">Calendario</div>
+          {% if launches_calendar_months and (launches_calendar_months|length) > 0 %}
+            <div class="d-flex flex-column gap-4">
+              {% for month in launches_calendar_months %}
                 <div>
-                  <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <div class="fw-semibold">{{ item.title }}</div>
-                    <span class="badge text-bg-light text-dark">{{ item.kind_label }}</span>
-                    {% if item.is_new %}
-                      <span class="badge text-bg-success">Nuevo</span>
+                  <div class="fw-semibold mb-2">{{ month.label }}</div>
+                  <table class="table table-bordered align-middle bg-white mb-0 launch-calendar-table" style="table-layout:fixed;width:100%;">
+                    <thead class="table-light">
+                      <tr>
+                        <th class="text-center small px-1">Lun</th>
+                        <th class="text-center small px-1">Mar</th>
+                        <th class="text-center small px-1">Mié</th>
+                        <th class="text-center small px-1">Jue</th>
+                        <th class="text-center small px-1">Vie</th>
+                        <th class="text-center small px-1">Sáb</th>
+                        <th class="text-center small px-1">Dom</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {% for week in month.weeks %}
+                        <tr>
+                          {% for day in week %}
+                            <td class="align-top p-1 {% if not day.in_month %}bg-light text-muted{% endif %}" style="height:86px;">
+                              <div class="small fw-semibold mb-1">{{ day.date.day }}</div>
+                              <div class="d-flex flex-column gap-1">
+                                {% for item in day["items"][:2] %}
+                                  <a href="{{ item.detail_url }}" class="text-decoration-none text-reset d-flex gap-1 align-items-start" title="{{ item.title }} · {{ item.artist_label }}">
+                                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:24px;height:24px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff;">
+                                    <div class="small lh-sm text-truncate" style="min-width:0;">
+                                      <div class="fw-semibold text-truncate">{{ item.title }}</div>
+                                      <div class="text-muted text-truncate">{{ item.artist_label }}</div>
+                                    </div>
+                                  </a>
+                                {% endfor %}
+                                {% if day["items"]|length > 2 %}
+                                  <span class="badge text-bg-light border small">+{{ (day["items"]|length) - 2 }}</span>
+                                {% endif %}
+                              </div>
+                            </td>
+                          {% endfor %}
+                        </tr>
+                      {% endfor %}
+                    </tbody>
+                  </table>
+                </div>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted">No hay lanzamientos próximos en el calendario.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="col-12 col-xl-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <div class="fw-semibold mb-3">Listado de lanzamientos</div>
+          {% if launches_items and (launches_items|length) > 0 %}
+            <div class="d-flex flex-column gap-3">
+              {% for item in launches_items %}
+                <a href="{{ item.detail_url }}" class="text-decoration-none text-reset border rounded p-3 bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
+                  <div class="d-flex align-items-center gap-3">
+                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:68px;height:68px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
+                    <div>
+                      <div class="d-flex align-items-center gap-2 flex-wrap">
+                        <div class="fw-semibold">{{ item.title }}</div>
+                        <span class="badge text-bg-light text-dark">{{ item.kind_label }}</span>
+                        {% if item.is_new %}
+                          <span class="badge text-bg-success">Nuevo</span>
+                        {% endif %}
+                      </div>
+                      <div class="text-muted">{{ item.artist_label }}</div>
+                      {% if item.collaborator %}
+                        <div class="small text-muted">Colaboradores: {{ item.collaborator }}</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                  <div class="text-end ms-auto">
+                    <div class="fw-semibold">{{ item.release_date.strftime('%d/%m/%Y') if item.release_date else '—' }}</div>
+                    {% if item.days_remaining is not none and item.days_remaining > 0 %}
+                      <div class="badge text-bg-warning mt-2">Faltan {{ item.days_remaining }} días</div>
+                    {% elif item.days_remaining == 0 %}
+                      <div class="badge text-bg-primary mt-2">Sale hoy</div>
                     {% endif %}
                   </div>
-                  <div class="text-muted">{{ item.artist_label }}</div>
-                  {% if item.collaborator %}
-                    <div class="small text-muted">Colaboradores: {{ item.collaborator }}</div>
-                  {% endif %}
-                </div>
-              </div>
-              <div class="text-end">
-                <div class="fw-semibold">{{ item.release_date.strftime('%d/%m/%Y') if item.release_date else '—' }}</div>
-                {% if item.days_remaining is not none and item.days_remaining > 0 %}
-                  <div class="badge text-bg-warning mt-2">Faltan {{ item.days_remaining }} días</div>
-                {% elif item.days_remaining == 0 %}
-                  <div class="badge text-bg-primary mt-2">Sale hoy</div>
-                {% endif %}
-              </div>
-            </a>
-          {% endfor %}
+                </a>
+              {% endfor %}
+            </div>
+          {% else %}
+            <div class="text-muted">No hay lanzamientos próximos o recién publicados.</div>
+          {% endif %}
         </div>
-      {% else %}
-        <div class="text-muted">No hay lanzamientos próximos o recién publicados.</div>
-      {% endif %}
+      </div>
     </div>
   </div>
 
@@ -635,15 +642,12 @@
   <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
     <ul class="nav nav-pills">
       <li class="nav-item">
-        <a class="nav-link {% if editorial_tab=='pendientes' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='pendientes') }}">Pendientes de registro <span class="badge text-bg-warning ms-1">{{ editorial_pending_songs|length }}</span></a>
-      </li>
-      <li class="nav-item">
         <a class="nav-link {% if editorial_tab=='repertorio' %}active{% endif %}" href="{{ url_for('discografica_view', section='editorial', editorial_tab='repertorio') }}">Repertorio</a>
       </li>
     </ul>
   </div>
 
-  {% if editorial_tab == 'pendientes' %}
+  {% if false and editorial_tab == 'pendientes' %}
     <div class="card">
       <div class="card-body">
         {% if editorial_pending_songs and (editorial_pending_songs|length) > 0 %}
@@ -778,18 +782,14 @@
            href="{{ url_for('discografica_view', section='isrc', isrc_tab='repertorio', year=selected_year or None) }}">Repertorio</a>
       </li>
       <li class="nav-item">
-        <a class="nav-link {% if isrc_tab=='pendientes' %}active{% endif %}"
-           href="{{ url_for('discografica_view', section='isrc', isrc_tab='pendientes', year=selected_year or None) }}">Pendiente de registro <span class="badge text-bg-warning ms-1">{{ isrc_pending_songs|length }}</span></a>
-      </li>
-      <li class="nav-item">
         <a class="nav-link {% if isrc_tab=='configurador' %}active{% endif %}"
            href="{{ url_for('discografica_view', section='isrc', isrc_tab='configurador', config_tab=isrc_config_subtab or 'isrc') }}">Configurador</a>
       </li>
     </ul>
   </div>
 
-  {% if isrc_tab in ['repertorio', 'pendientes'] %}
-    {% set isrc_filter_list = isrc_pending_filter_artists if isrc_tab == 'pendientes' else isrc_current_filter_artists %}
+  {% if isrc_tab == 'repertorio' %}
+    {% set isrc_filter_list = isrc_current_filter_artists %}
     <div class="card mb-3">
       <div class="card-body">
         <div class="row g-3 align-items-end">
@@ -943,7 +943,7 @@
       {% endfor %}
     {% endif %}
 
-  {% elif isrc_tab == 'pendientes' %}
+  {% elif false and isrc_tab == 'pendientes' %}
     <div class="card">
       <div class="card-body">
         {% if not isrc_pending_songs or (isrc_pending_songs|length) == 0 %}
@@ -1205,7 +1205,7 @@
 
 <script>
 (function(){
-  const normalize = (v) => (v || '').toString().toLowerCase().trim();
+  const normalize = (v) => (window.normalizeSearchText ? window.normalizeSearchText(v) : (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
 
   function refreshGroupButtons(containerSelector, attrName, selectedValue){
     const container = document.querySelector(containerSelector);

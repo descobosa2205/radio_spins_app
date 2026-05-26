@@ -123,9 +123,9 @@
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li><a class="dropdown-item" href="{{ url_for('discografica_song_label_copy_pdf', song_id=song.id) }}">Descargar en PDF</a></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ song.title|e }}', '{{ label_copy_public_url }}')">Enviar por WhatsApp</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ song.title|e }}', '{{ label_copy_public_url }}')">Enviar por correo</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ song.title|e }}', '{{ label_copy_public_url }}')">Enviar por SMS</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por WhatsApp</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por correo</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ song.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por SMS</button></li>
             <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')">Copiar enlace</button></li>
           </ul>
         </div>
@@ -2100,12 +2100,13 @@
               </button>
               <ul class="dropdown-menu dropdown-menu-end">
                 <li><h6 class="dropdown-header">Compartir la letra</h6></li>
-                <li><button class="dropdown-item" type="button" onclick="shareByMail('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">Mail</button></li>
-                <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">WhatsApp</button></li>
-                <li><button class="dropdown-item" type="button" onclick="shareBySms('Letra · {{ song.title|e }}', '{{ lyrics_public_url }}')">SMS</button></li>
+                <li><button class="dropdown-item" type="button" onclick="shareByMail('Letra · {{ song.title|e }}', '{{ lyrics_public_pdf_url }}')">Mail</button></li>
+                <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Letra · {{ song.title|e }}', '{{ lyrics_public_pdf_url }}')">WhatsApp</button></li>
+                <li><button class="dropdown-item" type="button" onclick="shareBySms('Letra · {{ song.title|e }}', '{{ lyrics_public_pdf_url }}')">SMS</button></li>
                 <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ lyrics_public_url }}')">Copiar enlace</button></li>
                 <li><hr class="dropdown-divider"></li>
                 <li><a class="dropdown-item" href="{{ url_for('discografica_song_lyrics_pdf', song_id=song.id) }}">Descargar en PDF</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('discografica_song_lyrics_pdf', song_id=song.id, editorial=1) }}">Descargar Editorial</a></li>
                 {% if CAN_EDIT_DISCOGRAFICA %}
                   <li><hr class="dropdown-divider"></li>
                   <li><button class="dropdown-item" type="button" onclick="openSongLyricsModal()">Editar</button></li>

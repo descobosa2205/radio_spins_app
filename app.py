@@ -36,6 +36,7 @@ from flask import (
 from sqlalchemy import func, text, or_, and_
 
 from werkzeug.security import check_password_hash, generate_password_hash
+from werkzeug.exceptions import RequestEntityTooLarge
 import calendar as _cal
 from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
@@ -164,6 +165,9 @@ from models import (
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
+# Subidas pesadas: evita rechazos prematuros de Flask/Werkzeug con masters WAV grandes.
+app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
+app.config["MAX_FORM_MEMORY_SIZE"] = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(1024 * 1024 * 1024)))
 
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
 # IMPORTANTE: esto debe ser "best-effort" para no romper el arranque si la BBDD
@@ -372,7 +376,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_pdf", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"}
     if request.endpoint in allowed:
         return
 
@@ -382,6 +386,14 @@ def require_login():
 
     nxt = request.full_path if request.query_string else request.path
     return redirect(url_for("admin_login", next=nxt))
+
+
+
+@app.errorhandler(RequestEntityTooLarge)
+def _handle_request_entity_too_large(exc):
+    flash("El archivo es demasiado grande para la configuración actual del servidor. Revisa MAX_CONTENT_LENGTH y el timeout del servidor.", "danger")
+    return redirect(request.referrer or url_for("discografica_view", section="canciones"))
+
 
 # ---------- Roles / permisos ----------
 # role: 1,2,3,4,10 (10 = master)
@@ -1256,6 +1268,20 @@ def _norm_text_key(v: str) -> str:
     v = "".join(ch for ch in v if unicodedata.category(ch) != "Mn")
     v = " ".join(v.split())
     return v
+
+
+_AI_SEARCH_FROM = "áàäâãåéèëêíìïîóòöôõúùüûñç"
+_AI_SEARCH_TO = "aaaaaaeeeeiiiiooooouuuunc"
+
+
+def _sa_folded_text(expr):
+    """Expresión SQL normalizada para búsquedas sin distinguir mayúsculas ni acentos."""
+    return func.translate(func.lower(func.coalesce(expr, "")), _AI_SEARCH_FROM, _AI_SEARCH_TO)
+
+
+def _sa_contains_text(expr, value: str):
+    """LIKE acento-insensible usando la misma normalización que el filtrado en Python/JS."""
+    return _sa_folded_text(expr).like(f"%{_norm_text_key(value)}%")
 
 
 def _norm_material_scope(v: str | None) -> str:
@@ -3155,7 +3181,7 @@ def _group_certifications(rows, media_kind: str = "SONG") -> list[dict]:
             "equivalent_copies_unit": equivalent_unit,
             "equivalent_copies_total": equivalent_total,
             "equivalent_copies_total_label": f"Equivalente a {_format_equivalent_copies(equivalent_total)} copias",
-            "image_url": url_for("static", filename=meta["image"]),
+            "image_url": _external_url_for("static", filename=meta["image"]),
             "flag": flag,
             "stack_count": min(max(count, 1), 6),
             "summary": f"{_certification_group_title(meta, count)} · Equivalente a {_format_equivalent_copies(equivalent_total)} copias · {country_label}",
@@ -3169,23 +3195,79 @@ def _group_certifications(rows, media_kind: str = "SONG") -> list[dict]:
 
 
 
-def _pies_brand_assets(session_db) -> dict:
-    group_company = (
-        session_db.query(GroupCompany)
-        .filter(func.lower(GroupCompany.name).like('%pies%'))
-        .order_by(GroupCompany.name.asc())
-        .first()
-    )
-    logo_url = (getattr(group_company, 'logo_url', None) or '').strip()
-    if not logo_url:
+def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name: str = '', fallback_static_filename: str = '') -> dict:
+    """Devuelve nombre/logo de una empresa del grupo, priorizando el logo configurado en BBDD."""
+    own_session = False
+    if session_db is None:
         try:
-            logo_url = url_for('static', filename='img/logo.png', _external=True)
+            session_db = db()
+            own_session = True
         except Exception:
-            logo_url = ''
+            session_db = None
+
+    group_company = None
+    if session_db is not None:
+        try:
+            rows = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+            for row in rows:
+                key = _norm_text_key(getattr(row, 'name', None) or '')
+                if matcher and matcher(key, row):
+                    group_company = row
+                    break
+        except Exception:
+            group_company = None
+        finally:
+            if own_session:
+                try:
+                    session_db.close()
+                except Exception:
+                    pass
+
+    logo_url = (getattr(group_company, 'logo_url', None) or '').strip()
+    if not logo_url and fallback_static_filename:
+        try:
+            logo_url = url_for('static', filename=fallback_static_filename, _external=True)
+        except Exception:
+            try:
+                logo_url = _external_url_for('static', filename=fallback_static_filename)
+            except Exception:
+                logo_url = ''
+
     return {
-        'company_name': (getattr(group_company, 'name', None) or 'PIES').strip() or 'PIES',
+        'company_name': (getattr(group_company, 'name', None) or fallback_name or '').strip(),
         'logo_url': logo_url,
     }
+
+
+def _pies_brand_assets(session_db=None) -> dict:
+    return _group_company_brand_assets(
+        session_db,
+        matcher=lambda key, row: 'pies' in key,
+        fallback_name='PIES',
+        fallback_static_filename='img/logo.png',
+    )
+
+
+def _treinta_y_tres_brand_assets(session_db=None) -> dict:
+    return _group_company_brand_assets(
+        session_db,
+        matcher=lambda key, row: (('treinta' in key and 'tres' in key) or ('33' in key and 'produccion' in key)),
+        fallback_name='Treinta y Tres Producciones',
+        # Sin fallback al antiguo logo estático para evitar volver a usar el arte incorrecto.
+        fallback_static_filename='',
+    )
+
+
+def _treinta_y_tres_logo_url(session_db=None) -> str:
+    return (_treinta_y_tres_brand_assets(session_db).get('logo_url') or '').strip()
+
+
+@app.context_processor
+def _inject_group_brand_assets():
+    try:
+        return {'TT_PRODUCCIONES_LOGO_URL': _treinta_y_tres_logo_url()}
+    except Exception:
+        return {'TT_PRODUCCIONES_LOGO_URL': ''}
 
 
 def _artist_email_delivery_data(session_db, artist: Artist | None) -> dict:
@@ -3318,10 +3400,7 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
         f'<img src="{html.escape(icon_url)}" alt="{html.escape(cert_group.get("title") or "Certificación")}" style="width:62px;height:62px;object-fit:contain;display:block;">'
         for _ in range(icon_count)
     ) if icon_url else ''
-    confetti_html = ''.join(
-        f'<span style="position:absolute;top:{top}%;left:{left}%;font-size:{size}px;opacity:.88;">{shape}</span>'
-        for top, left, size, shape in [(7, 7, 18, '🎉'), (15, 22, 16, '✨'), (9, 84, 18, '🎊'), (18, 70, 16, '✨'), (20, 52, 15, '•')]
-    )
+    confetti_html = ""
     logo_html = ''
     if brand.get('logo_url'):
         logo_html = f'<img src="{html.escape(brand.get("logo_url") or "")}" alt="{html.escape(brand.get("company_name") or "PIES")}" style="display:block;max-width:180px;max-height:64px;object-fit:contain;">'
@@ -3335,7 +3414,7 @@ def _build_certification_notification_email(session_db, media_kind: str, item, c
         <div style="position:relative;padding:28px 30px 18px;background:linear-gradient(180deg,#fff7ed 0%,#ffffff 100%);">
           {confetti_html}
           {logo_html}
-          <div style="margin-top:18px;font-size:34px;line-height:1.1;font-weight:800;color:#b45309;">¡ENHORABUENA!</div>
+          <div style="margin-top:18px;font-size:34px;line-height:1.1;font-weight:800;color:#111827;">¡ENHORABUENA!</div>
         </div>
         <div style="padding:18px 30px 30px;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
@@ -3499,11 +3578,18 @@ def _producer_contract_public_url(media_kind: str, item_id, contract_id) -> str:
     return url_for('public_song_production_contract_download', token=_song_contract_share_token(item_id, contract_id), _external=True)
 
 
-def _label_copy_public_url(media_kind: str, item_id) -> str:
+def _label_copy_public_pdf_url(media_kind: str, item_id) -> str:
     media_kind = (media_kind or 'SONG').strip().upper()
     if media_kind == 'ALBUM':
         return url_for('public_album_label_copy_pdf', token=_album_label_copy_share_token(item_id), _external=True)
     return url_for('public_song_label_copy_pdf', token=_song_label_copy_share_token(item_id), _external=True)
+
+
+def _label_copy_public_url(media_kind: str, item_id) -> str:
+    media_kind = (media_kind or 'SONG').strip().upper()
+    if media_kind == 'ALBUM':
+        return url_for('public_album_label_copy_view', token=_album_label_copy_share_token(item_id), _external=True)
+    return url_for('public_song_label_copy_view', token=_song_label_copy_share_token(item_id), _external=True)
 
 
 def _resolve_or_create_promoter_for_contract(session_db, nick: str, tax_id: str = '', contact_email: str = '', contact_phone: str = '') -> Promoter:
@@ -4058,7 +4144,7 @@ def _song_lyrics_meta(session_db, song: Song) -> dict:
     }
 
 
-def _build_song_lyrics_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
+def _build_song_lyrics_pdf_bytes(session_db, song_id, *, include_logo: bool = True) -> tuple[bytes, str]:
     song = session_db.get(Song, to_uuid(song_id))
     if not song or not (getattr(song, "lyrics_text", None) or "").strip():
         raise LookupError("La canción no tiene letra guardada.")
@@ -4109,7 +4195,7 @@ def _build_song_lyrics_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story = []
 
     logo_path = Path(app.root_path) / "static" / "img" / "logo.png"
-    if logo_path.exists():
+    if include_logo and logo_path.exists():
         story.append(RLImage(str(logo_path), width=3.3*cm, height=1.05*cm))
         story.append(Spacer(1, 0.4*cm))
 
@@ -4203,6 +4289,140 @@ def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
     return lines
 
 
+def _song_platform_links(song: Song | None) -> list[dict]:
+    specs = [
+        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url'),
+        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url'),
+        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url'),
+        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url'),
+        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url'),
+    ]
+    out = []
+    for key, label, icon, field in specs:
+        url = (getattr(song, field, None) or '').strip() if song is not None else ''
+        if not url:
+            continue
+        if not url.startswith(('http://', 'https://')):
+            url = 'https://' + url
+        out.append({'key': key, 'label': label, 'icon': icon, 'url': url})
+    return out
+
+
+def _song_platform_links_pdf_html(song: Song | None) -> str:
+    links = []
+    icon_map = {
+        'spotify': '●',
+        'apple_music': '●',
+        'amazon_music': '●',
+        'tiktok': '●',
+        'youtube': '▶',
+    }
+    for item in _song_platform_links(song):
+        links.append(
+            f'<link href="{html.escape(item["url"], quote=True)}"><font color="#111827">{icon_map.get(item["key"], "●")} {html.escape(item["label"])}</font></link>'
+        )
+    return ' &nbsp;&nbsp; '.join(links)
+
+
+def _song_label_copy_public_context(session_db, song: Song) -> dict:
+    artist = _song_primary_artist(session_db, song)
+    artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+    interpreters_label = _song_interpreters_label(session_db, song)
+    isrc_lines = _song_label_copy_isrc_lines(session_db, song)
+    author_rows, author_total = _song_label_copy_author_rows(session_db, song)
+    musicians = []
+    for row in (getattr(song, 'musicians', None) or []):
+        instrument = (row.get('instrument') or '').strip() if isinstance(row, dict) else ''
+        name = (row.get('name') or '').strip() if isinstance(row, dict) else ''
+        if instrument or name:
+            musicians.append((f"{instrument}: " if instrument else '') + name)
+
+    info_rows = []
+    def add_row(label, value):
+        value = value if isinstance(value, str) else ('' if value is None else str(value))
+        value = value.strip()
+        if value:
+            info_rows.append({'label': label, 'value': value})
+
+    add_row('Título', song.title)
+    add_row('Intérpretes', interpreters_label)
+    add_row('Versión', song.version)
+    add_row('Fecha de publicación', song.release_date.strftime('%d/%m/%Y') if song.release_date else '')
+    add_row('Códigos ISRC', '\n'.join(isrc_lines))
+    add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
+    add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
+    add_row('BPM', str(song.bpm or ''))
+    add_row('Género', song.genre)
+    add_row('Copyright', song.copyright_text)
+    add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
+    add_row('Ingeniero de grabación', song.recording_engineer)
+    add_row('Estudio de grabación', song.studio)
+    add_row('Fecha de grabación', song.recording_date.strftime('%d/%m/%Y') if song.recording_date else '')
+    add_row('Ingeniero de mezcla', song.mixing_engineer)
+    add_row('Ingeniero de mastering', song.mastering_engineer)
+    add_row('Arreglista', ', '.join([x for x in (song.arrangers or []) if (x or '').strip()]))
+    add_row('Músicos', '\n'.join(musicians))
+    return {
+        'song': song,
+        'artist': artist,
+        'artist_name': artist_name,
+        'interpreters_label': interpreters_label,
+        'brand': _pies_brand_assets(session_db),
+        'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+        'platform_links': _song_platform_links(song),
+        'info_rows': info_rows,
+        'author_rows': author_rows,
+        'author_total': author_total,
+    }
+
+
+def _album_label_copy_public_context(session_db, album: Album) -> dict:
+    artist = session_db.get(Artist, getattr(album, 'artist_id', None)) if getattr(album, 'artist_id', None) else None
+    artist_name = (getattr(artist, 'name', None) or '').strip() or 'Artista'
+    code_rows = (
+        session_db.query(AlbumProductCode)
+        .filter(AlbumProductCode.album_id == album.id)
+        .order_by(AlbumProductCode.created_at.asc())
+        .all()
+    )
+    tracks = (
+        session_db.query(AlbumTrack)
+        .options(joinedload(AlbumTrack.song))
+        .filter(AlbumTrack.album_id == album.id)
+        .order_by(AlbumTrack.track_number.asc())
+        .all()
+    )
+    info_rows = []
+    def add_row(label, value):
+        value = value if isinstance(value, str) else ('' if value is None else str(value))
+        value = value.strip()
+        if value:
+            info_rows.append({'label': label, 'value': value})
+    add_row('Título', album.title)
+    add_row('Artista', artist_name)
+    add_row('Tipo', _album_kind_label(album))
+    add_row('Fecha de publicación', album.release_date.strftime('%d/%m/%Y') if album.release_date else '')
+    add_row('UPC', album.upc_code)
+    add_row('Depósito legal', album.legal_deposit_code)
+    add_row('Label Code', album.label_code)
+    add_row('Códigos de producto', '\n'.join([f"{_album_product_format_label(row)}: {row.code}" for row in code_rows]))
+    add_row('Especificaciones', album.specifications)
+    add_row('Copyright', album.copyright_text)
+    add_row('Productor', ', '.join(_album_producers_list(album)))
+    add_row('Ingeniero de mastering', album.mastering_engineer)
+    add_row('Editado por', album.edited_by)
+    add_row('Distribuido por', album.distributed_by)
+    add_row('Tracklist', '\n'.join([f"{row.track_number}. {(getattr(row.song, 'title', None) or '—')}" for row in tracks]))
+    return {
+        'album': album,
+        'artist': artist,
+        'artist_name': artist_name,
+        'brand': _pies_brand_assets(session_db),
+        'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+        'info_rows': info_rows,
+    }
+
+
 def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError('ReportLab no está disponible.')
@@ -4231,14 +4451,11 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story.append(Spacer(1, 0.25*cm))
 
     cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or brand.get('logo_url'), 3.2, 3.2)
-    links = []
-    for label, value in [('Spotify', song.spotify_url), ('Apple Music', song.apple_music_url), ('Amazon Music', song.amazon_music_url), ('TikTok', song.tiktok_url), ('YouTube', song.youtube_url)]:
-        if (value or '').strip():
-            links.append(f"<b>{html.escape(label)}:</b> {html.escape(value)}")
+    platform_links_html = _song_platform_links_pdf_html(song)
     left_col = [cover] if cover else [Paragraph('Sin portada', small_style)]
     right_html = f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}"
-    if links:
-        right_html += '<br/><br/>' + '<br/>'.join(links)
+    if platform_links_html:
+        right_html += '<br/><br/><b>Enlaces:</b><br/>' + platform_links_html
     header_table = Table([[left_col[0], Paragraph(right_html, small_style)]], colWidths=[3.7*cm, 13.2*cm])
     header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
     story.append(header_table)
@@ -4265,7 +4482,7 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     add_row('Códigos ISRC', '\n'.join(isrc_lines))
     add_row('Duración (Timing)', _seconds_to_timecode(getattr(song, 'duration_seconds', None)))
     add_row('Inicio en Tik Tok', _seconds_to_timecode(getattr(song, 'tiktok_start_seconds', None)))
-    add_row('BMP', str(song.bpm or ''))
+    add_row('BPM', str(song.bpm or ''))
     add_row('Género', song.genre)
     add_row('Copyright', song.copyright_text)
     add_row('Productor', ', '.join([x for x in (song.producers or []) if (x or '').strip()]))
@@ -4276,7 +4493,7 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     add_row('Ingeniero de mastering', song.mastering_engineer)
     add_row('Arreglista', ', '.join([x for x in (song.arrangers or []) if (x or '').strip()]))
     add_row('Músicos', '\n'.join(musicians))
-    table = Table(info_rows, colWidths=[4.7*cm, 12.2*cm], repeatRows=0)
+    table = Table(info_rows, colWidths=[5.0*cm, 13.0*cm], repeatRows=0)
     table.setStyle(TableStyle([
         ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
         ('BACKGROUND', (0,0), (0,-1), colors.HexColor('#f9fafb')),
@@ -4289,10 +4506,10 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story.append(table)
     if author_rows:
         story.append(Spacer(1, 0.3*cm))
-        story.append(Paragraph('Reparto autoras', label_style))
+        story.append(Paragraph('Reparto autoral', label_style))
         author_table = Table([
             [Paragraph('Autor', label_style), Paragraph('Rol', label_style), Paragraph('Editorial', label_style), Paragraph('%', label_style)]
-        ] + [[Paragraph(html.escape(col), small_style) for col in row] for row in author_rows] + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[4.4*cm, 3.2*cm, 6.0*cm, 2.1*cm])
+        ] + [[Paragraph(html.escape(col), small_style) for col in row] for row in author_rows] + [[Paragraph('Porcentaje total', label_style), Paragraph('', small_style), Paragraph('', small_style), Paragraph(f'{author_total:.2f}%', label_style)]], colWidths=[5.0*cm, 3.4*cm, 7.0*cm, 2.6*cm])
         author_table.setStyle(TableStyle([
             ('GRID', (0,0), (-1,-1), 0.35, colors.HexColor('#d1d5db')),
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f3f4f6')),
@@ -7802,12 +8019,16 @@ def discografica_view():
         section = "canciones"
 
     editorial_tab = (request.args.get("editorial_tab") or "repertorio").lower().strip()
-    if editorial_tab not in ("pendientes", "repertorio"):
+    if editorial_tab == "pendientes":
+        return redirect(url_for("discografica_view", section="registros", registros_tab="sgae"))
+    if editorial_tab != "repertorio":
         editorial_tab = "repertorio"
 
     # subpestañas ISRC
     isrc_tab = (request.args.get("isrc_tab") or "repertorio").lower().strip()
-    if isrc_tab not in ("repertorio", "configurador", "pendientes"):
+    if isrc_tab == "pendientes":
+        return redirect(url_for("discografica_view", section="registros", registros_tab="agedi"))
+    if isrc_tab not in ("repertorio", "configurador"):
         isrc_tab = "repertorio"
 
     if section == "ingresos":
@@ -7971,16 +8192,16 @@ def discografica_view():
         launches_items.sort(key=_launch_sort_key)
 
         cal_items_by_date: dict[date, list[dict]] = defaultdict(list)
-        month_cursor = date(today.year, today.month, 1)
-        month_limit = _add_months(month_cursor, 3)
+        months_with_launches: set[date] = set()
         for item in launches_items:
             rd = item.get('release_date')
-            if not rd or rd < month_cursor or rd >= month_limit:
+            if not rd:
                 continue
+            first = date(rd.year, rd.month, 1)
+            months_with_launches.add(first)
             cal_items_by_date.setdefault(rd, []).append(item)
 
-        for month_idx in range(3):
-            first_day = _add_months(month_cursor, month_idx)
+        for first_day in sorted(months_with_launches):
             next_month = _add_months(first_day, 1)
             last_day = next_month - timedelta(days=1)
             start_day = first_day - timedelta(days=first_day.weekday())
@@ -10878,7 +11099,8 @@ def discografica_song_detail(song_id):
         })
 
     lyrics_public_token = _make_public_song_share_token("LYRICS_PDF", str(s.id))
-    lyrics_public_url = _external_url_for("public_song_lyrics_pdf") + f"?token={quote_plus(lyrics_public_token)}"
+    lyrics_public_url = _external_url_for("public_song_lyrics_view", token=lyrics_public_token)
+    lyrics_public_pdf_url = _external_url_for("public_song_lyrics_pdf", token=lyrics_public_token)
 
     linked_albums = []
     linked_album_rows = (
@@ -11159,7 +11381,9 @@ def discografica_song_detail(song_id):
         song_cert_groups=song_cert_groups,
         country_options=country_options,
         lyrics_public_url=lyrics_public_url,
+        lyrics_public_pdf_url=lyrics_public_pdf_url,
         label_copy_public_url=_label_copy_public_url('SONG', s.id),
+        label_copy_pdf_public_url=_label_copy_public_pdf_url('SONG', s.id),
         song_producer_rows=song_producer_rows,
         song_cert_delivery=song_cert_delivery,
         song_team_recipients=song_cert_delivery.get('team_recipients') or [],
@@ -11802,15 +12026,47 @@ def discografica_song_info_update(song_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
 
 
-def _generate_isrc(session_db, *, kind: str, artist_id, country: str, matrix: str) -> tuple[str, int, int]:
-    """Genera un ISRC con el formato:
+def _isrc_sequence_from_code(code: str | None) -> int | None:
+    code = _norm_isrc(code)
+    if not code:
+        return None
+    digits = ''.join(ch for ch in code.split('-')[-1] if ch.isdigit())
+    if len(digits) < 3:
+        return None
+    try:
+        seq = int(digits[-3:])
+    except Exception:
+        return None
+    return seq if 1 <= seq <= 999 else None
 
-    CC-AAA-YY-XXNNN
-    - CC: país (2 letras)
-    - AAA: matriz (3 dígitos)
-    - YY: año (2 dígitos, del año actual)
-    - XX: matriz artista (2 dígitos)
-    - NNN: secuencia (3 dígitos) por artista y año
+
+def _song_primary_audio_isrc_sequence(session_db, song_id) -> int | None:
+    if not song_id:
+        return None
+    row = (
+        session_db.query(SongISRCCode)
+        .filter(SongISRCCode.song_id == song_id)
+        .filter(func.upper(SongISRCCode.kind) == 'AUDIO')
+        .filter(SongISRCCode.is_primary == True)  # noqa: E712
+        .order_by(SongISRCCode.created_at.asc())
+        .first()
+    )
+    if row:
+        seq = int(getattr(row, 'sequence_num', 0) or 0)
+        if 1 <= seq <= 999:
+            return seq
+        seq = _isrc_sequence_from_code(getattr(row, 'code', None))
+        if seq:
+            return seq
+    song = session_db.get(Song, song_id)
+    return _isrc_sequence_from_code(getattr(song, 'isrc', None) if song else None)
+
+
+def _generate_isrc(session_db, *, kind: str, artist_id, country: str, matrix: str, song_id=None) -> tuple[str, int, int]:
+    """Genera el primer ISRC libre por artista/año/tipo.
+
+    Para VIDEO intenta reutilizar primero la misma terminación del ISRC principal de AUDIO
+    de la canción y, si está ocupada, avanza hasta la siguiente terminación disponible.
     """
     cfg_year = today_local().year
     yy = str(cfg_year % 100).zfill(2)
@@ -11820,19 +12076,50 @@ def _generate_isrc(session_db, *, kind: str, artist_id, country: str, matrix: st
         raise ValueError("Falta el número matriz ISRC del artista (configurador).")
     artist_matrix = "".join([c for c in (aset.artist_matrix or "") if c.isdigit()]).zfill(2)[-2:]
 
-    max_seq = (
-        session_db.query(func.max(SongISRCCode.sequence_num))
-        .filter(SongISRCCode.artist_id == artist_id)
-        .filter(SongISRCCode.year == cfg_year)
-        .scalar()
-    )
-    seq = int(max_seq or 0) + 1
-
     country = (country or "ES").strip().upper()[:2] or "ES"
     matrix = "".join([c for c in (matrix or "") if c.isdigit()]).zfill(3)[-3:]
+    kind = (kind or 'AUDIO').strip().upper()
 
-    code = f"{country}-{matrix}-{yy}-{artist_matrix}{str(seq).zfill(3)}"
-    return code, cfg_year, seq
+    existing_rows = (
+        session_db.query(SongISRCCode.code, SongISRCCode.sequence_num)
+        .filter(SongISRCCode.artist_id == artist_id)
+        .filter(SongISRCCode.year == cfg_year)
+        .filter(func.upper(SongISRCCode.kind) == kind)
+        .all()
+    )
+    used_sequences = set()
+    used_codes = set()
+    for code_value, sequence_value in existing_rows:
+        norm_code = _norm_isrc(code_value)
+        if norm_code:
+            used_codes.add(norm_code)
+        try:
+            seq = int(sequence_value or 0)
+        except Exception:
+            seq = 0
+        if not (1 <= seq <= 999):
+            seq = _isrc_sequence_from_code(norm_code)
+        if seq:
+            used_sequences.add(seq)
+
+    preferred_seq = _song_primary_audio_isrc_sequence(session_db, song_id) if kind == 'VIDEO' else None
+    candidates = []
+    if preferred_seq and 1 <= preferred_seq <= 999:
+        candidates.extend(range(preferred_seq, 1000))
+        candidates.extend(range(1, preferred_seq))
+    else:
+        candidates.extend(range(1, 1000))
+
+    for seq in candidates:
+        code = f"{country}-{matrix}-{yy}-{artist_matrix}{str(seq).zfill(3)}"
+        norm_code = _norm_isrc(code)
+        if seq in used_sequences or norm_code in used_codes:
+            continue
+        if session_db.query(SongISRCCode.id).filter(SongISRCCode.code == norm_code).first():
+            continue
+        return norm_code, cfg_year, seq
+
+    raise ValueError("No quedan secuencias ISRC disponibles para este artista, año y tipo.")
 
 
 @app.post("/discografica/canciones/<song_id>/isrc/add")
@@ -11901,6 +12188,7 @@ def discografica_song_isrc_add(song_id):
                 artist_id=primary_artist.id,
                 country=cfg.country_code,
                 matrix=matrix,
+                song_id=sid,
             )
 
         rec = SongISRCCode(
@@ -12498,7 +12786,10 @@ def discografica_song_lyrics_delete(song_id):
 def discografica_song_lyrics_pdf(song_id):
     session_db = db()
     try:
-        pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, song_id)
+        include_logo = (request.args.get("editorial") or "").strip().lower() not in {"1", "true", "yes", "si", "sí"}
+        pdf_bytes, filename = _build_song_lyrics_pdf_bytes(session_db, song_id, include_logo=include_logo)
+        if not include_logo:
+            filename = filename.replace(".pdf", " - Editorial.pdf")
         return send_file(BytesIO(pdf_bytes), mimetype="application/pdf", as_attachment=True, download_name=filename)
     except LookupError:
         flash("La canción no tiene letra guardada.", "warning")
@@ -12508,6 +12799,26 @@ def discografica_song_lyrics_pdf(song_id):
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="editorial"))
     finally:
         session_db.close()
+
+
+@app.get("/public/song-lyrics")
+def public_song_lyrics_view():
+    token = (request.args.get("token") or "").strip()
+    payload = _parse_public_song_share_token(token)
+    if not payload or (payload.get("kind") or "").upper() != "LYRICS_PDF":
+        abort(404)
+    sid_raw = (payload.get("sid") or "").strip()
+    try:
+        sid = to_uuid(sid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        song = session_db.get(Song, sid)
+        if not song or not (getattr(song, "lyrics_text", None) or "").strip():
+            abort(404)
+        meta = _song_lyrics_meta(session_db, song)
+        pdf_url = _external_url_for("public_song_lyrics_pdf", token=token)
+        return render_template("public_song_lyrics.html", song=song, meta=meta, pdf_url=pdf_url)
 
 
 @app.get("/public/song-lyrics/pdf")
@@ -12848,6 +13159,26 @@ def discografica_song_label_copy_pdf(song_id):
         session_db.close()
 
 
+@app.get("/public/song-label-copy")
+def public_song_label_copy_view():
+    token = (request.args.get("token") or "").strip()
+    payload = _parse_public_song_share_token(token)
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    sid_raw = (payload.get("sid") or "").strip()
+    try:
+        sid = to_uuid(sid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        song = session_db.get(Song, sid)
+        if not song:
+            abort(404)
+        ctx = _song_label_copy_public_context(session_db, song)
+        ctx["pdf_url"] = _external_url_for("public_song_label_copy_pdf", token=token)
+        return render_template("public_song_label_copy.html", **ctx)
+
+
 @app.get("/public/song-label-copy/pdf")
 def public_song_label_copy_pdf():
     payload = _parse_public_song_share_token(request.args.get("token"))
@@ -12878,6 +13209,26 @@ def discografica_album_label_copy_pdf(album_id):
         return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
     finally:
         session_db.close()
+
+
+@app.get("/public/album-label-copy")
+def public_album_label_copy_view():
+    token = (request.args.get("token") or "").strip()
+    payload = _parse_public_album_share_token(token)
+    if not payload or (payload.get("kind") or "").upper() != "LABEL_COPY_PDF":
+        abort(404)
+    aid_raw = (payload.get("aid") or "").strip()
+    try:
+        aid = to_uuid(aid_raw)
+    except Exception:
+        abort(404)
+    with get_db() as session_db:
+        album = session_db.get(Album, aid)
+        if not album:
+            abort(404)
+        ctx = _album_label_copy_public_context(session_db, album)
+        ctx["pdf_url"] = _external_url_for("public_album_label_copy_pdf", token=token)
+        return render_template("public_album_label_copy.html", **ctx)
 
 
 @app.get("/public/album-label-copy/pdf")
@@ -13887,6 +14238,7 @@ def discografica_album_detail(album_id):
         album_cert_groups=album_cert_groups,
         country_options=country_options,
         label_copy_public_url=_label_copy_public_url('ALBUM', album.id),
+        label_copy_pdf_public_url=_label_copy_public_pdf_url('ALBUM', album.id),
         album_producer_rows=album_producer_rows,
         album_cert_delivery=album_cert_delivery,
         album_team_recipients=album_cert_delivery.get('team_recipients') or [],
@@ -14200,11 +14552,11 @@ def api_album_song_search(album_id):
             like = f"%{q}%"
             query = query.filter(
                 or_(
-                    Song.title.ilike(like),
-                    Song.collaborator.ilike(like),
-                    Song.isrc.ilike(like),
-                    Song.id.in_(session_db.query(SongISRCCode.song_id).filter(SongISRCCode.code.ilike(like))),
-                    Song.id.in_(session_db.query(SongInterpreter.song_id).filter(SongInterpreter.name.ilike(like))),
+                    _sa_contains_text(Song.title, q),
+                    _sa_contains_text(Song.collaborator, q),
+                    _sa_contains_text(Song.isrc, q),
+                    Song.id.in_(session_db.query(SongISRCCode.song_id).filter(_sa_contains_text(SongISRCCode.code, q))),
+                    Song.id.in_(session_db.query(SongInterpreter.song_id).filter(_sa_contains_text(SongInterpreter.name, q))),
                 )
             )
 
@@ -15382,7 +15734,7 @@ def api_search_ticketers():
         query = session_db.query(Ticketer)
         if q:
             like = f"%{q}%"
-            query = query.filter(Ticketer.name.ilike(like))
+            query = query.filter(_sa_contains_text(Ticketer.name, q))
         items = query.order_by(Ticketer.name.asc()).limit(30).all()
         return jsonify([
             {
@@ -17040,7 +17392,7 @@ def api_search_publishing_companies():
         query = session_db.query(PublishingCompany)
         if q:
             like = f"%{q}%"
-            query = query.filter(PublishingCompany.name.ilike(like))
+            query = query.filter(_sa_contains_text(PublishingCompany.name, q))
         res = query.order_by(PublishingCompany.name.asc()).limit(20).all()
         return jsonify([
             {"id": str(pc.id), "label": pc.name} for pc in res
@@ -18968,9 +19320,10 @@ def _concert_is_soldout_for_sales(concert, sold_total=0, capacity=None):
 
 
 def _sales_pdf_logo_path():
+    logo_url = _treinta_y_tres_logo_url()
+    if logo_url:
+        return logo_url
     candidates = [
-        Path(app.root_path) / "static" / "img" / "logo_33_producciones.png",
-        Path(app.root_path) / "static" / "img" / "logo_33.png",
         Path(app.root_path) / "static" / "img" / "logo.png",
     ]
     for candidate in candidates:
@@ -20186,9 +20539,9 @@ def api_search_venues():
         if q:
             like = f"%{q}%"
             query = query.filter(
-                (Venue.name.ilike(like)) |
-                (Venue.municipality.ilike(like)) |
-                (Venue.province.ilike(like))
+                (_sa_contains_text(Venue.name, q)) |
+                (_sa_contains_text(Venue.municipality, q)) |
+                (_sa_contains_text(Venue.province, q))
             )
 
         venues = query.order_by(Venue.name.asc()).limit(20).all()
@@ -20237,17 +20590,17 @@ def api_search_promoters():
         if q:
             like = f"%{q}%"
             query = query.filter(
-                (Promoter.nick.ilike(like))
-                | (Promoter.first_name.ilike(like))
-                | (Promoter.last_name.ilike(like))
-                | (Promoter.contact_email.ilike(like))
-                | (Promoter.contact_phone.ilike(like))
+                (_sa_contains_text(Promoter.nick, q))
+                | (_sa_contains_text(Promoter.first_name, q))
+                | (_sa_contains_text(Promoter.last_name, q))
+                | (_sa_contains_text(Promoter.contact_email, q))
+                | (_sa_contains_text(Promoter.contact_phone, q))
                 | Promoter.id.in_(
                     session.query(PromoterCompany.promoter_id).filter(
                         or_(
-                            PromoterCompany.legal_name.ilike(like),
-                            PromoterCompany.tax_id.ilike(like),
-                            PromoterCompany.fiscal_address.ilike(like),
+                            _sa_contains_text(PromoterCompany.legal_name, q),
+                            _sa_contains_text(PromoterCompany.tax_id, q),
+                            _sa_contains_text(PromoterCompany.fiscal_address, q),
                         )
                     )
                 )
@@ -21986,7 +22339,8 @@ def _load_password_token(token: str, max_age: int = 60 * 60 * 24 * 7) -> dict | 
 
 
 def _welcome_email_html(user: User, profile: UserProfile | None, token: str) -> str:
-    logo_33 = _external_url_for("static", filename="img/logo_33_producciones.png")
+    logo_33 = _treinta_y_tres_logo_url()
+    logo_33_html = f'<img src="{html.escape(logo_33)}" alt="Treinta y Tres Producciones" style="height:48px;object-fit:contain;">' if logo_33 else ''
     logo_pies = _external_url_for("static", filename="img/logo.png")
     create_url = _external_url_for("password_set", token=token)
     login_url = _external_url_for("admin_login")
@@ -21996,7 +22350,7 @@ def _welcome_email_html(user: User, profile: UserProfile | None, token: str) -> 
     <div style=\"background:#f4f6f8;padding:32px 16px;font-family:Arial,sans-serif;color:#111827;\">
       <div style=\"max-width:640px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e5e7eb;\">
         <div style=\"display:flex;align-items:center;gap:16px;margin-bottom:20px;\">
-          <img src=\"{logo_33}\" alt=\"Treinta y tres\" style=\"height:48px;object-fit:contain;\">
+          {logo_33_html}
           <img src=\"{logo_pies}\" alt=\"PIES\" style=\"height:48px;object-fit:contain;\">
         </div>
         <h1 style=\"margin:0 0 12px 0;font-size:28px;\">¡Bienvenido al Back Office!</h1>
@@ -22015,7 +22369,8 @@ def _welcome_email_html(user: User, profile: UserProfile | None, token: str) -> 
 
 
 def _password_reset_email_html(user: User, profile: UserProfile | None, token: str) -> str:
-    logo_33 = _external_url_for("static", filename="img/logo_33_producciones.png")
+    logo_33 = _treinta_y_tres_logo_url()
+    logo_33_html = f'<img src="{html.escape(logo_33)}" alt="Treinta y Tres Producciones" style="height:44px;object-fit:contain;">' if logo_33 else ''
     logo_pies = _external_url_for("static", filename="img/logo.png")
     backoffice_logo = _external_url_for("static", filename="img/Banner.png")
     reset_url = _external_url_for("password_set", token=token)
@@ -22024,7 +22379,7 @@ def _password_reset_email_html(user: User, profile: UserProfile | None, token: s
     <div style=\"background:#f4f6f8;padding:32px 16px;font-family:Arial,sans-serif;color:#111827;\">
       <div style=\"max-width:640px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e5e7eb;\">
         <div style=\"display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;\">
-          <img src=\"{logo_33}\" alt=\"Treinta y tres\" style=\"height:44px;object-fit:contain;\">
+          {logo_33_html}
           <img src=\"{logo_pies}\" alt=\"PIES\" style=\"height:44px;object-fit:contain;\">
           <img src=\"{backoffice_logo}\" alt=\"Back Office\" style=\"height:36px;object-fit:contain;\">
         </div>
@@ -24397,15 +24752,15 @@ def media_outlets_view():
             query = (
                 query.outerjoin(MediaContact, MediaContact.media_id == MediaOutlet.id)
                 .filter(or_(
-                    MediaOutlet.name.ilike(like),
-                    MediaOutlet.address.ilike(like),
-                    MediaOutlet.media_type.ilike(like),
-                    MediaContact.program.ilike(like),
-                    MediaContact.role.ilike(like),
-                    MediaContact.first_name.ilike(like),
-                    MediaContact.last_name.ilike(like),
-                    MediaContact.phone.ilike(like),
-                    MediaContact.email.ilike(like),
+                    _sa_contains_text(MediaOutlet.name, q),
+                    _sa_contains_text(MediaOutlet.address, q),
+                    _sa_contains_text(MediaOutlet.media_type, q),
+                    _sa_contains_text(MediaContact.program, q),
+                    _sa_contains_text(MediaContact.role, q),
+                    _sa_contains_text(MediaContact.first_name, q),
+                    _sa_contains_text(MediaContact.last_name, q),
+                    _sa_contains_text(MediaContact.phone, q),
+                    _sa_contains_text(MediaContact.email, q),
                 ))
                 .distinct()
             )
@@ -24495,7 +24850,7 @@ def media_outlet_detail_view(media_id):
             history_query = history_query.filter(MediaPromotionRecord.promoted_at <= f_end)
         if f_search:
             like = f"%{f_search}%"
-            history_query = history_query.filter(or_(MediaPromotionRecord.promotion_title.ilike(like), MediaPromotionRecord.program_name.ilike(like), MediaPromotionRecord.performed_song.ilike(like), MediaPromotionRecord.notes.ilike(like)))
+            history_query = history_query.filter(or_(_sa_contains_text(MediaPromotionRecord.promotion_title, f_search), _sa_contains_text(MediaPromotionRecord.program_name, f_search), _sa_contains_text(MediaPromotionRecord.performed_song, f_search), _sa_contains_text(MediaPromotionRecord.notes, f_search)))
         history_rows = history_query.order_by(MediaPromotionRecord.promoted_at.desc(), MediaPromotionRecord.created_at.desc()).all()
         return render_template(
             "media_outlet_detail.html",
@@ -24598,11 +24953,11 @@ def bags_view():
         if f_q:
             like = f"%{f_q}%"
             query = query.filter(or_(
-                WorkflowBag.title.ilike(like),
-                WorkflowBag.description.ilike(like),
-                WorkflowBag.status.ilike(like),
-                Artist.name.ilike(like),
-                GroupCompany.name.ilike(like),
+                _sa_contains_text(WorkflowBag.title, f_q),
+                _sa_contains_text(WorkflowBag.description, f_q),
+                _sa_contains_text(WorkflowBag.status, f_q),
+                _sa_contains_text(Artist.name, f_q),
+                _sa_contains_text(GroupCompany.name, f_q),
             ))
         bags = query.distinct().order_by(WorkflowBag.created_at.desc()).all()
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
@@ -24755,13 +25110,13 @@ def invoices_view():
         if f_q:
             like = f"%{f_q}%"
             query = query.filter(or_(
-                InvoiceRecord.invoice_number.ilike(like),
-                InvoiceRecord.third_party_name.ilike(like),
-                InvoiceRecord.notes.ilike(like),
-                InvoiceRecord.status.ilike(like),
-                Artist.name.ilike(like),
-                GroupCompany.name.ilike(like),
-                WorkflowBag.title.ilike(like),
+                _sa_contains_text(InvoiceRecord.invoice_number, f_q),
+                _sa_contains_text(InvoiceRecord.third_party_name, f_q),
+                _sa_contains_text(InvoiceRecord.notes, f_q),
+                _sa_contains_text(InvoiceRecord.status, f_q),
+                _sa_contains_text(Artist.name, f_q),
+                _sa_contains_text(GroupCompany.name, f_q),
+                _sa_contains_text(WorkflowBag.title, f_q),
             ))
         invoices = query.distinct().order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).all()
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()

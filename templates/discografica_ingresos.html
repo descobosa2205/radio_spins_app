@@ -554,7 +554,7 @@
       });
     }
 
-    const normalize = (v) => (v || '').toString().toLowerCase().trim();
+    const normalize = (v) => (window.normalizeSearchText ? window.normalizeSearchText(v) : (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim());
     let selectedArtist = 'all';
     const searchInput = document.getElementById('incomeSearchInput');
     const onlyEmpty = document.getElementById('incomeNoRevenueOnly');

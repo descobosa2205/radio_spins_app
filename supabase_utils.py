@@ -1,5 +1,6 @@
 # supabase_utils.py
 from pathlib import Path
+import mimetypes
 from uuid import uuid4
 from supabase import create_client, Client
 
@@ -39,6 +40,47 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
         raise RuntimeError(msg)
 
     return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
+
+
+
+def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
+    """Sube usando el stream del archivo cuando la versión de supabase-py lo permite."""
+    client = supabase_client()
+    resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
+        path=key,
+        file=file_obj,
+        file_options={
+            "content-type": content_type,
+            "cache-control": "3600",
+            "upsert": "false",
+        },
+    )
+    if isinstance(resp, dict) and resp.get("error"):
+        msg = resp["error"].get("message", "Error subiendo a Storage")
+        raise RuntimeError(msg)
+    return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
+
+
+def _rewind_file_storage(file_storage) -> None:
+    try:
+        file_storage.stream.seek(0)
+    except Exception:
+        try:
+            file_storage.seek(0)
+        except Exception:
+            pass
+
+
+def _content_type_for_upload(file_storage, suffix: str) -> str:
+    mt = (getattr(file_storage, "mimetype", "") or "").strip()
+    if mt and mt != "application/octet-stream":
+        return mt
+    guessed = mimetypes.types_map.get((suffix or "").lower()) or mimetypes.guess_type("archivo" + (suffix or ""))[0]
+    if guessed:
+        return guessed
+    if (suffix or "").lower() in {".wav", ".wave"}:
+        return "audio/wav"
+    return "application/octet-stream"
 
 
 def upload_png(file_storage, folder: str) -> str | None:
@@ -120,10 +162,15 @@ def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None =
             raise ValueError("Formato de archivo no permitido.")
 
     key = f"{folder}/{uuid4().hex}{suffix}"
-    data = file_storage.read()
-    file_storage.stream.seek(0)
-    content_type = (getattr(file_storage, "mimetype", "") or "").strip() or "application/octet-stream"
-    return _upload_bytes(data, key, content_type)
+    content_type = _content_type_for_upload(file_storage, suffix)
+    _rewind_file_storage(file_storage)
+    try:
+        return _upload_fileobj(file_storage.stream, key, content_type)
+    except Exception:
+        _rewind_file_storage(file_storage)
+        data = file_storage.read()
+        _rewind_file_storage(file_storage)
+        return _upload_bytes(data, key, content_type)
 
 
 def upload_pdf(file_storage, folder: str) -> str | None:

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Letra · {{ song.title }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+  <style>
+    body{margin:0;background:#f5f7fb;color:#111827;font-family:Arial,Helvetica,sans-serif;}
+    .page{max-width:860px;margin:32px auto;padding:0 16px;}
+    .sheet{background:#fff;border:1px solid #e5e7eb;border-radius:22px;box-shadow:0 18px 42px rgba(15,23,42,.08);padding:34px;}
+    .brand{height:42px;object-fit:contain;margin-bottom:18px;}
+    h1{font-size:26px;line-height:1.15;margin:0 0 20px;color:#1f2937;}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin-bottom:24px;}
+    .meta-label{font-weight:700;font-size:13px;margin-bottom:4px;}
+    .meta-value{font-size:14px;color:#374151;}
+    .lyrics{font-size:15px;line-height:1.65;white-space:pre-line;text-align:justify;}
+    .actions{display:flex;justify-content:flex-end;margin-bottom:14px;}
+    .btn{display:inline-block;padding:11px 15px;border-radius:12px;text-decoration:none;font-weight:700;background:#111827;color:#fff;}
+    @media(max-width:640px){.sheet{padding:24px}.meta{grid-template-columns:1fr}.actions{justify-content:stretch}.btn{text-align:center;width:100%;}}
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="actions"><a class="btn" href="{{ pdf_url }}">Descargar en PDF</a></div>
+    <article class="sheet">
+      <img class="brand" src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES">
+      <h1>Letra: {{ song.title }}</h1>
+      <section class="meta">
+        {% if meta.combined %}
+          <div><div class="meta-label">Autores y compositores</div><div class="meta-value">{{ meta.authors|join(', ') or '—' }}</div></div>
+        {% else %}
+          <div><div class="meta-label">Autores</div><div class="meta-value">{{ meta.authors|join(', ') or '—' }}</div></div>
+          <div><div class="meta-label">Compositores</div><div class="meta-value">{{ meta.composers|join(', ') or '—' }}</div></div>
+        {% endif %}
+        <div><div class="meta-label">Intérpretes</div><div class="meta-value">{{ meta.interpreters|join(', ') or '—' }}</div></div>
+      </section>
+      <section class="lyrics">{{ song.lyrics_text }}</section>
+    </article>
+  </main>
+</body>
+</html>

@@ -471,6 +471,8 @@ class RadioStation(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False, unique=True)
     logo_url = Column(Text)
+    country_code = Column(Text, nullable=False, server_default=text("'ES'"))
+    country_name = Column(Text, nullable=False, server_default=text("'España'"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -1718,6 +1720,8 @@ class MediaOutlet(Base):
     media_type = Column(Text, nullable=False)
     name = Column(Text, nullable=False)
     logo_url = Column(Text)
+    country_code = Column(Text, nullable=False, server_default=text("'ES'"))
+    country_name = Column(Text, nullable=False, server_default=text("'España'"))
     address = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1801,6 +1805,14 @@ class PromotionRequest(Base):
     subject_date = Column(Date)
     objectives_notes = Column(Text)
     budget_notes = Column(Text)
+    request_kind = Column(Text, nullable=False, server_default=text("'PLAN'"))
+    action_types = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    budget_mode = Column(Text, nullable=False, server_default=text("'REQUEST_BUDGET'"))
+    budget_max = Column(Numeric)
+    budget_by_action = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    starts_on = Column(Date)
+    ends_on = Column(Date)
+    deadline_notes = Column(Text)
     status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
     requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     requested_by_email = Column(Text)
@@ -1863,6 +1875,14 @@ class Promotion(Base):
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     objectives_notes = Column(Text)
     budget_notes = Column(Text)
+    request_kind = Column(Text, nullable=False, server_default=text("'PLAN'"))
+    action_types = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    budget_mode = Column(Text, nullable=False, server_default=text("'REQUEST_BUDGET'"))
+    budget_max = Column(Numeric)
+    budget_by_action = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    starts_on = Column(Date)
+    ends_on = Column(Date)
+    deadline_notes = Column(Text)
     target_date = Column(Date)
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -1893,12 +1913,37 @@ class PromotionActivity(Base):
     time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
     show_as_tbc = Column(Boolean, nullable=False, server_default=text("false"))
     activity_kind = Column(Text, nullable=False)
+    action_type = Column(Text)
     subtype = Column(Text)
+    exterior_subtype = Column(Text)
     media_type = Column(Text)
     media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"))
     media_contact_id = Column(PGUUID(as_uuid=True), ForeignKey("media_contacts.id", ondelete="SET NULL"))
+    media_target_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     details_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     task_description = Column(Text)
+    execution_mode = Column(Text, nullable=False, server_default=text("'PERIODO'"))
+    waves_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    provider_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    provider_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
+    provider_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    budget_group_key = Column(Text)
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_tax = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    allocation_mode = Column(Text, nullable=False, server_default=text("'SOURCE'"))
+    allocation_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    document_type = Column(Text, nullable=False, server_default=text("'FACTURA'"))
+    invoice_number = Column(Text)
+    issue_date = Column(Date)
+    attachment_url = Column(Text)
+    attachment_name = Column(Text)
+    attachment_mime = Column(Text)
+    consolidation_status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    no_invoice_reason = Column(Text)
+    immediate_payment_requested = Column(Boolean, nullable=False, server_default=text("false"))
+    immediate_payment_requested_at = Column(DateTime(timezone=True))
+    bag_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
     artist_performed = Column(Boolean, nullable=False, server_default=text("false"))
     performed_song_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     has_fee = Column(Boolean, nullable=False, server_default=text("false"))
@@ -1913,11 +1958,16 @@ class PromotionActivity(Base):
     promotion = relationship("Promotion")
     media = relationship("MediaOutlet")
     media_contact = relationship("MediaContact")
+    provider = relationship("Promoter")
+    provider_company = relationship("PromoterCompany")
+    bag_expense = relationship("BagExpense", foreign_keys=[bag_expense_id])
 
     __table_args__ = (
         Index("idx_promotion_activities_promotion_date", "promotion_id", "activity_date"),
         Index("idx_promotion_activities_kind", "activity_kind", "activity_date"),
+        Index("idx_promotion_activities_action_type", "action_type", "activity_date"),
         Index("idx_promotion_activities_media", "media_id", "activity_date"),
+        Index("idx_promotion_activities_bag_expense", "bag_expense_id"),
     )
 
 
@@ -3756,6 +3806,101 @@ def ensure_bag_expense_schema():
         'CREATE INDEX IF NOT EXISTS idx_bag_payment_interactions_kind ON bag_payment_interactions(kind, created_at);',
     ]
     _exec_ddl_statements(stmts, "bag_expenses")
+
+
+def ensure_marketing_country_schema():
+    """Asegura países de emisoras/medios y campos extendidos de Marketing."""
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        ALTER TABLE IF EXISTS radio_stations
+            ADD COLUMN IF NOT EXISTS country_code text NOT NULL DEFAULT 'ES',
+            ADD COLUMN IF NOT EXISTS country_name text NOT NULL DEFAULT 'España';
+        """,
+        """
+        UPDATE radio_stations
+           SET country_code = COALESCE(NULLIF(country_code, ''), 'ES'),
+               country_name = COALESCE(NULLIF(country_name, ''), 'España')
+         WHERE country_code IS NULL OR country_code = '' OR country_name IS NULL OR country_name = '';
+        """,
+        """
+        ALTER TABLE IF EXISTS media_outlets
+            ADD COLUMN IF NOT EXISTS country_code text NOT NULL DEFAULT 'ES',
+            ADD COLUMN IF NOT EXISTS country_name text NOT NULL DEFAULT 'España';
+        """,
+        """
+        UPDATE media_outlets
+           SET country_code = COALESCE(NULLIF(country_code, ''), 'ES'),
+               country_name = COALESCE(NULLIF(country_name, ''), 'España')
+         WHERE country_code IS NULL OR country_code = '' OR country_name IS NULL OR country_name = '';
+        """,
+        """
+        ALTER TABLE IF EXISTS promotion_requests
+            ADD COLUMN IF NOT EXISTS request_kind text NOT NULL DEFAULT 'PLAN',
+            ADD COLUMN IF NOT EXISTS action_types jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS budget_mode text NOT NULL DEFAULT 'REQUEST_BUDGET',
+            ADD COLUMN IF NOT EXISTS budget_max numeric,
+            ADD COLUMN IF NOT EXISTS budget_by_action jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS starts_on date,
+            ADD COLUMN IF NOT EXISTS ends_on date,
+            ADD COLUMN IF NOT EXISTS deadline_notes text;
+        """,
+        """
+        ALTER TABLE IF EXISTS promotions
+            ADD COLUMN IF NOT EXISTS request_kind text NOT NULL DEFAULT 'PLAN',
+            ADD COLUMN IF NOT EXISTS action_types jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS budget_mode text NOT NULL DEFAULT 'REQUEST_BUDGET',
+            ADD COLUMN IF NOT EXISTS budget_max numeric,
+            ADD COLUMN IF NOT EXISTS budget_by_action jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS starts_on date,
+            ADD COLUMN IF NOT EXISTS ends_on date,
+            ADD COLUMN IF NOT EXISTS deadline_notes text;
+        """,
+        """
+        ALTER TABLE IF EXISTS promotion_activities
+            ADD COLUMN IF NOT EXISTS action_type text,
+            ADD COLUMN IF NOT EXISTS exterior_subtype text,
+            ADD COLUMN IF NOT EXISTS media_target_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS execution_mode text NOT NULL DEFAULT 'PERIODO',
+            ADD COLUMN IF NOT EXISTS waves_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS provider_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS provider_company_id uuid REFERENCES promoter_companies(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS budget_group_key text,
+            ADD COLUMN IF NOT EXISTS amount_net numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS amount_tax numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS amount_gross numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS allocation_mode text NOT NULL DEFAULT 'SOURCE',
+            ADD COLUMN IF NOT EXISTS allocation_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS document_type text NOT NULL DEFAULT 'FACTURA',
+            ADD COLUMN IF NOT EXISTS invoice_number text,
+            ADD COLUMN IF NOT EXISTS issue_date date,
+            ADD COLUMN IF NOT EXISTS attachment_url text,
+            ADD COLUMN IF NOT EXISTS attachment_name text,
+            ADD COLUMN IF NOT EXISTS attachment_mime text,
+            ADD COLUMN IF NOT EXISTS consolidation_status text NOT NULL DEFAULT 'PENDIENTE',
+            ADD COLUMN IF NOT EXISTS no_invoice_reason text,
+            ADD COLUMN IF NOT EXISTS immediate_payment_requested boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS immediate_payment_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS bag_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_action_type ON promotion_activities(action_type, activity_date);',
+        'CREATE INDEX IF NOT EXISTS idx_promotion_activities_bag_expense ON promotion_activities(bag_expense_id);',
+        """
+        UPDATE promotion_requests
+           SET request_kind = COALESCE(NULLIF(request_kind, ''), 'PLAN'),
+               budget_mode = COALESCE(NULLIF(budget_mode, ''), 'REQUEST_BUDGET')
+         WHERE request_kind IS NULL OR request_kind = '' OR budget_mode IS NULL OR budget_mode = '';
+        """,
+        """
+        UPDATE promotions
+           SET request_kind = COALESCE(NULLIF(request_kind, ''), 'PLAN'),
+               budget_mode = COALESCE(NULLIF(budget_mode, ''), 'REQUEST_BUDGET')
+         WHERE request_kind IS NULL OR request_kind = '' OR budget_mode IS NULL OR budget_mode = '';
+        """,
+    ]
+    _exec_ddl_statements(stmts, "marketing_country")
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

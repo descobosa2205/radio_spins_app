@@ -19,37 +19,34 @@ function enableFormEdit(btn){
 function initSelect2(){
   // Select2: soporta selects en página y dentro de modales Bootstrap.
   // Si no configuramos dropdownParent en modales, el desplegable puede quedar detrás (z-index).
-  $('.select-artists, .select-with-thumbs').each(function(){
+  $('.select-artists, .select-with-thumbs, .select-country').each(function(){
     const $el = $(this);
-    // Evitar doble inicialización
     if ($el.hasClass('select2-hidden-accessible')) return;
 
     const $modal = $el.closest('.modal');
-
     const isSquare = $el.hasClass('select-with-thumbs') && !$el.hasClass('select-artists');
+    const isCountry = $el.hasClass('select-country');
 
-    const opts = {
+    function optionMarkup(data){
+      if (!data.id) return data.text;
+      if (isCountry) {
+        const flag = $(data.element).data('flag') || '';
+        return $(`<span><span class="select2-country-flag">${flag}</span>${data.text}</span>`);
+      }
+      const photo = $(data.element).data('photo');
+      const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
+      const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
+      const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;
+      return $(`<span>${img}${data.text}</span>`);
+    }
+
+    $el.select2({
       width: '100%',
       ...( $modal.length ? { dropdownParent: $modal } : {} ),
-      templateResult: function (data) {
-        if (!data.id) return data.text;
-        const photo = $(data.element).data('photo');
-        const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
-        const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
-        const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;
-        return $(`<span>${img}${data.text}</span>`);
-      },
-      templateSelection: function (data) {
-        const photo = $(data.element).data('photo');
-        const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
-        const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
-        const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;
-        return $(`<span>${img}${data.text}</span>`);
-      },
+      templateResult: optionMarkup,
+      templateSelection: optionMarkup,
       escapeMarkup: function (m) { return m; }
-    };
-
-    $el.select2(opts);
+    });
   });
 }
 

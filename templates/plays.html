@@ -91,7 +91,10 @@
                         <tr>
                           <td>
                             <a href="{{ url_for('station_summary', station_id=st.id, week=week_start.isoformat()) }}" title="Ver resumen de {{ st.name }}">
-                              <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                              <span class="logo-country-wrap">
+                                <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                                {% if (st.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ st.country_name or country_name_es(st.country_code) }}">{{ country_flag_emoji(st.country_code) }}</span>{% endif %}
+                              </span>
                             </a>
                           </td>
                           <td>

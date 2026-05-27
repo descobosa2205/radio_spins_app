@@ -3,7 +3,10 @@
 
 <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <div class="d-flex align-items-center">
-    <img src="{{ station.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo me-2" alt="">
+    <span class="logo-country-wrap me-2">
+      <img src="{{ station.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+      {% if (station.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ station.country_name or country_name_es(station.country_code) }}">{{ country_flag_emoji(station.country_code) }}</span>{% endif %}
+    </span>
     <h5 class="m-0">Resumen — {{ station.name }}</h5>
   </div>
 

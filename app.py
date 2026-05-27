@@ -169,6 +169,96 @@ app.secret_key = settings.SECRET_KEY
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
 app.config["MAX_FORM_MEMORY_SIZE"] = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(1024 * 1024 * 1024)))
 
+
+# Países en español para emisoras/medios. Usa la traducción ISO incluida en pycountry
+# si está disponible y conserva un fallback estable para despliegues sin locales.
+_COUNTRY_OPTIONS_CACHE = None
+_COUNTRY_NAME_CACHE = {}
+_COUNTRY_FALLBACK_ES = {
+    "ES": "España", "US": "Estados Unidos", "GB": "Reino Unido", "FR": "Francia", "IT": "Italia",
+    "PT": "Portugal", "DE": "Alemania", "MX": "México", "AR": "Argentina", "CO": "Colombia",
+    "CL": "Chile", "PE": "Perú", "VE": "Venezuela", "UY": "Uruguay", "PY": "Paraguay",
+    "BO": "Bolivia", "EC": "Ecuador", "BR": "Brasil", "CA": "Canadá", "AU": "Australia",
+}
+
+def _country_flag_emoji(code: str | None) -> str:
+    code = (code or "ES").strip().upper()[:2]
+    if len(code) != 2 or not code.isalpha():
+        code = "ES"
+    return "".join(chr(127397 + ord(ch)) for ch in code)
+
+def _country_name_es(code: str | None, fallback: str | None = None) -> str:
+    code = (code or "ES").strip().upper()[:2]
+    if code in _COUNTRY_NAME_CACHE:
+        return _COUNTRY_NAME_CACHE[code]
+    name = _COUNTRY_FALLBACK_ES.get(code) or fallback or code or "España"
+    if PYCOUNTRY_AVAILABLE and pycountry:
+        try:
+            country = pycountry.countries.get(alpha_2=code)
+            if country:
+                try:
+                    import gettext as _gettext
+                    trans = _gettext.translation("iso3166-1", pycountry.LOCALES_DIR, languages=["es"], fallback=True)
+                    translated = trans.gettext(country.name)
+                    if translated and translated != country.name:
+                        name = translated
+                    elif getattr(country, "official_name", None):
+                        translated_official = trans.gettext(country.official_name)
+                        name = translated_official or name
+                    else:
+                        name = country.name
+                except Exception:
+                    name = getattr(country, "name", None) or name
+        except Exception:
+            pass
+    if code == "ES":
+        name = "España"
+    _COUNTRY_NAME_CACHE[code] = name
+    return name
+
+def country_options_es() -> list[dict]:
+    global _COUNTRY_OPTIONS_CACHE
+    if _COUNTRY_OPTIONS_CACHE is not None:
+        return _COUNTRY_OPTIONS_CACHE
+    rows = []
+    if PYCOUNTRY_AVAILABLE and pycountry:
+        try:
+            for country in pycountry.countries:
+                code = getattr(country, "alpha_2", "")
+                if not code:
+                    continue
+                rows.append({"code": code, "name": _country_name_es(code), "flag": _country_flag_emoji(code)})
+        except Exception:
+            rows = []
+    if not rows:
+        rows = [{"code": code, "name": name, "flag": _country_flag_emoji(code)} for code, name in _COUNTRY_FALLBACK_ES.items()]
+    rows.sort(key=lambda item: unicodedata.normalize("NFD", item["name"]).encode("ascii", "ignore").decode("ascii").casefold())
+    # España primero por ser el valor por defecto y no mostrar bandera en logos.
+    rows = [r for r in rows if r["code"] == "ES"] + [r for r in rows if r["code"] != "ES"]
+    _COUNTRY_OPTIONS_CACHE = rows
+    return rows
+
+def _country_payload_from_form(form) -> tuple[str, str]:
+    code = (form.get("country_code") or "ES").strip().upper()[:2] or "ES"
+    valid_codes = {item["code"] for item in country_options_es()}
+    if code not in valid_codes:
+        code = "ES"
+    return code, _country_name_es(code)
+
+
+
+@app.context_processor
+def inject_country_helpers():
+    return {
+        "country_options_es": country_options_es,
+        "country_flag_emoji": _country_flag_emoji,
+        "country_name_es": _country_name_es,
+        "marketing_action_types": globals().get("MARKETING_ACTION_TYPES", []),
+        "marketing_action_type_labels": globals().get("MARKETING_ACTION_TYPE_LABELS", {}),
+        "marketing_exterior_subtypes": globals().get("MARKETING_EXTERIOR_SUBTYPES", []),
+        "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
+    }
+
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
 # IMPORTANTE: esto debe ser "best-effort" para no romper el arranque si la BBDD
 # está ocupada (locks) o tiene `statement_timeout` bajo.
@@ -895,6 +985,7 @@ def artist_detail_view(artist_id):
             "discografica",
             "agenda",
             "promocion",
+            "marketing",
             "liquidaciones",
         }
         if tab not in allowed_tabs:
@@ -1002,7 +1093,7 @@ def artist_detail_view(artist_id):
         promotion_requests_display = []
         promotion_entries_display = []
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ARTIST", artist.id)
-        if tab == "promocion":
+        if tab in {"promocion", "marketing"}:
             promotion_request_rows, promotion_rows = _promotion_rows_for_artist(session_db, artist.id)
             promotion_requests_display = [_promotion_display_request(row) for row in promotion_request_rows]
             promotion_entries_display = [_promotion_display_promotion(row) for row in promotion_rows]
@@ -2488,7 +2579,8 @@ def stations_view():
         logo = request.files.get("logo")
         try:
             logo_url = upload_png(logo, "stations") if logo else None
-            st = RadioStation(name=name, logo_url=logo_url)
+            country_code, country_name = _country_payload_from_form(request.form)
+            st = RadioStation(name=name, logo_url=logo_url, country_code=country_code, country_name=country_name)
             session_db.add(st)
             session_db.commit()
             flash("Emisora creada.", "success")
@@ -2500,7 +2592,7 @@ def stations_view():
         return redirect(url_for("stations_view"))
     stations = session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
     session_db.close()
-    return render_template("stations.html", stations=stations)
+    return render_template("stations.html", stations=stations, country_options=country_options_es())
 
 @app.post("/emisoras/<station_id>/update")
 @admin_required
@@ -2512,6 +2604,7 @@ def station_update(station_id):
         session_db.close()
         return redirect(url_for("stations_view"))
     st.name = request.form.get("name", st.name).strip()
+    st.country_code, st.country_name = _country_payload_from_form(request.form)
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
@@ -10986,6 +11079,7 @@ def discografica_song_detail(song_id):
         "ingresos",
         "gastos",
         "promocion",
+        "marketing",
         "radio",
     }
     if tab not in allowed_tabs:
@@ -11283,11 +11377,13 @@ def discografica_song_detail(song_id):
                 RadioStation.id,
                 RadioStation.name,
                 RadioStation.logo_url,
+                RadioStation.country_code,
+                RadioStation.country_name,
                 func.coalesce(func.sum(Play.spins), 0).label("total_spins"),
             )
             .join(Play, Play.station_id == RadioStation.id)
             .filter(Play.song_id == s.id)
-            .group_by(RadioStation.id, RadioStation.name, RadioStation.logo_url)
+            .group_by(RadioStation.id, RadioStation.name, RadioStation.logo_url, RadioStation.country_code, RadioStation.country_name)
             .order_by(text("total_spins DESC"), RadioStation.name.asc())
             .all()
         )
@@ -11297,9 +11393,11 @@ def discografica_song_detail(song_id):
                 "station_id": str(station_id),
                 "name": name,
                 "logo_url": logo_url,
+                "country_code": country_code or "ES",
+                "country_name": country_name or "España",
                 "total_spins": int(total_spins or 0),
             }
-            for station_id, name, logo_url, total_spins in rows
+            for station_id, name, logo_url, country_code, country_name, total_spins in rows
         ]
 
     # Editorial (solo si se pide esa pestaña)
@@ -11342,7 +11440,7 @@ def discografica_song_detail(song_id):
     promotion_requests_display = []
     promotion_entries_display = []
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "SONG", s.id)
-    if tab == "promocion":
+    if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "SONG", s.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "SONG", s.id)]
 
@@ -14004,7 +14102,7 @@ def discografica_album_create():
 @admin_required
 def discografica_album_detail(album_id):
     tab = (request.args.get("tab") or "informacion").lower().strip()
-    if tab not in {"informacion", "canciones", "materiales", "beneficiarios", "promocion"}:
+    if tab not in {"informacion", "canciones", "materiales", "beneficiarios", "promocion", "marketing"}:
         tab = "informacion"
 
     edit = bool((request.args.get("edit") or "").strip())
@@ -14209,7 +14307,7 @@ def discografica_album_detail(album_id):
     promotion_requests_display = []
     promotion_entries_display = []
     promotion_source_snapshot = _promotion_request_snapshot_from_source(session_db, "ALBUM", album.id)
-    if tab == "promocion":
+    if tab in {"promocion", "marketing"}:
         promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session_db, "ALBUM", album.id)]
         promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session_db, "ALBUM", album.id)]
 
@@ -16574,7 +16672,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ficha", "carteleria", "promocion"}:
+        if tab not in {"general", "invitations", "ficha", "carteleria", "promocion", "marketing"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -16609,7 +16707,7 @@ def concert_detail_view(cid):
         promotion_requests_display = []
         promotion_entries_display = []
         promotion_source_snapshot = _promotion_request_snapshot_from_source(session, "CONCERT", c.id)
-        if tab == "promocion":
+        if tab in {"promocion", "marketing"}:
             promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session, "CONCERT", c.id)]
             promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session, "CONCERT", c.id)]
 
@@ -22128,10 +22226,12 @@ from models import (
     InvoiceRecord,
     ensure_personnel_and_operations_schema,
     ensure_bag_expense_schema,
+    ensure_marketing_country_schema,
 )
 
 _safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
 _safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
+_safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
 
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
@@ -22239,7 +22339,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "artists.conciertos", "label": "Conciertos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 43},
     {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 44},
     {"key": "artists.agenda", "label": "Agenda", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 45},
-    {"key": "artists.promocion", "label": "Promoción", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 46},
+    {"key": "artists.promocion", "label": "Marketing", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 46},
     {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 47},
 
     {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 50},
@@ -22262,7 +22362,8 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "quadrantes", "label": "Cuadrantes", "section_key": "quadrantes", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 80},
 
-    {"key": "promocion", "label": "Promoción", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
+    {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
+    {"key": "marketing", "label": "Marketing", "section_key": "marketing", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 91},
     {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100},
     {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 110},
     {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 111},
@@ -22304,6 +22405,7 @@ AUTO_SEGMENT_PARENT = {
     "facturas": "databases.invoices",
     "personal": "personal",
     "promocion": "promocion",
+    "marketing": "promocion",
     "produccion": "produccion",
     "administracion": "administracion",
     "contabilidad": "contabilidad",
@@ -22346,8 +22448,9 @@ def _normalize_departments(values) -> list[str]:
         "registros": "Registros",
         "produccion": "Producción",
         "producción": "Producción",
-        "promocion": "Promoción",
-        "promoción": "Promoción",
+        "promocion": "Marketing",
+        "promoción": "Marketing",
+        "marketing": "Marketing",
         "direccion": "Dirección",
         "dirección": "Dirección",
         "contratacion": "Contratación",
@@ -22788,6 +22891,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/facturas", "databases.invoices"),
         ("/personal", "personal"),
         ("/promocion", "promocion"),
+        ("/marketing", "promocion"),
         ("/produccion", "produccion"),
         ("/administracion", "administracion"),
         ("/contabilidad", "contabilidad"),
@@ -22819,8 +22923,8 @@ def _resolve_request_resource_key() -> str | None:
         return "artists"
     if endpoint == "artist_detail_view":
         tab = (request.args.get("tab") or "datos").strip().lower()
-        if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "liquidaciones"}:
-            return f"artists.{tab}"
+        if tab in {"datos", "contratos", "conciertos", "discografica", "agenda", "promocion", "marketing", "liquidaciones"}:
+            return "artists.promocion" if tab == "marketing" else f"artists.{tab}"
         return "artists"
     if endpoint == "discografica_view":
         section = (request.args.get("section") or "canciones").strip().lower()
@@ -22841,6 +22945,7 @@ def _resolve_request_resource_key() -> str | None:
             "ingresos": "discografica.ingresos",
             "radio": "radio.reportes",
             "promocion": "promocion",
+            "marketing": "promocion",
             "gastos": "contabilidad",
         }
         return mapping.get(tab, "discografica.canciones")
@@ -22852,6 +22957,7 @@ def _resolve_request_resource_key() -> str | None:
             "materiales": "discografica.canciones",
             "beneficiarios": "discografica.royalties",
             "promocion": "promocion",
+            "marketing": "promocion",
         }
         return mapping.get(tab, "discografica.canciones")
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
@@ -22871,12 +22977,12 @@ def _resolve_request_resource_key() -> str | None:
         return "concerts"
     if endpoint == "concert_detail_view":
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab == "promocion":
+        if tab in {"promocion", "marketing"}:
             return "promocion"
         return "concerts"
     if endpoint == "quadrantes_view":
         return "quadrantes"
-    if endpoint in {"promocion_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
+    if endpoint in {"promocion_view", "marketing_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos"}:
@@ -22884,6 +22990,7 @@ def _resolve_request_resource_key() -> str | None:
             return "administracion"
         mapping = {
             "promocion_view": "promocion",
+            "marketing_view": "promocion",
             "produccion_view": "produccion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
@@ -23032,7 +23139,10 @@ def can_edit_discografica() -> bool:
 
 
 def can_edit_promocion() -> bool:
-    return has_access_key("promocion", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10)
+    return (has_access_key("promocion", edit=True, include_descendants=True) or has_access_key("marketing", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10))
+
+def can_edit_marketing() -> bool:
+    return can_edit_promocion()
 
 
 def can_edit_artists_stations() -> bool:
@@ -23099,7 +23209,8 @@ def _resource_default_url(key: str) -> str:
         "concerts.facturacion": url_for("concerts_view", tab="facturacion"),
         "concerts.alta": url_for("concerts_view", tab="alta"),
         "quadrantes": url_for("quadrantes_view"),
-        "promocion": url_for("promocion_view"),
+        "promocion": url_for("marketing_view"),
+        "marketing": url_for("marketing_view"),
         "produccion": url_for("produccion_view"),
         "administracion": url_for("administracion_view", tab="pendiente"),
         "administracion.pendiente": url_for("administracion_view", tab="pendiente"),
@@ -23132,6 +23243,7 @@ def _resource_icon(key: str) -> str:
         ("third_parties", "fa-handshake"),
         ("concerts", "fa-music"),
         ("quadrantes", "fa-table"),
+        ("marketing", "fa-bullhorn"),
         ("promocion", "fa-bullhorn"),
         ("produccion", "fa-sliders"),
         ("administracion", "fa-briefcase"),
@@ -23164,7 +23276,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "link", "key": "concerts", "label": "Conciertos", "url": _resource_default_url("concerts")},
         {"type": "link", "key": "quadrantes", "label": "Cuadrantes", "url": _resource_default_url("quadrantes")},
-        {"type": "link", "key": "promocion", "label": "Promoción", "url": _resource_default_url("promocion")},
+        {"type": "link", "key": "promocion", "label": "Marketing", "url": _resource_default_url("promocion")},
         {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
@@ -23257,7 +23369,7 @@ def _build_home_sections() -> list[dict]:
     sections = [
         ("discografica", "Discográfica", _resource_default_url("discografica"), "fa-compact-disc"),
         ("concerts", "Conciertos", _resource_default_url("concerts"), "fa-music"),
-        ("promocion", "Promoción", _resource_default_url("promocion"), "fa-bullhorn"),
+        ("promocion", "Marketing", _resource_default_url("promocion"), "fa-bullhorn"),
         ("contabilidad", "Contabilidad", _resource_default_url("contabilidad"), "fa-file-invoice-dollar"),
         ("databases", "Bases de datos", _resource_default_url("databases.venues"), "fa-database"),
         ("personal", "Personal", _resource_default_url("personal"), "fa-users-cog"),
@@ -23331,7 +23443,7 @@ def inject_personnel_globals():
         "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
-        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "administracion_view", "contabilidad_view", "produccion_view", "personnel_view"} and session.get("user_id") else {},
+        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "personnel_view"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
     }
 
@@ -23555,6 +23667,7 @@ PROMOTION_STATUS_LABELS = {
 }
 PROMOTION_ACTIVITY_KIND_LABELS = {
     "PROMOCION": "Promoción",
+    "MARKETING": "Marketing",
     "LOGISTICA": "Logística",
     "ALOJAMIENTO": "Alojamiento",
 }
@@ -23565,6 +23678,105 @@ PROMOTION_TRANSPORT_TYPES = [
     ("LOCAL_TRANSFER", "Transfer local"),
 ]
 PROMOTION_COVERED_COST_OPTIONS = ["Hotel", "Traslados", "Transfers", "Músicos"]
+
+
+MARKETING_ACTION_TYPES = [
+    ("RADIO", "Campaña de Radio", "fa-broadcast-tower"),
+    ("TV", "Campaña TV", "fa-tv"),
+    ("DIGITAL", "Campaña Digital", "fa-hashtag"),
+    ("EXTERIOR", "Publicidad exterior", "fa-city"),
+    ("PRENSA", "Inserciones en prensa", "fa-newspaper"),
+    ("INFLUENCERS", "Acción influencers", "fa-users-viewfinder"),
+    ("MERCHANDISING", "Merchandising", "fa-shirt"),
+    ("PLATAFORMAS", "Campaña plataformas", "fa-music"),
+    ("PRESENTACION", "Presentación", "fa-champagne-glasses"),
+    ("OTRA", "Otra", "fa-asterisk"),
+]
+MARKETING_ACTION_TYPE_LABELS = {key: label for key, label, _icon in MARKETING_ACTION_TYPES}
+MARKETING_ACTION_TYPE_ICONS = {key: icon for key, _label, icon in MARKETING_ACTION_TYPES}
+MARKETING_EXTERIOR_SUBTYPES = [
+    ("CARTELES", "Pegada de carteles", "fa-map-pin"),
+    ("VALLA", "Valla publicitaria", "fa-panorama"),
+    ("AUTOBUSES", "Autobuses", "fa-bus"),
+    ("MUPIS", "Mupis", "fa-sign-hanging"),
+    ("METRO", "Pantallas gran formato Metro", "fa-train-subway"),
+    ("PANTALLAS_EXTERIOR", "Pantallas gran formato exterior", "fa-display"),
+]
+MARKETING_DIGITAL_PLATFORMS = ["Instagram", "TikTok", "Facebook", "YouTube", "Otra"]
+
+def _marketing_action_label(value: str | None) -> str:
+    key = (value or "OTRA").strip().upper() or "OTRA"
+    return MARKETING_ACTION_TYPE_LABELS.get(key, key.title())
+
+def _marketing_action_icon(value: str | None) -> str:
+    key = (value or "OTRA").strip().upper() or "OTRA"
+    return MARKETING_ACTION_TYPE_ICONS.get(key, "fa-bullhorn")
+
+def _marketing_action_types_from_form(form, *, single: bool = False) -> list[str]:
+    values = []
+    seen = set()
+    for raw in form.getlist("action_types") or []:
+        key = (raw or "").strip().upper()
+        if key not in MARKETING_ACTION_TYPE_LABELS or key in seen:
+            continue
+        seen.add(key)
+        values.append(key)
+        if single:
+            break
+    return values
+
+def _marketing_budget_label(mode, amount, notes=None) -> str:
+    mode = (mode or "REQUEST_BUDGET").strip().upper()
+    if mode == "REQUEST_BUDGET":
+        return "Pedir presupuesto" + ((f" · {notes}" if notes else ""))
+    try:
+        if amount is not None:
+            return f"Máx. {float(amount):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        pass
+    return (notes or "Sin presupuesto indicado")
+
+def _marketing_period_label(starts_on, ends_on, notes=None) -> str:
+    pieces = []
+    if starts_on:
+        pieces.append(starts_on.strftime("%d/%m/%Y"))
+    if ends_on:
+        pieces.append(ends_on.strftime("%d/%m/%Y"))
+    label = " - ".join(pieces) if pieces else "Sin plazo cerrado"
+    if notes:
+        label = f"{label} · {notes}"
+    return label
+
+def _marketing_action_status(row) -> dict:
+    today = today_local()
+    waves = list(getattr(row, "waves_json", None) or [])
+    start_dates = []
+    end_dates = []
+    for wave in waves:
+        if not isinstance(wave, dict):
+            continue
+        sd = parse_optional_date(wave.get("start"))
+        ed = parse_optional_date(wave.get("end"))
+        if sd:
+            start_dates.append(sd)
+        if ed:
+            end_dates.append(ed)
+    activity_date = getattr(row, "activity_date", None)
+    if activity_date:
+        start_dates.append(activity_date)
+    if not end_dates and getattr(row, "execution_mode", "PERIODO") == "PERIODO":
+        maybe_end = None
+        details = dict(getattr(row, "details_json", None) or {})
+        maybe_end = parse_optional_date(details.get("end_date"))
+        if maybe_end:
+            end_dates.append(maybe_end)
+    start = min(start_dates) if start_dates else activity_date
+    end = max(end_dates) if end_dates else start
+    if start and today < start:
+        return {"key": "PENDIENTE", "label": "Pendiente", "class": "text-bg-danger"}
+    if end and today > end:
+        return {"key": "FINALIZADA", "label": "Finalizada", "class": "text-bg-success"}
+    return {"key": "EJECUTANDO", "label": "Ejecutando", "class": "text-bg-warning text-dark"}
 
 
 def _promotion_badge(status, *, request_kind=False):
@@ -23614,11 +23826,11 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "source_id": str(artist.id),
             "kind_label": "Artista",
             "title": (artist.name or "Artista").strip(),
-            "subtitle": "Promoción general de artista",
+            "subtitle": "Marketing general de artista",
             "artist_label": (artist.name or "Artista").strip(),
             "artist_ids": [str(artist.id)],
             "cover_url": (artist.photo_url or default_cover),
-            "detail_url": url_for("artist_detail_view", artist_id=artist.id, tab="promocion"),
+            "detail_url": url_for("artist_detail_view", artist_id=artist.id, tab="marketing"),
             "company_id": None,
             "company_label": "",
         }
@@ -23647,7 +23859,7 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "artist_label": artist_label,
             "artist_ids": [str(a.id) for a in (song.artists or []) if getattr(a, "id", None)],
             "cover_url": (song.cover_url or default_cover),
-            "detail_url": url_for("discografica_song_detail", song_id=song.id, tab="promocion"),
+            "detail_url": url_for("discografica_song_detail", song_id=song.id, tab="marketing"),
             "company_id": None,
             "company_label": "",
         }
@@ -23675,7 +23887,7 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "artist_label": artist_label,
             "artist_ids": [str(album.artist_id)] if getattr(album, "artist_id", None) else [],
             "cover_url": (album.cover_url or default_cover),
-            "detail_url": url_for("discografica_album_detail", album_id=album.id, tab="promocion"),
+            "detail_url": url_for("discografica_album_detail", album_id=album.id, tab="marketing"),
             "company_id": None,
             "company_label": "",
         }
@@ -23703,7 +23915,7 @@ def _promotion_request_snapshot_from_source(session_db, source_type, source_id, 
             "artist_label": artist_label,
             "artist_ids": [str(concert.artist_id)] if getattr(concert, "artist_id", None) else [],
             "cover_url": (getattr(getattr(concert, "artist", None), "photo_url", None) or default_cover),
-            "detail_url": url_for("concert_detail_view", cid=concert.id, tab="promocion"),
+            "detail_url": url_for("concert_detail_view", cid=concert.id, tab="marketing"),
             "company_id": str(concert.billing_company_id) if getattr(concert, "billing_company_id", None) else None,
             "company_label": (getattr(getattr(concert, "billing_company", None), "name", None) or "").strip(),
         }
@@ -23788,9 +24000,9 @@ def _promotion_display_request(row):
     return {
         "id": str(row.id),
         "kind": "REQUEST",
-        "title": (snap.get("title") or "Solicitud de promoción").strip(),
+        "title": (snap.get("title") or "Solicitud de marketing").strip(),
         "subtitle": (snap.get("subtitle") or snap.get("artist_label") or "").strip(),
-        "kind_label": (snap.get("kind_label") or (row.source_type or "Promoción")).strip(),
+        "kind_label": (snap.get("kind_label") or (row.source_type or "Marketing")).strip(),
         "cover_url": (snap.get("cover_url") or url_for("static", filename="img/logo.png")),
         "detail_url": (snap.get("detail_url") or ""),
         "date": subject_date,
@@ -23800,6 +24012,14 @@ def _promotion_display_request(row):
         "status_badge": _promotion_badge(row.status, request_kind=True),
         "objectives_notes": (getattr(row, "objectives_notes", None) or "").strip(),
         "budget_notes": (getattr(row, "budget_notes", None) or "").strip(),
+        "request_kind": (getattr(row, "request_kind", None) or "PLAN").strip().upper(),
+        "request_kind_label": "Plan de marketing completo" if (getattr(row, "request_kind", None) or "PLAN").strip().upper() == "PLAN" else "Acción concreta",
+        "action_types": list(getattr(row, "action_types", None) or []),
+        "action_labels": [_marketing_action_label(x) for x in list(getattr(row, "action_types", None) or [])],
+        "budget_mode": (getattr(row, "budget_mode", None) or "REQUEST_BUDGET").strip().upper(),
+        "budget_max": getattr(row, "budget_max", None),
+        "budget_label": _marketing_budget_label(getattr(row, "budget_mode", None), getattr(row, "budget_max", None), getattr(row, "budget_notes", None)),
+        "period_label": _marketing_period_label(getattr(row, "starts_on", None), getattr(row, "ends_on", None), getattr(row, "deadline_notes", None)),
         "requested_by": (getattr(row, "requested_by_nick", None) or getattr(row, "requested_by_email", None) or "").strip(),
         "rejection_reason": (getattr(row, "rejection_reason", None) or "").strip(),
         "source_type": (getattr(row, "source_type", None) or "").strip().upper(),
@@ -23814,9 +24034,9 @@ def _promotion_display_promotion(row):
     return {
         "id": str(row.id),
         "kind": "PROMOTION",
-        "title": (snap.get("title") or "Promoción").strip(),
+        "title": (snap.get("title") or "Marketing").strip(),
         "subtitle": (snap.get("subtitle") or snap.get("artist_label") or "").strip(),
-        "kind_label": (snap.get("kind_label") or (row.subject_type or "Promoción")).strip(),
+        "kind_label": (snap.get("kind_label") or (row.subject_type or "Marketing")).strip(),
         "cover_url": (snap.get("cover_url") or url_for("static", filename="img/logo.png")),
         "detail_url": url_for("promotion_detail_view", promotion_id=row.id),
         "source_url": (snap.get("detail_url") or ""),
@@ -23827,6 +24047,14 @@ def _promotion_display_promotion(row):
         "status_badge": _promotion_badge(row.status, request_kind=False),
         "objectives_notes": (getattr(row, "objectives_notes", None) or "").strip(),
         "budget_notes": (getattr(row, "budget_notes", None) or "").strip(),
+        "request_kind": (getattr(row, "request_kind", None) or "PLAN").strip().upper(),
+        "request_kind_label": "Plan de marketing completo" if (getattr(row, "request_kind", None) or "PLAN").strip().upper() == "PLAN" else "Acción concreta",
+        "action_types": list(getattr(row, "action_types", None) or []),
+        "action_labels": [_marketing_action_label(x) for x in list(getattr(row, "action_types", None) or [])],
+        "budget_mode": (getattr(row, "budget_mode", None) or "REQUEST_BUDGET").strip().upper(),
+        "budget_max": getattr(row, "budget_max", None),
+        "budget_label": _marketing_budget_label(getattr(row, "budget_mode", None), getattr(row, "budget_max", None), getattr(row, "budget_notes", None)),
+        "period_label": _marketing_period_label(getattr(row, "starts_on", None), getattr(row, "ends_on", None), getattr(row, "deadline_notes", None)),
         "company_label": (getattr(getattr(row, 'company', None), 'name', None) or snap.get('company_label') or '').strip(),
         "snapshot": snap,
     }
@@ -23916,7 +24144,7 @@ def _promotion_creator_datasets(session_db):
     return {
         "artists": artist_items,
         "subjects": {
-            "ARTIST": [{"id": x["id"], "artist_ids": [x["id"]], "title": x["name"], "subtitle": "Promoción general de artista", "meta": "Artista", "cover_url": x["photo_url"], "date": ""} for x in artist_items],
+            "ARTIST": [{"id": x["id"], "artist_ids": [x["id"]], "title": x["name"], "subtitle": "Marketing general de artista", "meta": "Artista", "cover_url": x["photo_url"], "date": ""} for x in artist_items],
             "SONG": song_items,
             "ALBUM": album_items,
             "CONCERT": concert_items,
@@ -23937,7 +24165,7 @@ def _promotion_request_recipients(row):
 def _build_promotion_rejection_email(row, reviewer_label, reason):
     snap = dict(getattr(row, 'snapshot', None) or {})
     title = (snap.get('title') or 'promoción').strip()
-    kind_label = (snap.get('kind_label') or 'Promoción').strip()
+    kind_label = (snap.get('kind_label') or 'Marketing').strip()
     reviewer_label = (reviewer_label or 'Usuario del Back Office').strip()
     reason = (reason or '').strip() or 'Sin motivo indicado.'
     html_body = (
@@ -23967,9 +24195,9 @@ def _ensure_promotion_bag(session_db, promotion_row):
     if getattr(promotion_row, 'bag_id', None):
         return
     snap = dict(getattr(promotion_row, 'snapshot', None) or {})
-    title = (snap.get('title') or 'Promoción').strip() or 'Promoción'
+    title = (snap.get('title') or 'Marketing').strip() or 'Marketing'
     bag = WorkflowBag(
-        title=f"Promoción · {title}",
+        title=f"Marketing · {title}",
         artist_id=_promotion_primary_artist_uuid(promotion_row),
         company_id=getattr(promotion_row, 'company_id', None),
         start_date=getattr(promotion_row, 'target_date', None),
@@ -24049,12 +24277,10 @@ def _promotion_activity_display(row, song_title_map):
     }
 
 
-@app.route("/promocion", endpoint="promocion_view")
-@admin_required
-def promocion_view():
-    tab = (request.args.get("tab") or "active").strip().lower()
-    if tab not in {"active", "archived", "requested"}:
-        tab = "active"
+def _marketing_index_response(default_tab="requested"):
+    tab = (request.args.get("tab") or default_tab).strip().lower()
+    if tab not in {"requested", "active", "archived"}:
+        tab = default_tab
     session_db = db()
     try:
         requested_rows = (
@@ -24080,7 +24306,7 @@ def promocion_view():
         rejected_display.sort(key=lambda x: ((x.get('date') or date.max), (x.get('title') or '').casefold()))
 
         return render_template(
-            "promocion.html",
+            "marketing.html",
             tab=tab,
             requested_items=requested_display,
             active_promotions=active_promotions,
@@ -24091,17 +24317,68 @@ def promocion_view():
             request_count=len(requested_display),
             active_count=len(active_promotions),
             archived_count=len(archived_promotions) + len(rejected_display),
-            can_edit_promocion=can_edit_promocion(),
+            can_edit_promocion=can_edit_marketing(),
+            marketing_action_types=MARKETING_ACTION_TYPES,
+            marketing_digital_platforms=MARKETING_DIGITAL_PLATFORMS,
         )
     finally:
         session_db.close()
 
 
+@app.route("/marketing", endpoint="marketing_view")
+@admin_required
+def marketing_view():
+    return _marketing_index_response(default_tab="requested")
+
+
+@app.route("/promocion", endpoint="promocion_view")
+@admin_required
+def promocion_view():
+    return _marketing_index_response(default_tab="requested")
+
+
+
+
+def _marketing_request_fields_from_form(form, *, source_request=None):
+    source_request = source_request or None
+    request_kind = (form.get("request_kind") or getattr(source_request, "request_kind", None) or "PLAN").strip().upper()
+    if request_kind not in {"PLAN", "ACTION"}:
+        request_kind = "PLAN"
+    action_types = _marketing_action_types_from_form(form, single=(request_kind == "ACTION"))
+    if not action_types and source_request is not None:
+        action_types = list(getattr(source_request, "action_types", None) or [])
+    if request_kind == "ACTION" and len(action_types) > 1:
+        action_types = action_types[:1]
+    budget_mode = (form.get("budget_mode") or getattr(source_request, "budget_mode", None) or "REQUEST_BUDGET").strip().upper()
+    if budget_mode not in {"REQUEST_BUDGET", "MAX_AMOUNT"}:
+        budget_mode = "REQUEST_BUDGET"
+    budget_max = _parse_money(form.get("budget_max")) if form.get("budget_max") not in (None, "") else getattr(source_request, "budget_max", None)
+    budget_by_action = {}
+    for key in action_types:
+        raw = form.get(f"budget_{key}")
+        if raw not in (None, ""):
+            val = _parse_money(raw)
+            if val is not None:
+                budget_by_action[key] = str(val)
+    if not budget_by_action and source_request is not None:
+        budget_by_action = dict(getattr(source_request, "budget_by_action", None) or {})
+    return {
+        "request_kind": request_kind,
+        "action_types": action_types,
+        "budget_mode": budget_mode,
+        "budget_max": budget_max,
+        "budget_by_action": budget_by_action,
+        "starts_on": parse_optional_date(form.get("starts_on")) or getattr(source_request, "starts_on", None),
+        "ends_on": parse_optional_date(form.get("ends_on")) or getattr(source_request, "ends_on", None),
+        "deadline_notes": (form.get("deadline_notes") or getattr(source_request, "deadline_notes", None) or "").strip() or None,
+    }
+
+@app.post('/marketing/solicitudes/crear')
 @app.post('/promocion/solicitudes/crear')
 @admin_required
 def promotion_request_create():
     if not can_edit_promocion():
-        return forbid('No tienes permisos para solicitar promoción.')
+        return forbid('No tienes permisos para solicitar Marketing.')
     source_type = (request.form.get('source_type') or '').strip().upper()
     source_id = (request.form.get('source_id') or '').strip()
     next_url = request.form.get('next') or url_for('promocion_view')
@@ -24113,6 +24390,7 @@ def promotion_request_create():
             return redirect(next_url)
         subject_date = _promotion_target_date_from_source(session_db, source_type, source_id)
         state = _current_user_state()
+        marketing_fields = _marketing_request_fields_from_form(request.form)
         row = PromotionRequest(
             source_type=source_type,
             source_id=to_uuid(source_id) if source_id else None,
@@ -24121,6 +24399,14 @@ def promotion_request_create():
             subject_date=subject_date,
             objectives_notes=(request.form.get('objectives_notes') or '').strip() or None,
             budget_notes=(request.form.get('budget_notes') or '').strip() or None,
+            request_kind=marketing_fields["request_kind"],
+            action_types=marketing_fields["action_types"],
+            budget_mode=marketing_fields["budget_mode"],
+            budget_max=marketing_fields["budget_max"],
+            budget_by_action=marketing_fields["budget_by_action"],
+            starts_on=marketing_fields["starts_on"],
+            ends_on=marketing_fields["ends_on"],
+            deadline_notes=marketing_fields["deadline_notes"],
             status='REQUESTED',
             requested_by_user_id=to_uuid(state.get('user_id')) if state.get('user_id') else None,
             requested_by_email=(state.get('email') or '').strip() or None,
@@ -24128,20 +24414,21 @@ def promotion_request_create():
         )
         session_db.add(row)
         session_db.commit()
-        flash('Solicitud de promoción enviada.', 'success')
+        flash('Solicitud de marketing enviada.', 'success')
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error creando la solicitud de promoción: {exc}', 'danger')
+        flash(f'Error creando la solicitud de marketing: {exc}', 'danger')
     finally:
         session_db.close()
     return redirect(next_url)
 
 
+@app.post('/marketing/solicitudes/<request_id>/rechazar')
 @app.post('/promocion/solicitudes/<request_id>/rechazar')
 @admin_required
 def promotion_request_reject(request_id):
     if not can_edit_promocion():
-        return forbid('No tienes permisos para rechazar promociones.')
+        return forbid('No tienes permisos para rechazar solicitudes de Marketing.')
     next_url = request.form.get('next') or url_for('promocion_view', tab='active')
     reason = (request.form.get('reason') or '').strip()
     if not reason:
@@ -24175,11 +24462,12 @@ def promotion_request_reject(request_id):
     return redirect(next_url)
 
 
+@app.post('/marketing/crear')
 @app.post('/promocion/crear')
 @admin_required
 def promotion_create():
     if not can_edit_promocion():
-        return forbid('No tienes permisos para crear promociones.')
+        return forbid('No tienes permisos para crear campañas de Marketing.')
     next_url = request.form.get('next') or url_for('promocion_view', tab='active')
     request_id_raw = (request.form.get('source_request_id') or '').strip()
     subject_type = (request.form.get('subject_type') or '').strip().upper()
@@ -24221,6 +24509,7 @@ def promotion_create():
                 company_id = to_uuid(snapshot.get('company_id'))
             except Exception:
                 company_id = None
+        marketing_fields = _marketing_request_fields_from_form(request.form, source_request=source_request)
         state = _current_user_state()
         promotion = Promotion(
             subject_type=subject_type,
@@ -24231,6 +24520,14 @@ def promotion_create():
             company_id=company_id,
             objectives_notes=objectives_notes,
             budget_notes=budget_notes,
+            request_kind=marketing_fields["request_kind"],
+            action_types=marketing_fields["action_types"],
+            budget_mode=marketing_fields["budget_mode"],
+            budget_max=marketing_fields["budget_max"],
+            budget_by_action=marketing_fields["budget_by_action"],
+            starts_on=marketing_fields["starts_on"],
+            ends_on=marketing_fields["ends_on"],
+            deadline_notes=marketing_fields["deadline_notes"],
             target_date=target_date,
             status='ACTIVE',
             created_by_user_id=to_uuid(state.get('user_id')) if state.get('user_id') else None,
@@ -24246,16 +24543,17 @@ def promotion_create():
             source_request.reviewed_by_nick = (state.get('nick') or state.get('email') or '').strip() or None
             source_request.updated_at = _now_madrid()
         session_db.commit()
-        flash('Promoción creada.', 'success')
+        flash('Campaña de marketing creada.', 'success')
         return redirect(url_for('promotion_detail_view', promotion_id=promotion.id))
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error creando la promoción: {exc}', 'danger')
+        flash(f'Error creando la campaña de marketing: {exc}', 'danger')
         return redirect(next_url)
     finally:
         session_db.close()
 
 
+@app.get('/marketing/<promotion_id>')
 @app.get('/promocion/<promotion_id>', endpoint='promotion_detail_view')
 @admin_required
 def promotion_detail_view(promotion_id):
@@ -24268,11 +24566,13 @@ def promotion_detail_view(promotion_id):
             .first()
         )
         if not promotion:
-            flash('Promoción no encontrada.', 'warning')
+            flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(url_for('promocion_view'))
-        tab = (request.args.get('tab') or 'hoja_ruta').strip().lower()
-        if tab not in {'hoja_ruta', 'gastos'}:
-            tab = 'hoja_ruta'
+        tab = (request.args.get('tab') or 'informacion').strip().lower()
+        if tab == 'hoja_ruta':
+            tab = 'acciones'
+        if tab not in {'informacion', 'acciones', 'gastos'}:
+            tab = 'informacion'
         artist_ids = _promotion_normalized_artist_ids(getattr(promotion, 'artist_ids', None) or [])
         artist_rows = []
         if artist_ids:
@@ -24293,7 +24593,7 @@ def promotion_detail_view(promotion_id):
         song_title_map = {str(s.id): (s.title or 'Canción') for s in (song_options or []) if getattr(s, 'id', None)}
         activity_rows = (
             session_db.query(PromotionActivity)
-            .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.media_contact))
+            .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.media_contact), joinedload(PromotionActivity.provider), joinedload(PromotionActivity.provider_company), joinedload(PromotionActivity.bag_expense))
             .filter(PromotionActivity.promotion_id == promotion.id)
             .all()
         )
@@ -24308,6 +24608,9 @@ def promotion_detail_view(promotion_id):
         if getattr(promotion, 'bag_id', None):
             invoices = session_db.query(InvoiceRecord).filter(InvoiceRecord.bag_id == promotion.bag_id).order_by(InvoiceRecord.issue_date.desc(), InvoiceRecord.created_at.desc()).all()
         media_outlets = session_db.query(MediaOutlet).order_by(MediaOutlet.media_type.asc(), MediaOutlet.name.asc()).all()
+        promoters = session_db.query(Promoter).order_by(Promoter.nick.asc()).all()
+        promoter_companies = session_db.query(PromoterCompany).order_by(PromoterCompany.legal_name.asc().nullslast(), PromoterCompany.name.asc().nullslast()).all()
+        bags_for_split = session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).order_by(WorkflowBag.start_date.asc().nullslast(), WorkflowBag.title.asc()).all()  # noqa: E712
         media_contacts = session_db.query(MediaContact).order_by(MediaContact.created_at.asc()).all()
         media_contacts_payload = []
         for contact in media_contacts:
@@ -24316,8 +24619,26 @@ def promotion_detail_view(promotion_id):
                 'media_id': str(contact.media_id),
                 'label': ' · '.join([x for x in [((contact.first_name or '') + ' ' + (contact.last_name or '')).strip(), (contact.program or '').strip(), (contact.role or '').strip()] if x]),
             })
+        action_groups = []
+        totals_net = Decimal('0')
+        totals_gross = Decimal('0')
+        by_action = defaultdict(list)
+        for row in activity_rows:
+            key = (getattr(row, 'action_type', None) or getattr(row, 'media_type', None) or 'OTRA').strip().upper()
+            by_action[key].append(row)
+            totals_net += Decimal(str(getattr(row, 'amount_net', 0) or 0))
+            totals_gross += Decimal(str(getattr(row, 'amount_gross', 0) or 0))
+        for key in [k for k, _label, _icon in MARKETING_ACTION_TYPES] + sorted([k for k in by_action.keys() if k not in MARKETING_ACTION_TYPE_LABELS]):
+            rows = by_action.get(key) or []
+            if rows:
+                action_groups.append({
+                    'key': key,
+                    'label': _marketing_action_label(key),
+                    'icon': _marketing_action_icon(key),
+                    'rows': rows,
+                })
         return render_template(
-            'promotion_detail.html',
+            'marketing_detail.html',
             promotion=promotion,
             promotion_display=_promotion_display_promotion(promotion),
             tab=tab,
@@ -24329,12 +24650,24 @@ def promotion_detail_view(promotion_id):
             media_contacts_payload=media_contacts_payload,
             transport_types=PROMOTION_TRANSPORT_TYPES,
             covered_cost_options=PROMOTION_COVERED_COST_OPTIONS,
-            can_edit_promocion=can_edit_promocion(),
+            can_edit_promocion=can_edit_marketing(),
+            marketing_action_types=MARKETING_ACTION_TYPES,
+            marketing_action_type_labels=MARKETING_ACTION_TYPE_LABELS,
+            marketing_exterior_subtypes=MARKETING_EXTERIOR_SUBTYPES,
+            marketing_digital_platforms=MARKETING_DIGITAL_PLATFORMS,
+            action_groups=action_groups,
+            action_totals_net=totals_net,
+            action_totals_gross=totals_gross,
+            promoters=promoters,
+            promoter_companies=promoter_companies,
+            bags_for_split=bags_for_split,
+            marketing_action_status=_marketing_action_status,
         )
     finally:
         session_db.close()
 
 
+@app.post('/marketing/<promotion_id>/archivar')
 @app.post('/promocion/<promotion_id>/archivar')
 @admin_required
 def promotion_archive_toggle(promotion_id):
@@ -24345,7 +24678,7 @@ def promotion_archive_toggle(promotion_id):
     try:
         row = session_db.get(Promotion, to_uuid(promotion_id))
         if not row:
-            flash('Promoción no encontrada.', 'warning')
+            flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(next_url)
         if (getattr(row, 'status', None) or 'ACTIVE').strip().upper() == 'ARCHIVED':
             row.status = 'ACTIVE'
@@ -24365,132 +24698,408 @@ def promotion_archive_toggle(promotion_id):
         session_db.commit()
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error actualizando la promoción: {exc}', 'danger')
+        flash(f'Error actualizando la campaña de marketing: {exc}', 'danger')
     finally:
         session_db.close()
     return redirect(next_url)
 
 
 @app.post('/promocion/<promotion_id>/actividades/crear')
+@app.post('/marketing/<promotion_id>/acciones/crear')
 @admin_required
 def promotion_activity_create(promotion_id):
-    if not can_edit_promocion():
-        return forbid('No tienes permisos para editar promociones.')
-    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='hoja_ruta')
-    activity_kind = (request.form.get('activity_kind') or '').strip().upper()
-    if activity_kind not in {'PROMOCION', 'LOGISTICA', 'ALOJAMIENTO'}:
-        flash('Debes seleccionar un tipo de actividad.', 'warning')
-        return redirect(next_url)
+    if not can_edit_marketing():
+        return forbid('No tienes permisos para editar Marketing.')
+    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='acciones')
+    action_type = (request.form.get('action_type') or request.form.get('media_type') or 'OTRA').strip().upper()
+    if action_type not in MARKETING_ACTION_TYPE_LABELS:
+        action_type = 'OTRA'
     session_db = db()
     try:
         promotion = session_db.get(Promotion, to_uuid(promotion_id))
         if not promotion:
-            flash('Promoción no encontrada.', 'warning')
-            return redirect(url_for('promocion_view'))
-        activity_date = parse_optional_date(request.form.get('activity_date'))
-        if not activity_date:
-            flash('La fecha de la actividad es obligatoria.', 'warning')
-            return redirect(next_url)
+            flash('Campaña de marketing no encontrada.', 'warning')
+            return redirect(url_for('marketing_view'))
+        if not getattr(promotion, 'bag_id', None):
+            _ensure_promotion_bag(session_db, promotion)
+            session_db.flush()
         state = _current_user_state()
-        details = {}
-        media_id = None
-        media_contact_id = None
-        subtype = (request.form.get('subtype') or '').strip().upper() or None
-        media_type = (request.form.get('media_type') or '').strip() or None
-        if activity_kind == 'PROMOCION':
-            media_id_raw = (request.form.get('media_id') or '').strip()
-            media_id = to_uuid(media_id_raw) if media_id_raw else None
-            details['media_name'] = (request.form.get('media_name_fallback') or '').strip() or None
-            details['program_name'] = (request.form.get('program_name') or '').strip() or None
-            details['direction'] = (request.form.get('direction') or '').strip() or None
-            details['contact_label'] = (request.form.get('contact_label') or '').strip() or None
-            existing_contact_raw = (request.form.get('media_contact_id') or '').strip()
-            if existing_contact_raw:
-                media_contact_id = to_uuid(existing_contact_raw)
-            elif any([(request.form.get('new_contact_first_name') or '').strip(), (request.form.get('new_contact_last_name') or '').strip(), (request.form.get('new_contact_email') or '').strip(), (request.form.get('new_contact_phone') or '').strip(), (request.form.get('new_contact_role') or '').strip(), (request.form.get('program_name') or '').strip()]):
-                if media_id:
-                    contact = MediaContact(
-                        media_id=media_id,
-                        program=(request.form.get('program_name') or '').strip() or None,
-                        role=(request.form.get('new_contact_role') or '').strip() or None,
-                        first_name=(request.form.get('new_contact_first_name') or '').strip() or None,
-                        last_name=(request.form.get('new_contact_last_name') or '').strip() or None,
-                        phone=(request.form.get('new_contact_phone') or '').strip() or None,
-                        email=(request.form.get('new_contact_email') or '').strip() or None,
-                    )
-                    session_db.add(contact)
-                    session_db.flush()
-                    media_contact_id = contact.id
-                    details['contact_label'] = ' '.join([x for x in [(contact.first_name or '').strip(), (contact.last_name or '').strip()] if x]).strip() or (contact.email or '')
-            performed_song_ids = _promotion_normalized_artist_ids(request.form.getlist('performed_song_ids'))
-        elif activity_kind == 'LOGISTICA':
-            details['origin'] = (request.form.get('origin') or '').strip() or None
-            details['destination'] = (request.form.get('destination') or '').strip() or None
-            details['provider'] = (request.form.get('provider') or '').strip() or None
-            details['booking_reference'] = (request.form.get('booking_reference') or '').strip() or None
-            details['notes'] = (request.form.get('details_note') or '').strip() or None
-            performed_song_ids = []
-        else:
-            details['hotel_name'] = (request.form.get('hotel_name') or '').strip() or None
-            details['city'] = (request.form.get('hotel_city') or '').strip() or None
-            details['check_in'] = (request.form.get('check_in') or '').strip() or None
-            details['check_out'] = (request.form.get('check_out') or '').strip() or None
-            details['notes'] = (request.form.get('details_note') or '').strip() or None
-            performed_song_ids = []
+        start_date = parse_optional_date(request.form.get('start_date')) or parse_optional_date(request.form.get('activity_date')) or today_local()
+        end_date = parse_optional_date(request.form.get('end_date'))
+        execution_mode = (request.form.get('execution_mode') or 'PERIODO').strip().upper()
+        if execution_mode not in {'PERIODO', 'OLEADAS'}:
+            execution_mode = 'PERIODO'
+        waves = []
+        wave_starts = request.form.getlist('wave_start')
+        wave_ends = request.form.getlist('wave_end')
+        wave_notes = request.form.getlist('wave_note')
+        for ws, we, wn in zip(wave_starts, wave_ends, wave_notes):
+            if not (ws or we or wn):
+                continue
+            waves.append({'start': ws or None, 'end': we or None, 'note': (wn or '').strip() or None})
+        if execution_mode == 'PERIODO' and (start_date or end_date):
+            waves = [{'start': start_date.isoformat() if start_date else None, 'end': end_date.isoformat() if end_date else None, 'note': None}]
+
+        media_id = _safe_uuid(request.form.get('media_id')) if (request.form.get('media_id') or '').strip() else None
+        if not media_id and (request.form.get('new_media_name') or '').strip():
+            new_media_type = (request.form.get('new_media_type') or '').strip() or ({'RADIO': 'Radio', 'TV': 'TV', 'PRENSA': 'Prensa', 'DIGITAL': 'Digital'}.get(action_type) or 'Digital')
+            if new_media_type not in MEDIA_TYPES:
+                new_media_type = 'Digital'
+            media_country_code, media_country_name = _country_payload_from_form(request.form)
+            media_logo = request.files.get('new_media_logo')
+            media_logo_url = upload_png(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
+            new_media = MediaOutlet(
+                media_type=new_media_type,
+                name=(request.form.get('new_media_name') or '').strip(),
+                logo_url=media_logo_url,
+                country_code=media_country_code,
+                country_name=media_country_name,
+                address=(request.form.get('new_media_address') or '').strip() or None,
+            )
+            session_db.add(new_media)
+            session_db.flush()
+            media_id = new_media.id
+        provider_id = _safe_uuid(request.form.get('provider_id')) if (request.form.get('provider_id') or '').strip() else None
+        provider_company_id = _safe_uuid(request.form.get('provider_company_id')) if (request.form.get('provider_company_id') or '').strip() else None
+        provider = session_db.get(Promoter, provider_id) if provider_id else None
+        provider_company = session_db.get(PromoterCompany, provider_company_id) if provider_company_id else None
+        provider_snapshot = {}
+        if provider:
+            provider_snapshot.update({'id': str(provider.id), 'nick': provider.nick, 'email': getattr(provider, 'contact_email', None)})
+        if provider_company:
+            provider_snapshot.update({'company_id': str(provider_company.id), 'company_name': getattr(provider_company, 'legal_name', None) or getattr(provider_company, 'name', None)})
+
+        amount_net = _parse_money(request.form.get('amount_net')) or Decimal('0')
+        amount_tax = _parse_money(request.form.get('amount_tax')) or Decimal('0')
+        amount_gross = _parse_money(request.form.get('amount_gross')) or Decimal('0')
+        if amount_gross == 0 and (amount_net or amount_tax):
+            amount_gross = amount_net + amount_tax
+        document_type = (request.form.get('document_type') or 'FACTURA').strip().upper()
+        if document_type not in {'FACTURA', 'TICKET', 'SIN_DOCUMENTO'}:
+            document_type = 'FACTURA'
+        media_target = {
+            'city': (request.form.get('city') or '').strip() or None,
+            'platform': (request.form.get('platform') or '').strip() or None,
+            'digital_platform': (request.form.get('digital_platform') or '').strip() or None,
+            'other_name': (request.form.get('other_name') or '').strip() or None,
+            'media_name_fallback': (request.form.get('media_name_fallback') or '').strip() or None,
+        }
+        details = {
+            'description': (request.form.get('task_description') or request.form.get('description') or '').strip() or None,
+            'end_date': end_date.isoformat() if end_date else None,
+            'group_with_existing': (request.form.get('group_with_existing') or '').strip() or None,
+            'allocation_note': (request.form.get('allocation_note') or '').strip() or None,
+        }
+        doc = request.files.get('document')
+        attachment_url = attachment_name = attachment_mime = None
+        consolidation_status = 'PENDIENTE'
+        if doc and getattr(doc, 'filename', ''):
+            attachment_url, attachment_name, attachment_mime = _bag_document_upload(doc)
+            consolidation_status = 'CONSOLIDADO'
+        elif document_type == 'SIN_DOCUMENTO':
+            consolidation_status = 'SIN_FACTURA_SOLICITADO'
 
         row = PromotionActivity(
             promotion_id=promotion.id,
-            activity_date=activity_date,
-            start_time=(request.form.get('start_time') or '').strip() or None,
-            end_time=(request.form.get('end_time') or '').strip() or None,
-            time_tbc=_truthy(request.form.get('time_tbc')),
-            show_as_tbc=_truthy(request.form.get('show_as_tbc')),
-            activity_kind=activity_kind,
-            subtype=subtype,
-            media_type=media_type,
+            activity_date=start_date,
+            activity_kind='MARKETING',
+            action_type=action_type,
+            subtype=(request.form.get('subtype') or '').strip().upper() or None,
+            exterior_subtype=(request.form.get('exterior_subtype') or '').strip().upper() or None,
+            media_type=action_type,
             media_id=media_id,
-            media_contact_id=media_contact_id,
+            media_target_json=media_target,
             details_json=details,
-            task_description=(request.form.get('task_description') or '').strip() or None,
-            artist_performed=_truthy(request.form.get('artist_performed')),
-            performed_song_ids=performed_song_ids,
-            has_fee=_truthy(request.form.get('has_fee')),
-            fee_amount=_parse_money(request.form.get('fee_amount') or '0') or 0,
-            covered_costs=list(request.form.getlist('covered_costs')),
-            cost_note=(request.form.get('cost_note') or '').strip() or None,
+            task_description=details.get('description'),
+            execution_mode=execution_mode,
+            waves_json=waves,
+            provider_id=provider_id,
+            provider_company_id=provider_company_id,
+            provider_snapshot=provider_snapshot,
+            budget_group_key=(request.form.get('budget_group_key') or '').strip() or None,
+            amount_net=amount_net,
+            amount_tax=amount_tax,
+            amount_gross=amount_gross,
+            allocation_mode=(request.form.get('allocation_mode') or 'SOURCE').strip().upper(),
+            allocation_json=[],
+            document_type=document_type,
+            invoice_number=(request.form.get('invoice_number') or '').strip() or None,
+            issue_date=parse_optional_date(request.form.get('issue_date')),
+            attachment_url=attachment_url,
+            attachment_name=attachment_name,
+            attachment_mime=attachment_mime,
+            consolidation_status=consolidation_status,
             created_by_user_id=to_uuid(state.get('user_id')) if state.get('user_id') else None,
             created_by_nick=(state.get('nick') or state.get('email') or '').strip() or None,
         )
         session_db.add(row)
         session_db.flush()
 
-        if activity_kind == 'PROMOCION' and media_id:
-            song_title_map = {}
-            if performed_song_ids:
-                song_rows = session_db.query(Song).filter(Song.id.in_([to_uuid(x) for x in performed_song_ids])).all()
-                song_title_map = {str(s.id): (s.title or 'Canción') for s in song_rows}
-            media_row = MediaPromotionRecord(
-                media_id=media_id,
-                artist_id=_promotion_primary_artist_uuid(promotion),
-                promotion_id=promotion.id,
-                promotion_title=(dict(getattr(promotion, 'snapshot', None) or {}).get('title') or 'Promoción').strip(),
-                program_name=(details.get('program_name') or None),
-                promoted_at=activity_date,
-                artist_performed=bool(getattr(row, 'artist_performed', False)),
-                performed_song=', '.join([song_title_map[x] for x in performed_song_ids if x in song_title_map]) or None,
-                notes=(getattr(row, 'task_description', None) or '').strip() or None,
+        if getattr(promotion, 'bag_id', None) and (amount_gross or amount_net or attachment_url or document_type == 'SIN_DOCUMENTO'):
+            expense = BagExpense(
+                bag_id=promotion.bag_id,
+                category='MARKETING',
+                concept=f"{_marketing_action_label(action_type)} · {(row.task_description or dict(getattr(promotion, 'snapshot', {}) or {}).get('title') or 'Marketing')}"[:500],
+                provider_id=provider_id,
+                provider_company_id=provider_company_id,
+                provider_snapshot=provider_snapshot,
+                document_type=document_type,
+                invoice_number=row.invoice_number,
+                issue_date=row.issue_date,
+                amount_net=amount_net,
+                amount_tax=amount_tax,
+                amount_gross=amount_gross,
+                consolidation_status=consolidation_status,
+                attachment_url=attachment_url,
+                attachment_name=attachment_name,
+                attachment_mime=attachment_mime,
+                created_by_user_id=row.created_by_user_id,
+                created_by_nick=row.created_by_nick,
             )
-            session_db.add(media_row)
-
+            session_db.add(expense)
+            session_db.flush()
+            row.bag_expense_id = expense.id
         promotion.updated_at = _now_madrid()
         session_db.commit()
-        flash('Actividad promocional añadida.', 'success')
+        flash('Acción de marketing añadida.', 'success')
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error creando la actividad: {exc}', 'danger')
+        flash(f'Error creando la acción de marketing: {exc}', 'danger')
     finally:
         session_db.close()
     return redirect(next_url)
+
+
+@app.post('/marketing/<promotion_id>/acciones/<activity_id>/documento')
+@admin_required
+def marketing_action_document_upload(promotion_id, activity_id):
+    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='acciones')
+    session_db = db()
+    try:
+        row = session_db.query(PromotionActivity).filter(PromotionActivity.id == to_uuid(activity_id), PromotionActivity.promotion_id == to_uuid(promotion_id)).first()
+        if not row:
+            flash('Acción no encontrada.', 'warning')
+            return redirect(next_url)
+        doc = request.files.get('document')
+        if not doc or not getattr(doc, 'filename', ''):
+            flash('Selecciona una factura o ticket.', 'warning')
+            return redirect(next_url)
+        url, name, mime = _bag_document_upload(doc)
+        row.attachment_url = url
+        row.attachment_name = name
+        row.attachment_mime = mime
+        row.consolidation_status = 'CONSOLIDADO'
+        if row.bag_expense_id:
+            exp = session_db.get(BagExpense, row.bag_expense_id)
+            if exp:
+                exp.attachment_url = url
+                exp.attachment_name = name
+                exp.attachment_mime = mime
+                exp.consolidation_status = 'CONSOLIDADO'
+                exp.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Factura/ticket vinculada a la acción.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo subir el documento: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post('/marketing/<promotion_id>/acciones/<activity_id>/sin-factura')
+@admin_required
+def marketing_action_no_invoice(promotion_id, activity_id):
+    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='acciones')
+    reason = (request.form.get('reason') or '').strip()
+    session_db = db()
+    try:
+        row = session_db.query(PromotionActivity).filter(PromotionActivity.id == to_uuid(activity_id), PromotionActivity.promotion_id == to_uuid(promotion_id)).first()
+        if not row:
+            flash('Acción no encontrada.', 'warning')
+            return redirect(next_url)
+        row.document_type = 'SIN_DOCUMENTO'
+        row.no_invoice_reason = reason or None
+        row.consolidation_status = 'SIN_FACTURA_SOLICITADO'
+        if row.bag_expense_id:
+            exp = session_db.get(BagExpense, row.bag_expense_id)
+            if exp:
+                exp.document_type = 'SIN_DOCUMENTO'
+                exp.no_invoice_reason = reason or None
+                exp.consolidation_status = 'SIN_FACTURA_SOLICITADO'
+                exp.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Solicitud de aceptación sin factura/ticket enviada.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo marcar sin factura/ticket: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post('/marketing/<promotion_id>/acciones/<activity_id>/eliminar')
+@admin_required
+def marketing_action_delete(promotion_id, activity_id):
+    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='acciones')
+    session_db = db()
+    try:
+        row = session_db.query(PromotionActivity).filter(PromotionActivity.id == to_uuid(activity_id), PromotionActivity.promotion_id == to_uuid(promotion_id)).first()
+        if row:
+            if row.bag_expense_id:
+                exp = session_db.get(BagExpense, row.bag_expense_id)
+                if exp:
+                    exp.status = 'ELIMINADO'
+            session_db.delete(row)
+            session_db.commit()
+            flash('Acción eliminada.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo eliminar la acción: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
+
+@app.post('/marketing/<promotion_id>/acciones/<activity_id>/editar')
+@admin_required
+def marketing_action_update(promotion_id, activity_id):
+    if not can_edit_marketing():
+        return forbid('No tienes permisos para editar Marketing.')
+    next_url = request.form.get('next') or url_for('promotion_detail_view', promotion_id=promotion_id, tab='acciones')
+    session_db = db()
+    try:
+        row = session_db.query(PromotionActivity).filter(PromotionActivity.id == to_uuid(activity_id), PromotionActivity.promotion_id == to_uuid(promotion_id)).first()
+        promotion = session_db.get(Promotion, to_uuid(promotion_id))
+        if not row or not promotion:
+            flash('Acción no encontrada.', 'warning')
+            return redirect(next_url)
+        action_type = (request.form.get('action_type') or getattr(row, 'action_type', None) or 'OTRA').strip().upper()
+        if action_type not in MARKETING_ACTION_TYPE_LABELS:
+            action_type = 'OTRA'
+        start_date = parse_optional_date(request.form.get('start_date')) or getattr(row, 'activity_date', None) or today_local()
+        end_date = parse_optional_date(request.form.get('end_date'))
+        execution_mode = (request.form.get('execution_mode') or getattr(row, 'execution_mode', None) or 'PERIODO').strip().upper()
+        if execution_mode not in {'PERIODO', 'OLEADAS'}:
+            execution_mode = 'PERIODO'
+        waves = []
+        for ws, we, wn in zip(request.form.getlist('wave_start'), request.form.getlist('wave_end'), request.form.getlist('wave_note')):
+            if ws or we or wn:
+                waves.append({'start': ws or None, 'end': we or None, 'note': (wn or '').strip() or None})
+        if execution_mode == 'PERIODO':
+            waves = [{'start': start_date.isoformat() if start_date else None, 'end': end_date.isoformat() if end_date else None, 'note': None}]
+        provider_id = _safe_uuid(request.form.get('provider_id')) if (request.form.get('provider_id') or '').strip() else None
+        provider_company_id = _safe_uuid(request.form.get('provider_company_id')) if (request.form.get('provider_company_id') or '').strip() else None
+        provider = session_db.get(Promoter, provider_id) if provider_id else None
+        provider_company = session_db.get(PromoterCompany, provider_company_id) if provider_company_id else None
+        provider_snapshot = {}
+        if provider:
+            provider_snapshot.update({'id': str(provider.id), 'nick': provider.nick, 'email': getattr(provider, 'contact_email', None)})
+        if provider_company:
+            provider_snapshot.update({'company_id': str(provider_company.id), 'company_name': getattr(provider_company, 'legal_name', None) or getattr(provider_company, 'name', None)})
+        amount_net = _parse_money(request.form.get('amount_net')) or Decimal('0')
+        amount_tax = _parse_money(request.form.get('amount_tax')) or Decimal('0')
+        amount_gross = _parse_money(request.form.get('amount_gross')) or Decimal('0')
+        if amount_gross == 0 and (amount_net or amount_tax):
+            amount_gross = amount_net + amount_tax
+        document_type = (request.form.get('document_type') or getattr(row, 'document_type', None) or 'FACTURA').strip().upper()
+        if document_type not in {'FACTURA', 'TICKET', 'SIN_DOCUMENTO'}:
+            document_type = 'FACTURA'
+        row.action_type = action_type
+        row.activity_date = start_date
+        row.media_type = action_type
+        row.subtype = (request.form.get('subtype') or '').strip().upper() or None
+        row.exterior_subtype = (request.form.get('exterior_subtype') or '').strip().upper() or None
+        media_id = _safe_uuid(request.form.get('media_id')) if (request.form.get('media_id') or '').strip() else None
+        if not media_id and (request.form.get('new_media_name') or '').strip():
+            new_media_type = (request.form.get('new_media_type') or '').strip() or ({'RADIO': 'Radio', 'TV': 'TV', 'PRENSA': 'Prensa', 'DIGITAL': 'Digital'}.get(action_type) or 'Digital')
+            if new_media_type not in MEDIA_TYPES:
+                new_media_type = 'Digital'
+            media_country_code, media_country_name = _country_payload_from_form(request.form)
+            media_logo = request.files.get('new_media_logo')
+            media_logo_url = upload_png(media_logo, 'media') if (media_logo and getattr(media_logo, 'filename', '')) else None
+            new_media = MediaOutlet(
+                media_type=new_media_type,
+                name=(request.form.get('new_media_name') or '').strip(),
+                logo_url=media_logo_url,
+                country_code=media_country_code,
+                country_name=media_country_name,
+                address=(request.form.get('new_media_address') or '').strip() or None,
+            )
+            session_db.add(new_media)
+            session_db.flush()
+            media_id = new_media.id
+        row.media_id = media_id
+        row.media_target_json = {
+            'city': (request.form.get('city') or '').strip() or None,
+            'platform': (request.form.get('platform') or '').strip() or None,
+            'digital_platform': (request.form.get('digital_platform') or '').strip() or None,
+            'other_name': (request.form.get('other_name') or '').strip() or None,
+            'media_name_fallback': (request.form.get('media_name_fallback') or '').strip() or None,
+        }
+        row.details_json = {
+            'description': (request.form.get('task_description') or request.form.get('description') or '').strip() or None,
+            'end_date': end_date.isoformat() if end_date else None,
+            'allocation_note': (request.form.get('allocation_note') or '').strip() or None,
+        }
+        row.task_description = row.details_json.get('description')
+        row.execution_mode = execution_mode
+        row.waves_json = waves
+        row.provider_id = provider_id
+        row.provider_company_id = provider_company_id
+        row.provider_snapshot = provider_snapshot
+        row.budget_group_key = (request.form.get('budget_group_key') or '').strip() or None
+        row.amount_net = amount_net
+        row.amount_tax = amount_tax
+        row.amount_gross = amount_gross
+        row.allocation_mode = (request.form.get('allocation_mode') or getattr(row, 'allocation_mode', None) or 'SOURCE').strip().upper()
+        row.allocation_json = [{'mode': row.allocation_mode, 'note': (request.form.get('allocation_note') or '').strip() or None}]
+        row.document_type = document_type
+        row.invoice_number = (request.form.get('invoice_number') or '').strip() or None
+        row.issue_date = parse_optional_date(request.form.get('issue_date'))
+        doc = request.files.get('document')
+        if doc and getattr(doc, 'filename', ''):
+            row.attachment_url, row.attachment_name, row.attachment_mime = _bag_document_upload(doc)
+            row.consolidation_status = 'CONSOLIDADO'
+        elif document_type == 'SIN_DOCUMENTO':
+            row.consolidation_status = 'SIN_FACTURA_SOLICITADO'
+        if not getattr(promotion, 'bag_id', None):
+            _ensure_promotion_bag(session_db, promotion)
+            session_db.flush()
+        expense = session_db.get(BagExpense, row.bag_expense_id) if getattr(row, 'bag_expense_id', None) else None
+        if not expense and getattr(promotion, 'bag_id', None) and (amount_gross or amount_net or row.attachment_url or document_type == 'SIN_DOCUMENTO'):
+            audit = _bag_current_user_audit() if '_bag_current_user_audit' in globals() else {'user_id': None, 'nick': None}
+            expense = BagExpense(bag_id=promotion.bag_id, category='MARKETING', created_by_user_id=audit.get('user_id'), created_by_nick=audit.get('nick'))
+            session_db.add(expense)
+            session_db.flush()
+            row.bag_expense_id = expense.id
+        if expense:
+            expense.category = 'MARKETING'
+            expense.concept = f"{_marketing_action_label(action_type)} · {(row.task_description or dict(getattr(promotion, 'snapshot', {}) or {}).get('title') or 'Marketing')}"[:500]
+            expense.provider_id = provider_id
+            expense.provider_company_id = provider_company_id
+            expense.provider_snapshot = provider_snapshot
+            expense.document_type = document_type
+            expense.invoice_number = row.invoice_number
+            expense.issue_date = row.issue_date
+            expense.amount_net = amount_net
+            expense.amount_tax = amount_tax
+            expense.amount_gross = amount_gross
+            expense.attachment_url = row.attachment_url
+            expense.attachment_name = row.attachment_name
+            expense.attachment_mime = row.attachment_mime
+            expense.consolidation_status = row.consolidation_status
+            expense.updated_at = _now_madrid()
+        promotion.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Acción de marketing actualizada.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo editar la acción: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(next_url)
+
 
 def _production_type_label(value: str | None) -> str:
     key = (value or "GENERAL").strip().upper() or "GENERAL"
@@ -25349,6 +25958,8 @@ def media_outlets_view():
                 media_type=media_type,
                 name=name,
                 logo_url=logo_url,
+                country_code=_country_payload_from_form(request.form)[0],
+                country_name=_country_payload_from_form(request.form)[1],
                 address=(request.form.get("address") or "").strip() or None,
             )
             session_db.add(outlet)
@@ -25388,6 +25999,7 @@ def media_outlets_view():
                     _sa_contains_text(MediaOutlet.name, q),
                     _sa_contains_text(MediaOutlet.address, q),
                     _sa_contains_text(MediaOutlet.media_type, q),
+                    _sa_contains_text(MediaOutlet.country_name, q),
                     _sa_contains_text(MediaContact.program, q),
                     _sa_contains_text(MediaContact.role, q),
                     _sa_contains_text(MediaContact.first_name, q),
@@ -25398,7 +26010,7 @@ def media_outlets_view():
                 .distinct()
             )
         media_rows = query.order_by(func.lower(MediaOutlet.name).asc()).all()
-        return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES, selected_types=f_types, query_text=q)
+        return render_template("media_outlets.html", media_rows=media_rows, media_types=MEDIA_TYPES, selected_types=f_types, query_text=q, country_options=country_options_es())
     finally:
         session_db.close()
 
@@ -25421,6 +26033,7 @@ def media_outlet_detail_view(media_id):
                 outlet.media_type = (request.form.get("media_type") or outlet.media_type or "").strip() or outlet.media_type
                 outlet.name = (request.form.get("name") or outlet.name or "").strip() or outlet.name
                 outlet.address = (request.form.get("address") or "").strip() or None
+                outlet.country_code, outlet.country_name = _country_payload_from_form(request.form)
                 logo = request.files.get("logo")
                 if logo and getattr(logo, "filename", ""):
                     outlet.logo_url = upload_png(logo, "media")
@@ -25497,6 +26110,7 @@ def media_outlet_detail_view(media_id):
             filter_start=f_start.isoformat() if f_start else "",
             filter_end=f_end.isoformat() if f_end else "",
             media_types=MEDIA_TYPES,
+            country_options=country_options_es(),
         )
     finally:
         session_db.close()
@@ -26293,6 +26907,7 @@ def bag_expense_document_replace(bag_id, expense_id):
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-invoice", endpoint="bag_expense_request_invoice")
 @admin_required
 def bag_expense_request_invoice(bag_id, expense_id):
+    next_url = request.form.get("next") or url_for("bag_detail_view", bag_id=bag_id)
     session_db = db()
     try:
         expense = session_db.query(BagExpense).options(joinedload(BagExpense.provider)).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
@@ -26321,7 +26936,7 @@ def bag_expense_request_invoice(bag_id, expense_id):
             flash(f"No se pudo enviar la solicitud: {err}", "warning")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(next_url)
 
 
 @app.route("/public/bolsas/gastos/documento/<token>", methods=["GET", "POST"], endpoint="public_bag_expense_document_upload")
@@ -26357,6 +26972,7 @@ def public_bag_expense_document_upload(token):
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-payment", endpoint="bag_expense_request_payment")
 @admin_required
 def bag_expense_request_payment(bag_id, expense_id):
+    next_url = request.form.get("next") or url_for("bag_detail_view", bag_id=bag_id)
     session_db = db()
     try:
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
@@ -26391,7 +27007,7 @@ def bag_expense_request_payment(bag_id, expense_id):
         flash("Solicitud de pago inmediato enviada a administración.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(next_url)
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/cover", endpoint="bag_expense_cover")
@@ -26478,6 +27094,7 @@ def bag_expense_cover(bag_id, expense_id):
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/no-invoice", endpoint="bag_expense_no_invoice_request")
 @admin_required
 def bag_expense_no_invoice_request(bag_id, expense_id):
+    next_url = request.form.get("next") or url_for("bag_detail_view", bag_id=bag_id)
     session_db = db()
     try:
         expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
@@ -26492,7 +27109,7 @@ def bag_expense_no_invoice_request(bag_id, expense_id):
             flash("Solicitud enviada a administración.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+    return redirect(next_url)
 
 
 @app.post("/bolsas/<bag_id>/expenses/<expense_id>/notes", endpoint="bag_expense_note_create")

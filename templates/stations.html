@@ -13,11 +13,19 @@
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-5">
+      <div class="col-md-4">
         <label class="form-label">Nombre de la emisora</label>
         <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-5">
+      <div class="col-md-3">
+        <label class="form-label">País</label>
+        <select name="country_code" class="form-select select-country">
+          {% for country in country_options %}
+            <option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
         <label class="form-label">Logo (PNG)</label>
         <input type="file" name="logo" accept="image/png" class="form-control" />
       </div>
@@ -34,14 +42,27 @@
   <div class="col">
     <div class="card h-100">
       <div class="card-body d-flex">
-        <img src="{{ s.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo me-3" alt="">
+        <span class="logo-country-wrap me-3">
+          <img src="{{ s.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+          {% if (s.country_code or 'ES') != 'ES' %}
+            <span class="country-flag-badge" title="{{ s.country_name or country_name_es(s.country_code) }}">{{ country_flag_emoji(s.country_code) }}</span>
+          {% endif %}
+        </span>
         <div class="flex-grow-1">
           {% if CAN_EDIT_ARTISTS_STATIONS %}
             <form method="post" action="{{ url_for('station_update', station_id=s.id) }}" enctype="multipart/form-data">
-              <div class="d-flex gap-2 flex-wrap">
-                <input name="name" class="form-control" value="{{ s.name }}" />
-                <input type="file" name="logo" accept="image/png" class="form-control">
-                <button class="btn btn-outline-primary">Guardar</button>
+              <div class="row g-2 align-items-end">
+                <div class="col-12 col-lg-4"><label class="form-label small mb-1">Nombre</label><input name="name" class="form-control" value="{{ s.name }}" /></div>
+                <div class="col-12 col-lg-3">
+                  <label class="form-label small mb-1">País</label>
+                  <select name="country_code" class="form-select select-country">
+                    {% for country in country_options %}
+                      <option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == (s.country_code or 'ES') %}selected{% endif %}>{{ country.name }}</option>
+                    {% endfor %}
+                  </select>
+                </div>
+                <div class="col-12 col-lg-3"><label class="form-label small mb-1">Logo</label><input type="file" name="logo" accept="image/png" class="form-control"></div>
+                <div class="col-12 col-lg-2 d-grid"><button class="btn btn-outline-primary">Guardar</button></div>
               </div>
             </form>
             <form method="post" action="{{ url_for('station_delete', station_id=s.id) }}" class="mt-2">
@@ -51,6 +72,7 @@
             </form>
           {% else %}
             <div class="fw-semibold">{{ s.name }}</div>
+            <div class="small text-muted">{{ s.country_name or country_name_es(s.country_code) }}</div>
           {% endif %}
         </div>
       </div>

@@ -528,3 +528,70 @@ button.song-status-item:focus {
   padding: .95rem 1rem;
   background: #fff;
 }
+
+
+.logo-country-wrap{
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.country-flag-badge{
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #fff;
+  border: 1px solid rgba(0,0,0,.12);
+  box-shadow: 0 2px 8px rgba(0,0,0,.14);
+  font-size: 14px;
+  line-height: 1;
+  z-index: 2;
+}
+.select2-country-flag{
+  display: inline-block;
+  width: 1.8rem;
+  margin-right: .35rem;
+  text-align: center;
+}
+.marketing-option-card{
+  cursor: pointer;
+  border: 1px solid rgba(0,0,0,.12);
+  border-radius: 16px;
+  padding: 1rem;
+  text-align: center;
+  min-height: 120px;
+  background: #fff;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.marketing-option-card:hover,
+.marketing-option-card:has(input:checked){
+  border-color: var(--brand-primary, #0d6efd);
+  box-shadow: 0 .5rem 1rem rgba(0,0,0,.08);
+  transform: translateY(-1px);
+}
+.marketing-option-card input{ margin-bottom: .5rem; }
+.marketing-option-card i{ font-size: 1.65rem; display: block; margin-bottom: .5rem; }
+.marketing-action-card{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 18px;
+  background: #fff;
+  padding: 1rem;
+}
+.marketing-action-card.is-unconsolidated{
+  background: #f8f9fa;
+}
+.marketing-split-euro{
+  display:inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items:center;
+  justify-content:center;
+  border-radius:999px;
+  border:1px solid rgba(0,0,0,.08);
+  background:#fff7e6;
+}

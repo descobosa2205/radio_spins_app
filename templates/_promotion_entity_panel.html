@@ -1,11 +1,11 @@
 <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
   <div>
-    <h5 class="mb-0">Promoción</h5>
-    <div class="text-muted small">Solicita y consulta las acciones promocionales vinculadas a esta ficha.</div>
+    <h5 class="mb-0">Marketing</h5>
+    <div class="text-muted small">Solicita campañas y consulta las acciones de marketing vinculadas a esta ficha.</div>
   </div>
-  {% if has_access_key('promocion', edit=True, include_descendants=True) %}
+  {% if has_access_key('promocion', edit=True, include_descendants=True) or has_access_key('marketing', edit=True, include_descendants=True) %}
     <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#promotionRequestModal{{ promotion_source_type|lower }}{{ promotion_source_id|string|replace('-', '') }}">
-      <i class="fa fa-bullhorn me-1"></i> Solicitar promoción
+      <i class="fa fa-bullhorn me-1"></i> Solicitar campaña de marketing
     </button>
   {% endif %}
 </div>
@@ -23,17 +23,16 @@
                   <img src="{{ item.cover_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between gap-2 flex-wrap">
-                      <div>
-                        <div class="fw-semibold">{{ item.title }}</div>
-                        <div class="small text-muted">{{ item.subtitle or item.kind_label }}</div>
-                      </div>
-                      <div class="text-end">
-                        <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
-                        <div class="small text-muted mt-1">{{ item.date_label }}</div>
-                      </div>
+                      <div><div class="fw-semibold">{{ item.title }}</div><div class="small text-muted">{{ item.subtitle or item.kind_label }}</div></div>
+                      <div class="text-end"><span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span><div class="small text-muted mt-1">{{ item.date_label }}</div></div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-1 my-2">
+                      <span class="badge text-bg-light border">{{ item.request_kind_label }}</span>
+                      {% for label in item.action_labels %}<span class="badge text-bg-light border">{{ label }}</span>{% endfor %}
+                      <span class="badge text-bg-light border">{{ item.budget_label }}</span>
+                      <span class="badge text-bg-light border">{{ item.period_label }}</span>
                     </div>
                     {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
-                    {% if item.budget_notes %}<div class="small text-muted"><strong>Presupuesto:</strong> {{ item.budget_notes }}</div>{% endif %}
                     {% if item.rejection_reason %}<div class="small text-danger"><strong>Motivo rechazo:</strong> {{ item.rejection_reason }}</div>{% endif %}
                   </div>
                 </div>
@@ -41,7 +40,7 @@
             {% endfor %}
           </div>
         {% else %}
-          <div class="alert alert-light border mb-0">No hay solicitudes de promoción registradas para esta ficha.</div>
+          <div class="alert alert-light border mb-0">No hay solicitudes de marketing registradas para esta ficha.</div>
         {% endif %}
       </div>
     </div>
@@ -49,7 +48,7 @@
   <div class="col-12 col-xl-6">
     <div class="card h-100">
       <div class="card-body">
-        <div class="fw-semibold mb-3">Promociones</div>
+        <div class="fw-semibold mb-3">Campañas y acciones</div>
         {% if promotion_entries_display %}
           <div class="list-group list-group-flush">
             {% for item in promotion_entries_display %}
@@ -58,15 +57,10 @@
                   <img src="{{ item.cover_url }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
                   <div class="flex-grow-1">
                     <div class="d-flex justify-content-between gap-2 flex-wrap">
-                      <div>
-                        <div class="fw-semibold">{{ item.title }}</div>
-                        <div class="small text-muted">{{ item.subtitle or item.kind_label }}</div>
-                      </div>
-                      <div class="text-end">
-                        <span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span>
-                        <div class="small text-muted mt-1">{{ item.date_label }}</div>
-                      </div>
+                      <div><div class="fw-semibold">{{ item.title }}</div><div class="small text-muted">{{ item.subtitle or item.kind_label }}</div></div>
+                      <div class="text-end"><span class="badge {{ item.status_badge.class }}">{{ item.status_badge.label }}</span><div class="small text-muted mt-1">{{ item.date_label }}</div></div>
                     </div>
+                    <div class="d-flex flex-wrap gap-1 my-2">{% for label in item.action_labels %}<span class="badge text-bg-light border">{{ label }}</span>{% endfor %}<span class="badge text-bg-light border">{{ item.period_label }}</span></div>
                     {% if item.objectives_notes %}<div class="small mt-2"><strong>Objetivos:</strong> {{ item.objectives_notes }}</div>{% endif %}
                     {% if item.company_label %}<div class="small text-muted">Empresa: {{ item.company_label }}</div>{% endif %}
                   </div>
@@ -75,49 +69,36 @@
             {% endfor %}
           </div>
         {% else %}
-          <div class="alert alert-light border mb-0">Todavía no hay promociones creadas para esta ficha.</div>
+          <div class="alert alert-light border mb-0">Todavía no hay campañas de marketing creadas para esta ficha.</div>
         {% endif %}
       </div>
     </div>
   </div>
 </div>
 
-{% if has_access_key('promocion', edit=True, include_descendants=True) %}
+{% if has_access_key('promocion', edit=True, include_descendants=True) or has_access_key('marketing', edit=True, include_descendants=True) %}
 <div class="modal fade" id="promotionRequestModal{{ promotion_source_type|lower }}{{ promotion_source_id|string|replace('-', '') }}" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-lg">
+  <div class="modal-dialog modal-dialog-centered modal-xl modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('promotion_request_create') }}">
-      <div class="modal-header">
-        <h5 class="modal-title">Solicitar promoción</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
+      <div class="modal-header"><h5 class="modal-title">Solicitar campaña de marketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
       <div class="modal-body">
         <input type="hidden" name="source_type" value="{{ promotion_source_type }}">
         <input type="hidden" name="source_id" value="{{ promotion_source_id }}">
         <input type="hidden" name="next" value="{{ request.url }}">
-
-        <div class="border rounded p-3 bg-light-subtle mb-3">
-          <div class="d-flex gap-3 align-items-center">
-            <img src="{{ promotion_source_snapshot.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #eee;background:#fff;">
-            <div>
-              <div class="fw-semibold">{{ promotion_source_snapshot.title or 'Elemento' }}</div>
-              <div class="text-muted small">{{ promotion_source_snapshot.kind_label or promotion_source_type }} · {{ promotion_source_snapshot.subtitle or promotion_source_snapshot.artist_label or '' }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="mb-3">
-          <label class="form-label">Objetivos de la promoción</label>
-          <textarea class="form-control" name="objectives_notes" rows="4" placeholder="Describe qué se busca conseguir con esta promoción"></textarea>
-        </div>
-        <div>
-          <label class="form-label">Notas de presupuesto</label>
-          <textarea class="form-control" name="budget_notes" rows="3" placeholder="Límites, observaciones o necesidades de presupuesto"></textarea>
+        <div class="border rounded p-3 bg-light-subtle mb-4"><div class="d-flex gap-3 align-items-center"><img src="{{ promotion_source_snapshot.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:72px;height:72px;object-fit:cover;border-radius:14px;border:1px solid #eee;background:#fff;"><div><div class="fw-semibold">{{ promotion_source_snapshot.title or 'Elemento' }}</div><div class="text-muted small">{{ promotion_source_snapshot.kind_label or promotion_source_type }} · {{ promotion_source_snapshot.subtitle or promotion_source_snapshot.artist_label or '' }}</div></div></div></div>
+        <div class="row g-4">
+          <div class="col-12"><label class="form-label">Qué se solicita</label><div class="row g-2"><div class="col-md-6"><label class="marketing-option-card w-100"><input type="radio" name="request_kind" value="PLAN" checked><i class="fa fa-diagram-project"></i>Plan de marketing completo</label></div><div class="col-md-6"><label class="marketing-option-card w-100"><input type="radio" name="request_kind" value="ACTION"><i class="fa fa-bullseye"></i>Acción concreta</label></div></div></div>
+          <div class="col-12"><label class="form-label">Tipo de acciones a incluir</label><div class="row g-2">{% for key,label,icon in marketing_action_types %}<div class="col-6 col-lg-3"><label class="marketing-option-card w-100"><input type="checkbox" name="action_types" value="{{ key }}"><i class="fa {{ icon }}"></i>{{ label }}</label></div>{% endfor %}</div></div>
+          <div class="col-12"><label class="form-label">Objetivos generales o específicos</label><textarea class="form-control" name="objectives_notes" rows="4" placeholder="Describe qué se busca conseguir con la campaña o acción"></textarea></div>
+          <div class="col-md-4"><label class="form-label">Presupuesto</label><select class="form-select" name="budget_mode"><option value="REQUEST_BUDGET">Pedir presupuesto</option><option value="MAX_AMOUNT">Presupuesto máximo</option></select></div>
+          <div class="col-md-4"><label class="form-label">Presupuesto máximo global</label><input type="number" step="0.01" name="budget_max" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label">Notas de presupuesto</label><input type="text" name="budget_notes" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="starts_on" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="ends_on" class="form-control"></div>
+          <div class="col-md-4"><label class="form-label">Notas de plazo</label><input type="text" name="deadline_notes" class="form-control"></div>
         </div>
       </div>
-      <div class="modal-footer">
-        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button class="btn btn-primary">Enviar solicitud</button>
-      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar solicitud</button></div>
     </form>
   </div>
 </div>

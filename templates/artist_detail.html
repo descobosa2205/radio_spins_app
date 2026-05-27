@@ -81,9 +81,9 @@
   {% endif %}
   {% if has_access_key('artists.promocion', include_descendants=True) %}
     <li class="nav-item">
-      <a class="nav-link {% if tab=='promocion' %}active{% endif %}"
-         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='promocion') }}">
-        Promoción
+      <a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}"
+         href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='marketing') }}">
+        Marketing
       </a>
     </li>
   {% endif %}
@@ -760,7 +760,7 @@
   {% endif %}
 
 {# ===================== TAB: PROMOCIÓN ===================== #}
-{% elif tab == 'promocion' %}
+{% elif tab in ['promocion','marketing'] %}
 
   {% include "_promotion_entity_panel.html" %}
 

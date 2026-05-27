@@ -56,7 +56,7 @@
     ('canciones','Canciones','discografica.canciones'),
     ('materiales','Materiales','discografica.canciones'),
     ('beneficiarios','Beneficiarios','discografica.royalties'),
-    ('promocion','Promoción','promocion')
+    ('marketing','Marketing','promocion')
   ] %}
   {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
     <li class="nav-item">
@@ -1183,7 +1183,7 @@
       </div>
     {% endif %}
 
-  {% elif tab == 'promocion' %}
+  {% elif tab in ['promocion','marketing'] %}
 
     {% include "_promotion_entity_panel.html" %}
 

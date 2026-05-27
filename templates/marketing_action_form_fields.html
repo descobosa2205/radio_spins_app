@@ -1,0 +1,113 @@
+{% set row = edit_row if edit_row is defined else none %}
+{% set target = row.media_target_json if row else {} %}
+{% set details = row.details_json if row else {} %}
+<div class="row g-4">
+  <div class="col-12">
+    <label class="form-label fw-semibold">Tipo de acción</label>
+    <div class="row g-2">
+      {% for key,label,icon in marketing_action_types %}
+        <div class="col-6 col-lg-3">
+          <label class="marketing-option-card w-100">
+            <input type="radio" name="action_type" value="{{ key }}" {% if (row and (row.action_type or row.media_type) == key) or ((not row) and loop.first) %}checked{% endif %}>
+            <i class="fa {{ icon }}"></i>{{ label }}
+          </label>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <label class="form-label">Medio existente (Radio, TV o Prensa)</label>
+    <select class="form-select select-with-thumbs" name="media_id">
+      <option value="">Sin medio concreto / crear después</option>
+      {% for outlet in media_outlets %}
+        <option value="{{ outlet.id }}" data-photo="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" data-type="{{ outlet.media_type }}" {% if row and row.media_id == outlet.id %}selected{% endif %}>{{ outlet.media_type }} · {{ outlet.name }}{% if (outlet.country_code or 'ES') != 'ES' %} · {{ outlet.country_name }}{% endif %}</option>
+      {% endfor %}
+    </select>
+    <div class="form-text">La búsqueda lee el nombre, tipo y país del medio. También puedes crear un medio rápido desde aquí si aún no existe.</div>
+    <div class="border rounded p-3 mt-3 bg-light-subtle">
+      <div class="fw-semibold small mb-2"><i class="fa fa-plus me-1"></i>Crear medio rápido</div>
+      <div class="row g-2">
+        <div class="col-md-6"><input class="form-control" name="new_media_name" placeholder="Nombre del nuevo medio"></div>
+        <div class="col-md-6"><select class="form-select" name="new_media_type">{% for type in media_types|default(['TV','Radio','Prensa','Digital','Agencia','Podcast']) %}<option value="{{ type }}">{{ type }}</option>{% endfor %}</select></div>
+        <div class="col-md-6"><select class="form-select select-country" name="country_code">{% for country in country_options_es() %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-6"><input type="file" class="form-control" name="new_media_logo" accept="image/png"></div>
+        <div class="col-12"><input class="form-control" name="new_media_address" placeholder="Dirección / ciudad"></div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-6">
+    <label class="form-label">Proveedor / tercero</label>
+    <select class="form-select select-with-thumbs" name="provider_id">
+      <option value="">Sin proveedor asignado</option>
+      {% for provider in promoters %}
+        <option value="{{ provider.id }}" data-photo="{{ provider.logo_url or url_for('static', filename='img/default_promoter.png') }}" {% if row and row.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-12 col-lg-6">
+    <label class="form-label">Sociedad del proveedor</label>
+    <select class="form-select" name="provider_company_id">
+      <option value="">Sin sociedad concreta</option>
+      {% for company in promoter_companies %}
+        <option value="{{ company.id }}" {% if row and row.provider_company_id == company.id %}selected{% endif %}>{{ company.legal_name or company.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-12 col-lg-6">
+    <label class="form-label">Destino alternativo</label>
+    <div class="row g-2">
+      <div class="col-md-6"><input class="form-control" name="city" placeholder="Ciudad / exterior" value="{{ target.city or '' }}"></div>
+      <div class="col-md-6"><input class="form-control" name="platform" placeholder="Plataforma concreta" value="{{ target.platform or '' }}"></div>
+      <div class="col-md-6"><select class="form-select" name="digital_platform"><option value="">Red digital</option>{% for name in marketing_digital_platforms %}<option value="{{ name }}" {% if target.digital_platform == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></div>
+      <div class="col-md-6"><input class="form-control" name="media_name_fallback" placeholder="Otro medio / soporte" value="{{ target.media_name_fallback or target.other_name or '' }}"></div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label fw-semibold">Publicidad exterior</label>
+    <div class="row g-2">
+      {% for key,label,icon in marketing_exterior_subtypes %}
+        <div class="col-6 col-lg-4"><label class="marketing-option-card w-100"><input type="radio" name="exterior_subtype" value="{{ key }}" {% if row and row.exterior_subtype == key %}checked{% endif %}><i class="fa {{ icon }}"></i>{{ label }}</label></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="col-12">
+    <label class="form-label">Descripción de la acción</label>
+    <textarea class="form-control" name="task_description" rows="3" placeholder="Describe en qué consiste la acción">{{ row.task_description if row else '' }}</textarea>
+  </div>
+
+  <div class="col-md-4"><label class="form-label">Modo de ejecución</label><select name="execution_mode" class="form-select"><option value="PERIODO" {% if not row or row.execution_mode == 'PERIODO' %}selected{% endif %}>Un solo periodo</option><option value="OLEADAS" {% if row and row.execution_mode == 'OLEADAS' %}selected{% endif %}>Por oleadas</option></select></div>
+  <div class="col-md-4"><label class="form-label">Desde</label><input type="date" name="start_date" class="form-control" value="{{ row.activity_date.isoformat() if row and row.activity_date else '' }}"></div>
+  <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" name="end_date" class="form-control" value="{{ details.end_date or '' }}"></div>
+  <div class="col-12">
+    <label class="form-label">Oleadas</label>
+    <div class="row g-2">
+      {% set waves = row.waves_json if row and row.waves_json else [] %}
+      {% for wave in waves[:3] %}
+        <div class="col-md-3"><input type="date" name="wave_start" class="form-control" value="{{ wave.start or '' }}"></div>
+        <div class="col-md-3"><input type="date" name="wave_end" class="form-control" value="{{ wave.end or '' }}"></div>
+        <div class="col-md-6"><input type="text" name="wave_note" class="form-control" placeholder="Nota de oleada" value="{{ wave.note or '' }}"></div>
+      {% endfor %}
+      {% for i in range(3 - (waves|length if waves else 0)) %}
+        <div class="col-md-3"><input type="date" name="wave_start" class="form-control"></div>
+        <div class="col-md-3"><input type="date" name="wave_end" class="form-control"></div>
+        <div class="col-md-6"><input type="text" name="wave_note" class="form-control" placeholder="Nota de oleada"></div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="col-md-3"><label class="form-label">Documento</label><select name="document_type" class="form-select"><option value="FACTURA" {% if not row or row.document_type == 'FACTURA' %}selected{% endif %}>Factura</option><option value="TICKET" {% if row and row.document_type == 'TICKET' %}selected{% endif %}>Ticket</option><option value="SIN_DOCUMENTO" {% if row and row.document_type == 'SIN_DOCUMENTO' %}selected{% endif %}>Sin ticket/factura</option></select></div>
+  <div class="col-md-3"><label class="form-label">Nº factura</label><input class="form-control" name="invoice_number" value="{{ row.invoice_number if row else '' }}"></div>
+  <div class="col-md-3"><label class="form-label">Fecha emisión</label><input type="date" class="form-control" name="issue_date" value="{{ row.issue_date.isoformat() if row and row.issue_date else '' }}"></div>
+  <div class="col-md-3"><label class="form-label">Subir factura/ticket</label><input type="file" class="form-control" name="document"></div>
+
+  <div class="col-md-4"><label class="form-label">Importe sin IVA</label><input type="number" step="0.01" name="amount_net" class="form-control" value="{{ row.amount_net if row else '' }}"></div>
+  <div class="col-md-4"><label class="form-label">IVA</label><input type="number" step="0.01" name="amount_tax" class="form-control" value="{{ row.amount_tax if row else '' }}"></div>
+  <div class="col-md-4"><label class="form-label">Importe con IVA</label><input type="number" step="0.01" name="amount_gross" class="form-control" value="{{ row.amount_gross if row else '' }}"></div>
+
+  <div class="col-md-4"><label class="form-label">Presupuesto agrupado</label><input class="form-control" name="budget_group_key" value="{{ row.budget_group_key if row else '' }}" placeholder="Clave o nombre del grupo"></div>
+  <div class="col-md-4"><label class="form-label">Reparto</label><select class="form-select" name="allocation_mode"><option value="SOURCE" {% if not row or row.allocation_mode == 'SOURCE' %}selected{% endif %}>Asignar solo a esta campaña</option><option value="SPLIT_ACTIVITIES" {% if row and row.allocation_mode == 'SPLIT_ACTIVITIES' %}selected{% endif %}>Repartir con otras actividades</option><option value="ARTIST_INVESTMENT" {% if row and row.allocation_mode == 'ARTIST_INVESTMENT' %}selected{% endif %}>Inversión de artista</option></select></div>
+  <div class="col-md-4"><label class="form-label">Nota de reparto</label><input class="form-control" name="allocation_note" value="{{ details.allocation_note or '' }}"></div>
+</div>

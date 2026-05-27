@@ -89,7 +89,10 @@
                     {% set pos_diff = (prev_pos - cur_pos) if (cur_pos and prev_pos) else None %}
                     <div class="d-flex align-items-center border rounded p-2">
                       <a href="{{ url_for('station_summary', station_id=st_id, week=base_week.isoformat()) }}" title="Ver resumen de {{ st.name }}">
-                        <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo me-2" alt="">
+                        <span class="logo-country-wrap me-2">
+                          <img src="{{ st.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo" alt="">
+                          {% if (st.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ st.country_name or country_name_es(st.country_code) }}">{{ country_flag_emoji(st.country_code) }}</span>{% endif %}
+                        </span>
                       </a>
                       <div>
                         <div>

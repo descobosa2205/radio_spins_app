@@ -31,7 +31,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Información general</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'promocion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='promocion') }}">Promoción</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='marketing') }}">Marketing</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha de contratación</a></li>
 </ul>
 
@@ -485,7 +485,7 @@
         </div>
       </div>
     {% endif %}
-  {% elif tab == 'promocion' %}
+  {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
   {% elif tab == 'invitations' %}
     <div class="row g-3">

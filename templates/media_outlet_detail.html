@@ -9,11 +9,17 @@
 
 <div class="artist-hero mb-3">
   <div class="d-flex flex-wrap gap-3 align-items-center">
-    <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="{{ outlet.name }}">
+    <span class="logo-country-wrap flex-shrink-0">
+      <img src="{{ outlet.logo_url or url_for('static', filename='img/logo.png') }}" class="artist-hero-photo" alt="{{ outlet.name }}">
+      {% if (outlet.country_code or 'ES') != 'ES' %}
+        <span class="country-flag-badge" title="{{ outlet.country_name or country_name_es(outlet.country_code) }}">{{ country_flag_emoji(outlet.country_code) }}</span>
+      {% endif %}
+    </span>
     <div class="flex-grow-1">
       <h3 class="m-0">{{ outlet.name }}</h3>
       <div class="small text-muted">{{ outlet.address or 'Sin dirección' }}</div>
       <span class="badge text-bg-light border mt-2">{{ outlet.media_type }}</span>
+      {% if (outlet.country_code or 'ES') != 'ES' %}<span class="badge text-bg-light border mt-2">{{ outlet.country_name or country_name_es(outlet.country_code) }}</span>{% endif %}
     </div>
   </div>
 </div>
@@ -25,6 +31,7 @@
       <div class="col-md-4"><label class="form-label">Tipo</label><select name="media_type" class="form-select">{% for option in media_types %}<option value="{{ option }}" {% if option == outlet.media_type %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
       <div class="col-md-4"><label class="form-label">Nombre</label><input type="text" name="name" class="form-control" value="{{ outlet.name }}"></div>
       <div class="col-md-4"><label class="form-label">Logotipo PNG</label><input type="file" name="logo" class="form-control" accept="image/png"></div>
+      <div class="col-md-4"><label class="form-label">País</label><select name="country_code" class="form-select select-country">{% for country in country_options %}<option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == (outlet.country_code or 'ES') %}selected{% endif %}>{{ country.name }}</option>{% endfor %}</select></div>
       <div class="col-12"><label class="form-label">Dirección</label><input type="text" name="address" class="form-control" value="{{ outlet.address or '' }}"></div>
       <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar datos básicos</button></div>
     </form>
@@ -124,7 +131,7 @@
       </div>
       <div class="col-md-2"><label class="form-label">Desde</label><input type="date" name="start" class="form-control" value="{{ filter_start }}"></div>
       <div class="col-md-2"><label class="form-label">Hasta</label><input type="date" name="end" class="form-control" value="{{ filter_end }}"></div>
-      <div class="col-md-4"><label class="form-label">Buscar</label><input type="text" name="search" class="form-control" value="{{ filter_search }}" placeholder="Programa, promoción, canción..."></div>
+      <div class="col-md-4"><label class="form-label">Buscar</label><input type="text" name="search" class="form-control" value="{{ filter_search }}" placeholder="Programa, marketing, canción..."></div>
       <div class="col-12 d-flex justify-content-end gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='historico') }}">Limpiar</a><button class="btn btn-primary">Filtrar</button></div>
     </div>
   </form>
@@ -134,7 +141,7 @@
       <form method="post" class="row g-2">
         <input type="hidden" name="mode" value="add_history">
         <div class="col-md-3"><select name="artist_id" class="form-select"><option value="">Artista</option>{% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}</select></div>
-        <div class="col-md-3"><input type="text" name="promotion_title" class="form-control" placeholder="Promoción"></div>
+        <div class="col-md-3"><input type="text" name="promotion_title" class="form-control" placeholder="Marketing"></div>
         <div class="col-md-2"><input type="text" name="program_name" class="form-control" placeholder="Programa"></div>
         <div class="col-md-2"><input type="date" name="promoted_at" class="form-control"></div>
         <div class="col-md-2"><input type="text" name="performed_song" class="form-control" placeholder="Qué cantó"></div>
@@ -148,19 +155,19 @@
     {% for row in history_rows %}
       {% if row.promotion_id %}
         <a href="{{ url_for('promotion_detail_view', promotion_id=row.promotion_id) }}" class="list-group-item list-group-item-action">
-          <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
+          <div class="fw-semibold">{{ row.promotion_title or 'Marketing' }}</div>
           <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
           <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
         </a>
       {% else %}
         <div class="list-group-item">
-          <div class="fw-semibold">{{ row.promotion_title or 'Promoción' }}</div>
+          <div class="fw-semibold">{{ row.promotion_title or 'Marketing' }}</div>
           <div class="small text-muted">{{ row.promoted_at.strftime('%d/%m/%Y') if row.promoted_at else '—' }} · {{ row.program_name or 'Sin programa' }} · {{ row.artist.name if row.artist else 'Sin artista' }}</div>
           <div class="small mt-2">{% if row.artist_performed %}Cantó{% if row.performed_song %}: {{ row.performed_song }}{% endif %}{% else %}No cantó{% endif %}</div>
         </div>
       {% endif %}
     {% else %}
-      <div class="alert alert-light border">No hay promociones registradas para este medio.</div>
+      <div class="alert alert-light border">No hay acciones de marketing registradas para este medio.</div>
     {% endfor %}
   </div>
 {% endif %}

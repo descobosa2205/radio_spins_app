@@ -97,7 +97,7 @@
     ('royalties','Royalties','discografica.royalties'),
     ('ingresos','Ingresos','discografica.ingresos'),
     ('gastos','Gastos','contabilidad'),
-    ('promocion','Promoción','promocion'),
+    ('marketing','Marketing','promocion'),
     ('radio','Radio','radio.reportes')
   ] %}
   {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
@@ -2445,7 +2445,10 @@
                   <tr>
                     <td>
                       <div class="d-flex align-items-center gap-2">
-                        <img src="{{ row.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+                        <span class="logo-country-wrap">
+                          <img src="{{ row.logo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+                          {% if (row.country_code or 'ES') != 'ES' %}<span class="country-flag-badge" title="{{ row.country_name or country_name_es(row.country_code) }}">{{ country_flag_emoji(row.country_code) }}</span>{% endif %}
+                        </span>
                         <div class="fw-semibold">{{ row.name }}</div>
                       </div>
                     </td>
@@ -2466,7 +2469,7 @@
       </div>
     </div>
 
-  {% elif tab == 'promocion' %}
+  {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
   {% else %}
     {% set ns = namespace(lbl='') %}

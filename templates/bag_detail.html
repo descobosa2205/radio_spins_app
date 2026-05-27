@@ -1,8 +1,15 @@
 {% extends "layout.html" %}
 {% block content %}
+{% set bag_status_upper = (bag.status or '')|upper %}
+{% set can_edit_bag = bag_status_upper not in ['CERRADA', 'LIQUIDADA', 'ARCHIVADA'] %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <a href="{{ url_for('bags_view', tab='archived' if bag.is_archived else 'active') }}" class="btn btn-outline-secondary"><i class="fa fa-arrow-left me-1"></i> Volver</a>
-  <div class="d-flex gap-2">
+  <div class="d-flex gap-2 flex-wrap">
+    {% if can_close_bag %}
+      <form method="post" action="{{ url_for('bag_close', bag_id=bag.id) }}" onsubmit="return confirm('¿Cerrar esta bolsa? Ya no se podrá editar y pasará a administración para liquidación.');">
+        <button class="btn btn-success"><i class="fa fa-lock me-1"></i>Cerrar bolsa</button>
+      </form>
+    {% endif %}
     {% if bag.is_archived %}
       <form method="post" action="{{ url_for('bag_restore', bag_id=bag.id) }}"><input type="hidden" name="next" value="{{ request.path }}"><button class="btn btn-outline-success">Reactivar</button></form>
     {% else %}
@@ -11,58 +18,416 @@
   </div>
 </div>
 
-<div class="artist-hero mb-3">
-  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-    <div>
-      <h3 class="m-0">{{ bag.title }}</h3>
-      <div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · {{ bag.company.name if bag.company else 'Sin empresa' }}</div>
-      <div class="small text-muted">{{ bag.start_date.strftime('%d/%m/%Y') if bag.start_date else 'Sin inicio' }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}</div>
-    </div>
-    <span class="badge text-bg-light border">{{ bag.status }}</span>
-  </div>
-</div>
-
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" class="row g-3">
-      <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" value="{{ bag.title }}"></div>
-      <div class="col-md-3"><label class="form-label">Artista</label><select name="artist_id" class="form-select"><option value="">Sin artista</option>{% for artist in artists %}<option value="{{ artist.id }}" {% if bag.artist_id == artist.id %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">Empresa</label><select name="company_id" class="form-select"><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}" {% if bag.company_id == company.id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
-      <div class="col-md-3"><label class="form-label">Inicio</label><input type="date" name="start_date" class="form-control" value="{{ bag.start_date.isoformat() if bag.start_date else '' }}"></div>
-      <div class="col-md-3"><label class="form-label">Fin</label><input type="date" name="end_date" class="form-control" value="{{ bag.end_date.isoformat() if bag.end_date else '' }}"></div>
-      <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select">{% for option in bag_status_options %}<option value="{{ option }}" {% if bag.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
-      <div class="col-12"><label class="form-label">Descripción</label><textarea name="description" class="form-control" rows="3">{{ bag.description or '' }}</textarea></div>
-      <div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar bolsa</button></div>
-    </form>
-  </div>
-</div>
-
-<div class="card">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center mb-3">
-      <h5 class="mb-0">Facturas vinculadas</h5>
-      <a href="{{ url_for('invoices_view') }}" class="btn btn-sm btn-outline-secondary">Ir a facturas</a>
-    </div>
-    {% if invoices %}
-      <div class="table-responsive">
-        <table class="table align-middle">
-          <thead><tr><th>Número</th><th>Tercero</th><th>Fecha</th><th>Estado</th><th class="text-end">Importe</th></tr></thead>
-          <tbody>
-            {% for inv in invoices %}
-              <tr>
-                <td>{{ inv.invoice_number }}</td>
-                <td>{{ inv.third_party_name }}</td>
-                <td>{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td>
-                <td><span class="badge text-bg-light border">{{ inv.status }}</span></td>
-                <td class="text-end">{{ inv.total_amount | eur }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
+<div class="card shadow-sm mb-3 border-0" style="border-radius:18px;overflow:hidden;">
+  <div class="card-body p-4 bg-light-subtle">
+    <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+      <div class="d-flex gap-3 align-items-center flex-wrap">
+        <div class="d-flex" style="margin-right:6px;">
+          {% for artist in bag_artists[:5] %}
+            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="{{ artist.name }}" title="{{ artist.name }}" class="rounded-circle border bg-white" style="width:58px;height:58px;object-fit:cover;margin-right:-10px;">
+          {% else %}
+            <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Sin artista" class="rounded-circle border bg-white" style="width:58px;height:58px;object-fit:cover;">
+          {% endfor %}
+        </div>
+        <div>
+          <h3 class="m-0">{{ bag.title }}</h3>
+          <div class="text-muted">{% if bag_artists %}{{ bag_artists|map(attribute='name')|join(', ') }}{% else %}Sin artista vinculado{% endif %}</div>
+          <div class="small text-muted">
+            {{ bag.linked_title or 'Sin vínculo concreto' }} · {{ bag.company.name if bag.company else 'Sin empresa' }} · {{ bag.start_date.strftime('%d/%m/%Y') if bag.start_date else 'Sin fecha' }}{% if bag.end_date %} → {{ bag.end_date.strftime('%d/%m/%Y') }}{% endif %}
+          </div>
+        </div>
       </div>
-    {% else %}
-      <div class="alert alert-light border mb-0">Todavía no hay facturas vinculadas a esta bolsa.</div>
-    {% endif %}
+      <div class="text-end">
+        <span class="badge text-bg-light border">{{ bag.status }}</span>
+        <span class="badge text-bg-light border">{{ bag.bag_type or 'GENERAL' }}</span>
+        <div class="small text-muted mt-2">Liquidación: {{ bag.liquidation_status or 'NO_INICIADA' }}</div>
+      </div>
+    </div>
   </div>
 </div>
+
+<div class="row g-3 mb-4">
+  <div class="col-12 col-xl-7">
+    <div class="card h-100">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Datos de la bolsa</strong><span class="small text-muted">Módulo 1</span></div>
+      <div class="card-body">
+        <form method="post" class="row g-3">
+          <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" value="{{ bag.title }}" {% if not can_edit_bag %}readonly{% endif %}></div>
+          <div class="col-md-3"><label class="form-label">Tipo</label><select name="bag_type" class="form-select" {% if not can_edit_bag %}disabled{% endif %}>{% for value,label in bag_types %}<option value="{{ value }}" {% if bag.bag_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select" {% if not can_edit_bag %}disabled{% endif %}>{% for option in bag_status_options %}<option value="{{ option }}" {% if bag.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label class="form-label">Artistas</label><select name="artist_ids" class="form-select" multiple size="5" {% if not can_edit_bag %}disabled{% endif %}>{% for artist in artists %}<option value="{{ artist.id }}" {% if (artist.id|string) in bag_artist_id_strings %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label class="form-label">Empresa</label><select name="company_id" class="form-select" {% if not can_edit_bag %}disabled{% endif %}><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}" {% if bag.company_id == company.id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
+          <div class="col-md-4"><label class="form-label">Tipo de vínculo</label><input type="text" name="linked_type" class="form-control" value="{{ bag.linked_type or '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>
+          <div class="col-md-8"><label class="form-label">Datos básicos del vínculo</label><input type="text" name="linked_title" class="form-control" value="{{ bag.linked_title or '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>
+          <div class="col-md-3"><label class="form-label">Inicio</label><input type="date" name="start_date" class="form-control" value="{{ bag.start_date.isoformat() if bag.start_date else '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>
+          <div class="col-md-3"><label class="form-label">Fin</label><input type="date" name="end_date" class="form-control" value="{{ bag.end_date.isoformat() if bag.end_date else '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>
+          <div class="col-12"><label class="form-label">Descripción</label><textarea name="description" class="form-control" rows="2" {% if not can_edit_bag %}readonly{% endif %}>{{ bag.description or '' }}</textarea></div>
+          <div class="col-12"><label class="form-label">Indicaciones económicas</label><textarea name="economic_indications" class="form-control" rows="3" {% if not can_edit_bag %}readonly{% endif %}>{{ bag.economic_indications or '' }}</textarea></div>
+          {% if can_edit_bag %}<div class="col-12 d-flex justify-content-end"><button class="btn btn-primary">Guardar bolsa</button></div>{% endif %}
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-xl-5">
+    <div class="card mb-3">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Notas</strong><span class="small text-muted">Módulo 2</span></div>
+      <div class="card-body">
+        {% if bag.notes %}
+          {% for group in bag.notes|groupby('note_type') %}
+            <div class="mb-3">
+              <div class="small text-uppercase text-muted fw-semibold mb-2">{{ group.grouper }}</div>
+              {% for note in group.list %}
+                <div class="border rounded-3 p-2 mb-2 bg-warning-subtle">
+                  <div class="d-flex gap-2 align-items-start">
+                    <span class="rounded-circle bg-white border d-inline-flex align-items-center justify-content-center" title="{{ note.created_by_nick or 'Usuario' }} · {{ note.created_at.strftime('%d/%m/%Y %H:%M') if note.created_at else '' }}" style="width:30px;height:30px;overflow:hidden;">
+                      {% if note.created_by_photo_url %}<img src="{{ note.created_by_photo_url }}" alt="" style="width:100%;height:100%;object-fit:cover;">{% else %}<i class="fa fa-user small text-muted"></i>{% endif %}
+                    </span>
+                    <div class="small flex-grow-1">{{ note.body }}</div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+        {% else %}
+          <div class="alert alert-light border">Todavía no hay notas.</div>
+        {% endif %}
+        {% if can_edit_bag %}
+          <form method="post" action="{{ url_for('bag_note_create', bag_id=bag.id) }}" class="row g-2">
+            <div class="col-md-4"><input type="text" name="note_type" class="form-control" placeholder="Tipo" value="General"></div>
+            <div class="col-md-8"><textarea name="body" class="form-control" rows="2" placeholder="Nueva nota"></textarea></div>
+            <div class="col-12 d-flex justify-content-end"><button class="btn btn-sm btn-outline-primary"><i class="fa fa-plus me-1"></i>Añadir nota</button></div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header bg-white"><strong>Resumen económico</strong></div>
+      <div class="card-body">
+        <div class="row g-2 text-center">
+          <div class="col-6"><div class="border rounded-3 p-2"><div class="small text-muted">Total bolsa</div><div class="fw-bold">{{ totals.bag|eur }}</div></div></div>
+          <div class="col-6"><div class="border rounded-3 p-2"><div class="small text-muted">Total general</div><div class="fw-bold">{{ totals.all|eur }}</div></div></div>
+          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Artista</div><div class="fw-semibold">{{ totals.artist|eur }}</div></div></div>
+          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Promotor</div><div class="fw-semibold">{{ totals.promoter|eur }}</div></div></div>
+          <div class="col-4"><div class="border rounded-3 p-2"><div class="small text-muted">Oficina</div><div class="fw-semibold">{{ totals.office|eur }}</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="m-0">Gastos</h4>
+    <div class="text-muted">Cada gasto debe tener factura/ticket o aceptación administrativa para quedar consolidado.</div>
+  </div>
+  {% if can_edit_bag %}
+    <button class="btn btn-primary open-add-expense" data-category="OTROS" data-bs-toggle="modal" data-bs-target="#addExpenseModal"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
+  {% endif %}
+</div>
+
+{% for cat_key, cat_label in bag_expense_categories %}
+  {% set expenses_in_category = grouped_expenses.get(cat_key, []) %}
+  {% if cat_key != 'PRORRATEOS' or expenses_in_category or proration_bags %}
+  <div class="card mb-3 expense-module" data-category="{{ cat_key }}">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center gap-2">
+      <div>
+        <strong>{{ cat_label }}</strong>
+        <span class="badge text-bg-light border ms-2">{{ category_totals.get(cat_key, 0)|eur }}</span>
+      </div>
+      {% if can_edit_bag and cat_key != 'PRORRATEOS' %}
+        <button class="btn btn-sm btn-outline-primary open-add-expense" data-category="{{ cat_key }}" data-bs-toggle="modal" data-bs-target="#addExpenseModal"><i class="fa fa-plus"></i></button>
+      {% endif %}
+    </div>
+    <div class="card-body p-0 expense-drop-zone" data-category="{{ cat_key }}">
+      {% if cat_key == 'PRORRATEOS' and proration_bags %}
+        <div class="p-3 border-bottom bg-light-subtle">
+          <div class="fw-semibold mb-2">Bolsas disponibles para prorratear</div>
+          <div class="row g-2">
+            {% for row in proration_bags %}
+              <div class="col-12 col-lg-6">
+                <form method="post" action="{{ url_for('bag_proration_add', bag_id=bag.id) }}" class="border rounded-3 p-2 bg-white">
+                  <input type="hidden" name="source_bag_id" value="{{ row.bag.id }}">
+                  <input type="hidden" name="pending_snapshot" value="{{ row.pending }}">
+                  <div class="d-flex justify-content-between gap-2">
+                    <div><div class="fw-semibold">{{ row.bag.title }}</div><div class="small text-muted">Pendiente: {{ row.pending|eur }} · Usado: {{ row.used|eur }}</div></div>
+                    <div style="max-width:160px;"><input type="text" name="amount" class="form-control form-control-sm" value="{{ row.suggested }}"><button class="btn btn-sm btn-outline-primary mt-2 w-100">Agregar</button></div>
+                  </div>
+                </form>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+      {% for expense in expenses_in_category %}
+        {% set exp_id = expense.id|string %}
+        {% set is_consolidated = expense.consolidation_status in bag_consolidated_statuses or expense.attachment_url %}
+        {% set pay_symbol = payment_symbols.get(exp_id, {}) %}
+        {% set counts = expense_counts.get(exp_id, {}) %}
+        <div class="expense-row p-3 border-bottom {% if not is_consolidated %}bg-light{% endif %}" draggable="true" data-expense-id="{{ expense.id }}">
+          <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="drag-handle text-muted" title="Arrastrar para ordenar o mover"><i class="fa fa-grip-vertical"></i></span>
+                <span class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</span>
+                {% if expense.source_expense_id or expense.split_info %}<span class="badge text-bg-info" title="{% if expense.split_info and expense.split_info.get('rows') %}{% for row in expense.split_info.get('rows') %}{{ row.bag_title }}: {{ row.amount|eur }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}Gasto dividido{% endif %}"><i class="fa fa-code-branch me-1"></i>Dividido</span>{% endif %}
+                {% if not is_consolidated %}<span class="badge text-bg-secondary">Sin consolidar</span>{% endif %}
+                {% if expense.consolidation_status == 'SIN_FACTURA_RECHAZADO' %}<span class="text-danger" title="{{ expense.no_invoice_rejection_reason or 'Rechazado por administración' }}"><i class="fa fa-triangle-exclamation"></i></span>{% endif %}
+                {% if expense.covered_by != 'BOLSA' %}<span class="badge text-bg-warning">{{ bag_covered_by_labels.get(expense.covered_by, expense.covered_by) }}</span>{% endif %}
+              </div>
+              <div class="small text-muted mt-1">
+                <span title="{{ expense.provider_company.legal_name if expense.provider_company else '' }}">{{ expense.provider.nick if expense.provider else (expense.ticket_establishment or 'Sin proveedor') }}</span>
+                · <span class="badge text-bg-light border">{{ expense.document_type }}</span>
+                {% if expense.invoice_number %} · Nº {{ expense.invoice_number }}{% endif %}
+                {% if expense.issue_date %} · {{ expense.issue_date.strftime('%d/%m/%Y') }}{% endif %}
+              </div>
+              {% if expense.alerts %}
+                {% for alert in expense.alerts if not alert.is_done %}
+                  <div class="small mt-2 p-2 rounded border {% if alert.alert_date <= today %}bg-warning-subtle{% else %}bg-light-subtle{% endif %}">
+                    <form method="post" action="{{ url_for('bag_expense_alert_done', bag_id=bag.id, expense_id=expense.id, alert_id=alert.id) }}" class="d-inline">
+                      <button class="btn btn-sm btn-outline-success py-0" title="Marcar vista/ejecutada"><i class="fa fa-thumbs-up"></i></button>
+                    </form>
+                    <i class="fa fa-bell ms-1 me-1"></i>{{ alert.alert_date.strftime('%d/%m/%Y') }} · {{ alert.body or 'Alerta' }}
+                  </div>
+                {% endfor %}
+              {% endif %}
+              {% if expense.notes %}
+                <div class="mt-2">
+                  {% for note in expense.notes %}
+                    <div class="small border-start ps-2 mb-1"><i class="fa fa-note-sticky text-muted me-1"></i>{{ note.body }} <span class="text-muted">— {{ note.created_by_nick or 'Usuario' }}</span></div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+              <div class="mt-2 d-flex gap-2 flex-wrap">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#noteExpenseModal{{ expense.id }}"><i class="fa fa-note-sticky me-1"></i>Nota{% if counts.notes %} ({{ counts.notes }}){% endif %}</button>
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#alertExpenseModal{{ expense.id }}"><i class="fa fa-bell me-1"></i>Alerta{% if counts.alerts %} ({{ counts.alerts }}){% endif %}</button>
+              </div>
+            </div>
+            <div class="text-end" style="min-width:260px;">
+              {% if expense.split_info and expense.split_info.get('source_total') %}<div class="small text-muted">Total original {{ expense.split_info.get('source_total')|eur }}</div>{% endif %}
+              <div class="row g-1 small text-muted"><div class="col">Sin IVA</div><div class="col">Con IVA</div></div>
+              <div class="row g-1 fw-semibold"><div class="col">{{ expense.amount_net|eur }}</div><div class="col">{{ expense.amount_gross|eur }}</div></div>
+              <div class="d-flex justify-content-end align-items-center gap-2 mt-2">
+                {% if pay_symbol.show %}<span class="{{ pay_symbol.class }}" title="{{ pay_symbol.label }}{% if expense.payment_events %}: {% for ev in expense.payment_events %}{{ ev.kind }} {{ ev.created_at.strftime('%d/%m/%Y') if ev.created_at else '' }}{% if not loop.last %} · {% endif %}{% endfor %}{% endif %}"><i class="fa {{ pay_symbol.icon }}"></i></span>{% endif %}
+                {% if expense.attachment_url %}<button class="btn btn-sm btn-outline-success view-document" data-url="{{ expense.attachment_url }}" data-title="{{ expense.attachment_name or 'Documento' }}" data-bs-toggle="modal" data-bs-target="#viewDocModal"><i class="fa fa-file-invoice"></i></button>{% endif %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editExpenseModal{{ expense.id }}">Editar</button></li>
+                    {% if not expense.attachment_url %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#requestInvoiceModal{{ expense.id }}">Solicitar factura</button></li>{% endif %}
+                    {% if expense.attachment_url %}
+                      <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#viewDocModal" data-url="{{ expense.attachment_url }}" data-title="{{ expense.attachment_name or 'Documento' }}">Ver factura/ticket</button></li>
+                      <li><a class="dropdown-item" href="{{ expense.attachment_url }}" target="_blank" download>Descargar factura/ticket</a></li>
+                      <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#replaceDocModal{{ expense.id }}">Reemplazar factura</button></li>
+                    {% endif %}
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#paymentRequestModal{{ expense.id }}">Solicitar pago inmediato</button></li>
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="ARTISTA">Gasto lo cubre el Artista</button></li>
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="PROMOTOR">Gasto lo cubre el Promotor</button></li>
+                    <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#coverExpenseModal{{ expense.id }}" data-cover="OFICINA">Gasto lo cubre la Oficina</button></li>
+                    {% if not expense.attachment_url %}<li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#noInvoiceModal{{ expense.id }}">Gasto sin ticket/factura</button></li>{% endif %}
+                    <li><hr class="dropdown-divider"></li>
+                    <li><form method="post" action="{{ url_for('bag_expense_delete', bag_id=bag.id, expense_id=expense.id) }}" onsubmit="return confirm('¿Eliminar este gasto?');"><button class="dropdown-item text-danger">Eliminar gasto</button></form></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      {% else %}
+        <div class="p-3 text-muted">Sin gastos en este módulo.</div>
+      {% endfor %}
+      {% if can_edit_bag and cat_key != 'PRORRATEOS' %}
+        <div class="p-3 text-center"><button class="btn btn-sm btn-outline-primary open-add-expense" data-category="{{ cat_key }}" data-bs-toggle="modal" data-bs-target="#addExpenseModal"><i class="fa fa-plus me-1"></i>Añadir gasto en {{ cat_label }}</button></div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+{% endfor %}
+
+{% if invoices %}
+<div class="card mt-4">
+  <div class="card-header bg-white"><strong>Facturas vinculadas del sistema anterior</strong></div>
+  <div class="card-body table-responsive">
+    <table class="table align-middle mb-0"><thead><tr><th>Número</th><th>Tercero</th><th>Fecha</th><th>Estado</th><th class="text-end">Importe</th></tr></thead><tbody>{% for inv in invoices %}<tr><td>{{ inv.invoice_number }}</td><td>{{ inv.third_party_name }}</td><td>{{ inv.issue_date.strftime('%d/%m/%Y') if inv.issue_date else '—' }}</td><td><span class="badge text-bg-light border">{{ inv.status }}</span></td><td class="text-end">{{ inv.total_amount|eur }}</td></tr>{% endfor %}</tbody></table>
+  </div>
+</div>
+{% endif %}
+
+<div class="modal fade" id="addExpenseModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_create', bag_id=bag.id) }}" enctype="multipart/form-data">
+    <div class="modal-header"><h5 class="modal-title">Añadir gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <input type="hidden" name="category" id="addExpenseCategory" value="OTROS">
+      <div class="alert alert-light border">Puedes crear el gasto con un solo dato. Si subes varios documentos, se creará un gasto por cada factura/ticket.</div>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label">Concepto</label><input type="text" name="concept" class="form-control"></div>
+        <div class="col-md-3"><label class="form-label">Tipo</label><select name="document_type" class="form-select">{% for value,label in bag_document_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label">Factura/ticket</label><input type="file" name="documents" class="form-control" multiple accept=".pdf,image/*"></div>
+        <div class="col-md-4"><label class="form-label">Proveedor / tercero</label><select name="provider_id" class="form-select"><option value="">Sin proveedor</option>{% for provider in providers %}<option value="{{ provider.id }}">{{ provider.nick }}</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label class="form-label">Sociedad del proveedor</label><select name="provider_company_id" class="form-select"><option value="">Sin sociedad concreta</option>{% for provider in providers %}{% for company in provider.companies %}<option value="{{ company.id }}">{{ provider.nick }} · {{ company.legal_name }}</option>{% endfor %}{% endfor %}</select></div>
+        <div class="col-md-4"><label class="form-label">Establecimiento (ticket)</label><input type="text" name="ticket_establishment" class="form-control"></div>
+        <div class="col-md-3"><label class="form-label">Nº factura</label><input type="text" name="invoice_number" class="form-control"></div>
+        <div class="col-md-3"><label class="form-label">Fecha emisión</label><input type="date" name="issue_date" class="form-control"></div>
+        <div class="col-md-2"><label class="form-label">Sin IVA</label><input type="text" name="amount_net" class="form-control" placeholder="0,00"></div>
+        <div class="col-md-2"><label class="form-label">IVA</label><input type="text" name="amount_tax" class="form-control" placeholder="0,00"></div>
+        <div class="col-md-2"><label class="form-label">Con IVA</label><input type="text" name="amount_gross" class="form-control" placeholder="0,00"></div>
+        <div class="col-md-3"><label class="form-label">Retención</label><input type="text" name="retention_amount" class="form-control" placeholder="0,00"></div>
+        <div class="col-md-3"><label class="form-label">Estado de pago</label><select name="payment_status" class="form-select"><option value="NO_PAGADO">No pagado</option><option value="PENDIENTE">Pendiente</option><option value="PARCIAL">Parcial</option><option value="PAGADO">Pagado</option></select></div>
+        <div class="col-md-3"><label class="form-label">Importe pagado</label><input type="text" name="paid_amount" class="form-control" placeholder="0,00"></div>
+        <div class="col-md-3"><label class="form-label">Método</label><select name="payment_method" class="form-select"><option value="">Sin método</option>{% for method in bag_payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select></div>
+      </div>
+    </div>
+    <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Añadir gasto</button></div>
+  </form></div></div>
+</div>
+
+{% for expense in expenses %}
+<div class="modal fade" id="editExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_edit', bag_id=bag.id, expense_id=expense.id) }}" enctype="multipart/form-data">
+  <div class="modal-header"><h5 class="modal-title">Editar gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><div class="row g-3">
+    <div class="col-md-6"><label class="form-label">Concepto</label><input type="text" name="concept" class="form-control" value="{{ expense.concept or '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Módulo</label><select name="category" class="form-select">{% for value,label in bag_expense_categories if value != 'PRORRATEOS' %}<option value="{{ value }}" {% if expense.category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Tipo</label><select name="document_type" class="form-select">{% for value,label in bag_document_types %}<option value="{{ value }}" {% if expense.document_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Proveedor</label><select name="provider_id" class="form-select"><option value="">Sin proveedor</option>{% for provider in providers %}<option value="{{ provider.id }}" {% if expense.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Sociedad</label><select name="provider_company_id" class="form-select"><option value="">Sin sociedad</option>{% for provider in providers %}{% for company in provider.companies %}<option value="{{ company.id }}" {% if expense.provider_company_id == company.id %}selected{% endif %}>{{ provider.nick }} · {{ company.legal_name }}</option>{% endfor %}{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">Establecimiento</label><input type="text" name="ticket_establishment" class="form-control" value="{{ expense.ticket_establishment or '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Nº factura</label><input type="text" name="invoice_number" class="form-control" value="{{ expense.invoice_number or '' }}"></div>
+    <div class="col-md-3"><label class="form-label">Fecha emisión</label><input type="date" name="issue_date" class="form-control" value="{{ expense.issue_date.isoformat() if expense.issue_date else '' }}"></div>
+    <div class="col-md-2"><label class="form-label">Sin IVA</label><input type="text" name="amount_net" class="form-control" value="{{ expense.amount_net }}"></div>
+    <div class="col-md-2"><label class="form-label">IVA</label><input type="text" name="amount_tax" class="form-control" value="{{ expense.amount_tax }}"></div>
+    <div class="col-md-2"><label class="form-label">Con IVA</label><input type="text" name="amount_gross" class="form-control" value="{{ expense.amount_gross }}"></div>
+    <div class="col-md-3"><label class="form-label">Retención</label><input type="text" name="retention_amount" class="form-control" value="{{ expense.retention_amount }}"></div>
+    <div class="col-md-3"><label class="form-label">Estado pago</label><select name="payment_status" class="form-select">{% for value,label in bag_payment_status_labels.items() %}<option value="{{ value }}" {% if expense.payment_status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Importe pagado</label><input type="text" name="paid_amount" class="form-control" value="{{ expense.paid_amount }}"></div>
+    <div class="col-md-3"><label class="form-label">Método</label><select name="payment_method" class="form-select"><option value="">Sin método</option>{% for method in bag_payment_methods %}<option value="{{ method }}" {% if expense.payment_method == method %}selected{% endif %}>{{ method }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label">Nuevo documento</label><input type="file" name="document" class="form-control" accept=".pdf,image/*"></div>
+  </div></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="requestInvoiceModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_request_invoice', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Solicitar factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div class="small text-muted mb-2">Se enviará un enlace para subir el documento de este gasto.</div>
+    {% set emails = provider_email_map.get(expense.id|string, []) %}
+    {% if emails %}{% for row in emails %}<label class="d-block border rounded p-2 mb-1"><input type="checkbox" name="recipients" value="{{ row.email }}" class="form-check-input me-2" checked>{{ row.label }} · {{ row.email }}</label>{% endfor %}{% else %}<div class="alert alert-light border">No hay correos vinculados al proveedor. Añade uno abajo.</div>{% endif %}
+    <label class="form-label mt-2">Otros correos</label><textarea name="extra_emails" class="form-control" rows="2" placeholder="correo@dominio.com, otro@dominio.com"></textarea>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar solicitud</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="replaceDocModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_document_replace', bag_id=bag.id, expense_id=expense.id) }}" enctype="multipart/form-data">
+  <div class="modal-header"><h5 class="modal-title">Reemplazar factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <label class="form-label">Qué hacer con la anterior</label><select name="replace_policy" class="form-select mb-3"><option value="replace">Eliminar/reemplazar</option><option value="annul">Anular con rectificativa</option></select>
+    <label class="form-label">Factura rectificativa (si se anula)</label><input type="file" name="rectification_document" class="form-control mb-3" accept=".pdf,image/*">
+    <label class="form-label">Nueva factura/ticket</label><input type="file" name="document" class="form-control" accept=".pdf,image/*" required>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Reemplazar</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="paymentRequestModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_request_payment', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Solicitar pago inmediato</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <label class="form-label">Motivo</label><input type="text" name="reason" class="form-control mb-3" placeholder="Motivo corto">
+    <label class="form-label">Importe a pagar</label><select name="amount_mode" class="form-select mb-2"><option value="TOTAL">Importe completo</option><option value="PERCENT">Porcentaje</option><option value="AMOUNT">Importe concreto</option></select>
+    <div class="row g-2"><div class="col"><input type="text" name="percent" class="form-control" placeholder="%"></div><div class="col"><input type="text" name="amount" class="form-control" placeholder="Importe"></div></div>
+    <label class="d-block mt-3"><input type="checkbox" name="send_receipt" value="1" class="form-check-input me-2">Es necesario enviar justificante al tercero</label>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Solicitar</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="coverExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_cover', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Cobertura / división del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <label class="form-label">Quién cubre el gasto</label><select name="covered_by" class="form-select mb-3 cover-select">{% for value,label in bag_covered_by_labels.items() %}<option value="{{ value }}" {% if expense.covered_by == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+    <label class="form-label">Detalle</label><textarea name="cover_detail" class="form-control mb-3" rows="2">{{ expense.cover_detail or '' }}</textarea>
+    <div class="border rounded-3 p-3 bg-light-subtle">
+      <div class="fw-semibold mb-2">Dividir entre otras bolsas/actividades</div>
+      <label class="d-block mb-2"><input type="checkbox" name="equal_split" value="1" class="form-check-input me-2">Repartir a partes iguales entre la bolsa actual y las seleccionadas</label>
+      {% for other in active_bags %}
+        <div class="row g-2 align-items-center mb-1"><div class="col-md-8"><label class="mb-0"><input type="checkbox" name="split_bag_ids" value="{{ other.id }}" class="form-check-input me-2">{{ other.title }}</label></div><div class="col-md-4"><input type="text" name="split_amount__{{ other.id }}" class="form-control form-control-sm" placeholder="Importe para esta bolsa"></div></div>
+      {% else %}<div class="small text-muted">No hay otras bolsas activas disponibles.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Aplicar</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="noInvoiceModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_no_invoice_request', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Gasto sin factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><label class="form-label">Motivo</label><textarea name="reason" class="form-control" rows="4" placeholder="Explica por qué no hay factura o ticket"></textarea></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar a administración</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="noteExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_note_create', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Nota del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><textarea name="body" class="form-control" rows="4" placeholder="Escribe la nota"></textarea></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Añadir nota</button></div>
+</form></div></div></div>
+
+<div class="modal fade" id="alertExpenseModal{{ expense.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('bag_expense_alert_create', bag_id=bag.id, expense_id=expense.id) }}">
+  <div class="modal-header"><h5 class="modal-title">Alerta del gasto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><label class="form-label">Fecha</label><input type="date" name="alert_date" class="form-control mb-3" required><label class="form-label">Descripción</label><textarea name="body" class="form-control" rows="3"></textarea></div>
+  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Crear alerta</button></div>
+</form></div></div></div>
+{% endfor %}
+
+<div class="modal fade" id="viewDocModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title" id="viewDocTitle">Documento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body"><iframe id="viewDocFrame" src="" style="width:100%;height:70vh;border:0;" title="Documento"></iframe></div>
+  <div class="modal-footer"><a id="viewDocDownload" href="#" class="btn btn-outline-secondary" target="_blank" download>Descargar</a><button type="button" onclick="document.getElementById('viewDocFrame').contentWindow.print()" class="btn btn-primary">Imprimir</button></div>
+</div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  document.querySelectorAll('.open-add-expense').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      const target = document.getElementById('addExpenseCategory');
+      if (target) target.value = btn.dataset.category || 'OTROS';
+    });
+  });
+  const docModal = document.getElementById('viewDocModal');
+  if (docModal) {
+    docModal.addEventListener('show.bs.modal', function(ev){
+      const btn = ev.relatedTarget;
+      const url = btn?.dataset?.url || '';
+      const title = btn?.dataset?.title || 'Documento';
+      document.getElementById('viewDocTitle').textContent = title;
+      document.getElementById('viewDocFrame').src = url;
+      document.getElementById('viewDocDownload').href = url;
+    });
+    docModal.addEventListener('hidden.bs.modal', function(){ document.getElementById('viewDocFrame').src = ''; });
+  }
+  document.querySelectorAll('[id^="coverExpenseModal"]').forEach(function(modal){
+    modal.addEventListener('show.bs.modal', function(ev){
+      const cover = ev.relatedTarget?.dataset?.cover;
+      if (!cover) return;
+      const select = modal.querySelector('.cover-select');
+      if (select) select.value = cover;
+    });
+  });
+  let dragged = null;
+  document.querySelectorAll('.expense-row[draggable="true"]').forEach(function(row){
+    row.addEventListener('dragstart', function(){ dragged = row; row.classList.add('opacity-50'); });
+    row.addEventListener('dragend', function(){ row.classList.remove('opacity-50'); dragged = null; });
+  });
+  document.querySelectorAll('.expense-drop-zone').forEach(function(zone){
+    zone.addEventListener('dragover', function(ev){ ev.preventDefault(); });
+    zone.addEventListener('drop', async function(ev){
+      ev.preventDefault();
+      if (!dragged) return;
+      const category = zone.dataset.category || 'OTROS';
+      zone.appendChild(dragged);
+      const rows = Array.from(zone.querySelectorAll('.expense-row'));
+      const sortOrder = (rows.indexOf(dragged) + 1) * 10;
+      try {
+        await fetch('{{ url_for("bag_expense_move", bag_id=bag.id, expense_id="__ID__") }}'.replace('__ID__', dragged.dataset.expenseId), {
+          method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({category: category, sort_order: sortOrder})
+        });
+      } catch (err) { console.warn(err); }
+    });
+  });
+})();
+</script>
 {% endblock %}

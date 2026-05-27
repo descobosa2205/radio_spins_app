@@ -376,7 +376,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload"}
     if request.endpoint in allowed:
         return
 
@@ -22119,11 +22119,18 @@ from models import (
     Promotion,
     PromotionActivity,
     WorkflowBag,
+    BagNote,
+    BagExpense,
+    BagExpenseNote,
+    BagExpenseAlert,
+    BagPaymentInteraction,
     InvoiceRecord,
     ensure_personnel_and_operations_schema,
+    ensure_bag_expense_schema,
 )
 
 _safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
+_safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
 
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
@@ -22132,6 +22139,8 @@ PERSONNEL_DEPARTMENTS = [
     "Administracion",
     "Contabilidad",
     "Promoción",
+    "Producción",
+    "Marketing",
     "Sello",
     "Derechos",
     "Diseño",
@@ -22148,7 +22157,50 @@ INVOICE_STATUS_OPTIONS = [
     "VENCIDA",
     "ANULADA",
 ]
-BAG_STATUS_OPTIONS = ["ACTIVA", "EN_GESTION", "CERRADA", "ARCHIVADA"]
+BAG_STATUS_OPTIONS = ["ACTIVA", "EN_GESTION", "CERRADA", "LIQUIDADA", "ARCHIVADA"]
+BAG_TYPES = [
+    ("GENERAL", "General"),
+    ("CONCIERTO", "Concierto"),
+    ("GIRA", "Gira"),
+    ("SINGLE", "Single"),
+    ("DISCO", "Disco / EP"),
+    ("PROMOCION", "Promoción"),
+    ("EVENTO_PROMOCIONAL", "Evento promocional"),
+    ("PRORRATEO", "Bolsa de prorrateo"),
+]
+BAG_EXPENSE_CATEGORIES = [
+    ("SONIDO_LUCES", "Equipo de sonido y luces"),
+    ("MUSICOS", "Músicos"),
+    ("PERSONAL", "Personal"),
+    ("TRANSPORTE", "Transporte"),
+    ("HOTELES", "Hoteles"),
+    ("MARKETING", "Marketing"),
+    ("OTROS", "Otros gastos"),
+    ("PRORRATEOS", "Prorrateos"),
+]
+BAG_EXPENSE_CATEGORY_LABELS = dict(BAG_EXPENSE_CATEGORIES)
+BAG_DOCUMENT_TYPES = [("FACTURA", "Factura"), ("TICKET", "Ticket"), ("SIN_DOCUMENTO", "Sin factura/ticket")]
+BAG_PAYMENT_METHODS = ["Tarjeta", "Pleo", "Banco", "PayPal", "Efectivo"]
+BAG_PAYMENT_STATUS_LABELS = {
+    "NO_PAGADO": "No pagado",
+    "PENDIENTE": "Pendiente de pago",
+    "PARCIAL": "Pago parcial",
+    "PAGADO": "Pagado",
+}
+BAG_COVERED_BY_LABELS = {
+    "BOLSA": "Lo asume la bolsa",
+    "ARTISTA": "Lo cubre el artista",
+    "PROMOTOR": "Lo cubre el promotor",
+    "OFICINA": "Lo cubre la oficina",
+}
+BAG_CONSOLIDATED_STATUSES = {"CONSOLIDADO", "SIN_FACTURA_ACEPTADO"}
+ADMINISTRATION_TABS = [
+    ("pendiente", "Pendiente"),
+    ("liquidaciones", "Liquidaciones"),
+    ("pagos", "Pagos"),
+    ("cobros", "Cobros"),
+    ("embargos", "Embargos"),
+]
 
 _ACCESS_BOOTSTRAP_DONE = False
 _ACCESS_RESOURCE_MAP = {}
@@ -22197,6 +22249,11 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "promocion", "label": "Promoción", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
     {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100},
     {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 110},
+    {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 111},
+    {"key": "administracion.liquidaciones", "label": "Liquidaciones", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 112},
+    {"key": "administracion.pagos", "label": "Pagos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 113},
+    {"key": "administracion.cobros", "label": "Cobros", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 114},
+    {"key": "administracion.embargos", "label": "Embargos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 115},
     {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 120},
 
     {"key": "personal", "label": "Personal", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 130},
@@ -22764,10 +22821,14 @@ def _resolve_request_resource_key() -> str | None:
     if endpoint == "quadrantes_view":
         return "quadrantes"
     if endpoint in {"promocion_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
+        if endpoint == "administracion_view":
+            admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
+            if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos"}:
+                return f"administracion.{admin_tab}"
+            return "administracion"
         mapping = {
             "promocion_view": "promocion",
             "produccion_view": "produccion",
-            "administracion_view": "administracion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_detail_view": "personal.usuarios.accesos",
@@ -22981,7 +23042,12 @@ def _resource_default_url(key: str) -> str:
         "quadrantes": url_for("quadrantes_view"),
         "promocion": url_for("promocion_view"),
         "produccion": url_for("produccion_view"),
-        "administracion": url_for("administracion_view"),
+        "administracion": url_for("administracion_view", tab="pendiente"),
+        "administracion.pendiente": url_for("administracion_view", tab="pendiente"),
+        "administracion.liquidaciones": url_for("administracion_view", tab="liquidaciones"),
+        "administracion.pagos": url_for("administracion_view", tab="pagos"),
+        "administracion.cobros": url_for("administracion_view", tab="cobros"),
+        "administracion.embargos": url_for("administracion_view", tab="embargos"),
         "contabilidad": url_for("contabilidad_view"),
         "personal": url_for("personnel_view"),
         "personal.usuarios": url_for("personnel_view"),
@@ -23251,7 +23317,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_pdf", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload"} | PUBLIC_ENDPOINTS_EXTRA
     if request.endpoint in allowed:
         return
     if not request.endpoint:
@@ -24406,22 +24472,185 @@ def produccion_view():
 def administracion_view():
     session_db = db()
     try:
-        active_bags = session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).limit(6).all()  # noqa: E712
+        tab = (request.args.get("tab") or "pendiente").strip().lower()
+        valid_tabs = {key for key, _label in ADMINISTRATION_TABS}
+        if tab not in valid_tabs:
+            tab = "pendiente"
+
+        pending_no_invoice = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
+            BagExpense.status != "ELIMINADO",
+            BagExpense.consolidation_status == "SIN_FACTURA_SOLICITADO",
+        ).order_by(BagExpense.created_at.desc()).all()
+        pending_unconsolidated = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
+            BagExpense.status != "ELIMINADO",
+            BagExpense.consolidation_status == "PENDIENTE",
+            or_(BagExpense.attachment_url.is_(None), BagExpense.attachment_url == ""),
+        ).order_by(BagExpense.created_at.desc()).limit(100).all()
+        closed_bags = session_db.query(WorkflowBag).options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company)).filter(
+            WorkflowBag.is_archived == False,  # noqa: E712
+            or_(WorkflowBag.status == "CERRADA", WorkflowBag.liquidation_status.in_(["PENDIENTE_ADMIN", "PENDIENTE_PAGO"])),
+        ).order_by(WorkflowBag.closed_at.desc().nullslast(), WorkflowBag.created_at.desc()).all()
+        payment_requests = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider), selectinload(BagExpense.payment_events)).filter(
+            BagExpense.status != "ELIMINADO",
+            or_(BagExpense.immediate_payment_requested == True, BagExpense.payment_status.in_(["PENDIENTE", "PARCIAL"])),  # noqa: E712
+        ).order_by(BagExpense.immediate_payment_requested_at.desc().nullslast(), BagExpense.created_at.desc()).all()
+        payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
+            BagExpense.status != "ELIMINADO",
+            BagExpense.covered_by == "BOLSA",
+            BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
+            BagExpense.payment_status.in_(["NO_PAGADO", "PENDIENTE", "PARCIAL"]),
+        ).order_by(BagExpense.created_at.desc()).limit(200).all()
+        receivable_invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
+            InvoiceRecord.invoice_kind == "ISSUED",
+            InvoiceRecord.status.notin_(["PAGADA", "ANULADA"]),
+        ).order_by(InvoiceRecord.due_date.asc().nullslast(), InvoiceRecord.issue_date.desc()).all()
+        embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
+            or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
+        ).order_by(InvoiceRecord.issue_date.desc()).all()
+
+        bag_totals = {}
+        for bag in closed_bags:
+            exps = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
+            bag_totals[str(bag.id)] = _bag_totals(exps) if "_bag_totals" in globals() else {"bag": Decimal("0")}
+
+        counts = {
+            "pendiente": len(pending_no_invoice) + len(pending_unconsolidated),
+            "liquidaciones": len(closed_bags),
+            "pagos": len(payment_requests) + len(payable_expenses),
+            "cobros": len(receivable_invoices),
+            "embargos": len(embargo_rows),
+        }
         return render_template(
-            "operations_section.html",
-            title="Administración",
-            subtitle="Control interno de bolsas y gestión administrativa.",
-            cards=[
-                {"title": "Bolsas activas", "value": session_db.query(WorkflowBag).filter(WorkflowBag.is_archived == False).count(), "url": url_for("bags_view", tab="active"), "icon": "fa-folder-open", "description": "Seguimiento de procesos en curso."},  # noqa: E712
-                {"title": "Usuarios activos", "value": session_db.query(UserSecurity).filter(or_(UserSecurity.is_deleted == False, UserSecurity.is_deleted.is_(None))).count(), "url": url_for("personnel_view"), "icon": "fa-users", "description": "Personas con acceso al Back Office."},  # noqa: E712
-            ],
-            recent_items=[{"title": b.title, "subtitle": (getattr(getattr(b, "artist", None), "name", None) or "Sin artista"), "url": url_for("bag_detail_view", bag_id=b.id)} for b in active_bags],
-            recent_title="Bolsas activas",
-            secondary_items=[],
-            secondary_title="",
+            "administracion.html",
+            tab=tab,
+            tabs=ADMINISTRATION_TABS,
+            counts=counts,
+            pending_no_invoice=pending_no_invoice,
+            pending_unconsolidated=pending_unconsolidated,
+            closed_bags=closed_bags,
+            payment_requests=payment_requests,
+            payable_expenses=payable_expenses,
+            receivable_invoices=receivable_invoices,
+            embargo_rows=embargo_rows,
+            bag_totals=bag_totals,
+            payment_methods=BAG_PAYMENT_METHODS,
+            payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
         )
     finally:
         session_db.close()
+
+
+@app.post("/administracion/gastos/<expense_id>/sin-factura/<decision>", endpoint="administration_no_invoice_decision")
+@admin_required
+def administration_no_invoice_decision(expense_id, decision):
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id))
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("administracion_view", tab="pendiente"))
+        decision = (decision or "").strip().lower()
+        audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
+        if decision == "approve":
+            expense.consolidation_status = "SIN_FACTURA_ACEPTADO"
+            expense.no_invoice_rejection_reason = None
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="SIN_FACTURA_ACEPTADO", description="Administración acepta consolidar sin factura/ticket.", created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+            flash("Gasto consolidado sin factura/ticket.", "success")
+        else:
+            reason = (request.form.get("reason") or "").strip()
+            expense.consolidation_status = "SIN_FACTURA_RECHAZADO"
+            expense.no_invoice_rejection_reason = reason or "Solicitud rechazada por administración."
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="SIN_FACTURA_RECHAZADO", description=expense.no_invoice_rejection_reason, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+            flash("Solicitud rechazada.", "warning")
+        expense.updated_at = _now_madrid()
+        session_db.commit()
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="pendiente"))
+
+
+@app.post("/administracion/gastos/<expense_id>/pago", endpoint="administration_expense_mark_paid")
+@admin_required
+def administration_expense_mark_paid(expense_id):
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id))
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("administracion_view", tab="pagos"))
+        amount = _bag_money(request.form.get("paid_amount")) if "_bag_money" in globals() else Decimal("0")
+        if amount <= 0:
+            amount = Decimal(str(expense.amount_gross or 0))
+        expense.paid_amount = amount
+        gross = Decimal(str(expense.amount_gross or 0))
+        expense.payment_status = "PAGADO" if amount >= gross else "PARCIAL"
+        expense.payment_method = (request.form.get("payment_method") or expense.payment_method or "").strip() or None
+        expense.immediate_payment_requested = False if expense.payment_status == "PAGADO" else expense.immediate_payment_requested
+        expense.updated_at = _now_madrid()
+        audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
+        session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="PAGO_REGISTRADO", description="Pago registrado desde administración.", amount=amount, method=expense.payment_method, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+        session_db.commit()
+        flash("Pago registrado.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="pagos"))
+
+
+@app.post("/administracion/bolsas/<bag_id>/liquidar", endpoint="administration_bag_liquidate")
+@admin_required
+def administration_bag_liquidate(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if bag:
+            bag.liquidation_status = "PENDIENTE_PAGO"
+            bag.liquidation_reviewed_at = _now_madrid()
+            for expense in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO", BagExpense.covered_by == "BOLSA").all():
+                if (expense.payment_status or "NO_PAGADO") == "NO_PAGADO":
+                    expense.payment_status = "PENDIENTE"
+            session_db.commit()
+            flash("Liquidación aprobada y marcada como pendiente de pago.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="liquidaciones"))
+
+
+@app.post("/administracion/bolsas/<bag_id>/pagada", endpoint="administration_bag_mark_paid")
+@admin_required
+def administration_bag_mark_paid(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if bag:
+            bag.liquidation_status = "PAGADA"
+            bag.status = "LIQUIDADA"
+            bag.liquidation_paid_at = _now_madrid()
+            for expense in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO", BagExpense.covered_by == "BOLSA").all():
+                expense.payment_status = "PAGADO"
+                expense.paid_amount = expense.amount_gross or 0
+            session_db.commit()
+            flash("Bolsa liquidada y pagada.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="liquidaciones"))
+
+
+@app.post("/administracion/cobros/<invoice_id>/pagado", endpoint="administration_invoice_mark_paid")
+@admin_required
+def administration_invoice_mark_paid(invoice_id):
+    session_db = db()
+    try:
+        invoice = session_db.get(InvoiceRecord, to_uuid(invoice_id))
+        if invoice:
+            invoice.status = "PAGADA"
+            invoice.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Cobro marcado como pagado.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="cobros"))
+
+
 
 
 @app.route("/contabilidad", endpoint="contabilidad_view")
@@ -24899,6 +25128,456 @@ def media_contact_delete(media_id, contact_id):
     return redirect(url_for("media_outlet_detail_view", media_id=media_id, tab="contactos"))
 
 
+# =========================================================
+# Bolsas ampliadas: gastos, facturas/tickets, prorrateos y administración
+# =========================================================
+
+def _bag_expense_upload_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(app.secret_key, salt="bag-expense-document-upload")
+
+
+def _make_bag_expense_upload_token(expense_id, mode: str = "invoice") -> str:
+    return _bag_expense_upload_serializer().dumps({"eid": str(expense_id), "mode": (mode or "invoice").strip()})
+
+
+def _parse_bag_expense_upload_token(token: str | None, max_age: int = 60 * 60 * 24 * 30) -> dict | None:
+    token = (token or "").strip()
+    if not token:
+        return None
+    try:
+        data = _bag_expense_upload_serializer().loads(token, max_age=max_age)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _safe_uuid(value):
+    try:
+        return to_uuid(value)
+    except Exception:
+        return None
+
+
+def _bag_money(value) -> Decimal:
+    try:
+        return _parse_money_decimal(value)
+    except Exception:
+        return Decimal("0")
+
+
+def _bag_bool(value) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on", "si", "sí"}
+
+
+def _bag_date(value):
+    try:
+        return parse_optional_date(value)
+    except Exception:
+        return None
+
+
+def _bag_current_user_audit() -> dict:
+    state = _current_user_state()
+    return {
+        "user_id": _safe_uuid(state.get("user_id")),
+        "nick": (state.get("nick") or state.get("email") or "Usuario").strip(),
+        "photo_url": (state.get("photo_url") or "").strip(),
+    }
+
+
+def _bag_artist_ids_from_form(form) -> list[str]:
+    raw = []
+    try:
+        raw.extend(form.getlist("artist_ids"))
+    except Exception:
+        pass
+    single = (form.get("artist_id") or "").strip()
+    if single:
+        raw.append(single)
+    out = []
+    seen = set()
+    for value in raw:
+        uid = _safe_uuid(value)
+        if not uid:
+            continue
+        sid = str(uid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append(sid)
+    return out
+
+
+def _bag_artist_ids(bag: WorkflowBag) -> list[str]:
+    raw = list(getattr(bag, "artist_ids", None) or [])
+    if getattr(bag, "artist_id", None):
+        raw.append(str(bag.artist_id))
+    out = []
+    seen = set()
+    for value in raw:
+        uid = _safe_uuid(value)
+        if not uid:
+            continue
+        sid = str(uid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append(sid)
+    return out
+
+
+def _bag_artist_rows(session_db, bag: WorkflowBag) -> list[Artist]:
+    ids = [_safe_uuid(x) for x in _bag_artist_ids(bag)]
+    ids = [x for x in ids if x]
+    if not ids:
+        return []
+    rows = session_db.query(Artist).filter(Artist.id.in_(ids)).all()
+    by_id = {str(row.id): row for row in rows}
+    return [by_id[str(uid)] for uid in ids if str(uid) in by_id]
+
+
+def _bag_provider_snapshot(provider: Promoter | None, company: PromoterCompany | None = None) -> dict:
+    if not provider:
+        return {}
+    data = {
+        "id": str(provider.id),
+        "nick": provider.nick or "",
+        "email": provider.contact_email or "",
+        "phone": provider.contact_phone or "",
+        "tax_id": provider.tax_id or "",
+    }
+    if company:
+        data["company"] = {
+            "id": str(company.id),
+            "legal_name": company.legal_name or "",
+            "tax_id": company.tax_id or "",
+            "fiscal_address": company.fiscal_address or "",
+        }
+    return data
+
+
+def _bag_provider_label(expense: BagExpense) -> str:
+    if getattr(expense, "document_type", "") == "TICKET" and getattr(expense, "ticket_establishment", None):
+        return expense.ticket_establishment
+    if getattr(expense, "provider", None):
+        return expense.provider.nick or "Tercero"
+    snap = getattr(expense, "provider_snapshot", None) or {}
+    return snap.get("nick") or snap.get("name") or "Sin proveedor"
+
+
+def _bag_provider_tooltip(expense: BagExpense) -> str:
+    company = getattr(expense, "provider_company", None)
+    if company:
+        bits = [company.legal_name or "Sociedad", company.tax_id or "", company.fiscal_address or ""]
+        return " · ".join([b for b in bits if b])
+    snap = getattr(expense, "provider_snapshot", None) or {}
+    comp = snap.get("company") or {}
+    if comp:
+        return " · ".join([x for x in [comp.get("legal_name"), comp.get("tax_id"), comp.get("fiscal_address")] if x])
+    return ""
+
+
+def _bag_document_upload(file_storage) -> tuple[str | None, str | None, str | None]:
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return None, None, None
+    allowed = {".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"}
+    url = upload_file(file_storage, "bag_expenses", allowed_extensions=allowed)
+    return url, (file_storage.filename or "documento").strip(), (getattr(file_storage, "mimetype", "") or "application/octet-stream").strip()
+
+
+def _bag_expense_is_consolidated(expense: BagExpense) -> bool:
+    if (getattr(expense, "consolidation_status", "") or "").upper() in BAG_CONSOLIDATED_STATUSES:
+        return True
+    return bool(getattr(expense, "attachment_url", None))
+
+
+def _bag_expense_counts_for_badges(expense: BagExpense) -> dict:
+    return {
+        "notes": len(getattr(expense, "notes", None) or []),
+        "alerts": len([a for a in (getattr(expense, "alerts", None) or []) if not getattr(a, "is_done", False)]),
+        "payments": len(getattr(expense, "payment_events", None) or []),
+    }
+
+
+def _bag_amount(expense: BagExpense) -> Decimal:
+    try:
+        return Decimal(str(getattr(expense, "amount_gross", None) or 0))
+    except Exception:
+        return Decimal("0")
+
+
+def _bag_expense_amount_for_bag(expense: BagExpense) -> Decimal:
+    if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
+        return Decimal("0")
+    if (getattr(expense, "covered_by", "BOLSA") or "BOLSA").upper() != "BOLSA":
+        return Decimal("0")
+    return _bag_amount(expense)
+
+
+def _bag_totals(expenses: list[BagExpense]) -> dict:
+    totals = {
+        "bag": Decimal("0"),
+        "artist": Decimal("0"),
+        "promoter": Decimal("0"),
+        "office": Decimal("0"),
+        "all": Decimal("0"),
+        "by_category": defaultdict(Decimal),
+    }
+    for expense in expenses:
+        if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
+            continue
+        amount = _bag_amount(expense)
+        totals["all"] += amount
+        covered_by = (getattr(expense, "covered_by", "BOLSA") or "BOLSA").upper()
+        if covered_by == "ARTISTA":
+            totals["artist"] += amount
+        elif covered_by == "PROMOTOR":
+            totals["promoter"] += amount
+        elif covered_by == "OFICINA":
+            totals["office"] += amount
+        else:
+            totals["bag"] += amount
+            totals["by_category"][(getattr(expense, "category", "OTROS") or "OTROS").upper()] += amount
+    totals["by_category"] = dict(totals["by_category"])
+    return totals
+
+
+def _bag_group_expenses(expenses: list[BagExpense]) -> dict[str, list[BagExpense]]:
+    grouped = {key: [] for key, _label in BAG_EXPENSE_CATEGORIES}
+    for expense in expenses:
+        if (getattr(expense, "status", "") or "").upper() == "ELIMINADO":
+            continue
+        key = (getattr(expense, "category", "OTROS") or "OTROS").upper()
+        if key not in grouped:
+            key = "OTROS"
+        grouped[key].append(expense)
+    for key in grouped:
+        grouped[key].sort(key=lambda e: (getattr(e, "sort_order", 0) or 0, getattr(e, "created_at", None) or datetime.min.replace(tzinfo=TZ_MADRID)))
+    return grouped
+
+
+def _bag_normalize_category(value: str | None) -> str:
+    key = (value or "OTROS").strip().upper()
+    return key if key in BAG_EXPENSE_CATEGORY_LABELS else "OTROS"
+
+
+def _bag_normalize_document_type(value: str | None) -> str:
+    key = (value or "FACTURA").strip().upper()
+    return key if key in {"FACTURA", "TICKET", "SIN_DOCUMENTO"} else "FACTURA"
+
+
+def _bag_normalize_payment_status(value: str | None, paid_amount: Decimal, gross: Decimal) -> str:
+    key = (value or "").strip().upper()
+    if key in BAG_PAYMENT_STATUS_LABELS:
+        return key
+    if paid_amount and gross and paid_amount >= gross:
+        return "PAGADO"
+    if paid_amount and paid_amount > 0:
+        return "PARCIAL"
+    return "NO_PAGADO"
+
+
+def _bag_next_sort_order(session_db, bag_id, category: str) -> int:
+    try:
+        max_order = session_db.query(func.max(BagExpense.sort_order)).filter(BagExpense.bag_id == bag_id, BagExpense.category == category).scalar()
+        return int(max_order or 0) + 10
+    except Exception:
+        return 10
+
+
+def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file_storage=None, append_history: bool = True):
+    concept = (form.get("concept") or "").strip()
+    if concept:
+        expense.concept = concept
+    elif not expense.concept:
+        expense.concept = "Nuevo gasto"
+    expense.category = _bag_normalize_category(form.get("category") or expense.category)
+    expense.document_type = _bag_normalize_document_type(form.get("document_type") or expense.document_type)
+    provider_id = _safe_uuid(form.get("provider_id"))
+    provider_company_id = _safe_uuid(form.get("provider_company_id"))
+    provider = session_db.get(Promoter, provider_id) if provider_id else None
+    company = session_db.get(PromoterCompany, provider_company_id) if provider_company_id else None
+    if provider:
+        expense.provider_id = provider.id
+    elif (form.get("provider_id") or "").strip() == "":
+        expense.provider_id = None
+    if company and (not provider or company.promoter_id == provider.id):
+        expense.provider_company_id = company.id
+    elif (form.get("provider_company_id") or "").strip() == "":
+        expense.provider_company_id = None
+    expense.provider_snapshot = _bag_provider_snapshot(provider or getattr(expense, "provider", None), company or getattr(expense, "provider_company", None))
+    ticket_establishment = (form.get("ticket_establishment") or "").strip()
+    if ticket_establishment:
+        expense.ticket_establishment = ticket_establishment
+    elif expense.document_type != "TICKET" and "ticket_establishment" in form:
+        expense.ticket_establishment = None
+    expense.invoice_number = (form.get("invoice_number") or "").strip() or None
+    expense.issue_date = _bag_date(form.get("issue_date"))
+
+    amount_net = _bag_money(form.get("amount_net"))
+    amount_tax = _bag_money(form.get("amount_tax"))
+    amount_gross = _bag_money(form.get("amount_gross"))
+    if expense.document_type == "TICKET":
+        if amount_gross <= 0 and amount_net > 0:
+            amount_gross = amount_net
+        amount_net = amount_gross
+        amount_tax = Decimal("0")
+    else:
+        if amount_gross <= 0 and (amount_net > 0 or amount_tax > 0):
+            amount_gross = amount_net + amount_tax
+        if amount_tax <= 0 and amount_gross > 0 and amount_net > 0 and amount_gross >= amount_net:
+            amount_tax = amount_gross - amount_net
+        if amount_net <= 0 and amount_gross > 0 and amount_tax > 0 and amount_gross >= amount_tax:
+            amount_net = amount_gross - amount_tax
+    expense.amount_net = amount_net
+    expense.amount_tax = amount_tax
+    expense.amount_gross = amount_gross
+    expense.retention_amount = _bag_money(form.get("retention_amount"))
+
+    paid_amount = _bag_money(form.get("paid_amount"))
+    expense.payment_status = _bag_normalize_payment_status(form.get("payment_status"), paid_amount, amount_gross)
+    if expense.payment_status == "PAGADO" and paid_amount <= 0:
+        paid_amount = amount_gross
+    expense.paid_amount = paid_amount
+    expense.payment_method = (form.get("payment_method") or "").strip() or None
+    if "covered_by" in form:
+        covered = (form.get("covered_by") or "BOLSA").strip().upper()
+        expense.covered_by = covered if covered in BAG_COVERED_BY_LABELS else "BOLSA"
+    if "cover_detail" in form:
+        expense.cover_detail = (form.get("cover_detail") or "").strip() or None
+
+    if file_storage and getattr(file_storage, "filename", ""):
+        old_url = expense.attachment_url
+        url, original_name, mime = _bag_document_upload(file_storage)
+        if old_url and append_history:
+            history = list(expense.replace_history or [])
+            history.append({
+                "url": old_url,
+                "name": expense.attachment_name,
+                "mime": expense.attachment_mime,
+                "replaced_at": _now_madrid().isoformat(),
+            })
+            expense.replace_history = history
+        expense.attachment_url = url
+        expense.attachment_name = original_name
+        expense.attachment_mime = mime
+    if expense.attachment_url:
+        expense.consolidation_status = "CONSOLIDADO"
+    elif expense.consolidation_status in BAG_CONSOLIDATED_STATUSES and not expense.attachment_url:
+        # Se conserva una aceptación administrativa sin documento.
+        pass
+    elif expense.document_type == "SIN_DOCUMENTO":
+        expense.consolidation_status = expense.consolidation_status or "PENDIENTE"
+    else:
+        expense.consolidation_status = "PENDIENTE"
+    expense.updated_at = _now_madrid()
+    return expense
+
+
+def _bag_create_expense(session_db, bag: WorkflowBag, form, *, file_storage=None, category: str | None = None, is_proration: bool = False) -> BagExpense:
+    audit = _bag_current_user_audit()
+    cat = _bag_normalize_category(category or form.get("category"))
+    expense = BagExpense(
+        bag_id=bag.id,
+        category=cat,
+        sort_order=_bag_next_sort_order(session_db, bag.id, cat),
+        concept=(form.get("concept") or "").strip() or (Path(getattr(file_storage, "filename", "") or "").stem if file_storage else "Nuevo gasto"),
+        created_by_user_id=audit["user_id"],
+        created_by_nick=audit["nick"],
+        is_proration=bool(is_proration),
+    )
+    session_db.add(expense)
+    session_db.flush()
+    _bag_update_expense_from_form(session_db, expense, form, file_storage=file_storage, append_history=False)
+    return expense
+
+
+def _bag_provider_email_suggestions(session_db, expense: BagExpense) -> list[dict]:
+    out = []
+    seen = set()
+    provider = getattr(expense, "provider", None)
+    if not provider and getattr(expense, "provider_id", None):
+        provider = session_db.get(Promoter, expense.provider_id)
+    def add(label, email):
+        email = (email or "").strip()
+        if not email or not _looks_like_email_address(email):
+            return
+        key = email.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"label": label or email, "email": email})
+    if provider:
+        add(f"{provider.nick} · principal", provider.contact_email)
+        for row in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == provider.id).order_by(PromoterEmail.concept.asc()).all():
+            add(row.concept or "Email adicional", row.email)
+        for contact in session_db.query(PromoterContact).filter(PromoterContact.promoter_id == provider.id).order_by(PromoterContact.title.asc()).all():
+            name = " ".join([x for x in [contact.first_name, contact.last_name] if x]).strip() or contact.title
+            add(name, contact.email)
+    return out
+
+
+def _bag_expense_request_invoice_email(expense: BagExpense, bag: WorkflowBag, upload_url: str) -> tuple[str, str, str]:
+    concept = html.escape(expense.concept or "gasto")
+    bag_title = html.escape(bag.title or "bolsa")
+    linked = html.escape(bag.linked_title or bag.description or "")
+    amount = format_eur(expense.amount_gross)
+    subject = f"Solicitud de factura/ticket · {expense.concept or bag.title or 'gasto'}"
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;color:#111827;line-height:1.45;">
+      <h2 style="margin:0 0 12px;">Solicitud de factura o ticket</h2>
+      <p>Necesitamos que subas la factura o ticket correspondiente al gasto indicado.</p>
+      <div style="border:1px solid #e5e7eb;border-radius:12px;padding:14px;margin:16px 0;background:#f9fafb;">
+        <div><strong>Bolsa:</strong> {bag_title}</div>
+        {f'<div><strong>Vinculado a:</strong> {linked}</div>' if linked else ''}
+        <div><strong>Concepto:</strong> {concept}</div>
+        <div><strong>Importe:</strong> {amount}</div>
+      </div>
+      <p><a href="{html.escape(upload_url)}" style="display:inline-block;background:#111827;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;">Subir factura/ticket</a></p>
+      <p style="font-size:12px;color:#6b7280;">El enlace queda vinculado únicamente a este gasto.</p>
+    </div>
+    """
+    text_body = f"Solicitud de factura/ticket para {expense.concept or 'gasto'} en {bag.title}. Sube el documento aquí: {upload_url}"
+    return subject, html_body, text_body
+
+
+def _bag_payment_symbol(expense: BagExpense) -> dict:
+    status = (getattr(expense, "payment_status", "NO_PAGADO") or "NO_PAGADO").upper()
+    requested = bool(getattr(expense, "immediate_payment_requested", False))
+    if status == "PAGADO":
+        return {"show": True, "class": "text-success", "icon": "fa-circle-euro", "label": "Pagado"}
+    if status == "PARCIAL":
+        return {"show": True, "class": "text-success", "icon": "fa-circle-half-stroke", "label": "Pago parcial"}
+    if requested or status == "PENDIENTE":
+        return {"show": True, "class": "text-warning", "icon": "fa-circle-euro", "label": "Pendiente de pago"}
+    return {"show": False, "class": "", "icon": "", "label": ""}
+
+
+def _bag_available_proration_bags(session_db, bag: WorkflowBag) -> list[dict]:
+    artist_ids = set(_bag_artist_ids(bag))
+    if not artist_ids:
+        return []
+    candidates = session_db.query(WorkflowBag).filter(
+        WorkflowBag.id != bag.id,
+        WorkflowBag.is_archived == False,  # noqa: E712
+        WorkflowBag.bag_type == "PRORRATEO",
+    ).order_by(WorkflowBag.created_at.desc()).all()
+    rows = []
+    for candidate in candidates:
+        if not artist_ids.intersection(set(_bag_artist_ids(candidate))):
+            continue
+        total = Decimal("0")
+        for exp in session_db.query(BagExpense).filter(BagExpense.bag_id == candidate.id, BagExpense.status != "ELIMINADO").all():
+            total += _bag_amount(exp)
+        used = Decimal("0")
+        for exp in session_db.query(BagExpense).filter(BagExpense.proration_source_bag_id == candidate.id, BagExpense.status != "ELIMINADO").all():
+            used += _bag_amount(exp)
+        pending = max(Decimal("0"), total - used)
+        if pending > 0:
+            rows.append({"bag": candidate, "total": total, "used": used, "pending": pending, "suggested": pending})
+    return rows
+
+
 @app.route("/bolsas", methods=["GET", "POST"], endpoint="bags_view")
 @admin_required
 def bags_view():
@@ -24909,13 +25588,20 @@ def bags_view():
             if not title:
                 flash("El título de la bolsa es obligatorio.", "danger")
                 return redirect(url_for("bags_view"))
+            artist_ids = _bag_artist_ids_from_form(request.form)
+            primary_artist_id = _safe_uuid(artist_ids[0]) if artist_ids else None
             bag = WorkflowBag(
                 title=title,
-                artist_id=to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None,
-                company_id=to_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None,
+                artist_id=primary_artist_id,
+                artist_ids=artist_ids,
+                company_id=_safe_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None,
+                bag_type=(request.form.get("bag_type") or "GENERAL").strip().upper() or "GENERAL",
+                linked_type=(request.form.get("linked_type") or "").strip().upper() or None,
+                linked_title=(request.form.get("linked_title") or "").strip() or None,
                 start_date=parse_optional_date(request.form.get("start_date")),
                 end_date=parse_optional_date(request.form.get("end_date")),
                 description=(request.form.get("description") or "").strip() or None,
+                economic_indications=(request.form.get("economic_indications") or "").strip() or None,
                 status=(request.form.get("status") or "ACTIVA").strip().upper(),
                 is_archived=False,
             )
@@ -24933,13 +25619,17 @@ def bags_view():
         f_artist = (request.args.get("artist") or "").strip()
         f_year = (request.args.get("year") or "").strip()
         f_company = (request.args.get("company") or "").strip()
+        f_type = (request.args.get("bag_type") or "").strip().upper()
         f_start = parse_optional_date(request.args.get("start"))
         f_end = parse_optional_date(request.args.get("end"))
         f_q = (request.args.get("q") or "").strip()
         if f_artist:
-            query = query.filter(WorkflowBag.artist_id == to_uuid(f_artist))
+            # Compatibilidad: filtra por artista principal o por el array JSON de artistas.
+            query = query.filter(or_(WorkflowBag.artist_id == to_uuid(f_artist), WorkflowBag.artist_ids.contains([f_artist])))
         if f_company:
             query = query.filter(WorkflowBag.company_id == to_uuid(f_company))
+        if f_type:
+            query = query.filter(WorkflowBag.bag_type == f_type)
         if f_year:
             try:
                 year = int(f_year)
@@ -24951,11 +25641,11 @@ def bags_view():
         if f_end:
             query = query.filter(or_(WorkflowBag.end_date.is_(None), WorkflowBag.end_date <= f_end))
         if f_q:
-            like = f"%{f_q}%"
             query = query.filter(or_(
                 _sa_contains_text(WorkflowBag.title, f_q),
                 _sa_contains_text(WorkflowBag.description, f_q),
                 _sa_contains_text(WorkflowBag.status, f_q),
+                _sa_contains_text(WorkflowBag.linked_title, f_q),
                 _sa_contains_text(Artist.name, f_q),
                 _sa_contains_text(GroupCompany.name, f_q),
             ))
@@ -24963,6 +25653,11 @@ def bags_view():
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         years = sorted({str(getattr(b.start_date, "year", None) or getattr(b.end_date, "year", None)) for b in session_db.query(WorkflowBag).all() if getattr(b, "start_date", None) or getattr(b, "end_date", None)}, reverse=True)
+        bag_artist_map = {str(b.id): _bag_artist_rows(session_db, b) for b in bags}
+        bag_expense_totals = {}
+        for b in bags:
+            exps = session_db.query(BagExpense).filter(BagExpense.bag_id == b.id, BagExpense.status != "ELIMINADO").all()
+            bag_expense_totals[str(b.id)] = _bag_totals(exps)
         return render_template(
             "bags.html",
             bags=bags,
@@ -24973,10 +25668,14 @@ def bags_view():
             filter_artist=f_artist,
             filter_year=f_year,
             filter_company=f_company,
+            filter_bag_type=f_type,
             filter_start=f_start.isoformat() if f_start else "",
             filter_end=f_end.isoformat() if f_end else "",
             filter_q=f_q,
             bag_status_options=BAG_STATUS_OPTIONS,
+            bag_types=BAG_TYPES,
+            bag_artist_map=bag_artist_map,
+            bag_expense_totals=bag_expense_totals,
         )
     finally:
         session_db.close()
@@ -24993,21 +25692,561 @@ def bag_detail_view(bag_id):
             return redirect(url_for("bags_view"))
         if request.method == "POST":
             bag.title = (request.form.get("title") or bag.title or "").strip() or bag.title
-            bag.artist_id = to_uuid(request.form.get("artist_id")) if (request.form.get("artist_id") or "").strip() else None
-            bag.company_id = to_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None
+            artist_ids = _bag_artist_ids_from_form(request.form)
+            bag.artist_ids = artist_ids
+            bag.artist_id = _safe_uuid(artist_ids[0]) if artist_ids else None
+            bag.company_id = _safe_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None
+            bag.bag_type = (request.form.get("bag_type") or bag.bag_type or "GENERAL").strip().upper()
+            bag.linked_type = (request.form.get("linked_type") or "").strip().upper() or None
+            bag.linked_title = (request.form.get("linked_title") or "").strip() or None
             bag.start_date = parse_optional_date(request.form.get("start_date"))
             bag.end_date = parse_optional_date(request.form.get("end_date"))
             bag.description = (request.form.get("description") or "").strip() or None
-            bag.status = (request.form.get("status") or bag.status or "ACTIVA").strip().upper()
+            bag.economic_indications = (request.form.get("economic_indications") or "").strip() or None
+            if (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA"}:
+                bag.status = (request.form.get("status") or bag.status or "ACTIVA").strip().upper()
+            bag.updated_at = _now_madrid()
             session_db.commit()
             flash("Bolsa actualizada.", "success")
             return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        expenses = session_db.query(BagExpense).options(
+            joinedload(BagExpense.provider),
+            joinedload(BagExpense.provider_company),
+            selectinload(BagExpense.notes),
+            selectinload(BagExpense.alerts),
+            selectinload(BagExpense.payment_events),
+        ).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").order_by(BagExpense.category.asc(), BagExpense.sort_order.asc(), BagExpense.created_at.asc()).all()
         invoices = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company)).filter(InvoiceRecord.bag_id == bag.id).order_by(InvoiceRecord.issue_date.desc()).all()
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        providers = session_db.query(Promoter).options(selectinload(Promoter.companies), selectinload(Promoter.contacts)).order_by(Promoter.nick.asc()).all()
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        return render_template("bag_detail.html", bag=bag, invoices=invoices, artists=artists, companies=companies, bag_status_options=BAG_STATUS_OPTIONS)
+        active_bags = session_db.query(WorkflowBag).filter(WorkflowBag.id != bag.id, WorkflowBag.is_archived == False).order_by(WorkflowBag.created_at.desc()).limit(100).all()  # noqa: E712
+        grouped_expenses = _bag_group_expenses(expenses)
+        totals = _bag_totals(expenses)
+        category_totals = {key: totals["by_category"].get(key, Decimal("0")) for key, _label in BAG_EXPENSE_CATEGORIES}
+        bag_artists = _bag_artist_rows(session_db, bag)
+        provider_email_map = {str(exp.id): _bag_provider_email_suggestions(session_db, exp) for exp in expenses}
+        expense_counts = {str(exp.id): _bag_expense_counts_for_badges(exp) for exp in expenses}
+        payment_symbols = {str(exp.id): _bag_payment_symbol(exp) for exp in expenses}
+        proration_bags = _bag_available_proration_bags(session_db, bag)
+        can_close_bag = bool(expenses) and all(_bag_expense_is_consolidated(exp) for exp in expenses) and (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
+        return render_template(
+            "bag_detail.html",
+            bag=bag,
+            bag_artists=bag_artists,
+            bag_artist_id_strings=[str(a.id) for a in bag_artists],
+            invoices=invoices,
+            expenses=expenses,
+            grouped_expenses=grouped_expenses,
+            totals=totals,
+            category_totals=category_totals,
+            artists=artists,
+            providers=providers,
+            companies=companies,
+            active_bags=active_bags,
+            proration_bags=proration_bags,
+            provider_email_map=provider_email_map,
+            expense_counts=expense_counts,
+            payment_symbols=payment_symbols,
+            can_close_bag=can_close_bag,
+            bag_status_options=BAG_STATUS_OPTIONS,
+            bag_types=BAG_TYPES,
+            bag_expense_categories=BAG_EXPENSE_CATEGORIES,
+            bag_document_types=BAG_DOCUMENT_TYPES,
+            bag_payment_methods=BAG_PAYMENT_METHODS,
+            bag_payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
+            bag_covered_by_labels=BAG_COVERED_BY_LABELS,
+            bag_consolidated_statuses=BAG_CONSOLIDATED_STATUSES,
+            today=today_local(),
+        )
     finally:
         session_db.close()
+
+
+@app.post("/bolsas/<bag_id>/notes", endpoint="bag_note_create")
+@admin_required
+def bag_note_create(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if not bag:
+            flash("Bolsa no encontrada.", "warning")
+            return redirect(url_for("bags_view"))
+        body = (request.form.get("body") or "").strip()
+        if not body:
+            flash("La nota no puede estar vacía.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        audit = _bag_current_user_audit()
+        session_db.add(BagNote(
+            bag_id=bag.id,
+            note_type=(request.form.get("note_type") or "GENERAL").strip().upper() or "GENERAL",
+            body=body,
+            created_by_user_id=audit["user_id"],
+            created_by_nick=audit["nick"],
+            created_by_photo_url=audit["photo_url"],
+        ))
+        session_db.commit()
+        flash("Nota añadida.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses", endpoint="bag_expense_create")
+@admin_required
+def bag_expense_create(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if not bag:
+            flash("Bolsa no encontrada.", "warning")
+            return redirect(url_for("bags_view"))
+        if (bag.status or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}:
+            flash("La bolsa está cerrada y no admite nuevos gastos.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        docs = [f for f in request.files.getlist("documents") if f and getattr(f, "filename", "")]
+        single = request.files.get("document")
+        if single and getattr(single, "filename", "") and single not in docs:
+            docs.append(single)
+        created = []
+        if docs:
+            for doc in docs:
+                created.append(_bag_create_expense(session_db, bag, request.form, file_storage=doc))
+        else:
+            created.append(_bag_create_expense(session_db, bag, request.form))
+        session_db.commit()
+        flash(f"Gasto{'s' if len(created) != 1 else ''} añadido{'s' if len(created) != 1 else ''}.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo añadir el gasto: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/edit", endpoint="bag_expense_edit")
+@admin_required
+def bag_expense_edit(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        doc = request.files.get("document")
+        _bag_update_expense_from_form(session_db, expense, request.form, file_storage=doc if doc and getattr(doc, "filename", "") else None)
+        session_db.commit()
+        flash("Gasto actualizado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo actualizar el gasto: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/document", endpoint="bag_expense_document_replace")
+@admin_required
+def bag_expense_document_replace(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        policy = (request.form.get("replace_policy") or "replace").strip().lower()
+        rect_file = request.files.get("rectification_document")
+        new_file = request.files.get("document")
+        history = list(expense.replace_history or [])
+        if policy == "annul" and rect_file and getattr(rect_file, "filename", ""):
+            url, name, mime = _bag_document_upload(rect_file)
+            expense.rectification_url = url
+            expense.rectification_name = name
+            expense.rectification_mime = mime
+        if new_file and getattr(new_file, "filename", ""):
+            old_url = expense.attachment_url
+            url, name, mime = _bag_document_upload(new_file)
+            if old_url:
+                history.append({"url": old_url, "name": expense.attachment_name, "mime": expense.attachment_mime, "policy": policy, "replaced_at": _now_madrid().isoformat()})
+            expense.attachment_url = url
+            expense.attachment_name = name
+            expense.attachment_mime = mime
+            expense.replace_history = history
+            expense.consolidation_status = "CONSOLIDADO"
+            expense.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Documento reemplazado.", "success")
+        else:
+            flash("Selecciona el nuevo documento.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo reemplazar el documento: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-invoice", endpoint="bag_expense_request_invoice")
+@admin_required
+def bag_expense_request_invoice(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).options(joinedload(BagExpense.provider)).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if not expense or not bag:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        recipients = []
+        for value in request.form.getlist("recipients"):
+            if _looks_like_email_address(value):
+                recipients.append(value.strip())
+        extra = (request.form.get("extra_emails") or "").strip()
+        if extra:
+            for chunk in re.split(r"[;,\n]+", extra):
+                if _looks_like_email_address(chunk):
+                    recipients.append(chunk.strip())
+        token = _make_bag_expense_upload_token(expense.id)
+        upload_url = _external_url_for("public_bag_expense_document_upload", token=token)
+        subject, html_body, text_body = _bag_expense_request_invoice_email(expense, bag, upload_url)
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body)
+        if ok:
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="SOLICITUD_FACTURA", description="Factura/ticket solicitada al proveedor.", created_by_user_id=_bag_current_user_audit()["user_id"], created_by_nick=_bag_current_user_audit()["nick"]))
+            session_db.commit()
+            flash("Solicitud de factura enviada.", "success")
+        else:
+            flash(f"No se pudo enviar la solicitud: {err}", "warning")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.route("/public/bolsas/gastos/documento/<token>", methods=["GET", "POST"], endpoint="public_bag_expense_document_upload")
+def public_bag_expense_document_upload(token):
+    data = _parse_bag_expense_upload_token(token)
+    if not data:
+        abort(404)
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, _safe_uuid(data.get("eid")))
+        if not expense:
+            abort(404)
+        bag = session_db.get(WorkflowBag, expense.bag_id)
+        if request.method == "POST":
+            doc = request.files.get("document")
+            if not doc or not getattr(doc, "filename", ""):
+                flash("Sube un archivo para continuar.", "warning")
+                return redirect(url_for("public_bag_expense_document_upload", token=token))
+            url, name, mime = _bag_document_upload(doc)
+            expense.attachment_url = url
+            expense.attachment_name = name
+            expense.attachment_mime = mime
+            expense.consolidation_status = "CONSOLIDADO"
+            expense.updated_at = _now_madrid()
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="DOCUMENTO_SUBIDO", description="Documento subido desde enlace público."))
+            session_db.commit()
+            return render_template("public_bag_document_uploaded.html", expense=expense, bag=bag)
+        return render_template("public_bag_document_upload.html", expense=expense, bag=bag, token=token)
+    finally:
+        session_db.close()
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/request-payment", endpoint="bag_expense_request_payment")
+@admin_required
+def bag_expense_request_payment(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        amount_mode = (request.form.get("amount_mode") or "TOTAL").strip().upper()
+        percent = _bag_money(request.form.get("percent")) if amount_mode == "PERCENT" else None
+        amount = _bag_money(request.form.get("amount")) if amount_mode == "AMOUNT" else None
+        if amount_mode == "TOTAL":
+            amount = _bag_amount(expense)
+        expense.immediate_payment_requested = True
+        expense.immediate_payment_reason = (request.form.get("reason") or "").strip() or None
+        expense.immediate_payment_amount_mode = amount_mode
+        expense.immediate_payment_percent = percent
+        expense.immediate_payment_amount = amount
+        expense.immediate_payment_send_receipt = _bag_bool(request.form.get("send_receipt"))
+        expense.immediate_payment_requested_at = _now_madrid()
+        if (expense.payment_status or "NO_PAGADO") == "NO_PAGADO":
+            expense.payment_status = "PENDIENTE"
+        audit = _bag_current_user_audit()
+        session_db.add(BagPaymentInteraction(
+            expense_id=expense.id,
+            kind="SOLICITUD_PAGO_INMEDIATO",
+            description=expense.immediate_payment_reason,
+            amount=amount,
+            percent=percent,
+            created_by_user_id=audit["user_id"],
+            created_by_nick=audit["nick"],
+        ))
+        session_db.commit()
+        flash("Solicitud de pago inmediato enviada a administración.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/cover", endpoint="bag_expense_cover")
+@admin_required
+def bag_expense_cover(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if not expense:
+            flash("Gasto no encontrado.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        covered_by = (request.form.get("covered_by") or "BOLSA").strip().upper()
+        expense.covered_by = covered_by if covered_by in BAG_COVERED_BY_LABELS else "BOLSA"
+        expense.cover_detail = (request.form.get("cover_detail") or "").strip() or None
+        split_rows = []
+        target_ids = request.form.getlist("split_bag_ids")
+        equal_split = _bag_bool(request.form.get("equal_split"))
+        current_amount = _bag_amount(expense)
+        valid_targets = []
+        for raw in target_ids:
+            target = session_db.get(WorkflowBag, _safe_uuid(raw))
+            if target and target.id != expense.bag_id:
+                valid_targets.append(target)
+        if valid_targets:
+            participants = [session_db.get(WorkflowBag, expense.bag_id)] + valid_targets
+            share = (current_amount / Decimal(len(participants))) if equal_split and participants else Decimal("0")
+            source_id = expense.source_expense_id or expense.id
+            old_total = current_amount
+            if equal_split:
+                expense.amount_gross = share
+                if expense.document_type == "TICKET":
+                    expense.amount_net = share
+                    expense.amount_tax = Decimal("0")
+            for target in valid_targets:
+                field = f"split_amount__{target.id}"
+                target_amount = share if equal_split else _bag_money(request.form.get(field))
+                if target_amount <= 0:
+                    continue
+                clone = BagExpense(
+                    bag_id=target.id,
+                    source_expense_id=source_id,
+                    category=expense.category,
+                    sort_order=_bag_next_sort_order(session_db, target.id, expense.category),
+                    concept=expense.concept,
+                    provider_id=expense.provider_id,
+                    provider_company_id=expense.provider_company_id,
+                    provider_snapshot=expense.provider_snapshot or {},
+                    ticket_establishment=expense.ticket_establishment,
+                    document_type=expense.document_type,
+                    invoice_number=expense.invoice_number,
+                    issue_date=expense.issue_date,
+                    amount_net=target_amount if expense.document_type == "TICKET" else target_amount,
+                    amount_tax=Decimal("0"),
+                    amount_gross=target_amount,
+                    retention_amount=expense.retention_amount,
+                    payment_status=expense.payment_status,
+                    paid_amount=Decimal("0"),
+                    payment_method=expense.payment_method,
+                    covered_by=expense.covered_by,
+                    cover_detail=expense.cover_detail,
+                    consolidation_status=expense.consolidation_status,
+                    attachment_url=expense.attachment_url,
+                    attachment_name=expense.attachment_name,
+                    attachment_mime=expense.attachment_mime,
+                    status="ACTIVO",
+                    created_by_user_id=expense.created_by_user_id,
+                    created_by_nick=expense.created_by_nick,
+                )
+                session_db.add(clone)
+                split_rows.append({"bag_id": str(target.id), "bag_title": target.title, "amount": str(target_amount)})
+            split_rows.insert(0, {"bag_id": str(expense.bag_id), "bag_title": getattr(session_db.get(WorkflowBag, expense.bag_id), "title", "Bolsa actual"), "amount": str(expense.amount_gross)})
+            expense.split_info = {"source_total": str(old_total), "rows": split_rows}
+        expense.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Cobertura del gasto actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo aplicar la cobertura: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/no-invoice", endpoint="bag_expense_no_invoice_request")
+@admin_required
+def bag_expense_no_invoice_request(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if expense:
+            expense.document_type = "SIN_DOCUMENTO"
+            expense.no_invoice_reason = (request.form.get("reason") or "").strip() or None
+            expense.consolidation_status = "SIN_FACTURA_SOLICITADO"
+            expense.updated_at = _now_madrid()
+            audit = _bag_current_user_audit()
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="SOLICITUD_SIN_FACTURA", description=expense.no_invoice_reason, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+            session_db.commit()
+            flash("Solicitud enviada a administración.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/notes", endpoint="bag_expense_note_create")
+@admin_required
+def bag_expense_note_create(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        body = (request.form.get("body") or "").strip()
+        if expense and body:
+            audit = _bag_current_user_audit()
+            session_db.add(BagExpenseNote(expense_id=expense.id, body=body, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"], created_by_photo_url=audit["photo_url"]))
+            session_db.commit()
+            flash("Nota añadida al gasto.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/alerts", endpoint="bag_expense_alert_create")
+@admin_required
+def bag_expense_alert_create(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        alert_date = _bag_date(request.form.get("alert_date"))
+        if expense and alert_date:
+            audit = _bag_current_user_audit()
+            session_db.add(BagExpenseAlert(expense_id=expense.id, alert_date=alert_date, body=(request.form.get("body") or "").strip() or None, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
+            session_db.commit()
+            flash("Alerta añadida al gasto.", "success")
+        else:
+            flash("Indica una fecha de alerta válida.", "warning")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/alerts/<alert_id>/done", endpoint="bag_expense_alert_done")
+@admin_required
+def bag_expense_alert_done(bag_id, expense_id, alert_id):
+    session_db = db()
+    try:
+        alert = session_db.query(BagExpenseAlert).join(BagExpense, BagExpenseAlert.expense_id == BagExpense.id).filter(BagExpenseAlert.id == to_uuid(alert_id), BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if alert:
+            alert.is_done = True
+            alert.done_at = _now_madrid()
+            session_db.commit()
+            flash("Alerta marcada como vista/ejecutada.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/move", endpoint="bag_expense_move")
+@admin_required
+def bag_expense_move(bag_id, expense_id):
+    session_db = db()
+    try:
+        payload = request.get_json(silent=True) or request.form
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if not expense:
+            return jsonify({"ok": False, "error": "Gasto no encontrado"}), 404
+        category = _bag_normalize_category(payload.get("category"))
+        expense.category = category
+        try:
+            expense.sort_order = int(payload.get("sort_order") or expense.sort_order or 0)
+        except Exception:
+            expense.sort_order = _bag_next_sort_order(session_db, expense.bag_id, category)
+        expense.updated_at = _now_madrid()
+        session_db.commit()
+        if request.is_json:
+            return jsonify({"ok": True})
+        flash("Gasto movido.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/expenses/<expense_id>/delete", endpoint="bag_expense_delete")
+@admin_required
+def bag_expense_delete(bag_id, expense_id):
+    session_db = db()
+    try:
+        expense = session_db.query(BagExpense).filter(BagExpense.id == to_uuid(expense_id), BagExpense.bag_id == to_uuid(bag_id)).first()
+        if expense:
+            expense.status = "ELIMINADO"
+            expense.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Gasto eliminado.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/prorrateos", endpoint="bag_proration_add")
+@admin_required
+def bag_proration_add(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        source = session_db.get(WorkflowBag, _safe_uuid(request.form.get("source_bag_id")))
+        if not bag or not source:
+            flash("Bolsa de prorrateo no encontrada.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        amount = _bag_money(request.form.get("amount"))
+        if amount <= 0:
+            flash("Indica el importe a prorratear.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag_id))
+        form_proxy = request.form.copy()
+        form_proxy = dict(form_proxy)
+        form_proxy["category"] = "PRORRATEOS"
+        form_proxy["concept"] = f"Prorrateo · {source.title}"
+        form_proxy["document_type"] = "SIN_DOCUMENTO"
+        form_proxy["amount_gross"] = str(amount)
+        form_proxy["amount_net"] = str(amount)
+        form_proxy["amount_tax"] = "0"
+        expense = _bag_create_expense(session_db, bag, form_proxy, category="PRORRATEOS", is_proration=True)
+        expense.proration_source_bag_id = source.id
+        expense.proration_pending_snapshot = _bag_money(request.form.get("pending_snapshot"))
+        expense.consolidation_status = "CONSOLIDADO"
+        session_db.commit()
+        flash("Prorrateo añadido a la bolsa.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo añadir el prorrateo: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
+
+
+@app.post("/bolsas/<bag_id>/close", endpoint="bag_close")
+@admin_required
+def bag_close(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if not bag:
+            flash("Bolsa no encontrada.", "warning")
+            return redirect(url_for("bags_view"))
+        expenses = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
+        if not expenses:
+            flash("No se puede cerrar una bolsa sin gastos.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        pending = [e for e in expenses if not _bag_expense_is_consolidated(e)]
+        if pending:
+            flash("No se puede cerrar: hay gastos sin consolidar.", "warning")
+            return redirect(url_for("bag_detail_view", bag_id=bag.id))
+        bag.status = "CERRADA"
+        bag.closed_at = _now_madrid()
+        bag.closed_by_user_id = _bag_current_user_audit()["user_id"]
+        bag.liquidation_status = "PENDIENTE_ADMIN"
+        bag.liquidation_requested_at = _now_madrid()
+        session_db.commit()
+        flash("Bolsa cerrada y enviada a administración para liquidación.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("bag_detail_view", bag_id=bag_id))
 
 
 @app.post("/bolsas/<bag_id>/archive")
@@ -25043,6 +26282,8 @@ def bag_restore(bag_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("bags_view", tab="archived")))
+
+
 
 
 @app.route("/facturas", methods=["GET", "POST"], endpoint="invoices_view")

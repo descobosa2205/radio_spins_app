@@ -1895,22 +1895,194 @@ class WorkflowBag(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     title = Column(Text, nullable=False)
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    bag_type = Column(Text, nullable=False, server_default=text("'GENERAL'"))
+    linked_type = Column(Text)
+    linked_id = Column(PGUUID(as_uuid=True))
+    linked_title = Column(Text)
+    linked_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     start_date = Column(Date)
     end_date = Column(Date)
     description = Column(Text)
+    economic_indications = Column(Text)
     status = Column(Text, nullable=False, server_default=text("'ACTIVA'"))
+    liquidation_status = Column(Text, nullable=False, server_default=text("'NO_INICIADA'"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True))
+    closed_at = Column(DateTime(timezone=True))
+    closed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    liquidation_requested_at = Column(DateTime(timezone=True))
+    liquidation_reviewed_at = Column(DateTime(timezone=True))
+    liquidation_paid_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist")
     company = relationship("GroupCompany")
+    closed_by = relationship("User")
+    expenses = relationship("BagExpense", back_populates="bag", cascade="all, delete-orphan", order_by="BagExpense.sort_order", foreign_keys="BagExpense.bag_id")
+    notes = relationship("BagNote", back_populates="bag", cascade="all, delete-orphan", order_by="BagNote.created_at")
 
     __table_args__ = (
         Index("idx_workflow_bags_archived", "is_archived", "start_date"),
         Index("idx_workflow_bags_artist_company", "artist_id", "company_id"),
+        Index("idx_workflow_bags_liquidation_status", "liquidation_status", "closed_at"),
+        Index("idx_workflow_bags_linked", "linked_type", "linked_id"),
+    )
+
+
+class BagNote(Base):
+    __tablename__ = "bag_notes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="CASCADE"), nullable=False)
+    note_type = Column(Text, nullable=False, server_default=text("'GENERAL'"))
+    body = Column(Text, nullable=False)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_by_photo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bag = relationship("WorkflowBag", back_populates="notes")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_bag_notes_bag_type", "bag_id", "note_type", "created_at"),
+    )
+
+
+class BagExpense(Base):
+    __tablename__ = "bag_expenses"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="CASCADE"), nullable=False)
+    source_expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="SET NULL"))
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    concept = Column(Text)
+    provider_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    provider_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
+    provider_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ticket_establishment = Column(Text)
+    document_type = Column(Text, nullable=False, server_default=text("'FACTURA'"))
+    invoice_number = Column(Text)
+    issue_date = Column(Date)
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_tax = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    retention_amount = Column(Numeric, nullable=False, server_default=text("0"))
+    payment_status = Column(Text, nullable=False, server_default=text("'NO_PAGADO'"))
+    paid_amount = Column(Numeric, nullable=False, server_default=text("0"))
+    payment_method = Column(Text)
+    covered_by = Column(Text, nullable=False, server_default=text("'BOLSA'"))
+    cover_detail = Column(Text)
+    split_info = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    consolidation_status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    no_invoice_reason = Column(Text)
+    no_invoice_rejection_reason = Column(Text)
+    attachment_url = Column(Text)
+    attachment_name = Column(Text)
+    attachment_mime = Column(Text)
+    rectification_url = Column(Text)
+    rectification_name = Column(Text)
+    rectification_mime = Column(Text)
+    replace_history = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    immediate_payment_requested = Column(Boolean, nullable=False, server_default=text("false"))
+    immediate_payment_reason = Column(Text)
+    immediate_payment_amount_mode = Column(Text)
+    immediate_payment_percent = Column(Numeric)
+    immediate_payment_amount = Column(Numeric)
+    immediate_payment_send_receipt = Column(Boolean, nullable=False, server_default=text("false"))
+    immediate_payment_requested_at = Column(DateTime(timezone=True))
+    is_proration = Column(Boolean, nullable=False, server_default=text("false"))
+    proration_source_bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    proration_pending_snapshot = Column(Numeric)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bag = relationship("WorkflowBag", foreign_keys=[bag_id], back_populates="expenses")
+    source_expense = relationship("BagExpense", remote_side=[id])
+    proration_source_bag = relationship("WorkflowBag", foreign_keys=[proration_source_bag_id])
+    provider = relationship("Promoter")
+    provider_company = relationship("PromoterCompany")
+    created_by = relationship("User")
+    notes = relationship("BagExpenseNote", back_populates="expense", cascade="all, delete-orphan", order_by="BagExpenseNote.created_at")
+    alerts = relationship("BagExpenseAlert", back_populates="expense", cascade="all, delete-orphan", order_by="BagExpenseAlert.alert_date")
+    payment_events = relationship("BagPaymentInteraction", back_populates="expense", cascade="all, delete-orphan", order_by="BagPaymentInteraction.created_at")
+
+    __table_args__ = (
+        Index("idx_bag_expenses_bag_category", "bag_id", "category", "sort_order"),
+        Index("idx_bag_expenses_consolidation", "consolidation_status"),
+        Index("idx_bag_expenses_payment", "payment_status", "immediate_payment_requested"),
+        Index("idx_bag_expenses_provider", "provider_id"),
+    )
+
+
+class BagExpenseNote(Base):
+    __tablename__ = "bag_expense_notes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="CASCADE"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_by_photo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    expense = relationship("BagExpense", back_populates="notes")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_bag_expense_notes_expense", "expense_id", "created_at"),
+    )
+
+
+class BagExpenseAlert(Base):
+    __tablename__ = "bag_expense_alerts"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="CASCADE"), nullable=False)
+    alert_date = Column(Date, nullable=False)
+    body = Column(Text)
+    is_done = Column(Boolean, nullable=False, server_default=text("false"))
+    done_at = Column(DateTime(timezone=True))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    expense = relationship("BagExpense", back_populates="alerts")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_bag_expense_alerts_due", "alert_date", "is_done"),
+        Index("idx_bag_expense_alerts_expense", "expense_id"),
+    )
+
+
+class BagPaymentInteraction(Base):
+    __tablename__ = "bag_payment_interactions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    expense_id = Column(PGUUID(as_uuid=True), ForeignKey("bag_expenses.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False)
+    description = Column(Text)
+    amount = Column(Numeric)
+    percent = Column(Numeric)
+    method = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    expense = relationship("BagExpense", back_populates="payment_events")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_bag_payment_interactions_expense", "expense_id", "created_at"),
+        Index("idx_bag_payment_interactions_kind", "kind", "created_at"),
     )
 
 
@@ -3325,6 +3497,198 @@ def ensure_personnel_and_operations_schema():
         'CREATE INDEX IF NOT EXISTS idx_media_promotion_records_promotion_id ON media_promotion_records(promotion_id);',
     ]
     _exec_ddl_statements(stmts, "personnel_operations_promotions")
+
+
+def ensure_bag_expense_schema():
+    """Asegura el esquema ampliado de bolsas y gastos administrativos."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        ALTER TABLE IF EXISTS workflow_bags
+            ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS bag_type text NOT NULL DEFAULT 'GENERAL',
+            ADD COLUMN IF NOT EXISTS linked_type text,
+            ADD COLUMN IF NOT EXISTS linked_id uuid,
+            ADD COLUMN IF NOT EXISTS linked_title text,
+            ADD COLUMN IF NOT EXISTS linked_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS economic_indications text,
+            ADD COLUMN IF NOT EXISTS liquidation_status text NOT NULL DEFAULT 'NO_INICIADA',
+            ADD COLUMN IF NOT EXISTS closed_at timestamptz,
+            ADD COLUMN IF NOT EXISTS closed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS liquidation_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS liquidation_reviewed_at timestamptz,
+            ADD COLUMN IF NOT EXISTS liquidation_paid_at timestamptz;
+        """,
+        """
+        UPDATE workflow_bags
+           SET artist_ids = CASE
+                WHEN artist_id IS NULL THEN COALESCE(artist_ids, '[]'::jsonb)
+                WHEN COALESCE(jsonb_array_length(artist_ids), 0) = 0 THEN jsonb_build_array(artist_id::text)
+                ELSE artist_ids
+           END
+         WHERE artist_ids IS NULL OR COALESCE(jsonb_array_length(artist_ids), 0) = 0;
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_workflow_bags_liquidation_status ON workflow_bags(liquidation_status, closed_at);',
+        'CREATE INDEX IF NOT EXISTS idx_workflow_bags_linked ON workflow_bags(linked_type, linked_id);',
+        """
+        CREATE TABLE IF NOT EXISTS bag_notes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            bag_id uuid NOT NULL REFERENCES workflow_bags(id) ON DELETE CASCADE,
+            note_type text NOT NULL DEFAULT 'GENERAL',
+            body text NOT NULL,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_by_photo_url text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_notes_bag_type ON bag_notes(bag_id, note_type, created_at);',
+        """
+        CREATE TABLE IF NOT EXISTS bag_expenses (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            bag_id uuid NOT NULL REFERENCES workflow_bags(id) ON DELETE CASCADE,
+            source_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            category text NOT NULL DEFAULT 'OTROS',
+            sort_order integer NOT NULL DEFAULT 0,
+            concept text,
+            provider_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            provider_company_id uuid REFERENCES promoter_companies(id) ON DELETE SET NULL,
+            provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ticket_establishment text,
+            document_type text NOT NULL DEFAULT 'FACTURA',
+            invoice_number text,
+            issue_date date,
+            amount_net numeric NOT NULL DEFAULT 0,
+            amount_tax numeric NOT NULL DEFAULT 0,
+            amount_gross numeric NOT NULL DEFAULT 0,
+            retention_amount numeric NOT NULL DEFAULT 0,
+            payment_status text NOT NULL DEFAULT 'NO_PAGADO',
+            paid_amount numeric NOT NULL DEFAULT 0,
+            payment_method text,
+            covered_by text NOT NULL DEFAULT 'BOLSA',
+            cover_detail text,
+            split_info jsonb NOT NULL DEFAULT '[]'::jsonb,
+            consolidation_status text NOT NULL DEFAULT 'PENDIENTE',
+            no_invoice_reason text,
+            no_invoice_rejection_reason text,
+            attachment_url text,
+            attachment_name text,
+            attachment_mime text,
+            rectification_url text,
+            rectification_name text,
+            rectification_mime text,
+            replace_history jsonb NOT NULL DEFAULT '[]'::jsonb,
+            immediate_payment_requested boolean NOT NULL DEFAULT false,
+            immediate_payment_reason text,
+            immediate_payment_amount_mode text,
+            immediate_payment_percent numeric,
+            immediate_payment_amount numeric,
+            immediate_payment_send_receipt boolean NOT NULL DEFAULT false,
+            immediate_payment_requested_at timestamptz,
+            is_proration boolean NOT NULL DEFAULT false,
+            proration_source_bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            proration_pending_snapshot numeric,
+            status text NOT NULL DEFAULT 'ACTIVO',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_expenses_bag_category ON bag_expenses(bag_id, category, sort_order);',
+        'CREATE INDEX IF NOT EXISTS idx_bag_expenses_consolidation ON bag_expenses(consolidation_status);',
+        'CREATE INDEX IF NOT EXISTS idx_bag_expenses_payment ON bag_expenses(payment_status, immediate_payment_requested);',
+        'CREATE INDEX IF NOT EXISTS idx_bag_expenses_provider ON bag_expenses(provider_id);',
+        """
+        ALTER TABLE IF EXISTS bag_expenses
+            ADD COLUMN IF NOT EXISTS source_expense_id uuid REFERENCES bag_expenses(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS provider_company_id uuid REFERENCES promoter_companies(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS ticket_establishment text,
+            ADD COLUMN IF NOT EXISTS document_type text NOT NULL DEFAULT 'FACTURA',
+            ADD COLUMN IF NOT EXISTS invoice_number text,
+            ADD COLUMN IF NOT EXISTS issue_date date,
+            ADD COLUMN IF NOT EXISTS amount_net numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS amount_tax numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS amount_gross numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS retention_amount numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS payment_status text NOT NULL DEFAULT 'NO_PAGADO',
+            ADD COLUMN IF NOT EXISTS paid_amount numeric NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS payment_method text,
+            ADD COLUMN IF NOT EXISTS covered_by text NOT NULL DEFAULT 'BOLSA',
+            ADD COLUMN IF NOT EXISTS cover_detail text,
+            ADD COLUMN IF NOT EXISTS split_info jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS consolidation_status text NOT NULL DEFAULT 'PENDIENTE',
+            ADD COLUMN IF NOT EXISTS no_invoice_reason text,
+            ADD COLUMN IF NOT EXISTS no_invoice_rejection_reason text,
+            ADD COLUMN IF NOT EXISTS attachment_url text,
+            ADD COLUMN IF NOT EXISTS attachment_name text,
+            ADD COLUMN IF NOT EXISTS attachment_mime text,
+            ADD COLUMN IF NOT EXISTS rectification_url text,
+            ADD COLUMN IF NOT EXISTS rectification_name text,
+            ADD COLUMN IF NOT EXISTS rectification_mime text,
+            ADD COLUMN IF NOT EXISTS replace_history jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS immediate_payment_requested boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS immediate_payment_reason text,
+            ADD COLUMN IF NOT EXISTS immediate_payment_amount_mode text,
+            ADD COLUMN IF NOT EXISTS immediate_payment_percent numeric,
+            ADD COLUMN IF NOT EXISTS immediate_payment_amount numeric,
+            ADD COLUMN IF NOT EXISTS immediate_payment_send_receipt boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS immediate_payment_requested_at timestamptz,
+            ADD COLUMN IF NOT EXISTS is_proration boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS proration_source_bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS proration_pending_snapshot numeric,
+            ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ACTIVO',
+            ADD COLUMN IF NOT EXISTS created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            ADD COLUMN IF NOT EXISTS created_by_nick text,
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS bag_expense_notes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            expense_id uuid NOT NULL REFERENCES bag_expenses(id) ON DELETE CASCADE,
+            body text NOT NULL,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_by_photo_url text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_expense_notes_expense ON bag_expense_notes(expense_id, created_at);',
+        """
+        CREATE TABLE IF NOT EXISTS bag_expense_alerts (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            expense_id uuid NOT NULL REFERENCES bag_expenses(id) ON DELETE CASCADE,
+            alert_date date NOT NULL,
+            body text,
+            is_done boolean NOT NULL DEFAULT false,
+            done_at timestamptz,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_expense_alerts_due ON bag_expense_alerts(alert_date, is_done);',
+        'CREATE INDEX IF NOT EXISTS idx_bag_expense_alerts_expense ON bag_expense_alerts(expense_id);',
+        """
+        CREATE TABLE IF NOT EXISTS bag_payment_interactions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            expense_id uuid NOT NULL REFERENCES bag_expenses(id) ON DELETE CASCADE,
+            kind text NOT NULL,
+            description text,
+            amount numeric,
+            percent numeric,
+            method text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_bag_payment_interactions_expense ON bag_payment_interactions(expense_id, created_at);',
+        'CREATE INDEX IF NOT EXISTS idx_bag_payment_interactions_kind ON bag_payment_interactions(kind, created_at);',
+    ]
+    _exec_ddl_statements(stmts, "bag_expenses")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

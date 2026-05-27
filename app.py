@@ -22116,6 +22116,7 @@ from models import (
     MediaContact,
     MediaPromotionRecord,
     PromotionRequest,
+    ProductionRequest,
     Promotion,
     PromotionActivity,
     WorkflowBag,
@@ -22136,13 +22137,13 @@ PERSONNEL_DEPARTMENTS = [
     "Dirección",
     "Ticketing",
     "Contratación",
-    "Administracion",
+    "Administración",
     "Contabilidad",
     "Promoción",
     "Producción",
     "Marketing",
     "Sello",
-    "Derechos",
+    "Registros",
     "Diseño",
     "Redes sociales",
 ]
@@ -22168,6 +22169,21 @@ BAG_TYPES = [
     ("EVENTO_PROMOCIONAL", "Evento promocional"),
     ("PRORRATEO", "Bolsa de prorrateo"),
 ]
+PRODUCTION_ACTIVITY_TYPES = [
+    ("CONCIERTO", "Concierto"),
+    ("GIRA", "Gira"),
+    ("SINGLE", "Single"),
+    ("DISCO", "Disco / EP"),
+    ("PROMOCION", "Promoción"),
+    ("EVENTO_PROMOCIONAL", "Evento promocional"),
+    ("GENERAL", "General"),
+]
+PRODUCTION_REQUEST_STATUS_LABELS = {
+    "REQUESTED": "Solicitud",
+    "APPROVED": "Aprobada",
+    "REJECTED": "Rechazada",
+    "CONVERTED": "Convertida",
+}
 BAG_EXPENSE_CATEGORIES = [
     ("SONIDO_LUCES", "Equipo de sonido y luces"),
     ("MUSICOS", "Músicos"),
@@ -22322,17 +22338,56 @@ def _email_to_nick(email: str) -> str:
 
 
 def _normalize_departments(values) -> list[str]:
+    aliases = {
+        "administracion": "Administración",
+        "administración": "Administración",
+        "derechos": "Registros",
+        "registro": "Registros",
+        "registros": "Registros",
+        "produccion": "Producción",
+        "producción": "Producción",
+        "promocion": "Promoción",
+        "promoción": "Promoción",
+        "direccion": "Dirección",
+        "dirección": "Dirección",
+        "contratacion": "Contratación",
+        "contratación": "Contratación",
+    }
     allowed = {d.casefold(): d for d in PERSONNEL_DEPARTMENTS}
     out = []
     seen = set()
     for raw in values or []:
-        val = allowed.get((raw or "").strip().casefold())
+        key = (raw or "").strip().casefold()
+        val = aliases.get(key) or allowed.get(key)
         if not val:
             continue
         if val in seen:
             continue
         seen.add(val)
         out.append(val)
+    return out
+
+
+def _normalize_assigned_artist_ids(values) -> list[str]:
+    raw = []
+    if isinstance(values, str):
+        raw = [values]
+    else:
+        try:
+            raw = list(values or [])
+        except Exception:
+            raw = []
+    out = []
+    seen = set()
+    for value in raw:
+        uid = _safe_uuid(value) if "_safe_uuid" in globals() else to_uuid(value)
+        if not uid:
+            continue
+        sid = str(uid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append(sid)
     return out
 
 
@@ -22560,6 +22615,7 @@ def _ensure_user_profile(session_db, user: User, legacy_full_seed: bool = False,
         birth_date=kwargs.get("birth_date"),
         mobile_phones=_normalize_phone_rows(kwargs.get("mobile_phones") or []),
         departments=_normalize_departments(kwargs.get("departments") or []),
+        assigned_artist_ids=_normalize_assigned_artist_ids(kwargs.get("assigned_artist_ids") or []),
         legacy_permissions_seeded=bool(legacy_full_seed),
     )
     session_db.add(profile)
@@ -22861,6 +22917,7 @@ def _snapshot_user_profile(profile: UserProfile | None) -> SimpleNamespace | Non
         birth_date=getattr(profile, "birth_date", None),
         mobile_phones=list(getattr(profile, "mobile_phones", None) or []),
         departments=list(getattr(profile, "departments", None) or []),
+        assigned_artist_ids=list(getattr(profile, "assigned_artist_ids", None) or []),
         legacy_permissions_seeded=bool(getattr(profile, "legacy_permissions_seeded", False)),
     )
 
@@ -22893,6 +22950,7 @@ def _current_user_state() -> dict:
         "grants": {},
         "nick": "",
         "departments": [],
+        "assigned_artist_ids": [],
         "photo_url": "",
         "full_name": "",
     }
@@ -22929,6 +22987,7 @@ def _current_user_state() -> dict:
             "grants": grants,
             "nick": (getattr(profile_snapshot, "nick", None) or _email_to_nick(user.email or "")).strip(),
             "departments": list(getattr(profile_snapshot, "departments", None) or []),
+            "assigned_artist_ids": list(getattr(profile_snapshot, "assigned_artist_ids", None) or []),
             "photo_url": (getattr(profile_snapshot, "photo_url", None) or "").strip(),
             "full_name": _profile_full_name(profile_snapshot),
         })
@@ -24433,38 +24492,372 @@ def promotion_activity_create(promotion_id):
         session_db.close()
     return redirect(next_url)
 
-@app.route("/produccion", endpoint="produccion_view")
+def _production_type_label(value: str | None) -> str:
+    key = (value or "GENERAL").strip().upper() or "GENERAL"
+    return dict(PRODUCTION_ACTIVITY_TYPES).get(key) or dict(BAG_TYPES).get(key) or key.title()
+
+
+def _production_artist_ids_from_any(raw) -> list[str]:
+    out = []
+    seen = set()
+    if raw is None:
+        raw_values = []
+    elif isinstance(raw, str):
+        raw_values = [raw]
+    else:
+        try:
+            raw_values = list(raw)
+        except Exception:
+            raw_values = []
+    for value in raw_values:
+        try:
+            uid = to_uuid(value)
+        except Exception:
+            uid = None
+        if not uid:
+            continue
+        sid = str(uid)
+        if sid in seen:
+            continue
+        seen.add(sid)
+        out.append(sid)
+    return out
+
+
+def _production_artists_by_ids(session_db, ids: list[str]) -> list[Artist]:
+    uuid_ids = []
+    for value in ids or []:
+        try:
+            uuid_ids.append(to_uuid(value))
+        except Exception:
+            pass
+    if not uuid_ids:
+        return []
+    rows = session_db.query(Artist).filter(Artist.id.in_(uuid_ids)).all()
+    by_id = {str(row.id): row for row in rows}
+    return [by_id[str(uid)] for uid in uuid_ids if str(uid) in by_id]
+
+
+def _production_snapshot_value(snapshot, *keys) -> str:
+    data = snapshot if isinstance(snapshot, dict) else {}
+    for key in keys:
+        val = data.get(key)
+        if val:
+            return str(val).strip()
+    return ""
+
+
+def _production_bag_row(session_db, bag: WorkflowBag, *, row_kind: str = "activity") -> dict:
+    artists = _bag_artist_rows(session_db, bag) if "_bag_artist_rows" in globals() else []
+    snapshot = getattr(bag, "linked_snapshot", None) or {}
+    city = _production_snapshot_value(snapshot, "city", "municipality", "localidad")
+    province = _production_snapshot_value(snapshot, "province", "provincia")
+    activity_type = (getattr(bag, "bag_type", None) or getattr(bag, "linked_type", None) or "GENERAL").strip().upper()
+
+    # Si la bolsa está vinculada a un concierto, enriquecemos ciudad/provincia y nombre.
+    linked_type = (getattr(bag, "linked_type", None) or "").strip().upper()
+    linked_id = getattr(bag, "linked_id", None)
+    linked_concert = None
+    if linked_type in {"CONCIERTO", "CONCERT"} and linked_id:
+        try:
+            linked_concert = session_db.get(Concert, linked_id)
+        except Exception:
+            linked_concert = None
+    if linked_concert:
+        city = city or _concert_city(linked_concert)
+        province = province or _concert_province_value(linked_concert)
+        linked_title = getattr(bag, "linked_title", None) or getattr(linked_concert, "festival_name", None) or _concert_venue_name(linked_concert)
+        activity_date = getattr(linked_concert, "date", None) or getattr(bag, "start_date", None)
+        detail_url = url_for("concert_detail_view", cid=linked_concert.id)
+    else:
+        linked_title = getattr(bag, "linked_title", None) or getattr(bag, "title", None) or "Actividad"
+        activity_date = getattr(bag, "start_date", None) or getattr(bag, "end_date", None)
+        detail_url = url_for("bag_detail_view", bag_id=bag.id)
+
+    title = getattr(bag, "title", None) or linked_title or "Actividad"
+    search_blob = " ".join([
+        title or "",
+        linked_title or "",
+        _production_type_label(activity_type),
+        city or "",
+        province or "",
+        " ".join([a.name for a in artists if getattr(a, "name", None)]),
+        getattr(bag, "status", None) or "",
+    ])
+    return {
+        "kind": row_kind,
+        "id": str(bag.id),
+        "title": title,
+        "subtitle": linked_title if linked_title != title else (getattr(bag, "description", None) or ""),
+        "activity_type": activity_type,
+        "activity_label": _production_type_label(activity_type),
+        "date": activity_date,
+        "date_sort": activity_date or date.max,
+        "artists": artists,
+        "artist_ids": [str(a.id) for a in artists if getattr(a, "id", None)],
+        "city": city,
+        "province": province,
+        "status": getattr(bag, "status", None) or "ACTIVA",
+        "status_label": getattr(bag, "status", None) or "ACTIVA",
+        "badge_class": "text-bg-secondary" if (getattr(bag, "status", "") or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"} else "text-bg-success",
+        "detail_url": detail_url,
+        "search_blob": search_blob,
+        "is_bag": True,
+        "bag": bag,
+    }
+
+
+def _production_request_row(session_db, req: ProductionRequest) -> dict:
+    artist_ids = _production_artist_ids_from_any(getattr(req, "artist_ids", None) or [])
+    artists = _production_artists_by_ids(session_db, artist_ids)
+    activity_type = (getattr(req, "activity_type", None) or "GENERAL").strip().upper()
+    title = (getattr(req, "activity_title", None) or "Solicitud de producción").strip()
+    detail_url = url_for("bag_detail_view", bag_id=req.bag_id) if getattr(req, "bag_id", None) else "#productionRequestModal-" + str(req.id)
+    search_blob = " ".join([
+        title,
+        _production_type_label(activity_type),
+        getattr(req, "city", None) or "",
+        getattr(req, "province", None) or "",
+        " ".join([a.name for a in artists if getattr(a, "name", None)]),
+        getattr(req, "notes", None) or "",
+        getattr(req, "status", None) or "REQUESTED",
+    ])
+    return {
+        "kind": "request",
+        "id": str(req.id),
+        "title": title,
+        "subtitle": getattr(req, "notes", None) or "Solicitud pendiente de convertir en actividad / bolsa.",
+        "activity_type": activity_type,
+        "activity_label": _production_type_label(activity_type),
+        "date": getattr(req, "activity_date", None),
+        "date_sort": getattr(req, "activity_date", None) or date.max,
+        "artists": artists,
+        "artist_ids": [str(a.id) for a in artists if getattr(a, "id", None)],
+        "city": getattr(req, "city", None) or "",
+        "province": getattr(req, "province", None) or "",
+        "status": getattr(req, "status", None) or "REQUESTED",
+        "status_label": PRODUCTION_REQUEST_STATUS_LABELS.get((getattr(req, "status", None) or "REQUESTED").upper(), getattr(req, "status", None) or "REQUESTED"),
+        "badge_class": "text-bg-warning text-dark",
+        "detail_url": detail_url,
+        "search_blob": search_blob,
+        "is_request": True,
+        "request": req,
+    }
+
+
+def _production_passes_filters(row: dict, *, q: str = "", artist_id: str = "", activity_type: str = "") -> bool:
+    if activity_type and (row.get("activity_type") or "").upper() != activity_type.upper():
+        return False
+    if artist_id and artist_id not in set(row.get("artist_ids") or []):
+        return False
+    if q:
+        haystack = _search_normalize(row.get("search_blob") or "")
+        if _search_normalize(q) not in haystack:
+            return False
+    return True
+
+
+def _production_group_archived(rows: list[dict]) -> list[dict]:
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        artists = row.get("artists") or []
+        if artists:
+            artist_items = artists
+        else:
+            artist_items = [SimpleNamespace(id="sin-artista", name="Sin artista", photo_url="")]
+        for artist in artist_items:
+            aid = str(getattr(artist, "id", "sin-artista") or "sin-artista")
+            block = grouped.setdefault(aid, {"artist": artist, "types": {}})
+            tkey = row.get("activity_type") or "GENERAL"
+            tblock = block["types"].setdefault(tkey, {"label": row.get("activity_label") or _production_type_label(tkey), "rows": []})
+            tblock["rows"].append(row)
+    result = []
+    for block in grouped.values():
+        type_blocks = []
+        for type_block in block["types"].values():
+            type_block["rows"].sort(key=lambda item: item.get("date") or date.min, reverse=True)
+            type_blocks.append(type_block)
+        type_blocks.sort(key=lambda item: item["label"].casefold())
+        result.append({"artist": block["artist"], "types": type_blocks})
+    result.sort(key=lambda item: (getattr(item["artist"], "name", "") or "").casefold())
+    return result
+
+
+@app.route("/produccion", methods=["GET", "POST"], endpoint="produccion_view")
 @admin_required
 def produccion_view():
     session_db = db()
     try:
-        recent_song_contracts = session_db.query(SongProductionContract).order_by(SongProductionContract.created_at.desc()).limit(5).all()
-        recent_album_contracts = session_db.query(AlbumProductionContract).order_by(AlbumProductionContract.created_at.desc()).limit(5).all()
-        recent_items = []
-        for row in recent_song_contracts:
-            song = session_db.get(Song, row.song_id)
-            if song:
-                recent_items.append({"title": row.producer_name, "subtitle": f"Canción · {song.title}", "url": url_for("discografica_song_detail", song_id=song.id, tab="informacion")})
-        for row in recent_album_contracts:
-            album = session_db.get(Album, row.album_id)
-            if album:
-                recent_items.append({"title": row.producer_name, "subtitle": f"Álbum · {album.title}", "url": url_for("discografica_album_detail", album_id=album.id, tab="informacion")})
-        recent_items = recent_items[:6]
+        if request.method == "POST":
+            mode = (request.form.get("mode") or "create_request").strip().lower()
+            if mode == "create_request":
+                artist_ids = _production_artist_ids_from_any(request.form.getlist("artist_ids"))
+                title = (request.form.get("activity_title") or "").strip()
+                activity_type = (request.form.get("activity_type") or "GENERAL").strip().upper() or "GENERAL"
+                if not title:
+                    flash("El nombre de la actividad es obligatorio.", "warning")
+                    return redirect(url_for("produccion_view", tab="solicitudes"))
+                audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Usuario"}
+                req = ProductionRequest(
+                    activity_type=activity_type,
+                    activity_title=title,
+                    artist_ids=artist_ids,
+                    activity_date=parse_optional_date(request.form.get("activity_date")),
+                    city=(request.form.get("city") or "").strip() or None,
+                    province=(request.form.get("province") or "").strip() or None,
+                    notes=(request.form.get("notes") or "").strip() or None,
+                    status="REQUESTED",
+                    requested_by_user_id=audit.get("user_id"),
+                    requested_by_email=_current_user_email() or None,
+                    requested_by_nick=audit.get("nick"),
+                )
+                session_db.add(req)
+                session_db.commit()
+                flash("Solicitud de producción creada.", "success")
+                return redirect(url_for("produccion_view", tab="solicitudes"))
+
+        tab = (request.args.get("tab") or "solicitudes").strip().lower()
+        if tab not in {"solicitudes", "activas", "archivadas"}:
+            tab = "solicitudes"
+        f_q = (request.args.get("q") or "").strip()
+        f_artist = (request.args.get("artist") or "").strip()
+        f_type = (request.args.get("activity_type") or "").strip().upper()
+
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        artist_filter_ids = {str(a.id) for a in artists}
+        if f_artist not in artist_filter_ids:
+            f_artist = ""
+        valid_types = {key for key, _label in PRODUCTION_ACTIVITY_TYPES}
+        if f_type not in valid_types:
+            f_type = ""
+
+        request_rows_db = (
+            session_db.query(ProductionRequest)
+            .filter(ProductionRequest.status.in_(["REQUESTED", "APPROVED"]))
+            .order_by(ProductionRequest.activity_date.asc().nullslast(), ProductionRequest.created_at.desc())
+            .all()
+        )
+        request_rows = [_production_request_row(session_db, req) for req in request_rows_db]
+
+        active_bags_db = (
+            session_db.query(WorkflowBag)
+            .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
+            .filter(WorkflowBag.is_archived == False)  # noqa: E712
+            .filter(~WorkflowBag.status.in_(["CERRADA", "LIQUIDADA", "ARCHIVADA"]))
+            .order_by(WorkflowBag.start_date.asc().nullslast(), WorkflowBag.created_at.desc())
+            .all()
+        )
+        active_rows = [_production_bag_row(session_db, bag, row_kind="activity") for bag in active_bags_db]
+
+        archived_bags_db = (
+            session_db.query(WorkflowBag)
+            .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
+            .filter(or_(WorkflowBag.is_archived == True, WorkflowBag.status.in_(["CERRADA", "LIQUIDADA", "ARCHIVADA"])))  # noqa: E712
+            .order_by(WorkflowBag.start_date.desc().nullslast(), WorkflowBag.created_at.desc())
+            .all()
+        )
+        archived_rows = [_production_bag_row(session_db, bag, row_kind="archived") for bag in archived_bags_db]
+
+        request_rows = [row for row in request_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
+        active_rows = [row for row in active_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
+        archived_rows = [row for row in archived_rows if _production_passes_filters(row, q=f_q, artist_id=f_artist, activity_type=f_type)]
+
+        request_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))
+        active_rows.sort(key=lambda row: (row.get("date") or date.max, row.get("title") or ""))
+        archived_rows.sort(key=lambda row: (row.get("date") or date.min, row.get("title") or ""), reverse=True)
+        archived_groups = _production_group_archived(archived_rows)
+
+        counts = {
+            "solicitudes": len(request_rows),
+            "activas": len(active_rows),
+            "archivadas": len(archived_rows),
+        }
         return render_template(
-            "operations_section.html",
-            title="Producción",
-            subtitle="Visión general del trabajo de producción y contratos asociados.",
-            cards=[
-                {"title": "Contratos de producción", "value": session_db.query(SongProductionContract).count() + session_db.query(AlbumProductionContract).count(), "url": url_for("discografica_view", section="canciones"), "icon": "fa-file-signature", "description": "Contratos de producción subidos en canciones y álbumes."},
-                {"title": "Discográfica", "value": session_db.query(Song).count() + session_db.query(Album).count(), "url": url_for("discografica_view", section="canciones"), "icon": "fa-compact-disc", "description": "Acceso directo al repertorio y materiales."},
-            ],
-            recent_items=recent_items,
-            recent_title="Contratos recientes",
-            secondary_items=[],
-            secondary_title="",
+            "produccion.html",
+            tab=tab,
+            counts=counts,
+            requests=request_rows,
+            active_rows=active_rows,
+            archived_rows=archived_rows,
+            archived_groups=archived_groups,
+            artists=artists,
+            activity_types=PRODUCTION_ACTIVITY_TYPES,
+            request_status_labels=PRODUCTION_REQUEST_STATUS_LABELS,
+            filter_q=f_q,
+            filter_artist=f_artist,
+            filter_activity_type=f_type,
         )
     finally:
         session_db.close()
+
+
+@app.post("/produccion/solicitudes/<request_id>/convertir-bolsa", endpoint="production_request_convert_to_bag")
+@admin_required
+def production_request_convert_to_bag(request_id):
+    session_db = db()
+    try:
+        req = session_db.get(ProductionRequest, to_uuid(request_id))
+        if not req:
+            flash("Solicitud de producción no encontrada.", "warning")
+            return redirect(url_for("produccion_view", tab="solicitudes"))
+        if getattr(req, "bag_id", None):
+            flash("Esta solicitud ya está vinculada a una bolsa.", "info")
+            return redirect(url_for("bag_detail_view", bag_id=req.bag_id))
+        artist_ids = _production_artist_ids_from_any(getattr(req, "artist_ids", None) or [])
+        primary_artist_id = to_uuid(artist_ids[0]) if artist_ids else None
+        snapshot = {
+            "source": "production_request",
+            "request_id": str(req.id),
+            "activity_type": req.activity_type,
+            "activity_title": req.activity_title,
+            "city": req.city,
+            "province": req.province,
+        }
+        bag = WorkflowBag(
+            title=(getattr(req, "activity_title", None) or "Actividad de producción").strip(),
+            artist_id=primary_artist_id,
+            artist_ids=artist_ids,
+            bag_type=(getattr(req, "activity_type", None) or "GENERAL").strip().upper() or "GENERAL",
+            linked_type="PRODUCTION_REQUEST",
+            linked_id=req.id,
+            linked_title=(getattr(req, "activity_title", None) or "Solicitud de producción").strip(),
+            linked_snapshot=snapshot,
+            start_date=getattr(req, "activity_date", None),
+            description=getattr(req, "notes", None),
+            status="ACTIVA",
+            liquidation_status="NO_INICIADA",
+            is_archived=False,
+        )
+        session_db.add(bag)
+        session_db.flush()
+        req.status = "CONVERTED"
+        req.bag_id = bag.id
+        req.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Solicitud convertida en bolsa activa de producción.", "success")
+        return redirect(url_for("bag_detail_view", bag_id=bag.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo convertir la solicitud: {exc}", "danger")
+        return redirect(url_for("produccion_view", tab="solicitudes"))
+    finally:
+        session_db.close()
+
+
+@app.post("/produccion/solicitudes/<request_id>/rechazar", endpoint="production_request_reject")
+@admin_required
+def production_request_reject(request_id):
+    session_db = db()
+    try:
+        req = session_db.get(ProductionRequest, to_uuid(request_id))
+        if req:
+            req.status = "REJECTED"
+            req.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Solicitud de producción rechazada.", "success")
+    finally:
+        session_db.close()
+    return redirect(url_for("produccion_view", tab="solicitudes"))
 
 
 @app.route("/administracion", endpoint="administracion_view")
@@ -24710,6 +25103,7 @@ def personnel_view():
                 birth_date=parse_optional_date(request.form.get("birth_date")),
                 mobile_phones=_parse_phone_rows_from_form(request.form),
                 departments=_normalize_departments(request.form.getlist("departments")),
+                assigned_artist_ids=_normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids")),
             )
             _ensure_user_security(session_db, user, password_preview=temp_password)
             _sync_user_access_grants(session_db, user, profile)
@@ -24736,7 +25130,12 @@ def personnel_view():
             .all()
         )
         access_rows = _build_personnel_access_rows()
-        return render_template("personnel.html", users=users, access_rows=access_rows)
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        assigned_artist_map = {}
+        for _user, profile, _security in users:
+            ids = list(getattr(profile, "assigned_artist_ids", None) or []) if profile else []
+            assigned_artist_map[str(_user.id)] = [str(x) for x in ids]
+        return render_template("personnel.html", users=users, access_rows=access_rows, artists=artists, assigned_artist_map=assigned_artist_map)
     finally:
         session_db.close()
 
@@ -24770,6 +25169,7 @@ def personnel_detail_view(user_id):
                 profile.birth_date = parse_optional_date(request.form.get("birth_date"))
                 profile.mobile_phones = _parse_phone_rows_from_form(request.form)
                 profile.departments = _normalize_departments(request.form.getlist("departments"))
+                profile.assigned_artist_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids"))
                 user.email = (request.form.get("email") or user.email or "").strip().lower() or user.email
                 session_db.commit()
                 flash("Usuario actualizado.", "success")
@@ -24798,6 +25198,8 @@ def personnel_detail_view(user_id):
 
         grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
         access_rows = _build_personnel_access_rows()
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        assigned_artist_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids", None) or [])]
         return render_template(
             "personnel_detail.html",
             user=user,
@@ -24806,6 +25208,8 @@ def personnel_detail_view(user_id):
             tab=tab,
             access_rows=access_rows,
             grants=grants,
+            artists=artists,
+            assigned_artist_ids=assigned_artist_ids,
         )
     finally:
         session_db.close()

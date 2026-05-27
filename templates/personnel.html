@@ -79,6 +79,10 @@
           {% else %}
             <div class="small text-muted">Sin departamento asignado</div>
           {% endif %}
+          {% set assigned_ids = assigned_artist_map.get(user.id|string, []) if assigned_artist_map else [] %}
+          {% if assigned_ids %}
+            <div class="small text-muted mt-2"><i class="fa fa-user-tag me-1"></i>Artistas asignados: {{ assigned_ids|length }}</div>
+          {% endif %}
         </div>
       </div>
     </div>
@@ -130,10 +134,19 @@
               <div class="row g-2">
                 {% for dept in PERSONNEL_DEPARTMENTS %}
                   <div class="col-6 col-md-4 col-lg-3">
-                    <label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2">{{ dept }}</label>
+                    <label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2 personnel-department-check">{{ dept }}</label>
                   </div>
                 {% endfor %}
               </div>
+            </div>
+            <div class="col-12 js-assigned-artists-panel">
+              <label class="form-label">Artistas asignados para Sello / Producción</label>
+              <select name="assigned_artist_ids" class="form-select" multiple size="7">
+                {% for artist in artists %}
+                  <option value="{{ artist.id }}">{{ artist.name }}</option>
+                {% endfor %}
+              </select>
+              <div class="form-text">Se usa para cadenas de procesos en Sello y Producción. Puedes seleccionar varios artistas.</div>
             </div>
             <div class="col-12">
               <div class="d-flex justify-content-between align-items-center mb-2">
@@ -192,6 +205,20 @@
       btn.closest('.phone-row')?.remove();
     });
   }
+
+  function refreshAssignedArtistPanels(){
+    document.querySelectorAll('.js-assigned-artists-panel').forEach(function(panel){
+      const form = panel.closest('form');
+      if (!form) return;
+      const active = Array.from(form.querySelectorAll('.personnel-department-check:checked')).some(function(input){
+        const value = (input.value || '').toLowerCase();
+        return value === 'sello' || value === 'producción' || value === 'produccion';
+      });
+      panel.style.display = active ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('.personnel-department-check').forEach(function(input){ input.addEventListener('change', refreshAssignedArtistPanels); });
+  refreshAssignedArtistPanels();
 
   const passwordModal = document.getElementById('passwordViewModal');
   const passwordLabel = document.getElementById('passwordViewUserLabel');

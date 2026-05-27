@@ -1624,6 +1624,7 @@ class UserProfile(Base):
     birth_date = Column(Date)
     mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    assigned_artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     legacy_permissions_seeded = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -1815,6 +1816,37 @@ class PromotionRequest(Base):
         Index("idx_promotion_requests_status_date", "status", "subject_date"),
         Index("idx_promotion_requests_source", "source_type", "source_id"),
         Index("idx_promotion_requests_requested_by", "requested_by_user_id", "created_at"),
+    )
+
+
+class ProductionRequest(Base):
+    __tablename__ = "production_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_type = Column(Text, nullable=False, server_default=text("'GENERAL'"))
+    activity_title = Column(Text)
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    activity_date = Column(Date)
+    city = Column(Text)
+    province = Column(Text)
+    linked_type = Column(Text)
+    linked_id = Column(PGUUID(as_uuid=True))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_email = Column(Text)
+    requested_by_nick = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    bag = relationship("WorkflowBag")
+    requested_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_production_requests_status_date", "status", "activity_date"),
+        Index("idx_production_requests_bag", "bag_id"),
+        Index("idx_production_requests_linked", "linked_type", "linked_id"),
     )
 
 
@@ -2154,7 +2186,6 @@ def ensure_artist_feature_schema():
 
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
-
         # Personas asociadas al artista (útil para grupos)
         """
         CREATE TABLE IF NOT EXISTS artist_people (
@@ -3400,6 +3431,18 @@ def ensure_personnel_and_operations_schema():
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
+        ALTER TABLE IF EXISTS user_profiles
+            ADD COLUMN IF NOT EXISTS assigned_artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+        """,
+        """
+        UPDATE user_profiles
+           SET departments = (
+               SELECT COALESCE(jsonb_agg(CASE WHEN elem = '"Derechos"'::jsonb THEN '"Registros"'::jsonb ELSE elem END), '[]'::jsonb)
+                 FROM jsonb_array_elements(COALESCE(user_profiles.departments, '[]'::jsonb)) AS elems(elem)
+           )
+         WHERE COALESCE(user_profiles.departments, '[]'::jsonb) ? 'Derechos';
+        """,
+        """
         CREATE TABLE IF NOT EXISTS promotion_requests (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
             source_type text NOT NULL,
@@ -3424,6 +3467,30 @@ def ensure_personnel_and_operations_schema():
         'CREATE INDEX IF NOT EXISTS idx_promotion_requests_status_date ON promotion_requests(status, subject_date);',
         'CREATE INDEX IF NOT EXISTS idx_promotion_requests_source ON promotion_requests(source_type, source_id);',
         'CREATE INDEX IF NOT EXISTS idx_promotion_requests_requested_by ON promotion_requests(requested_by_user_id, created_at);',
+        """
+        CREATE TABLE IF NOT EXISTS production_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            activity_type text NOT NULL DEFAULT 'GENERAL',
+            activity_title text,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            activity_date date,
+            city text,
+            province text,
+            linked_type text,
+            linked_id uuid,
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            status text NOT NULL DEFAULT 'REQUESTED',
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_email text,
+            requested_by_nick text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_production_requests_status_date ON production_requests(status, activity_date);',
+        'CREATE INDEX IF NOT EXISTS idx_production_requests_bag ON production_requests(bag_id);',
+        'CREATE INDEX IF NOT EXISTS idx_production_requests_linked ON production_requests(linked_type, linked_id);',
         """
         CREATE TABLE IF NOT EXISTS promotions (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

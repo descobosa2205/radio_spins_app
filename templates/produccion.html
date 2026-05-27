@@ -1,0 +1,277 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  .production-row-card{transition:box-shadow .15s ease, transform .15s ease;}
+  .production-row-card:hover{box-shadow:0 .5rem 1rem rgba(0,0,0,.08);transform:translateY(-1px);}
+  .production-artist-photo{width:48px;height:48px;object-fit:cover;border-radius:50%;border:1px solid rgba(0,0,0,.1);}
+  .production-cover-stack{display:flex;align-items:center;}
+  .production-cover-stack img + img{margin-left:-14px;}
+  .production-section-title{font-size:.85rem;text-transform:uppercase;letter-spacing:.05em;color:#6c757d;}
+</style>
+
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-4">
+  <div>
+    <h3 class="m-0">Producción</h3>
+    <div class="text-muted">Solicitudes, actividades activas y archivo de producción vinculado a bolsas.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newProductionRequestModal">
+    <i class="fa fa-plus me-1"></i> Nueva solicitud
+  </button>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='solicitudes' %}active{% endif %}" href="{{ url_for('produccion_view', tab='solicitudes', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
+      Solicitudes <span class="badge text-bg-warning text-dark ms-1">{{ counts.solicitudes }}</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='activas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='activas', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
+      Activas <span class="badge text-bg-light border ms-1">{{ counts.activas }}</span>
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='archivadas' %}active{% endif %}" href="{{ url_for('produccion_view', tab='archivadas', q=filter_q or None, artist=filter_artist or None, activity_type=filter_activity_type or None) }}">
+      Archivadas <span class="badge text-bg-light border ms-1">{{ counts.archivadas }}</span>
+    </a>
+  </li>
+</ul>
+
+<form class="card card-body mb-4" method="get" id="productionFiltersForm">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <div class="row g-3 align-items-end">
+    <div class="col-12 col-lg-5">
+      <label class="form-label">Buscar</label>
+      <input type="search" class="form-control" name="q" id="productionSearchInput" value="{{ filter_q }}" placeholder="Artista, actividad, ciudad, provincia, estado o notas...">
+    </div>
+    <div class="col-12 col-md-4 col-lg-3">
+      <label class="form-label">Artista</label>
+      <select class="form-select" name="artist" id="productionArtistFilter">
+        <option value="">Todos</option>
+        {% for artist in artists %}
+          <option value="{{ artist.id }}" {% if filter_artist == artist.id|string %}selected{% endif %}>{{ artist.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-4 col-lg-2">
+      <label class="form-label">Tipo de actividad</label>
+      <select class="form-select" name="activity_type" id="productionTypeFilter">
+        <option value="">Todas</option>
+        {% for value,label in activity_types %}
+          <option value="{{ value }}" {% if filter_activity_type == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-12 col-md-4 col-lg-2 d-flex gap-2">
+      <button class="btn btn-primary flex-grow-1"><i class="fa fa-filter me-1"></i>Filtrar</button>
+      <a class="btn btn-outline-secondary" href="{{ url_for('produccion_view', tab=tab) }}">Limpiar</a>
+    </div>
+  </div>
+</form>
+
+{% macro artist_stack(row) -%}
+  <div class="production-cover-stack">
+    {% if row.artists %}
+      {% for artist in row.artists[:3] %}
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="{{ artist.name }}" title="{{ artist.name }}">
+      {% endfor %}
+    {% else %}
+      <img src="{{ url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="Sin artista">
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro activity_row(row, show_actions=False) -%}
+  {% set href = row.detail_url if row.detail_url and row.detail_url != '#' and not row.detail_url.startswith('#productionRequestModal') else None %}
+  <div class="production-row production-row-card card mb-3"
+       data-production-search="{{ row.search_blob|lower }}"
+       data-production-artists="{{ row.artist_ids|join(',') }}"
+       data-production-type="{{ row.activity_type }}">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+        <div class="d-flex gap-3 align-items-start flex-grow-1">
+          {{ artist_stack(row) }}
+          <div class="flex-grow-1">
+            <div class="d-flex flex-wrap gap-2 align-items-center mb-1">
+              <span class="badge text-bg-light border">{{ row.activity_label }}</span>
+              <span class="badge {{ row.badge_class }}">{{ row.status_label }}</span>
+              {% if row.date %}<span class="small text-muted"><i class="fa fa-calendar me-1"></i>{{ row.date.strftime('%d/%m/%Y') }}</span>{% endif %}
+            </div>
+            {% if href %}
+              <a href="{{ href }}" class="h5 m-0 text-decoration-none text-dark stretched-link">{{ row.title }}</a>
+            {% else %}
+              <h5 class="m-0">{{ row.title }}</h5>
+            {% endif %}
+            <div class="small text-muted mt-1">
+              {% if row.artists %}{{ row.artists|map(attribute='name')|join(', ') }}{% else %}Sin artista asignado{% endif %}
+              {% if row.city or row.province %} · {{ row.city }}{% if row.city and row.province %}, {% endif %}{{ row.province }}{% endif %}
+            </div>
+            {% if row.subtitle %}<div class="small text-muted mt-1">{{ row.subtitle }}</div>{% endif %}
+          </div>
+        </div>
+        {% if show_actions and row.is_request %}
+          <div class="d-flex gap-2 position-relative" style="z-index:2;">
+            <form method="post" action="{{ url_for('production_request_convert_to_bag', request_id=row.id) }}" class="m-0">
+              <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Convertir en bolsa</button>
+            </form>
+            <form method="post" action="{{ url_for('production_request_reject', request_id=row.id) }}" class="m-0" onsubmit="return confirm('¿Rechazar esta solicitud de producción?');">
+              <button class="btn btn-sm btn-outline-danger"><i class="fa fa-xmark me-1"></i>Rechazar</button>
+            </form>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{%- endmacro %}
+
+{% if tab == 'solicitudes' %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <div class="production-section-title">Solicitudes realizadas</div>
+      <div class="text-muted small">Ordenadas de la más próxima a la más lejana.</div>
+    </div>
+  </div>
+  <div id="productionRowsWrap">
+    {% for row in requests %}
+      {{ activity_row(row, True) }}
+    {% else %}
+      <div class="alert alert-light border">No hay solicitudes de producción con estos filtros.</div>
+    {% endfor %}
+  </div>
+{% elif tab == 'activas' %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <div class="production-section-title">Actividades activas</div>
+      <div class="text-muted small">Permanecen activas hasta que se cierre su bolsa.</div>
+    </div>
+  </div>
+  <div id="productionRowsWrap">
+    {% for row in active_rows %}
+      {{ activity_row(row, False) }}
+    {% else %}
+      <div class="alert alert-light border">No hay actividades activas con estos filtros.</div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <div class="production-section-title">Actividades archivadas</div>
+      <div class="text-muted small">Agrupadas por artista y por tipo de actividad, de la más reciente a la más antigua.</div>
+    </div>
+  </div>
+  <div id="productionRowsWrap">
+    {% for group in archived_groups %}
+      <div class="card mb-4 production-archive-group" data-production-archive-group>
+        <div class="card-header bg-white d-flex align-items-center gap-2">
+          <img src="{{ group.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover;" alt="{{ group.artist.name }}">
+          <strong>{{ group.artist.name }}</strong>
+        </div>
+        <div class="card-body">
+          {% for type_block in group.types %}
+            <div class="mb-3 production-archive-type" data-production-archive-type>
+              <div class="fw-semibold mb-2">{{ type_block.label }}</div>
+              {% for row in type_block.rows %}
+                {{ activity_row(row, False) }}
+              {% endfor %}
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+    {% else %}
+      <div class="alert alert-light border">No hay actividades archivadas con estos filtros.</div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+<div class="modal fade" id="newProductionRequestModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post">
+        <input type="hidden" name="mode" value="create_request">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva solicitud de producción</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row g-3">
+            <div class="col-12 col-md-8">
+              <label class="form-label">Nombre de la actividad *</label>
+              <input type="text" name="activity_title" class="form-control" required placeholder="Concierto, promo, single, disco, evento...">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Tipo</label>
+              <select name="activity_type" class="form-select">
+                {% for value,label in activity_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Artistas</label>
+              <select name="artist_ids" class="form-select" multiple size="6">
+                {% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Fecha</label>
+              <input type="date" name="activity_date" class="form-control">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Ciudad</label>
+              <input type="text" name="city" class="form-control">
+            </div>
+            <div class="col-12 col-md-4">
+              <label class="form-label">Provincia</label>
+              <input type="text" name="province" class="form-control">
+            </div>
+            <div class="col-12">
+              <label class="form-label">Notas</label>
+              <textarea name="notes" class="form-control" rows="3" placeholder="Datos de producción, necesidades, instrucciones económicas..."></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear solicitud</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const normalize = (value) => window.normalizeSearchText ? window.normalizeSearchText(value) : String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const searchInput = document.getElementById('productionSearchInput');
+  const artistFilter = document.getElementById('productionArtistFilter');
+  const typeFilter = document.getElementById('productionTypeFilter');
+  const rows = Array.from(document.querySelectorAll('.production-row'));
+  function applyLiveFilters(){
+    const q = normalize(searchInput && searchInput.value);
+    const artist = artistFilter && artistFilter.value ? artistFilter.value : '';
+    const type = typeFilter && typeFilter.value ? typeFilter.value : '';
+    rows.forEach(function(row){
+      const haystack = normalize(row.dataset.productionSearch || '');
+      const artistIds = (row.dataset.productionArtists || '').split(',').filter(Boolean);
+      const rowType = row.dataset.productionType || '';
+      const visible = (!q || haystack.includes(q)) && (!artist || artistIds.includes(artist)) && (!type || rowType === type);
+      row.style.display = visible ? '' : 'none';
+    });
+    document.querySelectorAll('[data-production-archive-type]').forEach(function(block){
+      const visibleRows = Array.from(block.querySelectorAll('.production-row')).some(function(row){ return row.style.display !== 'none'; });
+      block.style.display = visibleRows ? '' : 'none';
+    });
+    document.querySelectorAll('[data-production-archive-group]').forEach(function(block){
+      const visibleRows = Array.from(block.querySelectorAll('.production-row')).some(function(row){ return row.style.display !== 'none'; });
+      block.style.display = visibleRows ? '' : 'none';
+    });
+  }
+  [searchInput, artistFilter, typeFilter].forEach(function(el){
+    if (!el) return;
+    el.addEventListener('input', applyLiveFilters);
+    el.addEventListener('change', applyLiveFilters);
+  });
+  applyLiveFilters();
+})();
+</script>
+{% endblock %}

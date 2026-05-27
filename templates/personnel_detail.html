@@ -18,6 +18,9 @@
           {% endfor %}
         </div>
       {% endif %}
+      {% if assigned_artist_ids %}
+        <div class="small text-muted mt-2"><i class="fa fa-user-tag me-1"></i>{{ assigned_artist_ids|length }} artista{% if assigned_artist_ids|length != 1 %}s{% endif %} asignado{% if assigned_artist_ids|length != 1 %}s{% endif %}</div>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -44,9 +47,18 @@
             <label class="form-label d-block">Departamentos</label>
             <div class="row g-2">
               {% for dept in PERSONNEL_DEPARTMENTS %}
-                <div class="col-6 col-md-4 col-lg-3"><label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2" {% if dept in (profile.departments or []) %}checked{% endif %}>{{ dept }}</label></div>
+                <div class="col-6 col-md-4 col-lg-3"><label class="border rounded p-2 w-100 bg-light-subtle"><input type="checkbox" name="departments" value="{{ dept }}" class="form-check-input me-2 personnel-department-check" {% if dept in (profile.departments or []) %}checked{% endif %}>{{ dept }}</label></div>
               {% endfor %}
             </div>
+          </div>
+          <div class="col-12 js-assigned-artists-panel">
+            <label class="form-label">Artistas asignados para Sello / Producción</label>
+            <select name="assigned_artist_ids" class="form-select" multiple size="8">
+              {% for artist in artists %}
+                <option value="{{ artist.id }}" {% if artist.id|string in assigned_artist_ids %}selected{% endif %}>{{ artist.name }}</option>
+              {% endfor %}
+            </select>
+            <div class="form-text">Se usa para saber a quién corresponde cada artista en cadenas de procesos de Sello y Producción.</div>
           </div>
           <div class="col-12">
             <div class="d-flex justify-content-between align-items-center mb-2">
@@ -127,6 +139,20 @@
 {% block scripts %}
 <script>
 (function(){
+  function refreshAssignedArtistPanels(){
+    document.querySelectorAll('.js-assigned-artists-panel').forEach(function(panel){
+      const form = panel.closest('form');
+      if (!form) return;
+      const active = Array.from(form.querySelectorAll('.personnel-department-check:checked')).some(function(input){
+        const value = (input.value || '').toLowerCase();
+        return value === 'sello' || value === 'producción' || value === 'produccion';
+      });
+      panel.style.display = active ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('.personnel-department-check').forEach(function(input){ input.addEventListener('change', refreshAssignedArtistPanels); });
+  refreshAssignedArtistPanels();
+
   const wrap = document.getElementById('phoneRowsDetail');
   const addBtn = document.getElementById('addPhoneRowDetail');
   if (wrap && addBtn) {

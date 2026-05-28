@@ -55,7 +55,22 @@
           <div class="col-md-6"><label class="form-label">Título</label><input type="text" name="title" class="form-control" value="{{ bag.title }}" {% if not can_edit_bag %}readonly{% endif %}></div>
           <div class="col-md-3"><label class="form-label">Tipo</label><select name="bag_type" class="form-select" {% if not can_edit_bag %}disabled{% endif %}>{% for value,label in bag_types %}<option value="{{ value }}" {% if bag.bag_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
           <div class="col-md-3"><label class="form-label">Estado</label><select name="status" class="form-select" {% if not can_edit_bag %}disabled{% endif %}>{% for option in bag_status_options %}<option value="{{ option }}" {% if bag.status == option %}selected{% endif %}>{{ option }}</option>{% endfor %}</select></div>
-          <div class="col-md-6"><label class="form-label">Artistas</label><select name="artist_ids" class="form-select" multiple size="5" {% if not can_edit_bag %}disabled{% endif %}>{% for artist in artists %}<option value="{{ artist.id }}" {% if (artist.id|string) in bag_artist_id_strings %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select></div>
+          <div class="col-md-6">
+            <label class="form-label">Artistas</label>
+            {% if bag.linked_type and bag.linked_id %}
+              <div class="border rounded p-2 bg-light d-flex flex-wrap gap-2">
+                {% for artist in bag_artists %}
+                  <span class="badge text-bg-white border text-dark d-inline-flex align-items-center gap-1"><img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:22px;height:22px;object-fit:cover;border-radius:50%;"> {{ artist.name }}</span>
+                  <input type="hidden" name="artist_ids" value="{{ artist.id }}">
+                {% else %}
+                  <span class="text-muted small">Sin artista vinculado en el origen.</span>
+                {% endfor %}
+              </div>
+              <div class="form-text">Esta bolsa está vinculada a {{ bag.linked_type }}; los artistas se heredan del evento/promoción.</div>
+            {% else %}
+              <select name="artist_ids" class="form-select select-artists" multiple {% if not can_edit_bag %}disabled{% endif %}>{% for artist in artists %}<option value="{{ artist.id }}" data-photo="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" {% if (artist.id|string) in bag_artist_id_strings %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}</select>
+            {% endif %}
+          </div>
           <div class="col-md-6"><label class="form-label">Empresa</label><select name="company_id" class="form-select" {% if not can_edit_bag %}disabled{% endif %}><option value="">Sin empresa</option>{% for company in companies %}<option value="{{ company.id }}" {% if bag.company_id == company.id %}selected{% endif %}>{{ company.name }}</option>{% endfor %}</select></div>
           <div class="col-md-4"><label class="form-label">Tipo de vínculo</label><input type="text" name="linked_type" class="form-control" value="{{ bag.linked_type or '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>
           <div class="col-md-8"><label class="form-label">Datos básicos del vínculo</label><input type="text" name="linked_title" class="form-control" value="{{ bag.linked_title or '' }}" {% if not can_edit_bag %}readonly{% endif %}></div>

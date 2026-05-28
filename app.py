@@ -83,6 +83,13 @@ except Exception:
     PYCOUNTRY_AVAILABLE = False
     pycountry = None
 
+try:
+    from pypdf import PdfReader
+    PYPDF_AVAILABLE = True
+except Exception:
+    PdfReader = None
+    PYPDF_AVAILABLE = False
+
 from config import settings
 from models import (
     init_db,
@@ -1357,6 +1364,7 @@ def _norm_text_key(v: str) -> str:
         return ""
     v = unicodedata.normalize("NFD", v)
     v = "".join(ch for ch in v if unicodedata.category(ch) != "Mn")
+    v = re.sub(r"[^\w]+", " ", v, flags=re.UNICODE)
     v = " ".join(v.split())
     return v
 
@@ -1366,8 +1374,9 @@ _AI_SEARCH_TO = "aaaaaaeeeeiiiiooooouuuunc"
 
 
 def _sa_folded_text(expr):
-    """Expresión SQL normalizada para búsquedas sin distinguir mayúsculas ni acentos."""
-    return func.translate(func.lower(func.coalesce(expr, "")), _AI_SEARCH_FROM, _AI_SEARCH_TO)
+    """Expresión SQL normalizada para búsquedas sin distinguir mayúsculas, acentos ni símbolos."""
+    folded = func.translate(func.lower(func.coalesce(expr, "")), _AI_SEARCH_FROM, _AI_SEARCH_TO)
+    return func.regexp_replace(folded, r"[^a-z0-9]+", " ", "g")
 
 
 def _sa_contains_text(expr, value: str):
@@ -4382,40 +4391,50 @@ def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
     return lines
 
 
-def _song_platform_links(song: Song | None) -> list[dict]:
+def _platform_links_for_item(item) -> list[dict]:
     specs = [
-        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url'),
-        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url'),
-        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url'),
-        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url'),
-        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url'),
+        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', '●'),
+        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'A'),
+        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'a'),
+        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', '♪'),
+        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', '▶'),
     ]
     out = []
-    for key, label, icon, field in specs:
-        url = (getattr(song, field, None) or '').strip() if song is not None else ''
+    for key, label, icon, field, symbol in specs:
+        url = (getattr(item, field, None) or '').strip() if item is not None else ''
         if not url:
             continue
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-        out.append({'key': key, 'label': label, 'icon': icon, 'url': url})
+        out.append({'key': key, 'label': label, 'icon': icon, 'symbol': symbol, 'url': url})
     return out
 
 
-def _song_platform_links_pdf_html(song: Song | None) -> str:
+def _song_platform_links(song: Song | None) -> list[dict]:
+    return _platform_links_for_item(song)
+
+
+def _album_platform_links(album: Album | None) -> list[dict]:
+    return _platform_links_for_item(album)
+
+
+def _platform_links_pdf_html(item) -> str:
     links = []
-    icon_map = {
-        'spotify': '●',
-        'apple_music': '●',
-        'amazon_music': '●',
-        'tiktok': '●',
-        'youtube': '▶',
-    }
-    for item in _song_platform_links(song):
-        links.append(
-            f'<link href="{html.escape(item["url"], quote=True)}"><font color="#111827">{icon_map.get(item["key"], "●")} {html.escape(item["label"])}</font></link>'
-        )
+    for link in _platform_links_for_item(item):
+        # En el PDF solo se ve el icono/símbolo clicable, sin direcciones ni nombres.
+        symbol = html.escape(link.get('symbol') or '●')
+        url = html.escape(link.get('url') or '', quote=True)
+        title = html.escape(link.get('label') or '')
+        links.append(f'<link href="{url}"><font color="#111827" size="13">{symbol}</font></link>')
     return ' &nbsp;&nbsp; '.join(links)
 
+
+def _song_platform_links_pdf_html(song: Song | None) -> str:
+    return _platform_links_pdf_html(song)
+
+
+def _album_platform_links_pdf_html(album: Album | None) -> str:
+    return _platform_links_pdf_html(album)
 
 def _song_label_copy_public_context(session_db, song: Song) -> dict:
     artist = _song_primary_artist(session_db, song)
@@ -4512,6 +4531,7 @@ def _album_label_copy_public_context(session_db, album: Album) -> dict:
         'artist_name': artist_name,
         'brand': _pies_brand_assets(session_db),
         'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+        'platform_links': _album_platform_links(album),
         'info_rows': info_rows,
     }
 
@@ -4537,8 +4557,8 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story = []
     logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.4, 1.2)
     if logo:
-        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.2*cm, 4.3*cm])
-        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+        header = Table([[logo, Paragraph(' ', small_style)]], colWidths=[4.3*cm, 13.2*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0)]))
         story.append(header)
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.25*cm))
@@ -4639,13 +4659,17 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     story = []
     logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.0, 1.0)
     if logo:
-        header = Table([[Paragraph(' ', small_style), logo]], colWidths=[13.8*cm, 4.2*cm])
-        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP')]))
+        header = Table([[logo, Paragraph(' ', small_style)]], colWidths=[4.2*cm, 13.8*cm])
+        header.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0)]))
         story.append(header)
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.15*cm))
     cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or brand.get('logo_url'), 2.8, 2.8)
-    header_table = Table([[cover or Paragraph('Sin portada', small_style), Paragraph(f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}", small_style)]], colWidths=[3.2*cm, 14.0*cm])
+    platform_links_html = _album_platform_links_pdf_html(album)
+    right_html = f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}"
+    if platform_links_html:
+        right_html += '<br/><br/><b>Enlaces:</b><br/>' + platform_links_html
+    header_table = Table([[cover or Paragraph('Sin portada', small_style), Paragraph(right_html, small_style)]], colWidths=[3.2*cm, 14.0*cm])
     header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
     story.append(header_table)
     story.append(Spacer(1, 0.2*cm))
@@ -8297,7 +8321,12 @@ def discografica_view():
         for first_day in sorted(months_with_launches):
             next_month = _add_months(first_day, 1)
             last_day = next_month - timedelta(days=1)
-            start_day = first_day - timedelta(days=first_day.weekday())
+            if first_day.year == today.year and first_day.month == today.month:
+                # En el mes en curso solo se pinta desde la semana actual para ahorrar espacio.
+                week_start = today - timedelta(days=today.weekday())
+                start_day = max(first_day - timedelta(days=first_day.weekday()), week_start)
+            else:
+                start_day = first_day - timedelta(days=first_day.weekday())
             end_day = last_day + timedelta(days=(6 - last_day.weekday()))
             weeks = []
             cursor = start_day
@@ -12468,7 +12497,21 @@ def discografica_song_material_upload(song_id):
     display_name = (request.form.get("display_name") or "").strip() or None
     replace_material_id = (request.form.get("material_id") or "").strip() or None
     replace_bundle_key = (request.form.get("bundle_key") or "").strip() or None
-    files = [f for f in request.files.getlist("files") if f and getattr(f, "filename", "")]
+    files = []
+    for field_name in ("files", "folder_files", "file", "audio_file", "songMaterialFiles", "songMaterialFolderFiles"):
+        for storage in request.files.getlist(field_name):
+            if storage and getattr(storage, "filename", ""):
+                files.append(storage)
+    # Evita duplicados si el navegador envía el mismo FileStorage bajo dos nombres.
+    deduped_files = []
+    seen_file_keys = set()
+    for storage in files:
+        key = (id(storage), getattr(storage, "filename", ""))
+        if key in seen_file_keys:
+            continue
+        seen_file_keys.add(key)
+        deduped_files.append(storage)
+    files = deduped_files
 
     if category not in {"COVER", "MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"}:
         flash("Tipo de material no válido.", "warning")
@@ -12550,7 +12593,7 @@ def discografica_song_material_upload(song_id):
                 ):
                     session_db.delete(row)
             file_storage = files[0]
-            file_url = upload_file(file_storage, "song_materials", allowed_extensions=_AUDIO_UPLOAD_EXTENSIONS)
+            file_url = upload_file(file_storage, "song_materials", allowed_extensions={".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".aac", ".ogg"})
             session_db.add(
                 SongMaterial(
                     song_id=song.id,
@@ -14390,6 +14433,8 @@ def discografica_album_info_update(album_id):
         album.mastering_engineer = (request.form.get("mastering_engineer") or "").strip() or None
         album.edited_by = (request.form.get("edited_by") or "").strip() or "PIES Compañía Discográfica"
         album.distributed_by = (request.form.get("distributed_by") or "").strip() or None
+        for _platform_field in ("spotify_url", "apple_music_url", "amazon_music_url", "tiktok_url", "youtube_url"):
+            setattr(album, _platform_field, (request.form.get(_platform_field) or "").strip() or None)
 
         no_physical = bool(request.form.get("no_physical"))
         album.physical_cd = bool(request.form.get("physical_cd")) and not no_physical
@@ -15643,9 +15688,6 @@ def promoter_update(pid):
     return redirect(next_url)
 
 @app.post("/promotores/<pid>/delete")
-
-
-@app.post("/promotores/<pid>/delete")
 @admin_required
 def promoter_delete(pid):
     session = db()
@@ -16345,7 +16387,79 @@ def _add_equipment_notes_from_request(session, concert_id):
         session.add(ConcertEquipmentNote(concert_id=concert_id, body=body))
 
 
-# ---------- LISTAR / CREAR (2 pestañas: Alta + Vista) ----------
+
+
+@app.get("/contratacion", endpoint="contracting_view")
+@admin_required
+def contracting_view():
+    section = (request.args.get("section") or "conciertos").strip().lower()
+    if section == "conciertos":
+        return redirect(url_for("concerts_view", tab="vista"))
+    if section == "facturacion":
+        return redirect(url_for("concerts_view", tab="facturacion"))
+    if section == "cuadrantes":
+        return redirect(url_for("quadrantes_view"))
+    valid_sections = {"giras-compradas", "festivales-ciclos", "otras-actividades", "simulaciones"}
+    if section not in valid_sections:
+        section = "giras-compradas"
+    session_db = db()
+    try:
+        query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
+        if section == "giras-compradas":
+            query = query.filter(or_(func.upper(func.coalesce(Concert.sale_type, "")) == "GIRAS_COMPRADAS", func.upper(func.coalesce(Concert.activity_type, "")) == "GIRA"))
+            title = "Giras compradas"
+            subtitle = "Actividades/conciertos clasificados como gira comprada."
+            empty = "No hay giras compradas registradas todavía."
+        elif section == "festivales-ciclos":
+            query = query.filter(or_(func.upper(func.coalesce(Concert.activity_type, "")) == "FESTIVAL", func.upper(func.coalesce(Concert.sale_type, "")) == "CADIZ", _sa_contains_text(Concert.festival_name, "festival"), _sa_contains_text(Concert.festival_name, "ciclo")))
+            title = "Festivales / Ciclos"
+            subtitle = "Festivales, ciclos y eventos agrupados fuera de conciertos estándar."
+            empty = "No hay festivales o ciclos registrados todavía."
+        elif section == "otras-actividades":
+            query = query.filter(func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]))
+            title = "Otras actividades"
+            subtitle = "Eventos promocionales, televisión, acciones con marca y otras actividades."
+            empty = "No hay otras actividades registradas todavía."
+        else:
+            query = query.filter(text("1=0"))
+            title = "Simulaciones"
+            subtitle = "Espacio preparado para simulaciones de contratación."
+            empty = "Las simulaciones se desarrollarán sobre esta sección."
+        rows = query.limit(300).all()
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+        all_concert_tags = _collect_all_concert_tags(session_db)
+        promoters_payload = [
+            {
+                "id": str(p.id),
+                "nick": (p.nick or "").strip(),
+                "logo_url": (p.logo_url or "").strip(),
+                "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
+            }
+            for p in promoters
+        ]
+        return render_template(
+            "contratacion.html",
+            section=section,
+            title=title,
+            subtitle=subtitle,
+            empty_message=empty,
+            rows=rows,
+            artists=artists,
+            promoters=promoters,
+            promoters_payload=promoters_payload,
+            companies=companies,
+            type_choices=type_choices,
+            all_concert_tags=all_concert_tags,
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        session_db.close()
+
+
+# ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------
 @app.route("/conciertos", methods=["GET", "POST"], endpoint="concerts_view")
 @admin_required
 def concerts_page():
@@ -16359,10 +16473,8 @@ def concerts_page():
         type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
 
         active_tab = (request.args.get("tab") or "vista").lower()
-        if active_tab not in ("vista", "alta", "facturacion"):
-            active_tab = "vista"
-
-        if active_tab == "alta" and not can_edit_concerts() and not is_master():
+        # El formulario clásico desaparece: cualquier acceso antiguo a alta vuelve al listado.
+        if active_tab == "alta" or active_tab not in ("vista", "facturacion"):
             active_tab = "vista"
 
         f_artist_ids_raw = request.args.getlist("artist") or []
@@ -16498,7 +16610,7 @@ def concerts_page():
             except Exception as e:
                 s.rollback()
                 flash(f"Error creando concierto: {e}", "danger")
-                return redirect(url_for("concerts_view", tab="alta"))
+                return redirect(url_for("concerts_view", tab="vista"))
 
         q = (
             s.query(Concert)
@@ -16526,6 +16638,11 @@ def concerts_page():
             )
         )
 
+        if active_tab == "vista":
+            q = q.filter(
+                ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
+                ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+            )
         if f_artist_ids:
             q = q.filter(Concert.artist_id.in_(f_artist_ids))
         if f_sale_types:
@@ -17315,6 +17432,8 @@ def api_create_venue():
         province = (payload.get("province") or "").strip() or None
         address = (payload.get("address") or "").strip() or None
         force_new = _truthy(payload.get("force_new"))
+        photo = request.files.get("photo") or request.files.get("logo") if not request.is_json else None
+        photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
 
         covered_value = payload.get("covered")
         if isinstance(covered_value, bool):
@@ -17346,6 +17465,7 @@ def api_create_venue():
             address=address,
             municipality=municipality,
             province=province,
+            photo_url=photo_url,
         )
         session_db.add(v)
         session_db.commit()
@@ -17367,6 +17487,8 @@ def api_create_venue():
             "province": prov,
             "label": text_label,
             "text": text_label,
+            "photo_url": (v.photo_url or ""),
+            "logo_url": (v.photo_url or ""),
         })
 
     except Exception as e:
@@ -17375,11 +17497,6 @@ def api_create_venue():
 
     finally:
         session_db.close()
-
-@app.post("/api/promoters/create", endpoint="api_create_promoter")
-
-
-
 
 @app.post("/api/promoters/create", endpoint="api_create_promoter")
 @admin_required
@@ -17442,10 +17559,6 @@ def api_create_promoter():
         session.close()
 
 @app.get("/api/promoters/<promoter_id>", endpoint="api_promoter_detail")
-
-
-
-@app.get("/api/promoters/<promoter_id>", endpoint="api_promoter_detail")
 @admin_required
 def api_promoter_detail(promoter_id):
     session_db = db()
@@ -17477,10 +17590,6 @@ def api_promoter_detail(promoter_id):
         })
     finally:
         session_db.close()
-
-@app.get("/api/search/publishing_companies", endpoint="api_search_publishing_companies")
-
-
 
 @app.get("/api/search/publishing_companies", endpoint="api_search_publishing_companies")
 def api_search_publishing_companies():
@@ -20666,7 +20775,9 @@ def api_search_venues():
                 "municipality": mun,
                 "province": prov,
                 "label": text_label,  # compatibilidad
-                "text": text_label,   # ✅ CLAVE para Select2
+                "text": text_label,   # CLAVE para Select2
+                "photo_url": (getattr(v, "photo_url", None) or ""),
+                "logo_url": (getattr(v, "photo_url", None) or ""),
             })
 
         return jsonify(out)
@@ -21287,11 +21398,37 @@ def concert_wizard_create():
     session = db()
     try:
         mode = (request.form.get('wizard_mode') or 'direct').strip().lower()
-        artist_id_raw = (request.form.get('artist_id') or '').strip()
-        if not artist_id_raw:
-            raise ValueError('Debes seleccionar un artista.')
-        artist_id = to_uuid(artist_id_raw)
+        raw_artist_ids = request.form.getlist('artist_id') + request.form.getlist('artist_ids')
+        artist_ids = []
+        for raw_artist_id in raw_artist_ids:
+            raw_artist_id = (raw_artist_id or '').strip()
+            if not raw_artist_id:
+                continue
+            try:
+                uid = to_uuid(raw_artist_id)
+            except Exception:
+                continue
+            if uid and uid not in artist_ids:
+                artist_ids.append(uid)
+        if not artist_ids:
+            raise ValueError('Debes seleccionar al menos un artista.')
+        artist_id = artist_ids[0]
+        artist_ids_payload = [str(uid) for uid in artist_ids]
         event_date = parse_date(request.form.get('date') or '')
+        activity_type = (request.form.get('activity_type') or 'CONCIERTO').strip().upper()
+        activity_type_aliases = {
+            'CONCIERTO': 'CONCIERTO',
+            'FESTIVAL': 'FESTIVAL',
+            'EVENTO_PROMOCIONAL': 'EVENTO_PROMOCIONAL',
+            'PROMOCIONAL': 'EVENTO_PROMOCIONAL',
+            'PROGRAMA_TV': 'TV',
+            'TV': 'TV',
+            'MARCA': 'MARCA',
+            'ACCION_MARCA': 'MARCA',
+            'OTROS': 'OTROS',
+        }
+        activity_type = activity_type_aliases.get(activity_type, 'CONCIERTO')
+        activity_subtype = (request.form.get('activity_subtype') or request.form.get('concert_kind') or '').strip().upper() or None
         sale_type = (request.form.get('sale_type') or 'EMPRESA').strip().upper()
         if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
             sale_type = 'EMPRESA'
@@ -21307,6 +21444,40 @@ def concert_wizard_create():
         if not (venue_id or manual_municipality or manual_province):
             raise ValueError('Debes indicar recinto o al menos municipio y provincia.')
 
+        wizard_payload = {
+            'activity_type': activity_type,
+            'activity_subtype': activity_subtype,
+            'artist_ids': artist_ids_payload,
+            'formation': (request.form.get('formation') or '').strip(),
+            'performance_duration': (request.form.get('performance_duration') or '').strip(),
+            'meet_greet': {
+                'enabled': _truthy(request.form.get('meet_greet')),
+                'quantity': (request.form.get('meet_greet_quantity') or '').strip(),
+                'moment': (request.form.get('meet_greet_moment') or '').strip(),
+            },
+            'other_commitments': (request.form.get('other_commitments') or '').strip(),
+            'carteleria': (request.form.get('artwork_owner') or '').strip(),
+            'billing_plan': _parse_payment_terms_rows(request.form),
+        }
+        ticketing_payload = {
+            'total_capacity': (request.form.get('capacity_total') or request.form.get('capacity') or '').strip(),
+            'sale_capacity': (request.form.get('capacity_sale') or '').strip(),
+            'sale_owner': (request.form.get('sale_owner') or '').strip(),
+            'ticket_types': request.form.getlist('ticket_type_name[]'),
+            'channels': request.form.getlist('ticketer_ids[]') or request.form.getlist('ticketer_id[]'),
+            'invitations': request.form.getlist('invitation_qty[]'),
+        }
+        equipment_payload = {
+            'mode': (request.form.get('equipment_mode') or '').strip(),
+            'amount': (request.form.get('equipment_amount') or '').strip(),
+            'notes': (request.form.get('equipment_notes') or request.form.get('equipment_note_body[]') or '').strip(),
+        }
+        promoter_costs_payload = {
+            'items': request.form.getlist('promoter_costs[]'),
+            'notes': (request.form.get('promoter_costs_note') or '').strip(),
+            'amount': (request.form.get('promoter_costs_amount') or '').strip(),
+        }
+
         if mode == 'request_sheet':
             promoter_email = (request.form.get('promoter_email') or '').strip()
             if not promoter_email:
@@ -21317,6 +21488,13 @@ def concert_wizard_create():
                 venue_id=venue_id,
                 sale_type=sale_type,
                 artist_id=artist_id,
+                artist_ids=artist_ids_payload,
+                activity_type=activity_type,
+                activity_subtype=activity_subtype,
+                contracting_payload=wizard_payload,
+                ticketing_payload=ticketing_payload,
+                equipment_payload=equipment_payload,
+                promoter_costs_payload=promoter_costs_payload,
                 capacity=0,
                 no_capacity=True,
                 sale_start_date=None,
@@ -21326,7 +21504,7 @@ def concert_wizard_create():
                 group_company_id=None,
                 billing_company_id=billing_company_id,
                 hashtags=hashtags,
-                status='BORRADOR',
+                status='HABLADO',
                 manual_venue_name=manual_venue_name,
                 manual_venue_address=manual_venue_address,
                 manual_municipality=manual_municipality,
@@ -21390,6 +21568,13 @@ def concert_wizard_create():
             promoter_id=promoter_id,
             promoter_company_id=promoter_company_id,
             artist_id=artist_id,
+            artist_ids=artist_ids_payload,
+            activity_type=activity_type,
+            activity_subtype=activity_subtype,
+            contracting_payload=wizard_payload,
+            ticketing_payload=ticketing_payload,
+            equipment_payload=equipment_payload,
+            promoter_costs_payload=promoter_costs_payload,
             capacity=capacity,
             no_capacity=no_capacity,
             sale_start_date=sale_start_date,
@@ -22224,14 +22409,17 @@ from models import (
     BagExpenseAlert,
     BagPaymentInteraction,
     InvoiceRecord,
+    EmbargoOrder,
     ensure_personnel_and_operations_schema,
     ensure_bag_expense_schema,
     ensure_marketing_country_schema,
+    ensure_contracting_embargo_schema,
 )
 
 _safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
 _safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
 _safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
+_safe_ensure(ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema")
 
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
@@ -22355,7 +22543,16 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 60},
 
-    {"key": "concerts", "label": "Conciertos", "section_key": "concerts", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 70},
+    {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 65},
+    {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 66},
+    {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 67},
+    {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 68},
+    {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 69},
+    {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 70},
+    {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 71},
+    {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 72},
+
+    {"key": "concerts", "label": "Conciertos (legado)", "section_key": "concerts", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 73},
     {"key": "concerts.vista", "label": "Conciertos", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 71},
     {"key": "concerts.facturacion", "label": "Facturación", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": True, "sort_order": 72},
     {"key": "concerts.alta", "label": "Formulario clásico", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 73},
@@ -22877,8 +23074,9 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/artistas", "artists"),
         ("/discografica", "discografica"),
         ("/promotores", "third_parties"),
-        ("/conciertos", "concerts"),
-        ("/cuadrantes", "quadrantes"),
+        ("/contratacion", "contratacion"),
+        ("/conciertos", "contratacion.conciertos"),
+        ("/cuadrantes", "contratacion.cuadrantes"),
         ("/emisoras", "radio.emisoras"),
         ("/tocadas", "radio.actualizar"),
         ("/ventas", "ventas"),
@@ -22970,18 +23168,30 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.publishing_companies"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
+    if endpoint == "contracting_view":
+        section = (request.args.get("section") or "conciertos").strip().lower()
+        mapping = {
+            "conciertos": "contratacion.conciertos",
+            "giras-compradas": "contratacion.giras",
+            "festivales-ciclos": "contratacion.festivales",
+            "otras-actividades": "contratacion.otras",
+            "cuadrantes": "contratacion.cuadrantes",
+            "facturacion": "contratacion.facturacion",
+            "simulaciones": "contratacion.simulaciones",
+        }
+        return mapping.get(section, "contratacion")
     if endpoint == "concerts_view":
         tab = (request.args.get("tab") or "vista").strip().lower()
-        if tab in {"vista", "facturacion", "alta"}:
-            return f"concerts.{tab}"
-        return "concerts"
+        if tab == "facturacion":
+            return "contratacion.facturacion"
+        return "contratacion.conciertos"
     if endpoint == "concert_detail_view":
         tab = (request.args.get("tab") or "general").strip().lower()
         if tab in {"promocion", "marketing"}:
             return "promocion"
-        return "concerts"
+        return "contratacion.conciertos"
     if endpoint == "quadrantes_view":
-        return "quadrantes"
+        return "contratacion.cuadrantes"
     if endpoint in {"promocion_view", "marketing_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
@@ -23204,10 +23414,18 @@ def _resource_default_url(key: str) -> str:
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
         "third_parties": url_for("promoters_view"),
+        "contratacion": url_for("contracting_view", section="conciertos"),
+        "contratacion.conciertos": url_for("concerts_view", tab="vista"),
+        "contratacion.giras": url_for("contracting_view", section="giras-compradas"),
+        "contratacion.festivales": url_for("contracting_view", section="festivales-ciclos"),
+        "contratacion.otras": url_for("contracting_view", section="otras-actividades"),
+        "contratacion.cuadrantes": url_for("quadrantes_view"),
+        "contratacion.facturacion": url_for("concerts_view", tab="facturacion"),
+        "contratacion.simulaciones": url_for("contracting_view", section="simulaciones"),
         "concerts": url_for("concerts_view"),
         "concerts.vista": url_for("concerts_view", tab="vista"),
         "concerts.facturacion": url_for("concerts_view", tab="facturacion"),
-        "concerts.alta": url_for("concerts_view", tab="alta"),
+        "concerts.alta": url_for("concerts_view", tab="vista"),
         "quadrantes": url_for("quadrantes_view"),
         "promocion": url_for("marketing_view"),
         "marketing": url_for("marketing_view"),
@@ -23241,6 +23459,7 @@ def _resource_icon(key: str) -> str:
         ("artists", "fa-user-group"),
         ("discografica", "fa-compact-disc"),
         ("third_parties", "fa-handshake"),
+        ("contratacion", "fa-file-signature"),
         ("concerts", "fa-music"),
         ("quadrantes", "fa-table"),
         ("marketing", "fa-bullhorn"),
@@ -23274,8 +23493,15 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
-        {"type": "link", "key": "concerts", "label": "Conciertos", "url": _resource_default_url("concerts")},
-        {"type": "link", "key": "quadrantes", "label": "Cuadrantes", "url": _resource_default_url("quadrantes")},
+        {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
+            {"key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
+            {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
+            {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
+            {"key": "contratacion.otras", "label": "Otras actividades", "url": _resource_default_url("contratacion.otras")},
+            {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "url": _resource_default_url("contratacion.cuadrantes")},
+            {"key": "contratacion.facturacion", "label": "Facturación", "url": _resource_default_url("contratacion.facturacion")},
+            {"key": "contratacion.simulaciones", "label": "Simulaciones", "url": _resource_default_url("contratacion.simulaciones")},
+        ]},
         {"type": "link", "key": "promocion", "label": "Marketing", "url": _resource_default_url("promocion")},
         {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
@@ -25469,6 +25695,169 @@ def production_request_reject(request_id):
     return redirect(url_for("produccion_view", tab="solicitudes"))
 
 
+
+
+def _pdf_text_from_filestorage(file_storage) -> str:
+    """Extrae texto seleccionable de un PDF sin usar OCR externo."""
+    if not file_storage or not getattr(file_storage, "filename", ""):
+        return ""
+    try:
+        raw = file_storage.read()
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+        if not raw or not PYPDF_AVAILABLE or PdfReader is None:
+            return ""
+        reader = PdfReader(BytesIO(raw))
+        chunks = []
+        for page in getattr(reader, "pages", []) or []:
+            try:
+                chunks.append(page.extract_text() or "")
+            except Exception:
+                continue
+        return "\n".join(chunks).strip()
+    except Exception:
+        try:
+            file_storage.stream.seek(0)
+        except Exception:
+            pass
+        return ""
+
+
+def _detect_embargo_order_type(text_value: str, filename: str | None = None) -> str:
+    haystack = _norm_text_key(" ".join([text_value or "", filename or ""]))
+    if any(word in haystack for word in ["levantamiento embargo", "alzamiento embargo", "cancelacion embargo", "cancelacion de embargo", "dejar sin efecto"]):
+        return "LEVANTAMIENTO"
+    if "embargo" in haystack:
+        return "EMBARGO"
+    return "DESCONOCIDO"
+
+
+def _extract_possible_tax_id(text_value: str) -> str:
+    raw = (text_value or "").upper().replace("-", " ").replace(".", " ")
+    patterns = [
+        r"\b[ABCDEFGHJKLMNPQRSUVW]\s?\d{7}\s?[0-9A-J]\b",
+        r"\b\d{8}\s?[A-Z]\b",
+        r"\b[XYZ]\s?\d{7}\s?[A-Z]\b",
+    ]
+    for pattern in patterns:
+        m = re.search(pattern, raw)
+        if m:
+            return re.sub(r"\s+", "", m.group(0)).strip()
+    return ""
+
+
+def _promoter_snapshot(promoter: Promoter | None) -> dict:
+    if not promoter:
+        return {}
+    return {
+        "id": str(promoter.id),
+        "nick": (promoter.nick or "").strip(),
+        "email": (promoter.contact_email or "").strip(),
+        "phone": (promoter.contact_phone or "").strip(),
+        "tax_id": (promoter.tax_id or "").strip(),
+    }
+
+
+def _match_embargo_promoter(session_db, text_value: str, tax_id: str | None = None):
+    folded_text = _norm_text_key(text_value or "")
+    tax_key = _norm_text_key(tax_id or "")
+    rows = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(2000).all()
+    best = (None, 0.0, "")
+    for promoter in rows:
+        labels = [promoter.nick, promoter.first_name, promoter.last_name, promoter.contact_email, promoter.tax_id]
+        labels.extend([getattr(c, "legal_name", None) for c in (promoter.companies or [])])
+        labels.extend([getattr(c, "tax_id", None) for c in (promoter.companies or [])])
+        for label in labels:
+            label_norm = _norm_text_key(label or "")
+            if not label_norm:
+                continue
+            if tax_key and label_norm == tax_key:
+                return promoter, 1.0, label or ""
+            if len(label_norm) >= 4 and label_norm in folded_text:
+                score = min(0.95, max(0.70, len(label_norm) / max(len(folded_text), 1) * 8))
+                if score > best[1]:
+                    best = (promoter, score, label or "")
+    return best
+
+
+@app.post("/administracion/embargos/upload", endpoint="administration_embargo_upload")
+@admin_required
+def administration_embargo_upload():
+    session_db = db()
+    try:
+        pdf = request.files.get("pdf") or request.files.get("order_pdf") or request.files.get("file")
+        if not pdf or not getattr(pdf, "filename", ""):
+            flash("Debes subir el PDF de la orden de embargo o levantamiento.", "warning")
+            return redirect(url_for("administracion_view", tab="embargos"))
+        if not (pdf.filename or "").lower().endswith(".pdf"):
+            flash("La orden debe subirse en PDF.", "warning")
+            return redirect(url_for("administracion_view", tab="embargos"))
+        extracted_text = _pdf_text_from_filestorage(pdf)
+        order_type = _detect_embargo_order_type(extracted_text, pdf.filename)
+        detected_tax_id = _extract_possible_tax_id(extracted_text)
+        promoter, score, label = _match_embargo_promoter(session_db, extracted_text, detected_tax_id)
+        try:
+            pdf.stream.seek(0)
+        except Exception:
+            pass
+        pdf_url = upload_pdf(pdf, "embargos")
+        audit = _current_user_state()
+        row = EmbargoOrder(
+            order_type=order_type,
+            status="VINCULADA" if promoter else "PENDIENTE",
+            promoter_id=getattr(promoter, "id", None),
+            provider_snapshot=_promoter_snapshot(promoter),
+            detected_name=(label or "").strip() or None,
+            detected_tax_id=detected_tax_id or None,
+            detected_text=(extracted_text or "")[:12000],
+            pdf_url=pdf_url,
+            pdf_name=Path(pdf.filename or "orden_embargo.pdf").name,
+            uploaded_by_user_id=to_uuid(audit.get("user_id")) if audit.get("user_id") else None,
+            uploaded_by_nick=audit.get("nick") or "Administración",
+        )
+        session_db.add(row)
+        session_db.commit()
+        if promoter:
+            flash(f"Orden detectada como {order_type.lower()} y vinculada a {(promoter.nick or label or 'tercero')}.", "success")
+        elif extracted_text:
+            flash("Orden subida. No se encontró un tercero con coincidencia suficiente, queda pendiente de vincular.", "warning")
+        else:
+            flash("Orden subida. El PDF no tenía texto seleccionable; queda pendiente de revisión manual.", "warning")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo procesar la orden: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="embargos"))
+
+
+@app.post("/administracion/embargos/<order_id>/vincular", endpoint="administration_embargo_link")
+@admin_required
+def administration_embargo_link(order_id):
+    session_db = db()
+    try:
+        row = session_db.get(EmbargoOrder, to_uuid(order_id))
+        promoter_id = to_uuid((request.form.get("promoter_id") or "").strip() or None)
+        promoter = session_db.get(Promoter, promoter_id) if promoter_id else None
+        if not row or not promoter:
+            flash("Selecciona una orden y un tercero válido.", "warning")
+            return redirect(url_for("administracion_view", tab="embargos"))
+        row.promoter_id = promoter.id
+        row.provider_snapshot = _promoter_snapshot(promoter)
+        row.status = "VINCULADA"
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Orden vinculada al tercero.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo vincular la orden: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="embargos"))
+
+
 @app.route("/administracion", endpoint="administracion_view")
 @admin_required
 def administracion_view():
@@ -25509,6 +25898,8 @@ def administracion_view():
         embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
             or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
         ).order_by(InvoiceRecord.issue_date.desc()).all()
+        embargo_orders = session_db.query(EmbargoOrder).options(joinedload(EmbargoOrder.promoter)).order_by(EmbargoOrder.created_at.desc()).limit(200).all()
+        embargo_promoters = session_db.query(Promoter).order_by(Promoter.nick.asc()).limit(500).all()
 
         bag_totals = {}
         for bag in closed_bags:
@@ -25520,7 +25911,7 @@ def administracion_view():
             "liquidaciones": len(closed_bags),
             "pagos": len(payment_requests) + len(payable_expenses),
             "cobros": len(receivable_invoices),
-            "embargos": len(embargo_rows),
+            "embargos": len(embargo_rows) + len(embargo_orders),
         }
         return render_template(
             "administracion.html",
@@ -25534,6 +25925,8 @@ def administracion_view():
             payable_expenses=payable_expenses,
             receivable_invoices=receivable_invoices,
             embargo_rows=embargo_rows,
+            embargo_orders=embargo_orders,
+            embargo_promoters=embargo_promoters,
             bag_totals=bag_totals,
             payment_methods=BAG_PAYMENT_METHODS,
             payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
@@ -26710,9 +27103,10 @@ def bag_detail_view(bag_id):
             return redirect(url_for("bags_view"))
         if request.method == "POST":
             bag.title = (request.form.get("title") or bag.title or "").strip() or bag.title
-            artist_ids = _bag_artist_ids_from_form(request.form)
-            bag.artist_ids = artist_ids
-            bag.artist_id = _safe_uuid(artist_ids[0]) if artist_ids else None
+            if not (getattr(bag, "linked_type", None) and getattr(bag, "linked_id", None)):
+                artist_ids = _bag_artist_ids_from_form(request.form)
+                bag.artist_ids = artist_ids
+                bag.artist_id = _safe_uuid(artist_ids[0]) if artist_ids else None
             bag.company_id = _safe_uuid(request.form.get("company_id")) if (request.form.get("company_id") or "").strip() else None
             bag.bag_type = (request.form.get("bag_type") or bag.bag_type or "GENERAL").strip().upper()
             bag.linked_type = (request.form.get("linked_type") or "").strip().upper() or None

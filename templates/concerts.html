@@ -21,30 +21,22 @@
 
 <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
   <div>
-    <h4 class="mb-2">Conciertos</h4>
+    <h4 class="mb-2">Contratación · Conciertos</h4>
     <ul class="nav nav-tabs">
-      {% if has_access_key('concerts.vista', include_descendants=True) %}
+      {% if has_access_key('contratacion.conciertos', include_descendants=True) %}
         <li class="nav-item"><a class="nav-link {% if active_tab == 'vista' %}active{% endif %}" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
       {% endif %}
-      {% if has_access_key('concerts.facturacion', include_descendants=True) %}
+      {% if has_access_key('contratacion.facturacion', include_descendants=True) %}
         <li class="nav-item"><a class="nav-link {% if active_tab == 'facturacion' %}active{% endif %}" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
-      {% endif %}
-      {% if CAN_EDIT_CONCERTS and has_access_key('concerts.alta', include_descendants=True) %}
-        <li class="nav-item"><a class="nav-link {% if active_tab == 'alta' %}active{% endif %}" href="{{ url_for('concerts_view', tab='alta') }}">Formulario clásico</a></li>
       {% endif %}
     </ul>
   </div>
-  {% if CAN_EDIT_CONCERTS and has_access_key('concerts.alta', include_descendants=True) and active_tab != 'alta' %}
+  {% if CAN_EDIT_CONCERTS and active_tab != 'facturacion' %}
     <div class="d-flex gap-2">
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal">
-        <i class="fa fa-plus"></i> Alta concierto
+        <i class="fa fa-plus"></i> Actividad
       </button>
-      <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='alta') }}">Formulario clásico</a>
     </div>
-  {% elif active_tab == 'alta' %}
-    <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">
-      <i class="fa fa-arrow-left"></i> Volver a conciertos
-    </a>
   {% endif %}
 </div>
 

@@ -3,8 +3,8 @@
     <div class="modal-content">
       <div class="modal-header">
         <div>
-          <h5 class="modal-title mb-1">Alta de concierto</h5>
-          <div class="text-muted small">Nuevo flujo guiado para crear conciertos o solicitar ficha de contratación.</div>
+          <h5 class="modal-title mb-1">+ Actividad</h5>
+          <div class="text-muted small">Asistente visual para conciertos, festivales, acciones promocionales, TV, marca u otras actividades.</div>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
@@ -17,25 +17,41 @@
           <section class="wizard-step" data-step="1" data-mode="any">
             <div class="card border-0 bg-light">
               <div class="card-body">
-                <h6 class="mb-3">¿Tienes los detalles del concierto?</h6>
-                <div class="row g-3">
-                  <div class="col-md-6">
-                    <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
-                      <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="direct" checked>
-                      <span>
-                        <span class="fw-semibold d-block">Sí, ya tengo los datos</span>
-                        <span class="text-muted small">Crear el concierto completo con el nuevo asistente.</span>
-                      </span>
-                    </label>
-                  </div>
-                  <div class="col-md-6">
-                    <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
-                      <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="request_sheet">
-                      <span>
-                        <span class="fw-semibold d-block">Necesito solicitar ficha de contratación</span>
-                        <span class="text-muted small">Se creará el concierto en borrador y se enviará un enlace al promotor.</span>
-                      </span>
-                    </label>
+                <h6 class="mb-3">Selecciona el tipo de actividad</h6>
+                <div class="row g-3 mb-3">
+                  {% set activity_options = [
+                    ('CONCIERTO','fa-music','Concierto'),
+                    ('FESTIVAL','fa-people-group','Festival'),
+                    ('EVENTO_PROMOCIONAL','fa-bullhorn','Evento promocional'),
+                    ('TV','fa-tv','Programa de TV'),
+                    ('MARCA','fa-handshake','Acción con marca'),
+                    ('OTROS','fa-star','Otros')
+                  ] %}
+                  {% for value, icon, label in activity_options %}
+                    <div class="col-md-4 col-lg-2">
+                      <label class="activity-choice-card border rounded p-3 text-center h-100 w-100 d-block bg-white">
+                        <input class="form-check-input visually-hidden" type="radio" name="activity_type" value="{{ value }}" {% if loop.first %}checked{% endif %}>
+                        <i class="fa {{ icon }} d-block fs-3 mb-2 text-dark"></i>
+                        <span class="fw-semibold small">{{ label }}</span>
+                      </label>
+                    </div>
+                  {% endfor %}
+                </div>
+                <div class="border rounded bg-white p-3">
+                  <h6 class="mb-3">¿Tienes los datos o hay que pedir ficha?</h6>
+                  <div class="row g-3">
+                    <div class="col-md-6">
+                      <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
+                        <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="direct" checked>
+                        <span><span class="fw-semibold d-block">Sí, ya tengo los datos</span><span class="text-muted small">Crear la actividad con el asistente.</span></span>
+                      </label>
+                    </div>
+                    <div class="col-md-6">
+                      <label class="border rounded p-3 d-flex gap-3 align-items-start h-100 w-100 cursor-pointer">
+                        <input class="form-check-input mt-1" type="radio" name="wizard_mode_choice" value="request_sheet">
+                        <span><span class="fw-semibold d-block">Enviar ficha de contratación</span><span class="text-muted small">Se crea la actividad como Hablado y se envía el enlace al promotor.</span></span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -65,17 +81,16 @@
               <div class="col-lg-6">
                 <div class="card h-100">
                   <div class="card-body">
-                    <h6 class="mb-3">Artista</h6>
+                    <h6 class="mb-3">Artista o artistas</h6>
                     <div class="input-group">
-                      <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required>
-                        <option value="">—</option>
+                      <select name="artist_id" id="wizard_artist_id" class="form-select select-artists" required multiple>
                         {% for a in artists %}
                           <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
                         {% endfor %}
                       </select>
                       <button type="button" class="btn btn-outline-secondary" onclick="openArtistModal('wizard_artist_id')"><i class="fa fa-plus"></i></button>
                     </div>
-                    <div class="form-text">Puedes añadir un artista nuevo desde el botón +.</div>
+                    <div class="form-text">Puedes seleccionar varios artistas. El selector busca sin distinguir tildes, símbolos o mayúsculas.</div>
                   </div>
                 </div>
               </div>

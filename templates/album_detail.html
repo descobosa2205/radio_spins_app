@@ -222,6 +222,19 @@
                     <input name="distributed_by" class="form-control" value="{{ album.distributed_by or '' }}">
                   </div>
 
+                  <div class="col-12">
+                    <div class="border rounded p-3 bg-light-subtle">
+                      <div class="fw-semibold mb-2">Enlaces de plataformas para Label Copy</div>
+                      <div class="row g-2">
+                        <div class="col-md-6"><label class="form-label small">Spotify</label><input name="spotify_url" class="form-control" value="{{ album.spotify_url or '' }}" placeholder="https://..."></div>
+                        <div class="col-md-6"><label class="form-label small">Apple Music</label><input name="apple_music_url" class="form-control" value="{{ album.apple_music_url or '' }}" placeholder="https://..."></div>
+                        <div class="col-md-6"><label class="form-label small">Amazon Music</label><input name="amazon_music_url" class="form-control" value="{{ album.amazon_music_url or '' }}" placeholder="https://..."></div>
+                        <div class="col-md-6"><label class="form-label small">TikTok</label><input name="tiktok_url" class="form-control" value="{{ album.tiktok_url or '' }}" placeholder="https://..."></div>
+                        <div class="col-md-6"><label class="form-label small">YouTube</label><input name="youtube_url" class="form-control" value="{{ album.youtube_url or '' }}" placeholder="https://..."></div>
+                      </div>
+                    </div>
+                  </div>
+
                   <div class="col-12 col-md-6">
                     <label class="form-label">Formato físico</label>
                     <div class="border rounded p-3 bg-light-subtle">

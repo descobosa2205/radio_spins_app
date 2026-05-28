@@ -86,7 +86,7 @@
                         {% for day in week %}
                           <td class="{% if not day.in_month %}text-muted bg-light{% endif %}" style="height:42px;min-width:42px;">
                             <div class="small">{{ day.date.day }}</div>
-                            {% if day.items %}<span class="badge rounded-pill text-bg-warning">{{ day.items|length }}</span>{% endif %}
+                            {% set day_items = day['items'] or [] %}{% if day_items %}<span class="badge rounded-pill text-bg-warning">{{ day_items|length }}</span>{% endif %}
                           </td>
                         {% endfor %}
                       </tr>

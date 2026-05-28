@@ -10,3 +10,4 @@ pandas==2.2.2
 Pillow>=10.0.0
 pydub>=0.25.1
 pycountry>=24.6.1
+pypdf>=4.2.0

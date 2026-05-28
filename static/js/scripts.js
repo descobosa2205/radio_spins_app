@@ -4,6 +4,7 @@
     return String(value || '')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .toLowerCase()
       .trim();
   };
@@ -19,7 +20,7 @@ function enableFormEdit(btn){
 function initSelect2(){
   // Select2: soporta selects en página y dentro de modales Bootstrap.
   // Si no configuramos dropdownParent en modales, el desplegable puede quedar detrás (z-index).
-  $('.select-artists, .select-with-thumbs, .select-country').each(function(){
+  $('.select-artists, .select-with-thumbs, .select-country, .select-unified, .third-party-select, .select-promoters, .select-providers, .select-media, .select-songs, .select-venues').each(function(){
     const $el = $(this);
     if ($el.hasClass('select2-hidden-accessible')) return;
 
@@ -45,6 +46,19 @@ function initSelect2(){
       ...( $modal.length ? { dropdownParent: $modal } : {} ),
       templateResult: optionMarkup,
       templateSelection: optionMarkup,
+      matcher: function(params, data) {
+        const term = window.normalizeSearchText(params.term || '');
+        if (!term) return data;
+        const el = data.element ? $(data.element) : $();
+        const searchable = window.normalizeSearchText([
+          data.text || '',
+          el.data('search') || '',
+          el.data('email') || '',
+          el.data('nick') || '',
+          el.data('name') || ''
+        ].join(' '));
+        return searchable.indexOf(term) > -1 ? data : null;
+      },
       escapeMarkup: function (m) { return m; }
     });
   });

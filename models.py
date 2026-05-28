@@ -651,6 +651,7 @@ class Venue(Base):
     address = Column(Text)
     municipality = Column(Text)
     province = Column(Text)
+    photo_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -804,6 +805,12 @@ class Album(Base):
     album_type = Column(Text, nullable=False, server_default=text("'ALBUM'"))  # ALBUM | EP
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
+
+    spotify_url = Column(Text)
+    apple_music_url = Column(Text)
+    amazon_music_url = Column(Text)
+    tiktok_url = Column(Text)
+    youtube_url = Column(Text)
 
     specifications = Column(Text)
     copyright_text = Column(Text)
@@ -1020,6 +1027,16 @@ class Concert(Base):
     promoter_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoter_companies.id", ondelete="SET NULL"))
 
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="RESTRICT"), nullable=False)
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+
+    # Tipo de actividad de contratación: CONCIERTO | FESTIVAL | EVENTO_PROMOCIONAL | TV | MARCA | OTROS
+    activity_type = Column(Text, nullable=False, server_default=text("'CONCIERTO'"))
+    activity_subtype = Column(Text)
+    contracting_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    ticketing_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    equipment_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    promoter_costs_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    commission_payload = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     # Aforo a la venta
     capacity = Column(Integer, nullable=False)
@@ -2198,6 +2215,36 @@ class InvoiceRecord(Base):
         Index("idx_invoice_records_company_artist", "company_id", "artist_id"),
     )
 
+
+
+class EmbargoOrder(Base):
+    """Órdenes de embargo o levantamiento subidas desde Administración."""
+
+    __tablename__ = "embargo_orders"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    order_type = Column(Text, nullable=False, server_default=text("'EMBARGO'"))  # EMBARGO | LEVANTAMIENTO | DESCONOCIDO
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE | VINCULADA | REVISAR
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    provider_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    detected_name = Column(Text)
+    detected_tax_id = Column(Text)
+    detected_text = Column(Text)
+    pdf_url = Column(Text)
+    pdf_name = Column(Text)
+    uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    promoter = relationship("Promoter")
+    uploaded_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_embargo_orders_type_status", "order_type", "status"),
+        Index("idx_embargo_orders_promoter", "promoter_id"),
+        Index("idx_embargo_orders_created", "created_at"),
+    )
 
 def _exec_ddl_statements(stmts, label: str = "schema"):
     """Ejecuta DDL idempotente sentencia a sentencia.
@@ -3904,3 +3951,33 @@ def ensure_marketing_country_schema():
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+
+def ensure_contracting_embargo_schema():
+    """Migración defensiva para Contratación, PDFs de embargos y enlaces de álbum."""
+    _exec_ddl_statements([
+        "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\"",
+        "ALTER TABLE venues ADD COLUMN IF NOT EXISTS photo_url text",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS spotify_url text",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS apple_music_url text",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS amazon_music_url text",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS tiktok_url text",
+        "ALTER TABLE albums ADD COLUMN IF NOT EXISTS youtube_url text",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS artist_ids jsonb DEFAULT '[]'::jsonb",
+        "UPDATE concerts SET artist_ids = jsonb_build_array(artist_id::text) WHERE (artist_ids IS NULL OR artist_ids = '[]'::jsonb) AND artist_id IS NOT NULL",
+        "ALTER TABLE concerts ALTER COLUMN artist_ids SET DEFAULT '[]'::jsonb",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS activity_type text DEFAULT 'CONCIERTO'",
+        "UPDATE concerts SET activity_type = 'FESTIVAL' WHERE activity_type IS NULL AND (upper(coalesce(sale_type,'')) = 'CADIZ' OR festival_name ILIKE '%festival%')",
+        "UPDATE concerts SET activity_type = 'CONCIERTO' WHERE activity_type IS NULL",
+        "ALTER TABLE concerts ALTER COLUMN activity_type SET DEFAULT 'CONCIERTO'",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS activity_subtype text",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS contracting_payload jsonb DEFAULT '{}'::jsonb",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS ticketing_payload jsonb DEFAULT '{}'::jsonb",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS equipment_payload jsonb DEFAULT '{}'::jsonb",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS promoter_costs_payload jsonb DEFAULT '{}'::jsonb",
+        "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS commission_payload jsonb DEFAULT '[]'::jsonb",
+        "CREATE TABLE IF NOT EXISTS embargo_orders (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), order_type text NOT NULL DEFAULT 'EMBARGO', status text NOT NULL DEFAULT 'PENDIENTE', promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL, provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb, detected_name text, detected_tax_id text, detected_text text, pdf_url text, pdf_name text, uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL, uploaded_by_nick text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
+        "CREATE INDEX IF NOT EXISTS idx_embargo_orders_type_status ON embargo_orders(order_type, status)",
+        "CREATE INDEX IF NOT EXISTS idx_embargo_orders_promoter ON embargo_orders(promoter_id)",
+        "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
+    ], "contracting_embargo_schema")

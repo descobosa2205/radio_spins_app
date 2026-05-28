@@ -1626,7 +1626,7 @@
           filesInput.value = '';
           folderInput.value = '';
           filesInput.multiple = !!cfg.multiple;
-          filesInput.accept = cfg.category === 'COVER' ? 'image/*' : (cfg.stemMode ? '.zip,audio/*,.wav,.wave' : '.wav,.wave');
+          filesInput.accept = cfg.category === 'COVER' ? 'image/*' : (cfg.stemMode ? '.zip,audio/*,.wav,.wave,.aif,.aiff,.flac,.mp3,.m4a,.aac,.ogg' : '.wav,.wave,.aif,.aiff,.flac,.mp3,.m4a,.aac,.ogg,audio/*');
           filesLabel.textContent = cfg.stemMode ? 'Archivos / ZIP' : 'Archivo';
           help.textContent = cfg.stemMode ? 'Puedes seleccionar varios archivos, ZIPs o usar el campo de carpeta completa.' : (cfg.category === 'COVER' ? 'Se admite cualquier formato de imagen.' : 'Sube el archivo maestro en WAV.');
           folderWrap.style.display = cfg.stemMode ? '' : 'none';

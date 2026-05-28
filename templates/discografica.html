@@ -79,11 +79,11 @@
         <div class="card-body">
           <div class="fw-semibold mb-3">Calendario</div>
           {% if launches_calendar_months and (launches_calendar_months|length) > 0 %}
-            <div class="d-flex flex-column gap-4">
+            <div class="launch-calendar-grid d-flex flex-column gap-3">
               {% for month in launches_calendar_months %}
                 <div>
                   <div class="fw-semibold mb-2">{{ month.label }}</div>
-                  <table class="table table-bordered align-middle bg-white mb-0 launch-calendar-table" style="table-layout:fixed;width:100%;">
+                  <table class="table table-sm table-bordered align-middle bg-white mb-0 launch-calendar-table" style="table-layout:fixed;width:100%;">
                     <thead class="table-light">
                       <tr>
                         <th class="text-center small px-1">Lun</th>
@@ -99,21 +99,16 @@
                       {% for week in month.weeks %}
                         <tr>
                           {% for day in week %}
-                            <td class="align-top p-1 {% if not day.in_month %}bg-light text-muted{% endif %}" style="height:86px;">
-                              <div class="small fw-semibold mb-1">{{ day.date.day }}</div>
-                              <div class="d-flex flex-column gap-1">
-                                {% for item in day["items"][:2] %}
-                                  <a href="{{ item.detail_url }}" class="text-decoration-none text-reset d-flex gap-1 align-items-start" title="{{ item.title }} · {{ item.artist_label }}">
-                                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:24px;height:24px;object-fit:cover;border-radius:6px;border:1px solid #eee;background:#fff;">
-                                    <div class="small lh-sm text-truncate" style="min-width:0;">
-                                      <div class="fw-semibold text-truncate">{{ item.title }}</div>
-                                      <div class="text-muted text-truncate">{{ item.artist_label }}</div>
-                                    </div>
-                                  </a>
-                                {% endfor %}
-                                {% if day["items"]|length > 2 %}
-                                  <span class="badge text-bg-light border small">+{{ (day["items"]|length) - 2 }}</span>
-                                {% endif %}
+                            <td class="align-top p-1 {% if not day.in_month %}bg-light text-muted{% endif %}" style="height:50px;">
+                              <div class="d-flex justify-content-between align-items-start gap-1">
+                                <span class="small fw-semibold lh-1">{{ day.date.day }}</span>
+                                <div class="d-flex flex-wrap justify-content-end gap-1" style="min-width:0;">
+                                  {% for item in day["items"] %}
+                                    <a href="{{ item.detail_url }}" class="text-decoration-none d-inline-flex" title="{{ item.title }} · {{ item.artist_label }}">
+                                      <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ item.title }}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;border:1px solid #eee;background:#fff;">
+                                    </a>
+                                  {% endfor %}
+                                </div>
                               </div>
                             </td>
                           {% endfor %}

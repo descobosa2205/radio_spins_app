@@ -22,7 +22,7 @@
 </head>
 <body>
   <main class="page">
-    <div class="actions"><a class="btn" href="{{ pdf_url }}">Descargar en PDF</a></div>
+    <div class="actions"><a class="btn" href="{{ pdf_url }}" target="_blank" rel="noopener" download>Descargar en PDF</a></div>
     <article class="sheet">
       <img class="brand" src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES">
       <h1>Letra: {{ song.title }}</h1>

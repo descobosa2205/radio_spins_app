@@ -148,14 +148,68 @@
     </div>
   </div>
 {% elif tab == 'embargos' %}
-  <div class="card">
-    <div class="card-header bg-white"><strong>Embargos</strong></div>
-    <div class="card-body p-0">
-      {% for invoice in embargo_rows %}
-        <div class="p-3 border-bottom"><div class="fw-semibold">{{ invoice.invoice_number }} · {{ invoice.third_party_name }}</div><div class="small text-muted">{{ invoice.notes or invoice.status }}</div></div>
-      {% else %}
-        <div class="p-3 text-muted">No hay embargos registrados. Esta pestaña queda preparada para los expedientes que se marquen como embargo.</div>
-      {% endfor %}
+  <div class="row g-3">
+    <div class="col-12 col-xl-4">
+      <div class="card h-100">
+        <div class="card-header bg-white"><strong>Subir orden</strong></div>
+        <div class="card-body">
+          <form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data">
+            <label class="form-label">Orden de embargo o levantamiento</label>
+            <input type="file" name="pdf" class="form-control" accept="application/pdf,.pdf" required>
+            <div class="form-text">El sistema leerá el texto del PDF, detectará si es embargo o levantamiento y tratará de vincularlo al tercero/proveedor existente.</div>
+            <button class="btn btn-primary mt-3"><i class="fa fa-upload me-1"></i> Subir y detectar</button>
+          </form>
+          <div class="alert alert-warning small mt-3 mb-0">Si la orden llega escaneada sin texto seleccionable, se guardará igualmente como pendiente de vincular para evitar falsos positivos.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-8">
+      <div class="card mb-3">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Órdenes subidas</strong><span class="badge text-bg-warning">{{ embargo_orders|length if embargo_orders is defined else 0 }}</span></div>
+        <div class="card-body p-0">
+          {% for order in embargo_orders %}
+            <div class="p-3 border-bottom">
+              <div class="d-flex justify-content-between gap-3 flex-wrap">
+                <div>
+                  <div class="fw-semibold">{{ 'Levantamiento de embargo' if order.order_type == 'LEVANTAMIENTO' else ('Embargo' if order.order_type == 'EMBARGO' else 'Orden pendiente de clasificar') }}</div>
+                  <div class="small text-muted">{{ order.pdf_name or 'PDF subido' }} · {{ order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '' }}</div>
+                  <div class="mt-1">
+                    {% if order.promoter %}<span class="badge text-bg-success">Vinculada a {{ order.promoter.nick }}</span>{% else %}<span class="badge text-bg-warning">Pendiente de vincular</span>{% endif %}
+                    {% if order.detected_tax_id %}<span class="badge text-bg-light border">{{ order.detected_tax_id }}</span>{% endif %}
+                  </div>
+                </div>
+                <div class="d-flex gap-2 align-items-start">
+                  {% if order.pdf_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ order.pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf"></i> Ver PDF</a>{% endif %}
+                </div>
+              </div>
+              {% if not order.promoter %}
+                <form method="post" action="{{ url_for('administration_embargo_link', order_id=order.id) }}" class="row g-2 align-items-end mt-2">
+                  <div class="col-md-9">
+                    <label class="form-label small mb-1">Vincular a tercero</label>
+                    <select name="promoter_id" class="form-select form-select-sm third-party-select">
+                      <option value="">Seleccionar tercero...</option>
+                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }}">{{ promoter.nick }}</option>{% endfor %}
+                    </select>
+                  </div>
+                  <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Vincular</button></div>
+                </form>
+              {% endif %}
+            </div>
+          {% else %}
+            <div class="p-3 text-muted">No hay órdenes subidas todavía.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header bg-white"><strong>Facturas / expedientes marcados como embargo</strong></div>
+        <div class="card-body p-0">
+          {% for invoice in embargo_rows %}
+            <div class="p-3 border-bottom"><div class="fw-semibold">{{ invoice.invoice_number }} · {{ invoice.third_party_name }}</div><div class="small text-muted">{{ invoice.notes or invoice.status }}</div></div>
+          {% else %}
+            <div class="p-3 text-muted">No hay facturas marcadas como embargo.</div>
+          {% endfor %}
+        </div>
+      </div>
     </div>
   </div>
 {% endif %}

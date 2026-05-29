@@ -2350,18 +2350,36 @@ class InvoiceRecord(Base):
 
 
 class EmbargoOrder(Base):
-    """Órdenes de embargo o levantamiento subidas desde Administración."""
+    """Órdenes de embargo o levantamiento subidas desde Administración.
+
+    Estados usados por la app:
+    - ACTIVA: embargo enlazado y vigente.
+    - PENDIENTE: embargo vigente no enlazado a un tercero.
+    - REVISAR: hay un tercero candidato pero la coincidencia no es exacta.
+    - ARCHIVADA / LEVANTADA: no bloquea nuevos gastos ni facturas.
+    """
 
     __tablename__ = "embargo_orders"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     order_type = Column(Text, nullable=False, server_default=text("'EMBARGO'"))  # EMBARGO | LEVANTAMIENTO | DESCONOCIDO
-    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # PENDIENTE | VINCULADA | REVISAR
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     provider_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    document_reference = Column(Text)
+    diligence_number = Column(Text)
+    order_date = Column(Date)
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
     detected_name = Column(Text)
     detected_tax_id = Column(Text)
+    detected_address = Column(Text)
     detected_text = Column(Text)
+    match_score = Column(Numeric, nullable=False, server_default=text("0"))
+    match_reason = Column(Text)
+    lifted_by_order_id = Column(PGUUID(as_uuid=True), ForeignKey("embargo_orders.id", ondelete="SET NULL"))
+    lifted_at = Column(DateTime(timezone=True))
+    archived_at = Column(DateTime(timezone=True))
+    archived_reason = Column(Text)
     pdf_url = Column(Text)
     pdf_name = Column(Text)
     uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -2369,12 +2387,14 @@ class EmbargoOrder(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    promoter = relationship("Promoter")
-    uploaded_by = relationship("User")
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+    lifted_by_order = relationship("EmbargoOrder", remote_side=[id], foreign_keys=[lifted_by_order_id])
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
 
     __table_args__ = (
         Index("idx_embargo_orders_type_status", "order_type", "status"),
         Index("idx_embargo_orders_promoter", "promoter_id"),
+        Index("idx_embargo_orders_tax_status", "detected_tax_id", "status"),
         Index("idx_embargo_orders_created", "created_at"),
     )
 
@@ -4229,8 +4249,21 @@ def ensure_contracting_embargo_schema():
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS equipment_payload jsonb DEFAULT '{}'::jsonb",
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS promoter_costs_payload jsonb DEFAULT '{}'::jsonb",
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS commission_payload jsonb DEFAULT '[]'::jsonb",
-        "CREATE TABLE IF NOT EXISTS embargo_orders (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), order_type text NOT NULL DEFAULT 'EMBARGO', status text NOT NULL DEFAULT 'PENDIENTE', promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL, provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb, detected_name text, detected_tax_id text, detected_text text, pdf_url text, pdf_name text, uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL, uploaded_by_nick text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
+        "CREATE TABLE IF NOT EXISTS embargo_orders (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), order_type text NOT NULL DEFAULT 'EMBARGO', status text NOT NULL DEFAULT 'PENDIENTE', promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL, provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb, document_reference text, diligence_number text, order_date date, amount numeric NOT NULL DEFAULT 0, detected_name text, detected_tax_id text, detected_address text, detected_text text, match_score numeric NOT NULL DEFAULT 0, match_reason text, lifted_by_order_id uuid REFERENCES embargo_orders(id) ON DELETE SET NULL, lifted_at timestamptz, archived_at timestamptz, archived_reason text, pdf_url text, pdf_name text, uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL, uploaded_by_nick text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS document_reference text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS diligence_number text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS order_date date",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS amount numeric NOT NULL DEFAULT 0",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS detected_address text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_score numeric NOT NULL DEFAULT 0",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_reason text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS lifted_by_order_id uuid REFERENCES embargo_orders(id) ON DELETE SET NULL",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS lifted_at timestamptz",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_at timestamptz",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_reason text",
+        "UPDATE embargo_orders SET status = 'ACTIVA' WHERE status = 'VINCULADA' AND order_type = 'EMBARGO'",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_type_status ON embargo_orders(order_type, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_promoter ON embargo_orders(promoter_id)",
+        "CREATE INDEX IF NOT EXISTS idx_embargo_orders_tax_status ON embargo_orders(detected_tax_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
     ], "contracting_embargo_schema")

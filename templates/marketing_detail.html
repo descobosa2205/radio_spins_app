@@ -121,6 +121,16 @@
                       <div class="small text-muted mt-2">
                         {% if row.provider %}Proveedor: {{ row.provider.nick }}{% if row.provider_company %} · {{ row.provider_company.legal_name or row.provider_company.name }}{% endif %}{% else %}Proveedor pendiente{% endif %}
                       </div>
+                      {% set m_alert = marketing_embargo_alerts.get(row.id|string) if marketing_embargo_alerts is defined else None %}
+                      {% if m_alert %}
+                        <div class="alert alert-warning border-warning-subtle mt-2 mb-0 py-2 small">
+                          <i class="fa fa-triangle-exclamation me-1"></i>
+                          <strong>{{ m_alert.message }}</strong>
+                          {% if m_alert.order %}
+                            <span class="d-block text-muted">Orden {{ m_alert.order.document_reference or m_alert.order.diligence_number or m_alert.order.detected_tax_id }}{% if m_alert.order.order_date %} · desde {{ m_alert.order.order_date.strftime('%d/%m/%Y') }}{% endif %}</span>
+                          {% endif %}
+                        </div>
+                      {% endif %}
                     </div>
                   </div>
                   <div class="text-end">

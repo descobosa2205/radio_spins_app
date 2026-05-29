@@ -18,6 +18,15 @@
     </li>
   {% endfor %}
 </ul>
+{% macro embargo_expense_notice(expense) -%}
+  {% set alert = expense_embargo_alerts.get(expense.id|string) if expense_embargo_alerts is defined else None %}
+  {% if alert %}
+    <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small border-warning-subtle">
+      <i class="fa fa-triangle-exclamation me-1"></i>{{ alert.message }}
+      <span class="d-block text-muted">{{ alert.name or 'Tercero embargado' }}{% if alert.tax_id %} · {{ alert.tax_id }}{% endif %}{% if alert.order_date %} · Alta {{ alert.order_date.strftime('%d/%m/%Y') }}{% endif %}</span>
+    </div>
+  {% endif %}
+{%- endmacro %}
 
 {% if tab == 'pendiente' %}
   <ul class="nav nav-pills mb-3">
@@ -41,7 +50,7 @@
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{{ embargo_expense_notice(expense) }}
                     <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
                     <div class="fw-semibold mt-2">{{ (expense.immediate_payment_amount or expense.amount_gross)|eur }}</div>
                     {% if expense.created_by_nick %}<span class="badge text-bg-light border mt-2">Solicita: {{ expense.created_by_nick }}</span>{% endif %}
@@ -66,7 +75,7 @@
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{{ embargo_expense_notice(expense) }}
                     <div class="small mt-2">{{ expense.no_invoice_reason or 'Sin motivo indicado' }}</div>
                     <span class="badge text-bg-warning mt-2">Sin factura</span>
                   </div>
@@ -87,7 +96,7 @@
       <div class="card-body p-0">
         {% for expense in payable_expenses %}
           <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
-            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
+            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{{ embargo_expense_notice(expense) }}{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
             <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-start flex-wrap">
               <input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;">
               <input type="date" name="paid_at" class="form-control form-control-sm" style="max-width:150px;">
@@ -191,7 +200,7 @@
               <div class="d-flex justify-content-between gap-3 align-items-start">
                 <div>
                   <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                  <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                  <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{{ embargo_expense_notice(expense) }}
                   <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
                   <span class="badge text-bg-warning mt-2">{{ payment_status_labels.get(expense.payment_status, expense.payment_status) }}</span>
                 </div>
@@ -212,7 +221,7 @@
         <div class="card-body p-0">
           {% for expense in payable_expenses %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3">
-              <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div></div>
+              <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{{ embargo_expense_notice(expense) }}</div>
               <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
             </div>
           {% else %}<div class="p-3 text-muted">No hay gastos consolidados pendientes.</div>{% endfor %}
@@ -231,69 +240,178 @@
     </div>
   </div>
 {% elif tab == 'embargos' %}
-  <div class="row g-3">
-    <div class="col-12 col-xl-4">
-      <div class="card h-100">
-        <div class="card-header bg-white"><strong>Subir orden</strong></div>
-        <div class="card-body">
-          <form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data">
-            <label class="form-label">Orden de embargo o levantamiento</label>
-            <input type="file" name="pdf" class="form-control" accept="application/pdf,.pdf" required>
-            <div class="form-text">El sistema leerá el texto del PDF, detectará si es embargo o levantamiento y tratará de vincularlo al tercero/proveedor existente.</div>
-            <button class="btn btn-primary mt-3"><i class="fa fa-upload me-1"></i> Subir y detectar</button>
-          </form>
-          <div class="alert alert-warning small mt-3 mb-0">Si la orden llega escaneada sin texto seleccionable, se guardará igualmente como pendiente de vincular para evitar falsos positivos.</div>
-        </div>
-      </div>
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+      <h5 class="m-0">Embargos</h5>
+      <div class="small text-muted">Alta, levantamiento, vinculación y avisos de terceros embargados.</div>
     </div>
-    <div class="col-12 col-xl-8">
-      <div class="card mb-3">
-        <div class="card-header bg-white d-flex justify-content-between align-items-center"><strong>Órdenes subidas</strong><span class="badge text-bg-warning">{{ embargo_orders|length if embargo_orders is defined else 0 }}</span></div>
-        <div class="card-body p-0">
-          {% for order in embargo_orders %}
-            <div class="p-3 border-bottom">
-              <div class="d-flex justify-content-between gap-3 flex-wrap">
-                <div>
-                  <div class="fw-semibold">{{ 'Levantamiento de embargo' if order.order_type == 'LEVANTAMIENTO' else ('Embargo' if order.order_type == 'EMBARGO' else 'Orden pendiente de clasificar') }}</div>
-                  <div class="small text-muted">{{ order.pdf_name or 'PDF subido' }} · {{ order.created_at.strftime('%d/%m/%Y %H:%M') if order.created_at else '' }}</div>
-                  <div class="mt-1">
-                    {% if order.promoter %}<span class="badge text-bg-success">Vinculada a {{ order.promoter.nick }}</span>{% else %}<span class="badge text-bg-warning">Pendiente de vincular</span>{% endif %}
-                    {% if order.detected_tax_id %}<span class="badge text-bg-light border">{{ order.detected_tax_id }}</span>{% endif %}
-                  </div>
-                </div>
-                <div class="d-flex gap-2 align-items-start">
-                  {% if order.pdf_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ order.pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf"></i> Ver PDF</a>{% endif %}
-                </div>
-              </div>
-              {% if not order.promoter %}
-                <form method="post" action="{{ url_for('administration_embargo_link', order_id=order.id) }}" class="row g-2 align-items-end mt-2">
-                  <div class="col-md-9">
-                    <label class="form-label small mb-1">Vincular a tercero</label>
-                    <select name="promoter_id" class="form-select form-select-sm third-party-select">
-                      <option value="">Seleccionar tercero...</option>
-                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }}">{{ promoter.nick }}</option>{% endfor %}
-                    </select>
-                  </div>
-                  <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Vincular</button></div>
-                </form>
-              {% endif %}
-            </div>
-          {% else %}
-            <div class="p-3 text-muted">No hay órdenes subidas todavía.</div>
-          {% endfor %}
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-header bg-white"><strong>Facturas / expedientes marcados como embargo</strong></div>
-        <div class="card-body p-0">
-          {% for invoice in embargo_rows %}
-            <div class="p-3 border-bottom"><div class="fw-semibold">{{ invoice.invoice_number }} · {{ invoice.third_party_name }}</div><div class="small text-muted">{{ invoice.notes or invoice.status }}</div></div>
-          {% else %}
-            <div class="p-3 text-muted">No hay facturas marcadas como embargo.</div>
-          {% endfor %}
-        </div>
-      </div>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#uploadEmbargoModal"><i class="fa fa-plus me-1"></i>Embargo</button>
+  </div>
+
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item"><a class="nav-link {% if embargo_subtab == 'activas' %}active{% endif %}" href="{{ url_for('administracion_view', tab='embargos', embargo_tab='activas', q=embargo_search or None) }}">Activas <span class="badge text-bg-warning ms-1">{{ embargo_active_orders|length }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {% if embargo_subtab == 'archivadas' %}active{% endif %}" href="{{ url_for('administracion_view', tab='embargos', embargo_tab='archivadas', q=embargo_search or None) }}">Archivadas <span class="badge text-bg-secondary ms-1">{{ embargo_archived_orders|length }}</span></a></li>
+  </ul>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <form method="get" action="{{ url_for('administracion_view') }}" class="row g-2 align-items-center">
+        <input type="hidden" name="tab" value="embargos">
+        <input type="hidden" name="embargo_tab" value="{{ embargo_subtab }}">
+        <div class="col-12 col-lg-10"><input type="search" name="q" value="{{ embargo_search or '' }}" class="form-control embargo-live-search" placeholder="Buscar por cualquier dato: nombre, NIF/CIF, referencia, dirección, PDF, tercero..."></div>
+        <div class="col-12 col-lg-2"><button class="btn btn-outline-primary w-100">Filtrar</button></div>
+      </form>
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-header bg-white d-flex justify-content-between align-items-center">
+      <strong>{{ 'Órdenes activas' if embargo_subtab == 'activas' else 'Órdenes archivadas' }}</strong>
+      <span class="small text-muted">{{ embargo_orders|length }} resultado(s)</span>
+    </div>
+    <div class="card-body p-0" id="embargoOrderList">
+      {% for order in embargo_orders %}
+        {% set order_blob = (order.order_type ~ ' ' ~ order.status ~ ' ' ~ (order.detected_name or '') ~ ' ' ~ (order.detected_tax_id or '') ~ ' ' ~ (order.detected_address or '') ~ ' ' ~ (order.document_reference or '') ~ ' ' ~ (order.diligence_number or '') ~ ' ' ~ (order.pdf_name or '') ~ ' ' ~ (order.promoter.nick if order.promoter else '')) %}
+        <div class="p-3 border-bottom embargo-order-row" data-search="{{ order_blob|lower }}">
+          <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center gap-2 flex-wrap">
+                <span class="fw-semibold">{{ order.detected_name or (order.promoter.nick if order.promoter else 'Persona no identificada') }}</span>
+                <span class="badge {% if order.status == 'ACTIVA' %}text-bg-danger{% elif order.status == 'REVISAR' %}text-bg-warning{% elif order.status == 'PENDIENTE' %}text-bg-warning{% else %}text-bg-secondary{% endif %}">{{ order.status }}</span>
+                <span class="badge text-bg-light border">{{ 'Levantamiento' if order.order_type == 'LEVANTAMIENTO' else 'Embargo' }}</span>
+                {% if order.detected_tax_id %}<span class="badge text-bg-light border">{{ order.detected_tax_id }}</span>{% endif %}
+              </div>
+              <div class="small text-muted mt-1">
+                {% if order.detected_address %}{{ order.detected_address }} · {% endif %}
+                Alta: {{ order.order_date.strftime('%d/%m/%Y') if order.order_date else (order.created_at.strftime('%d/%m/%Y') if order.created_at else '—') }}
+                · Importe: <strong>{{ order.amount|eur }}</strong>
+                {% if order.document_reference %} · Ref. {{ order.document_reference }}{% endif %}
+                {% if order.diligence_number %} · Diligencia {{ order.diligence_number }}{% endif %}
+              </div>
+              <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
+                {% if order.promoter %}
+                  <span class="badge text-bg-success">Tercero: {{ order.promoter.nick }}</span>
+                {% else %}
+                  <span class="badge text-bg-warning">Sin tercero vinculado</span>
+                {% endif %}
+                {% if order.match_reason %}<span class="small text-muted">{{ order.match_reason }}{% if order.match_score %} · {{ (order.match_score|string) }}{% endif %}</span>{% endif %}
+                {% if order.archived_reason %}<span class="small text-muted">{{ order.archived_reason }}</span>{% endif %}
+              </div>
+            </div>
+            <div class="d-flex gap-2 align-items-start">
+              {% if order.pdf_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ order.pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>PDF</a>{% endif %}
+              <div class="dropdown">
+                <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                  <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#shareEmbargoModal{{ order.id }}"><i class="fa fa-paper-plane me-2"></i>Compartir orden de embargo</button></li>
+                  {% if embargo_subtab == 'archivadas' and order.order_type == 'EMBARGO' %}
+                    <li><form method="post" action="{{ url_for('administration_embargo_action', order_id=order.id, action='reactivate') }}"><button class="dropdown-item"><i class="fa fa-rotate-left me-2"></i>Reactivar</button></form></li>
+                  {% elif embargo_subtab == 'activas' %}
+                    <li><form method="post" action="{{ url_for('administration_embargo_action', order_id=order.id, action='archive') }}"><button class="dropdown-item"><i class="fa fa-box-archive me-2"></i>Archivar</button></form></li>
+                  {% endif %}
+                  <li><hr class="dropdown-divider"></li>
+                  <li><form method="post" action="{{ url_for('administration_embargo_action', order_id=order.id, action='delete') }}" onsubmit="return confirm('¿Eliminar esta orden?');"><button class="dropdown-item text-danger"><i class="fa fa-trash me-2"></i>Eliminar</button></form></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {% if order.status == 'REVISAR' and order.promoter %}
+            <div class="alert alert-warning mt-3 mb-0">
+              <div class="fw-semibold mb-2">Creo que esta orden se refiere a este tercero. Confirma o descarta el vínculo.</div>
+              <div class="row g-2">
+                <div class="col-md-6"><div class="border rounded p-2 bg-white h-100"><div class="small text-muted">Orden</div><div>{{ order.detected_name or 'Sin nombre detectado' }}</div><div>{{ order.detected_tax_id or 'Sin NIF/CIF detectado' }}</div><div class="small">{{ order.detected_address or '' }}</div></div></div>
+                <div class="col-md-6"><div class="border rounded p-2 bg-white h-100"><div class="small text-muted">Tercero candidato</div><div>{{ order.promoter.nick }}</div><div>{{ order.promoter.tax_id or 'Sin NIF/CIF en ficha' }}</div><div class="small">{{ order.promoter.contact_email or '' }}</div></div></div>
+              </div>
+              <div class="d-flex gap-2 mt-2">
+                <form method="post" action="{{ url_for('administration_embargo_link', order_id=order.id) }}"><input type="hidden" name="promoter_id" value="{{ order.promoter.id }}"><button class="btn btn-sm btn-success">Sí, vincular</button></form>
+                <form method="post" action="{{ url_for('administration_embargo_unlink', order_id=order.id) }}"><button class="btn btn-sm btn-outline-secondary">No vincular</button></form>
+              </div>
+            </div>
+          {% elif not order.promoter and embargo_subtab == 'activas' %}
+            <form method="post" action="{{ url_for('administration_embargo_link', order_id=order.id) }}" class="row g-2 align-items-end mt-3">
+              <div class="col-md-9">
+                <label class="form-label small mb-1">Vincular manualmente a tercero</label>
+                <select name="promoter_id" class="form-select form-select-sm third-party-select">
+                  <option value="">Seleccionar tercero...</option>
+                  {% for promoter in embargo_promoters %}
+                    <option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }} {% for c in promoter.companies %} {{ c.legal_name }} {{ c.tax_id }}{% endfor %}">{{ promoter.nick }}{% if promoter.tax_id %} · {{ promoter.tax_id }}{% endif %}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100">Vincular</button></div>
+            </form>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="p-4 text-muted">No hay órdenes en esta pestaña.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if embargo_rows %}
+    <div class="card mt-3">
+      <div class="card-header bg-white"><strong>Facturas / expedientes marcados como embargo en histórico</strong></div>
+      <div class="card-body p-0">
+        {% for invoice in embargo_rows %}
+          <div class="p-3 border-bottom"><div class="fw-semibold">{{ invoice.invoice_number }} · {{ invoice.third_party_name }}</div><div class="small text-muted">{{ invoice.notes or invoice.status }}</div></div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="modal fade" id="uploadEmbargoModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg"><div class="modal-content"><form method="post" action="{{ url_for('administration_embargo_upload') }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Subir órdenes de embargo o levantamiento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <label class="form-label">PDF recibidos</label>
+        <input type="file" name="pdfs" class="form-control" accept="application/pdf,.pdf" multiple required>
+        <div class="form-text">Puedes subir varias órdenes a la vez. El sistema detecta si cada PDF es embargo o levantamiento, lee NIF/CIF, nombre, importe, fecha y referencia, y trata de vincularlo por DNI/CIF/NIF con los terceros existentes.</div>
+        <div class="alert alert-warning small mt-3 mb-0">Si el PDF está escaneado sin texto seleccionable, quedará pendiente de vinculación manual para evitar falsos positivos.</div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary"><i class="fa fa-upload me-1"></i>Subir y detectar</button></div>
+    </form></div></div>
+  </div>
+
+  {% for order in embargo_orders %}
+    <div class="modal fade" id="shareEmbargoModal{{ order.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('administration_embargo_share', order_id=order.id) }}">
+        <div class="modal-header"><h5 class="modal-title">Compartir orden de embargo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="alert alert-light border small">Se enviará la notificación por email y se adjuntará el PDF de la orden cuando el archivo sea accesible.</div>
+          {% set emails = embargo_email_suggestions.get(order.id|string, []) if embargo_email_suggestions is defined else [] %}
+          {% if emails %}
+            {% for row in emails %}<label class="d-block border rounded p-2 mb-1"><input type="checkbox" name="recipients" value="{{ row.email }}" class="form-check-input me-2" checked>{{ row.label }} · {{ row.email }}</label>{% endfor %}
+          {% else %}
+            <div class="alert alert-warning small">No hay correos vinculados al tercero. Añade destinatarios manualmente.</div>
+          {% endif %}
+          <label class="form-label mt-2">Otros correos</label>
+          <textarea name="extra_emails" class="form-control" rows="2" placeholder="correo@dominio.com, otro@dominio.com"></textarea>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar</button></div>
+      </form></div></div>
+    </div>
+  {% endfor %}
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  function norm(value){
+    return (value || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  const input = document.querySelector('.embargo-live-search');
+  const rows = Array.from(document.querySelectorAll('.embargo-order-row'));
+  if (input && rows.length) {
+    input.addEventListener('input', function(){
+      const q = norm(input.value);
+      rows.forEach(function(row){
+        const haystack = norm(row.getAttribute('data-search') || row.textContent || '');
+        row.classList.toggle('d-none', !!q && !haystack.includes(q));
+      });
+    });
+  }
+})();
+</script>
 {% endblock %}

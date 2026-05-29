@@ -1,7 +1,10 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <h4 class="mb-0">Recintos</h4>
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <div>
+    <h4 class="mb-0">Recintos</h4>
+    <div class="text-muted small">Busca y abre la ficha del recinto pinchando en la foto o el nombre.</div>
+  </div>
   {% if CAN_EDIT_CATALOGS %}
     <span class="badge text-bg-primary">Edición</span>
   {% else %}
@@ -9,9 +12,29 @@
   {% endif %}
 </div>
 
+<div class="card mb-3">
+  <div class="card-body">
+    <form method="get" class="row g-2 align-items-end">
+      <div class="col-12 col-lg-9">
+        <label class="form-label">Buscar recinto</label>
+        <input type="search" name="q" id="venueSearchInput" class="form-control" value="{{ query_text or '' }}" placeholder="Nombre, municipio, provincia o dirección..." autocomplete="off">
+      </div>
+      <div class="col-12 col-lg-3 d-grid">
+        <button class="btn btn-primary"><i class="fa fa-search"></i> Buscar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+      <div>
+        <h6 class="mb-0">Crear nuevo recinto</h6>
+        <div class="text-muted small">El listado existente se mantiene siempre en modo visualización.</div>
+      </div>
+    </div>
     <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
       <div class="col-12 col-md-4">
         <label class="form-label">Nombre</label>
@@ -41,75 +64,57 @@
         <input name="photo" type="file" accept="image/*" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
-        <button class="btn btn-primary">Crear</button>
+        <button class="btn btn-primary"><i class="fa fa-plus"></i> Crear</button>
       </div>
     </form>
   </div>
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="card-body table-responsive">
-    <table class="table align-middle">
-      <thead>
-        <tr>
-          <th>Nombre</th>
-          <th>Municipio</th>
-          <th>Provincia</th>
-          <th>Dirección</th>
-          <th class="text-center" style="width:120px">Cubierto</th>
-          {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:160px">Acciones</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-      {% for v in venues %}
-        <tr>
-          {% if CAN_EDIT_CATALOGS %}
-            <form method="post" action="{{ url_for('venue_update', vid=v.id) }}" enctype="multipart/form-data">
-              <td style="min-width:260px">
-                <div class="d-flex align-items-center gap-2">
-                  <img src="{{ v.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;border-radius:10px;object-fit:cover;">
-                  <div class="flex-grow-1">
-                    <a class="small text-decoration-none" href="{{ url_for('venue_detail_view', vid=v.id) }}">Ver actividad</a>
-                    <input class="form-control form-control-sm" name="name" value="{{ v.name }}">
-                    <input class="form-control form-control-sm mt-1" type="file" name="photo" accept="image/*">
-                  </div>
-                </div>
-              </td>
-              <td style="min-width:180px"><input class="form-control" name="municipality" value="{{ v.municipality or '' }}"></td>
-              <td style="min-width:160px"><input class="form-control" name="province" value="{{ v.province or '' }}"></td>
-              <td style="min-width:260px"><input class="form-control" name="address" value="{{ v.address or '' }}"></td>
-              <td class="text-center">
-                <div class="form-check form-switch d-inline-block">
-                  <input class="form-check-input" type="checkbox" role="switch" name="covered" {% if v.covered %}checked{% endif %}>
-                </div>
-              </td>
-              <td class="text-end">
-                <button class="btn btn-outline-primary btn-sm">Guardar</button>
-                <button class="btn btn-outline-danger btn-sm ms-1"
-                        formaction="{{ url_for('venue_delete', vid=v.id) }}"
-                        onclick="return confirm('¿Borrar recinto?');">
-                  <i class="fa fa-trash"></i>
-                </button>
-              </td>
-            </form>
-          {% else %}
-            <td class="fw-semibold"><a href="{{ url_for('venue_detail_view', vid=v.id) }}">{{ v.name }}</a></td>
-            <td>{{ v.municipality or '' }}</td>
-            <td>{{ v.province or '' }}</td>
-            <td>{{ v.address or '' }}</td>
-            <td class="text-center">
-              {% if v.covered %}
-                <span class="badge text-bg-success">Sí</span>
-              {% else %}
-                <span class="badge text-bg-secondary">No</span>
-              {% endif %}
-            </td>
-          {% endif %}
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
+<div class="row g-3" id="venuesList">
+  {% for v in venues %}
+    <div class="col-12 col-md-6 col-xl-4 venue-list-item" data-search="{{ (v.name ~ ' ' ~ (v.municipality or '') ~ ' ' ~ (v.province or '') ~ ' ' ~ (v.address or ''))|lower }}">
+      <a class="venue-card-link" href="{{ url_for('venue_detail_view', vid=v.id) }}">
+        <div class="card venue-card h-100">
+          <div class="card-body d-flex gap-3 align-items-center">
+            <img src="{{ v.photo_url or DEFAULT_PHOTO_URL }}" alt="{{ v.name }}" data-default-photo="1" style="width:72px;height:72px;border-radius:16px;object-fit:cover;border:1px solid #eee;">
+            <div class="flex-grow-1 min-w-0">
+              <div class="fw-semibold text-truncate">{{ v.name }}</div>
+              <div class="text-muted small text-truncate">{{ v.municipality or 'Sin municipio' }}{% if v.province %} · {{ v.province }}{% endif %}</div>
+              {% if v.address %}<div class="text-muted small text-truncate">{{ v.address }}</div>{% endif %}
+              <div class="mt-2">
+                {% if v.covered %}
+                  <span class="badge text-bg-success">Cubierto</span>
+                {% else %}
+                  <span class="badge text-bg-light border">Aire libre</span>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </a>
+    </div>
+  {% else %}
+    <div class="col-12"><div class="alert alert-light border mb-0">No hay recintos que coincidan con la búsqueda.</div></div>
+  {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const input = document.getElementById('venueSearchInput');
+  if(!input || !window.normalizeSearchText) return;
+  const rows = Array.from(document.querySelectorAll('.venue-list-item'));
+  const apply = () => {
+    const q = window.normalizeSearchText(input.value || '');
+    rows.forEach((row) => {
+      const hay = window.normalizeSearchText(row.dataset.search || '');
+      row.style.display = (!q || hay.indexOf(q) > -1) ? '' : 'none';
+    });
+  };
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>
 {% endblock %}

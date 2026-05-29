@@ -213,7 +213,7 @@
                       {% if c.venue %}
                         <span class="text-muted">{{ c.venue.province }}</span>
                         <span class="municipio-strong">{{ c.venue.municipality }}</span>
-                        <span class="badge badge-venue">{{ c.venue.name }}</span>
+                        <a class="badge badge-venue text-decoration-none" href="{{ url_for('venue_detail_view', vid=c.venue.id) }}" onclick="event.stopPropagation();">{{ c.venue.name }}</a>
                       {% elif c.manual_province or c.manual_municipality or c.manual_venue_name %}
                         <span class="text-muted">{{ c.manual_province }}</span>
                         <span class="municipio-strong">{{ c.manual_municipality }}</span>

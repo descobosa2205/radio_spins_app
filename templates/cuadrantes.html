@@ -588,7 +588,7 @@
                       {% if show_hashtag %}<td>{{ e.hashtags_text or '—' }}</td>{% endif %}
                       {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
                       {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
-                      {% if show_venue %}<td>{{ e.venue_name or '' }}</td>{% endif %}
+                      {% if show_venue %}<td>{% if e.venue_id %}<a href="{{ url_for('venue_detail_view', vid=e.venue_id) }}">{{ e.venue_name or '' }}</a>{% else %}{{ e.venue_name or '' }}{% endif %}</td>{% endif %}
                       {% if show_capacity %}<td class="text-end">{% if e.capacity_label == 'Sin aforo' %}Sin aforo{% else %}{{ e.capacity_label|k }}{% endif %}</td>{% endif %}
                       {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
                       {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}

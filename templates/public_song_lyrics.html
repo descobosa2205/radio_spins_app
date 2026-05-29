@@ -24,7 +24,7 @@
   <main class="page">
     <div class="actions"><a class="btn" href="{{ pdf_url }}" target="_blank" rel="noopener" download>Descargar en PDF</a></div>
     <article class="sheet">
-      <img class="brand" src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES">
+      {% if brand and brand.logo_url %}<img class="brand" src="{{ brand.logo_url }}" alt="{{ brand.company_name or 'PIES' }}">{% endif %}
       <h1>Letra: {{ song.title }}</h1>
       <section class="meta">
         {% if meta.combined %}

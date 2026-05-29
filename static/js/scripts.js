@@ -849,12 +849,217 @@ function initIncomeModals() {
   }
 }
 
+
+function ensureAbsoluteShareUrl(url){
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return window.location.protocol + raw;
+  if (raw.startsWith('/')) return window.location.origin + raw;
+  return 'https://' + raw;
+}
+
+function shareTextWithClickableUrl(title, url){
+  const cleanTitle = String(title || '').trim();
+  const cleanUrl = ensureAbsoluteShareUrl(url);
+  // El enlace va solo en su propia línea: WhatsApp/SMS/iMessage lo detectan como enlace clicable.
+  return [cleanTitle, cleanUrl].filter(Boolean).join('\n\n');
+}
+
+window.ensureAbsoluteShareUrl = ensureAbsoluteShareUrl;
+window.shareTextWithClickableUrl = shareTextWithClickableUrl;
+
+function initImageFallbacks(){
+  const defaultUrl = document.body ? (document.body.getAttribute('data-default-photo-url') || '') : '';
+  if (!defaultUrl) return;
+  const selector = [
+    'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square',
+    'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',
+    'img[src$="/static/img/default_promoter.png"]',
+    'img[src$="/static/img/promoter_default.png"]',
+    'img[src$="/static/img/logo.png"]'
+  ].join(',');
+  if (!document.body.dataset.globalImgFallbackBound) {
+    document.body.dataset.globalImgFallbackBound = '1';
+    document.addEventListener('error', (ev) => {
+      const img = ev.target;
+      if (!img || String(img.tagName || '').toUpperCase() !== 'IMG') return;
+      if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
+      if (img.src !== defaultUrl) {
+        img.src = defaultUrl;
+        img.classList.add('image-fallback');
+      }
+    }, true);
+  }
+
+  document.querySelectorAll(selector).forEach((img) => {
+    if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
+    const src = (img.getAttribute('src') || '').trim();
+    if (!src || /\/static\/img\/(logo|default_promoter|promoter_default)\.(png|jpg|jpeg|svg)$/i.test(src)) {
+      img.src = defaultUrl;
+      img.classList.add('image-fallback');
+    }
+    if (!img.dataset.fallbackBound) {
+      img.dataset.fallbackBound = '1';
+      img.addEventListener('error', () => {
+        if (img.src !== defaultUrl) {
+          img.src = defaultUrl;
+          img.classList.add('image-fallback');
+        }
+      });
+    }
+  });
+}
+
+function initDropdownOverflowFix(){
+  if (!window.bootstrap) return;
+  document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((toggle) => {
+    if (toggle.dataset.dropdownFixed === '1') return;
+    toggle.dataset.dropdownFixed = '1';
+    try {
+      bootstrap.Dropdown.getOrCreateInstance(toggle, {
+        boundary: 'viewport',
+        popperConfig(defaultBsPopperConfig) {
+          const cfg = defaultBsPopperConfig || {};
+          cfg.strategy = 'fixed';
+          cfg.modifiers = cfg.modifiers || [];
+          cfg.modifiers.push({ name: 'preventOverflow', options: { boundary: 'viewport', padding: 8 } });
+          cfg.modifiers.push({ name: 'flip', options: { boundary: 'viewport', padding: 8 } });
+          return cfg;
+        }
+      });
+    } catch (_) {}
+  });
+}
+
+function initVisualChoiceCards(){
+  document.querySelectorAll('.activity-choice-card, .visual-choice-card').forEach((card) => {
+    const input = card.querySelector('input[type="radio"], input[type="checkbox"]');
+    if (!input) return;
+    const updateGroup = () => {
+      const name = input.name;
+      if (input.type === 'radio' && name) {
+        const escapedName = (window.CSS && CSS.escape) ? CSS.escape(name) : String(name).replace(/"/g, '\\"');
+        document.querySelectorAll(`input[type="radio"][name="${escapedName}"]`).forEach((other) => {
+          const otherCard = other.closest('.activity-choice-card, .visual-choice-card');
+          if (otherCard) otherCard.classList.toggle('is-selected', other.checked);
+        });
+      } else {
+        card.classList.toggle('is-selected', input.checked);
+      }
+    };
+    card.addEventListener('click', (ev) => {
+      if (ev.target && ev.target.closest('a,button,select,textarea')) return;
+      if (input.disabled) return;
+      if (input.type === 'radio') input.checked = true;
+      else if (ev.target !== input) input.checked = !input.checked;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      updateGroup();
+    });
+    input.addEventListener('change', updateGroup);
+    updateGroup();
+  });
+}
+
+function initUsageOrderedOverflowNav(){
+  const nav = document.querySelector('.navbar-nav-primary');
+  const overflow = document.getElementById('navOverflowItem');
+  const menu = document.getElementById('navOverflowMenu');
+  const userItem = document.getElementById('navUserItem');
+  if (!nav || !overflow || !menu) return;
+
+  nav.querySelectorAll('[data-nav-key]').forEach((el) => {
+    el.addEventListener('click', () => {
+      try {
+        const key = el.getAttribute('data-nav-key') || '';
+        if (!key) return;
+        const storeKey = 'app33.nav.usage';
+        const data = JSON.parse(localStorage.getItem(storeKey) || '{}');
+        data[key] = (Number(data[key]) || 0) + 1;
+        localStorage.setItem(storeKey, JSON.stringify(data));
+      } catch (_) {}
+    });
+  });
+
+  function topItems(){
+    return Array.from(nav.children).filter((li) => li !== overflow && li !== userItem);
+  }
+
+  function clearOverflow(){
+    menu.innerHTML = '';
+    topItems().forEach((li) => li.classList.remove('nav-overflow-hidden', 'd-none'));
+    overflow.classList.add('d-none');
+  }
+
+  function addCloneForItem(li){
+    const topLink = li.querySelector(':scope > a.nav-link');
+    const label = topLink ? (topLink.textContent || '').trim() : '';
+    const childLinks = Array.from(li.querySelectorAll(':scope > .dropdown-menu .dropdown-item'));
+    if (childLinks.length) {
+      const headerLi = document.createElement('li');
+      const header = document.createElement('h6');
+      header.className = 'dropdown-header';
+      header.textContent = label;
+      headerLi.appendChild(header);
+      menu.appendChild(headerLi);
+      childLinks.forEach((child) => {
+        const wrap = document.createElement('li');
+        const clone = child.cloneNode(true);
+        clone.classList.add('dropdown-item');
+        wrap.appendChild(clone);
+        menu.appendChild(wrap);
+      });
+      const divider = document.createElement('li');
+      divider.innerHTML = '<hr class="dropdown-divider">';
+      menu.appendChild(divider);
+    } else if (topLink) {
+      const wrap = document.createElement('li');
+      const clone = topLink.cloneNode(true);
+      clone.classList.remove('nav-link');
+      clone.classList.add('dropdown-item');
+      wrap.appendChild(clone);
+      menu.appendChild(wrap);
+    }
+  }
+
+  function availableWidth(){
+    const parent = nav.parentElement;
+    if (!parent) return 0;
+    const userWidth = userItem ? userItem.getBoundingClientRect().width : 0;
+    return Math.max(280, parent.getBoundingClientRect().width - userWidth - 36);
+  }
+
+  function applyOverflow(){
+    if (window.innerWidth < 992) { clearOverflow(); return; }
+    clearOverflow();
+    const maxWidth = availableWidth();
+    let items = topItems().filter((li) => !li.classList.contains('d-none'));
+    let guard = 0;
+    while (nav.scrollWidth > maxWidth && items.length > 1 && guard < 40) {
+      const li = items[items.length - 1];
+      li.classList.add('nav-overflow-hidden', 'd-none');
+      overflow.classList.remove('d-none');
+      addCloneForItem(li);
+      items = topItems().filter((node) => !node.classList.contains('d-none'));
+      guard += 1;
+    }
+    if (!menu.children.length) overflow.classList.add('d-none');
+  }
+
+  window.addEventListener('resize', () => window.requestAnimationFrame(applyOverflow));
+  window.addEventListener('load', () => window.requestAnimationFrame(applyOverflow));
+  setTimeout(applyOverflow, 50);
+}
 // IMPORTANTE:
 // Si cualquier inicializador lanza excepción, se cortaba el resto y algunas
 // interacciones (p.ej. abrir ficha de canción al clickar una fila) dejaban de funcionar.
 // Aislamos cada init con try/catch para que no "rompa" el resto de la página.
 $(function(){
+  try { initImageFallbacks(); } catch (e) { console.error('initImageFallbacks', e); }
   try { initSelect2(); } catch (e) { console.error('initSelect2', e); }
+  try { initDropdownOverflowFix(); } catch (e) { console.error('initDropdownOverflowFix', e); }
+  try { initVisualChoiceCards(); } catch (e) { console.error('initVisualChoiceCards', e); }
+  try { initUsageOrderedOverflowNav(); } catch (e) { console.error('initUsageOrderedOverflowNav', e); }
   try { initIncomeModals(); } catch (e) { console.error('initIncomeModals', e); }
   try { initArtistContractControls(); } catch (e) { console.error('initArtistContractControls', e); }
   try { initClickableRows(); } catch (e) { console.error('initClickableRows', e); }

@@ -22,7 +22,7 @@
     }
   </style>
 </head>
-<body>
+<body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}">
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') if IS_ADMIN else url_for('landing') }}">
@@ -34,34 +34,41 @@
     </button>
 
     <div id="navMain" class="collapse navbar-collapse">
-      <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
+      <ul class="navbar-nav navbar-nav-primary ms-auto mb-2 mb-lg-0 align-items-lg-center" id="primaryNavList">
         {% if IS_ADMIN %}
           {% for item in NAV_MENU %}
             {% if item.type == 'dropdown' %}
-              <li class="nav-item dropdown">
-                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">{{ item.label }}</a>
+              <li class="nav-item dropdown" data-nav-key="{{ item.key }}">
+                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" data-nav-key="{{ item.key }}">{{ item.label }}</a>
                 <ul class="dropdown-menu dropdown-menu-end">
                   {% for child in item.children %}
-                    <li><a class="dropdown-item" href="{{ child.url }}">{{ child.label }}</a></li>
+                    <li><a class="dropdown-item" href="{{ child.url }}" data-nav-key="{{ child.key }}">{{ child.label }}</a></li>
                   {% endfor %}
                 </ul>
               </li>
             {% else %}
-              <li class="nav-item">
-                <a class="nav-link" href="{{ item.url }}">{{ item.label }}</a>
+              <li class="nav-item" data-nav-key="{{ item.key }}">
+                <a class="nav-link" href="{{ item.url }}" data-nav-key="{{ item.key }}">{{ item.label }}</a>
               </li>
             {% endif %}
           {% endfor %}
 
-          <li class="nav-item dropdown ms-lg-2">
+          <li class="nav-item dropdown nav-overflow-dropdown d-none" id="navOverflowItem">
+            <a class="nav-link" href="#" data-bs-toggle="dropdown" aria-label="Más secciones">
+              <i class="fa fa-bars"></i>
+            </a>
+            <ul class="dropdown-menu dropdown-menu-end" id="navOverflowMenu"></ul>
+          </li>
+
+          <li class="nav-item dropdown ms-lg-2" id="navUserItem">
             <a class="nav-link dropdown-toggle d-flex align-items-center gap-2" href="#" data-bs-toggle="dropdown">
-              <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else '') or url_for('static', filename='img/logo.png') }}" alt="Usuario" class="user-nav-avatar">
+              <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else '') or DEFAULT_PHOTO_URL }}" alt="Usuario" class="user-nav-avatar" data-default-photo="1">
               <span>{{ CURRENT_USER.nick if CURRENT_USER else ROLE_LABEL }}</span>
             </a>
             <ul class="dropdown-menu dropdown-menu-end user-nav-menu">
               <li class="px-3 py-3">
                 <div class="d-flex gap-3 align-items-center">
-                  <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else '') or url_for('static', filename='img/logo.png') }}" alt="Usuario" class="user-nav-avatar user-nav-avatar--lg">
+                  <img src="{{ (CURRENT_USER.photo_url if CURRENT_USER else '') or DEFAULT_PHOTO_URL }}" alt="Usuario" class="user-nav-avatar user-nav-avatar--lg" data-default-photo="1">
                   <div>
                     <div class="fw-semibold">{{ CURRENT_USER.nick if CURRENT_USER else ROLE_LABEL }}</div>
                     <div class="small text-muted">{{ CURRENT_USER.email if CURRENT_USER else '' }}</div>

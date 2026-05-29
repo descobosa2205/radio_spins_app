@@ -1,15 +1,103 @@
 {% extends "layout.html" %}
 {% block content %}
+{% set venue_photo = venue.photo_url or DEFAULT_PHOTO_URL %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
   <div class="d-flex align-items-center gap-3">
-    <img src="{{ venue.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:104px;height:82px;border-radius:16px;object-fit:cover;">
+    <img src="{{ venue_photo }}" alt="{{ venue.name }}" data-default-photo="1" style="width:112px;height:86px;border-radius:18px;object-fit:cover;">
     <div>
       <h3 class="mb-1">{{ venue.name }}</h3>
-      <div class="text-muted">{{ venue.address or '' }}</div>
-      <div class="text-muted small">{{ venue.municipality or '' }}{% if venue.province %} · {{ venue.province }}{% endif %}</div>
+      <div class="text-muted">{{ venue.address or 'Sin dirección registrada' }}</div>
+      <div class="text-muted small">
+        {{ venue.municipality or 'Sin municipio' }}{% if venue.province %} · {{ venue.province }}{% endif %}
+        {% if venue.covered %}<span class="badge text-bg-light border ms-2">Cubierto</span>{% endif %}
+      </div>
     </div>
   </div>
-  <a class="btn btn-outline-secondary" href="{{ url_for('venues_view') }}">Volver a recintos</a>
+  <div class="d-flex align-items-center gap-2">
+    <a class="btn btn-outline-secondary" href="{{ url_for('venues_view') }}">Volver a recintos</a>
+    {% if CAN_EDIT_CATALOGS %}
+      <div class="dropdown">
+        <button class="btn btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones del recinto">
+          <i class="fa fa-ellipsis-vertical"></i>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end">
+          <li>
+            <a class="dropdown-item" href="{{ url_for('venue_detail_view', vid=venue.id, edit=1) }}">
+              <i class="fa fa-pen me-2"></i>Editar
+            </a>
+          </li>
+          <li><hr class="dropdown-divider"></li>
+          <li>
+            <form method="post" action="{{ url_for('venue_delete', vid=venue.id) }}" onsubmit="return confirm('¿Eliminar este recinto?');">
+              <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash me-2"></i>Eliminar</button>
+            </form>
+          </li>
+        </ul>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+{% if edit and CAN_EDIT_CATALOGS %}
+<div class="card shadow-sm mb-4">
+  <div class="card-header bg-white d-flex justify-content-between align-items-center">
+    <div class="fw-semibold">Editar recinto</div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('venue_detail_view', vid=venue.id) }}">Cancelar</a>
+  </div>
+  <div class="card-body">
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('venue_update', vid=venue.id) }}" class="row g-3">
+      <input type="hidden" name="next" value="{{ url_for('venue_detail_view', vid=venue.id) }}">
+      <div class="col-md-5">
+        <label class="form-label">Nombre</label>
+        <input class="form-control" name="name" value="{{ venue.name or '' }}" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Dirección</label>
+        <input class="form-control" name="address" value="{{ venue.address or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label">Municipio</label>
+        <input class="form-control" name="municipality" value="{{ venue.municipality or '' }}">
+      </div>
+      <div class="col-md-1">
+        <label class="form-label">Provincia</label>
+        <input class="form-control" name="province" value="{{ venue.province or '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Foto</label>
+        <input class="form-control" type="file" name="photo" accept="image/*">
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="covered" id="venueCovered" {% if venue.covered %}checked{% endif %}>
+          <label class="form-check-label" for="venueCovered">Recinto cubierto</label>
+        </div>
+      </div>
+      <div class="col-md-5 d-flex align-items-end justify-content-end gap-2">
+        <button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i> Guardar cambios</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <div class="small text-uppercase text-muted">Nombre</div>
+        <div class="fw-semibold">{{ venue.name }}</div>
+      </div>
+      <div class="col-md-5">
+        <div class="small text-uppercase text-muted">Dirección</div>
+        <div>{{ venue.address or '—' }}</div>
+      </div>
+      <div class="col-md-3">
+        <div class="small text-uppercase text-muted">Ubicación</div>
+        <div>{{ venue.municipality or '—' }}{% if venue.province %} · {{ venue.province }}{% endif %}</div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <ul class="nav nav-tabs mb-0">
@@ -28,7 +116,7 @@
       {% for row in activities %}
         <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3 flex-wrap" href="{{ row.detail_url }}">
           <div class="d-flex align-items-center gap-3">
-            <img src="{{ row.artist_photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
+            <img src="{{ row.artist_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
             <div>
               <div class="fw-semibold">{{ row.title }}</div>
               <div class="small text-muted">{{ row.artist_label }} · {{ row.type_label }}</div>

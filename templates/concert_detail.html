@@ -71,10 +71,9 @@
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <h6 class="mb-0">Recinto</h6>
-              {% if concert.venue %}<a class="small" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">Ver ficha</a>{% endif %}
             </div>
-            <div class="d-flex gap-3 align-items-start">
-              <img src="{{ (concert.venue.photo_url if concert.venue else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:112px;height:84px;border-radius:14px;object-fit:cover;">
+            {% if concert.venue %}<a class="d-flex gap-3 align-items-start text-reset text-decoration-none" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">{% else %}<div class="d-flex gap-3 align-items-start">{% endif %}
+              <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:112px;height:84px;border-radius:14px;object-fit:cover;">
               <div>
                 <div class="fw-semibold">{{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Recinto pendiente') }}</div>
                 {% if concert.venue %}
@@ -85,7 +84,7 @@
                   <div class="small text-muted">{{ concert.manual_municipality or '' }}{% if concert.manual_province %} · {{ concert.manual_province }}{% endif %}</div>
                 {% endif %}
               </div>
-            </div>
+            {% if concert.venue %}</a>{% else %}</div>{% endif %}
           </div>
         </div>
       </div>

@@ -264,6 +264,7 @@ def inject_country_helpers():
         "marketing_action_type_labels": globals().get("MARKETING_ACTION_TYPE_LABELS", {}),
         "marketing_exterior_subtypes": globals().get("MARKETING_EXTERIOR_SUBTYPES", []),
         "marketing_digital_platforms": globals().get("MARKETING_DIGITAL_PLATFORMS", []),
+        "DEFAULT_PHOTO_URL": url_for("static", filename="img/placeholder_photo.png"),
     }
 
 # Asegurar esquema mínimo en producción (Render/gunicorn no ejecuta __main__)
@@ -4299,9 +4300,11 @@ def _build_song_lyrics_pdf_bytes(session_db, song_id, *, include_logo: bool = Tr
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=2.1*cm, rightMargin=2.1*cm, topMargin=1.8*cm, bottomMargin=1.8*cm)
     story = []
 
-    logo_path = Path(app.root_path) / "static" / "img" / "logo.png"
-    if include_logo and logo_path.exists():
-        story.append(RLImage(str(logo_path), width=3.3*cm, height=1.05*cm))
+    brand = _pies_brand_assets(session_db)
+    logo = _rl_image_flowable_from_url(brand.get('logo_url'), 3.3, 1.05)
+    if include_logo and logo:
+        logo.hAlign = 'LEFT'
+        story.append(logo)
         story.append(Spacer(1, 0.4*cm))
 
     story.append(Paragraph(f"Letra: {html.escape(song.title)}", title_style))
@@ -4337,7 +4340,21 @@ def _rl_image_flowable_from_url(file_url: str | None, width_cm: float, height_cm
         return None
     try:
         from reportlab.lib.units import cm
-        data, _ = _download_remote_content(file_url)
+        target = (file_url or "").strip()
+        # ReportLab puede leer rutas locales directamente; esto evita depender
+        # de que el servidor pueda descargarse a sí mismo los assets estáticos.
+        if target.startswith("/static/") or target.startswith("static/"):
+            rel = target.lstrip("/")
+            local_path = Path(app.root_path) / rel
+            if local_path.exists():
+                return RLImage(str(local_path), width=width_cm * cm, height=height_cm * cm)
+        if not re.match(r"^https?://", target, flags=re.I):
+            local_path = Path(target)
+            if not local_path.is_absolute():
+                local_path = Path(app.root_path) / target
+            if local_path.exists():
+                return RLImage(str(local_path), width=width_cm * cm, height=height_cm * cm)
+        data, _ = _download_remote_content(target)
         return RLImage(BytesIO(data), width=width_cm * cm, height=height_cm * cm)
     except Exception:
         return None
@@ -4396,20 +4413,20 @@ def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
 
 def _platform_links_for_item(item) -> list[dict]:
     specs = [
-        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', '●'),
-        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'A'),
-        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'a'),
-        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', '♪'),
-        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', '▶'),
+        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', '●', '#1DB954'),
+        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'A', '#111111'),
+        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'a', '#FF9900'),
+        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', '♪', '#111111'),
+        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', '▶', '#FF0000'),
     ]
     out = []
-    for key, label, icon, field, symbol in specs:
+    for key, label, icon, field, symbol, color in specs:
         url = (getattr(item, field, None) or '').strip() if item is not None else ''
         if not url:
             continue
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-        out.append({'key': key, 'label': label, 'icon': icon, 'symbol': symbol, 'url': url})
+        out.append({'key': key, 'label': label, 'icon': icon, 'symbol': symbol, 'color': color, 'url': url})
     return out
 
 
@@ -4427,8 +4444,9 @@ def _platform_links_pdf_html(item) -> str:
         # En el PDF solo se ve el icono/símbolo clicable, sin direcciones ni nombres.
         symbol = html.escape(link.get('symbol') or '●')
         url = html.escape(link.get('url') or '', quote=True)
-        title = html.escape(link.get('label') or '')
-        links.append(f'<link href="{url}"><font color="#111827" size="13">{symbol}</font></link>')
+        color = html.escape(link.get('color') or '#111827')
+        # PDF: solo iconos/símbolos activos, sin direcciones ni nombres, todos enlazados.
+        links.append(f'<link href="{url}"><font color="{color}" size="16">{symbol}</font></link>')
     return ' &nbsp;&nbsp; '.join(links)
 
 
@@ -4566,7 +4584,7 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.25*cm))
 
-    cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or brand.get('logo_url'), 3.2, 3.2)
+    cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
     platform_links_html = _song_platform_links_pdf_html(song)
     left_col = [cover] if cover else [Paragraph('Sin portada', small_style)]
     right_html = f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}"
@@ -4667,7 +4685,7 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
         story.append(header)
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.15*cm))
-    cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or brand.get('logo_url'), 2.8, 2.8)
+    cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 2.8, 2.8)
     platform_links_html = _album_platform_links_pdf_html(album)
     right_html = f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}"
     if platform_links_html:
@@ -12962,7 +12980,7 @@ def public_song_lyrics_view():
             abort(404)
         meta = _song_lyrics_meta(session_db, song)
         pdf_url = _external_url_for("public_song_lyrics_pdf", token=token)
-        return render_template("public_song_lyrics.html", song=song, meta=meta, pdf_url=pdf_url)
+        return render_template("public_song_lyrics.html", song=song, meta=meta, pdf_url=pdf_url, brand=_pies_brand_assets(session_db))
 
 
 @app.get("/public/song-lyrics/pdf")
@@ -14401,6 +14419,56 @@ def discografica_album_detail(album_id):
     return response
 
 
+
+@app.post("/discografica/albumes/<album_id>/set_link")
+@admin_required
+def discografica_album_set_link(album_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar enlaces.")
+
+    platform = (request.form.get("platform") or "").strip().lower()
+    url = (request.form.get("url") or "").strip()
+    if not platform:
+        flash("Falta la plataforma.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    if not url:
+        flash("Debes indicar un enlace.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    if not (url.startswith("http://") or url.startswith("https://")):
+        url = "https://" + url
+
+    field_map = {
+        "spotify": "spotify_url",
+        "apple_music": "apple_music_url",
+        "amazon_music": "amazon_music_url",
+        "tiktok": "tiktok_url",
+        "youtube": "youtube_url",
+    }
+    field = field_map.get(platform)
+    if not field:
+        flash("Plataforma no soportada.", "warning")
+        return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
+    session_db = db()
+    album = session_db.get(Album, to_uuid(album_id))
+    if not album:
+        session_db.close()
+        flash("Álbum no encontrado.", "warning")
+        return redirect(url_for("discografica_view", section="canciones", rep_tab="albumes"))
+
+    try:
+        setattr(album, field, url)
+        album.updated_at = datetime.now(TZ_MADRID)
+        session_db.commit()
+        flash("Enlace guardado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error guardando enlace: {e}", "danger")
+    finally:
+        session_db.close()
+
+    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+
 @app.post("/discografica/albumes/<album_id>/info/update")
 @admin_required
 def discografica_album_info_update(album_id):
@@ -14436,8 +14504,11 @@ def discografica_album_info_update(album_id):
         album.mastering_engineer = (request.form.get("mastering_engineer") or "").strip() or None
         album.edited_by = (request.form.get("edited_by") or "").strip() or "PIES Compañía Discográfica"
         album.distributed_by = (request.form.get("distributed_by") or "").strip() or None
+        # Los enlaces de plataformas del álbum se gestionan desde los iconos de la cabecera,
+        # igual que en las canciones. No se limpian al editar el resto de la ficha.
         for _platform_field in ("spotify_url", "apple_music_url", "amazon_music_url", "tiktok_url", "youtube_url"):
-            setattr(album, _platform_field, (request.form.get(_platform_field) or "").strip() or None)
+            if _platform_field in request.form:
+                setattr(album, _platform_field, (request.form.get(_platform_field) or "").strip() or None)
 
         no_physical = bool(request.form.get("no_physical"))
         album.physical_cd = bool(request.form.get("physical_cd")) and not no_physical
@@ -15629,15 +15700,11 @@ def promoters_view():
                 )
                 session.add(p)
                 session.flush()
-                try:
-                    linked_embargos = _embargo_link_pending_orders_for_promoter(session, p)
-                except Exception:
-                    linked_embargos = 0
+                linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
                 session.commit()
+                flash("Tercero creado.", "success")
                 if linked_embargos:
-                    flash(f"Tercero creado. Se ha vinculado {linked_embargos} orden de embargo activa por DNI/CIF.", "warning")
-                else:
-                    flash("Tercero creado.", "success")
+                    flash(f"Se han vinculado {linked_embargos} orden(es) de embargo pendientes a este tercero.", "warning")
             except Exception as e:
                 session.rollback()
                 flash(f"Error creando tercero: {e}", "danger")
@@ -15689,15 +15756,11 @@ def promoter_update(pid):
     try:
         if logo and logo.filename:
             p.logo_url = upload_image(logo, "promoters")
-        try:
-            linked_embargos = _embargo_link_pending_orders_for_promoter(session, p)
-        except Exception:
-            linked_embargos = 0
+        linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
+        flash("Tercero actualizado.", "success")
         if linked_embargos:
-            flash(f"Tercero actualizado. Se ha vinculado {linked_embargos} orden de embargo activa por DNI/CIF.", "warning")
-        else:
-            flash("Tercero actualizado.", "success")
+            flash(f"Se han vinculado {linked_embargos} orden(es) de embargo pendientes a este tercero.", "warning")
     except Exception as e:
         session.rollback()
         flash(f"Error actualizando: {e}", "danger")
@@ -15728,19 +15791,7 @@ def promoter_delete(pid):
 @admin_required
 def venues_view():
     session = db()
-
-    # filtros (solo para vista)
-    f_artist_ids = request.args.getlist("artist") or []
-    f_sale_types = request.args.getlist("type") or []
-    f_statuses = request.args.getlist("status") or []
-
-    f_artist_ids = [to_uuid(x) for x in f_artist_ids if (x or "").strip()]
-    f_sale_types = [(x or "").strip().upper() for x in f_sale_types if (x or "").strip()]
-    f_statuses = [(x or "").strip().upper() for x in f_statuses if (x or "").strip()]
-
-    # sanitizar
-    f_sale_types = [x for x in f_sale_types if x in CONCERT_SALE_TYPES_ALL_SET]
-    f_statuses = [x for x in f_statuses if x in ("BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO")]
+    query_text = (request.args.get("q") or "").strip()
 
     if request.method == "POST":
         name = request.form.get("name","").strip()
@@ -15756,15 +15807,29 @@ def venues_view():
             session.add(v)
             session.commit()
             flash("Recinto creado.", "success")
+            return redirect(url_for("venue_detail_view", vid=v.id))
         except Exception as e:
             session.rollback()
             flash(f"Error creando recinto: {e}", "danger")
+            return redirect(url_for("venues_view"))
         finally:
             session.close()
-        return redirect(url_for("venues_view"))
+
     venues = session.query(Venue).order_by(Venue.name.asc()).all()
+    if query_text:
+        qn = _norm_text_key(query_text)
+        def _venue_match(v):
+            haystack = " ".join([
+                v.name or "",
+                v.address or "",
+                v.municipality or "",
+                v.province or "",
+                "cubierto" if getattr(v, "covered", False) else "descubierto",
+            ])
+            return qn in _norm_text_key(haystack)
+        venues = [v for v in venues if _venue_match(v)]
     session.close()
-    return render_template("venues.html", venues=venues)
+    return render_template("venues.html", venues=venues, query_text=query_text)
 
 @app.post("/recintos/<vid>/update")
 @admin_required
@@ -15775,11 +15840,11 @@ def venue_update(vid):
         flash("Recinto no encontrado.", "warning")
         session.close()
         return redirect(url_for("venues_view"))
-    v.name = request.form.get("name", v.name).strip()
+    v.name = (request.form.get("name") or v.name or "").strip()
     v.covered = (request.form.get("covered") == "on")
-    v.address = request.form.get("address", v.address).strip()
-    v.municipality = request.form.get("municipality", v.municipality).strip()
-    v.province = request.form.get("province", v.province).strip()
+    v.address = (request.form.get("address") or "").strip()
+    v.municipality = (request.form.get("municipality") or "").strip()
+    v.province = (request.form.get("province") or "").strip()
     photo = request.files.get("photo")
     if photo and getattr(photo, "filename", ""):
         v.photo_url = upload_image(photo, "venues")
@@ -15791,7 +15856,7 @@ def venue_update(vid):
         flash(f"Error actualizando: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("venues_view"))
+    return redirect(safe_next_or(url_for("venue_detail_view", vid=vid)))
 
 @app.post("/recintos/<vid>/delete")
 @admin_required
@@ -17567,10 +17632,7 @@ def api_create_promoter():
         )
         session.add(p)
         session.flush()
-        try:
-            _embargo_link_pending_orders_for_promoter(session, p)
-        except Exception:
-            pass
+        linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
         return jsonify(
             {
@@ -17583,6 +17645,7 @@ def api_create_promoter():
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
                 "companies": [],
+                "active_embargos_linked": linked_embargos,
             }
         )
 
@@ -21165,15 +21228,11 @@ def promoter_company_create(pid):
         )
         session.add(company)
         session.flush()
-        try:
-            linked_embargos = _embargo_link_pending_orders_for_promoter(session, promoter)
-        except Exception:
-            linked_embargos = 0
+        linked_embargos = _auto_link_embargo_orders_for_promoter(session, promoter) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
+        flash('Sociedad añadida.', 'success')
         if linked_embargos:
-            flash(f'Sociedad añadida. Se ha vinculado {linked_embargos} orden de embargo activa por DNI/CIF.', 'warning')
-        else:
-            flash('Sociedad añadida.', 'success')
+            flash(f'Se han vinculado {linked_embargos} orden(es) de embargo pendientes a este tercero.', 'warning')
     except Exception as exc:
         session.rollback()
         flash(f'Error creando sociedad: {exc}', 'danger')
@@ -21195,16 +21254,12 @@ def promoter_company_update(pid, company_id):
         company.tax_id = (request.form.get('tax_id') or '').strip() or None
         company.fiscal_address = (request.form.get('fiscal_address') or '').strip() or None
         company.updated_at = datetime.now(ZoneInfo('Europe/Madrid'))
-        promoter = session.get(Promoter, to_uuid(pid))
-        try:
-            linked_embargos = _embargo_link_pending_orders_for_promoter(session, promoter)
-        except Exception:
-            linked_embargos = 0
+        promoter = session.get(Promoter, company.promoter_id) if company.promoter_id else None
+        linked_embargos = _auto_link_embargo_orders_for_promoter(session, promoter) if promoter and "_auto_link_embargo_orders_for_promoter" in globals() else 0
         session.commit()
+        flash('Sociedad actualizada.', 'success')
         if linked_embargos:
-            flash(f'Sociedad actualizada. Se ha vinculado {linked_embargos} orden de embargo activa por DNI/CIF.', 'warning')
-        else:
-            flash('Sociedad actualizada.', 'success')
+            flash(f'Se han vinculado {linked_embargos} orden(es) de embargo pendientes a este tercero.', 'warning')
     except Exception as exc:
         session.rollback()
         flash(f'Error actualizando sociedad: {exc}', 'danger')
@@ -22120,6 +22175,36 @@ def api_geocode():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+def _concert_participant_artist_ids(concert) -> set[str]:
+    """Devuelve todos los artistas vinculados a un concierto/actividad.
+
+    Mantiene compatibilidad con el campo histórico ``artist_id`` y con el nuevo
+    ``artist_ids`` JSONB de actividades multiarista para que cuadrantes no oculte
+    conciertos cuando el artista seleccionado no es el artista principal.
+    """
+    ids: set[str] = set()
+    try:
+        if getattr(concert, "artist_id", None):
+            ids.add(str(concert.artist_id))
+    except Exception:
+        pass
+    raw = getattr(concert, "artist_ids", None) or []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            raw = [raw]
+    if isinstance(raw, (list, tuple, set)):
+        for val in raw:
+            if not val:
+                continue
+            if isinstance(val, dict):
+                val = val.get("id") or val.get("artist_id")
+            if val:
+                ids.add(str(val))
+    return {x for x in ids if x}
+
+
 @app.get("/cuadrantes", endpoint="quadrantes_view")
 @admin_required
 def quadrantes_view():
@@ -22142,17 +22227,22 @@ def quadrantes_view():
 
         concert_tags_by_artist = defaultdict(list)
         tag_rows = (
-            session_db.query(Concert.artist_id, Concert.hashtags)
-            .filter(Concert.artist_id.isnot(None))
+            session_db.query(Concert)
+            .filter(or_(Concert.artist_id.isnot(None), Concert.artist_ids.isnot(None)))
             .all()
         )
-        for artist_id, raw_tags in tag_rows:
+        for tag_concert in tag_rows:
+            raw_tags = tag_concert.hashtags
             values = []
             if isinstance(raw_tags, list):
                 values = [x for x in raw_tags if x]
             elif isinstance(raw_tags, str):
                 values = [x for x in raw_tags.split(',') if x]
-            concert_tags_by_artist[str(artist_id)].extend(_dedupe_concert_tags(values))
+            clean_values = _dedupe_concert_tags(values)
+            if not clean_values:
+                continue
+            for artist_id in _concert_participant_artist_ids(tag_concert):
+                concert_tags_by_artist[str(artist_id)].extend(clean_values)
         concert_tags_by_artist = {
             key: sorted(_dedupe_concert_tags(values), key=lambda x: _norm_text_key(x))
             for key, values in concert_tags_by_artist.items()
@@ -22249,6 +22339,7 @@ def quadrantes_view():
                 .all()
             )
 
+            selected_id_set = {str(u) for u in selected_uuids}
             concerts = (
                 session_db.query(Concert)
                 .options(
@@ -22258,12 +22349,12 @@ def quadrantes_view():
                     joinedload(Concert.group_company),
                     joinedload(Concert.billing_company),
                 )
-                .filter(Concert.artist_id.in_(selected_uuids))
                 .filter(func.extract("year", Concert.date) == year)
                 .filter(Concert.sale_type.in_(f_sale_types))
                 .order_by(Concert.date.asc())
                 .all()
             )
+            concerts = [c for c in concerts if selected_id_set.intersection(_concert_participant_artist_ids(c))]
 
             if f_concert_tags:
                 concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
@@ -22296,6 +22387,7 @@ def quadrantes_view():
                 "#dc3545",
             ]
             artist_color = {str(a.id): palette[i % len(palette)] for i, a in enumerate(selected_artists)}
+            artist_by_id = {str(a.id): a for a in selected_artists}
 
             equip_ids = set()
             try:
@@ -22340,37 +22432,36 @@ def quadrantes_view():
                 announcement_state = _announcement_state(c)
                 announcement_badge = _announcement_badge(c)
 
-                aid = str(c.artist_id) if c.artist_id else ""
-                if not aid:
-                    continue
-
-                per_artist.setdefault(aid, []).append({
-                    "concert_id": str(c.id),
-                    "date": dstr,
-                    "date_es": c.date.strftime("%d/%m/%Y"),
-                    "artist_id": aid,
-                    "artist_name": c.artist.name if c.artist else "",
-                    "artist_photo": c.artist.photo_url if c.artist else "",
-                    "artist_color": artist_color.get(aid, "#0d6efd"),
-                    "festival_name": (c.festival_name or ""),
-                    "sale_type": (c.sale_type or ""),
-                    "sale_type_label": _sale_type_label(c.sale_type),
-                    "status": st,
-                    "province": _concert_province_value(c),
-                    "municipality": _concert_city(c),
-                    "venue_name": _concert_venue_name(c),
-                    "capacity": cap,
-                    "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
-                    "cache": cache_txt,
-                    "has_cache": has_cache,
-                    "has_equipment": has_equip,
-                    "promoter_name": pro_name or "",
-                    "promoter_logo": pro_logo or "",
-                    "hashtags": tags_clean,
-                    "hashtags_text": " · ".join([f"#{x}" for x in tags_clean]),
-                    "announcement_state": announcement_state,
-                    "announcement_badge": announcement_badge,
-                })
+                for aid in sorted(selected_id_set.intersection(_concert_participant_artist_ids(c))):
+                    artist_obj = artist_by_id.get(aid) or c.artist
+                    per_artist.setdefault(aid, []).append({
+                        "concert_id": str(c.id),
+                        "date": dstr,
+                        "date_es": c.date.strftime("%d/%m/%Y"),
+                        "artist_id": aid,
+                        "artist_name": artist_obj.name if artist_obj else (c.artist.name if c.artist else ""),
+                        "artist_photo": artist_obj.photo_url if artist_obj else (c.artist.photo_url if c.artist else ""),
+                        "artist_color": artist_color.get(aid, "#0d6efd"),
+                        "festival_name": (c.festival_name or ""),
+                        "sale_type": (c.sale_type or ""),
+                        "sale_type_label": _sale_type_label(c.sale_type),
+                        "status": st,
+                        "province": _concert_province_value(c),
+                        "municipality": _concert_city(c),
+                        "venue_name": _concert_venue_name(c),
+                        "venue_id": str(c.venue_id) if getattr(c, "venue_id", None) else "",
+                        "capacity": cap,
+                        "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
+                        "cache": cache_txt,
+                        "has_cache": has_cache,
+                        "has_equipment": has_equip,
+                        "promoter_name": pro_name or "",
+                        "promoter_logo": pro_logo or "",
+                        "hashtags": tags_clean,
+                        "hashtags_text": " · ".join([f"#{x}" for x in tags_clean]),
+                        "announcement_state": announcement_state,
+                        "announcement_badge": announcement_badge,
+                    })
 
             for a in selected_artists:
                 aid = str(a.id)
@@ -23474,7 +23565,7 @@ def _build_current_user_summary() -> dict:
         "id": state.get("user_id"),
         "nick": state.get("nick") or "Usuario",
         "email": state.get("email") or "",
-        "photo_url": state.get("photo_url") or url_for("static", filename="img/logo.png"),
+        "photo_url": state.get("photo_url") or url_for("static", filename="img/placeholder_photo.png"),
         "departments": list(state.get("departments") or []),
         "full_name": state.get("full_name") or "",
         "phones": list(getattr(profile, "mobile_phones", None) or []),
@@ -23580,6 +23671,62 @@ def _resource_icon(key: str) -> str:
     return "fa-circle"
 
 
+def _current_nav_usage_scores(days: int = 45) -> dict[str, int]:
+    """Devuelve actividad reciente por clave de sección para ordenar el menú superior.
+
+    Es best-effort: si la tabla aún no existe o falla la consulta, se conserva el
+    orden curado del menú.
+    """
+    uid = session.get("user_id")
+    if not uid:
+        return {}
+    try:
+        user_uuid = to_uuid(uid)
+    except Exception:
+        return {}
+    session_db = db()
+    try:
+        cutoff = _now_madrid() - timedelta(days=max(1, int(days or 45)))
+        rows = (
+            session_db.query(UserActivityLog.resource_key, func.count(UserActivityLog.id))
+            .filter(UserActivityLog.user_id == user_uuid)
+            .filter(UserActivityLog.created_at >= cutoff)
+            .filter(UserActivityLog.resource_key.isnot(None))
+            .group_by(UserActivityLog.resource_key)
+            .all()
+        )
+        return {str(key): int(count or 0) for key, count in rows if key}
+    except Exception:
+        return {}
+    finally:
+        try:
+            session_db.close()
+        except Exception:
+            pass
+
+
+def _nav_item_usage_score(item: dict, scores: dict[str, int]) -> int:
+    key = str(item.get("key") or "")
+    total = int(scores.get(key, 0) or 0)
+    prefix = f"{key}." if key else ""
+    if prefix:
+        total += sum(int(v or 0) for k, v in scores.items() if str(k).startswith(prefix))
+    for child in item.get("children") or []:
+        ckey = str(child.get("key") or "")
+        total += int(scores.get(ckey, 0) or 0)
+    return total
+
+
+def _sort_nav_menu_for_user(items: list[dict]) -> list[dict]:
+    scores = _current_nav_usage_scores()
+    if not scores:
+        return items
+    indexed = list(enumerate(items))
+    fixed = [(i, item) for i, item in indexed if item.get("key") == "home"]
+    movable = [(i, item) for i, item in indexed if item.get("key") != "home"]
+    movable.sort(key=lambda pair: (-_nav_item_usage_score(pair[1], scores), pair[0]))
+    return [item for _i, item in fixed] + [item for _i, item in movable]
+
 def _build_nav_menu() -> list[dict]:
     raw = [
         {"type": "link", "key": "home", "label": "Inicio", "url": _resource_default_url("home")},
@@ -23633,7 +23780,7 @@ def _build_nav_menu() -> list[dict]:
             items.append(item)
         elif has_access_key(item["key"], include_descendants=True):
             items.append({"type": "link", "key": item["key"], "label": item["label"], "url": _resource_default_url(item["key"])})
-    return items
+    return _sort_nav_menu_for_user(items)
 
 
 def _build_home_quick_links(limit: int = 6) -> list[dict]:
@@ -24145,7 +24292,7 @@ def _promotion_normalized_artist_ids(values):
 
 def _promotion_request_snapshot_from_source(session_db, source_type, source_id, *, manual_title=None, manual_artist_ids=None):
     source_type = (source_type or "").strip().upper()
-    default_cover = url_for("static", filename="img/logo.png")
+    default_cover = url_for("static", filename="img/placeholder_photo.png")
     if source_type == "ARTIST":
         artist = session_db.get(Artist, to_uuid(source_id)) if source_id else None
         if not artist:
@@ -24423,7 +24570,7 @@ def _promotion_calendar_months(items, months_count=3):
 
 
 def _promotion_creator_datasets(session_db):
-    default_cover = url_for("static", filename="img/logo.png")
+    default_cover = url_for("static", filename="img/placeholder_photo.png")
     artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
     artist_items = [{"id": str(a.id), "name": a.name, "photo_url": (a.photo_url or default_cover)} for a in artists]
 
@@ -24922,7 +25069,7 @@ def promotion_detail_view(promotion_id):
         song_title_map = {str(s.id): (s.title or 'Canción') for s in (song_options or []) if getattr(s, 'id', None)}
         activity_rows = (
             session_db.query(PromotionActivity)
-            .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.media_contact), joinedload(PromotionActivity.provider), joinedload(PromotionActivity.provider_company), joinedload(PromotionActivity.bag_expense).joinedload(BagExpense.provider), joinedload(PromotionActivity.bag_expense).joinedload(BagExpense.bag), selectinload(PromotionActivity.bag_expense).selectinload(BagExpense.payment_events))
+            .options(joinedload(PromotionActivity.media), joinedload(PromotionActivity.media_contact), joinedload(PromotionActivity.provider), joinedload(PromotionActivity.provider_company), joinedload(PromotionActivity.bag_expense))
             .filter(PromotionActivity.promotion_id == promotion.id)
             .all()
         )
@@ -24948,13 +25095,6 @@ def promotion_detail_view(promotion_id):
                 'media_id': str(contact.media_id),
                 'label': ' · '.join([x for x in [((contact.first_name or '') + ' ' + (contact.last_name or '')).strip(), (contact.program or '').strip(), (contact.role or '').strip()] if x]),
             })
-        marketing_embargo_alerts = {}
-        for row in activity_rows:
-            expense = getattr(row, 'bag_expense', None)
-            if expense:
-                alert = _embargo_warning_for_expense(session_db, expense)
-                if alert:
-                    marketing_embargo_alerts[str(row.id)] = alert
         action_groups = []
         totals_net = Decimal('0')
         totals_gross = Decimal('0')
@@ -24998,7 +25138,6 @@ def promotion_detail_view(promotion_id):
             promoter_companies=promoter_companies,
             bags_for_split=bags_for_split,
             marketing_action_status=_marketing_action_status,
-            marketing_embargo_alerts=marketing_embargo_alerts,
         )
     finally:
         session_db.close()
@@ -25100,12 +25239,11 @@ def promotion_activity_create(promotion_id):
         provider_company_id = _safe_uuid(request.form.get('provider_company_id')) if (request.form.get('provider_company_id') or '').strip() else None
         provider = session_db.get(Promoter, provider_id) if provider_id else None
         provider_company = session_db.get(PromoterCompany, provider_company_id) if provider_company_id else None
-        provider_snapshot = _bag_provider_snapshot(provider, provider_company) if provider else {}
+        provider_snapshot = {}
         if provider:
-            try:
-                _embargo_link_pending_orders_for_promoter(session_db, provider)
-            except Exception:
-                pass
+            provider_snapshot.update({'id': str(provider.id), 'nick': provider.nick, 'email': getattr(provider, 'contact_email', None)})
+        if provider_company:
+            provider_snapshot.update({'company_id': str(provider_company.id), 'company_name': getattr(provider_company, 'legal_name', None) or getattr(provider_company, 'name', None)})
 
         amount_net = _parse_money(request.form.get('amount_net')) or Decimal('0')
         amount_tax = _parse_money(request.form.get('amount_tax')) or Decimal('0')
@@ -25832,12 +25970,6 @@ def production_request_reject(request_id):
 
 
 
-
-_EMBARGO_ACTIVE_STATUSES = {"ACTIVA", "PENDIENTE", "REVISAR"}
-_EMBARGO_BLOCKING_STATUSES = {"ACTIVA", "PENDIENTE"}
-_EMBARGO_ARCHIVED_STATUSES = {"ARCHIVADA", "LEVANTADA", "ELIMINADA"}
-
-
 def _pdf_text_from_filestorage(file_storage) -> str:
     """Extrae texto seleccionable de un PDF sin usar OCR externo."""
     if not file_storage or not getattr(file_storage, "filename", ""):
@@ -25866,155 +25998,139 @@ def _pdf_text_from_filestorage(file_storage) -> str:
         return ""
 
 
-def _normalize_tax_id(value: str | None) -> str:
+def _embargo_norm_tax_id(value: str | None) -> str:
     return re.sub(r"[^A-Z0-9]", "", (value or "").upper())
 
 
-def _parse_embargo_date(value: str | None):
-    raw = (value or "").strip()
-    if not raw:
-        return None
-    raw = raw.replace(".", "-").replace("/", "-")
-    for fmt in ("%d-%m-%Y", "%d-%m-%y", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(raw, fmt).date()
-        except Exception:
-            pass
-    return parse_optional_date(value)
-
-
-def _parse_embargo_amount(value: str | None) -> Decimal:
-    try:
-        raw = (value or "").strip()
-        if not raw:
-            return Decimal("0")
-        raw = re.sub(r"[^0-9,.-]", "", raw)
-        if raw.count(",") == 1:
-            raw = raw.replace(".", "").replace(",", ".")
-        return Decimal(raw or "0")
-    except Exception:
-        return Decimal("0")
-
-
-def _extract_subject_segment(text_value: str) -> str:
-    text_value = text_value or ""
-    markers = [
-        "IDENTIFICACIÓN DEL OBLIGADO AL PAGO",
-        "IDENTIFICACION DEL OBLIGADO AL PAGO",
-        "TITULAR DE LA DEUDA",
+def _embargo_tax_id_candidates(text_value: str | None) -> list[str]:
+    raw = (text_value or "").upper().replace("-", " ").replace(".", " ")
+    patterns = [
+        r"\b[ABCDEFGHJKLMNPQRSUVW]\s?\d{7}\s?[0-9A-J]\b",  # CIF/NIF jurídico
+        r"\b\d{8}\s?[A-Z]\b",                              # DNI
+        r"\b[XYZ]\s?\d{7}\s?[A-Z]\b",                      # NIE
     ]
-    upper = text_value.upper()
-    starts = [upper.find(marker) for marker in markers if upper.find(marker) >= 0]
-    if not starts:
-        return text_value[:3500]
-    start = min(starts)
-    end_candidates = []
-    for marker in ["ACUERDO", "BIENES Y DERECHOS", "se comunican", "CONCEPTO", "INFORMACIÓN ADICIONAL", "INFORMACION ADICIONAL"]:
-        idx = upper.find(marker.upper(), start + 20)
-        if idx > start:
-            end_candidates.append(idx)
-    end = min(end_candidates) if end_candidates else min(len(text_value), start + 1800)
-    return text_value[start:end]
-
-
-def _first_regex(text_value: str, patterns: list[str], flags=re.IGNORECASE | re.MULTILINE) -> str:
+    out: list[str] = []
+    seen: set[str] = set()
     for pattern in patterns:
-        m = re.search(pattern, text_value or "", flags)
-        if m:
-            return (m.group(1) or "").strip()
-    return ""
-
-
-def _extract_possible_tax_id(text_value: str) -> str:
-    payload = _extract_embargo_payload(text_value)
-    return payload.get("tax_id") or ""
-
-
-def _extract_embargo_payload(text_value: str) -> dict:
-    """Lee los datos principales de modelos AEAT de embargo/levantamiento.
-
-    Los modelos recibidos incluyen el bloque IDENTIFICACIÓN DEL OBLIGADO AL PAGO
-    con nombre, NIF y domicilio, además de referencia, diligencia, fecha e importe.
-    """
-    text_value = text_value or ""
-    segment = _extract_subject_segment(text_value)
-    tax_patterns = [
-        r"(?:N\.\s?I\.\s?F\.?|NIF|CIF|DNI)\s*[:\.]?\s*([A-Z]?\s?\d{7,8}\s?[A-Z0-9])",
-        r"\b([ABCDEFGHJKLMNPQRSUVW]\s?\d{7}\s?[0-9A-J])\b",
-        r"\b(\d{8}\s?[A-Z])\b",
-        r"\b([XYZ]\s?\d{7}\s?[A-Z])\b",
-    ]
-    tax_id = _normalize_tax_id(_first_regex(segment, tax_patterns))
-    if not tax_id:
-        all_ids = [_normalize_tax_id(m.group(0)) for pat in tax_patterns[1:] for m in re.finditer(pat, text_value.upper())]
-        # Evita tomar por defecto el NIF del pagador cuando también aparece el obligado.
-        for candidate in all_ids:
-            if candidate and candidate != "B86726007":
-                tax_id = candidate
-                break
-        if not tax_id and all_ids:
-            tax_id = all_ids[0]
-
-    name = _first_regex(segment, [
-        r"NOMBRE\s+O\s+RAZ[ÓO]N\s+SOCIAL\s*:\s*([^\n\r]+)",
-        r"Apellidos\s+y\s+Nombre\s+o\s+Raz[óo]n\s+Social\s*\n\s*([^\n\r]+)",
-        r"Titular\s+de\s+la\s+deuda.*?\n.*?\n\s*([^\n\r]+)",
-    ], flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
-    name = re.sub(r"\s+", " ", name).strip(" :-")
-    if name and _normalize_tax_id(name) == tax_id:
-        name = ""
-
-    address = _first_regex(segment, [r"DOMICILIO\s*:\s*([^\n\r]+(?:\n\s*\d{5}\s+[^\n\r]+)?)"], flags=re.IGNORECASE | re.MULTILINE)
-    address = re.sub(r"\s+", " ", address).strip()
-
-    reference = _first_regex(text_value, [r"Referencia\s*:\s*([^\n\r]+)", r"N[ºo]\s*de\s*Referencia\s*:\s*([^\n\r]+)"])
-    diligence = _first_regex(text_value, [r"N[ºo]\s+de\s+la\s+diligencia\s*:\s*([^\n\r]+)", r"N[ºo]\s*DILIGENCIA\s+([A-Z0-9]+)"])
-    date_raw = _first_regex(text_value, [r"Fecha\s+de\s+la\s+diligencia\s*:\s*([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4})", r"Fecha\s+de\s+emisi[óo]n\s*\n?\s*([0-9]{1,2}[-/][0-9]{1,2}[-/][0-9]{2,4})"])
-    amount_raw = _first_regex(text_value, [
-        r"importe\s+total\s+de\s+([0-9\.\s]+,[0-9]{2})\s*euros",
-        r"Importe\s+total\s*:\s*([0-9\.\s]+,[0-9]{2})",
-        r"Deuda\s*:\s*([0-9\.\s]+,[0-9]{2})",
-    ])
-    return {
-        "name": name,
-        "tax_id": tax_id,
-        "address": address,
-        "reference": reference.strip(),
-        "diligence": diligence.strip(),
-        "order_date": _parse_embargo_date(date_raw),
-        "amount": _parse_embargo_amount(amount_raw),
-    }
+        for m in re.finditer(pattern, raw):
+            val = _embargo_norm_tax_id(m.group(0))
+            if val and val not in seen:
+                seen.add(val)
+                out.append(val)
+    return out
 
 
 def _detect_embargo_order_type(text_value: str, filename: str | None = None) -> str:
-    """Distingue alta y levantamiento evitando falsos positivos.
-
-    Las diligencias de alta suelen contener un apartado informativo llamado
-    "levantamiento de embargo" en páginas posteriores; por eso primero se
-    analiza la cabecera inicial del documento y solo después se usan señales
-    de respaldo sobre el texto completo.
-    """
-    initial = _norm_text_key((text_value or "")[:2200])
-    full = _norm_text_key(" ".join([text_value or "", filename or ""]))
-    file_key = _norm_text_key(filename or "")
-
-    if "levantamiento" in file_key and "embargo" in file_key:
+    haystack = _norm_text_key(" ".join([text_value or "", filename or ""]))
+    if any(word in haystack for word in [
+        "levantamiento de embargo",
+        "levantamiento embargo",
+        "alzamiento de embargo",
+        "alzamiento embargo",
+        "cancelacion de embargo",
+        "dejar sin efecto",
+        "queda sin efecto la orden",
+    ]):
         return "LEVANTAMIENTO"
-    if (
-        "levantamiento de embargo" in initial
-        or "alzamiento de embargo" in initial
-        or "cancelacion de embargo" in initial
-        or "queda sin efecto" in initial
-    ):
-        return "LEVANTAMIENTO"
-    if "diligencia de embargo" in initial or "orden de embargo" in initial:
-        return "EMBARGO"
-
-    if "queda sin efecto" in full or "dejar sin efecto" in full or "cancelacion de embargo" in full:
-        return "LEVANTAMIENTO"
-    if "diligencia de embargo" in full or "orden de embargo" in full or "embargo" in full:
+    if "diligencia de embargo" in haystack or "orden de embargo" in haystack or "embargo" in haystack:
         return "EMBARGO"
     return "DESCONOCIDO"
+
+
+def _embargo_parse_es_decimal(value: str | None) -> Decimal | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    cleaned = re.sub(r"[^0-9,.-]", "", value)
+    if not cleaned:
+        return None
+    # Formato español habitual: 1.234,56
+    cleaned = cleaned.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(cleaned)
+    except Exception:
+        return None
+
+
+def _embargo_parse_es_date(value: str | None):
+    value = (value or "").strip()
+    if not value:
+        return None
+    for fmt in ("%d-%m-%Y", "%d/%m/%Y", "%d-%m-%y", "%d/%m/%y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except Exception:
+            continue
+    return None
+
+
+def _embargo_first_match(pattern: str, text_value: str | None, flags: int = re.IGNORECASE | re.MULTILINE | re.DOTALL) -> str:
+    m = re.search(pattern, text_value or "", flags)
+    if not m:
+        return ""
+    return (m.group(1) if m.groups() else m.group(0)).strip()
+
+
+def _embargo_target_section(text_value: str | None) -> str:
+    text_value = text_value or ""
+    m = re.search(
+        r"IDENTIFICACI[ÓO]N\s+DEL\s+OBLIGADO\s+AL\s+PAGO(?P<section>.*?)(?:\n\s*ACUERDO\b|\n\s*BIENES\b|\n\s*INFORMACI[ÓO]N\b|$)",
+        text_value,
+        re.IGNORECASE | re.DOTALL,
+    )
+    if m:
+        return m.group("section")
+    return text_value[:4000]
+
+
+def _extract_possible_tax_id(text_value: str) -> str:
+    """Devuelve prioritariamente el NIF/CIF del embargado, no el del pagador."""
+    section = _embargo_target_section(text_value)
+    target_candidates = _embargo_tax_id_candidates(section)
+    if target_candidates:
+        return target_candidates[0]
+    candidates = _embargo_tax_id_candidates(text_value)
+    return candidates[0] if candidates else ""
+
+
+def _extract_embargo_order_data(text_value: str, filename: str | None = None) -> dict:
+    section = _embargo_target_section(text_value)
+    detected_tax_id = _extract_possible_tax_id(text_value)
+    detected_name = _embargo_first_match(r"NOMBRE\s+O\s+RAZ[ÓO]N\s+SOCIAL\s*:\s*([^\n]+)", section)
+    if not detected_name:
+        detected_name = _embargo_first_match(r"Apellidos\s+y\s+Nombre\s+o\s+Raz[óo]n\s+Social\s*\n\s*([^\n]+)", text_value)
+    detected_address = _embargo_first_match(r"DOMICILIO\s*:\s*([^\n]+(?:\n\s*\d{5}\s+[^\n]+)?)", section)
+    reference = _embargo_first_match(r"Referencia\s*:\s*([^\n]+)", text_value)
+    diligence = _embargo_first_match(r"N[ºo]\s+de\s+la\s+diligencia\s*:\s*([^\n]+)", text_value)
+    order_date_raw = _embargo_first_match(r"Fecha\s+de\s+la\s+diligencia\s*:\s*(\d{1,2}[-/]\d{1,2}[-/]\d{2,4})", text_value)
+    amount_raw = _embargo_first_match(r"importe\s+total\s+(?:indicado\s+en\s+el\s+apartado\s+anterior\s+)?(?:de\s+)?([0-9\.]+,[0-9]{2})\s*euros", text_value)
+    if not amount_raw:
+        amount_raw = _embargo_first_match(r"Importe\s+total\s*:\s*([0-9\.]+,[0-9]{2})", text_value)
+    return {
+        "order_type": _detect_embargo_order_type(text_value, filename),
+        "detected_tax_id": detected_tax_id,
+        "detected_name": detected_name,
+        "detected_address": " ".join((detected_address or "").split()),
+        "reference": reference,
+        "diligence_number": diligence,
+        "order_date": _embargo_parse_es_date(order_date_raw),
+        "amount_total": _embargo_parse_es_decimal(amount_raw),
+    }
+
+
+def _promoter_tax_ids(promoter: Promoter | None) -> list[str]:
+    if not promoter:
+        return []
+    values = [getattr(promoter, "tax_id", None)]
+    values.extend([getattr(c, "tax_id", None) for c in (getattr(promoter, "companies", None) or [])])
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = _embargo_norm_tax_id(value)
+        if key and key not in seen:
+            seen.add(key)
+            out.append(key)
+    return out
 
 
 def _promoter_snapshot(promoter: Promoter | None) -> dict:
@@ -26029,179 +26145,238 @@ def _promoter_snapshot(promoter: Promoter | None) -> dict:
     }
 
 
-def _promoter_tax_ids(promoter: Promoter | None) -> set[str]:
-    out = set()
-    if not promoter:
-        return out
-    for raw in [getattr(promoter, "tax_id", None)]:
-        key = _normalize_tax_id(raw)
-        if key:
-            out.add(key)
-    for company in getattr(promoter, "companies", None) or []:
-        key = _normalize_tax_id(getattr(company, "tax_id", None))
-        if key:
-            out.add(key)
-    return out
-
-
-def _match_embargo_promoter(session_db, text_value: str, tax_id: str | None = None, name: str | None = None):
+def _match_embargo_promoter(session_db, text_value: str, tax_id: str | None = None, detected_name: str | None = None):
+    """Busca tercero por DNI/CIF exacto y, si no existe, propone coincidencias de nombre."""
+    tax_key = _embargo_norm_tax_id(tax_id)
     folded_text = _norm_text_key(text_value or "")
-    tax_key = _normalize_tax_id(tax_id)
-    name_key = _norm_text_key(name or "")
-    rows = session_db.query(Promoter).options(selectinload(Promoter.companies), selectinload(Promoter.contacts)).order_by(Promoter.nick.asc()).limit(3000).all()
-    best = (None, Decimal("0"), "", "")
+    detected_name_key = _norm_text_key(detected_name or "")
+    rows = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(5000).all()
+    if tax_key:
+        for promoter in rows:
+            if tax_key in _promoter_tax_ids(promoter):
+                return promoter, 1.0, tax_key, True
+
+    best = (None, 0.0, "", False)
     for promoter in rows:
-        for candidate in _promoter_tax_ids(promoter):
-            if tax_key and candidate == tax_key:
-                return promoter, Decimal("1"), candidate, "Coincidencia exacta por DNI/CIF/NIF"
         labels = [promoter.nick, promoter.first_name, promoter.last_name, promoter.contact_email]
         labels.extend([getattr(c, "legal_name", None) for c in (promoter.companies or [])])
-        labels.extend([" ".join([getattr(c, "first_name", "") or "", getattr(c, "last_name", "") or ""]).strip() for c in (promoter.contacts or [])])
         for label in labels:
             label_norm = _norm_text_key(label or "")
             if not label_norm or len(label_norm) < 4:
                 continue
             score = 0.0
-            if name_key:
-                score = max(score, SequenceMatcher(None, name_key, label_norm).ratio())
-                if name_key in label_norm or label_norm in name_key:
-                    score = max(score, 0.88)
             if label_norm in folded_text:
-                score = max(score, 0.80)
-            if Decimal(str(round(score, 4))) > best[1]:
-                best = (promoter, Decimal(str(round(score, 4))), label or "", "Coincidencia probable por nombre")
+                score = max(score, 0.86)
+            if detected_name_key:
+                score = max(score, SequenceMatcher(None, detected_name_key, label_norm).ratio())
+            if score > best[1]:
+                best = (promoter, score, label or "", False)
     return best
 
 
-def _embargo_status_for_upload(order_type: str, promoter: Promoter | None, score: Decimal, tax_id: str | None) -> str:
-    if order_type == "LEVANTAMIENTO":
-        return "ARCHIVADA"
-    if order_type != "EMBARGO":
-        return "REVISAR" if promoter else "PENDIENTE"
-    if promoter and score >= Decimal("0.99"):
-        return "ACTIVA"
-    if promoter and score >= Decimal("0.76"):
-        return "REVISAR"
-    return "PENDIENTE"
+def _embargo_active_statuses() -> set[str]:
+    return {"ACTIVA", "VINCULADA"}
 
 
-def _active_embargo_query(session_db):
+def _embargo_visible_statuses() -> set[str]:
+    return {"ACTIVA", "VINCULADA", "PENDIENTE", "REVISAR"}
+
+
+def _active_embargo_orders_query(session_db):
     return session_db.query(EmbargoOrder).filter(
         EmbargoOrder.order_type == "EMBARGO",
-        EmbargoOrder.status.in_(list(_EMBARGO_ACTIVE_STATUSES)),
+        EmbargoOrder.status.in_(list(_embargo_visible_statuses())),
     )
 
 
-def _find_open_embargo_for_lift(session_db, tax_id: str | None, promoter: Promoter | None = None):
-    tax_key = _normalize_tax_id(tax_id)
-    q = _active_embargo_query(session_db)
-    candidates = []
-    if promoter:
-        candidates.extend(q.filter(EmbargoOrder.promoter_id == promoter.id).order_by(EmbargoOrder.order_date.desc().nullslast(), EmbargoOrder.created_at.desc()).all())
-    if tax_key:
-        candidates.extend(q.filter(EmbargoOrder.detected_tax_id == tax_key).order_by(EmbargoOrder.order_date.desc().nullslast(), EmbargoOrder.created_at.desc()).all())
-    seen = set()
-    unique = []
-    for row in candidates:
-        if row.id in seen:
-            continue
-        seen.add(row.id)
-        unique.append(row)
-    return unique[0] if unique else None
+def _active_embargo_orders_for_promoter(session_db, promoter: Promoter | None = None, promoter_id=None, tax_ids: list[str] | None = None) -> list[EmbargoOrder]:
+    pid = getattr(promoter, "id", None) or promoter_id
+    keys = set(tax_ids or [])
+    if promoter is not None:
+        keys.update(_promoter_tax_ids(promoter))
+    keys = {_embargo_norm_tax_id(k) for k in keys if _embargo_norm_tax_id(k)}
+    rows = _active_embargo_orders_query(session_db).order_by(EmbargoOrder.order_date.desc().nullslast(), EmbargoOrder.created_at.desc()).limit(500).all()
+    out = []
+    for row in rows:
+        row_tax = _embargo_norm_tax_id(getattr(row, "detected_tax_id", None))
+        if (pid and getattr(row, "promoter_id", None) and str(row.promoter_id) == str(pid)) or (row_tax and row_tax in keys):
+            out.append(row)
+    return out
 
 
-def _embargo_link_pending_orders_for_promoter(session_db, promoter: Promoter | None) -> int:
+def _embargo_order_summary(order: EmbargoOrder) -> dict:
+    return {
+        "id": str(order.id),
+        "reference": order.reference or order.diligence_number or order.pdf_name or "Orden de embargo",
+        "date": order.order_date.strftime("%d/%m/%Y") if order.order_date else (order.created_at.strftime("%d/%m/%Y") if order.created_at else ""),
+        "amount": float(order.amount_total or 0) if getattr(order, "amount_total", None) is not None else None,
+        "tax_id": order.detected_tax_id or "",
+        "name": order.detected_name or "",
+        "pdf_url": order.pdf_url or "",
+    }
+
+
+def _expense_active_embargo_alerts(session_db, expense: BagExpense) -> list[dict]:
+    provider = getattr(expense, "provider", None)
+    if not provider and getattr(expense, "provider_id", None):
+        provider = session_db.query(Promoter).options(selectinload(Promoter.companies)).filter(Promoter.id == expense.provider_id).first()
+    if not provider:
+        return []
+    bag = getattr(expense, "bag", None)
+    if not bag and getattr(expense, "bag_id", None):
+        bag = session_db.get(WorkflowBag, expense.bag_id)
+    if bag:
+        if (getattr(bag, "status", "") or "").upper() in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}:
+            return []
+        if (getattr(bag, "liquidation_status", "") or "").upper() in {"CERRADA", "PAGADA", "ARCHIVADA"}:
+            return []
+    orders = _active_embargo_orders_for_promoter(session_db, provider)
+    if not orders:
+        return []
+    # No se alerta sobre gastos ya pagados antes de la fecha de embargo.
+    if (getattr(expense, "payment_status", "") or "").upper() == "PAGADO":
+        paid_dates = []
+        for ev in (getattr(expense, "payment_events", None) or []):
+            if (getattr(ev, "kind", "") or "").upper() in {"PAGO_REGISTRADO", "PAGADO", "LIQUIDACION_PAGADA"} and getattr(ev, "created_at", None):
+                paid_dates.append(ev.created_at.date())
+        if not paid_dates and getattr(expense, "updated_at", None):
+            paid_dates.append(expense.updated_at.date())
+        paid_at = min(paid_dates) if paid_dates else None
+        if paid_at:
+            remaining = []
+            for order in orders:
+                order_dt = order.order_date or (order.created_at.date() if order.created_at else None)
+                if not order_dt or paid_at >= order_dt:
+                    remaining.append(order)
+            orders = remaining
+    return [_embargo_order_summary(order) for order in orders]
+
+
+def _auto_link_embargo_orders_for_promoter(session_db, promoter: Promoter | None) -> int:
+    """Vincula órdenes pendientes cuando se crea/actualiza un tercero con DNI/CIF coincidente."""
     if not promoter:
         return 0
-    ids = _promoter_tax_ids(promoter)
-    if not ids:
+    tax_ids = set(_promoter_tax_ids(promoter))
+    if not tax_ids:
         return 0
-    rows = session_db.query(EmbargoOrder).filter(
-        EmbargoOrder.order_type == "EMBARGO",
-        EmbargoOrder.status.in_(["PENDIENTE", "REVISAR"]),
-        EmbargoOrder.detected_tax_id.in_(list(ids)),
-    ).all()
     count = 0
+    rows = session_db.query(EmbargoOrder).filter(
+        EmbargoOrder.promoter_id.is_(None),
+        EmbargoOrder.detected_tax_id.isnot(None),
+        EmbargoOrder.status.in_(["PENDIENTE", "REVISAR", "ACTIVA", "VINCULADA"]),
+    ).all()
     for row in rows:
+        if _embargo_norm_tax_id(row.detected_tax_id) not in tax_ids:
+            continue
         row.promoter_id = promoter.id
         row.provider_snapshot = _promoter_snapshot(promoter)
-        row.status = "ACTIVA"
-        row.match_score = Decimal("1")
-        row.match_reason = "Vinculada automáticamente por DNI/CIF/NIF del tercero"
+        row.match_score = Decimal("1.0")
+        row.match_label = row.detected_tax_id
+        if (row.order_type or "").upper() == "EMBARGO" and (row.status or "").upper() != "ARCHIVADA":
+            row.status = "ACTIVA"
+        elif (row.order_type or "").upper() == "LEVANTAMIENTO":
+            row.status = "ARCHIVADA"
+            row.archive_reason = row.archive_reason or "Levantamiento vinculado al crear/actualizar tercero."
+            row.archived_at = row.archived_at or _now_madrid()
         row.updated_at = _now_madrid()
         count += 1
     return count
 
 
-def _process_embargo_pdf_upload(session_db, pdf) -> tuple[EmbargoOrder | None, str]:
-    if not pdf or not getattr(pdf, "filename", ""):
-        return None, "Archivo vacío omitido."
-    if not (pdf.filename or "").lower().endswith(".pdf"):
-        return None, f"{pdf.filename}: no es PDF."
-    extracted_text = _pdf_text_from_filestorage(pdf)
-    order_type = _detect_embargo_order_type(extracted_text, pdf.filename)
-    payload = _extract_embargo_payload(extracted_text)
-    detected_tax_id = payload.get("tax_id") or ""
-    detected_name = payload.get("name") or ""
-    promoter, score, label, reason = _match_embargo_promoter(session_db, extracted_text, detected_tax_id, detected_name)
-    status = _embargo_status_for_upload(order_type, promoter, score, detected_tax_id)
+def _archive_matching_embargos_for_lift(session_db, lift_row: EmbargoOrder, audit: dict | None = None) -> int:
+    audit = audit or {}
+    filters = [EmbargoOrder.order_type == "EMBARGO", EmbargoOrder.status.in_(list(_embargo_visible_statuses()))]
+    candidates = session_db.query(EmbargoOrder).filter(*filters).all()
+    lift_tax = _embargo_norm_tax_id(getattr(lift_row, "detected_tax_id", None))
+    lift_pid = getattr(lift_row, "promoter_id", None)
+    lift_diligence = _norm_text_key(getattr(lift_row, "diligence_number", None) or "")
+    lift_reference = _norm_text_key(getattr(lift_row, "reference", None) or "")
+    changed = 0
+    first_related = None
+    for row in candidates:
+        if str(row.id) == str(lift_row.id):
+            continue
+        same_promoter = bool(lift_pid and getattr(row, "promoter_id", None) and str(row.promoter_id) == str(lift_pid))
+        same_tax = bool(lift_tax and _embargo_norm_tax_id(getattr(row, "detected_tax_id", None)) == lift_tax)
+        row_diligence = _norm_text_key(getattr(row, "diligence_number", None) or "")
+        row_reference = _norm_text_key(getattr(row, "reference", None) or "")
+        same_diligence = bool(lift_diligence and row_diligence and (row_diligence == lift_diligence or lift_diligence in row_reference or row_diligence in lift_reference))
+        if not (same_promoter or same_tax or same_diligence):
+            continue
+        row.status = "ARCHIVADA"
+        row.archived_at = _now_madrid()
+        row.archived_by_user_id = to_uuid(audit.get("user_id")) if audit.get("user_id") else None
+        row.archived_by_nick = audit.get("nick") or "Administración"
+        row.archive_reason = f"Levantamiento de embargo {lift_row.reference or lift_row.diligence_number or lift_row.pdf_name or ''}".strip()
+        row.related_embargo_id = lift_row.id
+        row.updated_at = _now_madrid()
+        first_related = first_related or row.id
+        changed += 1
+    if first_related:
+        lift_row.related_embargo_id = first_related
+    return changed
+
+
+def _embargo_order_email_suggestions(session_db, order: EmbargoOrder) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(label, email):
+        email = (email or "").strip()
+        if not email or not _looks_like_email_address(email):
+            return
+        key = email.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"label": label or email, "email": email})
+
+    promoter = getattr(order, "promoter", None)
+    if not promoter and getattr(order, "promoter_id", None):
+        promoter = session_db.get(Promoter, order.promoter_id)
+    if promoter:
+        add(f"{promoter.nick} · principal", promoter.contact_email)
+        for row in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == promoter.id).order_by(PromoterEmail.concept.asc()).all():
+            add(row.concept or "Email adicional", row.email)
+        for contact in session_db.query(PromoterContact).filter(PromoterContact.promoter_id == promoter.id).order_by(PromoterContact.title.asc()).all():
+            name = " ".join([x for x in [contact.first_name, contact.last_name] if x]).strip() or contact.title
+            add(name, contact.email)
+    return out
+
+
+def _download_url_bytes(url: str | None, max_bytes: int = 12 * 1024 * 1024) -> bytes | None:
+    url = (url or "").strip()
+    if not url:
+        return None
     try:
-        pdf.stream.seek(0)
+        req = Request(url, headers={"User-Agent": "App33/embargos"})
+        with urlopen(req, timeout=20) as resp:
+            data = resp.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            return None
+        return data
     except Exception:
-        pass
-    pdf_url = upload_pdf(pdf, "embargos")
-    audit = _current_user_state()
-    row = EmbargoOrder(
-        order_type=order_type,
-        status=status,
-        promoter_id=getattr(promoter, "id", None),
-        provider_snapshot=_promoter_snapshot(promoter),
-        document_reference=payload.get("reference") or None,
-        diligence_number=payload.get("diligence") or None,
-        order_date=payload.get("order_date") or today_local(),
-        amount=payload.get("amount") or Decimal("0"),
-        detected_name=detected_name or label or None,
-        detected_tax_id=detected_tax_id or None,
-        detected_address=payload.get("address") or None,
-        detected_text=(extracted_text or "")[:20000],
-        match_score=score or Decimal("0"),
-        match_reason=reason or None,
-        pdf_url=pdf_url,
-        pdf_name=Path(pdf.filename or "orden_embargo.pdf").name,
-        uploaded_by_user_id=to_uuid(audit.get("user_id")) if audit.get("user_id") else None,
-        uploaded_by_nick=audit.get("nick") or "Administración",
-    )
-    session_db.add(row)
-    session_db.flush()
-    if order_type == "LEVANTAMIENTO":
-        open_order = _find_open_embargo_for_lift(session_db, detected_tax_id, promoter)
-        if open_order:
-            open_order.status = "ARCHIVADA"
-            open_order.archived_at = _now_madrid()
-            open_order.archived_reason = f"Levantamiento recibido el {today_local().strftime('%d/%m/%Y')}"
-            open_order.lifted_at = _now_madrid()
-            open_order.lifted_by_order_id = row.id
-            open_order.updated_at = _now_madrid()
-            row.promoter_id = open_order.promoter_id or row.promoter_id
-            if open_order.promoter and not row.provider_snapshot:
-                row.provider_snapshot = _promoter_snapshot(open_order.promoter)
-            row.archived_reason = f"Levantamiento aplicado a embargo {open_order.diligence_number or open_order.document_reference or open_order.id}"
-            row.status = "ARCHIVADA"
-            row.updated_at = _now_madrid()
-        else:
-            row.status = "ARCHIVADA"
-            row.archived_reason = "Levantamiento recibido sin embargo activo coincidente"
-            row.archived_at = _now_madrid()
-    msg_bits = [Path(pdf.filename or "PDF").name, order_type.lower()]
-    if row.status == "ACTIVA":
-        msg_bits.append("vinculado y activo")
-    elif row.status == "REVISAR":
-        msg_bits.append("requiere confirmación de vínculo")
-    elif row.status == "PENDIENTE":
-        msg_bits.append("pendiente de vincular")
-    else:
-        msg_bits.append("archivado")
-    return row, " · ".join(msg_bits)
+        return None
+
+
+def _embargo_share_email_body(order: EmbargoOrder) -> tuple[str, str, str]:
+    subject = f"Orden de embargo recibida{(' - ' + order.detected_name) if order.detected_name else ''}"
+    pdf_link = order.pdf_url or ""
+    html_body = f"""
+    <div style="font-family:Arial,sans-serif;color:#111;line-height:1.5;">
+      <p>Le informamos que hemos recibido una orden de embargo a su nombre.</p>
+      <p>Adjuntamos la orden en formato PDF para que pueda revisarla.</p>
+      <table style="border-collapse:collapse;margin-top:12px;">
+        <tr><td style="padding:4px 10px 4px 0;color:#666;">Nombre</td><td style="padding:4px 0;font-weight:600;">{html.escape(order.detected_name or 'No detectado')}</td></tr>
+        <tr><td style="padding:4px 10px 4px 0;color:#666;">NIF/CIF</td><td style="padding:4px 0;">{html.escape(order.detected_tax_id or 'No detectado')}</td></tr>
+        <tr><td style="padding:4px 10px 4px 0;color:#666;">Referencia</td><td style="padding:4px 0;">{html.escape(order.reference or order.diligence_number or 'Sin referencia')}</td></tr>
+        <tr><td style="padding:4px 10px 4px 0;color:#666;">Fecha</td><td style="padding:4px 0;">{order.order_date.strftime('%d/%m/%Y') if order.order_date else ''}</td></tr>
+      </table>
+      {f'<p><a href="{html.escape(pdf_link)}" target="_blank" rel="noopener">Ver PDF</a></p>' if pdf_link else ''}
+    </div>
+    """
+    text_body = "Le informamos que hemos recibido una orden de embargo a su nombre. Adjuntamos la orden en formato PDF para que pueda revisarla."
+    return subject, html_body, text_body
 
 
 @app.post("/administracion/embargos/upload", endpoint="administration_embargo_upload")
@@ -26210,41 +26385,93 @@ def administration_embargo_upload():
     session_db = db()
     try:
         files = []
-        for field in ("pdfs", "pdf", "order_pdf", "file"):
-            for f in request.files.getlist(field):
-                if f and getattr(f, "filename", ""):
-                    files.append(f)
-        # Deduplica el mismo FileStorage cuando el navegador lo expone por dos nombres.
+        for field in ("pdf", "order_pdf", "file", "pdfs", "orders"):
+            for candidate in request.files.getlist(field):
+                if candidate and getattr(candidate, "filename", ""):
+                    files.append(candidate)
+        # dedupe Werkzeug objects while preserving order
         unique_files = []
-        seen_keys = set()
-        for f in files:
-            key = (id(f), getattr(f, "filename", ""))
-            if key not in seen_keys:
-                seen_keys.add(key)
-                unique_files.append(f)
+        seen_ids = set()
+        for file_obj in files:
+            if id(file_obj) in seen_ids:
+                continue
+            seen_ids.add(id(file_obj))
+            unique_files.append(file_obj)
         if not unique_files:
             flash("Debes subir uno o varios PDF de órdenes de embargo o levantamiento.", "warning")
             return redirect(url_for("administracion_view", tab="embargos"))
-        messages = []
-        created = 0
+
+        audit = _current_user_state()
+        created_rows = []
+        archived_count = 0
         for pdf in unique_files:
-            row, msg = _process_embargo_pdf_upload(session_db, pdf)
-            messages.append(msg)
-            if row:
-                created += 1
+            if not (pdf.filename or "").lower().endswith(".pdf"):
+                flash(f"{pdf.filename}: la orden debe subirse en PDF.", "warning")
+                continue
+            extracted_text = _pdf_text_from_filestorage(pdf)
+            data = _extract_embargo_order_data(extracted_text, pdf.filename)
+            promoter, score, label, exact_tax = _match_embargo_promoter(session_db, extracted_text, data.get("detected_tax_id"), data.get("detected_name"))
+            linked_promoter = promoter if exact_tax else None
+            suggested_promoter = promoter if (promoter and not exact_tax and score >= 0.78) else None
+            order_type = data.get("order_type") or "DESCONOCIDO"
+            if order_type == "EMBARGO":
+                status = "ACTIVA" if linked_promoter else ("REVISAR" if suggested_promoter else "PENDIENTE")
+            elif order_type == "LEVANTAMIENTO":
+                status = "ARCHIVADA"
+            else:
+                status = "REVISAR" if suggested_promoter else "PENDIENTE"
+            try:
+                pdf.stream.seek(0)
+            except Exception:
+                pass
+            pdf_url = upload_pdf(pdf, "embargos")
+            row = EmbargoOrder(
+                order_type=order_type,
+                status=status,
+                promoter_id=getattr(linked_promoter, "id", None),
+                provider_snapshot=_promoter_snapshot(linked_promoter),
+                detected_name=(data.get("detected_name") or label or "").strip() or None,
+                detected_tax_id=data.get("detected_tax_id") or None,
+                detected_address=data.get("detected_address") or None,
+                reference=data.get("reference") or None,
+                diligence_number=data.get("diligence_number") or None,
+                order_date=data.get("order_date"),
+                amount_total=data.get("amount_total"),
+                detected_text=(extracted_text or "")[:12000],
+                pdf_url=pdf_url,
+                pdf_name=Path(pdf.filename or "orden_embargo.pdf").name,
+                suggested_promoter_id=getattr(suggested_promoter, "id", None),
+                match_score=Decimal(str(round(float(score or 0), 4))) if score else None,
+                match_label=(label or "").strip() or None,
+                uploaded_by_user_id=to_uuid(audit.get("user_id")) if audit.get("user_id") else None,
+                uploaded_by_nick=audit.get("nick") or "Administración",
+                archived_at=_now_madrid() if status == "ARCHIVADA" else None,
+                archived_by_user_id=to_uuid(audit.get("user_id")) if status == "ARCHIVADA" and audit.get("user_id") else None,
+                archived_by_nick=(audit.get("nick") or "Administración") if status == "ARCHIVADA" else None,
+                archive_reason="Levantamiento de embargo subido." if order_type == "LEVANTAMIENTO" else None,
+            )
+            session_db.add(row)
+            session_db.flush()
+            if order_type == "LEVANTAMIENTO":
+                archived_count += _archive_matching_embargos_for_lift(session_db, row, audit)
+            created_rows.append(row)
         session_db.commit()
-        if created:
-            flash(f"Procesadas {created} orden(es): " + " | ".join(messages[:4]), "success")
-            if len(messages) > 4:
-                flash(f"{len(messages)-4} orden(es) adicionales procesadas.", "info")
+
+        if created_rows:
+            flash(f"Se han procesado {len(created_rows)} PDF de embargo/levantamiento.", "success")
+            if archived_count:
+                flash(f"Se han archivado automáticamente {archived_count} embargo(s) activo(s) por levantamiento.", "success")
+            pending_review = len([r for r in created_rows if (r.status or "").upper() in {"PENDIENTE", "REVISAR"}])
+            if pending_review:
+                flash(f"{pending_review} orden(es) quedan pendientes de revisar o vincular.", "warning")
         else:
-            flash("No se pudo procesar ningún PDF válido: " + " | ".join(messages), "warning")
+            flash("No se procesó ningún PDF válido.", "warning")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo procesar la orden: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("administracion_view", tab="embargos"))
+    return redirect(url_for("administracion_view", tab="embargos", embargo_tab="activas"))
 
 
 @app.post("/administracion/embargos/<order_id>/vincular", endpoint="administration_embargo_link")
@@ -26260,19 +26487,20 @@ def administration_embargo_link(order_id):
             return redirect(url_for("administracion_view", tab="embargos"))
         row.promoter_id = promoter.id
         row.provider_snapshot = _promoter_snapshot(promoter)
-        row.match_score = Decimal("1")
-        row.match_reason = "Vinculación manual confirmada"
-        row.status = "ACTIVA" if row.order_type == "EMBARGO" else "ARCHIVADA"
+        row.suggested_promoter_id = None
+        row.match_score = Decimal("1.0")
+        row.match_label = row.detected_tax_id or promoter.tax_id or promoter.nick
+        if (row.order_type or "").upper() == "EMBARGO":
+            row.status = "ACTIVA"
+            row.archived_at = None
+            row.archive_reason = None
+        elif (row.order_type or "").upper() == "LEVANTAMIENTO":
+            row.status = "ARCHIVADA"
+            row.archived_at = row.archived_at or _now_madrid()
+            _archive_matching_embargos_for_lift(session_db, row, _current_user_state())
+        else:
+            row.status = "ACTIVA"
         row.updated_at = _now_madrid()
-        if row.order_type == "LEVANTAMIENTO":
-            open_order = _find_open_embargo_for_lift(session_db, row.detected_tax_id, promoter)
-            if open_order:
-                open_order.status = "ARCHIVADA"
-                open_order.archived_at = _now_madrid()
-                open_order.archived_reason = f"Levantamiento vinculado manualmente: {row.pdf_name or row.id}"
-                open_order.lifted_at = _now_madrid()
-                open_order.lifted_by_order_id = row.id
-                open_order.updated_at = _now_madrid()
         session_db.commit()
         flash("Orden vinculada al tercero.", "success")
     except Exception as exc:
@@ -26280,112 +26508,88 @@ def administration_embargo_link(order_id):
         flash(f"No se pudo vincular la orden: {exc}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("administracion_view", tab="embargos"))
+    return redirect(url_for("administracion_view", tab="embargos", embargo_tab="activas"))
 
 
-@app.post("/administracion/embargos/<order_id>/desvincular", endpoint="administration_embargo_unlink")
+@app.post("/administracion/embargos/<order_id>/descartar-sugerencia", endpoint="administration_embargo_dismiss_suggestion")
 @admin_required
-def administration_embargo_unlink(order_id):
+def administration_embargo_dismiss_suggestion(order_id):
     session_db = db()
     try:
         row = session_db.get(EmbargoOrder, to_uuid(order_id))
-        if not row:
-            flash("Orden no encontrada.", "warning")
-        else:
-            row.promoter_id = None
-            row.provider_snapshot = {}
-            row.match_score = Decimal("0")
-            row.match_reason = "Coincidencia descartada manualmente"
-            row.status = "PENDIENTE" if row.order_type == "EMBARGO" else "ARCHIVADA"
+        if row:
+            row.suggested_promoter_id = None
+            row.match_score = None
+            row.match_label = None
+            row.status = "PENDIENTE" if (row.order_type or "").upper() != "LEVANTAMIENTO" else "ARCHIVADA"
             row.updated_at = _now_madrid()
             session_db.commit()
-            flash("Coincidencia descartada. La orden queda pendiente de vincular.", "success")
-    except Exception as exc:
-        session_db.rollback()
-        flash(f"No se pudo desvincular: {exc}", "danger")
+            flash("Sugerencia descartada. La orden queda pendiente de vincular manualmente.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("administracion_view", tab="embargos"))
+    return redirect(url_for("administracion_view", tab="embargos", embargo_tab="activas"))
 
 
-@app.post("/administracion/embargos/<order_id>/accion/<action>", endpoint="administration_embargo_action")
+@app.post("/administracion/embargos/<order_id>/archivar", endpoint="administration_embargo_archive")
 @admin_required
-def administration_embargo_action(order_id, action):
+def administration_embargo_archive(order_id):
     session_db = db()
     try:
         row = session_db.get(EmbargoOrder, to_uuid(order_id))
-        if not row:
-            flash("Orden no encontrada.", "warning")
-            return redirect(url_for("administracion_view", tab="embargos"))
-        action = (action or "").strip().lower()
-        if action == "delete":
-            session_db.delete(row)
-            session_db.commit()
-            flash("Orden eliminada.", "success")
-        elif action == "archive":
+        if row:
+            audit = _current_user_state()
             row.status = "ARCHIVADA"
             row.archived_at = _now_madrid()
-            row.archived_reason = (request.form.get("reason") or "Archivada manualmente").strip()
+            row.archived_by_user_id = to_uuid(audit.get("user_id")) if audit.get("user_id") else None
+            row.archived_by_nick = audit.get("nick") or "Administración"
+            row.archive_reason = (request.form.get("reason") or "Archivada manualmente.").strip()
             row.updated_at = _now_madrid()
             session_db.commit()
             flash("Orden archivada.", "success")
-        elif action == "reactivate":
-            if row.order_type != "EMBARGO":
-                flash("Solo se pueden reactivar órdenes de embargo.", "warning")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="embargos", embargo_tab="archivadas"))
+
+
+@app.post("/administracion/embargos/<order_id>/reactivar", endpoint="administration_embargo_reactivate")
+@admin_required
+def administration_embargo_reactivate(order_id):
+    session_db = db()
+    try:
+        row = session_db.get(EmbargoOrder, to_uuid(order_id))
+        if row:
+            if (row.order_type or "").upper() == "LEVANTAMIENTO":
+                flash("Un levantamiento no se reactiva como embargo. Sube de nuevo una orden de embargo si procede.", "warning")
             else:
                 row.status = "ACTIVA" if row.promoter_id else "PENDIENTE"
                 row.archived_at = None
-                row.archived_reason = None
-                row.lifted_at = None
-                row.lifted_by_order_id = None
+                row.archived_by_user_id = None
+                row.archived_by_nick = None
+                row.archive_reason = None
                 row.updated_at = _now_madrid()
                 session_db.commit()
                 flash("Orden reactivada.", "success")
-        else:
-            flash("Acción no válida.", "warning")
+    finally:
+        session_db.close()
+    return redirect(url_for("administracion_view", tab="embargos", embargo_tab="activas"))
+
+
+@app.post("/administracion/embargos/<order_id>/eliminar", endpoint="administration_embargo_delete")
+@admin_required
+def administration_embargo_delete(order_id):
+    session_db = db()
+    try:
+        row = session_db.get(EmbargoOrder, to_uuid(order_id))
+        if row:
+            session_db.delete(row)
+            session_db.commit()
+            flash("Orden eliminada.", "success")
     except Exception as exc:
         session_db.rollback()
-        flash(f"No se pudo actualizar la orden: {exc}", "danger")
+        flash(f"No se pudo eliminar la orden: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(url_for("administracion_view", tab="embargos"))
-
-
-def _embargo_order_email_suggestions(session_db, order: EmbargoOrder) -> list[dict]:
-    out = []
-    seen = set()
-    promoter = getattr(order, "promoter", None)
-    if not promoter and getattr(order, "promoter_id", None):
-        promoter = session_db.get(Promoter, order.promoter_id)
-    def add(label, email):
-        email = (email or "").strip()
-        if not email or not _looks_like_email_address(email) or email.lower() in seen:
-            return
-        seen.add(email.lower())
-        out.append({"label": label, "email": email})
-    if promoter:
-        add(promoter.nick or "Principal", promoter.contact_email)
-        for contact in getattr(promoter, "contacts", None) or []:
-            add(_contact_display_name(contact) or getattr(contact, "title", None) or "Contacto", getattr(contact, "email", None))
-        try:
-            for extra in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == promoter.id).all():
-                add(extra.concept or "Correo", extra.email)
-        except Exception:
-            pass
-    snap = getattr(order, "provider_snapshot", None) or {}
-    add(snap.get("nick") or "Snapshot", snap.get("email"))
-    return out
-
-
-def _fetch_public_file_bytes(url: str | None) -> bytes | None:
-    if not url:
-        return None
-    try:
-        req = Request(url, headers={"User-Agent": "App33/embargo-share"})
-        with urlopen(req, timeout=20) as resp:
-            return resp.read()
-    except Exception:
-        return None
 
 
 @app.post("/administracion/embargos/<order_id>/compartir", endpoint="administration_embargo_share")
@@ -26393,140 +26597,51 @@ def _fetch_public_file_bytes(url: str | None) -> bytes | None:
 def administration_embargo_share(order_id):
     session_db = db()
     try:
-        order = session_db.query(EmbargoOrder).options(joinedload(EmbargoOrder.promoter).selectinload(Promoter.contacts)).filter(EmbargoOrder.id == to_uuid(order_id)).first()
-        if not order:
+        row = session_db.query(EmbargoOrder).options(joinedload(EmbargoOrder.promoter)).filter(EmbargoOrder.id == to_uuid(order_id)).first()
+        if not row:
             flash("Orden no encontrada.", "warning")
             return redirect(url_for("administracion_view", tab="embargos"))
-        recipients = []
-        for value in request.form.getlist("recipients") + [request.form.get("extra_emails")]:
-            for chunk in re.split(r"[;,\n]+", str(value or "")):
-                email = chunk.strip()
-                if _looks_like_email_address(email) and email.lower() not in [x.lower() for x in recipients]:
-                    recipients.append(email)
+        recipients = _dedupe_valid_email_addresses(list(request.form.getlist("recipients")) + re.split(r"[;,\n]+", request.form.get("extra_emails") or ""))
         if not recipients:
-            flash("Indica al menos un destinatario para compartir la orden.", "warning")
+            flash("Indica al menos un email para compartir la orden.", "warning")
             return redirect(url_for("administracion_view", tab="embargos"))
-        name = order.detected_name or (order.promoter.nick if order.promoter else "") or "tercero"
-        title = "Levantamiento de embargo" if order.order_type == "LEVANTAMIENTO" else "Orden de embargo"
-        subject = f"{title} recibida"
-        link_html = f'<p><a href="{order.pdf_url}">Ver PDF</a></p>' if order.pdf_url else ""
-        html_body = (
-            "<div style='font-family:Arial,sans-serif;color:#111'>"
-            f"<p>Hola,</p><p>Le informamos que hemos recibido una <strong>{title.lower()}</strong> a nombre de <strong>{html.escape(name)}</strong>.</p>"
-            "<p>Adjuntamos la orden en formato PDF para que pueda revisarla.</p>"
-            f"<p><strong>NIF/CIF:</strong> {html.escape(order.detected_tax_id or '—')}<br>"
-            f"<strong>Importe:</strong> {format_eur(order.amount or 0)}<br>"
-            f"<strong>Fecha:</strong> {order.order_date.strftime('%d/%m/%Y') if order.order_date else '—'}</p>"
-            f"{link_html}<p>Un saludo.</p></div>"
-        )
-        text_body = f"Le informamos que hemos recibido una {title.lower()} a nombre de {name}. Se adjunta PDF."
+        subject, html_body, text_body = _embargo_share_email_body(row)
         attachments = []
-        data = _fetch_public_file_bytes(order.pdf_url)
+        data = _download_url_bytes(row.pdf_url)
         if data:
-            attachments.append({"data": data, "filename": order.pdf_name or "orden_embargo.pdf", "mimetype": "application/pdf"})
-        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, attachments=attachments)
+            attachments.append({"data": data, "filename": row.pdf_name or "orden_embargo.pdf", "mimetype": "application/pdf"})
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, attachments=attachments, reply_to=_current_user_email())
         if ok:
-            flash("Orden compartida por email.", "success")
+            row.notified_at = _now_madrid()
+            row.notified_emails = recipients
+            row.updated_at = _now_madrid()
+            session_db.commit()
+            flash("Orden de embargo compartida por email.", "success")
         else:
-            flash(f"No se pudo enviar el email: {err}", "warning")
+            flash(f"No se pudo enviar el email: {err}", "danger")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo compartir la orden: {exc}", "danger")
     finally:
         session_db.close()
     return redirect(url_for("administracion_view", tab="embargos"))
 
 
-def _expense_paid_date(expense: BagExpense):
-    events = [ev for ev in (getattr(expense, "payment_events", None) or []) if (getattr(ev, "kind", "") or "").upper() == "PAGO_REGISTRADO"]
-    if events:
-        events.sort(key=lambda ev: getattr(ev, "created_at", None) or datetime.min.replace(tzinfo=TZ_MADRID), reverse=True)
-        return getattr(events[0], "created_at", None)
-    return getattr(expense, "updated_at", None)
+@app.get("/api/embargos/check-third-party", endpoint="api_embargo_check_third_party")
+@admin_required
+def api_embargo_check_third_party():
+    session_db = db()
+    try:
+        promoter = None
+        promoter_id = _safe_uuid(request.args.get("promoter_id"))
+        if promoter_id:
+            promoter = session_db.query(Promoter).options(selectinload(Promoter.companies)).filter(Promoter.id == promoter_id).first()
+        tax_ids = _embargo_tax_id_candidates(request.args.get("tax_id") or "")
+        orders = _active_embargo_orders_for_promoter(session_db, promoter, promoter_id=promoter_id, tax_ids=tax_ids)
+        return jsonify({"has_active_embargo": bool(orders), "orders": [_embargo_order_summary(o) for o in orders]})
+    finally:
+        session_db.close()
 
-
-def _bag_closed_for_embargo_warning(bag: WorkflowBag | None) -> bool:
-    if not bag:
-        return False
-    if bool(getattr(bag, "is_archived", False)):
-        return True
-    status = (getattr(bag, "status", "") or "").upper()
-    liquidation = (getattr(bag, "liquidation_status", "") or "").upper()
-    return status in {"CERRADA", "LIQUIDADA", "ARCHIVADA"} or liquidation in {"CERRADA", "LIQUIDADA", "ARCHIVADA", "PAGADA"}
-
-
-def _find_blocking_embargo_for_provider(session_db, provider: Promoter | None, snapshot: dict | None = None):
-    ids = _promoter_tax_ids(provider)
-    snap = snapshot or {}
-    if isinstance(snap, dict):
-        company_snap = snap.get("company") if isinstance(snap.get("company"), dict) else {}
-        snap_tax = _normalize_tax_id(snap.get("tax_id") or company_snap.get("tax_id"))
-    else:
-        snap_tax = ""
-    if snap_tax:
-        ids.add(snap_tax)
-    q = session_db.query(EmbargoOrder).filter(
-        EmbargoOrder.order_type == "EMBARGO",
-        EmbargoOrder.status.in_(list(_EMBARGO_BLOCKING_STATUSES)),
-    )
-    candidates = []
-    if provider:
-        candidates.extend(q.filter(EmbargoOrder.promoter_id == provider.id).all())
-    if ids:
-        candidates.extend(q.filter(EmbargoOrder.detected_tax_id.in_(list(ids))).all())
-    seen = set()
-    unique = []
-    for row in candidates:
-        if row.id in seen:
-            continue
-        seen.add(row.id)
-        unique.append(row)
-    unique.sort(key=lambda row: (row.order_date or date.min, row.created_at or datetime.min.replace(tzinfo=TZ_MADRID)), reverse=True)
-    return unique[0] if unique else None
-
-
-def _embargo_warning_for_expense(session_db, expense: BagExpense) -> dict | None:
-    bag = getattr(expense, "bag", None)
-    if _bag_closed_for_embargo_warning(bag):
-        return None
-    order = _find_blocking_embargo_for_provider(session_db, getattr(expense, "provider", None), getattr(expense, "provider_snapshot", None) or {})
-    if not order:
-        return None
-    paid_status = (getattr(expense, "payment_status", "") or "").upper()
-    paid_at = _expense_paid_date(expense)
-    if paid_status == "PAGADO" and paid_at and order.order_date and paid_at.date() < order.order_date:
-        return None
-    return {
-        "message": "Esta persona no puede facturar porque tiene una orden de embargo activa.",
-        "order_id": str(order.id),
-        "name": order.detected_name or (order.promoter.nick if order.promoter else ""),
-        "tax_id": order.detected_tax_id or "",
-        "amount": order.amount or Decimal("0"),
-        "order_date": order.order_date,
-    }
-
-
-def _expense_embargo_alert_map(session_db, expenses: list[BagExpense]) -> dict[str, dict]:
-    alerts = {}
-    for expense in expenses or []:
-        alert = _embargo_warning_for_expense(session_db, expense)
-        if alert:
-            alerts[str(expense.id)] = alert
-    return alerts
-
-
-def _embargo_order_search_blob(order: EmbargoOrder) -> str:
-    promoter = getattr(order, "promoter", None)
-    bits = [
-        order.order_type,
-        order.status,
-        order.detected_name,
-        order.detected_tax_id,
-        order.detected_address,
-        order.document_reference,
-        order.diligence_number,
-        order.pdf_name,
-        promoter.nick if promoter else None,
-        (order.provider_snapshot or {}).get("nick") if isinstance(order.provider_snapshot, dict) else None,
-    ]
-    return _norm_text_key(" ".join(str(x or "") for x in bits))
 
 @app.route("/administracion", endpoint="administracion_view")
 @admin_required
@@ -26540,6 +26655,9 @@ def administracion_view():
         pending_subtab = (request.args.get("subtab") or "solicitudes").strip().lower()
         if pending_subtab not in {key for key, _label in ADMINISTRATION_PENDING_TABS}:
             pending_subtab = "solicitudes"
+        embargo_subtab = (request.args.get("embargo_tab") or request.args.get("subtab") or "activas").strip().lower()
+        if embargo_subtab not in {"activas", "archivadas"}:
+            embargo_subtab = "activas"
 
         pending_no_invoice = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
             BagExpense.status != "ELIMINADO",
@@ -26558,7 +26676,7 @@ def administracion_view():
             BagExpense.status != "ELIMINADO",
             BagExpense.immediate_payment_requested == True,  # noqa: E712
         ).order_by(BagExpense.immediate_payment_requested_at.asc().nullslast(), BagExpense.created_at.asc()).all()
-        payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider), selectinload(BagExpense.payment_events)).filter(
+        payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
             BagExpense.status != "ELIMINADO",
             BagExpense.covered_by == "BOLSA",
             BagExpense.consolidation_status.in_(list(BAG_CONSOLIDATED_STATUSES)),
@@ -26572,21 +26690,21 @@ def administracion_view():
         embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
             or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
         ).order_by(InvoiceRecord.issue_date.desc()).all()
-        all_embargo_orders = session_db.query(EmbargoOrder).options(joinedload(EmbargoOrder.promoter).selectinload(Promoter.contacts)).order_by(EmbargoOrder.order_date.desc().nullslast(), EmbargoOrder.created_at.desc()).limit(500).all()
-        embargo_search = (request.args.get("q") or "").strip()
-        embargo_subtab = (request.args.get("embargo_tab") or "activas").strip().lower()
-        if embargo_subtab not in {"activas", "archivadas"}:
-            embargo_subtab = "activas"
-        if embargo_search:
-            qkey = _norm_text_key(embargo_search)
-            all_embargo_orders = [order for order in all_embargo_orders if qkey in _embargo_order_search_blob(order)]
-        embargo_active_orders = [order for order in all_embargo_orders if (order.order_type or '').upper() == 'EMBARGO' and (order.status or '').upper() in _EMBARGO_ACTIVE_STATUSES]
-        embargo_archived_orders = [order for order in all_embargo_orders if (order.status or '').upper() in _EMBARGO_ARCHIVED_STATUSES or (order.order_type or '').upper() == 'LEVANTAMIENTO']
-        embargo_orders = embargo_active_orders if embargo_subtab == "activas" else embargo_archived_orders
-        embargo_promoters = session_db.query(Promoter).options(selectinload(Promoter.companies), selectinload(Promoter.contacts)).order_by(Promoter.nick.asc()).limit(1000).all()
-        admin_expense_rows = list({str(exp.id): exp for exp in (payment_requests + pending_no_invoice + payable_expenses)}.values())
-        expense_embargo_alerts = _expense_embargo_alert_map(session_db, admin_expense_rows)
-        embargo_email_suggestions = {str(order.id): _embargo_order_email_suggestions(session_db, order) for order in all_embargo_orders[:500]}
+        embargo_orders = session_db.query(EmbargoOrder).options(
+            joinedload(EmbargoOrder.promoter),
+            joinedload(EmbargoOrder.suggested_promoter),
+        ).order_by(EmbargoOrder.created_at.desc()).limit(500).all()
+        embargo_active_orders = [o for o in embargo_orders if (o.order_type or "").upper() != "LEVANTAMIENTO" and (o.status or "").upper() in _embargo_visible_statuses()]
+        embargo_archived_orders = [o for o in embargo_orders if (o.status or "").upper() == "ARCHIVADA" or (o.order_type or "").upper() == "LEVANTAMIENTO"]
+        embargo_promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).limit(1000).all()
+        embargo_email_map = {str(order.id): _embargo_order_email_suggestions(session_db, order) for order in embargo_orders}
+        embargo_counts = {"activas": len(embargo_active_orders), "archivadas": len(embargo_archived_orders)}
+        admin_expense_embargo_alerts = {}
+        if "_expense_active_embargo_alerts" in globals():
+            for expense in list(payment_requests or []) + list(payable_expenses or []) + list(pending_no_invoice or []):
+                alerts = _expense_active_embargo_alerts(session_db, expense)
+                if alerts:
+                    admin_expense_embargo_alerts[str(expense.id)] = alerts
 
         bag_totals = {}
         for bag in closed_bags:
@@ -26605,7 +26723,7 @@ def administracion_view():
             "liquidaciones": len(closed_bags),
             "pagos": len(payment_requests) + len(payable_expenses),
             "cobros": len(receivable_invoices),
-            "embargos": len(embargo_active_orders),
+            "embargos": len(embargo_rows) + len(embargo_active_orders),
         }
         return render_template(
             "administracion.html",
@@ -26613,6 +26731,8 @@ def administracion_view():
             tabs=ADMINISTRATION_TABS,
             pending_subtab=pending_subtab,
             pending_tabs=ADMINISTRATION_PENDING_TABS,
+            embargo_subtab=embargo_subtab,
+            embargo_counts=embargo_counts,
             pending_counts=pending_counts,
             counts=counts,
             pending_no_invoice=pending_no_invoice,
@@ -26626,11 +26746,9 @@ def administracion_view():
             embargo_orders=embargo_orders,
             embargo_active_orders=embargo_active_orders,
             embargo_archived_orders=embargo_archived_orders,
-            embargo_subtab=embargo_subtab,
-            embargo_search=embargo_search,
             embargo_promoters=embargo_promoters,
-            embargo_email_suggestions=embargo_email_suggestions,
-            expense_embargo_alerts=expense_embargo_alerts,
+            embargo_email_map=embargo_email_map,
+            admin_expense_embargo_alerts=admin_expense_embargo_alerts,
             bag_totals=bag_totals,
             payment_methods=BAG_PAYMENT_METHODS,
             payment_status_labels=BAG_PAYMENT_STATUS_LABELS,
@@ -26692,9 +26810,7 @@ def administration_expense_mark_paid(expense_id):
         expense.immediate_payment_requested = False if expense.payment_status == "PAGADO" else expense.immediate_payment_requested
         expense.updated_at = _now_madrid()
         audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
-        paid_at_date = parse_optional_date(request.form.get("paid_at")) if request.form.get("paid_at") else None
-        paid_event_at = datetime.combine(paid_at_date, datetime.min.time(), tzinfo=TZ_MADRID) if paid_at_date else _now_madrid()
-        session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="PAGO_REGISTRADO", description="Pago registrado desde administración.", amount=amount, method=expense.payment_method, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"], created_at=paid_event_at))
+        session_db.add(BagPaymentInteraction(expense_id=expense.id, kind="PAGO_REGISTRADO", description="Pago registrado desde administración.", amount=amount, method=expense.payment_method, created_by_user_id=audit["user_id"], created_by_nick=audit["nick"]))
         session_db.commit()
         flash("Pago registrado.", "success")
     finally:
@@ -27527,13 +27643,9 @@ def _bag_update_expense_from_form(session_db, expense: BagExpense, form, *, file
         expense.provider_company_id = company.id
     elif (form.get("provider_company_id") or "").strip() == "":
         expense.provider_company_id = None
-    effective_provider = provider or getattr(expense, "provider", None)
-    expense.provider_snapshot = _bag_provider_snapshot(effective_provider, company or getattr(expense, "provider_company", None))
-    if effective_provider:
-        try:
-            _embargo_link_pending_orders_for_promoter(session_db, effective_provider)
-        except Exception:
-            pass
+    expense.provider_snapshot = _bag_provider_snapshot(provider or getattr(expense, "provider", None), company or getattr(expense, "provider_company", None))
+    if provider and "_auto_link_embargo_orders_for_promoter" in globals():
+        _auto_link_embargo_orders_for_promoter(session_db, provider)
     ticket_establishment = (form.get("ticket_establishment") or "").strip()
     if ticket_establishment:
         expense.ticket_establishment = ticket_establishment
@@ -27855,21 +27967,14 @@ def bag_detail_view(bag_id):
         category_totals = {key: totals["by_category"].get(key, Decimal("0")) for key, _label in BAG_EXPENSE_CATEGORIES}
         bag_artists = _bag_artist_rows(session_db, bag)
         provider_email_map = {str(exp.id): _bag_provider_email_suggestions(session_db, exp) for exp in expenses}
+        provider_embargo_map = {}
+        for provider in providers:
+            orders = _active_embargo_orders_for_promoter(session_db, provider) if "_active_embargo_orders_for_promoter" in globals() else []
+            if orders:
+                provider_embargo_map[str(provider.id)] = [_embargo_order_summary(order) for order in orders]
+        expense_embargo_alerts = {str(exp.id): _expense_active_embargo_alerts(session_db, exp) for exp in expenses} if "_expense_active_embargo_alerts" in globals() else {}
         expense_counts = {str(exp.id): _bag_expense_counts_for_badges(exp) for exp in expenses}
         payment_symbols = {str(exp.id): _bag_payment_symbol(exp) for exp in expenses}
-        expense_embargo_alerts = _expense_embargo_alert_map(session_db, expenses)
-        provider_embargo_alerts = {}
-        if not _bag_closed_for_embargo_warning(bag):
-            for provider in providers:
-                order = _find_blocking_embargo_for_provider(session_db, provider)
-                if order:
-                    provider_embargo_alerts[str(provider.id)] = {
-                        "message": "Esta persona no puede facturar porque tiene una orden de embargo activa.",
-                        "name": order.detected_name or provider.nick or "",
-                        "tax_id": order.detected_tax_id or "",
-                        "order_date": order.order_date.strftime("%d/%m/%Y") if order.order_date else "",
-                    }
-        active_embargo_provider_ids = set(provider_embargo_alerts.keys())
         proration_bags = _bag_available_proration_bags(session_db, bag)
         can_close_bag = bool(expenses) and all(_bag_expense_is_consolidated(exp) for exp in expenses) and (bag.status or "").upper() not in {"CERRADA", "LIQUIDADA", "ARCHIVADA"}
         return render_template(
@@ -27888,11 +27993,10 @@ def bag_detail_view(bag_id):
             active_bags=active_bags,
             proration_bags=proration_bags,
             provider_email_map=provider_email_map,
+            provider_embargo_map=provider_embargo_map,
+            expense_embargo_alerts=expense_embargo_alerts,
             expense_counts=expense_counts,
             payment_symbols=payment_symbols,
-            expense_embargo_alerts=expense_embargo_alerts,
-            provider_embargo_alerts=provider_embargo_alerts,
-            active_embargo_provider_ids=active_embargo_provider_ids,
             can_close_bag=can_close_bag,
             bag_status_options=BAG_STATUS_OPTIONS,
             bag_types=BAG_TYPES,
@@ -27959,8 +28063,14 @@ def bag_expense_create(bag_id):
                 created.append(_bag_create_expense(session_db, bag, request.form, file_storage=doc))
         else:
             created.append(_bag_create_expense(session_db, bag, request.form))
+        embargo_hits = []
+        if "_expense_active_embargo_alerts" in globals():
+            for expense in created:
+                embargo_hits.extend(_expense_active_embargo_alerts(session_db, expense))
         session_db.commit()
         flash(f"Gasto{'s' if len(created) != 1 else ''} añadido{'s' if len(created) != 1 else ''}.", "success")
+        if embargo_hits:
+            flash("Esta persona no puede facturar porque tiene una orden de embargo activa.", "warning")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo añadir el gasto: {exc}", "danger")
@@ -27980,8 +28090,11 @@ def bag_expense_edit(bag_id, expense_id):
             return redirect(url_for("bag_detail_view", bag_id=bag_id))
         doc = request.files.get("document")
         _bag_update_expense_from_form(session_db, expense, request.form, file_storage=doc if doc and getattr(doc, "filename", "") else None)
+        embargo_hits = _expense_active_embargo_alerts(session_db, expense) if "_expense_active_embargo_alerts" in globals() else []
         session_db.commit()
         flash("Gasto actualizado.", "success")
+        if embargo_hits:
+            flash("Esta persona no puede facturar porque tiene una orden de embargo activa.", "warning")
     except Exception as exc:
         session_db.rollback()
         flash(f"No se pudo actualizar el gasto: {exc}", "danger")
@@ -28890,7 +29003,7 @@ def _production_concert_row(session_db, concert):
         "title": getattr(concert, "festival_name", None) or _artist_label_from_rows(artists),
         "type_label": (getattr(concert, "activity_type", None) or "Concierto").replace("_", " ").title(),
         "artist_label": _artist_label_from_rows(artists),
-        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/placeholder_photo.png"),
         "date": getattr(concert, "date", None),
         "date_label": concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "Sin fecha",
         "city": getattr(venue, "municipality", None) or getattr(concert, "manual_municipality", None) or "",
@@ -28951,7 +29064,7 @@ def _action_display_row(session_db, action):
         "title": getattr(action, "title", None) or "Acción",
         "type_label": _action_type_label(getattr(action, "action_type", None), getattr(action, "content_subtype", None)),
         "artist_label": _artist_label_from_rows(artists),
-        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/placeholder_photo.png"),
         "date": getattr(action, "start_date", None),
         "end_date": getattr(action, "end_date", None),
         "date_label": _action_period_label(getattr(action, "start_date", None), getattr(action, "end_date", None)),
@@ -28971,7 +29084,7 @@ def _action_request_display_row(session_db, row):
         "title": getattr(row, "title", None) or _action_type_label(getattr(row, "action_type", None), getattr(row, "content_subtype", None)),
         "type_label": _action_type_label(getattr(row, "action_type", None), getattr(row, "content_subtype", None)),
         "artist_label": _artist_label_from_rows(artists),
-        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/placeholder_photo.png"),
         "date": getattr(row, "due_date", None) or getattr(row, "requested_date", None),
         "date_label": ((getattr(row, "due_date", None) or getattr(row, "requested_date", None)).strftime("%d/%m/%Y") if (getattr(row, "due_date", None) or getattr(row, "requested_date", None)) else "Sin fecha"),
         "status": getattr(row, "status", None) or "REQUESTED",
@@ -29309,7 +29422,13 @@ def venue_detail_view(vid):
         activities = [_production_concert_row(session_db, row) for row in concert_rows]
         activities.extend([_action_display_row(session_db, row) for row in action_rows])
         activities.sort(key=lambda item: (item.get('date') or date.min), reverse=True)
-        return render_template('venue_detail.html', venue=venue, activities=activities)
+        return render_template(
+            'venue_detail.html',
+            venue=venue,
+            activities=activities,
+            edit=_truthy(request.args.get('edit')) and can_edit_catalogs(),
+            CAN_EDIT_CATALOGS=can_edit_catalogs(),
+        )
     finally:
         session_db.close()
 
@@ -29416,7 +29535,7 @@ def acciones_view():
                 'id': str(media.id),
                 'name': media.name,
                 'type': media.media_type,
-                'logo_url': getattr(media, 'logo_url', None) or url_for('static', filename='img/logo.png'),
+                'logo_url': getattr(media, 'logo_url', None) or url_for('static', filename='img/placeholder_photo.png'),
             })
         venue_items = []
         for venue in session_db.query(Venue).order_by(Venue.name.asc()).all():
@@ -29424,7 +29543,7 @@ def acciones_view():
                 'id': str(venue.id),
                 'name': venue.name,
                 'subtitle': _venue_label(venue),
-                'photo_url': getattr(venue, 'photo_url', None) or url_for('static', filename='img/logo.png'),
+                'photo_url': getattr(venue, 'photo_url', None) or url_for('static', filename='img/placeholder_photo.png'),
             })
         return render_template(
             'acciones.html',

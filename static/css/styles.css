@@ -595,3 +595,65 @@ button.song-status-item:focus {
   border:1px solid rgba(0,0,0,.08);
   background:#fff7e6;
 }
+
+/* =========================================================
+   Correcciones generales 2026-05-29
+   ========================================================= */
+:root{ --default-photo-bg:#f3f4f6; --default-photo-fg:#c4c8cf; }
+.default-photo-bg,
+img.default-photo,
+img[data-default-photo="1"]{
+  background: var(--default-photo-bg) !important;
+}
+.image-fallback{
+  background: var(--default-photo-bg) !important;
+  object-fit: contain !important;
+  padding: 10% !important;
+}
+
+/* Los menús de tres puntos deben mostrarse por encima de tablas, cards y modales. */
+.dropdown-menu{ z-index: 3000 !important; }
+.modal .dropdown-menu{ z-index: 4000 !important; }
+.card,
+.card-body,
+.list-group,
+.list-group-item,
+.table-responsive.dropdown-friendly,
+.dropdown{ overflow: visible; }
+.table-responsive .dropdown{ position: static; }
+.table-responsive .dropdown-menu{ position: fixed !important; }
+
+/* Tarjetas visuales seleccionables del asistente de actividad. */
+.activity-choice-card,
+.visual-choice-card{
+  cursor: pointer;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease, transform .12s ease;
+}
+.activity-choice-card:hover,
+.visual-choice-card:hover{
+  border-color: var(--brand-primary) !important;
+  box-shadow: 0 .25rem .8rem rgba(0,0,0,.08);
+  transform: translateY(-1px);
+}
+.activity-choice-card.is-selected,
+.visual-choice-card.is-selected{
+  border-color: var(--brand-primary) !important;
+  box-shadow: 0 0 0 .18rem rgba(13,110,253,.16);
+  background: #f8fbff !important;
+}
+
+/* Menú superior con orden por uso y desbordamiento controlado. */
+.navbar-nav-primary{ min-width: 0; flex-wrap: nowrap; }
+.navbar-nav-primary > .nav-item{ white-space: nowrap; }
+.nav-overflow-dropdown.d-none{ display:none !important; }
+.nav-overflow-dropdown .dropdown-menu{ max-height: calc(100vh - 90px); overflow:auto; }
+@media (min-width: 992px){
+  #navMain{ min-width:0; }
+  #navMain .navbar-nav-primary{ overflow: visible; }
+}
+
+/* Recintos en modo visualización. */
+.venue-card-link{ color: inherit; text-decoration: none; }
+.venue-card-link:hover{ color: inherit; text-decoration: none; }
+.venue-card-link:hover .venue-card{ box-shadow: 0 .5rem 1.1rem rgba(0,0,0,.08); transform: translateY(-1px); }
+.venue-card{ transition: box-shadow .12s ease, transform .12s ease; }

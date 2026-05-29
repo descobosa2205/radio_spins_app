@@ -994,6 +994,7 @@ def artist_detail_view(artist_id):
             "agenda",
             "promocion",
             "marketing",
+            "onesheet",
             "liquidaciones",
         }
         if tab not in allowed_tabs:
@@ -1106,6 +1107,17 @@ def artist_detail_view(artist_id):
             promotion_requests_display = [_promotion_display_request(row) for row in promotion_request_rows]
             promotion_entries_display = [_promotion_display_promotion(row) for row in promotion_rows]
 
+        social_links_display = _ordered_social_links(getattr(artist, "social_links", None))
+        onesheet = _onesheet_context(session_db, artist=artist, public=False) if tab == "onesheet" else None
+        if tab == "onesheet":
+            session_db.commit()
+
+        # Compatibilidad con una versión intermedia que pasaba variables de conciertos
+        # a esta plantilla de artista. Se dejan vacías para evitar NameError.
+        contracting_general_rows = []
+        promoter_email_suggestions = []
+        production_panel = {}
+
         return render_template(
             "artist_detail.html",
             artist=artist,
@@ -1129,6 +1141,9 @@ def artist_detail_view(artist_id):
             promotion_source_type="ARTIST",
             promotion_source_id=str(artist.id),
             promotion_source_snapshot=promotion_source_snapshot,
+            social_links_display=social_links_display,
+            social_platforms=SOCIAL_PLATFORMS,
+            onesheet=onesheet,
             contracting_general_rows=contracting_general_rows,
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
@@ -16514,6 +16529,7 @@ def contracting_view():
             subtitle = "Espacio preparado para simulaciones de contratación."
             empty = "Las simulaciones se desarrollarán sobre esta sección."
         rows = query.limit(300).all()
+        tour_groups = _tour_groups_from_concerts(rows) if section == "giras-compradas" else []
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
         promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
         companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
@@ -16535,6 +16551,7 @@ def contracting_view():
             subtitle=subtitle,
             empty_message=empty,
             rows=rows,
+            tour_groups=tour_groups,
             artists=artists,
             promoters=promoters,
             promoters_payload=promoters_payload,
@@ -16919,6 +16936,8 @@ def concert_detail_view(cid):
         contracting_general_rows = _concert_contracting_general_rows(session, c)
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
+        roadmap_ctx = _roadmap_context(session, "concert", c, ensure_token=True)
+        session.commit()
 
         return render_template(
             "concert_detail.html",
@@ -16966,6 +16985,7 @@ def concert_detail_view(cid):
             contracting_general_rows=contracting_general_rows,
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
+            roadmap_ctx=roadmap_ctx,
         )
     finally:
         session.close()
@@ -22557,11 +22577,13 @@ from models import (
     ConcertBudgetItem,
     CompanyActionRequest,
     CompanyAction,
+    TourOneSheet,
     ensure_personnel_and_operations_schema,
     ensure_bag_expense_schema,
     ensure_marketing_country_schema,
     ensure_contracting_embargo_schema,
     ensure_actions_contracting_admin_schema,
+    ensure_roadmap_onesheet_schema,
 )
 
 _safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
@@ -22569,6 +22591,1061 @@ _safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
 _safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
 _safe_ensure(ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema")
 _safe_ensure(ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema")
+_safe_ensure(ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema")
+
+# =========================================================
+# Hoja de ruta avanzada + redes sociales + one-sheet
+# =========================================================
+SOCIAL_PLATFORMS = [
+    {"key": "instagram", "label": "Instagram", "icon": "fa-brands fa-instagram", "class": "platform-instagram"},
+    {"key": "facebook", "label": "Facebook", "icon": "fa-brands fa-facebook", "class": "platform-facebook"},
+    {"key": "tiktok", "label": "TikTok", "icon": "fa-brands fa-tiktok", "class": "platform-tiktok"},
+    {"key": "x", "label": "X", "icon": "fa-brands fa-x-twitter", "class": "platform-x"},
+    {"key": "youtube", "label": "YouTube", "icon": "fa-brands fa-youtube", "class": "platform-youtube"},
+    {"key": "spotify", "label": "Spotify", "icon": "fa-brands fa-spotify", "class": "platform-spotify"},
+    {"key": "apple_music", "label": "Apple Music", "icon": "fa-solid fa-music", "class": "platform-apple"},
+    {"key": "amazon_music", "label": "Amazon Music", "icon": "fa-brands fa-amazon", "class": "platform-amazon"},
+    {"key": "bandsintown", "label": "Bandsintown", "icon": "fa-solid fa-ticket", "class": "platform-bandsintown"},
+]
+SOCIAL_PLATFORM_KEYS = {row["key"] for row in SOCIAL_PLATFORMS}
+SOCIAL_PLATFORM_ORDER = {row["key"]: idx for idx, row in enumerate(SOCIAL_PLATFORMS)}
+
+ROADMAP_ENTITY_LABELS = {
+    "concert": "actividad",
+    "action": "acción",
+    "promotion": "campaña",
+}
+ROADMAP_ITEM_TYPES = [
+    ("LOGISTICA", "Logística", "fa-route"),
+    ("ENTREVISTA", "Entrevista", "fa-microphone-lines"),
+    ("ACTUACION", "Actuación", "fa-guitar"),
+    ("ACTIVIDAD", "Actividad", "fa-calendar-check"),
+    ("COMIDA", "Comida", "fa-utensils"),
+]
+ROADMAP_LOGISTIC_SUBTYPES = [
+    ("TRANSFER", "Transfer", "fa-van-shuttle"),
+    ("TREN", "Tren", "fa-train"),
+    ("AVION", "Avión", "fa-plane"),
+    ("FURGONETA", "Furgoneta", "fa-truck"),
+    ("COCHE", "Coche", "fa-car"),
+    ("COCHE_ALQUILER", "Coche de alquiler", "fa-car-side"),
+    ("BARCO", "Barco", "fa-ship"),
+]
+ROADMAP_MEAL_TYPES = [("RESTAURANTE", "Restaurante", "fa-utensils"), ("PEDIDO", "Pedido", "fa-bag-shopping")]
+
+
+def _ordered_social_links(value) -> list[dict]:
+    raw = _json_loads_safe(value, {})
+    if not isinstance(raw, dict):
+        raw = {}
+    rows = []
+    for platform in SOCIAL_PLATFORMS:
+        url = (raw.get(platform["key"]) or "").strip()
+        if url:
+            item = dict(platform)
+            item["url"] = url
+            rows.append(item)
+    return rows
+
+
+def _clean_public_url(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith(("http://", "https://", "mailto:", "tel:")):
+        return raw
+    return "https://" + raw
+
+
+def _default_onesheet_payload(artist_or_title=None) -> dict:
+    title = getattr(artist_or_title, "name", None) or str(artist_or_title or "")
+    return {
+        "background_color": "#ffffff",
+        "text_color": "#111111",
+        "hero_image_url": getattr(artist_or_title, "photo_url", None) or "",
+        "hero_focus": "50% 50%",
+        "featured_stats": [],
+        "bio": "",
+        "awards": [],
+        "latest_release": {},
+        "videos": [],
+        "tour": {"title": "", "show_ids": []},
+        "gallery": [],
+        "press": [],
+        "contacts": [],
+        "title": title,
+    }
+
+
+def _onesheet_payload(value, fallback=None) -> dict:
+    data = _json_loads_safe(value, {})
+    if not isinstance(data, dict):
+        data = {}
+    base = _default_onesheet_payload(fallback)
+    base.update({k: v for k, v in data.items() if v is not None})
+    # Normalizamos listas para que la plantilla no falle.
+    for key in ["featured_stats", "awards", "videos", "gallery", "press", "contacts"]:
+        if not isinstance(base.get(key), list):
+            base[key] = []
+    if not isinstance(base.get("latest_release"), dict):
+        base["latest_release"] = {}
+    if not isinstance(base.get("tour"), dict):
+        base["tour"] = {"title": "", "show_ids": []}
+    return base
+
+
+def _uuid_token() -> str:
+    return _uuid.uuid4().hex
+
+
+def _ensure_artist_onesheet_token(session_db, artist: Artist) -> str:
+    token = (getattr(artist, "onesheet_public_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        artist.onesheet_public_token = token
+        session_db.flush()
+    return token
+
+
+def _ensure_roadmap_token(session_db, row) -> str:
+    token = (getattr(row, "roadmap_public_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        row.roadmap_public_token = token
+        session_db.flush()
+    return token
+
+
+def _ensure_tour_onesheet_token(session_db, tour: TourOneSheet) -> str:
+    token = (getattr(tour, "public_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        tour.public_token = token
+        session_db.flush()
+    return token
+
+
+def _roadmap_payload(value) -> dict:
+    data = _json_loads_safe(value, {})
+    if not isinstance(data, dict):
+        data = {}
+    data.setdefault("hotels", [])
+    data.setdefault("items", [])
+    data.setdefault("mode", "list")
+    data.setdefault("updated_at", "")
+    if not isinstance(data["hotels"], list):
+        data["hotels"] = []
+    if not isinstance(data["items"], list):
+        data["items"] = []
+    return data
+
+
+def _parse_days_from_request(prefix: str = "") -> list[str]:
+    values = request.form.getlist(prefix + "days[]") or request.form.getlist(prefix + "days")
+    cleaned = []
+    seen = set()
+    for raw in values:
+        val = (raw or "").strip()
+        if not val:
+            continue
+        try:
+            d = datetime.strptime(val, "%Y-%m-%d").date().isoformat()
+        except Exception:
+            continue
+        if d not in seen:
+            seen.add(d)
+            cleaned.append(d)
+    return sorted(cleaned)
+
+
+def _roadmap_day_candidates(entity) -> list[str]:
+    days = []
+    if isinstance(entity, Concert):
+        if getattr(entity, "date", None):
+            days.append(entity.date.isoformat())
+    elif isinstance(entity, CompanyAction):
+        start = getattr(entity, "start_date", None)
+        end = getattr(entity, "end_date", None) or start
+        if start and end:
+            cur = start
+            guard = 0
+            while cur <= end and guard < 60:
+                days.append(cur.isoformat())
+                cur += timedelta(days=1)
+                guard += 1
+        elif start:
+            days.append(start.isoformat())
+        events = _json_loads_safe(getattr(entity, "events_payload", None), [])
+        if isinstance(events, list):
+            for ev in events:
+                d = (ev or {}).get("date") or (ev or {}).get("start_date")
+                if d:
+                    days.append(str(d)[:10])
+    elif isinstance(entity, Promotion):
+        for d in [getattr(entity, "starts_on", None), getattr(entity, "target_date", None), getattr(entity, "ends_on", None)]:
+            if d:
+                days.append(d.isoformat())
+    return sorted({d for d in days if re.match(r"^\d{4}-\d{2}-\d{2}$", d or "")})
+
+
+def _merge_roadmap_days(entity, payload: dict) -> list[dict]:
+    day_set = set(_roadmap_day_candidates(entity))
+    for hotel in payload.get("hotels", []) or []:
+        day_set.update([str(x)[:10] for x in (hotel.get("days") or []) if x])
+    for item in payload.get("items", []) or []:
+        if item.get("day"):
+            day_set.add(str(item.get("day"))[:10])
+        day_set.update([str(x)[:10] for x in (item.get("days") or []) if x])
+    if not day_set:
+        day_set.add(today_local().isoformat())
+    rows = []
+    weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    months = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    for day in sorted(day_set):
+        try:
+            d = datetime.strptime(day, "%Y-%m-%d").date()
+            label = f"{weekdays[d.weekday()]} {d.day} {months[d.month]} {d.year}"
+            rows.append({"date": day, "date_obj": d, "label": label, "short": f"{d.day} {months[d.month]}", "weekday": weekdays[d.weekday()]})
+        except Exception:
+            rows.append({"date": day, "label": day, "short": day, "weekday": ""})
+    return rows
+
+
+def _roadmap_item_title(item: dict) -> str:
+    if not isinstance(item, dict):
+        return "Apunte"
+    title = (item.get("title") or item.get("name") or "").strip()
+    if title:
+        return title
+    kind = (item.get("kind") or item.get("type") or "ACTIVIDAD").upper()
+    subtype = (item.get("subtype") or "").replace("_", " ").title()
+    labels = dict((k, v) for k, v, _ in ROADMAP_ITEM_TYPES)
+    return subtype or labels.get(kind, "Apunte")
+
+
+def _roadmap_icon(kind: str | None, subtype: str | None = None) -> str:
+    kind = (kind or "").strip().upper()
+    subtype = (subtype or "").strip().upper()
+    if kind == "LOGISTICA":
+        for k, _label, icon in ROADMAP_LOGISTIC_SUBTYPES:
+            if k == subtype:
+                return icon
+        return "fa-route"
+    for k, _label, icon in ROADMAP_ITEM_TYPES:
+        if k == kind:
+            return icon
+    return "fa-calendar-check"
+
+
+def _roadmap_item_sort_key(item: dict):
+    return (str(item.get("day") or "9999-12-31"), str(item.get("start_time") or "99:99"), str(item.get("end_time") or "99:99"), str(item.get("created_at") or ""))
+
+
+def _roadmap_enrich(payload: dict) -> dict:
+    data = _roadmap_payload(payload)
+    for item in data.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        item.setdefault("id", _uuid_token())
+        item["display_title"] = _roadmap_item_title(item)
+        item["icon"] = _roadmap_icon(item.get("kind") or item.get("type"), item.get("subtype"))
+        item["participants"] = [x for x in (item.get("participants") or []) if isinstance(x, dict)]
+        item["attachments"] = [x for x in (item.get("attachments") or []) if isinstance(x, dict)]
+        item["repertoire"] = [x for x in (item.get("repertoire") or []) if isinstance(x, dict)]
+        if not item.get("day") and item.get("days"):
+            item["day"] = (item.get("days") or [""])[0]
+    data["items"].sort(key=_roadmap_item_sort_key)
+    for hotel in data.get("hotels", []) or []:
+        if isinstance(hotel, dict):
+            hotel.setdefault("id", _uuid_token())
+            hotel["map_url"] = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(" ".join([hotel.get("name") or "", hotel.get("address") or ""]).strip())
+    return data
+
+
+def _roadmap_item_from_form(existing_id: str | None = None) -> dict:
+    kind = (request.form.get("kind") or request.form.get("type") or "ACTIVIDAD").strip().upper()
+    valid_kinds = {k for k, _label, _icon in ROADMAP_ITEM_TYPES}
+    if kind not in valid_kinds:
+        kind = "ACTIVIDAD"
+    subtype = (request.form.get("subtype") or request.form.get("logistic_subtype") or "").strip().upper()
+    title = (request.form.get("title") or request.form.get("name") or "").strip()
+    day = (request.form.get("day") or "").strip()
+    try:
+        day = datetime.strptime(day, "%Y-%m-%d").date().isoformat()
+    except Exception:
+        day = today_local().isoformat()
+    item = {
+        "id": existing_id or _uuid_token(),
+        "kind": kind,
+        "subtype": subtype,
+        "title": title,
+        "day": day,
+        "start_time": (request.form.get("start_time") or "").strip(),
+        "end_time": (request.form.get("end_time") or "").strip(),
+        "location": (request.form.get("location") or "").strip(),
+        "origin": (request.form.get("origin") or "").strip(),
+        "destination": (request.form.get("destination") or "").strip(),
+        "tracking_url": _clean_public_url(request.form.get("tracking_url")),
+        "phone": (request.form.get("phone") or "").strip(),
+        "company": (request.form.get("company") or "").strip(),
+        "locator": (request.form.get("locator") or "").strip(),
+        "description": (request.form.get("description") or "").strip(),
+        "note": (request.form.get("note") or "").strip(),
+        "participants_text": (request.form.get("participants_text") or "").strip(),
+        "is_tbc": bool(request.form.get("is_tbc")),
+        "hide_time": bool(request.form.get("hide_time")),
+        "updated_at": _now_madrid().isoformat(),
+    }
+    # Repertorio simple: filas title/mode/note/order.
+    reps = []
+    titles = request.form.getlist("repertoire_title[]")
+    modes = request.form.getlist("repertoire_mode[]")
+    notes = request.form.getlist("repertoire_note[]")
+    for idx, song_title in enumerate(titles or []):
+        song_title = (song_title or "").strip()
+        if not song_title:
+            continue
+        reps.append({"title": song_title, "mode": (modes[idx] if idx < len(modes) else "DIRECTO") or "DIRECTO", "note": (notes[idx] if idx < len(notes) else "") or "", "order": idx + 1})
+    item["repertoire"] = reps
+    return item
+
+
+def _roadmap_hotel_from_form(existing_id: str | None = None) -> dict:
+    days = _parse_days_from_request()
+    if not days:
+        raw_day = (request.form.get("day") or "").strip()
+        if raw_day:
+            days = [raw_day]
+    return {
+        "id": existing_id or _uuid_token(),
+        "name": (request.form.get("hotel_name") or request.form.get("name") or "").strip(),
+        "address": (request.form.get("hotel_address") or request.form.get("address") or "").strip(),
+        "days": days,
+        "for_all": bool(request.form.get("for_all")),
+        "people_text": (request.form.get("people_text") or "").strip(),
+        "breakfast": bool(request.form.get("breakfast")),
+        "free_cancel": bool(request.form.get("free_cancel")),
+        "cancel_until": (request.form.get("cancel_until") or "").strip(),
+        "voucher_url": (request.form.get("voucher_url") or "").strip(),
+        "voucher_name": (request.form.get("voucher_name") or "").strip(),
+        "note": (request.form.get("note") or "").strip(),
+        "updated_at": _now_madrid().isoformat(),
+    }
+
+
+def _roadmap_entity(session_db, entity_type: str, entity_id=None, token: str | None = None):
+    kind = (entity_type or "").strip().lower()
+    row = None
+    if kind == "concert":
+        q = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company), joinedload(Concert.group_company))
+        row = q.filter(Concert.roadmap_public_token == token).first() if token else q.filter(Concert.id == to_uuid(entity_id)).first()
+    elif kind == "action":
+        q = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue))
+        row = q.filter(CompanyAction.roadmap_public_token == token).first() if token else q.filter(CompanyAction.id == to_uuid(entity_id)).first()
+    elif kind == "promotion":
+        q = session_db.query(Promotion).options(joinedload(Promotion.company), joinedload(Promotion.bag))
+        row = q.filter(Promotion.roadmap_public_token == token).first() if token else q.filter(Promotion.id == to_uuid(entity_id)).first()
+    return kind, row
+
+
+def _roadmap_context(session_db, entity_type: str, row, *, ensure_token: bool = False, public: bool = False) -> dict:
+    if ensure_token:
+        token = _ensure_roadmap_token(session_db, row)
+    else:
+        token = (getattr(row, "roadmap_public_token", None) or "").strip()
+    payload = _roadmap_enrich(getattr(row, "roadmap_payload", None))
+    days = _merge_roadmap_days(row, payload)
+    artists = []
+    title = "Hoja de ruta"
+    subtitle = ""
+    cover_url = ""
+    company_logo = ""
+    activity_date = None
+    if isinstance(row, Concert):
+        artists = _artists_from_ids(session_db, _concert_primary_artist_ids(row))
+        title = getattr(row, "festival_name", None) or _artist_label_from_rows(artists) or "Actividad"
+        venue = getattr(row, "venue", None)
+        subtitle = " · ".join([x for x in [getattr(venue, "name", None) or getattr(row, "manual_venue_name", None), getattr(venue, "municipality", None) or getattr(row, "manual_municipality", None), getattr(venue, "province", None) or getattr(row, "manual_province", None)] if x])
+        cover_url = (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
+        company_logo = (getattr(getattr(row, "billing_company", None), "logo_url", None) or getattr(getattr(row, "group_company", None), "logo_url", None) or _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public))
+        activity_date = getattr(row, "date", None)
+    elif isinstance(row, CompanyAction):
+        artists = _artists_from_ids(session_db, getattr(row, "artist_ids", None) or [])
+        title = getattr(row, "title", None) or "Acción"
+        subtitle = _venue_label(getattr(row, "venue", None), " ".join([str((getattr(row, "location_snapshot", {}) or {}).get("municipality") or ""), str((getattr(row, "location_snapshot", {}) or {}).get("province") or "")]).strip())
+        cover_url = (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
+        company_logo = _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public)
+        activity_date = getattr(row, "start_date", None)
+    elif isinstance(row, Promotion):
+        artists = _artists_from_ids(session_db, getattr(row, "artist_ids", None) or [])
+        snap = _json_loads_safe(getattr(row, "snapshot", None), {})
+        title = snap.get("title") or snap.get("artist_label") or "Campaña de marketing"
+        subtitle = snap.get("subtitle") or getattr(row, "objectives_notes", None) or ""
+        cover_url = snap.get("cover_url") or (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
+        company_logo = getattr(getattr(row, "company", None), "logo_url", None) or _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public)
+        activity_date = getattr(row, "target_date", None) or getattr(row, "starts_on", None)
+    if token:
+        public_url = _external_url_for("roadmap_public_view", token=token)
+        pdf_url = _external_url_for("roadmap_public_view", token=token, print="1")
+    else:
+        public_url = ""
+        pdf_url = ""
+    whatsapp_text = f"Consulta la hoja de ruta de: {title}"
+    if activity_date:
+        try:
+            whatsapp_text += f" · {activity_date.strftime('%d/%m/%Y')}"
+        except Exception:
+            pass
+    if public_url:
+        whatsapp_text += "\n" + public_url
+    return {
+        "entity_type": entity_type,
+        "entity_id": str(getattr(row, "id", "")),
+        "entity_label": ROADMAP_ENTITY_LABELS.get(entity_type, "actividad"),
+        "title": title,
+        "subtitle": subtitle,
+        "artist_label": _artist_label_from_rows(artists),
+        "artists": artists,
+        "cover_url": cover_url,
+        "company_logo_url": company_logo,
+        "token": token,
+        "public_url": public_url,
+        "pdf_url": pdf_url,
+        "whatsapp_url": "https://wa.me/?text=" + quote_plus(whatsapp_text),
+        "sms_url": "sms:?&body=" + quote_plus(whatsapp_text),
+        "mail_subject": "Hoja de ruta · " + title,
+        "mail_body": whatsapp_text,
+        "payload": payload,
+        "days": days,
+        "selected_day": (request.args.get("day") or (days[0]["date"] if days else today_local().isoformat())),
+        "item_types": ROADMAP_ITEM_TYPES,
+        "logistic_subtypes": ROADMAP_LOGISTIC_SUBTYPES,
+        "meal_types": ROADMAP_MEAL_TYPES,
+    }
+
+
+def _set_roadmap_payload(row, payload: dict):
+    setattr(row, "roadmap_payload", payload)
+    if hasattr(row, "updated_at"):
+        row.updated_at = _now_madrid()
+
+
+def _slugify_text(value: str) -> str:
+    key = _norm_text_key(value)
+    slug = re.sub(r"[^a-z0-9]+", "-", key).strip("-")
+    return slug or "gira"
+
+
+def _tour_group_key(concert: Concert) -> tuple[str, str]:
+    tags = _concert_tags(concert)
+    title = (tags[0] if tags else None) or getattr(concert, "festival_name", None) or "Gira comprada"
+    return _slugify_text(title), title
+
+
+def _tour_groups_from_concerts(rows: list[Concert]) -> list[dict]:
+    grouped = {}
+    for row in rows or []:
+        slug, title = _tour_group_key(row)
+        item = grouped.setdefault(slug, {"slug": slug, "title": title, "concerts": [], "artists": [], "artist_ids": set(), "start": None, "end": None})
+        item["concerts"].append(row)
+        if getattr(row, "date", None):
+            item["start"] = min([d for d in [item["start"], row.date] if d], default=row.date)
+            item["end"] = max([d for d in [item["end"], row.date] if d], default=row.date)
+        for aid in _concert_primary_artist_ids(row):
+            sid = str(aid)
+            if sid not in item["artist_ids"]:
+                item["artist_ids"].add(sid)
+                if getattr(row, "artist", None) and str(row.artist.id) == sid:
+                    item["artists"].append(row.artist)
+    out = []
+    for item in grouped.values():
+        item["concerts"].sort(key=lambda x: (getattr(x, "date", None) or date.max, getattr(x, "festival_name", None) or ""))
+        item["artist_ids"] = sorted(item["artist_ids"])
+        out.append(item)
+    out.sort(key=lambda x: (x["start"] or date.max, x["title"]))
+    return out
+
+
+def _get_or_create_tour_onesheet(session_db, slug: str, title: str, artist_ids=None) -> TourOneSheet:
+    row = session_db.query(TourOneSheet).filter(TourOneSheet.slug == slug).first()
+    if not row:
+        row = TourOneSheet(slug=slug, title=title or slug, artist_ids=[str(x) for x in (artist_ids or [])], payload=_default_onesheet_payload(title), public_token=_uuid_token())
+        session_db.add(row)
+        session_db.flush()
+    else:
+        if title and not (row.title or "").strip():
+            row.title = title
+        if artist_ids and not (row.artist_ids or []):
+            row.artist_ids = [str(x) for x in artist_ids]
+        _ensure_tour_onesheet_token(session_db, row)
+    return row
+
+
+def _onesheet_context(session_db, *, artist: Artist | None = None, tour: TourOneSheet | None = None, concerts=None, public=False) -> dict:
+    if artist is not None:
+        payload = _onesheet_payload(getattr(artist, "onesheet_payload", None), artist)
+        token = _ensure_artist_onesheet_token(session_db, artist) if not public else (artist.onesheet_public_token or "")
+        title = artist.name
+        hero = payload.get("hero_image_url") or getattr(artist, "photo_url", None) or url_for("static", filename="img/placeholder_photo.png", _external=public)
+        socials = _ordered_social_links(getattr(artist, "social_links", None))
+        source_type = "artist"
+        source_id = str(artist.id)
+        public_url = _external_url_for("onesheet_public_view", token=token) if token else ""
+        form_action = url_for("artist_onesheet_update", artist_id=artist.id) if not public else ""
+    else:
+        payload = _onesheet_payload(getattr(tour, "payload", None), getattr(tour, "title", None))
+        token = _ensure_tour_onesheet_token(session_db, tour) if not public else (tour.public_token or "")
+        title = tour.title
+        hero = payload.get("hero_image_url") or getattr(tour, "cover_url", None) or url_for("static", filename="img/placeholder_photo.png", _external=public)
+        artist_rows = _artists_from_ids(session_db, getattr(tour, "artist_ids", None) or [])
+        socials = []
+        if artist_rows:
+            socials = _ordered_social_links(getattr(artist_rows[0], "social_links", None))
+        source_type = "tour"
+        source_id = str(tour.id)
+        public_url = _external_url_for("onesheet_public_view", token=token) if token else ""
+        form_action = url_for("tour_onesheet_update", slug=tour.slug) if not public else ""
+    # lanzamientos disponibles para el selector del editor
+    artist_ids = []
+    if artist is not None:
+        artist_ids = [artist.id]
+    elif tour is not None:
+        artist_ids = _as_uuid_list(getattr(tour, "artist_ids", None) or [])
+    releases = []
+    if artist_ids:
+        song_rows = session_db.query(Song).join(SongArtist, SongArtist.song_id == Song.id).filter(SongArtist.artist_id.in_(artist_ids)).order_by(Song.release_date.desc().nullslast(), Song.title.asc()).limit(100).all()
+        album_rows = session_db.query(Album).filter(Album.artist_id.in_(artist_ids)).order_by(Album.release_date.desc().nullslast(), Album.title.asc()).limit(100).all()
+        releases = [{"type": "SONG", "id": str(x.id), "title": x.title, "date": x.release_date, "cover_url": x.cover_url} for x in song_rows]
+        releases += [{"type": "ALBUM", "id": str(x.id), "title": x.title, "date": x.release_date, "cover_url": x.cover_url} for x in album_rows]
+        releases.sort(key=lambda x: (x.get("date") or date.min), reverse=True)
+    selected_release = None
+    lr = payload.get("latest_release") if isinstance(payload.get("latest_release"), dict) else {}
+    if lr and lr.get("type") and lr.get("id"):
+        for rel in releases:
+            if rel["type"] == lr.get("type") and rel["id"] == str(lr.get("id")):
+                selected_release = rel
+                break
+    if not selected_release and releases:
+        selected_release = releases[0]
+    tour_shows = []
+    show_ids = {str(x) for x in ((payload.get("tour") or {}).get("show_ids") or [])}
+    if concerts:
+        for c in concerts:
+            if not show_ids or str(c.id) in show_ids:
+                tour_shows.append(c)
+    elif artist_ids:
+        tour_shows = session_db.query(Concert).options(joinedload(Concert.venue), joinedload(Concert.artist)).filter(or_(Concert.artist_id.in_(artist_ids), Concert.artist_ids.contains([str(artist_ids[0])]) if artist_ids else text("1=0"))).order_by(Concert.date.asc()).limit(60).all()
+    return {
+        "source_type": source_type,
+        "source_id": source_id,
+        "title": title,
+        "payload": payload,
+        "hero_url": hero,
+        "socials": socials,
+        "public_url": public_url,
+        "pdf_url": public_url + ("?print=1" if public_url else ""),
+        "form_action": form_action,
+        "releases": releases,
+        "selected_release": selected_release,
+        "tour_shows": tour_shows,
+        "platforms": SOCIAL_PLATFORMS,
+        "logo_tt": _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public),
+        "logo_pies": url_for("static", filename="img/logo.png", _external=public),
+    }
+
+@app.post('/artistas/<artist_id>/social-links', endpoint='artist_social_links_save')
+@admin_required
+def artist_social_links_save(artist_id):
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            abort(404)
+        platform = (request.form.get('platform') or '').strip().lower()
+        url = _clean_public_url(request.form.get('url'))
+        if platform not in SOCIAL_PLATFORM_KEYS:
+            flash('Plataforma no válida.', 'warning')
+            return redirect(url_for('artist_detail_view', artist_id=artist_id, tab='datos'))
+        if not url:
+            flash('Debes indicar el enlace del perfil.', 'warning')
+            return redirect(url_for('artist_detail_view', artist_id=artist_id, tab='datos'))
+        links = _json_loads_safe(getattr(artist, 'social_links', None), {})
+        if not isinstance(links, dict):
+            links = {}
+        links[platform] = url
+        artist.social_links = links
+        session_db.commit()
+        flash('Enlace del artista guardado.', 'success')
+        return redirect(url_for('artist_detail_view', artist_id=artist.id, tab='datos'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error guardando enlace: {exc}', 'danger')
+        return redirect(url_for('artist_detail_view', artist_id=artist_id, tab='datos'))
+    finally:
+        session_db.close()
+
+
+@app.post('/artistas/<artist_id>/social-links/<platform>/delete', endpoint='artist_social_link_delete')
+@admin_required
+def artist_social_link_delete(artist_id, platform):
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            abort(404)
+        links = _json_loads_safe(getattr(artist, 'social_links', None), {})
+        if isinstance(links, dict):
+            links.pop((platform or '').strip().lower(), None)
+            artist.social_links = links
+            session_db.commit()
+            flash('Enlace eliminado.', 'success')
+        return redirect(url_for('artist_detail_view', artist_id=artist.id, tab='datos'))
+    finally:
+        session_db.close()
+
+
+def _apply_onesheet_form(session_db, target, payload_attr='onesheet_payload'):
+    payload = _onesheet_payload(getattr(target, payload_attr, None), target)
+    action = (request.form.get('form_action') or 'settings').strip().lower()
+    if action == 'settings':
+        payload['background_color'] = (request.form.get('background_color') or payload.get('background_color') or '#ffffff').strip()
+        payload['text_color'] = (request.form.get('text_color') or payload.get('text_color') or '#111111').strip()
+        payload['hero_focus'] = (request.form.get('hero_focus') or payload.get('hero_focus') or '50% 50%').strip()
+        hero = request.files.get('hero_image')
+        if hero and getattr(hero, 'filename', ''):
+            payload['hero_image_url'] = upload_image(hero, 'onesheets/heroes')
+    elif action == 'bio':
+        payload['bio'] = (request.form.get('bio') or '').strip()
+    elif action == 'add_stat':
+        stats = payload.setdefault('featured_stats', [])
+        stats.append({
+            'id': _uuid_token(),
+            'kind': (request.form.get('stat_kind') or 'text').strip(),
+            'label': (request.form.get('label') or '').strip(),
+            'value': (request.form.get('value') or '').strip(),
+            'url': _clean_public_url(request.form.get('url')),
+            'manual': bool(request.form.get('manual')),
+        })
+    elif action == 'delete_stat':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['featured_stats'] = [x for x in payload.get('featured_stats', []) if str(x.get('id')) != rid]
+    elif action == 'add_award':
+        icon = request.files.get('icon')
+        payload.setdefault('awards', []).append({
+            'id': _uuid_token(),
+            'icon_url': upload_image(icon, 'onesheets/awards') if icon and getattr(icon, 'filename', '') else '',
+            'name': (request.form.get('name') or '').strip(),
+            'year': (request.form.get('year') or '').strip(),
+        })
+    elif action == 'delete_award':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['awards'] = [x for x in payload.get('awards', []) if str(x.get('id')) != rid]
+    elif action == 'latest_release':
+        payload['latest_release'] = {
+            'type': (request.form.get('release_type') or '').strip().upper(),
+            'id': (request.form.get('release_id') or '').strip(),
+        }
+    elif action == 'add_video':
+        payload.setdefault('videos', [])
+        if len(payload['videos']) >= 3:
+            flash('Solo se pueden añadir hasta tres vídeos seleccionados.', 'warning')
+        else:
+            payload['videos'].append({
+                'id': _uuid_token(),
+                'title': (request.form.get('title') or '').strip(),
+                'url': _clean_public_url(request.form.get('url')),
+                'thumb_url': (request.form.get('thumb_url') or '').strip(),
+            })
+    elif action == 'delete_video':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['videos'] = [x for x in payload.get('videos', []) if str(x.get('id')) != rid]
+    elif action == 'tour':
+        payload['tour'] = {
+            'title': (request.form.get('tour_title') or '').strip(),
+            'show_ids': [str(to_uuid(x)) for x in request.form.getlist('show_ids[]') if (x or '').strip()],
+        }
+        png = request.files.get('tour_title_png')
+        if png and getattr(png, 'filename', ''):
+            payload['tour']['title_png_url'] = upload_image(png, 'onesheets/tours')
+    elif action == 'add_gallery':
+        files = request.files.getlist('gallery_photos[]') or []
+        rows = payload.setdefault('gallery', [])
+        concept = (request.form.get('concept') or '').strip()
+        for fs in files:
+            if fs and getattr(fs, 'filename', ''):
+                rows.append({'id': _uuid_token(), 'url': upload_image(fs, 'onesheets/gallery'), 'concept': concept, 'name': fs.filename})
+    elif action == 'delete_gallery':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['gallery'] = [x for x in payload.get('gallery', []) if str(x.get('id')) != rid]
+    elif action == 'add_press':
+        payload.setdefault('press', []).append({
+            'id': _uuid_token(),
+            'url': _clean_public_url(request.form.get('url')),
+            'title': (request.form.get('title') or '').strip(),
+            'image_url': (request.form.get('image_url') or '').strip(),
+            'excerpt': (request.form.get('excerpt') or '').strip(),
+        })
+    elif action == 'delete_press':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['press'] = [x for x in payload.get('press', []) if str(x.get('id')) != rid]
+    elif action == 'add_contact':
+        payload.setdefault('contacts', []).append({
+            'id': _uuid_token(),
+            'role': (request.form.get('role') or '').strip(),
+            'name': (request.form.get('name') or '').strip(),
+            'email': (request.form.get('email') or '').strip(),
+            'phone': (request.form.get('phone') or '').strip(),
+        })
+    elif action == 'delete_contact':
+        rid = (request.form.get('row_id') or '').strip()
+        payload['contacts'] = [x for x in payload.get('contacts', []) if str(x.get('id')) != rid]
+    elif action == 'reorder_press':
+        order = request.form.getlist('order[]')
+        index = {rid: pos for pos, rid in enumerate(order)}
+        payload['press'] = sorted(payload.get('press', []), key=lambda x: index.get(str(x.get('id')), 9999))
+    payload['updated_at'] = _now_madrid().isoformat()
+    setattr(target, payload_attr, payload)
+    if hasattr(target, 'updated_at'):
+        target.updated_at = _now_madrid()
+    return payload
+
+
+@app.post('/artistas/<artist_id>/onesheet', endpoint='artist_onesheet_update')
+@admin_required
+def artist_onesheet_update(artist_id):
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, to_uuid(artist_id))
+        if not artist:
+            abort(404)
+        _ensure_artist_onesheet_token(session_db, artist)
+        _apply_onesheet_form(session_db, artist, 'onesheet_payload')
+        session_db.commit()
+        flash('One-sheet actualizado.', 'success')
+        return redirect(url_for('artist_detail_view', artist_id=artist.id, tab='onesheet'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error actualizando one-sheet: {exc}', 'danger')
+        return redirect(url_for('artist_detail_view', artist_id=artist_id, tab='onesheet'))
+    finally:
+        session_db.close()
+
+
+@app.post('/contratacion/giras-compradas/<slug>/onesheet', endpoint='tour_onesheet_update')
+@admin_required
+def tour_onesheet_update(slug):
+    session_db = db()
+    try:
+        row = session_db.query(TourOneSheet).filter(TourOneSheet.slug == (slug or '').strip()).first()
+        if not row:
+            flash('Gira no encontrada.', 'warning')
+            return redirect(url_for('contracting_view', section='giras-compradas'))
+        _ensure_tour_onesheet_token(session_db, row)
+        _apply_onesheet_form(session_db, row, 'payload')
+        session_db.commit()
+        flash('One-sheet de la gira actualizado.', 'success')
+        return redirect(url_for('tour_detail_view', slug=row.slug, tab='onesheet'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error actualizando one-sheet de gira: {exc}', 'danger')
+        return redirect(url_for('contracting_view', section='giras-compradas'))
+    finally:
+        session_db.close()
+
+
+@app.get('/onesheet/<token>', endpoint='onesheet_public_view')
+def onesheet_public_view(token):
+    session_db = db()
+    try:
+        artist = session_db.query(Artist).filter(Artist.onesheet_public_token == token).first()
+        if artist:
+            ctx = _onesheet_context(session_db, artist=artist, public=True)
+            return render_template('public_onesheet.html', onesheet=ctx, public_mode=True, print_mode=bool(request.args.get('print')))
+        tour = session_db.query(TourOneSheet).filter(TourOneSheet.public_token == token).first()
+        if tour:
+            slug = tour.slug
+            concerts = _tour_concerts_by_slug(session_db, slug)
+            ctx = _onesheet_context(session_db, tour=tour, concerts=concerts, public=True)
+            return render_template('public_onesheet.html', onesheet=ctx, public_mode=True, print_mode=bool(request.args.get('print')))
+        abort(404)
+    finally:
+        session_db.close()
+
+
+def _update_roadmap_and_redirect(session_db, row, payload, target_url):
+    payload['updated_by'] = _email_to_nick(_current_user_email() or '')
+    payload['updated_at'] = _now_madrid().isoformat()
+    _set_roadmap_payload(row, payload)
+    _ensure_roadmap_token(session_db, row)
+    session_db.commit()
+    flash('Hoja de ruta actualizada.', 'success')
+    return redirect(target_url)
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/hotel', endpoint='roadmap_hotel_save')
+@admin_required
+def roadmap_hotel_save(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
+        hotel_id = (request.form.get('hotel_id') or '').strip()
+        hotel = _roadmap_hotel_from_form(hotel_id or None)
+        if not hotel.get('name') and not hotel.get('address'):
+            flash('Indica al menos el hotel o la dirección.', 'warning')
+            return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        rows = payload.setdefault('hotels', [])
+        if hotel_id:
+            replaced = False
+            for idx, current in enumerate(rows):
+                if str(current.get('id')) == hotel_id:
+                    if current.get('voucher_url') and not hotel.get('voucher_url'):
+                        hotel['voucher_url'] = current.get('voucher_url')
+                        hotel['voucher_name'] = current.get('voucher_name')
+                    rows[idx] = hotel
+                    replaced = True
+                    break
+            if not replaced:
+                rows.append(hotel)
+        else:
+            rows.append(hotel)
+        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error guardando alojamiento: {exc}', 'danger')
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/item', endpoint='roadmap_item_save')
+@admin_required
+def roadmap_item_save(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
+        item_id = (request.form.get('item_id') or '').strip()
+        new_item = _roadmap_item_from_form(item_id or None)
+        existing_attachments = []
+        if item_id:
+            for idx, current in enumerate(payload.setdefault('items', [])):
+                if str(current.get('id')) == item_id:
+                    existing_attachments = current.get('attachments') or []
+                    payload['items'][idx] = {**current, **new_item, 'attachments': existing_attachments}
+                    break
+            else:
+                payload['items'].append(new_item)
+        else:
+            payload.setdefault('items', []).append(new_item)
+        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error guardando apunte: {exc}', 'danger')
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/delete', endpoint='roadmap_row_delete')
+@admin_required
+def roadmap_row_delete(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        row_type = (request.form.get('row_type') or 'item').strip().lower()
+        row_id = (request.form.get('row_id') or '').strip()
+        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
+        key = 'hotels' if row_type == 'hotel' else 'items'
+        payload[key] = [x for x in payload.get(key, []) if str(x.get('id')) != row_id]
+        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error eliminando apunte: {exc}', 'danger')
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/toggle', endpoint='roadmap_row_toggle')
+@admin_required
+def roadmap_row_toggle(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        row_id = (request.form.get('row_id') or '').strip()
+        field = (request.form.get('field') or 'is_tbc').strip()
+        if field not in {'is_tbc', 'hide_time'}:
+            field = 'is_tbc'
+        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
+        for item in payload.get('items', []) or []:
+            if str(item.get('id')) == row_id:
+                item[field] = not bool(item.get(field))
+                break
+        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error actualizando apunte: {exc}', 'danger')
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/adjunto', endpoint='roadmap_attachment_upload')
+@admin_required
+def roadmap_attachment_upload(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        row_type = (request.form.get('row_type') or 'item').strip().lower()
+        row_id = (request.form.get('row_id') or '').strip()
+        fs = request.files.get('file')
+        if not fs or not getattr(fs, 'filename', ''):
+            flash('Selecciona un archivo.', 'warning')
+            return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        url = upload_file(fs, 'roadmaps/attachments')
+        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
+        if row_type == 'hotel':
+            for hotel in payload.get('hotels', []) or []:
+                if str(hotel.get('id')) == row_id:
+                    hotel['voucher_url'] = url
+                    hotel['voucher_name'] = fs.filename
+                    break
+        else:
+            for item in payload.get('items', []) or []:
+                if str(item.get('id')) == row_id:
+                    item.setdefault('attachments', []).append({'id': _uuid_token(), 'url': url, 'name': fs.filename, 'kind': (request.form.get('attachment_kind') or 'document').strip(), 'person': (request.form.get('person') or '').strip()})
+                    break
+        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error subiendo adjunto: {exc}', 'danger')
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/email', endpoint='roadmap_email_send')
+@admin_required
+def roadmap_email_send(entity_type, entity_id):
+    session_db = db()
+    try:
+        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        ctx = _roadmap_context(session_db, kind, row, ensure_token=True, public=True)
+        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + re.split(r'[;,\s]+', request.form.get('extra_emails') or ''))
+        if not recipients:
+            flash('Añade al menos un destinatario.', 'warning')
+            return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        html_body = render_template('public_roadmap.html', roadmap=ctx, public_mode=True, email_mode=True, print_mode=False)
+        ok, err = _send_optional_email(recipients, ctx['mail_subject'], html_body)
+        if ok:
+            flash('Hoja de ruta enviada por email.', 'success')
+        else:
+            flash(f'No se pudo enviar el email: {err}', 'warning')
+        session_db.commit()
+        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/<token>', endpoint='roadmap_public_view')
+def roadmap_public_view(token):
+    session_db = db()
+    try:
+        for kind in ['concert', 'action', 'promotion']:
+            _kind, row = _roadmap_entity(session_db, kind, token=token)
+            if row:
+                ctx = _roadmap_context(session_db, kind, row, ensure_token=False, public=True)
+                return render_template('public_roadmap.html', roadmap=ctx, public_mode=True, print_mode=bool(request.args.get('print')), email_mode=False)
+        abort(404)
+    finally:
+        session_db.close()
+
+
+def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
+    rows = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(or_(func.upper(func.coalesce(Concert.sale_type, '')) == 'GIRAS_COMPRADAS', func.upper(func.coalesce(Concert.activity_type, '')) == 'GIRA')).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
+    return [row for row in rows if _tour_group_key(row)[0] == slug]
+
+
+@app.get('/contratacion/giras-compradas/<slug>', endpoint='tour_detail_view')
+@admin_required
+def tour_detail_view(slug):
+    tab = (request.args.get('tab') or 'info').strip().lower()
+    if tab not in {'info', 'conciertos', 'onesheet'}:
+        tab = 'info'
+    session_db = db()
+    try:
+        concerts = _tour_concerts_by_slug(session_db, slug)
+        if not concerts:
+            flash('Gira no encontrada.', 'warning')
+            return redirect(url_for('contracting_view', section='giras-compradas'))
+        slug_key, title = _tour_group_key(concerts[0])
+        artist_ids = []
+        for c in concerts:
+            for aid in _concert_primary_artist_ids(c):
+                sid = str(aid)
+                if sid not in artist_ids:
+                    artist_ids.append(sid)
+        tour = _get_or_create_tour_onesheet(session_db, slug_key, title, artist_ids)
+        session_db.commit()
+        available = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.artist_id.in_(_as_uuid_list(artist_ids))).filter(~Concert.id.in_([c.id for c in concerts])).order_by(Concert.date.asc().nullslast()).limit(200).all() if artist_ids else []
+        onesheet = _onesheet_context(session_db, tour=tour, concerts=concerts, public=False)
+        artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+        promoters = session_db.query(Promoter).options(selectinload(Promoter.companies)).order_by(Promoter.nick.asc()).all()
+        companies = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
+        all_concert_tags = _collect_all_concert_tags(session_db)
+        promoters_payload = [{
+            "id": str(p.id),
+            "nick": (p.nick or "").strip(),
+            "logo_url": (p.logo_url or "").strip(),
+            "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
+        } for p in promoters]
+        return render_template('tour_detail.html', slug=slug_key, title=title, tab=tab, concerts=concerts, available_concerts=available, tour=tour, onesheet=onesheet, artists=artists, promoters=promoters, promoters_payload=promoters_payload, companies=companies, type_choices=type_choices, all_concert_tags=all_concert_tags, CAN_EDIT_CONCERTS=can_edit_concerts())
+    finally:
+        session_db.close()
+
+
+@app.post('/contratacion/giras-compradas/<slug>/conciertos/vincular', endpoint='tour_concert_link_existing')
+@admin_required
+def tour_concert_link_existing(slug):
+    session_db = db()
+    try:
+        target_rows = _tour_concerts_by_slug(session_db, slug)
+        title = _tour_group_key(target_rows[0])[1] if target_rows else slug.replace('-', ' ').title()
+        tag = title
+        ids = [to_uuid(x) for x in request.form.getlist('concert_ids[]') if (x or '').strip()]
+        for cid in ids:
+            row = session_db.get(Concert, cid)
+            if not row:
+                continue
+            row.sale_type = 'GIRAS_COMPRADAS'
+            tags = _concert_tags(row)
+            if tag not in tags:
+                tags.insert(0, tag)
+            row.hashtags = tags
+            row.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Conciertos vinculados a la gira.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error vinculando conciertos: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(url_for('tour_detail_view', slug=slug, tab='conciertos'))
+
 
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
@@ -25045,9 +26122,7 @@ def promotion_detail_view(promotion_id):
             flash('Campaña de marketing no encontrada.', 'warning')
             return redirect(url_for('promocion_view'))
         tab = (request.args.get('tab') or 'informacion').strip().lower()
-        if tab == 'hoja_ruta':
-            tab = 'acciones'
-        if tab not in {'informacion', 'acciones', 'gastos'}:
+        if tab not in {'informacion', 'acciones', 'gastos', 'hoja_ruta'}:
             tab = 'informacion'
         artist_ids = _promotion_normalized_artist_ids(getattr(promotion, 'artist_ids', None) or [])
         artist_rows = []
@@ -25113,6 +26188,8 @@ def promotion_detail_view(promotion_id):
                     'icon': _marketing_action_icon(key),
                     'rows': rows,
                 })
+        roadmap_ctx = _roadmap_context(session_db, 'promotion', promotion, ensure_token=True)
+        session_db.commit()
         return render_template(
             'marketing_detail.html',
             promotion=promotion,
@@ -25138,6 +26215,7 @@ def promotion_detail_view(promotion_id):
             promoter_companies=promoter_companies,
             bags_for_split=bags_for_split,
             marketing_action_status=_marketing_action_status,
+            roadmap_ctx=roadmap_ctx,
         )
     finally:
         session_db.close()
@@ -29634,7 +30712,9 @@ def action_detail_view(action_id):
         artists = _artists_from_ids(session_db, getattr(action, 'artist_ids', []) or [])
         bag = getattr(action, 'bag', None)
         roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
-        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, tab=tab)
+        roadmap_ctx = _roadmap_context(session_db, 'action', action, ensure_token=True)
+        session_db.commit()
+        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab)
     finally:
         session_db.close()
 

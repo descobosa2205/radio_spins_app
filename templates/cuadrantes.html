@@ -284,6 +284,16 @@
   }
 </style>
 
+<ul class="nav nav-pills mb-3 no-print">
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
+  <li class="nav-item"><a class="nav-link active" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
+</ul>
+
 <!-- Cabecera de pantalla (NO se imprime para evitar hoja vacía) -->
 <div class="d-flex align-items-center justify-content-between mb-3 no-print">
   <div>

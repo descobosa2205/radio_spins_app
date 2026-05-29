@@ -1,0 +1,102 @@
+{% set os = onesheet or {} %}
+{% set payload = os.payload or {} %}
+{% set print_url = os.pdf_url or '' %}
+<div class="onesheet-toolbar d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h5 class="mb-1">One-sheet</h5>
+    <div class="text-muted small">Ficha exterior editable. Los módulos vacíos no se muestran en la versión pública ni al imprimir.</div>
+  </div>
+  <div class="dropdown dropdown-menu-portal">
+    <button class="btn btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ print_url }}" target="_blank"><i class="fa fa-file-pdf me-2"></i>Descargar en PDF</a></li>
+      <li><button class="dropdown-item copy-link-btn" type="button" data-copy-url="{{ os.public_url }}"><i class="fa fa-link me-2"></i>Copiar enlace</button></li>
+      <li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ ('Consulta el one-sheet de ' ~ os.title ~ '\n' ~ os.public_url)|urlencode }}"><i class="fa-brands fa-whatsapp me-2"></i>Enviar por WhatsApp</a></li>
+      <li><a class="dropdown-item" href="sms:?&body={{ ('Consulta el one-sheet de ' ~ os.title ~ '\n' ~ os.public_url)|urlencode }}"><i class="fa fa-comment-sms me-2"></i>Enviar por SMS</a></li>
+      <li><a class="dropdown-item" href="mailto:?subject={{ ('One-sheet · ' ~ os.title)|urlencode }}&body={{ os.public_url|urlencode }}"><i class="fa fa-envelope me-2"></i>Enviar por email</a></li>
+      <li><hr class="dropdown-divider"></li>
+      <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#onesheetSettingsModal" type="button"><i class="fa fa-palette me-2"></i>Configurar colores y portada</button></li>
+    </ul>
+  </div>
+</div>
+
+<div class="onesheet-preview" style="--onesheet-bg: {{ payload.background_color or '#ffffff' }}; --onesheet-text: {{ payload.text_color or '#111111' }};">
+  <div class="onesheet-hero" style="background-image: linear-gradient(to bottom, rgba(0,0,0,.05), var(--onesheet-bg)), url('{{ os.hero_url }}'); background-position: {{ payload.hero_focus or '50% 50%' }};">
+    <div class="onesheet-hero-content">
+      <h1>{{ os.title }}</h1>
+      {% if os.socials %}<div class="onesheet-socials">{% for link in os.socials %}<a href="{{ link.url }}" target="_blank" rel="noopener" class="{{ link.class }}"><i class="{{ link.icon }}"></i></a>{% endfor %}</div>{% endif %}
+      <div class="onesheet-stat-row">
+        {% for stat in payload.featured_stats or [] %}
+          <div class="onesheet-stat"><span>{{ stat.label }}</span><strong>{{ stat.value }}</strong>{% if stat.url %}<a href="{{ stat.url }}" target="_blank" rel="noopener"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}</div>
+        {% endfor %}
+        <button class="onesheet-add-mini" data-bs-toggle="modal" data-bs-target="#onesheetStatModal" type="button"><i class="fa fa-plus"></i></button>
+      </div>
+    </div>
+  </div>
+  <div class="onesheet-body">
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-2"><h5>Biografía</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetBioModal"><i class="fa fa-pen"></i></button></div>
+      {% if payload.bio %}<p class="onesheet-bio">{{ payload.bio }}</p>{% else %}<div class="text-muted small">Añade la biografía para que aparezca en la versión pública.</div>{% endif %}
+    </section>
+
+    <div class="row g-3">
+      <div class="col-12 col-xl-4">
+        <section class="onesheet-module h-100">
+          <div class="d-flex justify-content-between align-items-center mb-2"><h5>Premios y reconocimientos</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetAwardModal"><i class="fa fa-plus"></i></button></div>
+          {% for award in payload.awards or [] %}
+            <div class="onesheet-award"><img src="{{ award.icon_url or DEFAULT_PHOTO_URL }}" alt=""><div><strong>{{ award.name }}</strong><div class="small text-muted">{{ award.year }}</div></div><form method="post" action="{{ os.form_action }}" class="ms-auto"><input type="hidden" name="form_action" value="delete_award"><input type="hidden" name="row_id" value="{{ award.id }}"><button class="btn btn-sm btn-link text-danger"><i class="fa fa-trash"></i></button></form></div>
+          {% else %}<div class="text-muted small">Sin premios añadidos.</div>{% endfor %}
+        </section>
+      </div>
+      <div class="col-12 col-xl-8">
+        <section class="onesheet-module h-100">
+          <div class="d-flex justify-content-between align-items-center mb-2"><h5>Último lanzamiento</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetReleaseModal"><i class="fa fa-pen"></i></button></div>
+          {% if os.selected_release %}
+            <div class="d-flex gap-3 align-items-center flex-wrap"><img class="onesheet-release-cover" src="{{ os.selected_release.cover_url or DEFAULT_PHOTO_URL }}" alt=""><div><h6 class="mb-1">{{ os.selected_release.title }}</h6><div class="small text-muted">{{ os.selected_release.type }}{% if os.selected_release.date %} · {{ os.selected_release.date.strftime('%d/%m/%Y') }}{% endif %}</div></div></div>
+          {% else %}<div class="text-muted small">Selecciona un single o álbum.</div>{% endif %}
+        </section>
+      </div>
+    </div>
+
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-3"><h5>Vídeos seleccionados</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetVideoModal"><i class="fa fa-plus"></i></button></div>
+      <div class="row g-3">{% for video in payload.videos or [] %}<div class="col-md-4"><div class="onesheet-video"><div class="onesheet-video-thumb" style="background-image:url('{{ video.thumb_url or DEFAULT_PHOTO_URL }}')"><a href="{{ video.url }}" target="_blank" rel="noopener"><i class="fa-brands fa-youtube"></i></a></div><div class="fw-semibold mt-2">{{ video.title or video.url }}</div><form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="delete_video"><input type="hidden" name="row_id" value="{{ video.id }}"><button class="btn btn-sm btn-link text-danger px-0">Eliminar</button></form></div></div>{% else %}<div class="col-12 text-muted small">Sin vídeos seleccionados.</div>{% endfor %}</div>
+    </section>
+
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-2"><h5>Gira</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetTourModal"><i class="fa fa-pen"></i></button></div>
+      {% if (payload.tour or {}).title %}<h6>{{ (payload.tour or {}).title }}</h6>{% endif %}
+      {% if os.tour_shows %}<div class="onesheet-show-list">{% for show in os.tour_shows %}<a class="onesheet-show" href="{{ url_for('concert_detail_view', cid=show.id) }}"><span class="datebox"><b>{{ show.date.strftime('%d') if show.date else '--' }}</b><small>{{ show.date.strftime('%b %Y') if show.date else 'TBC' }}</small></span><span><strong>{{ show.festival_name or (show.artist.name if show.artist else 'Show') }}</strong><small>{{ show.venue.name if show.venue else (show.manual_venue_name or 'Sin recinto') }}{% if show.venue and show.venue.municipality %} · {{ show.venue.municipality }}{% endif %}</small></span></a>{% endfor %}</div>{% else %}<div class="text-muted small">Sin conciertos seleccionados para la gira.</div>{% endif %}
+    </section>
+
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-3"><h5>Galería de fotos</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetGalleryModal"><i class="fa fa-plus"></i></button></div>
+      <div class="onesheet-gallery">{% for photo in payload.gallery or [] %}<div><a href="{{ photo.url }}" target="_blank" download><img src="{{ photo.url }}" alt=""></a><form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="delete_gallery"><input type="hidden" name="row_id" value="{{ photo.id }}"><button class="btn btn-sm btn-link text-danger px-0">Eliminar</button></form></div>{% else %}<div class="text-muted small">Sin fotos aprobadas añadidas.</div>{% endfor %}</div>
+    </section>
+
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-3"><h5>Notas de prensa</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetPressModal"><i class="fa fa-plus"></i></button></div>
+      <div class="row g-3">{% for press in payload.press or [] %}<div class="col-md-4"><div class="onesheet-press"><img src="{{ press.image_url or DEFAULT_PHOTO_URL }}" alt=""><h6>{{ press.title or press.url }}</h6><p>{{ press.excerpt }}</p><a href="{{ press.url }}" target="_blank" rel="noopener">Ver noticia</a><form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="delete_press"><input type="hidden" name="row_id" value="{{ press.id }}"><button class="btn btn-sm btn-link text-danger px-0">Eliminar</button></form></div></div>{% else %}<div class="col-12 text-muted small">Sin notas de prensa.</div>{% endfor %}</div>
+    </section>
+
+    <section class="onesheet-module">
+      <div class="d-flex justify-content-between align-items-center mb-3"><h5>Contacto</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetContactModal"><i class="fa fa-plus"></i></button></div>
+      <div class="onesheet-contact-row">{% for c in payload.contacts or [] %}<div class="onesheet-contact"><small>{{ c.role }}</small><strong>{{ c.name }}</strong>{% if c.email %}<a href="mailto:{{ c.email }}">{{ c.email }}</a>{% endif %}{% if c.phone %}<a href="tel:{{ c.phone }}">{{ c.phone }}</a>{% endif %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="delete_contact"><input type="hidden" name="row_id" value="{{ c.id }}"><button class="btn btn-sm btn-link text-danger px-0">Eliminar</button></form></div>{% else %}<div class="text-muted small">Sin contactos destacados.</div>{% endfor %}</div>
+    </section>
+  </div>
+</div>
+
+{% macro os_modal(id, title) %}<div class="modal fade" id="{{ id }}" tabindex="-1"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">{{ title }}</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>{{ caller() }}</div></div></div>{% endmacro %}
+
+{% call os_modal('onesheetSettingsModal', 'Configurar one-sheet') %}
+<form method="post" action="{{ os.form_action }}" enctype="multipart/form-data"><input type="hidden" name="form_action" value="settings"><div class="modal-body row g-3"><div class="col-md-4"><label class="form-label">Color de fondo</label><input type="color" class="form-control form-control-color" name="background_color" value="{{ payload.background_color or '#ffffff' }}"></div><div class="col-md-4"><label class="form-label">Color de letra</label><input type="color" class="form-control form-control-color" name="text_color" value="{{ payload.text_color or '#111111' }}"></div><div class="col-md-4"><label class="form-label">Encuadre portada</label><input class="form-control" name="hero_focus" value="{{ payload.hero_focus or '50% 50%' }}" placeholder="50% 50%"></div><div class="col-12"><label class="form-label">Foto de portada</label><input type="file" class="form-control" name="hero_image" accept="image/*"><div class="form-text">Se puede subir una nueva foto. El encuadre se controla con valores tipo “50% 40%”.</div></div></div><div class="modal-footer"><button class="btn btn-primary">Guardar</button></div></form>
+{% endcall %}
+{% call os_modal('onesheetBioModal', 'Biografía') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="bio"><div class="modal-body"><textarea class="form-control" name="bio" rows="8">{{ payload.bio or '' }}</textarea></div><div class="modal-footer"><button class="btn btn-primary">Guardar</button></div></form>{% endcall %}
+{% call os_modal('onesheetStatModal', 'Dato destacado') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="add_stat"><div class="modal-body row g-3"><div class="col-md-4"><label class="form-label">Tipo</label><select class="form-select" name="stat_kind"><option value="spotify_monthly_listeners">Oyentes mensuales Spotify</option><option value="instagram_followers">Seguidores Instagram</option><option value="youtube_views">Reproducciones YouTube</option><option value="youtube_followers">Seguidores YouTube</option><option value="tiktok_followers">Seguidores TikTok</option><option value="text">Texto destacado</option></select></div><div class="col-md-4"><label class="form-label">Etiqueta</label><input class="form-control" name="label"></div><div class="col-md-4"><label class="form-label">Valor</label><input class="form-control" name="value" placeholder="Se puede escribir manualmente"></div><div class="col-12"><label class="form-label">Enlace opcional</label><input class="form-control" name="url" placeholder="https://..."></div><div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" name="manual" value="1" id="statManual"><label for="statManual" class="form-check-label">Desactivar automatización y usar este dato manual</label></div></div><div class="modal-footer"><button class="btn btn-primary">Añadir</button></div></form>{% endcall %}
+{% call os_modal('onesheetAwardModal', 'Añadir premio') %}<form method="post" action="{{ os.form_action }}" enctype="multipart/form-data"><input type="hidden" name="form_action" value="add_award"><div class="modal-body row g-3"><div class="col-md-6"><label class="form-label">Premio</label><input class="form-control" name="name"></div><div class="col-md-3"><label class="form-label">Año</label><input class="form-control" name="year"></div><div class="col-md-3"><label class="form-label">Icono PNG</label><input type="file" class="form-control" name="icon" accept="image/png,image/*"></div></div><div class="modal-footer"><button class="btn btn-primary">Añadir</button></div></form>{% endcall %}
+{% call os_modal('onesheetReleaseModal', 'Último lanzamiento') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="latest_release"><div class="modal-body"><label class="form-label">Seleccionar single o álbum</label><select class="form-select" name="release_id" onchange="this.form.release_type.value=this.options[this.selectedIndex].dataset.type||''">{% for rel in os.releases or [] %}<option value="{{ rel.id }}" data-type="{{ rel.type }}" {% if os.selected_release and rel.id == os.selected_release.id and rel.type == os.selected_release.type %}selected{% endif %}>{{ rel.type }} · {{ rel.title }}{% if rel.date %} · {{ rel.date.strftime('%d/%m/%Y') }}{% endif %}</option>{% endfor %}</select><input type="hidden" name="release_type" value="{{ os.selected_release.type if os.selected_release else '' }}"></div><div class="modal-footer"><button class="btn btn-primary">Guardar</button></div></form>{% endcall %}
+{% call os_modal('onesheetVideoModal', 'Añadir vídeo') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="add_video"><div class="modal-body row g-3"><div class="col-md-6"><label class="form-label">Título</label><input class="form-control" name="title"></div><div class="col-md-6"><label class="form-label">Link de YouTube</label><input class="form-control" name="url"></div><div class="col-12"><label class="form-label">Miniatura opcional</label><input class="form-control" name="thumb_url" placeholder="https://..."></div></div><div class="modal-footer"><button class="btn btn-primary">Añadir</button></div></form>{% endcall %}
+{% call os_modal('onesheetTourModal', 'Configurar gira') %}<form method="post" action="{{ os.form_action }}" enctype="multipart/form-data"><input type="hidden" name="form_action" value="tour"><div class="modal-body"><label class="form-label">Título de la gira</label><input class="form-control mb-3" name="tour_title" value="{{ (payload.tour or {}).title or '' }}"><label class="form-label">PNG de título opcional</label><input type="file" class="form-control mb-3" name="tour_title_png" accept="image/png,image/*"><label class="form-label">Conciertos a mostrar</label><div class="list-group">{% for show in os.tour_shows or [] %}<label class="list-group-item"><input type="checkbox" name="show_ids[]" value="{{ show.id }}" checked> {{ show.date.strftime('%d/%m/%Y') if show.date else 'Sin fecha' }} · {{ show.festival_name or (show.artist.name if show.artist else 'Show') }}</label>{% else %}<div class="text-muted small">No hay conciertos disponibles.</div>{% endfor %}</div></div><div class="modal-footer"><button class="btn btn-primary">Guardar</button></div></form>{% endcall %}
+{% call os_modal('onesheetGalleryModal', 'Añadir fotos') %}<form method="post" action="{{ os.form_action }}" enctype="multipart/form-data"><input type="hidden" name="form_action" value="add_gallery"><div class="modal-body"><label class="form-label">Concepto</label><input class="form-control mb-3" name="concept" placeholder="Promo, directo, press kit..."><label class="form-label">Fotos aprobadas</label><input type="file" class="form-control" name="gallery_photos[]" accept="image/*" multiple></div><div class="modal-footer"><button class="btn btn-primary">Subir</button></div></form>{% endcall %}
+{% call os_modal('onesheetPressModal', 'Añadir nota de prensa') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="add_press"><div class="modal-body row g-3"><div class="col-12"><label class="form-label">Link de la noticia</label><input class="form-control" name="url"></div><div class="col-md-6"><label class="form-label">Titular</label><input class="form-control" name="title"></div><div class="col-md-6"><label class="form-label">Foto destacada</label><input class="form-control" name="image_url"></div><div class="col-12"><label class="form-label">Primeras líneas</label><textarea class="form-control" name="excerpt" rows="3"></textarea></div></div><div class="modal-footer"><button class="btn btn-primary">Añadir</button></div></form>{% endcall %}
+{% call os_modal('onesheetContactModal', 'Añadir contacto') %}<form method="post" action="{{ os.form_action }}"><input type="hidden" name="form_action" value="add_contact"><div class="modal-body row g-3"><div class="col-md-6"><label class="form-label">Cargo</label><input class="form-control" name="role"></div><div class="col-md-6"><label class="form-label">Nombre</label><input class="form-control" name="name"></div><div class="col-md-6"><label class="form-label">Email</label><input type="email" class="form-control" name="email"></div><div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="phone"></div></div><div class="modal-footer"><button class="btn btn-primary">Añadir</button></div></form>{% endcall %}

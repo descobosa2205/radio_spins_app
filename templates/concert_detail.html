@@ -497,16 +497,7 @@
       </div>
 
       <div class="tab-pane fade" id="prod-roadmap">
-        <div class="card">
-          <div class="card-body">
-            <form method="post" action="{{ url_for('concert_roadmap_update', cid=concert.id) }}" class="row g-3">
-              <div class="col-md-4"><label class="form-label">Hora de convocatoria</label><input class="form-control" name="call_time" value="{{ production_panel.roadmap.call_time or '' }}"></div>
-              <div class="col-12"><label class="form-label">Notas de viaje</label><textarea class="form-control" name="travel_notes" rows="3">{{ production_panel.roadmap.travel_notes or '' }}</textarea></div>
-              <div class="col-12"><label class="form-label">Notas de producción</label><textarea class="form-control" name="production_notes" rows="3">{{ production_panel.roadmap.production_notes or '' }}</textarea></div>
-              <div class="col-12 text-end"><button class="btn btn-primary btn-sm">Guardar hoja de ruta</button></div>
-            </form>
-          </div>
-        </div>
+        {% include "_roadmap_panel.html" %}
       </div>
 
       <div class="tab-pane fade" id="prod-budget">

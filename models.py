@@ -45,6 +45,9 @@ class Artist(Base):
     name = Column(Text, nullable=False, unique=True)
     photo_url = Column(Text)
     email = Column(Text)
+    social_links = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    onesheet_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    onesheet_public_token = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     people = relationship(
@@ -1042,6 +1045,7 @@ class Concert(Base):
     # el formulario público y con el panel operativo de Producción.
     production_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    roadmap_public_token = Column(Text)
     contract_form_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     production_status = Column(Text)
 
@@ -1981,6 +1985,7 @@ class CompanyAction(Base):
     announcement_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    roadmap_public_token = Column(Text)
     source_request_id = Column(PGUUID(as_uuid=True), ForeignKey("company_action_requests.id", ondelete="SET NULL"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
@@ -2014,6 +2019,8 @@ class Promotion(Base):
     source_request_id = Column(PGUUID(as_uuid=True), ForeignKey("promotion_requests.id", ondelete="SET NULL"))
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
     bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    roadmap_public_token = Column(Text)
     objectives_notes = Column(Text)
     budget_notes = Column(Text)
     request_kind = Column(Text, nullable=False, server_default=text("'PLAN'"))
@@ -2349,51 +2356,74 @@ class InvoiceRecord(Base):
 
 
 
-class EmbargoOrder(Base):
-    """Órdenes de embargo o levantamiento subidas desde Administración.
 
-    Estados usados por la app:
-    - ACTIVA: embargo enlazado y vigente.
-    - PENDIENTE: embargo vigente no enlazado a un tercero.
-    - REVISAR: hay un tercero candidato pero la coincidencia no es exacta.
-    - ARCHIVADA / LEVANTADA: no bloquea nuevos gastos ni facturas.
-    """
+class TourOneSheet(Base):
+    """One-sheet editable para giras compradas agrupadas por slug."""
+
+    __tablename__ = "tour_onesheets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    slug = Column(Text, nullable=False, unique=True)
+    title = Column(Text, nullable=False)
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    cover_url = Column(Text)
+    background_color = Column(Text, nullable=False, server_default=text("'#ffffff'"))
+    text_color = Column(Text, nullable=False, server_default=text("'#111111'"))
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    public_token = Column(Text, unique=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_tour_onesheets_slug", "slug"),
+        Index("idx_tour_onesheets_token", "public_token"),
+    )
+
+class EmbargoOrder(Base):
+    """Órdenes de embargo o levantamiento subidas desde Administración."""
 
     __tablename__ = "embargo_orders"
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     order_type = Column(Text, nullable=False, server_default=text("'EMBARGO'"))  # EMBARGO | LEVANTAMIENTO | DESCONOCIDO
-    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))
+    status = Column(Text, nullable=False, server_default=text("'PENDIENTE'"))  # ACTIVA | PENDIENTE | REVISAR | ARCHIVADA
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     provider_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
-    document_reference = Column(Text)
-    diligence_number = Column(Text)
-    order_date = Column(Date)
-    amount = Column(Numeric, nullable=False, server_default=text("0"))
     detected_name = Column(Text)
     detected_tax_id = Column(Text)
     detected_address = Column(Text)
+    reference = Column(Text)
+    diligence_number = Column(Text)
+    order_date = Column(Date)
+    amount_total = Column(Numeric)
     detected_text = Column(Text)
-    match_score = Column(Numeric, nullable=False, server_default=text("0"))
-    match_reason = Column(Text)
-    lifted_by_order_id = Column(PGUUID(as_uuid=True), ForeignKey("embargo_orders.id", ondelete="SET NULL"))
-    lifted_at = Column(DateTime(timezone=True))
-    archived_at = Column(DateTime(timezone=True))
-    archived_reason = Column(Text)
     pdf_url = Column(Text)
     pdf_name = Column(Text)
+    suggested_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    match_score = Column(Numeric)
+    match_label = Column(Text)
+    related_embargo_id = Column(PGUUID(as_uuid=True), ForeignKey("embargo_orders.id", ondelete="SET NULL"))
     uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     uploaded_by_nick = Column(Text)
+    archived_at = Column(DateTime(timezone=True))
+    archived_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    archived_by_nick = Column(Text)
+    archive_reason = Column(Text)
+    notified_at = Column(DateTime(timezone=True))
+    notified_emails = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     promoter = relationship("Promoter", foreign_keys=[promoter_id])
-    lifted_by_order = relationship("EmbargoOrder", remote_side=[id], foreign_keys=[lifted_by_order_id])
+    suggested_promoter = relationship("Promoter", foreign_keys=[suggested_promoter_id])
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_user_id])
+    archived_by = relationship("User", foreign_keys=[archived_by_user_id])
+    related_embargo = relationship("EmbargoOrder", remote_side=[id])
 
     __table_args__ = (
         Index("idx_embargo_orders_type_status", "order_type", "status"),
         Index("idx_embargo_orders_promoter", "promoter_id"),
+        Index("idx_embargo_orders_suggested_promoter", "suggested_promoter_id"),
         Index("idx_embargo_orders_tax_status", "detected_tax_id", "status"),
         Index("idx_embargo_orders_created", "created_at"),
     )
@@ -4249,21 +4279,90 @@ def ensure_contracting_embargo_schema():
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS equipment_payload jsonb DEFAULT '{}'::jsonb",
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS promoter_costs_payload jsonb DEFAULT '{}'::jsonb",
         "ALTER TABLE concerts ADD COLUMN IF NOT EXISTS commission_payload jsonb DEFAULT '[]'::jsonb",
-        "CREATE TABLE IF NOT EXISTS embargo_orders (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), order_type text NOT NULL DEFAULT 'EMBARGO', status text NOT NULL DEFAULT 'PENDIENTE', promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL, provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb, document_reference text, diligence_number text, order_date date, amount numeric NOT NULL DEFAULT 0, detected_name text, detected_tax_id text, detected_address text, detected_text text, match_score numeric NOT NULL DEFAULT 0, match_reason text, lifted_by_order_id uuid REFERENCES embargo_orders(id) ON DELETE SET NULL, lifted_at timestamptz, archived_at timestamptz, archived_reason text, pdf_url text, pdf_name text, uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL, uploaded_by_nick text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS document_reference text",
+        "CREATE TABLE IF NOT EXISTS embargo_orders (id uuid PRIMARY KEY DEFAULT uuid_generate_v4(), order_type text NOT NULL DEFAULT 'EMBARGO', status text NOT NULL DEFAULT 'PENDIENTE', promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL, provider_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb, detected_name text, detected_tax_id text, detected_text text, pdf_url text, pdf_name text, uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL, uploaded_by_nick text, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now())",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS detected_address text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS reference text",
         "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS diligence_number text",
         "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS order_date date",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS amount numeric NOT NULL DEFAULT 0",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS detected_address text",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_score numeric NOT NULL DEFAULT 0",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_reason text",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS lifted_by_order_id uuid REFERENCES embargo_orders(id) ON DELETE SET NULL",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS lifted_at timestamptz",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS amount_total numeric",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS suggested_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_score numeric",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS match_label text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS related_embargo_id uuid REFERENCES embargo_orders(id) ON DELETE SET NULL",
         "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_at timestamptz",
-        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_reason text",
-        "UPDATE embargo_orders SET status = 'ACTIVA' WHERE status = 'VINCULADA' AND order_type = 'EMBARGO'",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archived_by_nick text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS archive_reason text",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS notified_at timestamptz",
+        "ALTER TABLE embargo_orders ADD COLUMN IF NOT EXISTS notified_emails jsonb NOT NULL DEFAULT '[]'::jsonb",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_type_status ON embargo_orders(order_type, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_promoter ON embargo_orders(promoter_id)",
+        "CREATE INDEX IF NOT EXISTS idx_embargo_orders_suggested_promoter ON embargo_orders(suggested_promoter_id)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_tax_status ON embargo_orders(detected_tax_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
     ], "contracting_embargo_schema")
+
+def ensure_roadmap_onesheet_schema():
+    """Asegura campos de hoja de ruta avanzada, redes sociales y one-sheets."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        ALTER TABLE IF EXISTS artists
+            ADD COLUMN IF NOT EXISTS social_links jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS onesheet_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS onesheet_public_token text;
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_artists_onesheet_public_token ON artists(onesheet_public_token) WHERE onesheet_public_token IS NOT NULL AND onesheet_public_token <> '';",
+        """
+        ALTER TABLE IF EXISTS concerts
+            ADD COLUMN IF NOT EXISTS roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS roadmap_public_token text;
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_concerts_roadmap_public_token ON concerts(roadmap_public_token) WHERE roadmap_public_token IS NOT NULL AND roadmap_public_token <> '';",
+        """
+        ALTER TABLE IF EXISTS promotions
+            ADD COLUMN IF NOT EXISTS roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS roadmap_public_token text;
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_promotions_roadmap_public_token ON promotions(roadmap_public_token) WHERE roadmap_public_token IS NOT NULL AND roadmap_public_token <> '';",
+        """
+        ALTER TABLE IF EXISTS company_actions
+            ADD COLUMN IF NOT EXISTS roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            ADD COLUMN IF NOT EXISTS roadmap_public_token text;
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_company_actions_roadmap_public_token ON company_actions(roadmap_public_token) WHERE roadmap_public_token IS NOT NULL AND roadmap_public_token <> '';",
+        """
+        CREATE TABLE IF NOT EXISTS tour_onesheets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            slug text NOT NULL UNIQUE,
+            title text NOT NULL,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            cover_url text,
+            background_color text NOT NULL DEFAULT '#ffffff',
+            text_color text NOT NULL DEFAULT '#111111',
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            public_token text UNIQUE,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_tour_onesheets_slug ON tour_onesheets(slug);",
+        "CREATE INDEX IF NOT EXISTS idx_tour_onesheets_token ON tour_onesheets(public_token);",
+        """
+        INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
+        VALUES
+          ('artists.onesheet', 'artists', 'artists', 'One-sheet', 'TAB', false, 24),
+          ('contratacion.giras.onesheet', 'contratacion.giras', 'contratacion', 'One-sheet de giras', 'TAB', false, 68)
+        ON CONFLICT (key) DO UPDATE SET
+          parent_key = EXCLUDED.parent_key,
+          section_key = EXCLUDED.section_key,
+          label = EXCLUDED.label,
+          level = EXCLUDED.level,
+          economic_capable = EXCLUDED.economic_capable,
+          sort_order = EXCLUDED.sort_order,
+          updated_at = now();
+        """,
+    ]
+    _exec_ddl_statements(stmts, "roadmap_onesheets")
+

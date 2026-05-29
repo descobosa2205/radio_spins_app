@@ -38,6 +38,7 @@
 <ul class="nav nav-tabs mb-4">
   <li class="nav-item"><a class="nav-link {% if tab == 'informacion' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='informacion') }}">Información</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='acciones') }}">Acciones</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'hoja_ruta' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='hoja_ruta') }}">Hoja de ruta</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('promotion_detail_view', promotion_id=promotion.id, tab='gastos') }}">Gastos / facturas</a></li>
 </ul>
 
@@ -121,16 +122,6 @@
                       <div class="small text-muted mt-2">
                         {% if row.provider %}Proveedor: {{ row.provider.nick }}{% if row.provider_company %} · {{ row.provider_company.legal_name or row.provider_company.name }}{% endif %}{% else %}Proveedor pendiente{% endif %}
                       </div>
-                      {% set m_alert = marketing_embargo_alerts.get(row.id|string) if marketing_embargo_alerts is defined else None %}
-                      {% if m_alert %}
-                        <div class="alert alert-warning border-warning-subtle mt-2 mb-0 py-2 small">
-                          <i class="fa fa-triangle-exclamation me-1"></i>
-                          <strong>{{ m_alert.message }}</strong>
-                          {% if m_alert.order %}
-                            <span class="d-block text-muted">Orden {{ m_alert.order.document_reference or m_alert.order.diligence_number or m_alert.order.detected_tax_id }}{% if m_alert.order.order_date %} · desde {{ m_alert.order.order_date.strftime('%d/%m/%Y') }}{% endif %}</span>
-                          {% endif %}
-                        </div>
-                      {% endif %}
                     </div>
                   </div>
                   <div class="text-end">
@@ -177,6 +168,8 @@
   {% if can_edit_promocion %}
   <div class="modal fade" id="marketingActionModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl modal-dialog-scrollable"><form class="modal-content" method="post" enctype="multipart/form-data" action="{{ url_for('promotion_activity_create', promotion_id=promotion.id) }}"><input type="hidden" name="next" value="{{ request.url }}"><div class="modal-header"><h5 class="modal-title">Nueva acción de marketing</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body">{% include 'marketing_action_form_fields.html' ignore missing %}</div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Añadir acción</button></div></form></div></div>
   {% endif %}
+{% elif tab == 'hoja_ruta' %}
+  {% include "_roadmap_panel.html" %}
 {% else %}
   <div class="card"><div class="card-body">
     <h5 class="mb-3">Gastos y facturas de marketing</h5>

@@ -20,25 +20,47 @@
   <li class="nav-item"><a class="nav-link {% if section=='simulaciones' %}active{% endif %}" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
 </ul>
 
-<div class="card">
-  <div class="card-body p-0">
-    {% for concert in rows %}
-      <a href="{{ url_for('concert_detail_view', cid=concert.id) }}" class="d-flex align-items-center gap-3 p-3 border-bottom text-decoration-none text-reset">
-        <img src="{{ concert.artist.photo_url if concert.artist and concert.artist.photo_url else url_for('static', filename='img/logo.png') }}" alt="" style="width:54px;height:54px;object-fit:cover;border-radius:14px;">
-        <div class="flex-grow-1" style="min-width:0;">
-          <div class="fw-semibold text-truncate">{{ concert.festival_name or concert.artist.name if concert.artist else 'Actividad' }}</div>
-          <div class="small text-muted text-truncate">
-            {{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}
+{% if section == 'giras-compradas' %}
+  <div class="row g-3">
+    {% for group in tour_groups %}
+      <div class="col-12 col-lg-6 col-xl-4">
+        <a href="{{ url_for('tour_detail_view', slug=group.slug) }}" class="tour-card text-decoration-none text-reset d-block h-100">
+          <div class="d-flex gap-3 align-items-center">
+            {% set first_artist = group.artists[0] if group.artists else None %}
+            <img src="{{ first_artist.photo_url if first_artist and first_artist.photo_url else DEFAULT_PHOTO_URL }}" alt="" class="tour-card-img" data-default-photo="1">
+            <div class="flex-grow-1" style="min-width:0;">
+              <h5 class="mb-1 text-truncate">{{ group.title }}</h5>
+              <div class="small text-muted text-truncate">{% for artist in group.artists %}{{ artist.name }}{% if not loop.last %}, {% endif %}{% else %}Sin artista{% endfor %}</div>
+              <div class="d-flex gap-2 flex-wrap mt-2"><span class="badge text-bg-light border">{{ group.concerts|length }} conciertos</span>{% if group.start %}<span class="badge text-bg-light border">{{ group.start.strftime('%d/%m/%Y') }}{% if group.end and group.end != group.start %} - {{ group.end.strftime('%d/%m/%Y') }}{% endif %}</span>{% endif %}</div>
+            </div>
           </div>
-        </div>
-        <span class="badge text-bg-light border">{{ concert.activity_type or concert.sale_type }}</span>
-        <span class="badge text-bg-warning text-dark">{{ concert.status or 'HABLADO' }}</span>
-      </a>
+        </a>
+      </div>
     {% else %}
-      <div class="p-4 text-muted">{{ empty_message }}</div>
+      <div class="col-12"><div class="alert alert-light border">{{ empty_message }}</div></div>
     {% endfor %}
   </div>
-</div>
+{% else %}
+  <div class="card">
+    <div class="card-body p-0">
+      {% for concert in rows %}
+        <a href="{{ url_for('concert_detail_view', cid=concert.id) }}" class="d-flex align-items-center gap-3 p-3 border-bottom text-decoration-none text-reset">
+          <img src="{{ concert.artist.photo_url if concert.artist and concert.artist.photo_url else DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:54px;height:54px;object-fit:cover;border-radius:14px;">
+          <div class="flex-grow-1" style="min-width:0;">
+            <div class="fw-semibold text-truncate">{{ concert.festival_name or concert.artist.name if concert.artist else 'Actividad' }}</div>
+            <div class="small text-muted text-truncate">
+              {{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}
+            </div>
+          </div>
+          <span class="badge text-bg-light border">{{ concert.activity_type or concert.sale_type }}</span>
+          <span class="badge text-bg-warning text-dark">{{ concert.status or 'HABLADO' }}</span>
+        </a>
+      {% else %}
+        <div class="p-4 text-muted">{{ empty_message }}</div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
 
 {% include "_concert_wizard_modal.html" %}
 {% endblock %}

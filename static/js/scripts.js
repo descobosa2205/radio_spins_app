@@ -1050,6 +1050,62 @@ function initUsageOrderedOverflowNav(){
   window.addEventListener('load', () => window.requestAnimationFrame(applyOverflow));
   setTimeout(applyOverflow, 50);
 }
+
+function initCopyLinkButtons(){
+  document.querySelectorAll('.copy-link-btn[data-copy-url]').forEach((btn) => {
+    if (btn.dataset.copyBound === '1') return;
+    btn.dataset.copyBound = '1';
+    btn.addEventListener('click', async () => {
+      const value = btn.dataset.copyUrl || '';
+      if (!value) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(value);
+        else {
+          const ta = document.createElement('textarea');
+          ta.value = value;
+          ta.style.position = 'fixed';
+          ta.style.left = '-9999px';
+          document.body.appendChild(ta);
+          ta.focus();
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        const original = btn.innerHTML;
+        btn.innerHTML = '<i class="fa fa-check me-1"></i>Copiado';
+        setTimeout(() => { btn.innerHTML = original; }, 1400);
+      } catch (err) {
+        console.error(err);
+        alert('No se pudo copiar el enlace.');
+      }
+    });
+  });
+}
+
+function initRoadmapUI(){
+  document.querySelectorAll('[data-roadmap-panel]').forEach((panel) => {
+    if (panel.dataset.roadmapBound === '1') return;
+    panel.dataset.roadmapBound = '1';
+    const setView = (view) => {
+      panel.querySelectorAll('[data-roadmap-view]').forEach((btn) => btn.classList.toggle('active', btn.dataset.roadmapView === view));
+      panel.querySelectorAll('[data-roadmap-view-pane]').forEach((pane) => pane.classList.toggle('d-none', pane.dataset.roadmapViewPane !== view));
+    };
+    panel.querySelectorAll('[data-roadmap-view]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.roadmapView || 'list')));
+  });
+  document.querySelectorAll('[data-roadmap-add-song]').forEach((btn) => {
+    if (btn.dataset.bound === '1') return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', () => {
+      const wrap = btn.closest('.modal-body')?.querySelector('[data-roadmap-repertoire-list]');
+      if (!wrap) return;
+      const row = document.createElement('div');
+      row.className = 'row g-2 mb-2';
+      row.innerHTML = '<div class="col-md-5"><input class="form-control" name="repertoire_title[]" placeholder="Canción"></div><div class="col-md-3"><select class="form-select" name="repertoire_mode[]"><option value="DIRECTO">Directo</option><option value="HALF_PLAYBACK">Half playback</option><option value="FULL_PLAYBACK">Full playback</option></select></div><div class="col-md-4"><input class="form-control" name="repertoire_note[]" placeholder="Nota"></div>';
+      wrap.appendChild(row);
+    });
+  });
+}
+
 // IMPORTANTE:
 // Si cualquier inicializador lanza excepción, se cortaba el resto y algunas
 // interacciones (p.ej. abrir ficha de canción al clickar una fila) dejaban de funcionar.
@@ -1060,6 +1116,8 @@ $(function(){
   try { initDropdownOverflowFix(); } catch (e) { console.error('initDropdownOverflowFix', e); }
   try { initVisualChoiceCards(); } catch (e) { console.error('initVisualChoiceCards', e); }
   try { initUsageOrderedOverflowNav(); } catch (e) { console.error('initUsageOrderedOverflowNav', e); }
+  try { initCopyLinkButtons(); } catch (e) { console.error('initCopyLinkButtons', e); }
+  try { initRoadmapUI(); } catch (e) { console.error('initRoadmapUI', e); }
   try { initIncomeModals(); } catch (e) { console.error('initIncomeModals', e); }
   try { initArtistContractControls(); } catch (e) { console.error('initArtistContractControls', e); }
   try { initClickableRows(); } catch (e) { console.error('initClickableRows', e); }

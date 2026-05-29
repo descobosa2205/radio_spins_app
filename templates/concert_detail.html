@@ -23,47 +23,90 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">Volver</a>
-    {% if CAN_EDIT_CONCERTS %}<a class="btn btn-primary" href="{{ url_for('concert_edit_view', cid=concert.id) }}">Editar concierto</a>{% endif %}
+    {% if CAN_EDIT_CONCERTS %}
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">Solicitar ficha al promotor</button>
+      <a class="btn btn-primary" href="{{ url_for('concert_edit_view', cid=concert.id) }}">Editar</a>
+    {% endif %}
   </div>
 </div>
 
 <ul class="nav nav-tabs mb-0">
-  <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Información general</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
   <li class="nav-item"><a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='marketing') }}">Marketing</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha de contratación</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha promotor</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
   {% if tab == 'general' %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
+      <div>
+        <h5 class="mb-1">Ficha de contratación</h5>
+        <div class="text-muted small">Información consolidada de la actividad. Los campos vacíos no se muestran en esta vista.</div>
+      </div>
+      <div class="d-flex gap-2 flex-wrap">
+        {% if contract_sheet_status == 'RECEIVED' %}
+          <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Importar datos recibidos</a>
+        {% endif %}
+        {% if CAN_EDIT_CONCERTS %}<a class="btn btn-outline-primary btn-sm" href="{{ url_for('concert_edit_view', cid=concert.id) }}">Editar ficha</a>{% endif %}
+      </div>
+    </div>
+
+    {% if contract_sheet_status == 'RECEIVED' %}
+      <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <strong>Recibida ficha de contratación</strong>
+          {% if concert.contract_sheet and concert.contract_sheet.submitted_at %} el {{ concert.contract_sheet.submitted_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}.
+          Revisa los campos enviados por el promotor antes de consolidarlos.
+        </div>
+        <a class="btn btn-sm btn-dark" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Importar datos</a>
+      </div>
+    {% endif %}
+
     <div class="row g-3">
-      <div class="col-12 col-xl-6">
+      <div class="col-12 col-xl-5">
         <div class="card h-100">
           <div class="card-body">
-            <h6 class="mb-3">Datos del concierto</h6>
-            <table class="table table-sm mb-0">
-              <tbody>
-                <tr><th style="width:220px;">Artista</th><td>{{ concert.artist.name if concert.artist else '—' }}</td></tr>
-                <tr><th>Fecha</th><td>{{ concert.date.strftime('%d/%m/%Y') if concert.date else '—' }}</td></tr>
-                <tr><th>Estado</th><td>{{ concert.status }}</td></tr>
-                <tr><th>Tipo</th><td>{{ sale_type_label }}</td></tr>
-                <tr><th>Festival / evento</th><td>{{ concert.festival_name or '—' }}</td></tr>
-                <tr><th>Empresa que factura</th><td>{{ concert.billing_company.name if concert.billing_company else '—' }}</td></tr>
-                <tr><th>Promotor</th><td>{{ concert.promoter.nick if concert.promoter else '—' }}</td></tr>
-                <tr><th>Sociedad promotor</th><td>{{ concert.promoter_company.legal_name if concert.promoter_company else '—' }}</td></tr>
-                <tr><th>Recinto</th><td>{{ concert.venue.name if concert.venue else (concert.manual_venue_name or '—') }}</td></tr>
-                <tr><th>Municipio</th><td>{{ concert.venue.municipality if concert.venue else (concert.manual_municipality or '—') }}</td></tr>
-                <tr><th>Provincia</th><td>{{ concert.venue.province if concert.venue else (concert.manual_province or '—') }}</td></tr>
-                <tr><th>Dirección</th><td>{{ concert.venue.address if concert.venue else (concert.manual_venue_address or '—') }}</td></tr>
-                <tr><th>Código postal</th><td>{{ concert.manual_postal_code or '—' }}</td></tr>
-                <tr><th>Hora show</th><td>{% if concert.show_time_tbc %}<span class="badge bg-danger">TBC</span>{% else %}{{ concert.show_time or '—' }}{% endif %}</td></tr>
-                <tr><th>Apertura puertas</th><td>{% if concert.doors_time_tbc %}<span class="badge bg-danger">TBC</span>{% else %}{{ concert.doors_time or '—' }}{% endif %}</td></tr>
-                <tr><th>Salida a la venta</th><td>{% if concert.sale_start_tbc %}<span class="badge bg-danger">TBC</span>{% elif concert.sale_start_date %}{{ concert.sale_start_date.strftime('%d/%m/%Y') }}{% else %}—{% endif %}</td></tr>
-                <tr><th>Aforo</th><td>{% if concert.no_capacity %}Sin aforo{% else %}{{ concert.capacity|k }}{% endif %}</td></tr>
-                {% if concert.break_even_ticket %}<tr><th>Punto de empate</th><td>{{ concert.break_even_ticket|k }}</td></tr>{% endif %}
-              </tbody>
-            </table>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+              <h6 class="mb-0">Recinto</h6>
+              {% if concert.venue %}<a class="small" href="{{ url_for('venue_detail_view', vid=concert.venue.id) }}">Ver ficha</a>{% endif %}
+            </div>
+            <div class="d-flex gap-3 align-items-start">
+              <img src="{{ (concert.venue.photo_url if concert.venue else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:112px;height:84px;border-radius:14px;object-fit:cover;">
+              <div>
+                <div class="fw-semibold">{{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Recinto pendiente') }}</div>
+                {% if concert.venue %}
+                  {% if concert.venue.address %}<div class="small text-muted">{{ concert.venue.address }}</div>{% endif %}
+                  <div class="small text-muted">{{ concert.venue.municipality or '' }}{% if concert.venue.province %} · {{ concert.venue.province }}{% endif %}</div>
+                {% else %}
+                  {% if concert.manual_venue_address %}<div class="small text-muted">{{ concert.manual_venue_address }}</div>{% endif %}
+                  <div class="small text-muted">{{ concert.manual_municipality or '' }}{% if concert.manual_province %} · {{ concert.manual_province }}{% endif %}</div>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-xl-7">
+        <div class="card h-100">
+          <div class="card-body">
+            <h6 class="mb-3">Datos consolidados</h6>
+            {% if contracting_general_rows %}
+              <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                  <tbody>
+                    {% for row in contracting_general_rows %}
+                      <tr><th style="width:240px;">{{ row.label }}</th><td>{{ row.value }}</td></tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% else %}
+              <div class="text-muted">No hay campos cumplimentados todavía.</div>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -71,26 +114,24 @@
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-body">
-            <h6 class="mb-3">Ventas y resumen</h6>
-            <table class="table table-sm mb-0">
-              <tbody>
-                <tr><th style="width:220px;">Aforo a la venta</th><td>{{ capacity_sale|k }}</td></tr>
-                <tr><th>Vendidas total</th><td>{{ sold_total|k }}</td></tr>
-                <tr><th>Vendidas hoy</th><td>{{ sold_today|k }}</td></tr>
-                <tr><th>Pendientes</th><td>{{ remaining_tickets|k }}</td></tr>
-                <tr><th>Bruto total</th><td>{{ gross_total|eur }}</td></tr>
-                <tr><th>Base sin IVA</th><td>{{ net_breakdown.base_no_vat|eur }}</td></tr>
-                <tr><th>IVA</th><td>{{ net_breakdown.vat_amount|eur }}</td></tr>
-                <tr><th>SGAE</th><td>{{ net_breakdown.sgae_amount|eur }}</td></tr>
-                <tr><th>Neto estimado</th><td>{{ net_breakdown.net|eur }}</td></tr>
-                <tr><th>Formas de pago</th><td>{{ payment_terms|length }}</td></tr>
-                <tr><th>Total pagos configurados</th><td>{{ payment_total_configured|eur }}</td></tr>
-                <tr><th>Total pendiente</th><td>{{ payment_pending|eur }}</td></tr>
-              </tbody>
-            </table>
-            {% if payment_terms %}
-              <hr>
-              <div class="fw-semibold mb-2">Pagos configurados</div>
+            <h6 class="mb-3">Ventas y facturación</h6>
+            <div class="row g-2 small">
+              {% if capacity_sale %}<div class="col-6"><span class="text-muted">Aforo a la venta</span><div class="fw-semibold">{{ capacity_sale|k }}</div></div>{% endif %}
+              {% if sold_total %}<div class="col-6"><span class="text-muted">Vendidas total</span><div class="fw-semibold">{{ sold_total|k }}</div></div>{% endif %}
+              {% if gross_total %}<div class="col-6"><span class="text-muted">Bruto total</span><div class="fw-semibold">{{ gross_total|eur }}</div></div>{% endif %}
+              {% if net_breakdown.net %}<div class="col-6"><span class="text-muted">Neto estimado</span><div class="fw-semibold">{{ net_breakdown.net|eur }}</div></div>{% endif %}
+              {% if payment_terms %}<div class="col-6"><span class="text-muted">Pagos configurados</span><div class="fw-semibold">{{ payment_terms|length }}</div></div>{% endif %}
+              {% if payment_pending %}<div class="col-6"><span class="text-muted">Pendiente de facturar/cobrar</span><div class="fw-semibold">{{ payment_pending|eur }}</div></div>{% endif %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {% if payment_terms %}
+        <div class="col-12">
+          <div class="card">
+            <div class="card-body">
+              <h6 class="mb-3">Plan de facturación / cobro</h6>
               <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                   <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th><th>Fecha límite</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
@@ -126,99 +167,25 @@
                   </tbody>
                 </table>
               </div>
-            {% endif %}
+            </div>
           </div>
         </div>
-      </div>
+      {% endif %}
 
       <div class="col-12 col-xl-6">
         <div class="card h-100">
           <div class="card-body">
-            <h6 class="mb-3">Participaciones y comisiones</h6>
-            {% if concert.promoter_shares %}
-              <div class="mb-3">
-                <div class="fw-semibold mb-2">Socios / colaboradores</div>
-                <div class="list-group">
-                  {% for row in concert.promoter_shares %}
-                    <div class="list-group-item d-flex justify-content-between flex-wrap gap-2">
-                      <div>
-                        {{ row.promoter.nick if row.promoter else '—' }}
-                        {% if row.promoter_company %}<span class="text-muted">· {{ row.promoter_company.legal_name }}</span>{% endif %}
-                      </div>
-                      <div class="text-muted">{% if row.pct %}{{ row.pct }}% {{ row.pct_base or 'GROSS' }}{% elif row.amount %}{{ row.amount|eur }} {{ row.amount_base or 'GROSS' }}{% else %}—{% endif %}</div>
-                    </div>
-                  {% endfor %}
-                </div>
-              </div>
-            {% endif %}
-            {% if concert.zone_agents %}
-              <div>
-                <div class="fw-semibold mb-2">Comisionistas</div>
-                <div class="list-group">
-                  {% for row in concert.zone_agents %}
-                    <div class="list-group-item d-flex justify-content-between flex-wrap gap-2">
-                      <div>
-                        {{ row.promoter.nick if row.promoter else '—' }}
-                        {% if row.promoter_company %}<span class="text-muted">· {{ row.promoter_company.legal_name }}</span>{% endif %}
-                        {% if row.concept %}<div class="small text-muted">{{ row.concept }}</div>{% endif %}
-                      </div>
-                      <div class="text-muted">{% if row.commission_type == 'AMOUNT' %}{{ row.commission_amount|eur }}{% else %}{{ row.commission_pct }}% {{ row.commission_base or 'GROSS' }}{% endif %}</div>
-                    </div>
-                  {% endfor %}
-                </div>
-              </div>
-            {% endif %}
-            {% if not concert.promoter_shares and not concert.zone_agents %}
-              <div class="text-muted">No hay participaciones ni comisiones registradas.</div>
-            {% endif %}
-          </div>
-        </div>
-      </div>
-
-      <div class="col-12 col-xl-6">
-        <div class="card h-100">
-          <div class="card-body">
-            <h6 class="mb-3">Cachés y equipamiento</h6>
-            {% if concert.caches %}
-              <div class="mb-3">
-                {% for ch in concert.caches %}
-                  <div class="border rounded p-2 mb-2">
-                    <div class="fw-semibold">{{ ch.kind }}</div>
-                    <div class="small text-muted">Concepto: {{ ch.concept or '—' }}</div>
-                    <div class="small">{% if ch.amount %}Importe: {{ ch.amount|eur }}{% endif %} {% if ch.pct %}{% if ch.amount %}· {% endif %}{{ ch.pct }}% {{ ch.pct_base or 'GROSS' }}{% endif %}</div>
-                  </div>
-                {% endfor %}
-              </div>
-            {% endif %}
-            {% if concert.equipment %}
-              <div class="border rounded p-2 mb-3">
-                {% if concert.equipment.covered_by_promoter and concert.equipment.covered_mode == 'RIDER' %}
-                  Rider del festival
-                {% elif concert.equipment.covered_by_promoter %}
-                  Promotor cubre equipos
-                {% elif concert.equipment.included %}
-                  Equipos incluidos
-                {% else %}
-                  Equipamiento configurado
-                {% endif %}
-              </div>
-            {% endif %}
-            {% if concert.contracts %}
-              <div class="fw-semibold mb-2">Contratos</div>
-              <div class="list-group">
-                {% for cdoc in concert.contracts %}
-                  <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" href="{{ cdoc.pdf_url }}" target="_blank">
-                    <span>{{ cdoc.concept }}</span>
-                    <span class="small text-muted">PDF</span>
-                  </a>
-                {% endfor %}
-              </div>
-            {% endif %}
+            <h6 class="mb-3">Acciones rápidas</h6>
+            <div class="d-flex gap-2 flex-wrap">
+              <button class="btn btn-outline-primary btn-sm" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">Solicitar ficha al promotor</button>
+              {% if concert.contract_sheet %}<a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_contract_sheet_edit', cid=concert.id) }}">Editar ficha interna</a>{% endif %}
+              {% if concert.contract_sheet %}<a class="btn btn-outline-dark btn-sm" href="{{ url_for('concert_contract_sheet_pdf', cid=concert.id) }}" target="_blank">PDF ficha</a>{% endif %}
+              <a class="btn btn-outline-success btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a>
+            </div>
           </div>
         </div>
       </div>
     </div>
-
   {% elif tab == 'carteleria' %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <div>
@@ -485,6 +452,107 @@
         </div>
       </div>
     {% endif %}
+  {% elif tab == 'produccion' %}
+    <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
+      <div>
+        <h5 class="mb-1">Producción</h5>
+        <div class="text-muted small">Bolsa, hoja de ruta y presupuesto operativo vinculados a esta actividad.</div>
+      </div>
+      {% if production_panel.bag %}
+        <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=production_panel.bag.id) }}">Abrir bolsa</a>
+      {% endif %}
+    </div>
+
+    <ul class="nav nav-pills mb-3" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#prod-bolsa" type="button">Bolsa</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#prod-roadmap" type="button">Hoja de ruta</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#prod-budget" type="button">Presupuesto</button></li>
+    </ul>
+
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="prod-bolsa">
+        <div class="card mb-3">
+          <div class="card-body">
+            {% if production_panel.bag %}
+              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                  <div class="fw-semibold">{{ production_panel.bag.title }}</div>
+                  <div class="small text-muted">Estado: {{ production_panel.bag.status }} · Liquidación: {{ production_panel.bag.liquidation_status }}</div>
+                </div>
+                <a class="btn btn-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=production_panel.bag.id) }}">Gestionar bolsa</a>
+              </div>
+            {% else %}
+              <p class="text-muted">Todavía no hay bolsa vinculada a esta actividad.</p>
+              <form method="post" action="{{ url_for('concert_production_open_bag', cid=concert.id) }}" class="d-flex gap-3 flex-wrap align-items-center">
+                {% if production_panel.has_budget %}
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" name="import_budget" value="1" id="importBudgetAsBag" checked>
+                    <label class="form-check-label" for="importBudgetAsBag">Usar el presupuesto como base de la bolsa</label>
+                  </div>
+                {% endif %}
+                <button class="btn btn-success btn-sm">Abrir bolsa</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="prod-roadmap">
+        <div class="card">
+          <div class="card-body">
+            <form method="post" action="{{ url_for('concert_roadmap_update', cid=concert.id) }}" class="row g-3">
+              <div class="col-md-4"><label class="form-label">Hora de convocatoria</label><input class="form-control" name="call_time" value="{{ production_panel.roadmap.call_time or '' }}"></div>
+              <div class="col-12"><label class="form-label">Notas de viaje</label><textarea class="form-control" name="travel_notes" rows="3">{{ production_panel.roadmap.travel_notes or '' }}</textarea></div>
+              <div class="col-12"><label class="form-label">Notas de producción</label><textarea class="form-control" name="production_notes" rows="3">{{ production_panel.roadmap.production_notes or '' }}</textarea></div>
+              <div class="col-12 text-end"><button class="btn btn-primary btn-sm">Guardar hoja de ruta</button></div>
+            </form>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-pane fade" id="prod-budget">
+        <div class="card mb-3">
+          <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+              <div>
+                <h6 class="mb-0">Presupuesto</h6>
+                <div class="small text-muted">Total sin IVA: {{ production_panel.budget_net_total|eur }} · Total con IVA: {{ production_panel.budget_gross_total|eur }}</div>
+              </div>
+              <form method="post" action="{{ url_for('concert_budget_request', cid=concert.id) }}" class="d-flex gap-2">
+                <input type="hidden" name="notes" value="Solicitud de presupuesto de producción">
+                <button class="btn btn-outline-secondary btn-sm">Solicitar presupuesto</button>
+              </form>
+            </div>
+            {% if production_panel.budget_items %}
+              <div class="table-responsive mb-3">
+                <table class="table table-sm align-middle">
+                  <thead class="table-light"><tr><th>Categoría</th><th>Concepto</th><th class="text-end">Sin IVA</th><th class="text-end">Con IVA</th><th></th></tr></thead>
+                  <tbody>
+                    {% for item in production_panel.budget_items %}
+                      <tr>
+                        <td>{{ item.category }}</td>
+                        <td>{{ item.concept }}</td>
+                        <td class="text-end">{{ item.amount_net|eur }}</td>
+                        <td class="text-end">{{ item.amount_gross|eur }}</td>
+                        <td class="text-end"><form method="post" action="{{ url_for('concert_budget_item_delete', cid=concert.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger">Eliminar</button></form></td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+            {% endif %}
+            <form method="post" action="{{ url_for('concert_budget_item_create', cid=concert.id) }}" class="row g-2 align-items-end">
+              <div class="col-md-2"><label class="form-label">Módulo</label><select name="category" class="form-select"><option value="SONIDO_LUCES">Sonido y luces</option><option value="MUSICOS">Músicos</option><option value="PERSONAL">Personal</option><option value="TRANSPORTE">Transporte</option><option value="HOTELES">Hoteles</option><option value="MARKETING">Marketing</option><option value="OTROS">Otros</option></select></div>
+              <div class="col-md-4"><label class="form-label">Concepto</label><input class="form-control" name="concept" required></div>
+              <div class="col-md-2"><label class="form-label">Sin IVA</label><input class="form-control" name="amount_net" inputmode="decimal"></div>
+              <div class="col-md-2"><label class="form-label">Con IVA</label><input class="form-control" name="amount_gross" inputmode="decimal"></div>
+              <div class="col-md-2"><button class="btn btn-primary w-100">Añadir</button></div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+
   {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
   {% elif tab == 'invitations' %}
@@ -638,6 +706,49 @@
       <div class="alert alert-light border mb-0">Este concierto aún no tiene ficha de contratación vinculada.</div>
     {% endif %}
   {% endif %}
+</div>
+
+
+<div class="modal fade" id="requestContractSheetModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('concert_contract_sheet_request', cid=concert.id) }}">
+        <div class="modal-header">
+          <h5 class="modal-title">Solicitar ficha de contratación al promotor</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          {% if promoter_email_suggestions %}
+            <div class="mb-3">
+              <label class="form-label">Destinatarios sugeridos</label>
+              <div class="list-group">
+                {% for row in promoter_email_suggestions %}
+                  <label class="list-group-item d-flex gap-2 align-items-center">
+                    <input class="form-check-input" type="checkbox" name="to_email" value="{{ row.email }}" checked>
+                    <span><span class="fw-semibold">{{ row.email }}</span><span class="text-muted small"> · {{ row.label }}</span></span>
+                  </label>
+                {% endfor %}
+              </div>
+            </div>
+          {% else %}
+            <div class="alert alert-warning">No hay correos guardados en el promotor. Puedes añadirlos manualmente.</div>
+          {% endif %}
+          <div class="mb-3">
+            <label class="form-label">Otros correos</label>
+            <input class="form-control" name="extra_emails" placeholder="correo@dominio.com, otro@dominio.com">
+          </div>
+          <div>
+            <label class="form-label">Mensaje</label>
+            <textarea class="form-control" name="message" rows="4" placeholder="Texto opcional para el promotor"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Enviar solicitud</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <script>

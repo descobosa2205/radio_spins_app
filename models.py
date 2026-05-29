@@ -1038,6 +1038,13 @@ class Concert(Base):
     promoter_costs_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     commission_payload = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
+    # Producción / ficha viva de contratación. Estos campos se sincronizan con
+    # el formulario público y con el panel operativo de Producción.
+    production_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    contract_form_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    production_status = Column(Text)
+
     # Aforo a la venta
     capacity = Column(Integer, nullable=False)
     no_capacity = Column(Boolean, nullable=False, server_default=text("false"))
@@ -1879,6 +1886,123 @@ class ProductionRequest(Base):
     )
 
 
+class ConcertBudgetItem(Base):
+    """Presupuesto operativo vinculado a una actividad/concierto.
+
+    Se mantiene separado de WorkflowBag porque aquí todavía no son gastos reales:
+    solo concepto e importes, que se pueden usar como base al abrir la bolsa.
+    """
+
+    __tablename__ = "concert_budget_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))
+    concept = Column(Text, nullable=False)
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))
+    amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_concert_budget_items_concert", "concert_id", "category", "sort_order"),
+        Index("idx_concert_budget_items_status", "status"),
+    )
+
+
+class CompanyActionRequest(Base):
+    """Solicitudes previas a la creación de una acción."""
+
+    __tablename__ = "company_action_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    title = Column(Text)
+    action_type = Column(Text, nullable=False, server_default=text("'EVENTO_PROMOCIONAL'"))
+    content_subtype = Column(Text)
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_type = Column(Text)
+    source_id = Column(PGUUID(as_uuid=True))
+    requested_date = Column(Date)
+    due_date = Column(Date)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'REQUESTED'"))
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    reviewed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_by_nick = Column(Text)
+    rejection_reason = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
+
+    __table_args__ = (
+        Index("idx_company_action_requests_status_date", "status", "requested_date", "due_date"),
+        Index("idx_company_action_requests_source", "source_type", "source_id"),
+    )
+
+
+class CompanyAction(Base):
+    """Acciones no puramente de concierto: promos, premios, TV y generación de contenido."""
+
+    __tablename__ = "company_actions"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    title = Column(Text, nullable=False)
+    action_type = Column(Text, nullable=False, server_default=text("'EVENTO_PROMOCIONAL'"))
+    content_subtype = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'RESERVA'"))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    linked_content = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    media_type = Column(Text)
+    media_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"))
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"))
+    start_date = Column(Date)
+    end_date = Column(Date)
+    start_time = Column(Text)
+    end_time = Column(Text)
+    time_tbc = Column(Boolean, nullable=False, server_default=text("false"))
+    location_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    events_payload = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    artist_tasks = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    repertoire_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    formation_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    has_fee = Column(Boolean, nullable=False, server_default=text("false"))
+    fee_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    promoter_costs_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    announcement_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
+    roadmap_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    source_request_id = Column(PGUUID(as_uuid=True), ForeignKey("company_action_requests.id", ondelete="SET NULL"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    archived_at = Column(DateTime(timezone=True))
+    closed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    venue = relationship("Venue")
+    media = relationship("MediaOutlet")
+    bag = relationship("WorkflowBag")
+    source_request = relationship("CompanyActionRequest")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_company_actions_status_date", "status", "start_date"),
+        Index("idx_company_actions_type_date", "action_type", "start_date"),
+        Index("idx_company_actions_venue", "venue_id", "start_date"),
+        Index("idx_company_actions_bag", "bag_id"),
+    )
+
+
 class Promotion(Base):
     __tablename__ = "promotions"
 
@@ -2014,6 +2138,9 @@ class WorkflowBag(Base):
     liquidation_requested_at = Column(DateTime(timezone=True))
     liquidation_reviewed_at = Column(DateTime(timezone=True))
     liquidation_paid_at = Column(DateTime(timezone=True))
+    liquidation_snapshot = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    liquidation_adjustments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    closed_liquidation_pdf_url = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -2094,6 +2221,11 @@ class BagExpense(Base):
     immediate_payment_amount = Column(Numeric)
     immediate_payment_send_receipt = Column(Boolean, nullable=False, server_default=text("false"))
     immediate_payment_requested_at = Column(DateTime(timezone=True))
+    admin_review_status = Column(Text)
+    admin_review_note = Column(Text)
+    admin_reviewed_at = Column(DateTime(timezone=True))
+    payment_receipt_url = Column(Text)
+    payment_receipt_name = Column(Text)
     is_proration = Column(Boolean, nullable=False, server_default=text("false"))
     proration_source_bag_id = Column(PGUUID(as_uuid=True), ForeignKey("workflow_bags.id", ondelete="SET NULL"))
     proration_pending_snapshot = Column(Numeric)
@@ -3948,6 +4080,127 @@ def ensure_marketing_country_schema():
     ]
     _exec_ddl_statements(stmts, "marketing_country")
 
+
+
+def ensure_actions_contracting_admin_schema():
+    """Asegura acciones, presupuesto de actividades y recursos de acceso nuevos."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS contract_form_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_status text;",
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS liquidation_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS liquidation_adjustments jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS workflow_bags ADD COLUMN IF NOT EXISTS closed_liquidation_pdf_url text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS admin_review_status text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS admin_review_note text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS admin_reviewed_at timestamptz;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_url text;",
+        "ALTER TABLE IF EXISTS bag_expenses ADD COLUMN IF NOT EXISTS payment_receipt_name text;",
+        """
+        CREATE TABLE IF NOT EXISTS concert_budget_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            category text NOT NULL DEFAULT 'OTROS',
+            concept text NOT NULL,
+            amount_net numeric NOT NULL DEFAULT 0,
+            amount_gross numeric NOT NULL DEFAULT 0,
+            sort_order integer NOT NULL DEFAULT 0,
+            status text NOT NULL DEFAULT 'ACTIVO',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_concert_budget_items_concert ON concert_budget_items(concert_id, category, sort_order);",
+        "CREATE INDEX IF NOT EXISTS idx_concert_budget_items_status ON concert_budget_items(status);",
+        """
+        CREATE TABLE IF NOT EXISTS company_action_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            title text,
+            action_type text NOT NULL DEFAULT 'EVENTO_PROMOCIONAL',
+            content_subtype text,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            source_type text,
+            source_id uuid,
+            requested_date date,
+            due_date date,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            status text NOT NULL DEFAULT 'REQUESTED',
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            reviewed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            reviewed_by_nick text,
+            rejection_reason text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_company_action_requests_status_date ON company_action_requests(status, requested_date, due_date);",
+        "CREATE INDEX IF NOT EXISTS idx_company_action_requests_source ON company_action_requests(source_type, source_id);",
+        """
+        CREATE TABLE IF NOT EXISTS company_actions (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            title text NOT NULL,
+            action_type text NOT NULL DEFAULT 'EVENTO_PROMOCIONAL',
+            content_subtype text,
+            status text NOT NULL DEFAULT 'RESERVA',
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            linked_content jsonb NOT NULL DEFAULT '[]'::jsonb,
+            media_type text,
+            media_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL,
+            venue_id uuid REFERENCES venues(id) ON DELETE SET NULL,
+            start_date date,
+            end_date date,
+            start_time text,
+            end_time text,
+            time_tbc boolean NOT NULL DEFAULT false,
+            location_snapshot jsonb NOT NULL DEFAULT '{}'::jsonb,
+            events_payload jsonb NOT NULL DEFAULT '[]'::jsonb,
+            artist_tasks jsonb NOT NULL DEFAULT '{}'::jsonb,
+            repertoire_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            formation_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            has_fee boolean NOT NULL DEFAULT false,
+            fee_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            promoter_costs_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            announcement_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            bag_id uuid REFERENCES workflow_bags(id) ON DELETE SET NULL,
+            roadmap_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            source_request_id uuid REFERENCES company_action_requests(id) ON DELETE SET NULL,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            archived_at timestamptz,
+            closed_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_company_actions_status_date ON company_actions(status, start_date);",
+        "CREATE INDEX IF NOT EXISTS idx_company_actions_type_date ON company_actions(action_type, start_date);",
+        "CREATE INDEX IF NOT EXISTS idx_company_actions_venue ON company_actions(venue_id, start_date);",
+        "CREATE INDEX IF NOT EXISTS idx_company_actions_bag ON company_actions(bag_id);",
+        """
+        INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
+        VALUES
+            ('acciones', NULL, 'acciones', 'Acciones', 'SECTION', true, 92),
+            ('acciones.inicio', 'acciones', 'acciones', 'Inicio', 'TAB', true, 93),
+            ('acciones.activas', 'acciones', 'acciones', 'Acciones activas', 'TAB', true, 94),
+            ('acciones.archivadas', 'acciones', 'acciones', 'Acciones archivadas', 'TAB', true, 95),
+            ('acciones.solicitudes', 'acciones', 'acciones', 'Solicitudes', 'TAB', true, 96)
+        ON CONFLICT (key) DO UPDATE SET
+            parent_key = EXCLUDED.parent_key,
+            section_key = EXCLUDED.section_key,
+            label = EXCLUDED.label,
+            level = EXCLUDED.level,
+            economic_capable = EXCLUDED.economic_capable,
+            sort_order = EXCLUDED.sort_order,
+            updated_at = now();
+        """,
+    ]
+    _exec_ddl_statements(stmts, "actions_contracting_admin")
 
 def init_db():
     Base.metadata.create_all(bind=engine)

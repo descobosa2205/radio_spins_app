@@ -1,0 +1,177 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+  <div>
+    <h3 class="mb-1">Acciones</h3>
+    <div class="text-muted">Eventos promocionales, premios, firmas, TV y generación de contenido.</div>
+  </div>
+  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newActionModal"><i class="fa fa-plus me-1"></i> Acción</button>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {% if tab == 'inicio' %}active{% endif %}" href="{{ url_for('acciones_view', tab='inicio') }}">Inicio</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'acciones' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Acciones <span class="badge text-bg-warning ms-1">{{ active_count }}</span></a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'solicitudes' %}active{% endif %}" href="{{ url_for('acciones_view', tab='solicitudes') }}">Solicitudes <span class="badge text-bg-warning ms-1">{{ request_count }}</span></a></li>
+</ul>
+
+{% if tab == 'inicio' %}
+  <div class="row g-3">
+    <div class="col-12 col-xl-5">
+      <div class="card h-100">
+        <div class="card-header bg-white d-flex justify-content-between"><strong>Acciones solicitadas</strong><span class="badge text-bg-warning">{{ request_count }}</span></div>
+        <div class="card-body p-0">
+          {% for artist_label, rows in requests_by_artist.items() %}
+            <div class="p-3 border-bottom bg-light fw-semibold">{{ artist_label }}</div>
+            {% for row in rows %}
+              <div class="p-3 border-bottom d-flex gap-3 align-items-center">
+                <img src="{{ row.artist_photo_url }}" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
+                <div>
+                  <div class="fw-semibold">{{ row.title }}</div>
+                  <div class="small text-muted">{{ row.type_label }} · {{ row.date_label }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}<div class="p-3 text-muted">No hay solicitudes pendientes.</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-7">
+      <div class="row g-3">
+        <div class="col-12 col-lg-6">
+          <div class="card h-100">
+            <div class="card-header bg-white"><strong>Activas próximos 30 días</strong></div>
+            <div class="card-body p-0">
+              {% for artist_label, rows in active_by_artist.items() %}
+                <div class="p-3 border-bottom bg-light fw-semibold">{{ artist_label }}</div>
+                {% for row in rows[:5] %}
+                  <a class="p-3 border-bottom d-flex gap-3 align-items-center text-decoration-none text-body" href="{{ row.detail_url }}">
+                    <img src="{{ row.artist_photo_url }}" alt="" style="width:42px;height:42px;border-radius:50%;object-fit:cover;">
+                    <div>
+                      <div class="fw-semibold">{{ row.title }}</div>
+                      <div class="small text-muted">{{ row.type_label }} · {{ row.date_label }}</div>
+                    </div>
+                  </a>
+                {% endfor %}
+              {% else %}<div class="p-3 text-muted">No hay acciones activas.</div>{% endfor %}
+              <div class="p-3"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('acciones_view', tab='acciones') }}">Ver más</a></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-12 col-lg-6">
+          <div class="card h-100">
+            <div class="card-header bg-white"><strong>Calendario 30 días</strong></div>
+            <div class="card-body p-2" style="max-height:560px;overflow:auto;">
+              {% for day in calendar_rows %}
+                {% if day['items'] %}
+                  <div class="border rounded p-2 mb-2 {% if day.is_today %}bg-light{% endif %}">
+                    <div class="small fw-semibold mb-1">{{ day.date.strftime('%d/%m/%Y') }}</div>
+                    {% for item in day['items'] %}
+                      <a href="{{ item.detail_url }}" class="d-flex align-items-center gap-2 text-decoration-none text-body mb-1">
+                        <img src="{{ item.artist_photo_url }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                        <span class="small">{{ item.title }}</span>
+                      </a>
+                    {% endfor %}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% elif tab == 'acciones' %}
+  <ul class="nav nav-pills mb-3">
+    <li class="nav-item"><a class="nav-link {% if subtab == 'activas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='activas') }}">Activas <span class="badge text-bg-warning ms-1">{{ active_count }}</span></a></li>
+    <li class="nav-item"><a class="nav-link {% if subtab == 'archivadas' %}active{% endif %}" href="{{ url_for('acciones_view', tab='acciones', subtab='archivadas') }}">Archivadas <span class="badge text-bg-secondary ms-1">{{ archived_count }}</span></a></li>
+  </ul>
+  {% set list_rows = active_actions if subtab == 'activas' else archived_actions %}
+  <div class="card">
+    <div class="card-body p-0">
+      {% for row in list_rows %}
+        <a class="p-3 border-bottom d-flex justify-content-between align-items-center gap-3 flex-wrap text-decoration-none text-body" href="{{ row.detail_url }}">
+          <div class="d-flex align-items-center gap-3">
+            <img src="{{ row.artist_photo_url }}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;">
+            <div><div class="fw-semibold">{{ row.title }}</div><div class="small text-muted">{{ row.artist_label }} · {{ row.type_label }} · {{ row.location }}</div></div>
+          </div>
+          <div class="text-end"><div class="fw-semibold">{{ row.date_label }}</div><span class="badge {{ row.status_badge.class }}">{{ row.status_badge.label }}</span></div>
+        </a>
+      {% else %}<div class="p-3 text-muted">No hay acciones en esta pestaña.</div>{% endfor %}
+    </div>
+  </div>
+{% else %}
+  <div class="card">
+    <div class="card-body p-0">
+      {% for row in requested_actions %}
+        <div class="p-3 border-bottom d-flex justify-content-between align-items-center gap-3 flex-wrap">
+          <div class="d-flex align-items-center gap-3"><img src="{{ row.artist_photo_url }}" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;"><div><div class="fw-semibold">{{ row.title }}</div><div class="small text-muted">{{ row.artist_label }} · {{ row.type_label }} · {{ row.date_label }}</div>{% if row.requested_by %}<span class="badge text-bg-light border">Solicita: {{ row.requested_by }}</span>{% endif %}</div></div>
+          <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#newActionModal">Crear acción</button>
+        </div>
+      {% else %}<div class="p-3 text-muted">No hay solicitudes pendientes.</div>{% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<div class="modal fade" id="newActionModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data" id="newActionForm">
+        <div class="modal-header"><h5 class="modal-title">Nueva acción</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body">
+          <div class="row g-4">
+            <div class="col-12">
+              <label class="form-label fw-semibold">1. Tipo de actividad</label>
+              <div class="row g-2">
+                {% for key in action_types %}
+                  <div class="col-6 col-md-4 col-xl-2"><label class="border rounded p-3 w-100 h-100 text-center action-option"><input type="radio" name="action_type" value="{{ key }}" class="d-none" {% if loop.first %}checked{% endif %}><i class="fa {{ action_type_icons.get(key, 'fa-star') }} fa-2x d-block mb-2"></i><span class="small fw-semibold">{{ action_type_labels.get(key, key) }}</span></label></div>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="col-12 col-md-8"><label class="form-label">Título</label><input class="form-control" name="title" placeholder="Nombre interno de la acción"></div>
+            <div class="col-12 col-md-4"><label class="form-label">Subtipo de contenido</label><select class="form-select" name="content_subtype"><option value="">No aplica</option><option value="AUDIO">Grabación de audio</option><option value="VIDEO">Grabación de vídeo</option><option value="FOTOS">Sesión de fotos</option><option value="COMPOSICION">Sesión de composición</option></select></div>
+            <div class="col-12"><label class="form-label fw-semibold">2. Artistas</label><input class="form-control mb-2" data-filter-target="artistCards" placeholder="Buscar artistas sin discriminar tildes"><div id="artistCards" class="row g-2" style="max-height:260px;overflow:auto;">{% for artist in creator_datasets.artists %}<div class="col-6 col-md-4 col-xl-3 filterable-card" data-search="{{ artist.name }}"><label class="border rounded p-2 d-flex align-items-center gap-2 w-100"><input type="checkbox" name="artist_ids" value="{{ artist.id }}"><img src="{{ artist.photo_url }}" style="width:34px;height:34px;border-radius:50%;object-fit:cover;" alt=""><span class="small">{{ artist.name }}</span></label></div>{% endfor %}</div></div>
+            <div class="col-12 col-md-3"><label class="form-label">Fecha inicio</label><input type="date" name="start_date" class="form-control"></div>
+            <div class="col-12 col-md-3"><label class="form-label">Fecha fin</label><input type="date" name="end_date" class="form-control"></div>
+            <div class="col-6 col-md-2"><label class="form-label">Hora inicio</label><input name="start_time" class="form-control" placeholder="TBC"></div>
+            <div class="col-6 col-md-2"><label class="form-label">Hora fin</label><input name="end_time" class="form-control"></div>
+            <div class="col-12 col-md-2 d-flex align-items-end"><label class="form-check"><input type="checkbox" name="time_tbc" value="1" class="form-check-input"> TBC</label></div>
+            <div class="col-12"><label class="form-label fw-semibold">Recinto / lugar</label><select name="venue_id" class="form-select"><option value="">Sin recinto o por confirmar</option>{% for venue in venue_items %}<option value="{{ venue.id }}">{{ venue.name }} · {{ venue.subtitle }}</option>{% endfor %}</select></div>
+            <div class="col-12 col-md-4"><label class="form-label">Ciudad</label><input name="city" class="form-control"></div><div class="col-12 col-md-4"><label class="form-label">Provincia</label><input name="province" class="form-control"></div><div class="col-12 col-md-4"><label class="form-label">Lugar manual</label><input name="venue_text" class="form-control"></div>
+            <div class="col-12"><label class="form-label fw-semibold">Medio vinculado</label><select name="media_id" class="form-select"><option value="">No vincular medio</option>{% for media in media_items %}<option value="{{ media.id }}">{{ media.name }} · {{ media.type }}</option>{% endfor %}</select></div>
+            <div class="col-12"><label class="form-label">Qué tienen que hacer los artistas</label><textarea class="form-control" name="artist_tasks" rows="3"></textarea></div>
+            <div class="col-12 col-md-6"><label class="form-label">Repertorio / canciones / especial</label><textarea class="form-control" name="repertoire_notes" rows="3"></textarea></div>
+            <div class="col-12 col-md-6"><label class="form-label">Formación</label><select class="form-select mb-2" name="formation_mode"><option value="">Por definir</option><option value="HALF_PLAYBACK_SOLO">Half Playback · solo artista</option><option value="HALF_PLAYBACK_MUSICOS">Half Playback · músicos figuración</option><option value="FULL_PLAYBACK_SOLO">Full Playback · solo artista</option><option value="FULL_PLAYBACK_MUSICOS">Full Playback · músicos figuración</option><option value="DIRECTO">Directo</option></select><textarea class="form-control" name="formation_notes" rows="2"></textarea></div>
+            <div class="col-12 col-md-4"><label class="form-check mt-4"><input type="checkbox" name="has_fee" value="1" class="form-check-input"> Hay caché</label></div><div class="col-12 col-md-4"><label class="form-label">Importe caché</label><input name="fee_amount" class="form-control" inputmode="decimal"></div><div class="col-12 col-md-4"><label class="form-label">Estado</label><select name="status" class="form-select"><option value="RESERVA">Reserva de confirmar</option><option value="CONFIRMADO">Confirmada</option></select></div>
+            <div class="col-12 col-md-6"><label class="form-label">Gastos que cubre el promotor</label><textarea class="form-control" name="promoter_costs_notes" rows="3"></textarea></div><div class="col-12 col-md-6"><label class="form-label">Anuncio / comunicación / materiales</label><textarea class="form-control" name="announcement_notes" rows="3"></textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Crear acción</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const norm = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,' ').toLowerCase();
+  document.querySelectorAll('[data-filter-target]').forEach(function(input){
+    const target = document.getElementById(input.dataset.filterTarget);
+    if (!target) return;
+    input.addEventListener('input', function(){
+      const q = norm(input.value);
+      target.querySelectorAll('.filterable-card').forEach(function(card){
+        card.style.display = !q || norm(card.dataset.search).includes(q) ? '' : 'none';
+      });
+    });
+  });
+  document.querySelectorAll('.action-option').forEach(function(label){
+    const input = label.querySelector('input[type="radio"]');
+    const sync = function(){ label.classList.toggle('bg-light', input.checked); label.classList.toggle('border-primary', input.checked); };
+    input.addEventListener('change', function(){ document.querySelectorAll('.action-option input[type="radio"]').forEach(function(other){ other.closest('.action-option')?.classList.remove('bg-light','border-primary'); }); sync(); });
+    sync();
+  });
+})();
+</script>
+{% endblock %}

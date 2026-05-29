@@ -12,7 +12,7 @@
 {% if CAN_EDIT_CATALOGS %}
 <div class="card mb-4">
   <div class="card-body">
-    <form method="post" class="row gy-2 gx-2 align-items-end">
+    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
       <div class="col-12 col-md-4">
         <label class="form-label">Nombre</label>
         <input required name="name" class="form-control" />
@@ -32,9 +32,13 @@
           <label class="form-check-label" for="covered_new">Cubierto</label>
         </div>
       </div>
-      <div class="col-12 col-md-10">
+      <div class="col-12 col-md-7">
         <label class="form-label">Dirección</label>
         <input name="address" class="form-control" />
+      </div>
+      <div class="col-12 col-md-3">
+        <label class="form-label">Foto del recinto</label>
+        <input name="photo" type="file" accept="image/*" class="form-control" />
       </div>
       <div class="col-12 col-md-2 d-grid">
         <button class="btn btn-primary">Crear</button>
@@ -61,8 +65,17 @@
       {% for v in venues %}
         <tr>
           {% if CAN_EDIT_CATALOGS %}
-            <form method="post" action="{{ url_for('venue_update', vid=v.id) }}">
-              <td style="min-width:220px"><input class="form-control" name="name" value="{{ v.name }}"></td>
+            <form method="post" action="{{ url_for('venue_update', vid=v.id) }}" enctype="multipart/form-data">
+              <td style="min-width:260px">
+                <div class="d-flex align-items-center gap-2">
+                  <img src="{{ v.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:38px;height:38px;border-radius:10px;object-fit:cover;">
+                  <div class="flex-grow-1">
+                    <a class="small text-decoration-none" href="{{ url_for('venue_detail_view', vid=v.id) }}">Ver actividad</a>
+                    <input class="form-control form-control-sm" name="name" value="{{ v.name }}">
+                    <input class="form-control form-control-sm mt-1" type="file" name="photo" accept="image/*">
+                  </div>
+                </div>
+              </td>
               <td style="min-width:180px"><input class="form-control" name="municipality" value="{{ v.municipality or '' }}"></td>
               <td style="min-width:160px"><input class="form-control" name="province" value="{{ v.province or '' }}"></td>
               <td style="min-width:260px"><input class="form-control" name="address" value="{{ v.address or '' }}"></td>
@@ -81,7 +94,7 @@
               </td>
             </form>
           {% else %}
-            <td class="fw-semibold">{{ v.name }}</td>
+            <td class="fw-semibold"><a href="{{ url_for('venue_detail_view', vid=v.id) }}">{{ v.name }}</a></td>
             <td>{{ v.municipality or '' }}</td>
             <td>{{ v.province or '' }}</td>
             <td>{{ v.address or '' }}</td>

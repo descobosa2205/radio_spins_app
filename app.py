@@ -1128,6 +1128,9 @@ def artist_detail_view(artist_id):
             promotion_source_type="ARTIST",
             promotion_source_id=str(artist.id),
             promotion_source_snapshot=promotion_source_snapshot,
+            contracting_general_rows=contracting_general_rows,
+            promoter_email_suggestions=promoter_email_suggestions,
+            production_panel=production_panel,
         )
     finally:
         session_db.close()
@@ -15731,8 +15734,10 @@ def venues_view():
         municipality = request.form.get("municipality","").strip()
         province = request.form.get("province","").strip()
         try:
+            photo = request.files.get("photo")
+            photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
             v = Venue(name=name, covered=covered, address=address,
-                      municipality=municipality, province=province)
+                      municipality=municipality, province=province, photo_url=photo_url)
             session.add(v)
             session.commit()
             flash("Recinto creado.", "success")
@@ -15760,6 +15765,9 @@ def venue_update(vid):
     v.address = request.form.get("address", v.address).strip()
     v.municipality = request.form.get("municipality", v.municipality).strip()
     v.province = request.form.get("province", v.province).strip()
+    photo = request.files.get("photo")
+    if photo and getattr(photo, "filename", ""):
+        v.photo_url = upload_image(photo, "venues")
     try:
         session.commit()
         flash("Recinto actualizado.", "success")
@@ -16789,7 +16797,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ficha", "carteleria", "promocion", "marketing"}:
+        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "promocion", "marketing"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -16827,6 +16835,10 @@ def concert_detail_view(cid):
         if tab in {"promocion", "marketing"}:
             promotion_requests_display = [_promotion_display_request(row) for row in _promotion_entity_requests(session, "CONCERT", c.id)]
             promotion_entries_display = [_promotion_display_promotion(row) for row in _promotion_entity_promotions(session, "CONCERT", c.id)]
+
+        contracting_general_rows = _concert_contracting_general_rows(session, c)
+        promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
+        production_panel = _concert_production_panel(session, c)
 
         return render_template(
             "concert_detail.html",
@@ -16871,6 +16883,9 @@ def concert_detail_view(cid):
             promotion_source_type="CONCERT",
             promotion_source_id=str(c.id),
             promotion_source_snapshot=promotion_source_snapshot,
+            contracting_general_rows=contracting_general_rows,
+            promoter_email_suggestions=promoter_email_suggestions,
+            production_panel=production_panel,
         )
     finally:
         session.close()
@@ -17735,6 +17750,8 @@ def concert_quick_status(cid):
             new_status = payload.get("status")
 
         c.status = _norm_status(new_status)
+        if c.status in {"RESERVADO", "CONFIRMADO"}:
+            _ensure_production_request_for_concert(session, c)
         session.commit()
         return jsonify({"ok": True, "status": c.status})
 
@@ -22410,16 +22427,21 @@ from models import (
     BagPaymentInteraction,
     InvoiceRecord,
     EmbargoOrder,
+    ConcertBudgetItem,
+    CompanyActionRequest,
+    CompanyAction,
     ensure_personnel_and_operations_schema,
     ensure_bag_expense_schema,
     ensure_marketing_country_schema,
     ensure_contracting_embargo_schema,
+    ensure_actions_contracting_admin_schema,
 )
 
 _safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
 _safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
 _safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
 _safe_ensure(ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema")
+_safe_ensure(ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema")
 
 PERSONNEL_DEPARTMENTS = [
     "Dirección",
@@ -22505,6 +22527,33 @@ ADMINISTRATION_TABS = [
     ("cobros", "Cobros"),
     ("embargos", "Embargos"),
 ]
+ADMINISTRATION_PENDING_TABS = [
+    ("solicitudes", "Solicitudes"),
+    ("pago", "De pago"),
+    ("facturacion", "De facturación"),
+    ("liquidacion", "De liquidación"),
+    ("cierre", "De cierre"),
+]
+ACTION_TYPE_OPTIONS = [
+    ("EVENTO_PROMOCIONAL", "Evento promocional", "fa-bullhorn"),
+    ("PREMIOS", "Premios", "fa-trophy"),
+    ("FIRMA_DISCOS", "Firma de discos", "fa-pen-nib"),
+    ("TV", "Programa de TV", "fa-tv"),
+    ("CONTENIDO_AUDIO", "Grabación de audio", "fa-microphone"),
+    ("CONTENIDO_VIDEO", "Grabación de video", "fa-video"),
+    ("FOTOS", "Sesión de fotos", "fa-camera"),
+    ("COMPOSICION", "Sesión de composición", "fa-music"),
+]
+ACTION_TYPES = [key for key, _label, _icon in ACTION_TYPE_OPTIONS]
+ACTION_TYPE_LABELS = {key: label for key, label, _icon in ACTION_TYPE_OPTIONS}
+ACTION_TYPE_ICONS = {key: icon for key, _label, icon in ACTION_TYPE_OPTIONS}
+ACTION_STATUSES = [
+    ("RESERVA", "Reserva de confirmar"),
+    ("CONFIRMADO", "Confirmada"),
+    ("CANCELADA", "Cancelada"),
+    ("CERRADA", "Cerrada"),
+]
+ACTION_STATUS_LABELS = dict(ACTION_STATUSES)
 
 _ACCESS_BOOTSTRAP_DONE = False
 _ACCESS_RESOURCE_MAP = {}
@@ -22561,6 +22610,11 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
     {"key": "marketing", "label": "Marketing", "section_key": "marketing", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 91},
+    {"key": "acciones", "label": "Acciones", "section_key": "acciones", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 92},
+    {"key": "acciones.inicio", "label": "Inicio", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 93},
+    {"key": "acciones.activas", "label": "Acciones activas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 94},
+    {"key": "acciones.archivadas", "label": "Acciones archivadas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 95},
+    {"key": "acciones.solicitudes", "label": "Solicitudes", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 96},
     {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100},
     {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 110},
     {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 111},
@@ -22603,6 +22657,7 @@ AUTO_SEGMENT_PARENT = {
     "personal": "personal",
     "promocion": "promocion",
     "marketing": "promocion",
+    "acciones": "acciones",
     "produccion": "produccion",
     "administracion": "administracion",
     "contabilidad": "contabilidad",
@@ -23090,6 +23145,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/personal", "personal"),
         ("/promocion", "promocion"),
         ("/marketing", "promocion"),
+        ("/acciones", "acciones"),
         ("/produccion", "produccion"),
         ("/administracion", "administracion"),
         ("/contabilidad", "contabilidad"),
@@ -23192,7 +23248,7 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.conciertos"
     if endpoint == "quadrantes_view":
         return "contratacion.cuadrantes"
-    if endpoint in {"promocion_view", "marketing_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
+    if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos"}:
@@ -23201,12 +23257,16 @@ def _resolve_request_resource_key() -> str | None:
         mapping = {
             "promocion_view": "promocion",
             "marketing_view": "promocion",
+            "acciones_view": "acciones",
+            "action_detail_view": "acciones",
             "produccion_view": "produccion",
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_detail_view": "personal.usuarios.accesos",
         }
         return mapping.get(endpoint)
+    if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
+        return "acciones"
     if endpoint.startswith("promotion_"):
         return "promocion"
     if endpoint.startswith("media_"):
@@ -23429,6 +23489,11 @@ def _resource_default_url(key: str) -> str:
         "quadrantes": url_for("quadrantes_view"),
         "promocion": url_for("marketing_view"),
         "marketing": url_for("marketing_view"),
+        "acciones": url_for("acciones_view", tab="inicio"),
+        "acciones.inicio": url_for("acciones_view", tab="inicio"),
+        "acciones.activas": url_for("acciones_view", tab="acciones", subtab="activas"),
+        "acciones.archivadas": url_for("acciones_view", tab="acciones", subtab="archivadas"),
+        "acciones.solicitudes": url_for("acciones_view", tab="solicitudes"),
         "produccion": url_for("produccion_view"),
         "administracion": url_for("administracion_view", tab="pendiente"),
         "administracion.pendiente": url_for("administracion_view", tab="pendiente"),
@@ -23464,6 +23529,7 @@ def _resource_icon(key: str) -> str:
         ("quadrantes", "fa-table"),
         ("marketing", "fa-bullhorn"),
         ("promocion", "fa-bullhorn"),
+        ("acciones", "fa-calendar-check"),
         ("produccion", "fa-sliders"),
         ("administracion", "fa-briefcase"),
         ("contabilidad", "fa-file-invoice-dollar"),
@@ -23503,6 +23569,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "contratacion.simulaciones", "label": "Simulaciones", "url": _resource_default_url("contratacion.simulaciones")},
         ]},
         {"type": "link", "key": "promocion", "label": "Marketing", "url": _resource_default_url("promocion")},
+        {"type": "link", "key": "acciones", "label": "Acciones", "url": _resource_default_url("acciones")},
         {"type": "link", "key": "produccion", "label": "Producción", "url": _resource_default_url("produccion")},
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
@@ -23669,7 +23736,7 @@ def inject_personnel_globals():
         "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
-        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "personnel_view"} and session.get("user_id") else {},
+        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
     }
 
@@ -25584,6 +25651,29 @@ def produccion_view():
         )
         active_rows = [_production_bag_row(session_db, bag, row_kind="activity") for bag in active_bags_db]
 
+        production_concerts_db = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(Concert.status.in_(["RESERVADO", "CONFIRMADO"]))
+            .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
+            .limit(250)
+            .all()
+        )
+        active_rows.extend([_production_concert_row(session_db, concert) for concert in production_concerts_db])
+        production_actions_db = []
+        try:
+            production_actions_db = (
+                session_db.query(CompanyAction)
+                .options(joinedload(CompanyAction.venue))
+                .filter(CompanyAction.status.in_(["RESERVA", "CONFIRMADO"]))
+                .order_by(CompanyAction.start_date.asc().nullslast(), CompanyAction.created_at.desc())
+                .limit(250)
+                .all()
+            )
+        except Exception:
+            production_actions_db = []
+        active_rows.extend([_production_action_row(session_db, action) for action in production_actions_db])
+
         archived_bags_db = (
             session_db.query(WorkflowBag)
             .options(joinedload(WorkflowBag.artist), joinedload(WorkflowBag.company))
@@ -25867,6 +25957,9 @@ def administracion_view():
         valid_tabs = {key for key, _label in ADMINISTRATION_TABS}
         if tab not in valid_tabs:
             tab = "pendiente"
+        pending_subtab = (request.args.get("subtab") or "solicitudes").strip().lower()
+        if pending_subtab not in {key for key, _label in ADMINISTRATION_PENDING_TABS}:
+            pending_subtab = "solicitudes"
 
         pending_no_invoice = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
             BagExpense.status != "ELIMINADO",
@@ -25883,8 +25976,8 @@ def administracion_view():
         ).order_by(WorkflowBag.closed_at.desc().nullslast(), WorkflowBag.created_at.desc()).all()
         payment_requests = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider), selectinload(BagExpense.payment_events)).filter(
             BagExpense.status != "ELIMINADO",
-            or_(BagExpense.immediate_payment_requested == True, BagExpense.payment_status.in_(["PENDIENTE", "PARCIAL"])),  # noqa: E712
-        ).order_by(BagExpense.immediate_payment_requested_at.desc().nullslast(), BagExpense.created_at.desc()).all()
+            BagExpense.immediate_payment_requested == True,  # noqa: E712
+        ).order_by(BagExpense.immediate_payment_requested_at.asc().nullslast(), BagExpense.created_at.asc()).all()
         payable_expenses = session_db.query(BagExpense).options(joinedload(BagExpense.bag), joinedload(BagExpense.provider)).filter(
             BagExpense.status != "ELIMINADO",
             BagExpense.covered_by == "BOLSA",
@@ -25895,6 +25988,7 @@ def administracion_view():
             InvoiceRecord.invoice_kind == "ISSUED",
             InvoiceRecord.status.notin_(["PAGADA", "ANULADA"]),
         ).order_by(InvoiceRecord.due_date.asc().nullslast(), InvoiceRecord.issue_date.desc()).all()
+        billing_pending = [inv for inv in receivable_invoices if (getattr(inv, "status", "") or "").upper() in {"PENDIENTE_FACTURA", "PENDIENTE_FACTURAR", "BORRADOR", "PENDIENTE"}]
         embargo_rows = session_db.query(InvoiceRecord).options(joinedload(InvoiceRecord.artist), joinedload(InvoiceRecord.company), joinedload(InvoiceRecord.bag)).filter(
             or_(_sa_contains_text(InvoiceRecord.notes, "embargo"), _sa_contains_text(InvoiceRecord.status, "embargo"))
         ).order_by(InvoiceRecord.issue_date.desc()).all()
@@ -25906,8 +26000,15 @@ def administracion_view():
             exps = session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id, BagExpense.status != "ELIMINADO").all()
             bag_totals[str(bag.id)] = _bag_totals(exps) if "_bag_totals" in globals() else {"bag": Decimal("0")}
 
+        pending_counts = {
+            "solicitudes": len(payment_requests) + len(pending_no_invoice),
+            "pago": len(payable_expenses),
+            "facturacion": len(billing_pending),
+            "liquidacion": len([b for b in closed_bags if (getattr(b, "liquidation_status", "") or "").upper() in {"PENDIENTE_ADMIN", "NO_INICIADA"}]),
+            "cierre": len([b for b in closed_bags if (getattr(b, "liquidation_status", "") or "").upper() in {"PENDIENTE_CIERRE", "VALIDADA", "PENDIENTE_PAGO"}]),
+        }
         counts = {
-            "pendiente": len(pending_no_invoice) + len(pending_unconsolidated),
+            "pendiente": sum(pending_counts.values()),
             "liquidaciones": len(closed_bags),
             "pagos": len(payment_requests) + len(payable_expenses),
             "cobros": len(receivable_invoices),
@@ -25917,6 +26018,9 @@ def administracion_view():
             "administracion.html",
             tab=tab,
             tabs=ADMINISTRATION_TABS,
+            pending_subtab=pending_subtab,
+            pending_tabs=ADMINISTRATION_PENDING_TABS,
+            pending_counts=pending_counts,
             counts=counts,
             pending_no_invoice=pending_no_invoice,
             pending_unconsolidated=pending_unconsolidated,
@@ -25924,6 +26028,7 @@ def administracion_view():
             payment_requests=payment_requests,
             payable_expenses=payable_expenses,
             receivable_invoices=receivable_invoices,
+            billing_pending=billing_pending,
             embargo_rows=embargo_rows,
             embargo_orders=embargo_orders,
             embargo_promoters=embargo_promoters,
@@ -25980,6 +26085,11 @@ def administration_expense_mark_paid(expense_id):
         gross = Decimal(str(expense.amount_gross or 0))
         expense.payment_status = "PAGADO" if amount >= gross else "PARCIAL"
         expense.payment_method = (request.form.get("payment_method") or expense.payment_method or "").strip() or None
+        receipt = request.files.get("receipt") if hasattr(request, "files") else None
+        if receipt and getattr(receipt, "filename", ""):
+            receipt_url, receipt_name, _receipt_mime = _bag_document_upload(receipt)
+            expense.payment_receipt_url = receipt_url
+            expense.payment_receipt_name = receipt_name
         expense.immediate_payment_requested = False if expense.payment_status == "PAGADO" else expense.immediate_payment_requested
         expense.updated_at = _now_madrid()
         audit = _bag_current_user_audit() if "_bag_current_user_audit" in globals() else {"user_id": None, "nick": "Administración"}
@@ -25988,7 +26098,7 @@ def administration_expense_mark_paid(expense_id):
         flash("Pago registrado.", "success")
     finally:
         session_db.close()
-    return redirect(url_for("administracion_view", tab="pagos"))
+    return redirect(url_for("administracion_view", tab="pendiente", subtab="pago"))
 
 
 @app.post("/administracion/bolsas/<bag_id>/liquidar", endpoint="administration_bag_liquidate")
@@ -27829,6 +27939,1040 @@ def invoice_delete(invoice_id):
     finally:
         session_db.close()
     return redirect(safe_next_or(url_for("invoices_view")))
+
+
+# =========================================================
+# Acciones + ficha de contratación consolidada + producción/admin
+# =========================================================
+
+def _parse_money(value):
+    """Alias seguro para formularios nuevos que usan importes en formato ES/EN."""
+    try:
+        return _parse_money_decimal(value)
+    except Exception:
+        return Decimal("0")
+
+
+def _json_loads_safe(value, default=None):
+    if default is None:
+        default = {}
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        parsed = json.loads(value)
+        return parsed if parsed is not None else default
+    except Exception:
+        return default
+
+
+def _money_or_zero(value):
+    try:
+        return _parse_money_decimal(value)
+    except Exception:
+        return Decimal("0")
+
+
+def _as_uuid_list(raw_values):
+    values = []
+    if raw_values is None:
+        raw_values = []
+    if isinstance(raw_values, str):
+        raw_values = [raw_values]
+    for raw in raw_values:
+        if raw is None:
+            continue
+        for chunk in str(raw).replace(";", ",").split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                uid = to_uuid(chunk)
+            except Exception:
+                continue
+            if uid not in values:
+                values.append(uid)
+    return values
+
+
+def _concert_primary_artist_ids(concert):
+    ids = []
+    for raw in (getattr(concert, "artist_ids", None) or []):
+        try:
+            uid = to_uuid(raw)
+        except Exception:
+            continue
+        if uid not in ids:
+            ids.append(uid)
+    if getattr(concert, "artist_id", None) and concert.artist_id not in ids:
+        ids.insert(0, concert.artist_id)
+    return ids
+
+
+def _artists_from_ids(session_db, artist_ids):
+    ids = _as_uuid_list(artist_ids)
+    if not ids:
+        return []
+    rows = session_db.query(Artist).filter(Artist.id.in_(ids)).all()
+    order = {str(uid): idx for idx, uid in enumerate(ids)}
+    rows.sort(key=lambda row: order.get(str(row.id), 9999))
+    return rows
+
+
+def _artist_label_from_rows(rows):
+    return ", ".join([row.name for row in rows if getattr(row, "name", None)]) or "Sin artista"
+
+
+def _venue_label(venue, fallback=None):
+    if venue:
+        parts = [getattr(venue, "name", None), getattr(venue, "municipality", None), getattr(venue, "province", None)]
+        return " · ".join([str(x).strip() for x in parts if str(x or "").strip()])
+    return (fallback or "").strip()
+
+
+def _concert_contracting_general_rows(session_db, concert):
+    rows = []
+
+    def add(label, value, kind="text"):
+        if value in (None, "", [], {}):
+            return
+        rows.append({"label": label, "value": value, "kind": kind})
+
+    artists = _artists_from_ids(session_db, _concert_primary_artist_ids(concert))
+    add("Artista/s", _artist_label_from_rows(artists))
+    add("Tipo de actividad", (getattr(concert, "activity_type", None) or getattr(concert, "sale_type", None) or "").replace("_", " ").title())
+    add("Subtipo", getattr(concert, "activity_subtype", None))
+    add("Estado", getattr(concert, "status", None))
+    if getattr(concert, "date", None):
+        add("Fecha", concert.date.strftime("%d/%m/%Y"))
+    add("Festival / evento", getattr(concert, "festival_name", None))
+    if getattr(concert, "billing_company", None):
+        add("Empresa que factura", concert.billing_company.name)
+    if getattr(concert, "promoter", None):
+        add("Promotor", concert.promoter.nick)
+    if getattr(concert, "promoter_company", None):
+        add("Sociedad promotor", getattr(concert.promoter_company, "legal_name", None) or getattr(concert.promoter_company, "name", None))
+    if getattr(concert, "show_time_tbc", False):
+        add("Hora de actuación", "TBC")
+    else:
+        add("Hora de actuación", getattr(concert, "show_time", None))
+    if getattr(concert, "doors_time_tbc", False):
+        add("Apertura de puertas", "TBC")
+    else:
+        add("Apertura de puertas", getattr(concert, "doors_time", None))
+    if getattr(concert, "sale_start_tbc", False):
+        add("Salida a la venta", "TBC")
+    elif getattr(concert, "sale_start_date", None):
+        add("Salida a la venta", concert.sale_start_date.strftime("%d/%m/%Y"))
+    if not getattr(concert, "no_capacity", False) and getattr(concert, "capacity", None):
+        add("Aforo", str(concert.capacity))
+    elif getattr(concert, "no_capacity", False):
+        add("Aforo", "Sin aforo")
+
+    payloads = [
+        ("Datos de contratación", getattr(concert, "contracting_payload", None)),
+        ("Ticketing", getattr(concert, "ticketing_payload", None)),
+        ("Equipamiento", getattr(concert, "equipment_payload", None)),
+        ("Gastos cubiertos por promotor", getattr(concert, "promoter_costs_payload", None)),
+        ("Producción", getattr(concert, "production_payload", None)),
+    ]
+    for prefix, payload in payloads:
+        data = _json_loads_safe(payload, {})
+        if not isinstance(data, dict):
+            continue
+        for key, value in data.items():
+            if value in (None, "", [], {}):
+                continue
+            label = str(key).replace("_", " ").strip().title()
+            if isinstance(value, (list, dict)):
+                value = json.dumps(value, ensure_ascii=False)
+            add(f"{prefix} · {label}", value)
+    return rows
+
+
+def _concert_promoter_email_suggestions(session_db, concert):
+    suggestions = []
+    seen = set()
+
+    def add(email, label):
+        email = (email or "").strip()
+        if not email or email.lower() in seen:
+            return
+        seen.add(email.lower())
+        suggestions.append({"email": email, "label": label or email})
+
+    promoter = getattr(concert, "promoter", None)
+    if promoter:
+        add(getattr(promoter, "email", None), getattr(promoter, "nick", None))
+        add(getattr(promoter, "contact_email", None), getattr(promoter, "nick", None))
+        add(getattr(promoter, "billing_email", None), f"{promoter.nick} · facturación")
+        for contact in getattr(promoter, "contacts", []) or []:
+            label = _contact_display_name(contact) or getattr(promoter, "nick", None)
+            add(getattr(contact, "email", None), label)
+    return suggestions
+
+
+def _concert_production_panel(session_db, concert):
+    bag = (
+        session_db.query(WorkflowBag)
+        .filter(WorkflowBag.linked_type == "CONCERT")
+        .filter(WorkflowBag.linked_id == concert.id)
+        .order_by(WorkflowBag.created_at.desc())
+        .first()
+    )
+    budget_items = (
+        session_db.query(ConcertBudgetItem)
+        .filter(ConcertBudgetItem.concert_id == concert.id)
+        .filter(ConcertBudgetItem.status != "ELIMINADO")
+        .order_by(ConcertBudgetItem.category.asc(), ConcertBudgetItem.sort_order.asc(), ConcertBudgetItem.created_at.asc())
+        .all()
+    )
+    request_row = (
+        session_db.query(ProductionRequest)
+        .filter(ProductionRequest.linked_type == "CONCERT")
+        .filter(ProductionRequest.linked_id == concert.id)
+        .order_by(ProductionRequest.created_at.desc())
+        .first()
+    )
+    net_total = sum([_money_or_zero(getattr(item, "amount_net", 0)) for item in budget_items], Decimal("0"))
+    gross_total = sum([_money_or_zero(getattr(item, "amount_gross", 0)) for item in budget_items], Decimal("0"))
+    roadmap = _json_loads_safe(getattr(concert, "roadmap_payload", None), {})
+    return {
+        "bag": bag,
+        "budget_items": budget_items,
+        "budget_net_total": net_total,
+        "budget_gross_total": gross_total,
+        "has_budget": bool(budget_items),
+        "request": request_row,
+        "roadmap": roadmap if isinstance(roadmap, dict) else {},
+        "can_open_bag": bag is None,
+    }
+
+
+def _concert_linked_snapshot(concert):
+    venue = getattr(concert, "venue", None)
+    artist = getattr(concert, "artist", None)
+    return {
+        "type": getattr(concert, "activity_type", None) or "CONCERT",
+        "title": getattr(concert, "festival_name", None) or (artist.name if artist else "Actividad"),
+        "date": concert.date.isoformat() if getattr(concert, "date", None) else None,
+        "artist": artist.name if artist else None,
+        "venue": getattr(venue, "name", None) or getattr(concert, "manual_venue_name", None),
+        "municipality": getattr(venue, "municipality", None) or getattr(concert, "manual_municipality", None),
+        "province": getattr(venue, "province", None) or getattr(concert, "manual_province", None),
+    }
+
+
+def _create_bag_for_concert(session_db, concert, import_budget=False):
+    existing = (
+        session_db.query(WorkflowBag)
+        .filter(WorkflowBag.linked_type == "CONCERT")
+        .filter(WorkflowBag.linked_id == concert.id)
+        .first()
+    )
+    if existing:
+        return existing
+    artists = _artists_from_ids(session_db, _concert_primary_artist_ids(concert))
+    artist_label = _artist_label_from_rows(artists)
+    title_bits = ["Bolsa", artist_label]
+    if getattr(concert, "festival_name", None):
+        title_bits.append(concert.festival_name)
+    elif getattr(concert, "date", None):
+        title_bits.append(concert.date.strftime("%d/%m/%Y"))
+    bag = WorkflowBag(
+        title=" · ".join([x for x in title_bits if x]),
+        artist_id=artists[0].id if artists else getattr(concert, "artist_id", None),
+        artist_ids=[str(a.id) for a in artists],
+        company_id=getattr(concert, "billing_company_id", None) or getattr(concert, "group_company_id", None),
+        bag_type=(getattr(concert, "activity_type", None) or "CONCERT"),
+        linked_type="CONCERT",
+        linked_id=concert.id,
+        linked_title=getattr(concert, "festival_name", None) or artist_label,
+        linked_snapshot=_concert_linked_snapshot(concert),
+        start_date=getattr(concert, "date", None),
+        end_date=getattr(concert, "date", None),
+        status="ACTIVA",
+        liquidation_status="NO_INICIADA",
+    )
+    session_db.add(bag)
+    session_db.flush()
+    if import_budget:
+        budget_items = (
+            session_db.query(ConcertBudgetItem)
+            .filter(ConcertBudgetItem.concert_id == concert.id)
+            .filter(ConcertBudgetItem.status != "ELIMINADO")
+            .order_by(ConcertBudgetItem.sort_order.asc(), ConcertBudgetItem.created_at.asc())
+            .all()
+        )
+        for idx, item in enumerate(budget_items, 1):
+            gross = _money_or_zero(getattr(item, "amount_gross", 0))
+            net = _money_or_zero(getattr(item, "amount_net", 0))
+            tax = gross - net if gross and net and gross >= net else Decimal("0")
+            session_db.add(BagExpense(
+                bag_id=bag.id,
+                category=getattr(item, "category", None) or "OTROS",
+                sort_order=idx,
+                concept=getattr(item, "concept", None),
+                amount_net=net,
+                amount_tax=tax,
+                amount_gross=gross or net,
+                document_type="SIN_DOCUMENTO",
+                consolidation_status="PENDIENTE",
+                payment_status="NO_PAGADO",
+                created_by_nick=getattr(item, "created_by_nick", None),
+            ))
+    return bag
+
+
+def _ensure_production_request_for_concert(session_db, concert):
+    if not concert:
+        return None
+    existing = (
+        session_db.query(ProductionRequest)
+        .filter(ProductionRequest.linked_type == "CONCERT")
+        .filter(ProductionRequest.linked_id == concert.id)
+        .filter(ProductionRequest.status.in_(["REQUESTED", "ACTIVE", "PENDIENTE", "ACTIVA"]))
+        .first()
+    )
+    if existing:
+        if existing.status == "REQUESTED":
+            existing.status = "ACTIVE"
+        return existing
+    snap = _concert_linked_snapshot(concert)
+    row = ProductionRequest(
+        activity_type=(getattr(concert, "activity_type", None) or "CONCERT"),
+        activity_title=snap.get("title"),
+        artist_ids=[str(x) for x in _concert_primary_artist_ids(concert)],
+        activity_date=getattr(concert, "date", None),
+        city=snap.get("municipality"),
+        province=snap.get("province"),
+        linked_type="CONCERT",
+        linked_id=concert.id,
+        status="ACTIVE",
+        notes="Actividad marcada como reservada/confirmada desde Contratación.",
+    )
+    session_db.add(row)
+    if hasattr(concert, "production_status"):
+        concert.production_status = "ACTIVE"
+    return row
+
+
+def _production_concert_row(session_db, concert):
+    artists = _artists_from_ids(session_db, _concert_primary_artist_ids(concert))
+    venue = getattr(concert, "venue", None)
+    return {
+        "kind": "CONCERT",
+        "id": str(concert.id),
+        "title": getattr(concert, "festival_name", None) or _artist_label_from_rows(artists),
+        "type_label": (getattr(concert, "activity_type", None) or "Concierto").replace("_", " ").title(),
+        "artist_label": _artist_label_from_rows(artists),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "date": getattr(concert, "date", None),
+        "date_label": concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "Sin fecha",
+        "city": getattr(venue, "municipality", None) or getattr(concert, "manual_municipality", None) or "",
+        "province": getattr(venue, "province", None) or getattr(concert, "manual_province", None) or "",
+        "status": getattr(concert, "status", None) or "",
+        "detail_url": url_for("concert_detail_view", cid=concert.id, tab="produccion"),
+    }
+
+
+def _norm_action_status(status):
+    st = (status or "RESERVA").strip().upper()
+    aliases = {
+        "RESERVA_DE_CONFIRMAR": "RESERVA",
+        "RESERVADO": "RESERVA",
+        "ACTIVA": "CONFIRMADO",
+        "ACTIVE": "CONFIRMADO",
+        "ARCHIVED": "ARCHIVADA",
+        "CLOSED": "CERRADA",
+    }
+    return aliases.get(st, st)
+
+
+def _action_type_label(action_type, content_subtype=None):
+    label = ACTION_TYPE_LABELS.get((action_type or "").strip().upper(), (action_type or "Acción").replace("_", " ").title())
+    if (action_type or "").strip().upper() == "GENERACION_CONTENIDO" and content_subtype:
+        label = f"{label} · {str(content_subtype).replace('_', ' ').title()}"
+    return label
+
+
+def _action_status_badge(status):
+    st = _norm_action_status(status)
+    if st == "CONFIRMADO":
+        return {"label": "Confirmada", "class": "bg-success"}
+    if st == "RESERVA":
+        return {"label": "Reserva de confirmar", "class": "bg-warning text-dark"}
+    if st == "CANCELADA":
+        return {"label": "Cancelada", "class": "bg-danger"}
+    if st in {"CERRADA", "ARCHIVADA"}:
+        return {"label": "Cerrada", "class": "bg-secondary"}
+    return {"label": ACTION_STATUS_LABELS.get(st, st.title()), "class": "bg-light text-dark border"}
+
+
+def _action_location(action):
+    venue = getattr(action, "venue", None)
+    if venue:
+        return _venue_label(venue)
+    snap = _json_loads_safe(getattr(action, "location_snapshot", None), {})
+    if isinstance(snap, dict):
+        return " · ".join([str(snap.get(k) or "").strip() for k in ("venue", "city", "province") if str(snap.get(k) or "").strip()])
+    return ""
+
+
+def _action_display_row(session_db, action):
+    artists = _artists_from_ids(session_db, getattr(action, "artist_ids", []) or [])
+    return {
+        "kind": "ACTION",
+        "id": str(action.id),
+        "title": getattr(action, "title", None) or "Acción",
+        "type_label": _action_type_label(getattr(action, "action_type", None), getattr(action, "content_subtype", None)),
+        "artist_label": _artist_label_from_rows(artists),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "date": getattr(action, "start_date", None),
+        "end_date": getattr(action, "end_date", None),
+        "date_label": _action_period_label(getattr(action, "start_date", None), getattr(action, "end_date", None)),
+        "location": _action_location(action),
+        "status": _norm_action_status(getattr(action, "status", None)),
+        "status_badge": _action_status_badge(getattr(action, "status", None)),
+        "detail_url": url_for("action_detail_view", action_id=action.id),
+    }
+
+
+def _action_request_display_row(session_db, row):
+    artists = _artists_from_ids(session_db, getattr(row, "artist_ids", []) or [])
+    payload = _json_loads_safe(getattr(row, "payload", None), {})
+    return {
+        "kind": "ACTION_REQUEST",
+        "id": str(row.id),
+        "title": getattr(row, "title", None) or _action_type_label(getattr(row, "action_type", None), getattr(row, "content_subtype", None)),
+        "type_label": _action_type_label(getattr(row, "action_type", None), getattr(row, "content_subtype", None)),
+        "artist_label": _artist_label_from_rows(artists),
+        "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/logo.png"),
+        "date": getattr(row, "due_date", None) or getattr(row, "requested_date", None),
+        "date_label": ((getattr(row, "due_date", None) or getattr(row, "requested_date", None)).strftime("%d/%m/%Y") if (getattr(row, "due_date", None) or getattr(row, "requested_date", None)) else "Sin fecha"),
+        "status": getattr(row, "status", None) or "REQUESTED",
+        "requested_by": getattr(row, "requested_by_nick", None) or "",
+        "payload": payload if isinstance(payload, dict) else {},
+    }
+
+
+def _action_period_label(start_date, end_date=None):
+    if start_date and end_date and end_date != start_date:
+        return f"{start_date.strftime('%d/%m/%Y')} - {end_date.strftime('%d/%m/%Y')}"
+    if start_date:
+        return start_date.strftime("%d/%m/%Y")
+    return "Sin fecha"
+
+
+def _activity_calendar_rows(items, days=30):
+    today = today_local()
+    limit = today + timedelta(days=days)
+    grouped = defaultdict(list)
+    for item in items or []:
+        dt = item.get("date")
+        if dt and today <= dt <= limit:
+            grouped[dt].append(item)
+    rows = []
+    cursor = today
+    while cursor <= limit:
+        rows.append({"date": cursor, "items": list(grouped.get(cursor, [])), "is_today": cursor == today})
+        cursor += timedelta(days=1)
+    return rows
+
+
+def _ensure_production_request_for_action(session_db, action):
+    if not action:
+        return None
+    existing = (
+        session_db.query(ProductionRequest)
+        .filter(ProductionRequest.linked_type == "ACTION")
+        .filter(ProductionRequest.linked_id == action.id)
+        .filter(ProductionRequest.status.in_(["REQUESTED", "ACTIVE", "PENDIENTE", "ACTIVA"]))
+        .first()
+    )
+    if existing:
+        if existing.status == "REQUESTED":
+            existing.status = "ACTIVE"
+        return existing
+    location = _action_location(action)
+    city = None
+    province = None
+    snap = _json_loads_safe(getattr(action, "location_snapshot", None), {})
+    if isinstance(snap, dict):
+        city = snap.get("city")
+        province = snap.get("province")
+    row = ProductionRequest(
+        activity_type=(getattr(action, "action_type", None) or "ACCION"),
+        activity_title=getattr(action, "title", None) or _action_type_label(getattr(action, "action_type", None)),
+        artist_ids=list(getattr(action, "artist_ids", None) or []),
+        activity_date=getattr(action, "start_date", None),
+        city=city,
+        province=province,
+        linked_type="ACTION",
+        linked_id=action.id,
+        bag_id=getattr(action, "bag_id", None),
+        status="ACTIVE",
+        notes=f"Acción enviada automáticamente a Producción. {location}".strip(),
+    )
+    session_db.add(row)
+    return row
+
+
+def _production_action_row(session_db, action):
+    row = _action_display_row(session_db, action)
+    row["detail_url"] = url_for("action_detail_view", action_id=action.id, tab="produccion")
+    return row
+
+
+def _create_bag_for_action(session_db, action):
+    if getattr(action, "bag", None):
+        return action.bag
+    existing = None
+    if getattr(action, "bag_id", None):
+        existing = session_db.get(WorkflowBag, action.bag_id)
+    if existing:
+        return existing
+    artists = _artists_from_ids(session_db, getattr(action, "artist_ids", []) or [])
+    bag = WorkflowBag(
+        title=f"Bolsa · {getattr(action, 'title', None) or 'Acción'}",
+        artist_id=artists[0].id if artists else None,
+        artist_ids=[str(a.id) for a in artists],
+        bag_type="ACCION",
+        linked_type="ACTION",
+        linked_id=action.id,
+        linked_title=getattr(action, "title", None) or "Acción",
+        linked_snapshot={
+            "type": getattr(action, "action_type", None),
+            "title": getattr(action, "title", None),
+            "date": action.start_date.isoformat() if getattr(action, "start_date", None) else None,
+            "artist": _artist_label_from_rows(artists),
+            "location": _action_location(action),
+        },
+        start_date=getattr(action, "start_date", None),
+        end_date=getattr(action, "end_date", None) or getattr(action, "start_date", None),
+        status="ACTIVA",
+        liquidation_status="NO_INICIADA",
+    )
+    session_db.add(bag)
+    session_db.flush()
+    action.bag_id = bag.id
+    return bag
+
+
+@app.post('/conciertos/<cid>/ficha-contratacion/solicitar', endpoint='concert_contract_sheet_request')
+@admin_required
+def concert_contract_sheet_request(cid):
+    session_db = db()
+    try:
+        concert = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.promoter), selectinload(Concert.contract_sheet))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert:
+            abort(404)
+        sheet = concert.contract_sheet or _ensure_internal_contract_sheet(session_db, concert)
+        emails = []
+        for raw in request.form.getlist('to_email') + [request.form.get('extra_emails')]:
+            for chunk in re.split(r'[;,\n]+', str(raw or '')):
+                email = chunk.strip()
+                if email and email.lower() not in [x.lower() for x in emails]:
+                    emails.append(email)
+        message = (request.form.get('message') or '').strip()
+        sheet.status = 'REQUESTED'
+        sheet.promoter_email = emails[0] if emails else None
+        sheet.allow_resubmission = True
+        sheet.request_payload = {
+            'sent_to': emails,
+            'message': message,
+            'requested_by': _current_user_email(),
+            'requested_at': _now_madrid().isoformat(),
+        }
+        sheet.updated_at = _now_madrid()
+        public_url = url_for('concert_contract_public_form', token=sheet.public_token, _external=True)
+        if emails:
+            artist_name = getattr(getattr(concert, 'artist', None), 'name', None) or 'actividad'
+            subject = f"Ficha de contratación · {artist_name}"
+            html_body = (
+                f"<p>Hola,</p>"
+                f"<p>Necesitamos que completes la ficha de contratación de <strong>{artist_name}</strong>.</p>"
+                f"<p><a href=\"{public_url}\" style=\"display:inline-block;padding:10px 14px;background:#111;color:#fff;text-decoration:none;border-radius:8px;\">Rellenar ficha de contratación</a></p>"
+                f"<p>{message}</p>"
+            )
+            ok, err = _send_optional_email(emails, subject, html_body, reply_to=_current_user_email())
+            if ok:
+                flash('Ficha de contratación solicitada al promotor.', 'success')
+            else:
+                flash(f'Ficha preparada, pero el correo no se pudo enviar: {err or "SMTP no configurado"}.', 'warning')
+        else:
+            flash('Ficha preparada. Añade destinatarios para enviarla al promotor.', 'warning')
+        session_db.commit()
+        return redirect(url_for('concert_detail_view', cid=concert.id, tab='general'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error solicitando la ficha: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='general'))
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/produccion/bolsa', endpoint='concert_production_open_bag')
+@admin_required
+def concert_production_open_bag(cid):
+    session_db = db()
+    try:
+        concert = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company))
+            .filter(Concert.id == to_uuid(cid))
+            .first()
+        )
+        if not concert:
+            abort(404)
+        bag = _create_bag_for_concert(session_db, concert, import_budget=bool(request.form.get('import_budget')))
+        _ensure_production_request_for_concert(session_db, concert)
+        session_db.commit()
+        flash('Bolsa de producción abierta y vinculada a la actividad.', 'success')
+        return redirect(url_for('bag_detail_view', bag_id=bag.id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error abriendo la bolsa: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/produccion/presupuesto', endpoint='concert_budget_item_create')
+@admin_required
+def concert_budget_item_create(cid):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if not concert:
+            abort(404)
+        category = (request.form.get('category') or 'OTROS').strip().upper() or 'OTROS'
+        concept = (request.form.get('concept') or '').strip()
+        if not concept:
+            flash('Indica al menos el concepto del presupuesto.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+        item = ConcertBudgetItem(
+            concert_id=concert.id,
+            category=category,
+            concept=concept,
+            amount_net=_money_or_zero(request.form.get('amount_net')),
+            amount_gross=_money_or_zero(request.form.get('amount_gross')),
+            created_by_user_id=_safe_uuid(session.get('user_id')) if session.get('user_id') else None,
+            created_by_nick=_email_to_nick(_current_user_email() or ''),
+        )
+        session_db.add(item)
+        session_db.commit()
+        flash('Presupuesto añadido.', 'success')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error guardando presupuesto: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/produccion/presupuesto/<item_id>/delete', endpoint='concert_budget_item_delete')
+@admin_required
+def concert_budget_item_delete(cid, item_id):
+    session_db = db()
+    try:
+        item = session_db.get(ConcertBudgetItem, to_uuid(item_id))
+        if item and str(item.concert_id) == str(cid):
+            item.status = 'ELIMINADO'
+            item.updated_at = _now_madrid()
+            session_db.commit()
+            flash('Partida eliminada del presupuesto.', 'success')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error eliminando presupuesto: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/produccion/presupuesto/solicitar', endpoint='concert_budget_request')
+@admin_required
+def concert_budget_request(cid):
+    session_db = db()
+    try:
+        concert = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.id == to_uuid(cid)).first()
+        if not concert:
+            abort(404)
+        snap = _concert_linked_snapshot(concert)
+        row = ProductionRequest(
+            activity_type='PRESUPUESTO',
+            activity_title=snap.get('title') or 'Presupuesto',
+            artist_ids=[str(x) for x in _concert_primary_artist_ids(concert)],
+            activity_date=getattr(concert, 'date', None),
+            city=snap.get('municipality'),
+            province=snap.get('province'),
+            linked_type='CONCERT',
+            linked_id=concert.id,
+            status='REQUESTED',
+            requested_by_user_id=_safe_uuid(session.get('user_id')) if session.get('user_id') else None,
+            requested_by_email=_current_user_email(),
+            requested_by_nick=_email_to_nick(_current_user_email() or ''),
+            notes=(request.form.get('notes') or 'Solicitud de presupuesto de producción.').strip(),
+        )
+        session_db.add(row)
+        session_db.commit()
+        flash('Solicitud de presupuesto enviada a Producción.', 'success')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error solicitando presupuesto: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+@app.post('/conciertos/<cid>/produccion/hoja-ruta', endpoint='concert_roadmap_update')
+@admin_required
+def concert_roadmap_update(cid):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if not concert:
+            abort(404)
+        concert.roadmap_payload = {
+            'call_time': (request.form.get('call_time') or '').strip(),
+            'travel_notes': (request.form.get('travel_notes') or '').strip(),
+            'production_notes': (request.form.get('production_notes') or '').strip(),
+            'updated_by': _current_user_email(),
+            'updated_at': _now_madrid().isoformat(),
+        }
+        concert.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Hoja de ruta actualizada.', 'success')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error actualizando hoja de ruta: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+@app.get('/recintos/<vid>', endpoint='venue_detail_view')
+@admin_required
+def venue_detail_view(vid):
+    session_db = db()
+    try:
+        venue = session_db.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+        concert_rows = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(Concert.venue_id == venue.id)
+            .order_by(Concert.date.desc().nullslast())
+            .all()
+        )
+        action_rows = (
+            session_db.query(CompanyAction)
+            .options(joinedload(CompanyAction.venue))
+            .filter(CompanyAction.venue_id == venue.id)
+            .order_by(CompanyAction.start_date.desc().nullslast())
+            .all()
+        )
+        activities = [_production_concert_row(session_db, row) for row in concert_rows]
+        activities.extend([_action_display_row(session_db, row) for row in action_rows])
+        activities.sort(key=lambda item: (item.get('date') or date.min), reverse=True)
+        return render_template('venue_detail.html', venue=venue, activities=activities)
+    finally:
+        session_db.close()
+
+
+@app.route('/acciones', methods=['GET', 'POST'], endpoint='acciones_view')
+@admin_required
+def acciones_view():
+    session_db = db()
+    try:
+        if request.method == 'POST':
+            state = _current_user_state()
+            artist_ids = [str(uid) for uid in _as_uuid_list(request.form.getlist('artist_ids'))]
+            if not artist_ids and request.form.get('artist_id'):
+                artist_ids = [str(uid) for uid in _as_uuid_list([request.form.get('artist_id')])]
+            action_type = (request.form.get('action_type') or 'EVENTO_PROMOCIONAL').strip().upper()
+            if action_type not in ACTION_TYPES:
+                action_type = 'EVENTO_PROMOCIONAL'
+            content_subtype = (request.form.get('content_subtype') or '').strip().upper() or None
+            venue_id = _safe_uuid(request.form.get('venue_id')) if (request.form.get('venue_id') or '').strip() else None
+            if not venue_id and (request.form.get('new_venue_name') or '').strip():
+                venue = Venue(
+                    name=(request.form.get('new_venue_name') or '').strip(),
+                    address=(request.form.get('new_venue_address') or '').strip() or None,
+                    municipality=(request.form.get('new_venue_city') or '').strip() or None,
+                    province=(request.form.get('new_venue_province') or '').strip() or None,
+                )
+                session_db.add(venue)
+                session_db.flush()
+                venue_id = venue.id
+            linked_content = []
+            for ctype, cid_value in zip(request.form.getlist('linked_content_type'), request.form.getlist('linked_content_id')):
+                if not cid_value:
+                    continue
+                linked_content.append({'type': (ctype or '').strip().upper(), 'id': cid_value})
+            payload = {
+                'medium_is_required': bool(request.form.get('medium_is_required')),
+                'artist_tasks': (request.form.get('artist_tasks') or '').strip(),
+                'repertoire_notes': (request.form.get('repertoire_notes') or '').strip(),
+                'formation_notes': (request.form.get('formation_notes') or '').strip(),
+                'cache_notes': (request.form.get('cache_notes') or '').strip(),
+                'promoter_costs_notes': (request.form.get('promoter_costs_notes') or '').strip(),
+                'announcement_notes': (request.form.get('announcement_notes') or '').strip(),
+            }
+            action = CompanyAction(
+                title=(request.form.get('title') or _action_type_label(action_type, content_subtype)).strip(),
+                action_type=action_type,
+                content_subtype=content_subtype,
+                status=_norm_action_status(request.form.get('status') or 'RESERVA'),
+                artist_ids=artist_ids,
+                linked_content=linked_content,
+                media_type=(request.form.get('media_type') or '').strip() or None,
+                media_id=_safe_uuid(request.form.get('media_id')) if (request.form.get('media_id') or '').strip() else None,
+                venue_id=venue_id,
+                start_date=parse_optional_date(request.form.get('start_date')),
+                end_date=parse_optional_date(request.form.get('end_date')),
+                start_time=(request.form.get('start_time') or '').strip() or None,
+                end_time=(request.form.get('end_time') or '').strip() or None,
+                time_tbc=bool(request.form.get('time_tbc')),
+                location_snapshot={
+                    'venue': (request.form.get('venue_text') or '').strip() or None,
+                    'city': (request.form.get('city') or '').strip() or None,
+                    'province': (request.form.get('province') or '').strip() or None,
+                },
+                events_payload=_json_loads_safe(request.form.get('events_payload'), []),
+                artist_tasks={'description': payload.get('artist_tasks')},
+                repertoire_payload={'notes': payload.get('repertoire_notes'), 'changes_by_action': bool(request.form.get('repertoire_changes_by_action'))},
+                formation_payload={'notes': payload.get('formation_notes'), 'mode': (request.form.get('formation_mode') or '').strip() or None},
+                has_fee=bool(request.form.get('has_fee')),
+                fee_payload={'notes': payload.get('cache_notes'), 'amount': str(_money_or_zero(request.form.get('fee_amount')))},
+                promoter_costs_payload={'notes': payload.get('promoter_costs_notes')},
+                announcement_payload={'notes': payload.get('announcement_notes')},
+                created_by_user_id=_safe_uuid(session.get('user_id')) if session.get('user_id') else None,
+                created_by_nick=state.get('nick') or _email_to_nick(state.get('email') or ''),
+            )
+            session_db.add(action)
+            session_db.flush()
+            if _norm_action_status(action.status) in {'RESERVA', 'CONFIRMADO'}:
+                _ensure_production_request_for_action(session_db, action)
+            session_db.commit()
+            flash('Acción creada correctamente.', 'success')
+            return redirect(url_for('action_detail_view', action_id=action.id))
+
+        tab = (request.args.get('tab') or 'inicio').strip().lower()
+        if tab not in {'inicio', 'acciones', 'solicitudes'}:
+            tab = 'inicio'
+        subtab = (request.args.get('subtab') or 'activas').strip().lower()
+        if subtab not in {'activas', 'archivadas'}:
+            subtab = 'activas'
+        actions = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue)).order_by(CompanyAction.start_date.asc().nullslast(), CompanyAction.created_at.desc()).all()
+        requests_rows = session_db.query(CompanyActionRequest).order_by(CompanyActionRequest.due_date.asc().nullslast(), CompanyActionRequest.created_at.asc()).all()
+        active_rows = [_action_display_row(session_db, row) for row in actions if _norm_action_status(row.status) in {'RESERVA', 'CONFIRMADO'}]
+        archived_rows = [_action_display_row(session_db, row) for row in actions if _norm_action_status(row.status) in {'CERRADA', 'ARCHIVADA', 'CANCELADA'}]
+        request_display = [_action_request_display_row(session_db, row) for row in requests_rows if (getattr(row, 'status', None) or 'REQUESTED').strip().upper() == 'REQUESTED']
+        artist_groups = defaultdict(list)
+        for row in active_rows:
+            artist_groups[row['artist_label']].append(row)
+        request_groups = defaultdict(list)
+        for row in request_display:
+            request_groups[row['artist_label']].append(row)
+        datasets = _promotion_creator_datasets(session_db)
+        media_items = []
+        for media in session_db.query(MediaOutlet).order_by(MediaOutlet.name.asc()).all():
+            media_items.append({
+                'id': str(media.id),
+                'name': media.name,
+                'type': media.media_type,
+                'logo_url': getattr(media, 'logo_url', None) or url_for('static', filename='img/logo.png'),
+            })
+        venue_items = []
+        for venue in session_db.query(Venue).order_by(Venue.name.asc()).all():
+            venue_items.append({
+                'id': str(venue.id),
+                'name': venue.name,
+                'subtitle': _venue_label(venue),
+                'photo_url': getattr(venue, 'photo_url', None) or url_for('static', filename='img/logo.png'),
+            })
+        return render_template(
+            'acciones.html',
+            tab=tab,
+            subtab=subtab,
+            active_actions=active_rows,
+            archived_actions=archived_rows,
+            requested_actions=request_display,
+            active_by_artist=dict(artist_groups),
+            requests_by_artist=dict(request_groups),
+            calendar_rows=_activity_calendar_rows(active_rows, days=30),
+            request_count=len(request_display),
+            active_count=len(active_rows),
+            archived_count=len(archived_rows),
+            action_types=ACTION_TYPES,
+            action_type_labels=ACTION_TYPE_LABELS,
+            action_type_icons=ACTION_TYPE_ICONS,
+            creator_datasets=datasets,
+            media_items=media_items,
+            venue_items=venue_items,
+        )
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error en acciones: {exc}', 'danger')
+        return redirect(url_for('home'))
+    finally:
+        session_db.close()
+
+
+@app.route('/acciones/<action_id>', methods=['GET', 'POST'], endpoint='action_detail_view')
+@admin_required
+def action_detail_view(action_id):
+    session_db = db()
+    try:
+        action = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue), joinedload(CompanyAction.bag)).filter(CompanyAction.id == to_uuid(action_id)).first()
+        if not action:
+            abort(404)
+        if request.method == 'POST':
+            form_action = (request.form.get('form_action') or 'save').strip()
+            if form_action == 'status':
+                new_status = _norm_action_status(request.form.get('status'))
+                if new_status in {'CERRADA', 'ARCHIVADA'}:
+                    bag = getattr(action, 'bag', None)
+                    if bag and (getattr(bag, 'status', None) or '').upper() != 'CERRADA':
+                        flash('No se puede cerrar la acción hasta que la bolsa esté consolidada y cerrada.', 'warning')
+                        return redirect(url_for('action_detail_view', action_id=action.id))
+                    if not bag:
+                        flash('No se puede cerrar la acción sin bolsa vinculada y cerrada.', 'warning')
+                        return redirect(url_for('action_detail_view', action_id=action.id))
+                    action.closed_at = _now_madrid()
+                    action.archived_at = _now_madrid()
+                action.status = new_status
+                if new_status in {'RESERVA', 'CONFIRMADO'}:
+                    _ensure_production_request_for_action(session_db, action)
+                session_db.commit()
+                flash('Estado actualizado.', 'success')
+                return redirect(url_for('action_detail_view', action_id=action.id))
+            if form_action == 'open_bag':
+                bag = _create_bag_for_action(session_db, action)
+                _ensure_production_request_for_action(session_db, action)
+                session_db.commit()
+                flash('Bolsa abierta para la acción.', 'success')
+                return redirect(url_for('bag_detail_view', bag_id=bag.id))
+            if form_action == 'roadmap':
+                action.roadmap_payload = {
+                    'call_time': (request.form.get('call_time') or '').strip(),
+                    'travel_notes': (request.form.get('travel_notes') or '').strip(),
+                    'production_notes': (request.form.get('production_notes') or '').strip(),
+                    'updated_by': _current_user_email(),
+                    'updated_at': _now_madrid().isoformat(),
+                }
+                session_db.commit()
+                flash('Hoja de ruta actualizada.', 'success')
+                return redirect(url_for('action_detail_view', action_id=action.id, tab='roadmap'))
+            action.title = (request.form.get('title') or action.title).strip()
+            action.start_date = parse_optional_date(request.form.get('start_date')) or action.start_date
+            action.end_date = parse_optional_date(request.form.get('end_date')) or action.end_date
+            action.start_time = (request.form.get('start_time') or '').strip() or action.start_time
+            action.end_time = (request.form.get('end_time') or '').strip() or action.end_time
+            action.updated_at = _now_madrid()
+            session_db.commit()
+            flash('Acción actualizada.', 'success')
+            return redirect(url_for('action_detail_view', action_id=action.id))
+        tab = (request.args.get('tab') or 'info').strip().lower()
+        if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion'}:
+            tab = 'info'
+        display = _action_display_row(session_db, action)
+        artists = _artists_from_ids(session_db, getattr(action, 'artist_ids', []) or [])
+        bag = getattr(action, 'bag', None)
+        roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
+        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, tab=tab)
+    finally:
+        session_db.close()
+
+
+@app.post('/administracion/gastos/<expense_id>/solicitud-pago/<decision>', endpoint='administration_payment_request_decision')
+@admin_required
+def administration_payment_request_decision(expense_id, decision):
+    session_db = db()
+    try:
+        expense = session_db.get(BagExpense, to_uuid(expense_id))
+        if not expense:
+            abort(404)
+        decision = (decision or '').strip().upper()
+        note = (request.form.get('note') or '').strip()
+        if decision == 'ACCEPT':
+            expense.immediate_payment_requested = False
+            expense.payment_status = 'PENDIENTE'
+            expense.admin_review_status = 'PAGO_ACEPTADO'
+            expense.admin_review_note = note or None
+            expense.admin_reviewed_at = _now_madrid()
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_ACEPTADO', description=note or 'Solicitud aceptada por administración.', amount=expense.immediate_payment_amount or expense.amount_gross, created_by_nick=_email_to_nick(_current_user_email() or '')))
+            flash('Solicitud aceptada y enviada a pendiente de pago.', 'success')
+        else:
+            expense.immediate_payment_requested = False
+            expense.payment_status = 'NO_PAGADO'
+            expense.admin_review_status = 'PAGO_RECHAZADO'
+            expense.admin_review_note = note or 'Solicitud rechazada por administración.'
+            expense.admin_reviewed_at = _now_madrid()
+            session_db.add(BagPaymentInteraction(expense_id=expense.id, kind='PAGO_RECHAZADO', description=expense.admin_review_note, amount=Decimal('0'), created_by_nick=_email_to_nick(_current_user_email() or '')))
+            flash('Solicitud rechazada y devuelta con nota.', 'warning')
+        session_db.commit()
+        return redirect(url_for('administracion_view', tab='pendiente', subtab='solicitudes'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error revisando solicitud: {exc}', 'danger')
+        return redirect(url_for('administracion_view', tab='pendiente', subtab='solicitudes'))
+    finally:
+        session_db.close()
+
+
+@app.post('/administracion/bolsas/<bag_id>/cierre-liquidacion', endpoint='administration_bag_close_liquidation')
+@admin_required
+def administration_bag_close_liquidation(bag_id):
+    session_db = db()
+    try:
+        bag = session_db.get(WorkflowBag, to_uuid(bag_id))
+        if not bag:
+            abort(404)
+        mode = (request.form.get('mode') or 'CERRAR').strip().upper()
+        note = (request.form.get('note') or '').strip()
+        if mode == 'VALIDAR':
+            bag.liquidation_status = 'PENDIENTE_CIERRE'
+            bag.liquidation_reviewed_at = _now_madrid()
+            flash('Liquidación validada y enviada a cierre.', 'success')
+        elif mode == 'PAGO':
+            bag.liquidation_status = 'PENDIENTE_PAGO'
+            flash('Liquidación cerrada y enviada a pagos.', 'success')
+        elif mode == 'ARCHIVAR':
+            bag.liquidation_status = 'ARCHIVADA'
+            bag.is_archived = True
+            bag.archived_at = _now_madrid()
+            flash('Liquidación archivada.', 'success')
+        else:
+            bag.liquidation_status = 'CERRADA'
+            bag.is_archived = True
+            bag.archived_at = _now_madrid()
+            flash('Liquidación cerrada.', 'success')
+        adjustments = list(getattr(bag, 'liquidation_adjustments', None) or [])
+        if note:
+            adjustments.append({'at': _now_madrid().isoformat(), 'by': _current_user_email(), 'note': note, 'mode': mode})
+        bag.liquidation_adjustments = adjustments
+        session_db.commit()
+        return redirect(url_for('administracion_view', tab='pendiente', subtab='cierre'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error cerrando liquidación: {exc}', 'danger')
+        return redirect(url_for('administracion_view', tab='pendiente', subtab='cierre'))
+    finally:
+        session_db.close()
+
 
 if __name__ == "__main__":
     init_db()

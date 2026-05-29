@@ -20,54 +20,137 @@
 </ul>
 
 {% if tab == 'pendiente' %}
-  <div class="row g-3">
-    <div class="col-12 col-xl-6">
-      <div class="card h-100">
-        <div class="card-header bg-white"><strong>Solicitudes de gasto sin factura/ticket</strong></div>
-        <div class="card-body p-0">
-          {% for expense in pending_no_invoice %}
-            <div class="p-3 border-bottom">
-              <div class="d-flex justify-content-between gap-3 align-items-start">
-                <div>
-                  <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                  <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
-                  <div class="small mt-2">{{ expense.no_invoice_reason or 'Sin motivo indicado' }}</div>
-                  <div class="fw-semibold mt-2">{{ expense.amount_gross|eur }}</div>
-                </div>
-                <div class="d-flex gap-2 flex-wrap justify-content-end">
-                  <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='approve') }}"><button class="btn btn-sm btn-success">Aceptar</button></form>
-                  <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='reject') }}" class="d-flex gap-1"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Motivo rechazo"><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+  <ul class="nav nav-pills mb-3">
+    {% for key,label in pending_tabs %}
+      <li class="nav-item">
+        <a class="nav-link {% if pending_subtab == key %}active{% endif %}" href="{{ url_for('administracion_view', tab='pendiente', subtab=key) }}">
+          {{ label }}{% if pending_counts.get(key, 0) %}<span class="badge text-bg-warning ms-1">{{ pending_counts.get(key) }}</span>{% endif %}
+        </a>
+      </li>
+    {% endfor %}
+  </ul>
+
+  {% if pending_subtab == 'solicitudes' %}
+    <div class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-header bg-white"><strong>Solicitudes de pago inmediato</strong></div>
+          <div class="card-body p-0">
+            {% for expense in payment_requests %}
+              <div class="p-3 border-bottom">
+                <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
+                  <div>
+                    <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                    <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
+                    <div class="fw-semibold mt-2">{{ (expense.immediate_payment_amount or expense.amount_gross)|eur }}</div>
+                    {% if expense.created_by_nick %}<span class="badge text-bg-light border mt-2">Solicita: {{ expense.created_by_nick }}</span>{% endif %}
+                  </div>
+                  <div class="d-flex flex-column gap-2" style="min-width:280px;">
+                    {% if expense.attachment_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ expense.attachment_url }}" target="_blank">Ver factura/ticket</a>{% endif %}
+                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='ACCEPT') }}" class="d-flex gap-1"><input class="form-control form-control-sm" name="note" placeholder="Nota opcional"><button class="btn btn-sm btn-success">Aceptar</button></form>
+                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='REJECT') }}" class="d-flex gap-1"><input class="form-control form-control-sm" name="note" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                  </div>
                 </div>
               </div>
-            </div>
-          {% else %}
-            <div class="p-3 text-muted">No hay solicitudes pendientes.</div>
-          {% endfor %}
+            {% else %}<div class="p-3 text-muted">No hay solicitudes de pago inmediato.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="card h-100">
+          <div class="card-header bg-white"><strong>Solicitudes sin factura/ticket</strong></div>
+          <div class="card-body p-0">
+            {% for expense in pending_no_invoice %}
+              <div class="p-3 border-bottom">
+                <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
+                  <div>
+                    <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                    <div class="small mt-2">{{ expense.no_invoice_reason or 'Sin motivo indicado' }}</div>
+                    <span class="badge text-bg-warning mt-2">Sin factura</span>
+                  </div>
+                  <div class="d-flex flex-column gap-2" style="min-width:280px;">
+                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='approve') }}"><button class="btn btn-sm btn-success w-100">Aceptar sin factura</button></form>
+                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='reject') }}" class="d-flex gap-1"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                  </div>
+                </div>
+              </div>
+            {% else %}<div class="p-3 text-muted">No hay solicitudes sin factura/ticket.</div>{% endfor %}
+          </div>
         </div>
       </div>
     </div>
-    <div class="col-12 col-xl-6">
-      <div class="card h-100">
-        <div class="card-header bg-white"><strong>Gastos todavía sin consolidar</strong></div>
-        <div class="card-body p-0">
-          {% for expense in pending_unconsolidated %}
-            <div class="p-3 border-bottom">
-              <div class="d-flex justify-content-between gap-3">
-                <div>
-                  <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                  <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
-                  <span class="badge text-bg-secondary mt-2">Sin factura/ticket</span>
-                </div>
-                <div class="text-end"><div class="fw-semibold">{{ expense.amount_gross|eur }}</div>{% if expense.bag %}<a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('bag_detail_view', bag_id=expense.bag.id) }}">Abrir bolsa</a>{% endif %}</div>
-              </div>
-            </div>
-          {% else %}
-            <div class="p-3 text-muted">No hay gastos sin consolidar.</div>
-          {% endfor %}
-        </div>
+  {% elif pending_subtab == 'pago' %}
+    <div class="card">
+      <div class="card-header bg-white"><strong>Pendiente de pago</strong></div>
+      <div class="card-body p-0">
+        {% for expense in payable_expenses %}
+          <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
+            <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-start flex-wrap">
+              <input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;">
+              <input type="date" name="paid_at" class="form-control form-control-sm" style="max-width:150px;">
+              <select name="payment_method" class="form-select form-select-sm" style="max-width:140px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select>
+              <input type="file" name="receipt" class="form-control form-control-sm" style="max-width:220px;">
+              <button class="btn btn-sm btn-success">Marcar pagado</button>
+            </form>
+          </div>
+        {% else %}<div class="p-3 text-muted">No hay pagos pendientes.</div>{% endfor %}
       </div>
     </div>
-  </div>
+  {% elif pending_subtab == 'facturacion' %}
+    <div class="card">
+      <div class="card-header bg-white"><strong>Pendiente de facturación</strong></div>
+      <div class="card-body p-0">
+        {% for invoice in billing_pending %}
+          <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+            <div><div class="fw-semibold">{{ invoice.concept or invoice.invoice_number or 'Factura pendiente' }}</div><div class="small text-muted">{{ invoice.third_party_name or 'Tercero pendiente' }} · {{ invoice.bag.title if invoice.bag else 'Sin bolsa' }}</div><div class="fw-semibold mt-1">{{ invoice.total_amount|eur }}</div></div>
+            <div class="text-end"><span class="badge text-bg-warning">Pendiente de emitir/subir</span></div>
+          </div>
+        {% else %}<div class="p-3 text-muted">No hay conceptos pendientes de facturar.</div>{% endfor %}
+      </div>
+    </div>
+  {% elif pending_subtab == 'liquidacion' %}
+    <div class="card">
+      <div class="card-header bg-white"><strong>Bolsas pendientes de liquidación</strong></div>
+      <div class="card-body p-0">
+        {% for bag in closed_bags %}
+          {% if bag.liquidation_status in ['NO_INICIADA','PENDIENTE_ADMIN','PENDIENTE_LIQUIDACION'] %}
+            {% set totals = bag_totals.get(bag.id|string, {}) %}
+            <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+              <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}</div>
+              <div class="d-flex gap-2 align-items-start"><a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Revisar gastos</a><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="VALIDAR"><button class="btn btn-sm btn-success">Validar ingresos/gastos</button></form></div>
+            </div>
+          {% endif %}
+        {% else %}<div class="p-3 text-muted">No hay liquidaciones pendientes.</div>{% endfor %}
+      </div>
+    </div>
+  {% else %}
+    <div class="card">
+      <div class="card-header bg-white"><strong>Pendiente de cierre</strong></div>
+      <div class="card-body p-0">
+        {% for bag in closed_bags %}
+          {% if bag.liquidation_status in ['PENDIENTE_CIERRE','VALIDADA','PENDIENTE_PAGO'] %}
+            {% set totals = bag_totals.get(bag.id|string, {}) %}
+            <div class="p-3 border-bottom">
+              <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
+                <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
+                <div class="btn-group">
+                  <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
+                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="PAGO"><button class="dropdown-item">Cerrar liquidación y pasar a pago</button></form></li>
+                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="ARCHIVAR"><button class="dropdown-item">Cerrar y archivar sin pago</button></form></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% else %}<div class="p-3 text-muted">No hay liquidaciones pendientes de cierre.</div>{% endfor %}
+      </div>
+    </div>
+  {% endif %}
 {% elif tab == 'liquidaciones' %}
   <div class="card">
     <div class="card-header bg-white"><strong>Bolsas cerradas / pendientes de liquidación</strong></div>

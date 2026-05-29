@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+  <div class="d-flex align-items-center gap-3">
+    <img src="{{ venue.photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:104px;height:82px;border-radius:16px;object-fit:cover;">
+    <div>
+      <h3 class="mb-1">{{ venue.name }}</h3>
+      <div class="text-muted">{{ venue.address or '' }}</div>
+      <div class="text-muted small">{{ venue.municipality or '' }}{% if venue.province %} · {{ venue.province }}{% endif %}</div>
+    </div>
+  </div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('venues_view') }}">Volver a recintos</a>
+</div>
+
+<ul class="nav nav-tabs mb-0">
+  <li class="nav-item"><span class="nav-link active">Actividad</span></li>
+</ul>
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="mb-0">Actividad en este recinto</h5>
+      <div class="text-muted small">Conciertos y acciones ordenadas de más recientes o próximas a más antiguas.</div>
+    </div>
+    <span class="badge text-bg-light border">{{ activities|length }}</span>
+  </div>
+  {% if activities %}
+    <div class="list-group">
+      {% for row in activities %}
+        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3 flex-wrap" href="{{ row.detail_url }}">
+          <div class="d-flex align-items-center gap-3">
+            <img src="{{ row.artist_photo_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
+            <div>
+              <div class="fw-semibold">{{ row.title }}</div>
+              <div class="small text-muted">{{ row.artist_label }} · {{ row.type_label }}</div>
+            </div>
+          </div>
+          <div class="text-end">
+            <div class="fw-semibold">{{ row.date_label }}</div>
+            {% if row.status_badge %}<span class="badge {{ row.status_badge.class }}">{{ row.status_badge.label }}</span>{% else %}<span class="badge text-bg-light border">{{ row.status }}</span>{% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border mb-0">No hay actividades registradas todavía en este recinto.</div>
+  {% endif %}
+</div>
+{% endblock %}

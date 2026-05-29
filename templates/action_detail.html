@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+  <div class="d-flex gap-3 align-items-center">
+    <img src="{{ display.artist_photo_url }}" alt="" style="width:82px;height:82px;border-radius:50%;object-fit:cover;">
+    <div>
+      <div class="d-flex gap-2 flex-wrap align-items-center mb-1">
+        <h3 class="mb-0">{{ display.title }}</h3>
+        <span class="badge text-bg-light border">{{ display.type_label }}</span>
+        <span class="badge {{ display.status_badge.class }}">{{ display.status_badge.label }}</span>
+      </div>
+      <div class="text-muted">{{ display.artist_label }}{% if display.date_label %} · {{ display.date_label }}{% endif %}{% if display.location %} · {{ display.location }}{% endif %}</div>
+    </div>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-outline-secondary" href="{{ url_for('acciones_view', tab='acciones') }}">Volver</a>
+    <form method="post" class="d-flex gap-2">
+      <input type="hidden" name="form_action" value="status">
+      <select name="status" class="form-select">
+        <option value="RESERVA" {% if display.status == 'RESERVA' %}selected{% endif %}>Reserva de confirmar</option>
+        <option value="CONFIRMADO" {% if display.status == 'CONFIRMADO' %}selected{% endif %}>Confirmada</option>
+        <option value="CANCELADA" {% if display.status == 'CANCELADA' %}selected{% endif %}>Cancelada</option>
+        <option value="CERRADA" {% if display.status in ['CERRADA','ARCHIVADA'] %}selected{% endif %}>Cerrar</option>
+      </select>
+      <button class="btn btn-primary">Cambiar estado</button>
+    </form>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-0">
+  <li class="nav-item"><a class="nav-link {% if tab == 'info' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='info') }}">Información general</a></li>
+  {% if action.has_fee %}<li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='ingresos') }}">Ingresos</a></li>{% endif %}
+  <li class="nav-item"><a class="nav-link {% if tab == 'bolsa' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='bolsa') }}">Bolsa</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'roadmap' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='roadmap') }}">Hoja de ruta</a></li>
+</ul>
+
+<div class="bg-white border border-top-0 rounded-bottom p-3">
+  {% if tab == 'info' %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0">Información general</h5>
+      <button class="btn btn-sm btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#editActionInfo">Editar</button>
+    </div>
+    <div class="collapse mb-3" id="editActionInfo">
+      <div class="card card-body">
+        <form method="post" class="row g-3">
+          <input type="hidden" name="form_action" value="save">
+          <div class="col-md-6"><label class="form-label">Título</label><input class="form-control" name="title" value="{{ action.title }}"></div>
+          <div class="col-md-3"><label class="form-label">Fecha inicio</label><input type="date" class="form-control" name="start_date" value="{{ action.start_date.isoformat() if action.start_date else '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Fecha fin</label><input type="date" class="form-control" name="end_date" value="{{ action.end_date.isoformat() if action.end_date else '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Hora inicio</label><input class="form-control" name="start_time" value="{{ action.start_time or '' }}"></div>
+          <div class="col-md-3"><label class="form-label">Hora fin</label><input class="form-control" name="end_time" value="{{ action.end_time or '' }}"></div>
+          <div class="col-12 text-end"><button class="btn btn-primary btn-sm">Guardar cambios</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="row g-3">
+      <div class="col-12 col-xl-6">
+        <div class="card h-100"><div class="card-body"><h6>Datos básicos</h6><table class="table table-sm mb-0"><tbody><tr><th>Tipo</th><td>{{ display.type_label }}</td></tr><tr><th>Artistas</th><td>{% for artist in artists %}<span class="badge text-bg-light border me-1">{{ artist.name }}</span>{% else %}—{% endfor %}</td></tr><tr><th>Fecha</th><td>{{ display.date_label }}</td></tr><tr><th>Lugar</th><td>{{ display.location or '—' }}</td></tr><tr><th>Estado</th><td><span class="badge {{ display.status_badge.class }}">{{ display.status_badge.label }}</span></td></tr></tbody></table></div></div>
+      </div>
+      <div class="col-12 col-xl-6">
+        <div class="card h-100"><div class="card-body"><h6>Contenido artístico</h6><p class="mb-2"><strong>Qué hacen:</strong> {{ action.artist_tasks.description if action.artist_tasks else '—' }}</p><p class="mb-2"><strong>Repertorio:</strong> {{ action.repertoire_payload.notes if action.repertoire_payload else '—' }}</p><p class="mb-0"><strong>Formación:</strong> {{ action.formation_payload.notes if action.formation_payload else '—' }}</p></div></div>
+      </div>
+      <div class="col-12">
+        <div class="card"><div class="card-body"><h6>Comunicación y gastos promotor</h6><div class="row g-3"><div class="col-md-6"><div class="small text-muted">Anuncio / materiales</div>{{ action.announcement_payload.notes if action.announcement_payload else '—' }}</div><div class="col-md-6"><div class="small text-muted">Gastos que cubre el promotor</div>{{ action.promoter_costs_payload.notes if action.promoter_costs_payload else '—' }}</div></div></div></div>
+      </div>
+    </div>
+  {% elif tab == 'ingresos' %}
+    <div class="card"><div class="card-body"><h5>Ingresos</h5><p class="text-muted mb-2">Esta acción tiene caché o ingresos asociados.</p><div class="fw-semibold">{{ action.fee_payload.amount if action.fee_payload else '' }}</div><div>{{ action.fee_payload.notes if action.fee_payload else '' }}</div></div></div>
+  {% elif tab == 'bolsa' %}
+    <div class="card"><div class="card-body">
+      {% if bag %}
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2"><div><h5 class="mb-1">{{ bag.title }}</h5><div class="text-muted small">{{ bag.status }} · {{ bag.liquidation_status }}</div></div><a class="btn btn-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Gestionar bolsa</a></div>
+      {% else %}
+        <h5>Bolsa de gastos</h5><p class="text-muted">No hay bolsa vinculada todavía. Al abrirla se vinculará a la acción y a sus artistas.</p><form method="post"><input type="hidden" name="form_action" value="open_bag"><button class="btn btn-success">Abrir bolsa</button></form>
+      {% endif %}
+    </div></div>
+  {% else %}
+    <div class="card"><div class="card-body">
+      <h5 class="mb-3">Hoja de ruta</h5>
+      <form method="post" class="row g-3"><input type="hidden" name="form_action" value="roadmap"><div class="col-md-4"><label class="form-label">Hora de convocatoria</label><input class="form-control" name="call_time" value="{{ roadmap.call_time or '' }}"></div><div class="col-12"><label class="form-label">Notas de viaje</label><textarea class="form-control" name="travel_notes" rows="3">{{ roadmap.travel_notes or '' }}</textarea></div><div class="col-12"><label class="form-label">Notas de producción</label><textarea class="form-control" name="production_notes" rows="3">{{ roadmap.production_notes or '' }}</textarea></div><div class="col-12 text-end"><button class="btn btn-primary">Guardar hoja de ruta</button></div></form>
+    </div></div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -716,3 +716,26 @@ img[data-default-photo="1"]{
 .roadmap-choice:has(input:checked){border-color:var(--brand-primary,#0d6efd);box-shadow:0 0 0 .16rem rgba(13,110,253,.12);background:#f8fbff;}
 .roadmap-choice i{font-size:1.45rem;}
 @media print{.onesheet-toolbar,.roadmap-panel .dropdown,.roadmap-panel button,.roadmap-panel form{display:none!important}.onesheet-preview,.roadmap-card{border:0!important;box-shadow:none!important}.onesheet-preview{border-radius:0}.onesheet-body{padding:1rem}}
+
+/* Hotfix 2026-05-29: dropdowns portaled to body so 3-dot menus are never clipped by cards/list rows. */
+.dropdown-menu-portal-active{
+  position: fixed !important;
+  z-index: 12000 !important;
+  display: block !important;
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  box-shadow: 0 .75rem 2rem rgba(15,23,42,.18);
+}
+.dropdown-menu-portal-placeholder{display:none!important;}
+
+/* Recintos: nombres largos en tarjetas/listados visuales. */
+.venue-card-title,
+.venue-name-truncate{
+  display:block;
+  min-width:0;
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.venue-search-card{cursor:pointer;}

@@ -1,0 +1,284 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="m-0">Registros</h4>
+    <div class="text-muted small">Control centralizado de AGEDI, SGAE y conciertos pendientes de comunicar.</div>
+  </div>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item"><a class="nav-link {% if tab=='pendiente' %}active{% endif %}" href="{{ url_for('registros_view', tab='pendiente') }}">Pendiente</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab=='sgae' %}active{% endif %}" href="{{ url_for('registros_view', tab='sgae') }}">SGAE</a></li>
+</ul>
+
+{% macro registro_media_card(item, action_kind='') %}
+  <div class="border rounded-4 p-3 bg-white h-100 registros-card registros-searchable"
+       data-author-ids="{{ item.platform_author_ids|join(',') if item.platform_author_ids else '' }}"
+       data-registered="{{ '1' if item.sgae_done else '0' }}"
+       data-release-year="{{ item.release_date.year if item.release_date else '' }}"
+       data-pct100="{% set is_full = false %}{% for author in item.platform_authors or [] %}{% if author.pct >= 99.99 %}{% set is_full = true %}{% endif %}{% endfor %}{{ '1' if is_full else '0' }}"
+       data-search="{{ (item.title ~ ' ' ~ item.artist_name ~ ' ' ~ (item.collaborator or '') ~ ' ' ~ (item.location or '') ~ ' ' ~ ((item.platform_authors or [])|map(attribute='name')|join(' '))) }}">
+    <div class="d-flex gap-3 align-items-start">
+      <a href="{{ item.detail_url }}" class="text-decoration-none text-reset flex-shrink-0">
+        <img src="{{ item.cover_url or item.artist_photo or DEFAULT_PHOTO_URL }}" alt="" class="cover-square" style="width:74px;height:74px;object-fit:cover;border-radius:14px;">
+      </a>
+      <div class="flex-grow-1 min-w-0">
+        <a href="{{ item.detail_url }}" class="text-decoration-none text-reset"><div class="fw-semibold text-truncate">{{ item.title }}</div></a>
+        <div class="d-flex align-items-center gap-2 mt-1 min-w-0">
+          <img src="{{ item.artist_photo or DEFAULT_PHOTO_URL }}" alt="" class="artist-mini" style="width:24px;height:24px;object-fit:cover;">
+          <span class="small text-muted text-truncate">{{ item.artist_name or '—' }}</span>
+        </div>
+        {% if item.collaborator %}<div class="small text-muted text-truncate">Colaboradores: {{ item.collaborator }}</div>{% endif %}
+        {% if item.location %}<div class="small text-muted text-truncate">{{ item.location }}</div>{% endif %}
+        <div class="d-flex flex-wrap gap-1 mt-2">
+          <span class="badge text-bg-light border text-dark">{{ item.release_date.strftime('%d/%m/%Y') if item.release_date else 'Sin fecha' }}</span>
+          <span class="badge {{ item.date_badge['class'] }}">{{ item.date_badge.label }}</span>
+          {% if item.kind_label %}<span class="badge text-bg-light border text-dark">{{ item.kind_label }}</span>{% endif %}
+        </div>
+        {% if item.platform_authors %}
+          <div class="d-flex flex-wrap gap-1 mt-2">
+            {% for author in item.platform_authors %}
+              <span class="badge text-bg-light border text-dark">{{ author.name }} · {{ '%.2f'|format(author.pct) }}%</span>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+    {% if CAN_EDIT_DISCOGRAFICA or action_kind == 'concert' %}
+      <div class="d-flex justify-content-end mt-3">
+        {% if action_kind == 'sgae' %}
+          <form method="post" action="{{ item.sgae_register_url }}">
+            <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
+            <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar SGAE</button>
+          </form>
+        {% elif action_kind == 'agedi' %}
+          {% if item.kind == 'ALBUM' %}
+            <form method="post" action="{{ item.agedi_register_url }}">
+              <input type="hidden" name="key" value="agedi">
+              <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
+              <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>
+            </form>
+          {% else %}
+            <form method="post" action="{{ item.agedi_register_url }}">
+              <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
+              <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Marcar AGEDI</button>
+            </form>
+          {% endif %}
+        {% elif action_kind == 'concert' %}
+          <form method="post" action="{{ item.declare_url }}">
+            <input type="hidden" name="next" value="{{ url_for('registros_view', tab='pendiente') }}">
+            <button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Comunicar concierto</button>
+          </form>
+        {% endif %}
+      </div>
+    {% endif %}
+  </div>
+{% endmacro %}
+
+{% if tab == 'pendiente' %}
+  <div class="row g-3">
+    <div class="col-12 col-xl-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3"><h5 class="m-0">AGEDI</h5><span class="badge text-bg-warning text-dark">{{ counts.agedi }}</span></div>
+          <div class="d-flex flex-column gap-3">
+            {% for item in pending.agedi %}{{ registro_media_card(item, 'agedi') }}{% else %}<div class="text-muted">No hay registros pendientes en AGEDI.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3"><h5 class="m-0">SGAE</h5><span class="badge text-bg-warning text-dark">{{ counts.sgae }}</span></div>
+          <div class="d-flex flex-column gap-3">
+            {% for item in pending.sgae %}{{ registro_media_card(item, 'sgae') }}{% else %}<div class="text-muted">No hay obras pendientes en SGAE.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-xl-4">
+      <div class="card h-100 border-0 shadow-sm">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-3"><h5 class="m-0">Conciertos a declarar</h5><span class="badge text-bg-warning text-dark">{{ counts.concerts }}</span></div>
+          <div class="d-flex flex-column gap-3">
+            {% for item in pending.concerts %}{{ registro_media_card(item, 'concert') }}{% else %}<div class="text-muted">No hay conciertos pendientes de comunicar.</div>{% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% else %}
+  <div class="card mb-3 border-0 shadow-sm">
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-12 col-lg-5">
+          <label class="form-label">Buscar</label>
+          <input type="search" class="form-control" id="registrosGlobalSearch" placeholder="Buscar por obra, artista, colaborador o autor sin discriminar acentos">
+        </div>
+        <div class="col-12 col-lg-7">
+          <label class="form-label">Autores de Plataforma Musical</label>
+          <div class="d-flex gap-2 flex-wrap" id="registrosAuthorFilter">
+            <button type="button" class="btn btn-sm btn-dark active" data-author-filter="all">Todos</button>
+            {% for author in author_filters %}
+              <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-author-filter="{{ author.id }}">
+                <img src="{{ author.photo_url or DEFAULT_PHOTO_URL }}" class="artist-mini" alt=""><span>{{ author.name }}</span>
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-column gap-3" id="registrosSgaeBlocks">
+    {% for author in sgae.authors %}
+      <section class="card border-0 shadow-sm registros-author-block" data-author-id="{{ author.id }}" data-search="{{ author.name }}">
+        <div class="card-body">
+          <div class="d-flex justify-content-between gap-3 flex-wrap align-items-start">
+            <div class="d-flex align-items-center gap-3 min-w-0">
+              <img src="{{ author.photo_url or DEFAULT_PHOTO_URL }}" alt="" class="artist-avatar" style="width:58px;height:58px;object-fit:cover;">
+              <div class="min-w-0">
+                <h5 class="m-0 text-truncate">{{ author.name }}</h5>
+                <div class="text-muted small">{{ author.song_count }} obra{% if author.song_count != 1 %}s{% endif %}</div>
+              </div>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-outline-primary btn-sm js-open-repertoire-share" data-author-id="{{ author.id }}" data-author-name="{{ author.name }}" data-default-url="{{ author.share_url }}"><i class="fa fa-share-nodes"></i></button>
+              <a class="btn btn-outline-secondary btn-sm" href="{{ author.share_url }}" target="_blank" rel="noopener" title="Vista previa pública"><i class="fa fa-eye"></i></a>
+              <button type="button" class="btn btn-outline-secondary btn-sm copy-link-btn" data-copy-url="{{ author.share_url }}" title="Copiar enlace"><i class="fa fa-link"></i></button>
+            </div>
+          </div>
+          <div class="row g-3 mt-1">
+            {% for item in author.songs %}
+              <div class="col-12 col-lg-6 registros-song-col">{{ registro_media_card(item, '') }}
+                <div class="d-flex justify-content-end pe-3 pb-3">
+                  {% if item.sgae_done %}
+                    <span class="badge text-bg-success">Registrado</span>
+                  {% else %}
+                    <form method="post" action="{{ item.sgae_register_url }}">
+                      <input type="hidden" name="next" value="{{ url_for('registros_view', tab='sgae') }}">
+                      <button class="badge text-bg-warning text-dark border-0">Pendiente de registro</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </div>
+            {% else %}
+              <div class="col-12"><div class="text-muted">No hay obras para este autor con los filtros actuales.</div></div>
+            {% endfor %}
+          </div>
+        </div>
+      </section>
+    {% else %}
+      <div class="card"><div class="card-body text-muted">No hay autores de Plataforma Musical con repertorio.</div></div>
+    {% endfor %}
+  </div>
+
+  <div class="modal fade" id="repertoireShareModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title">Compartir repertorio</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <input type="hidden" id="shareAuthorId">
+          <div class="fw-semibold mb-2" id="shareAuthorName"></div>
+          <div class="row g-2 mb-3">
+            <div class="col-md-4"><label class="form-label">Estado</label><select class="form-select" id="shareStatus"><option value="">Todas</option><option value="registered">Registradas</option><option value="pending">Sin registrar</option></select></div>
+            <div class="col-md-4"><label class="form-label">Año</label><input class="form-control" id="shareYear" placeholder="2026"></div>
+            <div class="col-md-4 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" id="shareOwn100"><label class="form-check-label" for="shareOwn100">Solo autor al 100%</label></div></div>
+            <div class="col-md-4"><label class="form-label">Desde</label><input type="date" class="form-control" id="shareStart"></div>
+            <div class="col-md-4"><label class="form-label">Hasta</label><input type="date" class="form-control" id="shareEnd"></div>
+            <div class="col-md-4 d-flex align-items-end"><div class="form-check"><input class="form-check-input" type="checkbox" id="shareAllowDownload"><label class="form-check-label" for="shareAllowDownload">Permitir descarga de audio</label></div></div>
+          </div>
+          <div class="alert alert-light border small">La vista pública solo muestra el repertorio filtrado, con portada, artista, fechas, letra, Label Copy y reproducción/descarga cuando esté disponible.</div>
+          <div class="input-group"><input class="form-control" id="shareGeneratedUrl" readonly><button class="btn btn-outline-secondary" type="button" id="shareCopyBtn"><i class="fa fa-link"></i> Copiar</button></div>
+        </div>
+        <div class="modal-footer flex-wrap">
+          <a class="btn btn-outline-success" id="shareWhatsappBtn" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp"></i> WhatsApp</a>
+          <a class="btn btn-outline-secondary" id="shareSmsBtn"><i class="fa fa-comment-sms"></i> SMS</a>
+          <a class="btn btn-outline-primary" id="shareEmailBtn"><i class="fa fa-envelope"></i> Email</a>
+          <button type="button" class="btn btn-primary" id="shareRefreshBtn"><i class="fa fa-rotate"></i> Generar enlace</button>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase();
+  let selectedAuthor = 'all';
+  const searchInput = document.getElementById('registrosGlobalSearch');
+  function applyFilters(){
+    const q = normalize(searchInput && searchInput.value);
+    document.querySelectorAll('.registros-author-block').forEach(block => {
+      const blockAuthor = block.dataset.authorId || '';
+      let visibleCards = 0;
+      block.querySelectorAll('.registros-searchable').forEach(card => {
+        const authors = (card.dataset.authorIds || '').split(',').filter(Boolean);
+        const hay = normalize((card.dataset.search || '') + ' ' + (block.dataset.search || ''));
+        const okAuthor = selectedAuthor === 'all' || blockAuthor === selectedAuthor || authors.includes(selectedAuthor);
+        const okSearch = !q || hay.includes(q);
+        const show = okAuthor && okSearch;
+        const col = card.closest('.registros-song-col') || card;
+        col.style.display = show ? '' : 'none';
+        if(show) visibleCards += 1;
+      });
+      block.style.display = (selectedAuthor === 'all' || blockAuthor === selectedAuthor || visibleCards > 0) ? '' : 'none';
+    });
+  }
+  document.querySelectorAll('[data-author-filter]').forEach(btn => btn.addEventListener('click', () => {
+    selectedAuthor = btn.dataset.authorFilter || 'all';
+    document.querySelectorAll('[data-author-filter]').forEach(other => {
+      const active = (other.dataset.authorFilter || 'all') === selectedAuthor;
+      other.classList.toggle('active', active);
+      other.classList.toggle('btn-dark', active);
+      other.classList.toggle('btn-outline-secondary', !active && other.dataset.authorFilter !== 'all');
+    });
+    applyFilters();
+  }));
+  if(searchInput) searchInput.addEventListener('input', applyFilters);
+  applyFilters();
+
+  const modalEl = document.getElementById('repertoireShareModal');
+  if(!modalEl) return;
+  const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  const authorId = document.getElementById('shareAuthorId');
+  const authorName = document.getElementById('shareAuthorName');
+  const urlInput = document.getElementById('shareGeneratedUrl');
+  async function generateLink(){
+    const params = new URLSearchParams({author_id: authorId.value || ''});
+    ['Status','Year','Start','End'].forEach(name => {
+      const el = document.getElementById('share' + name);
+      const key = {Status:'status',Year:'year',Start:'start_date',End:'end_date'}[name];
+      if(el && el.value) params.set(key, el.value);
+    });
+    if(document.getElementById('shareOwn100').checked) params.set('own100','1');
+    if(document.getElementById('shareAllowDownload').checked) params.set('allow_download','1');
+    const res = await fetch('{{ url_for('registros_repertoire_link') }}?' + params.toString());
+    const data = await res.json();
+    if(data.ok){
+      urlInput.value = data.url;
+      const text = 'Repertorio\n\n' + data.url;
+      document.getElementById('shareWhatsappBtn').href = 'https://wa.me/?text=' + encodeURIComponent(text);
+      document.getElementById('shareSmsBtn').href = 'sms:?&body=' + encodeURIComponent(text);
+      document.getElementById('shareEmailBtn').href = 'mailto:?subject=' + encodeURIComponent('Repertorio ' + (authorName.textContent || '')) + '&body=' + encodeURIComponent(text);
+    }
+  }
+  document.querySelectorAll('.js-open-repertoire-share').forEach(btn => btn.addEventListener('click', async () => {
+    authorId.value = btn.dataset.authorId || '';
+    authorName.textContent = btn.dataset.authorName || 'Autor';
+    urlInput.value = btn.dataset.defaultUrl || '';
+    modal.show();
+    await generateLink();
+  }));
+  document.getElementById('shareRefreshBtn')?.addEventListener('click', generateLink);
+  document.getElementById('shareCopyBtn')?.addEventListener('click', async () => {
+    if(!urlInput.value) await generateLink();
+    try { await navigator.clipboard.writeText(urlInput.value); } catch(_) {}
+  });
+})();
+</script>
+{% endblock %}

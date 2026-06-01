@@ -876,8 +876,7 @@ function initImageFallbacks(){
     'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square',
     'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',
     'img[src$="/static/img/default_promoter.png"]',
-    'img[src$="/static/img/promoter_default.png"]',
-    'img[src$="/static/img/logo.png"]'
+    'img[src$="/static/img/promoter_default.png"]'
   ].join(',');
   if (!document.body.dataset.globalImgFallbackBound) {
     document.body.dataset.globalImgFallbackBound = '1';
@@ -895,7 +894,7 @@ function initImageFallbacks(){
   document.querySelectorAll(selector).forEach((img) => {
     if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
     const src = (img.getAttribute('src') || '').trim();
-    if (!src || /\/static\/img\/(logo|default_promoter|promoter_default)\.(png|jpg|jpeg|svg)$/i.test(src)) {
+    if (!src || /\/static\/img\/(default_promoter|promoter_default)\.(png|jpg|jpeg|svg)$/i.test(src)) {
       img.src = defaultUrl;
       img.classList.add('image-fallback');
     }
@@ -913,9 +912,66 @@ function initImageFallbacks(){
 
 function initDropdownOverflowFix(){
   if (!window.bootstrap) return;
+  const portalState = new WeakMap();
+
+  function getMenu(toggle){
+    const root = toggle.closest('.dropdown, .btn-group');
+    return root ? root.querySelector(':scope > .dropdown-menu') : null;
+  }
+
+  function placeMenu(toggle, menu){
+    if (!toggle || !menu) return;
+    const rect = toggle.getBoundingClientRect();
+    const margin = 8;
+    const width = Math.max(menu.offsetWidth || 0, 190);
+    let left = rect.right - width;
+    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+    let top = rect.bottom + 6;
+    const height = menu.offsetHeight || 0;
+    if (top + height > window.innerHeight - margin) {
+      top = Math.max(margin, rect.top - height - 6);
+    }
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+    menu.style.right = 'auto';
+    menu.style.bottom = 'auto';
+    menu.style.minWidth = `${Math.max(width, rect.width)}px`;
+  }
+
+  function portalMenu(toggle){
+    const menu = getMenu(toggle);
+    if (!menu || portalState.has(toggle)) return;
+    const placeholder = document.createComment('dropdown-menu-portal-placeholder');
+    const parent = menu.parentNode;
+    parent.insertBefore(placeholder, menu);
+    portalState.set(toggle, {menu, parent, placeholder});
+    menu.classList.add('dropdown-menu-portal-active');
+    document.body.appendChild(menu);
+    window.requestAnimationFrame(() => placeMenu(toggle, menu));
+  }
+
+  function restoreMenu(toggle){
+    const state = portalState.get(toggle);
+    if (!state) return;
+    const {menu, parent, placeholder} = state;
+    menu.classList.remove('dropdown-menu-portal-active');
+    menu.style.left = '';
+    menu.style.top = '';
+    menu.style.right = '';
+    menu.style.bottom = '';
+    menu.style.minWidth = '';
+    try {
+      parent.insertBefore(menu, placeholder);
+      placeholder.remove();
+    } catch (_) {}
+    portalState.delete(toggle);
+  }
+
   document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((toggle) => {
     if (toggle.dataset.dropdownFixed === '1') return;
     toggle.dataset.dropdownFixed = '1';
+    toggle.setAttribute('data-bs-boundary', 'viewport');
+    toggle.setAttribute('data-bs-display', 'dynamic');
     try {
       bootstrap.Dropdown.getOrCreateInstance(toggle, {
         boundary: 'viewport',
@@ -929,7 +985,22 @@ function initDropdownOverflowFix(){
         }
       });
     } catch (_) {}
+    toggle.addEventListener('show.bs.dropdown', () => setTimeout(() => portalMenu(toggle), 0));
+    toggle.addEventListener('shown.bs.dropdown', () => {
+      const state = portalState.get(toggle);
+      if (state) placeMenu(toggle, state.menu);
+    });
+    toggle.addEventListener('hide.bs.dropdown', () => restoreMenu(toggle));
   });
+
+  const repositionAll = () => {
+    document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((toggle) => {
+      const state = portalState.get(toggle);
+      if (state) placeMenu(toggle, state.menu);
+    });
+  };
+  window.addEventListener('scroll', repositionAll, true);
+  window.addEventListener('resize', repositionAll);
 }
 
 function initVisualChoiceCards(){

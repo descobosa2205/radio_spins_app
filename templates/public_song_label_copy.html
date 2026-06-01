@@ -11,7 +11,7 @@
     .actions{display:flex;justify-content:flex-end;margin-bottom:14px;}.btn{display:inline-block;padding:11px 15px;border-radius:12px;text-decoration:none;font-weight:700;background:#111827;color:#fff;}
     .sheet{background:#fff;border:1px solid #e5e7eb;border-radius:22px;box-shadow:0 18px 42px rgba(15,23,42,.08);padding:30px;}
     .brand-row{display:flex;justify-content:flex-start;margin-bottom:10px}.brand{max-height:54px;max-width:180px;object-fit:contain;}
-    h1{font-size:28px;margin:0 0 18px;}.hero{display:grid;grid-template-columns:170px 1fr;gap:22px;align-items:start;margin-bottom:22px}.cover{width:170px;height:170px;object-fit:cover;border-radius:18px;border:1px solid #e5e7eb;background:#fff}.title{font-weight:800;font-size:21px}.muted{color:#4b5563}.platforms{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.platforms a{border:1px solid #d1d5db;border-radius:999px;width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;color:#111827;text-decoration:none;font-weight:700;font-size:18px;background:#fff}.platforms a:hover{background:#f3f4f6}
+    h1{font-size:28px;margin:0 0 18px;}.hero{display:grid;grid-template-columns:170px 1fr;gap:22px;align-items:start;margin-bottom:22px}.cover{width:170px;height:170px;object-fit:cover;border-radius:18px;border:1px solid #e5e7eb;background:#fff}.title{font-weight:800;font-size:21px}.muted{color:#4b5563}.platforms{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.platforms a{border:1px solid #d1d5db;border-radius:999px;width:42px;height:42px;display:inline-flex;align-items:center;justify-content:center;text-decoration:none;background:#fff}.platforms a:hover{background:#f3f4f6}.platforms img{width:28px;height:28px;object-fit:contain;display:block}.platform-spotify{color:#1DB954}.platform-apple{color:#111}.platform-amazon{color:#FF9900}.platform-tiktok{color:#111}.platform-youtube{color:#FF0000}
     table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #d1d5db;padding:9px 10px;text-align:left;vertical-align:top;font-size:14px}th{background:#f3f4f6;font-weight:800}.label{background:#f9fafb;font-weight:800;width:28%}.pre{white-space:pre-line}.note{font-size:12px;color:#6b7280;margin-top:12px}
     @media(max-width:720px){.sheet{padding:22px}.hero{grid-template-columns:1fr}.cover{width:140px;height:140px}.actions{justify-content:stretch}.btn{text-align:center;width:100%;}}
   </style>
@@ -29,7 +29,7 @@
           <div class="muted">{{ interpreters_label }}</div>
           {% if platform_links %}
             <div class="platforms">
-              {% for link in platform_links %}<a href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}" aria-label="{{ link.label }}"><i class="{{ link.icon }}"></i></a>{% endfor %}
+              {% for link in platform_links %}<a class="{{ link.css_class or link['class'] }}" href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}" aria-label="{{ link.label }}">{% if link.asset_url %}<img src="{{ link.asset_url }}" alt="{{ link.label }}">{% else %}<i class="{{ link.icon }}"></i>{% endif %}</a>{% endfor %}
             </div>
           {% endif %}
         </div>

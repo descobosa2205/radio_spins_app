@@ -178,7 +178,6 @@
         {% set is_consolidated = expense.consolidation_status in bag_consolidated_statuses or expense.attachment_url %}
         {% set pay_symbol = payment_symbols.get(exp_id, {}) %}
         {% set counts = expense_counts.get(exp_id, {}) %}
-        {% set embargo_alert = expense_embargo_alerts.get(exp_id) if expense_embargo_alerts is defined else None %}
         <div class="expense-row p-3 border-bottom {% if not is_consolidated %}bg-light{% endif %}" draggable="true" data-expense-id="{{ expense.id }}">
           <div class="d-flex align-items-start justify-content-between gap-3 flex-wrap">
             <div class="flex-grow-1">
@@ -196,10 +195,11 @@
                 {% if expense.invoice_number %} · Nº {{ expense.invoice_number }}{% endif %}
                 {% if expense.issue_date %} · {{ expense.issue_date.strftime('%d/%m/%Y') }}{% endif %}
               </div>
-              {% if embargo_alert %}
-                <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small border-warning-subtle">
-                  <i class="fa fa-triangle-exclamation me-1"></i>{{ embargo_alert.message }}
-                  <span class="d-block text-muted">{{ embargo_alert.name or 'Tercero embargado' }}{% if embargo_alert.tax_id %} · {{ embargo_alert.tax_id }}{% endif %}{% if embargo_alert.order_date %} · Alta {{ embargo_alert.order_date.strftime('%d/%m/%Y') }}{% endif %}</span>
+              {% set embargo_alerts = expense_embargo_alerts.get(exp_id, []) if expense_embargo_alerts is defined else [] %}
+              {% if embargo_alerts %}
+                <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small border-warning">
+                  <i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.
+                  {% for embargo in embargo_alerts %}<span class="d-block">{{ embargo.reference }}{% if embargo.date %} · {{ embargo.date }}{% endif %}</span>{% endfor %}
                 </div>
               {% endif %}
               {% if expense.alerts %}
@@ -284,7 +284,7 @@
         <div class="col-md-6"><label class="form-label">Concepto</label><input type="text" name="concept" class="form-control"></div>
         <div class="col-md-3"><label class="form-label">Tipo</label><select name="document_type" class="form-select">{% for value,label in bag_document_types %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select></div>
         <div class="col-md-3"><label class="form-label">Factura/ticket</label><input type="file" name="documents" class="form-control" multiple accept=".pdf,image/*"></div>
-        <div class="col-md-4"><label class="form-label">Proveedor / tercero</label><select name="provider_id" class="form-select embargo-provider-select"><option value="">Sin proveedor</option>{% for provider in providers %}{% set p_alert = provider_embargo_alerts.get(provider.id|string) if provider_embargo_alerts is defined else None %}<option value="{{ provider.id }}" {% if p_alert %}data-embargo-message="{{ p_alert.message }}" data-embargo-name="{{ p_alert.name }}" data-embargo-tax="{{ p_alert.tax_id }}" data-embargo-date="{{ p_alert.order_date }}"{% endif %}>{{ provider.nick }}</option>{% endfor %}</select><div class="alert alert-warning py-2 px-3 mt-2 mb-0 small embargo-provider-warning d-none"><i class="fa fa-triangle-exclamation me-1"></i><span></span></div></div>
+        <div class="col-md-4"><label class="form-label">Proveedor / tercero</label><select name="provider_id" class="form-select provider-embargo-select"><option value="">Sin proveedor</option>{% for provider in providers %}{% set p_embargos = provider_embargo_map.get(provider.id|string, []) if provider_embargo_map is defined else [] %}<option value="{{ provider.id }}" data-has-embargo="{{ '1' if p_embargos else '' }}" data-embargo-label="{% if p_embargos %}{{ p_embargos[0]['reference'] }}{% endif %}">{{ provider.nick }}</option>{% endfor %}</select><div class="alert alert-warning small mt-2 mb-0 d-none embargo-provider-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div></div>
         <div class="col-md-4"><label class="form-label">Sociedad del proveedor</label><select name="provider_company_id" class="form-select"><option value="">Sin sociedad concreta</option>{% for provider in providers %}{% for company in provider.companies %}<option value="{{ company.id }}">{{ provider.nick }} · {{ company.legal_name }}</option>{% endfor %}{% endfor %}</select></div>
         <div class="col-md-4"><label class="form-label">Establecimiento (ticket)</label><input type="text" name="ticket_establishment" class="form-control"></div>
         <div class="col-md-3"><label class="form-label">Nº factura</label><input type="text" name="invoice_number" class="form-control"></div>
@@ -309,7 +309,7 @@
     <div class="col-md-6"><label class="form-label">Concepto</label><input type="text" name="concept" class="form-control" value="{{ expense.concept or '' }}"></div>
     <div class="col-md-3"><label class="form-label">Módulo</label><select name="category" class="form-select">{% for value,label in bag_expense_categories if value != 'PRORRATEOS' %}<option value="{{ value }}" {% if expense.category == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
     <div class="col-md-3"><label class="form-label">Tipo</label><select name="document_type" class="form-select">{% for value,label in bag_document_types %}<option value="{{ value }}" {% if expense.document_type == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-    <div class="col-md-4"><label class="form-label">Proveedor</label><select name="provider_id" class="form-select embargo-provider-select"><option value="">Sin proveedor</option>{% for provider in providers %}{% set p_alert = provider_embargo_alerts.get(provider.id|string) if provider_embargo_alerts is defined else None %}<option value="{{ provider.id }}" {% if expense.provider_id == provider.id %}selected{% endif %} {% if p_alert %}data-embargo-message="{{ p_alert.message }}" data-embargo-name="{{ p_alert.name }}" data-embargo-tax="{{ p_alert.tax_id }}" data-embargo-date="{{ p_alert.order_date }}"{% endif %}>{{ provider.nick }}</option>{% endfor %}</select><div class="alert alert-warning py-2 px-3 mt-2 mb-0 small embargo-provider-warning d-none"><i class="fa fa-triangle-exclamation me-1"></i><span></span></div></div>
+    <div class="col-md-4"><label class="form-label">Proveedor</label><select name="provider_id" class="form-select provider-embargo-select"><option value="">Sin proveedor</option>{% for provider in providers %}{% set p_embargos = provider_embargo_map.get(provider.id|string, []) if provider_embargo_map is defined else [] %}<option value="{{ provider.id }}" data-has-embargo="{{ '1' if p_embargos else '' }}" data-embargo-label="{% if p_embargos %}{{ p_embargos[0]['reference'] }}{% endif %}" {% if expense.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>{% endfor %}</select><div class="alert alert-warning small mt-2 mb-0 d-none embargo-provider-warning"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div></div>
     <div class="col-md-4"><label class="form-label">Sociedad</label><select name="provider_company_id" class="form-select"><option value="">Sin sociedad</option>{% for provider in providers %}{% for company in provider.companies %}<option value="{{ company.id }}" {% if expense.provider_company_id == company.id %}selected{% endif %}>{{ provider.nick }} · {{ company.legal_name }}</option>{% endfor %}{% endfor %}</select></div>
     <div class="col-md-4"><label class="form-label">Establecimiento</label><input type="text" name="ticket_establishment" class="form-control" value="{{ expense.ticket_establishment or '' }}"></div>
     <div class="col-md-3"><label class="form-label">Nº factura</label><input type="text" name="invoice_number" class="form-control" value="{{ expense.invoice_number or '' }}"></div>
@@ -450,27 +450,19 @@
       } catch (err) { console.warn(err); }
     });
   });
-
-  function refreshEmbargoWarning(select){
-    const option = select.options[select.selectedIndex];
-    const box = select.closest('.col-md-4, .col, .modal-body')?.querySelector('.embargo-provider-warning');
-    if (!box) return;
-    const msg = option?.dataset?.embargoMessage || '';
-    const name = option?.dataset?.embargoName || '';
-    const tax = option?.dataset?.embargoTax || '';
-    const date = option?.dataset?.embargoDate || '';
-    if (msg) {
-      box.querySelector('span').textContent = [msg, name, tax, date ? ('Alta ' + date) : ''].filter(Boolean).join(' · ');
-      box.classList.remove('d-none');
-    } else {
-      box.classList.add('d-none');
-      box.querySelector('span').textContent = '';
-    }
-  }
-  document.querySelectorAll('.embargo-provider-select').forEach(function(select){
-    select.addEventListener('change', function(){ refreshEmbargoWarning(select); });
-    refreshEmbargoWarning(select);
-  });
 })();
+
+  document.querySelectorAll('.provider-embargo-select').forEach(function(select){
+    const updateEmbargoWarning = function(){
+      const option = select.options[select.selectedIndex];
+      const wrap = select.closest('.col-md-4') || select.parentElement;
+      const warning = wrap ? wrap.querySelector('.embargo-provider-warning') : null;
+      if (!warning) return;
+      const hasEmbargo = option && option.dataset.hasEmbargo === '1';
+      warning.classList.toggle('d-none', !hasEmbargo);
+    };
+    select.addEventListener('change', updateEmbargoWarning);
+    updateEmbargoWarning();
+  });
 </script>
 {% endblock %}

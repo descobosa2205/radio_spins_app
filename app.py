@@ -474,7 +474,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"}
     if request.endpoint in allowed:
         return
 
@@ -4428,20 +4428,36 @@ def _song_label_copy_isrc_lines(session_db, song: Song) -> list[str]:
 
 def _platform_links_for_item(item) -> list[dict]:
     specs = [
-        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', '●', '#1DB954'),
-        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'A', '#111111'),
-        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'a', '#FF9900'),
-        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', '♪', '#111111'),
-        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', '▶', '#FF0000'),
+        ('spotify', 'Spotify', 'fa-brands fa-spotify', 'spotify_url', 'platform-spotify', 'img/platforms/spotify.png'),
+        ('apple_music', 'Apple Music', 'fa-brands fa-apple', 'apple_music_url', 'platform-apple', 'img/platforms/apple_music.png'),
+        ('amazon_music', 'Amazon Music', 'fa-brands fa-amazon', 'amazon_music_url', 'platform-amazon', 'img/platforms/amazon_music.png'),
+        ('tiktok', 'TikTok', 'fa-brands fa-tiktok', 'tiktok_url', 'platform-tiktok', 'img/platforms/tiktok.png'),
+        ('youtube', 'YouTube', 'fa-brands fa-youtube', 'youtube_url', 'platform-youtube', 'img/platforms/youtube.png'),
     ]
     out = []
-    for key, label, icon, field, symbol, color in specs:
+    for key, label, icon, field, css_class, asset in specs:
         url = (getattr(item, field, None) or '').strip() if item is not None else ''
         if not url:
             continue
         if not url.startswith(('http://', 'https://')):
             url = 'https://' + url
-        out.append({'key': key, 'label': label, 'icon': icon, 'symbol': symbol, 'color': color, 'url': url})
+        try:
+            asset_url = url_for('static', filename=asset, _external=True)
+            asset_path = str(Path(app.root_path) / 'static' / asset.replace('img/', 'img/'))
+        except Exception:
+            asset_url = ''
+            asset_path = str(Path('static') / asset)
+        out.append({
+            'key': key,
+            'label': label,
+            'icon': icon,
+            'class': css_class,
+            'css_class': css_class,
+            'asset': asset,
+            'asset_url': asset_url,
+            'asset_path': asset_path,
+            'url': url,
+        })
     return out
 
 
@@ -4453,16 +4469,79 @@ def _album_platform_links(album: Album | None) -> list[dict]:
     return _platform_links_for_item(album)
 
 
+class _LinkedRLImage(RLImage if REPORTLAB_AVAILABLE else object):
+    """Imagen clicable para PDFs ReportLab."""
+    def __init__(self, filename, width=None, height=None, link_url=None, **kwargs):
+        if not REPORTLAB_AVAILABLE:
+            return
+        super().__init__(filename, width=width, height=height, **kwargs)
+        self.link_url = link_url
+
+    def drawOn(self, canv, x, y, _sW=0):
+        super().drawOn(canv, x, y, _sW)
+        if getattr(self, 'link_url', None):
+            try:
+                canv.linkURL(self.link_url, (x, y, x + self.drawWidth, y + self.drawHeight), relative=0, thickness=0)
+            except Exception:
+                pass
+
+
+def _platform_link_icon_flowable(link: dict, size_cm: float = 0.58):
+    if not REPORTLAB_AVAILABLE:
+        return None
+    try:
+        from reportlab.lib.units import cm
+        asset_path = Path(link.get('asset_path') or '')
+        if not asset_path.exists():
+            asset = (link.get('asset') or '').lstrip('/')
+            asset_path = Path(app.root_path) / 'static' / asset
+        if not asset_path.exists():
+            return None
+        img = _LinkedRLImage(str(asset_path), width=size_cm * cm, height=size_cm * cm, link_url=link.get('url'))
+        img.hAlign = 'LEFT'
+        return img
+    except Exception:
+        return None
+
+
+def _platform_links_pdf_table(item):
+    if not REPORTLAB_AVAILABLE:
+        return None
+    try:
+        from reportlab.lib.units import cm
+        cells = []
+        widths = []
+        for link in _platform_links_for_item(item):
+            icon = _platform_link_icon_flowable(link)
+            if not icon:
+                continue
+            cells.append(icon)
+            widths.append(0.74 * cm)
+        if not cells:
+            return None
+        table = Table([cells], colWidths=widths, hAlign='LEFT')
+        table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 4),
+            ('TOPPADDING', (0,0), (-1,-1), 2),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+        ]))
+        return table
+    except Exception:
+        return None
+
+
 def _platform_links_pdf_html(item) -> str:
+    """Compatibilidad para plantillas antiguas: HTML con iconos imagen clicables."""
     links = []
     for link in _platform_links_for_item(item):
-        # En el PDF solo se ve el icono/símbolo clicable, sin direcciones ni nombres.
-        symbol = html.escape(link.get('symbol') or '●')
         url = html.escape(link.get('url') or '', quote=True)
-        color = html.escape(link.get('color') or '#111827')
-        # PDF: solo iconos/símbolos activos, sin direcciones ni nombres, todos enlazados.
-        links.append(f'<link href="{url}"><font color="{color}" size="16">{symbol}</font></link>')
-    return ' &nbsp;&nbsp; '.join(links)
+        src = html.escape(link.get('asset_url') or '', quote=True)
+        label = html.escape(link.get('label') or 'Enlace')
+        if src:
+            links.append(f'<a href="{url}"><img src="{src}" alt="{label}" style="width:22px;height:22px;object-fit:contain;display:inline-block;margin-right:8px;"></a>')
+    return ''.join(links)
 
 
 def _song_platform_links_pdf_html(song: Song | None) -> str:
@@ -4471,6 +4550,7 @@ def _song_platform_links_pdf_html(song: Song | None) -> str:
 
 def _album_platform_links_pdf_html(album: Album | None) -> str:
     return _platform_links_pdf_html(album)
+
 
 def _song_label_copy_public_context(session_db, song: Song) -> dict:
     artist = _song_primary_artist(session_db, song)
@@ -4600,12 +4680,11 @@ def _build_song_label_copy_pdf_bytes(session_db, song_id) -> tuple[bytes, str]:
     story.append(Spacer(1, 0.25*cm))
 
     cover = _rl_image_flowable_from_url((getattr(song, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 3.2, 3.2)
-    platform_links_html = _song_platform_links_pdf_html(song)
-    left_col = [cover] if cover else [Paragraph('Sin portada', small_style)]
-    right_html = f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}"
-    if platform_links_html:
-        right_html += '<br/><br/><b>Enlaces:</b><br/>' + platform_links_html
-    header_table = Table([[left_col[0], Paragraph(right_html, small_style)]], colWidths=[3.7*cm, 13.2*cm])
+    platform_links_table = _platform_links_pdf_table(song)
+    right_col = [Paragraph(f"<b>{html.escape(song.title)}</b><br/>{html.escape(interpreters_label)}", small_style)]
+    if platform_links_table:
+        right_col.extend([Spacer(1, 0.12*cm), Paragraph('<b>Enlaces:</b>', label_style), platform_links_table])
+    header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.7*cm, 13.2*cm])
     header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),8)]))
     story.append(header_table)
     story.append(Spacer(1, 0.35*cm))
@@ -4701,11 +4780,11 @@ def _build_album_label_copy_pdf_bytes(session_db, album_id) -> tuple[bytes, str]
     story.append(Paragraph('Label Copy', title_style))
     story.append(Spacer(1, 0.15*cm))
     cover = _rl_image_flowable_from_url((getattr(album, 'cover_url', None) or '').strip() or url_for('static', filename='img/placeholder_photo.png'), 2.8, 2.8)
-    platform_links_html = _album_platform_links_pdf_html(album)
-    right_html = f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}"
-    if platform_links_html:
-        right_html += '<br/><br/><b>Enlaces:</b><br/>' + platform_links_html
-    header_table = Table([[cover or Paragraph('Sin portada', small_style), Paragraph(right_html, small_style)]], colWidths=[3.2*cm, 14.0*cm])
+    platform_links_table = _platform_links_pdf_table(album)
+    right_col = [Paragraph(f"<b>{html.escape(album.title)}</b><br/>{html.escape(artist_name)}", small_style)]
+    if platform_links_table:
+        right_col.extend([Spacer(1, 0.10*cm), Paragraph('<b>Enlaces:</b>', label_style), platform_links_table])
+    header_table = Table([[cover or Paragraph('Sin portada', small_style), right_col]], colWidths=[3.2*cm, 14.0*cm])
     header_table.setStyle(TableStyle([('VALIGN', (0,0), (-1,-1), 'TOP'), ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),6)]))
     story.append(header_table)
     story.append(Spacer(1, 0.2*cm))
@@ -8170,6 +8249,10 @@ def discografica_view():
 
     if section not in ("lanzamientos", "canciones", "royalties", "editorial", "registros", "ingresos", "isrc"):
         section = "canciones"
+    if section == "registros":
+        legacy_tab = (request.args.get("registros_tab") or request.args.get("tab") or "pendiente").strip().lower()
+        tab = "sgae" if legacy_tab == "sgae" else "pendiente"
+        return redirect(url_for("registros_view", tab=tab))
 
     editorial_tab = (request.args.get("editorial_tab") or "repertorio").lower().strip()
     if editorial_tab == "pendientes":
@@ -11980,7 +12063,7 @@ def discografica_song_status_toggle(song_id):
         "distributed": ("distributed_done", "distributed_updated_at"),
     }
 
-    nxt = safe_next_or(url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
+    nxt = safe_next_or(request.form.get("next") or url_for("discografica_song_detail", song_id=song_id, tab="informacion"))
     if key not in allowed:
         flash("Estado no válido.", "warning")
         return redirect(nxt)
@@ -20868,7 +20951,8 @@ def api_search_venues():
             query = query.filter(
                 (_sa_contains_text(Venue.name, q)) |
                 (_sa_contains_text(Venue.municipality, q)) |
-                (_sa_contains_text(Venue.province, q))
+                (_sa_contains_text(Venue.province, q)) |
+                (_sa_contains_text(Venue.address, q))
             )
 
         venues = query.order_by(Venue.name.asc()).limit(20).all()
@@ -20894,6 +20978,8 @@ def api_search_venues():
                 "name": name,
                 "municipality": mun,
                 "province": prov,
+                "address": (getattr(v, "address", None) or "").strip(),
+                "postal_code": (getattr(v, "postal_code", None) or "").strip() if hasattr(v, "postal_code") else "",
                 "label": text_label,  # compatibilidad
                 "text": text_label,   # CLAVE para Select2
                 "photo_url": (getattr(v, "photo_url", None) or ""),
@@ -21572,6 +21658,19 @@ def concert_wizard_create():
         if not (venue_id or manual_municipality or manual_province):
             raise ValueError('Debes indicar recinto o al menos municipio y provincia.')
 
+        # Si el usuario selecciona un recinto existente y completa datos de
+        # localización que estaban vacíos o se han corregido, dejamos el recinto
+        # actualizado para futuras altas.
+        if venue_id:
+            venue_row = session.get(Venue, venue_id)
+            if venue_row:
+                if manual_venue_address:
+                    venue_row.address = manual_venue_address
+                if manual_municipality:
+                    venue_row.municipality = manual_municipality
+                if manual_province:
+                    venue_row.province = manual_province
+
         wizard_payload = {
             'activity_type': activity_type,
             'activity_subtype': activity_subtype,
@@ -21629,7 +21728,7 @@ def concert_wizard_create():
                 sale_start_tbc=True,
                 break_even_ticket=None,
                 sold_out=False,
-                group_company_id=None,
+                group_company_id=billing_company_id if sale_type == 'EMPRESA' else None,
                 billing_company_id=billing_company_id,
                 hashtags=hashtags,
                 status='HABLADO',
@@ -21679,6 +21778,11 @@ def concert_wizard_create():
 
         promoter_id = to_uuid((request.form.get('promoter_id') or '').strip() or None)
         promoter_company_id = to_uuid((request.form.get('promoter_company_id') or '').strip() or None)
+        if sale_type == 'EMPRESA':
+            # En conciertos a empresa la contraparte es la empresa del grupo
+            # seleccionada arriba; no se fuerza un tercero/promotor externo.
+            promoter_id = None
+            promoter_company_id = None
         no_capacity = _truthy(request.form.get('no_capacity'))
         sale_start_tbc = _truthy(request.form.get('sale_start_tbc'))
         show_time_tbc = _truthy(request.form.get('show_time_tbc'))
@@ -21709,7 +21813,7 @@ def concert_wizard_create():
             sale_start_tbc=sale_start_tbc,
             break_even_ticket=None,
             sold_out=False,
-            group_company_id=None,
+            group_company_id=billing_company_id if sale_type == 'EMPRESA' else None,
             billing_company_id=billing_company_id,
             hashtags=hashtags,
             status='HABLADO',
@@ -22195,6 +22299,48 @@ def api_geocode():
         return jsonify({"ok": False, "error": str(e)}), 500
 
 
+def _quadrantes_effective_sale_type(concert) -> str:
+    """Tipo usado en cuadrantes, tolerante con actividades antiguas o creadas desde +Actividad.
+
+    Algunos registros creados por el asistente guardan principalmente
+    ``activity_type``/``activity_subtype`` y dejan ``sale_type`` vacío o con una
+    etiqueta no incluida en los filtros clásicos. Si filtramos en SQL por
+    ``sale_type`` esos conciertos desaparecen. Además, algunas versiones antiguas
+    guardaron valores singulares o alias visuales; los normalizamos aquí.
+    """
+    aliases = {
+        "PARTICIPADO": "PARTICIPADOS",
+        "PARTICIPADA": "PARTICIPADOS",
+        "CONCIERTO_PARTICIPADO": "PARTICIPADOS",
+        "GIRA_COMPRADA": "GIRAS_COMPRADAS",
+        "GIRA": "GIRAS_COMPRADAS",
+        "FESTIVAL": "CADIZ",
+        "CICLO": "CADIZ",
+        "CADIZ_MUSIC_STADIUM": "CADIZ",
+        "CÁDIZ MUSIC STADIUM": "CADIZ",
+        "CONCIERTO_EMPRESA": "EMPRESA",
+        "EMPRESAS": "EMPRESA",
+        "VENDIDOS": "VENDIDO",
+    }
+
+    def norm(value):
+        value = (value or "").strip().upper()
+        return aliases.get(value, value)
+
+    sale_type = norm(getattr(concert, "sale_type", None))
+    if sale_type in CONCERT_SALE_TYPES_ALL_SET:
+        return sale_type
+    subtype = norm(getattr(concert, "activity_subtype", None))
+    if subtype in CONCERT_SALE_TYPES_ALL_SET:
+        return subtype
+    activity = norm(getattr(concert, "activity_type", None))
+    if activity in CONCERT_SALE_TYPES_ALL_SET:
+        return activity
+    if activity == "CONCIERTO" or not activity:
+        return "EMPRESA" if sale_type == "" else sale_type
+    return sale_type or activity
+
+
 def _concert_participant_artist_ids(concert) -> set[str]:
     """Devuelve todos los artistas vinculados a un concierto/actividad.
 
@@ -22370,11 +22516,17 @@ def quadrantes_view():
                     joinedload(Concert.billing_company),
                 )
                 .filter(func.extract("year", Concert.date) == year)
-                .filter(Concert.sale_type.in_(f_sale_types))
                 .order_by(Concert.date.asc())
                 .all()
             )
-            concerts = [c for c in concerts if selected_id_set.intersection(_concert_participant_artist_ids(c))]
+            # No filtramos por sale_type en SQL: algunos conciertos multiarista
+            # creados desde +Actividad tienen el tipo derivado en otros campos.
+            selected_all_types = set(f_sale_types) >= set(CONCERT_SALE_TYPES_ALL)
+            concerts = [
+                c for c in concerts
+                if selected_id_set.intersection(_concert_participant_artist_ids(c))
+                and (selected_all_types or _quadrantes_effective_sale_type(c) in f_sale_types or not _quadrantes_effective_sale_type(c))
+            ]
 
             if f_concert_tags:
                 concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
@@ -22451,6 +22603,7 @@ def quadrantes_view():
                 tags_clean = _concert_tags(c)
                 announcement_state = _announcement_state(c)
                 announcement_badge = _announcement_badge(c)
+                effective_sale_type = _quadrantes_effective_sale_type(c) or (c.sale_type or "")
 
                 for aid in sorted(selected_id_set.intersection(_concert_participant_artist_ids(c))):
                     artist_obj = artist_by_id.get(aid) or c.artist
@@ -22463,8 +22616,8 @@ def quadrantes_view():
                         "artist_photo": artist_obj.photo_url if artist_obj else (c.artist.photo_url if c.artist else ""),
                         "artist_color": artist_color.get(aid, "#0d6efd"),
                         "festival_name": (c.festival_name or ""),
-                        "sale_type": (c.sale_type or ""),
-                        "sale_type_label": _sale_type_label(c.sale_type),
+                        "sale_type": effective_sale_type,
+                        "sale_type_label": _sale_type_label(effective_sale_type),
                         "status": st,
                         "province": _concert_province_value(c),
                         "municipality": _concert_city(c),
@@ -22548,6 +22701,423 @@ def quadrantes_view():
 
     finally:
         session_db.close()
+
+
+# =========================================================
+# Registros (sección independiente)
+# =========================================================
+REGISTROS_REPERTOIRE_SALT = 'app33-registros-repertoire-v1'
+
+
+def _registros_repertoire_serializer():
+    secret = app.config.get('SECRET_KEY') or app.secret_key or os.getenv('SECRET_KEY') or 'app33-registros'
+    return URLSafeTimedSerializer(secret, salt=REGISTROS_REPERTOIRE_SALT)
+
+
+def _registros_public_repertoire_token(author_id, filters: dict | None = None) -> str:
+    return _registros_repertoire_serializer().dumps({
+        'author_id': str(author_id or ''),
+        'filters': filters or {},
+    })
+
+
+def _parse_registros_public_repertoire_token(token: str | None) -> dict | None:
+    token = (token or '').strip()
+    if not token:
+        return None
+    try:
+        data = _registros_repertoire_serializer().loads(token, max_age=31536000)
+    except (BadSignature, SignatureExpired):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _registros_date_badge(target_date: date | None) -> dict:
+    if not target_date:
+        return {'label': 'Sin fecha', 'class': 'text-bg-light border text-dark', 'days': None}
+    delta = (target_date - today_local()).days
+    if delta > 0:
+        return {'label': f'Faltan {delta} día' + ('' if delta == 1 else 's'), 'class': 'text-bg-warning text-dark', 'days': delta}
+    if delta == 0:
+        return {'label': 'Sale hoy', 'class': 'text-bg-warning text-dark', 'days': 0}
+    return {'label': f'{delta} días', 'class': 'text-bg-danger', 'days': delta}
+
+
+def _registros_song_artist_meta(song: Song) -> dict:
+    artists = list(getattr(song, 'artists', None) or [])
+    first_artist = artists[0] if artists else None
+    return {
+        'artists': artists,
+        'artist_name': ', '.join([a.name for a in artists if getattr(a, 'name', None)]) or '—',
+        'artist_photo': (getattr(first_artist, 'photo_url', None) or '').strip(),
+    }
+
+
+def _registros_song_master_links(session_db, song: Song) -> dict:
+    row = (
+        session_db.query(SongMaterial)
+        .filter(SongMaterial.song_id == song.id)
+        .filter(func.upper(SongMaterial.category) == 'MASTER')
+        .order_by(SongMaterial.slot_key.desc(), SongMaterial.created_at.desc())
+        .first()
+    )
+    if not row:
+        return {}
+    return {
+        'stream_url': (getattr(row, 'file_url', None) or '').strip(),
+        'download_wav_url': _external_url_for('public_song_material_download') + '?token=' + quote_plus(_make_public_song_share_token('MATERIAL', str(song.id), str(row.id), 'wav')),
+        'download_mp3_url': _external_url_for('public_song_material_download') + '?token=' + quote_plus(_make_public_song_share_token('MATERIAL', str(song.id), str(row.id), 'mp3')),
+    }
+
+
+def _registros_song_card(session_db, song: Song, status: SongStatus | None = None, shares: list[SongEditorialShare] | None = None) -> dict:
+    status = status or session_db.get(SongStatus, song.id) or _ensure_song_status_row(session_db, song)
+    meta = _registros_song_artist_meta(song)
+    release_date = getattr(song, 'release_date', None)
+    platform_authors = []
+    if shares is not None:
+        by_author = {}
+        for share in shares:
+            promoter = getattr(share, 'promoter', None)
+            if not promoter:
+                continue
+            pid = str(getattr(promoter, 'id', '') or '')
+            if not pid:
+                continue
+            item = by_author.setdefault(pid, {
+                'id': pid,
+                'name': _promoter_display_name(promoter) or getattr(promoter, 'nick', None) or '—',
+                'photo_url': (getattr(promoter, 'logo_url', None) or '').strip(),
+                'pct': 0.0,
+            })
+            try:
+                item['pct'] += float(getattr(share, 'pct', 0) or 0)
+            except Exception:
+                pass
+        platform_authors = list(by_author.values())
+    return {
+        'kind': 'SONG',
+        'item_id': str(song.id),
+        'song': song,
+        'title': getattr(song, 'title', None) or '—',
+        'cover_url': (getattr(song, 'cover_url', None) or '').strip(),
+        'artist_name': meta['artist_name'],
+        'artist_photo': meta['artist_photo'],
+        'collaborator': (getattr(song, 'collaborator', None) or '').strip(),
+        'release_date': release_date,
+        'date_badge': _registros_date_badge(release_date),
+        'sgae_done': bool(getattr(status, 'sgae_done', False)),
+        'agedi_done': bool(getattr(status, 'agedi_done', False)),
+        'ritmonet_done': bool(getattr(status, 'ritmonet_done', False)),
+        'platform_authors': platform_authors,
+        'platform_author_ids': [a['id'] for a in platform_authors],
+        'detail_url': url_for('discografica_song_detail', song_id=song.id, tab='editorial'),
+        'sgae_register_url': url_for('discografica_song_sgae_register', song_id=song.id),
+        'agedi_register_url': url_for('discografica_song_agedi_register', song_id=song.id),
+        'label_copy_url': _label_copy_public_url('SONG', song.id),
+        'lyrics_url': (_external_url_for('public_song_lyrics_view', token=_make_public_song_share_token('LYRICS_PDF', str(song.id))) if (getattr(song, 'lyrics_text', None) or '').strip() else ''),
+    }
+
+
+def _build_registros_sgae_dataset(session_db, filters: dict | None = None) -> dict:
+    filters = filters or {}
+    brand = _platforma_musical_brand_assets(session_db)
+    plataforma_id = brand.get('publishing_company_id')
+    if not plataforma_id:
+        return {'brand': brand, 'authors': [], 'songs': [], 'pending_songs': [], 'author_filters': []}
+    shares = (
+        session_db.query(SongEditorialShare)
+        .join(Promoter, Promoter.id == SongEditorialShare.promoter_id)
+        .filter(Promoter.publishing_company_id == plataforma_id)
+        .options(joinedload(SongEditorialShare.promoter).joinedload(Promoter.publishing_company))
+        .order_by(SongEditorialShare.created_at.asc())
+        .all()
+    )
+    song_ids = sorted({share.song_id for share in shares if getattr(share, 'song_id', None)}, key=lambda x: str(x))
+    if not song_ids:
+        return {'brand': brand, 'authors': [], 'songs': [], 'pending_songs': [], 'author_filters': []}
+    songs = (
+        session_db.query(Song)
+        .options(selectinload(Song.artists))
+        .filter(Song.id.in_(song_ids))
+        .order_by(Song.release_date.desc(), Song.title.asc())
+        .all()
+    )
+    status_map = {
+        row.song_id: row
+        for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_([song.id for song in songs])).all()
+        if row and row.song_id
+    }
+    shares_by_song = defaultdict(list)
+    author_map = {}
+    author_songs = defaultdict(list)
+    for share in shares:
+        shares_by_song[share.song_id].append(share)
+        promoter = getattr(share, 'promoter', None)
+        if promoter and getattr(promoter, 'id', None):
+            pid = str(promoter.id)
+            author_map[pid] = promoter
+            author_songs[pid].append(share.song_id)
+
+    card_by_id = {}
+    all_cards = []
+    for song in songs:
+        card = _registros_song_card(session_db, song, status_map.get(song.id), shares_by_song.get(song.id, []))
+        card_by_id[str(song.id)] = card
+        all_cards.append(card)
+
+    def card_matches_filters(card: dict, author_id: str | None = None) -> bool:
+        status_filter = (filters.get('status') or '').strip().lower()
+        if status_filter == 'registered' and not card.get('sgae_done'):
+            return False
+        if status_filter == 'pending' and card.get('sgae_done'):
+            return False
+        if author_id and str(author_id) not in (card.get('platform_author_ids') or []):
+            return False
+        if _truthy(filters.get('own100')):
+            pct = 0.0
+            for a in card.get('platform_authors') or []:
+                if not author_id or str(a.get('id')) == str(author_id):
+                    try:
+                        pct += float(a.get('pct') or 0)
+                    except Exception:
+                        pass
+            if pct < 99.99:
+                return False
+        year = (filters.get('year') or '').strip()
+        if year:
+            try:
+                year_int = int(year)
+            except Exception:
+                year_int = None
+            if year_int and getattr(card.get('release_date'), 'year', None) != year_int:
+                return False
+        start_dt = parse_optional_date(filters.get('start_date') or '')
+        end_dt = parse_optional_date(filters.get('end_date') or '')
+        rd = card.get('release_date')
+        if start_dt and (not rd or rd < start_dt):
+            return False
+        if end_dt and (not rd or rd > end_dt):
+            return False
+        return True
+
+    author_blocks = []
+    for pid, promoter in sorted(author_map.items(), key=lambda kv: _norm_text_key(_promoter_display_name(kv[1]) or getattr(kv[1], 'nick', ''))):
+        ids = []
+        seen = set()
+        for sid in author_songs.get(pid, []):
+            ssid = str(sid)
+            if ssid not in seen:
+                seen.add(ssid)
+                ids.append(ssid)
+        cards = [card_by_id[sid] for sid in ids if sid in card_by_id and card_matches_filters(card_by_id[sid], pid)]
+        author_blocks.append({
+            'id': pid,
+            'name': _promoter_display_name(promoter) or getattr(promoter, 'nick', None) or '—',
+            'photo_url': (getattr(promoter, 'logo_url', None) or '').strip(),
+            'email': (getattr(promoter, 'contact_email', None) or '').strip(),
+            'songs': cards,
+            'song_count': len(cards),
+            'share_url': _external_url_for('public_registros_repertoire', token=_registros_public_repertoire_token(pid, {})),
+        })
+    pending = [card for card in all_cards if not card.get('sgae_done')]
+    return {
+        'brand': brand,
+        'authors': author_blocks,
+        'songs': all_cards,
+        'pending_songs': pending,
+        'author_filters': [{'id': row['id'], 'name': row['name'], 'photo_url': row['photo_url']} for row in author_blocks],
+    }
+
+
+def _build_registros_agedi_pending(session_db) -> list[dict]:
+    rows = []
+    songs = (
+        session_db.query(Song)
+        .options(selectinload(Song.artists))
+        .order_by(Song.release_date.desc(), Song.title.asc())
+        .limit(500)
+        .all()
+    )
+    if songs:
+        status_map = {row.song_id: row for row in session_db.query(SongStatus).filter(SongStatus.song_id.in_([s.id for s in songs])).all() if row and row.song_id}
+        for song in songs:
+            codes = _current_song_isrcs(session_db, song.id, include_song_field=True)
+            st = status_map.get(song.id) or _ensure_song_status_row(session_db, song)
+            _sync_song_agedi_state(session_db, song.id, st)
+            if codes and not bool(getattr(st, 'agedi_done', False)):
+                card = _registros_song_card(session_db, song, st, None)
+                card.update({'kind_label': 'Canción', 'codes': codes})
+                rows.append(card)
+    albums = (
+        session_db.query(Album)
+        .options(joinedload(Album.artist))
+        .order_by(Album.release_date.desc(), Album.title.asc())
+        .limit(250)
+        .all()
+    )
+    if albums:
+        st_map = {row.album_id: row for row in session_db.query(AlbumStatus).filter(AlbumStatus.album_id.in_([a.id for a in albums])).all() if row and row.album_id}
+        for album in albums:
+            st = st_map.get(album.id) or _ensure_album_status_row(session_db, album)
+            if bool(getattr(st, 'agedi_done', False)):
+                continue
+            rows.append({
+                'kind': 'ALBUM',
+                'kind_label': _album_kind_label(album),
+                'item_id': str(album.id),
+                'title': getattr(album, 'title', None) or '—',
+                'cover_url': (getattr(album, 'cover_url', None) or '').strip(),
+                'artist_name': (getattr(getattr(album, 'artist', None), 'name', None) or '—'),
+                'artist_photo': (getattr(getattr(album, 'artist', None), 'photo_url', None) or '').strip(),
+                'collaborator': '',
+                'release_date': getattr(album, 'release_date', None),
+                'date_badge': _registros_date_badge(getattr(album, 'release_date', None)),
+                'detail_url': url_for('discografica_album_detail', album_id=album.id, tab='informacion'),
+                'agedi_register_url': url_for('discografica_album_status_toggle', album_id=album.id),
+            })
+    rows.sort(key=lambda x: (x.get('release_date') or date.min), reverse=True)
+    return rows
+
+
+def _build_registros_concerts_pending(session_db) -> list[dict]:
+    concerts = (
+        session_db.query(Concert)
+        .options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company), joinedload(Concert.group_company))
+        .filter(or_(Concert.registration_declared_done.is_(False), Concert.registration_declared_done.is_(None)))
+        .order_by(Concert.date.desc())
+        .limit(300)
+        .all()
+    )
+    rows = []
+    for concert in concerts:
+        artist = getattr(concert, 'artist', None)
+        rows.append({
+            'kind': 'CONCERT',
+            'item_id': str(concert.id),
+            'title': (getattr(concert, 'festival_name', None) or _concert_venue_name(concert) or 'Concierto'),
+            'cover_url': (getattr(artist, 'photo_url', None) or '').strip(),
+            'artist_name': getattr(artist, 'name', None) or '—',
+            'artist_photo': (getattr(artist, 'photo_url', None) or '').strip(),
+            'collaborator': '',
+            'release_date': getattr(concert, 'date', None),
+            'date_badge': _registros_date_badge(getattr(concert, 'date', None)),
+            'detail_url': url_for('concert_detail_view', cid=concert.id, tab='general'),
+            'declare_url': url_for('registros_concert_declare', concert_id=concert.id),
+            'location': ' · '.join([x for x in [_concert_venue_name(concert), _concert_city(concert), _concert_province_value(concert)] if x]),
+        })
+    return rows
+
+
+def _build_registros_context(session_db) -> dict:
+    sgae = _build_registros_sgae_dataset(session_db)
+    agedi_pending = _build_registros_agedi_pending(session_db)
+    concerts_pending = _build_registros_concerts_pending(session_db)
+    pending = {
+        'sgae': sgae.get('pending_songs') or [],
+        'agedi': agedi_pending,
+        'concerts': concerts_pending,
+    }
+    return {
+        'brand': sgae.get('brand') or _platforma_musical_brand_assets(session_db),
+        'sgae': sgae,
+        'pending': pending,
+        'counts': {key: len(value or []) for key, value in pending.items()},
+        'author_filters': sgae.get('author_filters') or [],
+    }
+
+
+@app.get('/registros', endpoint='registros_view')
+@admin_required
+def registros_view():
+    tab = (request.args.get('tab') or 'pendiente').strip().lower()
+    if tab not in {'pendiente', 'sgae'}:
+        tab = 'pendiente'
+    session_db = db()
+    try:
+        ctx = _build_registros_context(session_db)
+        return render_template('registros.html', tab=tab, **ctx)
+    finally:
+        session_db.close()
+
+
+@app.post('/registros/conciertos/<concert_id>/declarar', endpoint='registros_concert_declare')
+@admin_required
+def registros_concert_declare(concert_id):
+    if not (can_edit_discografica() or can_edit_concerts() or is_master()):
+        return forbid('No tienes permisos para marcar conciertos como comunicados.')
+    nxt = safe_next_or(request.form.get('next') or url_for('registros_view', tab='pendiente'))
+    session_db = db()
+    try:
+        cid = to_uuid(concert_id)
+        concert = session_db.get(Concert, cid)
+        if not concert:
+            flash('Concierto no encontrado.', 'warning')
+            return redirect(nxt)
+        concert.registration_declared_done = True
+        concert.registration_declared_at = datetime.now(TZ_MADRID)
+        session_db.add(concert)
+        session_db.commit()
+        flash('Concierto marcado como comunicado.', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'Error marcando concierto: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(nxt)
+
+
+@app.get('/registros/sgae/repertorio/link', endpoint='registros_repertoire_link')
+@admin_required
+def registros_repertoire_link():
+    author_id = to_uuid(request.args.get('author_id') or '')
+    if not author_id:
+        return jsonify({'ok': False, 'message': 'Autor no válido.'}), 400
+    filters = {
+        'status': (request.args.get('status') or '').strip().lower(),
+        'own100': '1' if _truthy(request.args.get('own100')) else '',
+        'year': (request.args.get('year') or '').strip(),
+        'start_date': (request.args.get('start_date') or '').strip(),
+        'end_date': (request.args.get('end_date') or '').strip(),
+        'allow_download': '1' if _truthy(request.args.get('allow_download')) else '',
+    }
+    token = _registros_public_repertoire_token(author_id, filters)
+    return jsonify({'ok': True, 'url': _external_url_for('public_registros_repertoire', token=token)})
+
+
+@app.get('/public/registros/repertorio/<token>', endpoint='public_registros_repertoire')
+def public_registros_repertoire(token):
+    payload = _parse_registros_public_repertoire_token(token)
+    if not payload:
+        abort(404)
+    author_id = to_uuid(payload.get('author_id') or '')
+    filters = payload.get('filters') if isinstance(payload.get('filters'), dict) else {}
+    if not author_id:
+        abort(404)
+    with get_db() as session_db:
+        promoter = session_db.get(Promoter, author_id)
+        if not promoter:
+            abort(404)
+        sgae = _build_registros_sgae_dataset(session_db, filters={**filters})
+        author_block = None
+        for block in sgae.get('authors') or []:
+            if str(block.get('id')) == str(author_id):
+                author_block = block
+                break
+        if not author_block:
+            author_block = {
+                'id': str(author_id),
+                'name': _promoter_display_name(promoter) or getattr(promoter, 'nick', None) or '—',
+                'photo_url': (getattr(promoter, 'logo_url', None) or '').strip(),
+                'songs': [],
+            }
+        # Enriquecemos acciones públicas de repertorio.
+        for card in author_block.get('songs') or []:
+            song = card.get('song')
+            if song:
+                card['master_links'] = _registros_song_master_links(session_db, song)
+        return render_template('public_registros_repertoire.html', brand=sgae.get('brand'), author=author_block, filters=filters, allow_download=_truthy(filters.get('allow_download')))
+
 
 # =========================================================
 # Personal + nuevas secciones + nuevas bases de datos
@@ -23794,6 +24364,10 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 58},
     {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 59},
 
+    {"key": "registros", "label": "Registros", "section_key": "registros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 57},
+    {"key": "registros.pendiente", "label": "Pendiente", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 58},
+    {"key": "registros.sgae", "label": "SGAE", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 59},
+
     {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 60},
 
     {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 65},
@@ -23861,13 +24435,14 @@ AUTO_SEGMENT_PARENT = {
     "personal": "personal",
     "promocion": "promocion",
     "marketing": "promocion",
+    "registros": "registros",
     "acciones": "acciones",
     "produccion": "produccion",
     "administracion": "administracion",
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -24407,6 +24982,9 @@ def _resolve_request_resource_key() -> str | None:
             "gastos": "contabilidad",
         }
         return mapping.get(tab, "discografica.canciones")
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
+        tab = (request.args.get("tab") or "pendiente").strip().lower()
+        return "registros.sgae" if tab == "sgae" else "registros.pendiente"
     if endpoint == "discografica_album_detail":
         tab = (request.args.get("tab") or "informacion").strip().lower()
         mapping = {
@@ -24677,6 +25255,9 @@ def _resource_default_url(key: str) -> str:
         "discografica.registros": url_for("discografica_view", section="registros"),
         "discografica.ingresos": url_for("discografica_view", section="ingresos"),
         "discografica.isrc": url_for("discografica_view", section="isrc", isrc_tab="repertorio"),
+        "registros": url_for("registros_view", tab="pendiente"),
+        "registros.pendiente": url_for("registros_view", tab="pendiente"),
+        "registros.sgae": url_for("registros_view", tab="sgae"),
         "third_parties": url_for("promoters_view"),
         "contratacion": url_for("contracting_view", section="conciertos"),
         "contratacion.conciertos": url_for("concerts_view", tab="vista"),
@@ -24727,6 +25308,7 @@ def _resource_icon(key: str) -> str:
         ("ventas", "fa-chart-line"),
         ("artists", "fa-user-group"),
         ("discografica", "fa-compact-disc"),
+        ("registros", "fa-clipboard-check"),
         ("third_parties", "fa-handshake"),
         ("contratacion", "fa-file-signature"),
         ("concerts", "fa-music"),
@@ -24818,6 +25400,7 @@ def _build_nav_menu() -> list[dict]:
         ]},
         {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
+        {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
             {"key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
@@ -25041,7 +25624,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     if request.endpoint in allowed:
         return
     if not request.endpoint:

@@ -30,22 +30,7 @@
       </a>
     </li>
   {% endif %}
-  {% if has_access_key('discografica.editorial', include_descendants=True) %}
-    <li class="nav-item">
-      <a class="nav-link {% if section=='editorial' %}active{% endif %}"
-         href="{{ url_for('discografica_view', section='editorial') }}">
-        Editorial
-      </a>
-    </li>
-  {% endif %}
-  {% if has_access_key('discografica.registros', include_descendants=True) %}
-    <li class="nav-item">
-      <a class="nav-link {% if section=='registros' %}active{% endif %}"
-         href="{{ url_for('discografica_view', section='registros') }}">
-        Registros
-      </a>
-    </li>
-  {% endif %}
+  {# Editorial y Registros se han movido fuera de Discográfica a la sección principal Registros. #}
   {% if has_access_key('discografica.ingresos', include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if section=='ingresos' %}active{% endif %}"

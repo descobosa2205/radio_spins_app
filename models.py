@@ -1091,6 +1091,10 @@ class Concert(Base):
     announcement_date = Column(Date)
     do_not_announce = Column(Boolean, nullable=False, server_default=text("false"))
 
+    # Registros: conciertos comunicados/declarados en la sección Registros.
+    registration_declared_done = Column(Boolean, nullable=False, server_default=text("false"))
+    registration_declared_at = Column(DateTime(timezone=True))
+
     # Estado: BORRADOR | HABLADO | RESERVADO | CONFIRMADO
     status = Column(Text, nullable=False, server_default=text("'HABLADO'"))
 

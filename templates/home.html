@@ -99,6 +99,36 @@
   </div>
 </div>
 
+{% if HOME_INVITATIONS %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <div>
+        <h5 class="mb-0">Mis invitaciones solicitadas</h5>
+        <div class="small text-muted">Agrupadas por concierto o actividad y con su estado actual.</div>
+      </div>
+      <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_INVITATIONS[:6] %}
+        <div class="col-12 col-lg-6">
+          <div class="invitation-home-card h-100">
+            <div class="d-flex justify-content-between gap-3">
+              <div>
+                <strong>{{ row.event.artist_names }}</strong>
+                <div class="small text-muted">{{ row.event.type_label }} · {{ row.event.date_label }} · {{ row.event.city }}</div>
+                <div class="small mt-1">{{ row.guest_name }} · {{ row.quantities_label }}</div>
+              </div>
+              <span class="badge text-bg-{{ row.status_badge }} align-self-start">{{ row.status_label }}</span>
+            </div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <h5 class="dash-section-title mb-3">Tus áreas</h5>
 {% if HOME_SECTIONS %}
   <div class="row g-3">

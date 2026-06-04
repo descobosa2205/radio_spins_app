@@ -1925,6 +1925,203 @@ class ConcertBudgetItem(Base):
     )
 
 
+
+class InvitationCategory(Base):
+    """Categorías de invitaciones configuradas para una actividad/concierto."""
+
+    __tablename__ = "invitation_categories"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    name = Column(Text, nullable=False)
+    source = Column(Text, nullable=False, server_default=text("'MANUAL'"))
+    ticket_kind = Column(Text, nullable=False, server_default=text("'PDF_UNNUMBERED'"))
+    guest_list_mode = Column(Text)
+    qty_contract = Column(Integer, nullable=False, server_default=text("0"))
+    qty_extra = Column(Integer, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("concert_id", "name", name="uq_invitation_categories_concert_name"),
+        Index("idx_invitation_categories_concert", "concert_id", "is_active", "sort_order"),
+    )
+
+
+class InvitationCommitment(Base):
+    """Compromisos de invitaciones del recinto, artista, promotor, patrocinadores, etc."""
+
+    __tablename__ = "invitation_commitments"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    name = Column(Text, nullable=False)
+    reason = Column(Text)
+    quantities_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'COMPROMETIDAS'"))
+    note = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    promoter = relationship("Promoter")
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_invitation_commitments_concert", "concert_id", "status"),
+        Index("idx_invitation_commitments_promoter", "promoter_id"),
+    )
+
+
+class InvitationPublicLink(Base):
+    """Enlaces únicos para que un tercero pueda hacer peticiones públicas de invitaciones."""
+
+    __tablename__ = "invitation_public_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    target_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    target_name = Column(Text)
+    target_email = Column(Text)
+    target_phone = Column(Text)
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    requested_by_email = Column(Text)
+    requested_by_photo_url = Column(Text)
+    limit_mode = Column(Text, nullable=False, server_default=text("'NONE'"))
+    total_limit = Column(Integer)
+    category_limits_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    categories_enabled_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    categorize_requests = Column(Boolean, nullable=False, server_default=text("true"))
+    deadline_at = Column(DateTime(timezone=True))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    cancelled_at = Column(DateTime(timezone=True))
+    cancelled_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+
+    concert = relationship("Concert")
+    target_promoter = relationship("Promoter", foreign_keys=[target_promoter_id])
+    requested_by = relationship("User", foreign_keys=[requested_by_user_id])
+    cancelled_by = relationship("User", foreign_keys=[cancelled_by_user_id])
+
+    __table_args__ = (
+        Index("idx_invitation_public_links_concert", "concert_id", "status", "deadline_at"),
+        Index("idx_invitation_public_links_target", "target_promoter_id"),
+    )
+
+
+class InvitationRequest(Base):
+    """Solicitud de invitaciones, interna o generada desde enlace público."""
+
+    __tablename__ = "invitation_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    public_link_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_public_links.id", ondelete="SET NULL"))
+    request_source = Column(Text, nullable=False, server_default=text("'INTERNAL'"))
+    requester_type = Column(Text, nullable=False, server_default=text("'USER'"))
+    requester_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requester_nick = Column(Text)
+    requester_email = Column(Text)
+    requester_photo_url = Column(Text)
+    guest_type = Column(Text, nullable=False, server_default=text("'THIRD_PARTY'"))
+    guest_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    guest_artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    guest_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    guest_name = Column(Text, nullable=False)
+    guest_company = Column(Text)
+    guest_email = Column(Text)
+    guest_phone = Column(Text)
+    guest_note = Column(Text)
+    receiver_mode = Column(Text, nullable=False, server_default=text("'GUEST'"))
+    receiver_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    quantities_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'SOLICITADAS'"))
+    note = Column(Text)
+    delivery_token = Column(Text, unique=True)
+    downloaded_at = Column(DateTime(timezone=True))
+    downloaded_count = Column(Integer, nullable=False, server_default=text("0"))
+    approved_at = Column(DateTime(timezone=True))
+    assigned_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    delivered_at = Column(DateTime(timezone=True))
+    rejected_at = Column(DateTime(timezone=True))
+    rejection_reason = Column(Text)
+    cancelled_at = Column(DateTime(timezone=True))
+    cancelled_by_label = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    public_link = relationship("InvitationPublicLink")
+    requester = relationship("User", foreign_keys=[requester_user_id])
+    guest_promoter = relationship("Promoter", foreign_keys=[guest_promoter_id])
+    guest_artist = relationship("Artist", foreign_keys=[guest_artist_id])
+    guest_user = relationship("User", foreign_keys=[guest_user_id])
+
+    __table_args__ = (
+        Index("idx_invitation_requests_concert_status", "concert_id", "status", "created_at"),
+        Index("idx_invitation_requests_public_link", "public_link_id", "created_at"),
+        Index("idx_invitation_requests_requester", "requester_user_id", "created_at"),
+        Index("idx_invitation_requests_delivery_token", "delivery_token"),
+    )
+
+
+class InvitationTicket(Base):
+    """PDF/entrada individual subida a una categoría de invitaciones."""
+
+    __tablename__ = "invitation_tickets"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_categories.id", ondelete="CASCADE"), nullable=False)
+    ticket_code = Column(Text)
+    pdf_url = Column(Text, nullable=False)
+    pdf_name = Column(Text)
+    pdf_sha256 = Column(Text)
+    is_numbered = Column(Boolean, nullable=False, server_default=text("false"))
+    sector = Column(Text)
+    row_label = Column(Text)
+    seat_number = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'AVAILABLE'"))
+    assigned_request_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_requests.id", ondelete="SET NULL"))
+    assigned_commitment_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_commitments.id", ondelete="SET NULL"))
+    assigned_label = Column(Text)
+    assigned_at = Column(DateTime(timezone=True))
+    sent_at = Column(DateTime(timezone=True))
+    delivered_at = Column(DateTime(timezone=True))
+    previous_assignment_warning = Column(Text)
+    uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    uploaded_by_nick = Column(Text)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    category = relationship("InvitationCategory")
+    assigned_request = relationship("InvitationRequest")
+    assigned_commitment = relationship("InvitationCommitment")
+    uploaded_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_invitation_tickets_concert_category", "concert_id", "category_id", "status"),
+        Index("idx_invitation_tickets_assigned_request", "assigned_request_id"),
+        Index("idx_invitation_tickets_sha", "pdf_sha256"),
+        UniqueConstraint("concert_id", "ticket_code", name="uq_invitation_tickets_concert_code"),
+    )
+
+
 class CompanyActionRequest(Base):
     """Solicitudes previas a la creación de una acción."""
 
@@ -4305,6 +4502,176 @@ def ensure_contracting_embargo_schema():
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_tax_status ON embargo_orders(detected_tax_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
     ], "contracting_embargo_schema")
+
+def ensure_invitation_schema():
+    """Asegura la funcionalidad completa de Invitaciones sin depender de Alembic."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS invitation_categories (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            name text NOT NULL,
+            source text NOT NULL DEFAULT 'MANUAL',
+            ticket_kind text NOT NULL DEFAULT 'PDF_UNNUMBERED',
+            guest_list_mode text,
+            qty_contract integer NOT NULL DEFAULT 0,
+            qty_extra integer NOT NULL DEFAULT 0,
+            sort_order integer NOT NULL DEFAULT 0,
+            is_active boolean NOT NULL DEFAULT true,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_invitation_categories_concert_name UNIQUE(concert_id, name)
+        );
+        """,
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS ticket_kind text NOT NULL DEFAULT 'PDF_UNNUMBERED';",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS guest_list_mode text;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_contract integer NOT NULL DEFAULT 0;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_extra integer NOT NULL DEFAULT 0;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_categories_concert ON invitation_categories(concert_id, is_active, sort_order);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_commitments (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            name text NOT NULL,
+            reason text,
+            quantities_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            status text NOT NULL DEFAULT 'COMPROMETIDAS',
+            note text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_commitments_concert ON invitation_commitments(concert_id, status);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_commitments_promoter ON invitation_commitments(promoter_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_public_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            target_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            target_name text,
+            target_email text,
+            target_phone text,
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            requested_by_email text,
+            requested_by_photo_url text,
+            limit_mode text NOT NULL DEFAULT 'NONE',
+            total_limit integer,
+            category_limits_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            categories_enabled_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            categorize_requests boolean NOT NULL DEFAULT true,
+            deadline_at timestamptz,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            cancelled_at timestamptz,
+            cancelled_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_public_links_concert ON invitation_public_links(concert_id, status, deadline_at);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_public_links_target ON invitation_public_links(target_promoter_id);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            public_link_id uuid REFERENCES invitation_public_links(id) ON DELETE SET NULL,
+            request_source text NOT NULL DEFAULT 'INTERNAL',
+            requester_type text NOT NULL DEFAULT 'USER',
+            requester_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requester_nick text,
+            requester_email text,
+            requester_photo_url text,
+            guest_type text NOT NULL DEFAULT 'THIRD_PARTY',
+            guest_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            guest_artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            guest_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            guest_name text NOT NULL,
+            guest_company text,
+            guest_email text,
+            guest_phone text,
+            guest_note text,
+            receiver_mode text NOT NULL DEFAULT 'GUEST',
+            receiver_payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            quantities_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            status text NOT NULL DEFAULT 'SOLICITADAS',
+            note text,
+            delivery_token text UNIQUE,
+            downloaded_at timestamptz,
+            downloaded_count integer NOT NULL DEFAULT 0,
+            approved_at timestamptz,
+            assigned_at timestamptz,
+            sent_at timestamptz,
+            delivered_at timestamptz,
+            rejected_at timestamptz,
+            rejection_reason text,
+            cancelled_at timestamptz,
+            cancelled_by_label text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_requests_concert_status ON invitation_requests(concert_id, status, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_requests_public_link ON invitation_requests(public_link_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_requests_requester ON invitation_requests(requester_user_id, created_at);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_requests_delivery_token ON invitation_requests(delivery_token);",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_tickets (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            category_id uuid NOT NULL REFERENCES invitation_categories(id) ON DELETE CASCADE,
+            ticket_code text,
+            pdf_url text NOT NULL,
+            pdf_name text,
+            pdf_sha256 text,
+            is_numbered boolean NOT NULL DEFAULT false,
+            sector text,
+            row_label text,
+            seat_number text,
+            status text NOT NULL DEFAULT 'AVAILABLE',
+            assigned_request_id uuid REFERENCES invitation_requests(id) ON DELETE SET NULL,
+            assigned_commitment_id uuid REFERENCES invitation_commitments(id) ON DELETE SET NULL,
+            assigned_label text,
+            assigned_at timestamptz,
+            sent_at timestamptz,
+            delivered_at timestamptz,
+            previous_assignment_warning text,
+            uploaded_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            uploaded_by_nick text,
+            uploaded_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_invitation_tickets_concert_code UNIQUE(concert_id, ticket_code)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_concert_category ON invitation_tickets(concert_id, category_id, status);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_assigned_request ON invitation_tickets(assigned_request_id);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_sha ON invitation_tickets(pdf_sha256);",
+        """
+        INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
+        VALUES
+          ('invitaciones', NULL, 'invitaciones', 'Invitaciones', 'SECTION', false, 97),
+          ('invitaciones.pedir', 'invitaciones', 'invitaciones', 'Pedir invitaciones', 'TAB', false, 98),
+          ('invitaciones.gestionar', 'invitaciones', 'invitaciones', 'Gestionar invitaciones', 'TAB', false, 99)
+        ON CONFLICT (key) DO UPDATE SET
+          parent_key = EXCLUDED.parent_key,
+          section_key = EXCLUDED.section_key,
+          label = EXCLUDED.label,
+          level = EXCLUDED.level,
+          economic_capable = EXCLUDED.economic_capable,
+          sort_order = EXCLUDED.sort_order,
+          updated_at = now();
+        """,
+    ]
+    _exec_ddl_statements(stmts, "invitation_schema")
+
 
 def ensure_roadmap_onesheet_schema():
     """Asegura campos de hoja de ruta avanzada, redes sociales y one-sheets."""

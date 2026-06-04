@@ -552,10 +552,11 @@
           <div class="card-body">
             <div class="d-flex justify-content-between align-items-center mb-3">
               <h5 class="mb-0">Invitaciones contractuales</h5>
-              <div class="d-flex gap-2">
+              <div class="d-flex gap-2 flex-wrap justify-content-end">
                 <span class="badge text-bg-light border">Artista: {{ invitation_totals.artist }}</span>
                 <span class="badge text-bg-light border">Oficina: {{ invitation_totals.office }}</span>
                 <span class="badge text-bg-primary">Total: {{ invitation_totals.total }}</span>
+                <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-ticket-alt me-1"></i>Gestionar</a>
               </div>
             </div>
             {% if invitation_rows %}
@@ -586,7 +587,8 @@
         <div class="card h-100">
           <div class="card-body">
             <h6 class="mb-3">Contexto</h6>
-            <p class="text-muted mb-2">La pestaña de invitaciones se alimenta desde el nuevo wizard de alta.</p>
+            <p class="text-muted mb-2">La gestión completa se realiza ahora desde la sección Invitaciones.</p>
+            <a class="btn btn-outline-danger w-100 mb-3" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir ficha de invitaciones</a>
             <ul class="small text-muted mb-0">
               <li>Se muestran categorías separadas.</li>
               <li>Se desglosa la parte de artista y de oficina.</li>

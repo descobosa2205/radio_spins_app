@@ -546,56 +546,57 @@
   {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
   {% elif tab == 'invitations' %}
-    <div class="row g-3">
-      <div class="col-12 col-xl-8">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-              <h5 class="mb-0">Invitaciones contractuales</h5>
-              <div class="d-flex gap-2 flex-wrap justify-content-end">
-                <span class="badge text-bg-light border">Artista: {{ invitation_totals.artist }}</span>
-                <span class="badge text-bg-light border">Oficina: {{ invitation_totals.office }}</span>
-                <span class="badge text-bg-primary">Total: {{ invitation_totals.total }}</span>
-                <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-ticket-alt me-1"></i>Gestionar</a>
-              </div>
-            </div>
-            {% if invitation_rows %}
-              <div class="table-responsive">
-                <table class="table align-middle mb-0">
-                  <thead class="table-light">
-                    <tr><th>Categoría</th><th class="text-end">Artista</th><th class="text-end">Oficina</th><th class="text-end">Total</th></tr>
-                  </thead>
-                  <tbody>
-                    {% for row in invitation_rows %}
-                      <tr>
-                        <td>{{ row.category }}</td>
-                        <td class="text-end">{{ row.artist_qty }}</td>
-                        <td class="text-end">{{ row.office_qty }}</td>
-                        <td class="text-end">{{ row.total_qty or ((row.artist_qty or 0) + (row.office_qty or 0)) }}</td>
-                      </tr>
-                    {% endfor %}
-                  </tbody>
-                </table>
-              </div>
-            {% else %}
-              <div class="text-muted">Este concierto no tiene invitaciones configuradas.</div>
-            {% endif %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
+          <div>
+            <h5 class="mb-0">Invitaciones disponibles</h5>
+            <div class="text-muted small">Resumen por categoría, compromisos y peticiones vinculadas a esta actividad.</div>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-gear me-1"></i>Configurar</a>
+            <a class="btn btn-sm btn-danger" href="{{ url_for('invitations_view', tab='pedir') }}?event={{ concert.id }}"><i class="fa fa-plus me-1"></i>Realizar petición</a>
           </div>
         </div>
+        <div class="invitation-counts invitation-counts--large mb-3">
+          <div><span>{{ invitation_counts.configured if invitation_counts else invitation_totals.total }}</span><small>Disponibles</small></div>
+          <div><span>{{ invitation_counts.committed if invitation_counts else 0 }}</span><small>Comprometidas</small></div>
+          <div><span>{{ invitation_counts.requested if invitation_counts else 0 }}</span><small>Solicitadas</small></div>
+          <div class="{% if invitation_counts and invitation_counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ invitation_counts.result if invitation_counts else invitation_totals.total }}</span><small>Total</small></div>
+        </div>
+        {% if invitation_categories_summary %}
+          <div class="row g-3">
+            {% for cat in invitation_categories_summary %}
+              <div class="col-12 col-md-6 col-xl-4">
+                <div class="invitation-category-card h-100">
+                  <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div><strong>{{ cat.name }}</strong><div class="small text-muted">{{ cat.ticket_kind|replace('_',' ') }}</div></div>
+                    <span class="badge text-bg-light border">{{ cat.configured }}</span>
+                  </div>
+                  <div class="small mt-2">Contrato: {{ cat.qty_contract }} · Adicionales: {{ cat.qty_extra }}</div>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        {% elif invitation_rows %}
+          <div class="table-responsive">
+            <table class="table align-middle mb-0">
+              <thead class="table-light"><tr><th>Categoría</th><th class="text-end">Artista</th><th class="text-end">Oficina</th><th class="text-end">Total</th></tr></thead>
+              <tbody>{% for row in invitation_rows %}<tr><td>{{ row.category }}</td><td class="text-end">{{ row.artist_qty }}</td><td class="text-end">{{ row.office_qty }}</td><td class="text-end">{{ row.total_qty or ((row.artist_qty or 0) + (row.office_qty or 0)) }}</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+        {% else %}
+          <div class="alert alert-light border mb-0">Este concierto todavía no tiene invitaciones configuradas.</div>
+        {% endif %}
       </div>
-      <div class="col-12 col-xl-4">
-        <div class="card h-100">
-          <div class="card-body">
-            <h6 class="mb-3">Contexto</h6>
-            <p class="text-muted mb-2">La gestión completa se realiza ahora desde la sección Invitaciones.</p>
-            <a class="btn btn-outline-danger w-100 mb-3" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir ficha de invitaciones</a>
-            <ul class="small text-muted mb-0">
-              <li>Se muestran categorías separadas.</li>
-              <li>Se desglosa la parte de artista y de oficina.</li>
-              <li>El total se calcula automáticamente.</li>
-            </ul>
-          </div>
+    </div>
+    <div class="card">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <h5 class="mb-0">Invitados aprobados</h5>
+          <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
         </div>
+        <div class="text-muted small">La aprobación, asignación y envío se realiza en la gestión completa de invitaciones.</div>
       </div>
     </div>
   {% else %}

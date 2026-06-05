@@ -33,12 +33,17 @@
         <div class="alert alert-warning">{{ state_message }}{% if requests %} Puedes seguir viendo el estado de las peticiones ya realizadas.{% endif %}</div>
       {% endif %}
 
-      <div class="row g-3 mb-4">
-        {% if link.deadline_at %}
-          <div class="col-md-6"><div class="invitation-public-info"><strong>Fecha límite</strong><span>{{ link.deadline_at.strftime('%d/%m/%Y %H:%M') }}</span></div></div>
-        {% endif %}
-        <div class="col-md-6"><div class="invitation-public-info"><strong>Límite</strong><span>{% if limits.total_limit is not none %}{{ limits.available_total }} disponibles de {{ limits.total_limit }}{% elif limits.categories %}{% for c in limits.categories %}{{ c.name }}{% if c.limit is not none %}: {{ c.available }}/{{ c.limit }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}Sin límite{% endif %}</span></div></div>
-      </div>
+      {% set has_public_limits = limits.total_limit is not none or (link.categorize_requests and limits.categories) %}
+      {% if link.deadline_at or has_public_limits %}
+        <div class="row g-3 mb-4">
+          {% if link.deadline_at %}
+            <div class="col-md-6"><div class="invitation-public-info"><strong>Fecha límite</strong><span>{{ link.deadline_at.strftime('%d/%m/%Y %H:%M') }}</span></div></div>
+          {% endif %}
+          {% if has_public_limits %}
+            <div class="col-md-6"><div class="invitation-public-info"><strong>Límite</strong><span>{% if limits.total_limit is not none %}{{ limits.available_total }} disponibles de {{ limits.total_limit }}{% elif limits.categories %}{% for c in limits.categories %}{{ c.name }}{% if c.limit is not none %}: {{ c.available }}/{{ c.limit }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% endif %}</span></div></div>
+          {% endif %}
+        </div>
+      {% endif %}
 
       {% if link_state == 'active' %}
         <div class="text-end mb-3"><button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#publicRequestModal"><i class="fa fa-plus me-1"></i> Añadir petición</button></div>
@@ -92,7 +97,7 @@
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>Enviar a tercero</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Recoger en taquilla</span></label>
           </div>
-          <div class="row g-2 mb-3">
+          <div class="row g-2 mb-3" data-public-receiver-fields>
             <div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div>
             <div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div>
             <div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div>
@@ -118,5 +123,16 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+  (function(){
+    function updateReceiver(){
+      const mode = document.querySelector('#publicRequestModal [name="receiver_mode"]:checked')?.value || 'GUEST';
+      const row = document.querySelector('#publicRequestModal [data-public-receiver-fields]');
+      if(row) row.classList.toggle('d-none', mode === 'BOX_OFFICE' || mode === 'ME');
+    }
+    document.querySelectorAll('#publicRequestModal [name="receiver_mode"]').forEach(x => x.addEventListener('change', updateReceiver));
+    updateReceiver();
+  })();
+  </script>
 </body>
 </html>

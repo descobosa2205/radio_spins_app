@@ -2,24 +2,19 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
   <div>
-    <h2 class="mb-1"><i class="fa fa-ticket-alt me-2 text-danger"></i>Invitaciones</h2>
-    <p class="text-muted mb-0">Pide, configura y gestiona invitaciones por concierto o actividad.</p>
+    <h2 class="mb-0"><i class="fa fa-ticket-alt me-2 text-danger"></i>Invitaciones</h2>
   </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <button class="btn btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal">
-      <i class="fa fa-plus me-1"></i> Pedir invitaciones
-    </button>
-    <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal">
-      <i class="fa fa-link me-1"></i> Generar enlace
-    </button>
-  </div>
+  {% if tab == 'pedir' %}
+    <div class="d-flex gap-2 flex-wrap">
+      <button class="btn btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal">
+        <i class="fa fa-plus me-1"></i> Pedir invitaciones
+      </button>
+      <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal">
+        <i class="fa fa-link me-1"></i> Generar enlace
+      </button>
+    </div>
+  {% endif %}
 </div>
-
-<ul class="nav nav-tabs mb-4">
-  <li class="nav-item"><a class="nav-link {% if tab == 'pedir' %}active{% endif %}" href="{{ url_for('invitations_view', tab='pedir') }}">Pedir invitaciones</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'gestionar' or tab == 'evento' %}active{% endif %}" href="{{ url_for('invitations_view', tab='gestionar') }}">Gestionar invitaciones</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'mis' %}active{% endif %}" href="{{ url_for('invitations_view', tab='mis') }}">Mis solicitudes</a></li>
-</ul>
 
 {% if request.args.get('generated_link') %}
   <div class="alert alert-success d-flex justify-content-between align-items-center gap-2 flex-wrap">
@@ -29,61 +24,45 @@
 {% endif %}
 
 {% if tab == 'pedir' %}
-  <div class="row g-4">
-    <div class="col-12 col-xl-5">
-      <div class="card h-100 invitation-panel">
-        <div class="card-body">
-          <h5 class="mb-2">Flujo de petición</h5>
-          <p class="text-muted">El botón <strong>Pedir invitaciones</strong> abre el flujo visual: artista, actividad, destinatario, entrega y cantidades por categoría.</p>
-          <div class="d-grid gap-2">
-            <button class="btn btn-danger btn-lg" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal"><i class="fa fa-ticket-alt me-1"></i> Abrir petición</button>
-            <button class="btn btn-outline-danger btn-lg" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal"><i class="fa fa-share-nodes me-1"></i> Configurar enlace externo</button>
-          </div>
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <h5 class="mb-0">Mis solicitudes</h5>
+        <div class="d-flex gap-2">
+          <button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal"><i class="fa fa-plus me-1"></i>Pedir invitaciones</button>
+          <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal"><i class="fa fa-link me-1"></i>Generar enlace</button>
         </div>
       </div>
-    </div>
-    <div class="col-12 col-xl-7">
-      <div class="card h-100">
-        <div class="card-body">
-          <h5 class="mb-3">Actividades con invitaciones</h5>
-          {% if events %}
-            <div class="list-group invitation-event-list">
-              {% for item in events[:12] %}
-                <a class="list-group-item list-group-item-action" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}">
-                  <div class="d-flex justify-content-between gap-3 flex-wrap">
-                    <div>
-                      <span class="badge text-bg-light border">{{ item.type_label }}</span>
-                      <strong class="ms-1">{{ item.title }}</strong>
-                      <div class="text-muted small mt-1">{{ item.date_label }} · {{ item.city }}{% if item.province %}, {{ item.province }}{% endif %}</div>
-                      <div class="d-flex gap-1 flex-wrap mt-2">
-                        {% for artist in item.artists %}
-                          <span class="artist-chip"><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>
-                        {% endfor %}
-                      </div>
-                    </div>
-                    <div class="text-end small">
-                      <div>Disponibles: <strong>{{ item.counts.configured }}</strong></div>
-                      <div>Solicitadas: <strong>{{ item.counts.requested }}</strong></div>
-                    </div>
-                  </div>
-                </a>
-              {% endfor %}
+      {% if my_requests %}
+        <div class="list-group">
+          {% for row in my_requests %}
+            <div class="list-group-item">
+              <div class="d-flex justify-content-between gap-3 flex-wrap">
+                <div>
+                  <strong>{{ row.event.artist_names }} · {{ row.event.date_label }}</strong>
+                  <div class="text-muted small">{{ row.event.type_label }} · {{ row.event.title }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>
+                  <div class="mt-2">{{ row.guest_name }} · {{ row.quantities_label }}</div>
+                </div>
+                <div class="text-end">
+                  <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                  {% if row.download_url and row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
+                    <a class="btn btn-sm btn-outline-danger mt-2 d-block" href="{{ row.download_url }}"><i class="fa fa-download me-1"></i>Descargar</a>
+                  {% endif %}
+                </div>
+              </div>
             </div>
-          {% else %}
-            <div class="alert alert-light border mb-0">Todavía no hay actividades recientes con invitaciones configuradas.</div>
-          {% endif %}
+          {% endfor %}
         </div>
-      </div>
+      {% else %}
+        <div class="alert alert-light border mb-0">Todavía no tienes solicitudes de invitaciones.</div>
+      {% endif %}
     </div>
   </div>
 {% elif tab == 'gestionar' %}
   <div class="card">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
-        <div>
-          <h5 class="mb-0">Eventos con invitaciones</h5>
-          <div class="text-muted small">Ordenados del más próximo al más lejano.</div>
-        </div>
+        <h5 class="mb-0">Gestionar invitaciones</h5>
         <input class="form-control invitation-search" style="max-width:360px" placeholder="Buscar por artista, evento, ciudad, provincia..." data-filter-target=".invitation-manage-row">
       </div>
       {% if events %}
@@ -97,7 +76,7 @@
                     <strong>{{ item.title }}</strong>
                     <span class="text-muted">{{ item.date_label }}</span>
                   </div>
-                  <div class="small text-muted mt-1">{{ item.venue }} · {{ item.city }}{% if item.province %}, {{ item.province }}{% endif %}</div>
+                  <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
                   <div class="d-flex gap-1 flex-wrap mt-2">
                     {% for artist in item.artists %}<span class="artist-chip"><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
                   </div>
@@ -117,43 +96,14 @@
       {% endif %}
     </div>
   </div>
-{% elif tab == 'mis' %}
-  <div class="card">
-    <div class="card-body">
-      <h5 class="mb-3">Mis invitaciones solicitadas</h5>
-      {% if my_requests %}
-        <div class="list-group">
-          {% for row in my_requests %}
-            <div class="list-group-item">
-              <div class="d-flex justify-content-between gap-3 flex-wrap">
-                <div>
-                  <strong>{{ row.event.artist_names }} · {{ row.event.date_label }}</strong>
-                  <div class="text-muted small">{{ row.event.type_label }} · {{ row.event.title }} · {{ row.event.city }}</div>
-                  <div class="mt-2">{{ row.guest_name }} · {{ row.quantities_label }}</div>
-                </div>
-                <div class="text-end">
-                  <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
-                  {% if row.download_url and row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
-                    <a class="btn btn-sm btn-outline-danger mt-2 d-block" href="{{ row.download_url }}"><i class="fa fa-download me-1"></i>Descargar</a>
-                  {% endif %}
-                </div>
-              </div>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <div class="alert alert-light border mb-0">Todavía no tienes solicitudes de invitaciones.</div>
-      {% endif %}
-    </div>
-  </div>
 {% elif tab == 'evento' %}
-  <div class="card mb-4 invitation-event-header">
+  <div class="card mb-3 invitation-event-header">
     <div class="card-body">
       <div class="d-flex justify-content-between gap-3 flex-wrap">
         <div>
           <span class="badge text-bg-secondary mb-2">{{ event.type_label }}</span>
           <h3 class="mb-1">{{ event.title }}</h3>
-          <div class="text-muted">{{ event.date_label }} · {{ event.venue }} · {{ event.city }}{% if event.province %}, {{ event.province }}{% endif %}</div>
+          <div class="text-muted">{{ event.date_label }}{% if event.venue %} · {{ event.venue }}{% endif %}{% if event.city %} · {{ event.city }}{% endif %}{% if event.province %}, {{ event.province }}{% endif %}</div>
           <div class="d-flex gap-1 flex-wrap mt-2">
             {% for artist in event.artists %}<span class="artist-chip"><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
           </div>
@@ -164,6 +114,32 @@
           <div><span>{{ event.counts.requested }}</span><small>Solicitadas</small></div>
           <div class="{% if event.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ event.counts.result }}</span><small>Resultado</small></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4 invitation-availability-fixed">
+    <div class="card-body">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+        <div>
+          <h5 class="mb-0">Invitaciones disponibles</h5>
+          <div class="small text-muted">Contrato + adicionales por categoría. Este módulo permanece fijo para todas las pestañas.</div>
+        </div>
+        <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
+      </div>
+      <div class="row g-3">
+        {% for cat in categories %}
+          <div class="col-12 col-md-6 col-xl-4">
+            <div class="invitation-category-card h-100">
+              <div class="d-flex justify-content-between align-items-start gap-2">
+                <div><strong>{{ cat.name }}</strong><div class="small text-muted">{{ cat.ticket_kind|replace('_',' ') }}</div></div>
+                <span class="badge text-bg-light border">{{ cat.configured }}</span>
+              </div>
+              <div class="small mt-2">Contrato: <strong>{{ cat.qty_contract }}</strong> · Adicionales: <strong>{{ cat.qty_extra }}</strong></div>
+              <div class="small">Subidas: <strong>{{ cat.uploaded }}</strong> · Asignadas: <strong>{{ cat.assigned }}</strong> · Libres: <strong>{{ cat.available_configured }}</strong></div>
+            </div>
+          </div>
+        {% endfor %}
       </div>
     </div>
   </div>
@@ -179,31 +155,8 @@
       <div class="card mb-4">
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
-            <div><h5 class="mb-0">Invitaciones disponibles</h5><div class="small text-muted">Contrato + adicionales por categoría.</div></div>
-            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-plus me-1"></i> Añadir categoría/adicionales</button>
-          </div>
-          <div class="row g-3">
-            {% for cat in categories %}
-              <div class="col-12 col-md-6 col-xl-4">
-                <div class="invitation-category-card">
-                  <div class="d-flex justify-content-between align-items-start gap-2">
-                    <div><strong>{{ cat.name }}</strong><div class="small text-muted">{{ cat.ticket_kind|replace('_',' ') }}</div></div>
-                    <span class="badge text-bg-light border">{{ cat.configured }}</span>
-                  </div>
-                  <div class="small mt-2">Contrato: {{ cat.qty_contract }} · Adicionales: {{ cat.qty_extra }}</div>
-                  <div class="small">Subidas: {{ cat.uploaded }} · Asignadas: {{ cat.assigned }}</div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-        </div>
-      </div>
-
-      <div class="card mb-4">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">Compromisos de invitaciones</h5>
-            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i> Añadir compromiso</button>
+            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
           </div>
           {% if commitments %}
             <div class="list-group">
@@ -211,14 +164,13 @@
                 <div class="list-group-item">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div>
-                      <strong>{{ row.name }}</strong>
-                      {% if row.reason %}<span class="text-muted">· {{ row.reason }}</span>{% endif %}
+                      <strong>{{ row.name }}</strong>{% if row.reason %}<span class="text-muted"> · {{ row.reason }}</span>{% endif %}
                       <div class="small mt-1">{{ row.quantities_label }}</div>
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end">
+                      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
                       </ul>
@@ -237,7 +189,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h5 class="mb-0">Peticiones de invitaciones</h5>
-            <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i> Solicitud</button>
+            <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Solicitud</button>
           </div>
           {% if requests %}
             <div class="list-group">
@@ -257,7 +209,7 @@
                     </div>
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end">
+                      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
                         {% if row.status in ['SOLICITADAS','APROBADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
                         <li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>
@@ -283,6 +235,8 @@
     <div class="tab-pane fade" id="inv-tab-tickets">
       <div class="row g-4">
         {% for cat in categories %}
+          {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
+          {% set cat_groups = ticket_groups_by_category.get(cat.id, []) if ticket_groups_by_category is defined else [] %}
           <div class="col-12">
             <div class="card invitation-ticket-module">
               <div class="card-body">
@@ -291,28 +245,52 @@
                     <h5 class="mb-0">{{ cat.name }}</h5>
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
                   </div>
-                  {% if cat.ticket_kind != 'GUEST_LIST' %}
-                    <form method="post" action="{{ url_for('invitation_tickets_upload', concert_id=event.id) }}" enctype="multipart/form-data" class="d-flex align-items-center gap-2 flex-wrap">
-                      <input type="hidden" name="category_id" value="{{ cat.id }}">
-                      <input type="hidden" name="is_numbered" value="{{ 1 if cat.ticket_kind == 'PDF_NUMBERED' else 0 }}">
-                      <input type="file" name="tickets[]" accept="application/pdf" multiple class="form-control form-control-sm" required>
-                      <button class="btn btn-sm btn-outline-danger"><i class="fa fa-upload me-1"></i> Adjuntar invitaciones</button>
-                    </form>
-                  {% else %}
-                    <span class="badge text-bg-info">Listado de invitados · {{ cat.guest_list_mode or 'Taquilla' }}</span>
-                  {% endif %}
+                  <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
                 </div>
-                {% set cat_tickets = tickets|selectattr('category_id','equalto',cat.id)|list %}
-                {% if cat_tickets %}
-                  <div class="invitation-seat-grid">
-                    {% for t in cat_tickets %}
-                      <a href="{{ t.pdf_url }}" target="_blank" class="invitation-seat invitation-seat--{{ t.status|lower }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}">
-                        <i class="fa fa-couch"></i><span>{{ t.location }}</span>
-                      </a>
+
+                {% if cat.ticket_kind == 'GUEST_LIST' %}
+                  <div class="alert alert-info mb-0"><i class="fa fa-list-check me-1"></i>Listado de invitados · {{ cat.guest_list_mode or 'Recogida en taquilla' }}. No requiere asignar PDFs.</div>
+                {% elif cat.ticket_kind == 'PDF_NUMBERED' %}
+                  {% if cat_groups %}
+                    {% for sector in cat_groups %}
+                      <div class="invitation-sector mb-3">
+                        <div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                        {% for row in sector.rows %}
+                          <div class="invitation-seat-row">
+                            <div class="invitation-row-label">Fila {{ row.row_label }}</div>
+                            <div class="invitation-seat-grid invitation-seat-grid--numbered">
+                              {% for cell in row.visual %}
+                                {% if cell.type == 'seat' %}
+                                  {% set t = cell.seat %}
+                                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
+                                {% elif cell.type == 'missing' %}
+                                  <span class="invitation-seat invitation-seat--missing"><span><s>{{ cell.seat }}</s></span></span>
+                                {% else %}
+                                  <span class="invitation-seat-gap">{{ cell.count }} huecos</span>
+                                {% endif %}
+                              {% endfor %}
+                            </div>
+                            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>
+                          </div>
+                        {% endfor %}
+                      </div>
                     {% endfor %}
-                  </div>
+                  {% else %}
+                    <div class="text-muted small">No hay PDFs numerados subidos para esta categoría.</div>
+                  {% endif %}
                 {% else %}
-                  <div class="text-muted small">No hay PDFs subidos para esta categoría.</div>
+                  <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <div class="invitation-ticket-thumb"><i class="fa fa-ticket-alt"></i></div>
+                    <div><strong>Sin numerar</strong><div class="small text-muted">Disponibles sin asignar: {{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</div></div>
+                    <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>
+                  </div>
+                  {% if cat_tickets %}
+                    <div class="invitation-seat-grid mt-3">
+                      {% for t in cat_tickets %}
+                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
                 {% endif %}
               </div>
             </div>
@@ -326,7 +304,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h5 class="mb-0">Enlaces generados</h5>
-            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#invitationLinkModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i> Nuevo enlace</button>
+            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#invitationLinkModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Nuevo enlace</button>
           </div>
           {% if links %}
             <div class="list-group">
@@ -335,12 +313,12 @@
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div>
                       <div class="d-flex gap-2 align-items-center flex-wrap"><strong>{{ link.target_name }}</strong><span class="badge text-bg-{{ link.state_badge }}">{{ link.state_label }}</span></div>
-                      <div class="small text-muted mt-1">Solicitado por {{ link.requested_by }} · {{ link.limit_summary }}{% if link.deadline_label %} · hasta {{ link.deadline_label }}{% endif %}</div>
+                      <div class="small text-muted mt-1">Solicitado por {{ link.requested_by }}{% if link.limit_summary %} · {{ link.limit_summary }}{% endif %}{% if link.deadline_label %} · hasta {{ link.deadline_label }}{% endif %}</div>
                       <a class="small" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
                     </div>
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end">
+                      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button class="dropdown-item" type="button" data-copy-text="{{ link.url }}">Copiar enlace</button></li>
                         <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editLinkModal{{ link.id }}">Editar enlace</button></li>
                         {% if link.state != 'cancelled' %}<li><form method="post" action="{{ url_for('invitation_public_link_cancel', link_id=link.id) }}"><button class="dropdown-item text-danger">Anular enlace</button></form></li>{% endif %}
@@ -348,7 +326,6 @@
                     </div>
                   </div>
                 </div>
-
                 <div class="modal fade" id="editLinkModal{{ link.id }}" tabindex="-1" aria-hidden="true">
                   <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
                     <form class="modal-content" method="post" action="{{ url_for('invitation_public_link_update', link_id=link.id) }}">
@@ -359,14 +336,17 @@
                           <div class="col-md-4"><label class="form-label">Email</label><input class="form-control" name="target_email" value="{{ link.target_email }}"></div>
                           <div class="col-md-4"><label class="form-label">Teléfono</label><input class="form-control" name="target_phone"></div>
                         </div>
-                        <div class="row g-3 mb-3">
-                          <div class="col-md-4"><label class="form-label">Modo de límite</label><select class="form-select" name="limit_mode"><option value="NONE">Sin límite</option><option value="TOTAL">Límite total</option><option value="CATEGORIES">Por categorías</option></select></div>
-                          <div class="col-md-4"><label class="form-label">Límite total</label><input class="form-control" name="total_limit" type="number" min="0"></div>
-                          <div class="col-md-4"><label class="form-label">Fecha límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div>
+                        <div class="invitation-icon-grid mb-3" data-limit-mode-group>
+                          <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Sin límite</span></label>
+                          <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label>
+                          <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label>
                         </div>
+                        <div class="row g-3 mb-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Límite total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div>
                         <label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label>
-                        <div class="row g-3">
-                          {% for cat in categories %}<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" checked> {{ cat.name }}</label><input class="form-control form-control-sm mt-2" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo"></div></div>{% endfor %}
+                        <div class="row g-3 d-none" data-limit-category-panel>{% for cat in categories %}<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" checked> {{ cat.name }}</label><input class="form-control form-control-sm mt-2" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo"></div></div>{% endfor %}</div>
+                        <div class="row g-3 mb-3 mt-1" data-deadline-group>
+                          <div class="col-12"><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div></div>
+                          <div class="col-md-5 d-none" data-deadline-panel><label class="form-label">Fecha límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div>
                         </div>
                         <div class="alert alert-light border mt-3 mb-0">La URL no cambia; solo se actualizan límites, plazo y destinatario.</div>
                       </div>
@@ -383,46 +363,167 @@
       </div>
     </div>
   </div>
+
+  {% for cat in categories %}
+    {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
+    <div class="modal fade" id="assignModal{{ cat.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}">
+          <div class="modal-header"><h5 class="modal-title">Asignar invitaciones · {{ cat.name }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
+            <input type="hidden" name="accept_warnings" value="1">
+            <div class="row g-3">
+              <div class="col-12 col-lg-4">
+                <h6>Compromisos y peticiones aprobadas</h6>
+                <div class="assignment-source-list" data-source-list>
+                  {% for src in pending_assignments.get(cat.id, []) %}
+                    <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
+                      <div class="d-flex align-items-center gap-2"><img src="{{ src.photo_url }}" class="tiny-avatar" alt=""><strong>{{ src.name }}</strong></div>
+                      <div class="small text-muted">{{ src.company }} · {{ src.qty }} pendientes de {{ src.qty_total }}</div>
+                      {% if src.requester %}<div class="small text-muted" title="{{ src.requester }} · {{ src.date_label }}">Solicitado por {{ src.requester }}</div>{% endif %}
+                    </div>
+                  {% else %}
+                    <div class="alert alert-light border">No hay compromisos ni peticiones aprobadas pendientes de asignar en esta categoría.</div>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="col-12 col-lg-8">
+                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Disponibles</h6><span class="badge text-bg-success" data-available-counter>{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</span></div>
+                <div class="assignment-drop-zone" data-drop-zone>
+                  {% if cat.ticket_kind == 'PDF_NUMBERED' %}
+                    {% for sector in ticket_groups_by_category.get(cat.id, []) %}
+                      <div class="invitation-sector mb-3"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                      {% for row in sector.rows %}
+                        <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered">
+                        {% for cell in row.visual %}
+                          {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
+                        {% endfor %}
+                        </div></div>
+                      {% endfor %}</div>
+                    {% endfor %}
+                  {% else %}
+                    <div class="assignment-unnumbered-pool">
+                      {% for t in cat_tickets %}
+                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                      {% endfor %}
+                    </div>
+                  {% endif %}
+                </div>
+                <div class="assignment-result-list mt-3" data-assignment-results></div>
+              </div>
+            </div>
+          </div>
+          <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Guardar cambios</button></div>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+
+  {% for t in tickets %}
+    <div class="modal fade" id="ticketModal{{ t.id }}" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header"><h5 class="modal-title">Entrada {{ t.code }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body">
+            <div class="row g-3">
+              <div class="col-md-7"><iframe src="{{ t.pdf_url }}" class="w-100 border rounded" style="min-height:420px"></iframe></div>
+              <div class="col-md-5">
+                <form method="post" action="{{ url_for('invitation_ticket_update', ticket_id=t.id) }}" class="vstack gap-2">
+                  <label class="form-label mb-0">Código</label><input class="form-control" name="ticket_code" value="{{ t.code }}">
+                  <label class="form-label mb-0">Sector</label><input class="form-control" name="sector" value="{{ t.sector }}">
+                  <label class="form-label mb-0">Fila</label><input class="form-control" name="row_label" value="{{ t.row_label }}">
+                  <label class="form-label mb-0">Asiento</label><input class="form-control" name="seat_number" value="{{ t.seat_number }}">
+                  <button class="btn btn-outline-danger mt-2"><i class="fa fa-save me-1"></i>Corregir datos</button>
+                </form>
+                <form method="post" action="{{ url_for('invitation_ticket_delete', ticket_id=t.id) }}" class="mt-3" onsubmit="return confirm('¿Eliminar esta entrada?');"><button class="btn btn-danger w-100"><i class="fa fa-trash me-1"></i>Eliminar</button></form>
+                {% if t.assigned_label %}<div class="alert alert-warning mt-3 mb-0">Asignada a {{ t.assigned_label }}</div>{% endif %}
+                {% if t.warning %}<div class="alert alert-warning mt-3 mb-0">{{ t.warning }}</div>{% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  {% endfor %}
 {% endif %}
 
-{# Modal de categorías #}
+{% if tab == 'evento' %}
 <div class="modal fade" id="categoryModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('invitation_category_save', concert_id=event.id) if tab == 'evento' else '#' }}">
-      <div class="modal-header"><h5 class="modal-title">Categoría de invitaciones</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
-      <div class="modal-body row g-3">
-        <div class="col-md-6"><label class="form-label">Nombre de categoría</label><input class="form-control" name="name" placeholder="General / Meet & Greet / VIP" required></div>
-        <div class="col-md-6"><label class="form-label">Tipo</label><select class="form-select" name="ticket_kind">{% for key,label in category_types %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-        <div class="col-md-4"><label class="form-label">Por contrato</label><input type="number" min="0" class="form-control" name="qty_contract" value="0"></div>
-        <div class="col-md-4"><label class="form-label">Adicionales</label><input type="number" min="0" class="form-control" name="qty_extra" value="0"></div>
-        <div class="col-md-4"><label class="form-label">Listado invitados</label><select class="form-select" name="guest_list_mode"><option value="">No aplica</option>{% for key,label in guest_list_modes %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+  <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('invitation_category_save', concert_id=event.id) }}">
+      <div class="modal-header"><h5 class="modal-title">Configurar invitaciones disponibles</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table align-middle invitation-category-table" data-category-table>
+            <thead class="table-light"><tr><th>Categoría</th><th>Tipo</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th>Listado</th><th></th></tr></thead>
+            <tbody>
+              {% for cat in categories %}
+                <tr>
+                  <td><input type="hidden" name="category_id[]" value="{{ cat.id }}"><input class="form-control" name="category_name[]" value="{{ cat.name }}" required></td>
+                  <td><select class="form-select" name="ticket_kind[]">{% for key,label in category_types %}<option value="{{ key }}" {% if key == cat.ticket_kind %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></td>
+                  <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
+                  <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
+                  <td><select class="form-select" name="guest_list_mode[]"><option value="">No aplica</option>{% for key,label in guest_list_modes %}<option value="{{ key }}" {% if key == cat.guest_list_mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></td>
+                  <td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <button class="btn btn-outline-danger" type="button" data-add-category-row><i class="fa fa-plus me-1"></i>Tipo de entrada</button>
       </div>
-      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar</button></div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar configuración</button></div>
     </form>
   </div>
 </div>
 
-{# Modal compromiso #}
+<div class="modal fade" id="ticketUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" action="{{ url_for('invitation_tickets_upload', concert_id=event.id) }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Subir invitaciones <span data-upload-category-label></span></h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-body">
+        <input type="hidden" name="category_id" data-upload-category-id>
+        <div class="invitation-icon-grid mb-3">
+          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="PDF_UNNUMBERED" checked><i class="fa fa-ticket-alt"></i><span>Sin numerar</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="PDF_NUMBERED"><i class="fa fa-couch"></i><span>Numeradas</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST"><i class="fa fa-list-check"></i><span>Listado de invitados</span></label>
+        </div>
+        <div class="row g-3 mb-3 d-none" data-numbering-panel>
+          <div class="col-12"><label class="form-label">Numeración de filas</label><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="CONTINUOUS" checked><i class="fa fa-arrow-right-1-9"></i><span>Numeración seguida</span></label><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="ODD_EVEN"><i class="fa fa-code-branch"></i><span>Pares / impares</span></label></div></div>
+        </div>
+        <div class="row g-3 mb-3 d-none" data-guest-list-panel>
+          <div class="col-md-6"><label class="form-label">Modo de listado</label><select class="form-select" name="guest_list_mode">{% for key,label in guest_list_modes %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+        </div>
+        <div data-pdf-upload-panel>
+          <label class="form-label">PDFs de invitaciones</label>
+          <input type="file" name="tickets[]" accept="application/pdf" multiple class="form-control" data-ticket-files>
+          <div class="small text-muted mt-2" data-file-summary>Selecciona varios PDFs sueltos. Si son numeradas intentaremos detectar sector, fila y asiento desde el texto del PDF o el nombre del archivo.</div>
+          <div class="list-group mt-2 small" data-file-list></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Subir</button></div>
+    </form>
+  </div>
+</div>
+
 <div class="modal fade" id="commitmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('invitation_commitment_save', concert_id=event.id) if tab == 'evento' else '#' }}">
+    <form class="modal-content" method="post" action="{{ url_for('invitation_commitment_save', concert_id=event.id) }}">
       <div class="modal-header"><h5 class="modal-title">Añadir compromiso</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <div class="row g-3 mb-3">
           <div class="col-md-6"><label class="form-label">Nombre / tercero</label><input class="form-control" name="name" placeholder="Recinto, artista, patrocinador..." required></div>
           <div class="col-md-6"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Compromiso del recinto, artista, promo..."></div>
         </div>
-        {% if categories %}
-          <div class="row g-3">
-            {% for cat in categories %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}
-          </div>
-        {% endif %}
+        {% if categories %}<div class="row g-3">{% for cat in categories %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>{% endif %}
         <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar compromiso</button></div>
     </form>
   </div>
 </div>
+{% endif %}
 
 {# Modal petición interna #}
 <div class="modal fade" id="invitationRequestModal" tabindex="-1" aria-hidden="true">
@@ -435,16 +536,8 @@
         <input type="hidden" name="guest_artist_id" data-field="guest_artist_id">
         <input type="hidden" name="guest_user_id" data-field="guest_user_id">
         <input type="hidden" name="guest_promoter_id" data-field="guest_promoter_id">
-        <div class="invitation-step" data-step="1">
-          <h5>1. Selecciona artista</h5>
-          <div class="invitation-option-grid" data-artist-options>
-            {% for artist in artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}
-          </div>
-        </div>
-        <div class="invitation-step d-none" data-step="2">
-          <div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div>
-          <div class="invitation-event-picker" data-event-options></div>
-        </div>
+        <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
         <div class="invitation-step d-none" data-step="3">
           <h5>3. ¿Para quién son?</h5>
           <div class="invitation-icon-grid">
@@ -454,17 +547,12 @@
             <button type="button" class="invitation-icon-option" data-guest-type="ARTIST"><i class="fa fa-microphone"></i><span>Artista</span></button>
           </div>
           <div class="mt-3 d-none" data-third-party-panel>
-            <label class="form-label">Buscar tercero / invitado</label>
-            <input class="form-control mb-2" name="guest_name" placeholder="Nombre, empresa o descripción">
-            <div class="row g-2"><div class="col-md-6"><input class="form-control" name="guest_email" placeholder="Email"></div><div class="col-md-6"><input class="form-control" name="guest_phone" placeholder="Teléfono"></div></div>
-            <input class="form-control mt-2" name="guest_company" placeholder="Empresa o cargo">
+            <label class="form-label">Seleccionar tercero</label>
+            <div class="invitation-search-picker" data-promoter-picker data-hidden-target="guest_promoter_id" data-name-target="guest_name" data-email-target="guest_email" data-phone-target="guest_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div>
+            <input type="hidden" name="guest_name"><input type="hidden" name="guest_email"><input type="hidden" name="guest_phone"><input type="hidden" name="guest_company">
           </div>
-          <div class="mt-3 d-none" data-personnel-panel>
-            <div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-user-id="{{ person.id }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div>
-          </div>
-          <div class="mt-3 d-none" data-artist-guest-panel>
-            <div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div>
-          </div>
+          <div class="mt-3 d-none" data-personnel-panel><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-user-id="{{ person.id }}" data-email="{{ person.email }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
+          <div class="mt-3 d-none" data-artist-guest-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
         </div>
         <div class="invitation-step d-none" data-step="4">
           <h5>4. Entrega</h5>
@@ -474,17 +562,10 @@
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="ME"><i class="fa fa-inbox"></i><span>Enviar a mí</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>Enviar a otro</span></label>
           </div>
-          <div class="row g-2 mt-3" data-other-receiver>
-            <div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div>
-            <div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div>
-            <div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div>
-          </div>
+          <div class="alert alert-light border mt-3" data-receiver-summary>Se usarán automáticamente los datos disponibles según la ficha seleccionada.</div>
+          <div class="row g-2 mt-3 d-none" data-other-receiver><div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div><div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div><div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div></div>
         </div>
-        <div class="invitation-step d-none" data-step="5">
-          <h5>5. Cantidades</h5>
-          <div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div>
-          <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
-        </div>
+        <div class="invitation-step d-none" data-step="5"><h5>5. Cantidades</h5><div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div><label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea></div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-inv-prev>Atrás</button><button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button><button class="btn btn-danger d-none" data-inv-submit>Enviar solicitud</button></div>
     </form>
@@ -497,105 +578,81 @@
     <form class="modal-content invitation-wizard" method="post" action="{{ url_for('invitation_public_link_create') }}" data-invitation-wizard="link">
       <div class="modal-header"><h5 class="modal-title">Generar enlace de peticiones</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
-        <input type="hidden" name="concert_id" data-field="concert_id">
-        <div class="invitation-step" data-step="1">
-          <h5>1. Selecciona artista</h5>
-          <div class="invitation-option-grid" data-artist-options>{% for artist in artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div>
-        </div>
-        <div class="invitation-step d-none" data-step="2">
-          <div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div>
-          <div class="invitation-event-picker" data-event-options></div>
-        </div>
-        <div class="invitation-step d-none" data-step="3">
-          <h5>3. ¿Para quién es el enlace?</h5>
-          <div class="row g-2"><div class="col-md-4"><input class="form-control" name="target_name" placeholder="Nombre / tercero" required></div><div class="col-md-4"><input class="form-control" name="target_email" placeholder="Email"></div><div class="col-md-4"><input class="form-control" name="target_phone" placeholder="Teléfono"></div></div>
-        </div>
-        <div class="invitation-step d-none" data-step="4">
-          <h5>4. Límites</h5>
-          <div class="invitation-icon-grid mb-3">
-            <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Sin límite</span></label>
-            <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label>
-            <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label>
-          </div>
-          <div class="row g-3"><div class="col-md-4"><label class="form-label">Límite total</label><input class="form-control" name="total_limit" type="number" min="0"></div><div class="col-md-4 d-flex align-items-end"><label class="form-check"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label></div></div>
-          <div class="row g-3 mt-1" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div>
-        </div>
-        <div class="invitation-step d-none" data-step="5">
-          <h5>5. Límite temporal</h5>
-          <label class="form-label">Fecha y hora límite opcional</label><input class="form-control" name="deadline_at" type="datetime-local">
-          <div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div>
-        </div>
+        <input type="hidden" name="concert_id" data-field="concert_id"><input type="hidden" name="target_promoter_id" data-field="target_promoter_id">
+        <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+        <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
+        <div class="invitation-step d-none" data-step="3"><h5>3. ¿Para quién es el enlace?</h5><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><div class="row g-2 mt-3"><div class="col-md-4"><input class="form-control" name="target_name" placeholder="Nombre / tercero" required></div><div class="col-md-4"><input class="form-control" name="target_email" placeholder="Email"></div><div class="col-md-4"><input class="form-control" name="target_phone" placeholder="Teléfono"></div></div></div>
+        <div class="invitation-step d-none" data-step="4"><h5>4. Límites</h5><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="row g-3 mt-1 d-none" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
+        <div class="invitation-step d-none" data-step="5"><h5>5. Límite temporal</h5><div class="invitation-icon-grid mb-3" data-deadline-group><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div><div class="row g-3 d-none" data-deadline-panel><div class="col-md-5"><label class="form-label">Fecha y hora límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div></div><div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-inv-prev>Atrás</button><button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button><button class="btn btn-danger d-none" data-inv-submit>Generar enlace</button></div>
     </form>
   </div>
 </div>
 
+<div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered"><form class="modal-content" data-create-promoter-form><div class="modal-header"><h5 class="modal-title">Añadir tercero</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-2"><label class="form-label">Nick / nombre</label><input class="form-control" name="nick" required></div><div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email"></div><div class="mb-2"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone"></div><div class="alert alert-warning d-none" data-similar-warning></div></div><div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Crear tercero</button></div></form></div>
+</div>
+
 <script>
 (function(){
   const normalize = (value) => (value || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,' ').toLowerCase();
-  document.querySelectorAll('[data-copy-text]').forEach(btn => btn.addEventListener('click', async () => {
-    try { await navigator.clipboard.writeText(btn.dataset.copyText || ''); btn.classList.add('btn-success'); setTimeout(()=>btn.classList.remove('btn-success'), 800); } catch(e) {}
-  }));
-  document.querySelectorAll('.invitation-search').forEach(input => input.addEventListener('input', () => {
-    const q = normalize(input.value);
-    document.querySelectorAll(input.dataset.filterTarget || '').forEach(row => row.classList.toggle('d-none', q && !normalize(row.dataset.search || row.textContent).includes(q)));
-  }));
+  const placeholder = "{{ url_for('static', filename='img/placeholder_photo.png') }}";
+  document.querySelectorAll('[data-copy-text]').forEach(btn => btn.addEventListener('click', async () => { try { await navigator.clipboard.writeText(btn.dataset.copyText || ''); btn.classList.add('btn-success'); setTimeout(()=>btn.classList.remove('btn-success'), 800); } catch(e) {} }));
+  document.querySelectorAll('.invitation-search').forEach(input => input.addEventListener('input', () => { const q = normalize(input.value); document.querySelectorAll(input.dataset.filterTarget || '').forEach(row => row.classList.toggle('d-none', q && !normalize(row.dataset.search || row.textContent).includes(q))); }));
+
+  function bindLimitVisibility(root){
+    const update = () => {
+      const mode = root.querySelector('[name="limit_mode"]:checked')?.value || 'NONE';
+      root.querySelectorAll('[data-limit-total-panel]').forEach(x=>x.classList.toggle('d-none', mode !== 'TOTAL'));
+      root.querySelectorAll('[data-limit-category-panel], [data-link-category-panel]').forEach(x=>x.classList.toggle('d-none', mode !== 'CATEGORIES'));
+      root.querySelectorAll('[name="total_limit"]').forEach(x=>{ if(mode !== 'TOTAL') x.value = ''; });
+    };
+    root.querySelectorAll('[name="limit_mode"]').forEach(x=>x.addEventListener('change', update)); update();
+    const updateDeadline = () => { const on = root.querySelector('[name="deadline_mode"]:checked')?.value === 'WITH'; root.querySelectorAll('[data-deadline-panel]').forEach(x=>x.classList.toggle('d-none', !on)); if(!on) root.querySelectorAll('[name="deadline_at"]').forEach(x=>x.value=''); };
+    root.querySelectorAll('[name="deadline_mode"]').forEach(x=>x.addEventListener('change', updateDeadline)); updateDeadline();
+  }
+  document.querySelectorAll('form').forEach(bindLimitVisibility);
+
   async function loadEvents(form, artistId, includeAll=false) {
     const box = form.querySelector('[data-event-options]'); if (!box) return;
     box.innerHTML = '<div class="text-muted p-3">Cargando eventos...</div>';
     const res = await fetch(`{{ url_for('api_invitation_events') }}?artist_id=${encodeURIComponent(artistId||'')}&all=${includeAll ? '1':'0'}`);
-    const data = await res.json();
-    box.innerHTML = '';
-    (data.events || []).forEach(ev => {
-      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'invitation-event-option'; btn.dataset.eventId = ev.id;
-      btn.innerHTML = `<div><span class="badge text-bg-light border">${ev.type_label}</span> <strong>${ev.title || ''}</strong><div class="small text-muted">${ev.date_label || ''} · ${ev.city || ''}${ev.province ? ', '+ev.province : ''}</div></div><div class="small text-end">Disp. <b>${ev.counts?.configured ?? 0}</b><br>Sol. <b>${ev.counts?.requested ?? 0}</b></div>`;
-      btn.addEventListener('click', () => selectEvent(form, ev.id)); box.appendChild(btn);
-    });
+    const data = await res.json(); box.innerHTML = '';
+    (data.events || []).forEach(ev => { const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'invitation-event-option'; btn.dataset.eventId = ev.id; btn.innerHTML = `<div><span class="badge text-bg-light border">${ev.type_label}</span> <strong>${ev.title || ''}</strong><div class="small text-muted">${ev.date_label || ''} · ${ev.city || ''}${ev.province ? ', '+ev.province : ''}</div></div><div class="small text-end">Disp. <b>${ev.counts?.configured ?? 0}</b><br>Sol. <b>${ev.counts?.requested ?? 0}</b></div>`; btn.addEventListener('click', () => selectEvent(form, ev.id)); box.appendChild(btn); });
     if (!box.children.length) box.innerHTML = '<div class="alert alert-light border">No hay eventos. Usa “No encuentro el evento” para ver todos.</div>';
   }
   async function selectEvent(form, eventId) {
     form.querySelector('[data-field="concert_id"]').value = eventId;
     form.querySelectorAll('.invitation-event-option').forEach(b=>b.classList.toggle('is-selected', b.dataset.eventId === eventId));
     const res = await fetch(`{{ url_for('api_invitation_event_categories', concert_id='__ID__') }}`.replace('__ID__', eventId));
-    const data = await res.json();
-    const cats = data.categories || [];
+    const data = await res.json(); const cats = data.categories || [];
     const qtyPanel = form.querySelector('[data-category-qty-panel]');
-    if (qtyPanel) {
-      qtyPanel.innerHTML = cats.length ? cats.map(c => `<div class="col-md-4"><label class="form-label">${c.name}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`).join('') : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
-    }
+    if (qtyPanel) qtyPanel.innerHTML = cats.length ? cats.map(c => `<div class="col-md-4"><label class="form-label">${c.name}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`).join('') : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
     const linkPanel = form.querySelector('[data-link-category-panel]');
-    if (linkPanel) {
-      linkPanel.innerHTML = cats.map(c => `<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="link_enabled_${c.id}" value="1" checked> ${c.name}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_${c.id}" placeholder="Máximo"></div></div>`).join('') || '<div class="text-muted small">Sin categorías.</div>';
-    }
+    if (linkPanel) linkPanel.innerHTML = cats.map(c => `<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="link_enabled_${c.id}" value="1" checked> ${c.name}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_${c.id}" placeholder="Máximo"></div></div>`).join('') || '<div class="text-muted small">Sin categorías.</div>';
     goStep(form, Math.max(getStep(form), 3));
   }
   function getStep(form){ return parseInt(form.dataset.step || '1',10); }
-  function goStep(form, step){
-    const max = form.dataset.invitationWizard === 'link' ? 5 : 5;
-    step = Math.max(1, Math.min(step, max)); form.dataset.step = step;
-    form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step));
-    const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]');
-    if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max);
-  }
-  document.querySelectorAll('[data-invitation-wizard]').forEach(form => {
-    goStep(form, 1);
-    form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); }));
-    form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); }));
-    form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1)));
-    form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1)));
-    form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => {
-      form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected');
-      form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY');
-      form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE');
-      form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST');
-    }));
-    form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); }));
-    form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); }));
-  });
-  document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => {
-    const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent);
-  }));
+  function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); }
+  document.querySelectorAll('[data-invitation-wizard]').forEach(form => { goStep(form, 1); form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); })); form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); })); form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1))); form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1))); form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY'); form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE'); form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST'); })); form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); })); form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); })); });
+  document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => { const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent); }));
+
+  function fillTarget(form, fields, item){ const hidden = form.querySelector(`[data-field="${fields.hidden}"]`) || form.querySelector(`input[name="${fields.hidden}"]`); if(hidden) hidden.value = item.id || ''; ['name','email','phone'].forEach(k => { const input = form.querySelector(`input[name="${fields[k]}"]`); if(input) input.value = item[k === 'name' ? 'label' : (k === 'email' ? 'contact_email' : 'contact_phone')] || ''; }); }
+  document.querySelectorAll('[data-promoter-picker]').forEach(picker => { const input = picker.querySelector('input.form-control'); const results = picker.querySelector('.invitation-search-results'); const form = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; let timer; input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(async () => { const q = input.value.trim(); if(!q){ results.innerHTML=''; return; } const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`); const data = await res.json(); results.innerHTML = (data || []).map(item => `<button type="button" class="invitation-search-result" data-id="${item.id}" data-label="${item.label || ''}" data-email="${item.contact_email || ''}" data-phone="${item.contact_phone || ''}"><img src="${item.logo_url || placeholder}" alt=""><span><strong>${item.label || 'Sin nombre'}</strong><small>${item.contact_email || ''} ${item.contact_phone || ''}</small></span></button>`).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>'; results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => { const item={id:btn.dataset.id,label:btn.dataset.label,contact_email:btn.dataset.email,contact_phone:btn.dataset.phone}; fillTarget(form, fields, item); input.value = item.label; results.innerHTML=''; })); }, 200); }); });
+  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => { ev.preventDefault(); const form = ev.currentTarget; const fd = new FormData(form); const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd}); const data = await res.json(); if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; } document.querySelectorAll('[data-promoter-picker] input.form-control').forEach(input => { if(document.activeElement !== input) input.value = data.label || data.nick || ''; }); const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset(); });
+
+  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST">Listado de invitados</option></select></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><select class="form-select" name="guest_list_mode[]"><option value="">No aplica</option><option value="BOX_OFFICE">Recogida en taquilla</option><option value="DOOR">Acceso directo por puerta</option></select></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
+  document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
+  document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; const kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
+  function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-guest-list-panel]')?.classList.toggle('d-none', kind !== 'GUEST_LIST'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', kind === 'GUEST_LIST'); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', kind !== 'GUEST_LIST'); }
+  document.querySelectorAll('#ticketUploadModal [name="ticket_kind"]').forEach(x=>x.addEventListener('change', () => updateUploadKind(document.getElementById('ticketUploadModal'))));
+  document.querySelector('[data-ticket-files]')?.addEventListener('change', (ev) => { const files = Array.from(ev.target.files || []); document.querySelector('[data-file-summary]').textContent = files.length ? `${files.length} archivo(s) seleccionados` : 'Selecciona varios PDFs sueltos.'; document.querySelector('[data-file-list]').innerHTML = files.map(f=>`<div class="list-group-item">${f.name}</div>`).join(''); });
+
+  document.querySelectorAll('.invitation-assignment-form').forEach(form => { const assignments = []; let currentSource = null; const updateHidden = () => { form.querySelector('[data-assignments-json]').value = JSON.stringify(assignments); form.querySelector('[data-assignment-results]').innerHTML = assignments.map(a => `<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>${a.label || 'Asignación'} · ${a.qty} invitación(es)</div>`).join(''); const available = form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length; form.querySelector('[data-available-counter]').textContent = available; };
+    form.querySelectorAll('.assignment-source').forEach(src => { src.addEventListener('dragstart', ev => { currentSource = src; ev.dataTransfer.setData('text/plain', src.dataset.sourceId); }); src.addEventListener('click', () => { currentSource = src; form.querySelectorAll('.assignment-source').forEach(x=>x.classList.remove('is-selected')); src.classList.add('is-selected'); }); });
+    const assignToPool = () => { if(!currentSource){ alert('Selecciona o arrastra primero una petición/compromiso.'); return; } const qty = parseInt(currentSource.dataset.qty || '0',10); const seats = Array.from(form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)')).slice(0, qty); if(seats.length < qty){ alert('No tiene invitaciones suficientes.'); return; } seats.forEach(x=>x.classList.add('is-selected')); assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: seats.map(x=>x.dataset.ticketId), label: currentSource.querySelector('strong')?.textContent || ''}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); };
+    form.querySelector('[data-drop-zone]')?.addEventListener('dragover', ev => ev.preventDefault()); form.querySelector('[data-drop-zone]')?.addEventListener('drop', ev => { ev.preventDefault(); assignToPool(); }); form.querySelector('[data-drop-zone]')?.addEventListener('click', ev => { if(ev.target.closest('[data-ticket-id]')) assignToPool(); }); updateHidden(); });
 })();
 </script>
 {% endblock %}

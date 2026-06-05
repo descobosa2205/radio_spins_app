@@ -1937,6 +1937,7 @@ class InvitationCategory(Base):
     source = Column(Text, nullable=False, server_default=text("'MANUAL'"))
     ticket_kind = Column(Text, nullable=False, server_default=text("'PDF_UNNUMBERED'"))
     guest_list_mode = Column(Text)
+    numbering_mode = Column(Text)
     qty_contract = Column(Integer, nullable=False, server_default=text("0"))
     qty_extra = Column(Integer, nullable=False, server_default=text("0"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
@@ -4529,6 +4530,7 @@ def ensure_invitation_schema():
         """,
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS ticket_kind text NOT NULL DEFAULT 'PDF_UNNUMBERED';",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS guest_list_mode text;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS numbering_mode text;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_contract integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_extra integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",

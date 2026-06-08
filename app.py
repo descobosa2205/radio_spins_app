@@ -16162,7 +16162,7 @@ def _norm_status(val: str | None) -> str:
     v = (val or "").strip().upper()
     if v in ("BORRADOR", "CONFIRMADO", "RESERVADO", "HABLADO"):
         return v
-    return "HABLADO"
+    return "BORRADOR"
 
 
 def _parse_share_rows(ids, pct_list, pct_base_list, amount_list, amount_base_list):
@@ -17059,6 +17059,8 @@ def concert_detail_view(cid):
             invitation_totals=invitation_totals,
             invitation_counts=invitation_counts,
             invitation_categories_summary=invitation_categories_summary,
+            category_types=INVITATION_CATEGORY_TYPES,
+            guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
             payment_pending=payment_pending,
             payment_total_configured=payment_total_configured,
@@ -21743,7 +21745,7 @@ def concert_wizard_create():
                 group_company_id=billing_company_id if sale_type == 'EMPRESA' else None,
                 billing_company_id=billing_company_id,
                 hashtags=hashtags,
-                status='HABLADO',
+                status='BORRADOR',
                 manual_venue_name=manual_venue_name,
                 manual_venue_address=manual_venue_address,
                 manual_municipality=manual_municipality,
@@ -21828,7 +21830,7 @@ def concert_wizard_create():
             group_company_id=billing_company_id if sale_type == 'EMPRESA' else None,
             billing_company_id=billing_company_id,
             hashtags=hashtags,
-            status='HABLADO',
+            status='BORRADOR',
             manual_venue_name=manual_venue_name,
             manual_venue_address=manual_venue_address,
             manual_municipality=manual_municipality,
@@ -22602,7 +22604,7 @@ def quadrantes_view():
             per_artist = {str(a.id): [] for a in selected_artists}
 
             for c in concerts:
-                st = (c.status or "HABLADO")
+                st = (c.status or "BORRADOR")
                 if st not in f_statuses:
                     continue
 
@@ -22657,7 +22659,7 @@ def quadrantes_view():
 
                     marks_by_date.setdefault(e["date"], []).append({
                         "n": i,
-                        "status": e.get("status") or "HABLADO",
+                        "status": e.get("status") or "BORRADOR",
                         "artist_id": aid,
                         "artist_name": e.get("artist_name") or a.name,
                         "artist_color": e.get("artist_color") or artist_color.get(aid, "#0d6efd"),
@@ -24458,7 +24460,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -31993,6 +31995,61 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     }
 
 
+def _invitation_concert_visible_for_user(concert: Concert | None) -> bool:
+    """Oculta solicitudes personales 24h después de la fecha del evento/concierto."""
+    event_date = getattr(concert, "date", None)
+    if not event_date:
+        return True
+    try:
+        now_local = datetime.now(ZoneInfo("Europe/Madrid"))
+        hide_from = datetime.combine(event_date + timedelta(days=1), datetime.min.time(), tzinfo=ZoneInfo("Europe/Madrid"))
+        return now_local < hide_from
+    except Exception:
+        return True
+
+
+def _invitation_request_visible_for_user(row: InvitationRequest | None) -> bool:
+    if not row or (row.status or "") in {"RECHAZADAS", "ANULADAS"}:
+        return False
+    return _invitation_concert_visible_for_user(getattr(row, "concert", None))
+
+
+def _invitation_request_kind_flags(session_db, row: InvitationRequest, categories: list[InvitationCategory]) -> dict:
+    quantities = _json_dict(getattr(row, "quantities_json", None))
+    cat_map = {str(c.id): c for c in (categories or [])}
+    kinds = []
+    for cid, qty in quantities.items():
+        if _safe_int(qty) <= 0:
+            continue
+        cat = cat_map.get(str(cid))
+        if cat:
+            kinds.append((cat.ticket_kind or "PDF_UNNUMBERED").upper())
+    uses_guest_list = bool(kinds) and all(k == "GUEST_LIST" for k in kinds)
+    requires_numbered_assignment = any(k == "PDF_NUMBERED" for k in kinds)
+    assigned_or_sent = (getattr(row, "status", None) or "") in {"ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+    return {
+        "uses_guest_list": uses_guest_list,
+        "requires_numbered_assignment": requires_numbered_assignment,
+        "can_send": uses_guest_list or assigned_or_sent,
+        "can_download_pdf": assigned_or_sent and not uses_guest_list,
+        "can_auto_assign": not requires_numbered_assignment and (getattr(row, "status", None) or "") in {"SOLICITADAS", "APROBADAS"},
+    }
+
+
+def _invitation_parse_ticket_kind_and_guest_mode(raw_kind: str | None, fallback_kind: str | None = None, fallback_guest_mode: str | None = None) -> tuple[str, str | None]:
+    value = (raw_kind or fallback_kind or "PDF_UNNUMBERED").strip().upper()
+    if value in {"GUEST_LIST_BOX_OFFICE", "GUEST_LIST_TAQUILLA", "LIST_BOX_OFFICE"}:
+        return "GUEST_LIST", "BOX_OFFICE"
+    if value in {"GUEST_LIST_DOOR", "LIST_DOOR", "GUEST_LIST_ACCESS"}:
+        return "GUEST_LIST", "DOOR"
+    if value == "GUEST_LIST":
+        mode = (fallback_guest_mode or "BOX_OFFICE").strip().upper()
+        return "GUEST_LIST", mode if mode in {"BOX_OFFICE", "DOOR"} else "BOX_OFFICE"
+    if value not in {"PDF_UNNUMBERED", "PDF_NUMBERED"}:
+        value = "PDF_UNNUMBERED"
+    return value, None
+
+
 def _invitation_event_counts(session_db, concert: Concert) -> dict:
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
     category_total = sum(_safe_int(c.qty_contract) + _safe_int(c.qty_extra) for c in categories)
@@ -32339,11 +32396,14 @@ def invitations_view():
                 session_db.query(InvitationRequest)
                 .options(joinedload(InvitationRequest.concert))
                 .filter(InvitationRequest.requester_user_id == current_user_id)
+                .filter(InvitationRequest.status.notin_(['RECHAZADAS', 'ANULADAS']))
                 .order_by(InvitationRequest.created_at.desc())
-                .limit(80)
+                .limit(120)
                 .all()
             )
             for row in rows:
+                if not _invitation_request_visible_for_user(row):
+                    continue
                 concert = row.concert
                 cats = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
                 item = _invitation_request_payload(row, cats)
@@ -32452,7 +32512,9 @@ def invitation_event_detail(concert_id):
             })
         requests = []
         for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).order_by(InvitationRequest.created_at.desc()).all():
-            requests.append(_invitation_request_payload(row, categories))
+            item = _invitation_request_payload(row, categories)
+            item.update(_invitation_request_kind_flags(session_db, row, categories))
+            requests.append(item)
         links = []
         for link in session_db.query(InvitationPublicLink).filter(InvitationPublicLink.concert_id == concert.id).order_by(InvitationPublicLink.created_at.desc()).all():
             state, msg = _invitation_link_state(link)
@@ -32539,6 +32601,10 @@ def _invitation_limits_summary(link: InvitationPublicLink, categories: list[Invi
 @admin_required
 def invitation_category_save(concert_id):
     session_db = db()
+    next_url = (request.form.get('next') or '').strip()
+    if not next_url.startswith('/'):
+        next_url = ''
+    fallback_url = url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets'
     try:
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
@@ -32563,17 +32629,20 @@ def invitation_category_save(concert_id):
                 if not row:
                     row = InvitationCategory(concert_id=concert.id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email(), sort_order=idx)
                     session_db.add(row)
+                raw_kind = kinds[idx] if idx < len(kinds) else ''
+                raw_guest = guest_modes[idx] if idx < len(guest_modes) else ''
+                ticket_kind, guest_mode = _invitation_parse_ticket_kind_and_guest_mode(raw_kind, getattr(row, 'ticket_kind', None), raw_guest or getattr(row, 'guest_list_mode', None))
                 row.name = name
                 row.qty_contract = _safe_int(contract_qtys[idx] if idx < len(contract_qtys) else 0)
                 row.qty_extra = _safe_int(extra_qtys[idx] if idx < len(extra_qtys) else 0)
-                row.ticket_kind = ((kinds[idx] if idx < len(kinds) else '') or getattr(row, 'ticket_kind', None) or 'PDF_UNNUMBERED').strip().upper()
-                row.guest_list_mode = ((guest_modes[idx] if idx < len(guest_modes) else '') or '').strip().upper() or None
+                row.ticket_kind = ticket_kind
+                row.guest_list_mode = guest_mode
                 row.is_active = True
                 row.sort_order = idx
                 row.updated_at = _now_madrid()
             session_db.commit()
             flash('Invitaciones disponibles actualizadas.', 'success')
-            return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+            return redirect(next_url or fallback_url)
 
         category_id = _safe_uuid(request.form.get('category_id'))
         row = session_db.get(InvitationCategory, category_id) if category_id else None
@@ -32582,9 +32651,10 @@ def invitation_category_save(concert_id):
         if not row:
             row = InvitationCategory(concert_id=concert.id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
             session_db.add(row)
+        ticket_kind, guest_mode = _invitation_parse_ticket_kind_and_guest_mode(request.form.get('ticket_kind'), getattr(row, 'ticket_kind', None), request.form.get('guest_list_mode') or getattr(row, 'guest_list_mode', None))
         row.name = (request.form.get('name') or 'General').strip() or 'General'
-        row.ticket_kind = (request.form.get('ticket_kind') or 'PDF_UNNUMBERED').strip().upper()
-        row.guest_list_mode = (request.form.get('guest_list_mode') or '').strip().upper() or None
+        row.ticket_kind = ticket_kind
+        row.guest_list_mode = guest_mode
         row.qty_contract = _safe_int(request.form.get('qty_contract'))
         row.qty_extra = _safe_int(request.form.get('qty_extra'))
         row.is_active = not _truthy(request.form.get('inactive'))
@@ -32596,7 +32666,7 @@ def invitation_category_save(concert_id):
         flash(f'No se pudo guardar la categoría: {exc}', 'danger')
     finally:
         session_db.close()
-    return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+    return redirect(next_url or fallback_url)
 
 
 @app.post('/invitaciones/solicitudes', endpoint='invitation_request_create')
@@ -32661,8 +32731,18 @@ def invitation_request_create():
                 'phone': state.get('phone') or '',
             }
         elif receiver_mode == 'OTHER':
+            receiver_promoter_id = _safe_uuid(request.form.get('receiver_promoter_id'))
+            if receiver_promoter_id:
+                receiver_promoter = session_db.get(Promoter, receiver_promoter_id)
+                if receiver_promoter:
+                    receiver_payload['promoter_id'] = str(receiver_promoter.id)
+                    receiver_payload['name'] = receiver_payload.get('name') or _promoter_display_name(receiver_promoter) or receiver_promoter.nick
+                    receiver_payload['email'] = receiver_payload.get('email') or receiver_promoter.contact_email or ''
+                    receiver_payload['phone'] = receiver_payload.get('phone') or receiver_promoter.contact_phone or ''
+            if not receiver_payload.get('name'):
+                receiver_payload['name'] = 'Otro receptor'
             if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-                raise ValueError('Para enviar a otro receptor indica al menos email o teléfono.')
+                raise ValueError('Para enviar a otro receptor selecciona un tercero con email/teléfono o indica al menos email o teléfono.')
         elif receiver_mode == 'BOX_OFFICE':
             receiver_payload = {}
         row = InvitationRequest(
@@ -32994,6 +33074,10 @@ def invitation_request_send(request_id):
         if not row:
             abort(404)
         channel = (request.form.get('channel') or 'email').strip().lower()
+        categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
+        flags = _invitation_request_kind_flags(session_db, row, categories)
+        if not flags.get('can_send'):
+            raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
         download_url = _invitation_request_download_url(row)
         subject, html_body, text_body = _invitation_email_body(session_db, row, download_url)
         row.delivery_token = row.delivery_token or _invitation_token()
@@ -33061,15 +33145,17 @@ def invitation_tickets_upload(concert_id):
         category = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
         if not category or category.concert_id != concert.id:
             raise ValueError('Categoría no válida.')
-        ticket_kind = (request.form.get('ticket_kind') or category.ticket_kind or 'PDF_UNNUMBERED').strip().upper()
-        if ticket_kind not in {'PDF_UNNUMBERED', 'PDF_NUMBERED', 'GUEST_LIST'}:
-            ticket_kind = 'PDF_UNNUMBERED'
+        ticket_kind, guest_mode = _invitation_parse_ticket_kind_and_guest_mode(
+            request.form.get('ticket_kind'),
+            category.ticket_kind or 'PDF_UNNUMBERED',
+            request.form.get('guest_list_mode') or category.guest_list_mode or 'BOX_OFFICE',
+        )
         category.ticket_kind = ticket_kind
+        category.guest_list_mode = guest_mode
         if ticket_kind == 'GUEST_LIST':
-            category.guest_list_mode = (request.form.get('guest_list_mode') or category.guest_list_mode or 'BOX_OFFICE').strip().upper()
             session_db.commit()
             flash('Categoría configurada como listado de invitados.', 'success')
-            return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+            return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
         is_numbered = ticket_kind == 'PDF_NUMBERED' or _truthy(request.form.get('is_numbered'))
         files = request.files.getlist('tickets[]') or request.files.getlist('files[]')
         if not files:
@@ -33131,7 +33217,7 @@ def invitation_tickets_upload(concert_id):
         flash(f'No se pudieron subir las invitaciones: {exc}', 'danger')
     finally:
         session_db.close()
-    return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+    return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
 
 
 @app.post('/invitaciones/tickets/<ticket_id>/liberar', endpoint='invitation_ticket_release')
@@ -33151,7 +33237,7 @@ def invitation_ticket_release(ticket_id):
         ticket.assigned_label = None
         session_db.commit()
         flash('Entrada liberada.', 'success')
-        return redirect(url_for('invitation_event_detail', concert_id=cid))
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
     finally:
         session_db.close()
 
@@ -33172,7 +33258,7 @@ def invitation_ticket_update(ticket_id):
         ticket.updated_at = _now_madrid()
         session_db.commit()
         flash('Datos de la entrada actualizados.', 'success')
-        return redirect(url_for('invitation_event_detail', concert_id=cid))
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo actualizar la entrada: {exc}', 'danger')
@@ -33193,7 +33279,7 @@ def invitation_ticket_delete(ticket_id):
         session_db.delete(ticket)
         session_db.commit()
         flash('Entrada eliminada.', 'success')
-        return redirect(url_for('invitation_event_detail', concert_id=cid))
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo eliminar la entrada: {exc}', 'danger')
@@ -33299,7 +33385,7 @@ def invitation_assignment_save(concert_id):
         flash(f'No se pudieron guardar las asignaciones: {exc}', 'danger')
     finally:
         session_db.close()
-    return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+    return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
 
 
 @app.get('/invitaciones/p/<token>', endpoint='public_invitation_request_link')
@@ -33437,15 +33523,19 @@ def _home_invitation_requests_for_current_user(limit: int = 12) -> list[dict]:
             .filter(InvitationRequest.requester_user_id == uid)
             .filter(InvitationRequest.status.notin_(['RECHAZADAS', 'ANULADAS']))
             .order_by(InvitationRequest.created_at.desc())
-            .limit(limit)
+            .limit(max(limit * 3, 30))
             .all()
         )
         out = []
         for row in rows:
+            if not _invitation_request_visible_for_user(row):
+                continue
             cats = _invitation_get_categories(session_db, row.concert, ensure_defaults=False) if row.concert else []
             item = _invitation_request_payload(row, cats)
             item['event'] = _invitation_event_payload(session_db, row.concert) if row.concert else {}
             out.append(item)
+            if len(out) >= limit:
+                break
         return out
     except Exception:
         return []

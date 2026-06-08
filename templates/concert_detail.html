@@ -7,7 +7,7 @@
       <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
         <h3 class="mb-0">{{ concert.artist.name if concert.artist else 'Concierto' }}</h3>
         <span class="badge text-bg-light border">{{ sale_type_label }}</span>
-        <span class="badge {% if concert.status == 'CONFIRMADO' %}bg-success{% elif concert.status == 'RESERVADO' %}bg-primary{% elif concert.status == 'BORRADOR' %}bg-secondary{% else %}bg-warning text-dark{% endif %}">{{ concert.status }}</span>
+        <span class="badge {% if concert.status == 'CONFIRMADO' %}bg-success{% elif concert.status == 'RESERVADO' %}bg-primary{% elif concert.status == 'BORRADOR' %}status-borrador{% else %}bg-warning text-dark{% endif %}">{{ concert.status }}</span>
         {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
         {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
       </div>
@@ -554,7 +554,7 @@
             <div class="text-muted small">Resumen por categoría, compromisos y peticiones vinculadas a esta actividad.</div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-gear me-1"></i>Configurar</a>
+            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
             <a class="btn btn-sm btn-danger" href="{{ url_for('invitations_view', tab='pedir') }}?event={{ concert.id }}"><i class="fa fa-plus me-1"></i>Realizar petición</a>
           </div>
         </div>
@@ -599,6 +599,55 @@
         <div class="text-muted small">La aprobación, asignación y envío se realiza en la gestión completa de invitaciones.</div>
       </div>
     </div>
+
+    <div class="modal fade" id="concertInvitationCategoryModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <form class="modal-content" method="post" action="{{ url_for('invitation_category_save', concert_id=concert.id) }}">
+          <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">
+          <div class="modal-header"><h5 class="modal-title">Configurar invitaciones disponibles</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+          <div class="modal-body">
+            <div class="table-responsive">
+              <table class="table align-middle invitation-category-table" data-concert-category-table>
+                <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th></th></tr></thead>
+                <tbody>
+                  {% for cat in invitation_categories_summary %}
+                    <tr>
+                      <td><input type="hidden" name="category_id[]" value="{{ cat.id }}"><input class="form-control" name="category_name[]" value="{{ cat.name }}" required></td>
+                      <td>
+                        <select class="form-select" name="ticket_kind[]">
+                          <option value="PDF_UNNUMBERED" {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}selected{% endif %}>PDF sin numerar</option>
+                          <option value="PDF_NUMBERED" {% if cat.ticket_kind == 'PDF_NUMBERED' %}selected{% endif %}>PDF numeradas</option>
+                          <option value="GUEST_LIST_BOX_OFFICE" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode != 'DOOR' %}selected{% endif %}>Lista en taquilla</option>
+                          <option value="GUEST_LIST_DOOR" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode == 'DOOR' %}selected{% endif %}>Lista acceso directo en puerta</option>
+                        </select>
+                        <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
+                      </td>
+                      <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
+                      <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
+                      <td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-concert-category-row><i class="fa fa-times"></i></button></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <button class="btn btn-outline-danger" type="button" data-add-concert-category-row><i class="fa fa-plus me-1"></i>Tipo de entrada</button>
+          </div>
+          <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar configuración</button></div>
+        </form>
+      </div>
+    </div>
+    <script>
+    (function(){
+      const table = document.querySelector('[data-concert-category-table] tbody');
+      document.querySelector('[data-add-concert-category-row]')?.addEventListener('click', () => {
+        if(!table) return;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-concert-category-row><i class="fa fa-times"></i></button></td>`;
+        table.appendChild(tr);
+      });
+      document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-concert-category-row]'); if(btn) btn.closest('tr')?.remove(); });
+    })();
+    </script>
   {% else %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <div>

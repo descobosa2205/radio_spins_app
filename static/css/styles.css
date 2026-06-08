@@ -806,3 +806,37 @@ img[data-default-photo="1"]{
 .invitation-category-table td { vertical-align: middle; }
 .public-invitation-page .d-none { display: none !important; }
 @media (max-width: 768px) { .invitation-seat-row { grid-template-columns: 1fr; } }
+
+/* App_33 · Ajustes invitaciones / modales 2026-06-08 */
+.invitation-ticket-preview {
+  display: block;
+  width: 100%;
+  height: min(78vh, 760px);
+  min-height: 520px;
+  background: #f8f9fa;
+}
+.modal.app33-modal-stack,
+.modal.show.app33-modal-stack {
+  z-index: var(--app33-modal-z, 1065) !important;
+}
+.modal-backdrop.app33-modal-backdrop-stack {
+  z-index: var(--app33-backdrop-z, 1060) !important;
+}
+.modal .modal-content {
+  isolation: isolate;
+}
+.dropdown-menu-app33,
+.dropdown-menu.show {
+  z-index: 3000 !important;
+}
+.invitation-search-picker .invitation-search-results {
+  position: relative;
+  z-index: 5;
+}
+.invitation-category-table select[name="ticket_kind[]"] {
+  min-width: 220px;
+}
+.status-borrador {
+  background: #dbeafe;
+  color: #1d4ed8;
+}

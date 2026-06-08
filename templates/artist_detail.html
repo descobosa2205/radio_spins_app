@@ -637,7 +637,7 @@
                         {% endif %}
 
                         {% set st = (c.status or 'HABLADO')|upper %}
-                        <span class="badge status-pill {% if st=='HABLADO' %}status-hablado{% elif st=='RESERVADO' %}status-reservado{% else %}status-confirmado{% endif %}">
+                        <span class="badge status-pill {% if st=='BORRADOR' %}status-borrador{% elif st=='HABLADO' %}status-hablado{% elif st=='RESERVADO' %}status-reservado{% else %}status-confirmado{% endif %}">
                           {{ st.title() }}
                         </span>
                       </div>

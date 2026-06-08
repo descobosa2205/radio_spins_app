@@ -1096,7 +1096,7 @@ class Concert(Base):
     registration_declared_at = Column(DateTime(timezone=True))
 
     # Estado: BORRADOR | HABLADO | RESERVADO | CONFIRMADO
-    status = Column(Text, nullable=False, server_default=text("'HABLADO'"))
+    status = Column(Text, nullable=False, server_default=text("'BORRADOR'"))
 
     # relaciones:
     group_company = relationship("GroupCompany", foreign_keys=[group_company_id])

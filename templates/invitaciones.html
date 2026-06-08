@@ -211,11 +211,14 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
-                        {% if row.status in ['SOLICITADAS','APROBADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
-                        <li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>
-                        <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="email"><button class="dropdown-item">Enviar por email</button></form></li>
-                        <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="whatsapp"><button class="dropdown-item">Enviar por WhatsApp</button></form></li>
-                        <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="sms"><button class="dropdown-item">Enviar por SMS</button></form></li>
+                        {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
+                        {% if row.requires_numbered_assignment and row.status in ['SOLICITADAS','APROBADAS'] %}<li><a class="dropdown-item" href="#inv-tab-tickets" data-show-invitation-tab="tickets">Asignar en mapa numerado</a></li>{% endif %}
+                        {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
+                        {% if row.can_send %}
+                          <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="email"><button class="dropdown-item">Enviar por email</button></form></li>
+                          <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="whatsapp"><button class="dropdown-item">Enviar por WhatsApp</button></form></li>
+                          <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}"><input type="hidden" name="channel" value="sms"><button class="dropdown-item">Enviar por SMS</button></form></li>
+                        {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="REJECT"><button class="dropdown-item text-warning">Rechazar</button></form></li>
                         <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="CANCEL"><button class="dropdown-item text-danger">Anular / eliminar</button></form></li>
@@ -245,7 +248,7 @@
                     <h5 class="mb-0">{{ cat.name }}</h5>
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
                   </div>
-                  <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
+                  <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
                 </div>
 
                 {% if cat.ticket_kind == 'GUEST_LIST' %}
@@ -368,7 +371,7 @@
     {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
     <div class="modal fade" id="assignModal{{ cat.id }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}">
+        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
           <div class="modal-header"><h5 class="modal-title">Asignar invitaciones · {{ cat.name }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
             <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
@@ -389,7 +392,7 @@
                 </div>
               </div>
               <div class="col-12 col-lg-8">
-                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Disponibles</h6><span class="badge text-bg-success" data-available-counter>{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</span></div>
+                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Disponibles</h6><span class="badge text-bg-success" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span></div>
                 <div class="assignment-drop-zone" data-drop-zone>
                   {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                     {% for sector in ticket_groups_by_category.get(cat.id, []) %}
@@ -427,7 +430,7 @@
           <div class="modal-header"><h5 class="modal-title">Entrada {{ t.code }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
             <div class="row g-3">
-              <div class="col-md-7"><iframe src="{{ t.pdf_url }}" class="w-100 border rounded" style="min-height:420px"></iframe></div>
+              <div class="col-md-7"><iframe src="{{ t.pdf_url }}" class="invitation-ticket-preview border rounded" title="Vista previa entrada"></iframe></div>
               <div class="col-md-5">
                 <form method="post" action="{{ url_for('invitation_ticket_update', ticket_id=t.id) }}" class="vstack gap-2">
                   <label class="form-label mb-0">Código</label><input class="form-control" name="ticket_code" value="{{ t.code }}">
@@ -456,15 +459,22 @@
       <div class="modal-body">
         <div class="table-responsive">
           <table class="table align-middle invitation-category-table" data-category-table>
-            <thead class="table-light"><tr><th>Categoría</th><th>Tipo</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th>Listado</th><th></th></tr></thead>
+            <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th></th></tr></thead>
             <tbody>
               {% for cat in categories %}
                 <tr>
                   <td><input type="hidden" name="category_id[]" value="{{ cat.id }}"><input class="form-control" name="category_name[]" value="{{ cat.name }}" required></td>
-                  <td><select class="form-select" name="ticket_kind[]">{% for key,label in category_types %}<option value="{{ key }}" {% if key == cat.ticket_kind %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></td>
+                  <td>
+                    <select class="form-select" name="ticket_kind[]">
+                      <option value="PDF_UNNUMBERED" {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}selected{% endif %}>PDF sin numerar</option>
+                      <option value="PDF_NUMBERED" {% if cat.ticket_kind == 'PDF_NUMBERED' %}selected{% endif %}>PDF numeradas</option>
+                      <option value="GUEST_LIST_BOX_OFFICE" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode != 'DOOR' %}selected{% endif %}>Lista en taquilla</option>
+                      <option value="GUEST_LIST_DOOR" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode == 'DOOR' %}selected{% endif %}>Lista acceso directo en puerta</option>
+                    </select>
+                    <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
+                  </td>
                   <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
                   <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
-                  <td><select class="form-select" name="guest_list_mode[]"><option value="">No aplica</option>{% for key,label in guest_list_modes %}<option value="{{ key }}" {% if key == cat.guest_list_mode %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></td>
                   <td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>
                 </tr>
               {% endfor %}
@@ -487,14 +497,13 @@
         <div class="invitation-icon-grid mb-3">
           <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="PDF_UNNUMBERED" checked><i class="fa fa-ticket-alt"></i><span>Sin numerar</span></label>
           <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="PDF_NUMBERED"><i class="fa fa-couch"></i><span>Numeradas</span></label>
-          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST"><i class="fa fa-list-check"></i><span>Listado de invitados</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST_BOX_OFFICE"><i class="fa fa-store"></i><span>Lista en taquilla</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST_DOOR"><i class="fa fa-door-open"></i><span>Lista acceso directo en puerta</span></label>
         </div>
         <div class="row g-3 mb-3 d-none" data-numbering-panel>
           <div class="col-12"><label class="form-label">Numeración de filas</label><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="CONTINUOUS" checked><i class="fa fa-arrow-right-1-9"></i><span>Numeración seguida</span></label><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="ODD_EVEN"><i class="fa fa-code-branch"></i><span>Pares / impares</span></label></div></div>
         </div>
-        <div class="row g-3 mb-3 d-none" data-guest-list-panel>
-          <div class="col-md-6"><label class="form-label">Modo de listado</label><select class="form-select" name="guest_list_mode">{% for key,label in guest_list_modes %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-        </div>
+        <input type="hidden" name="guest_list_mode" value="">
         <div data-pdf-upload-panel>
           <label class="form-label">PDFs de invitaciones</label>
           <input type="file" name="tickets[]" accept="application/pdf" multiple class="form-control" data-ticket-files>
@@ -563,7 +572,20 @@
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>Enviar a otro</span></label>
           </div>
           <div class="alert alert-light border mt-3" data-receiver-summary>Se usarán automáticamente los datos disponibles según la ficha seleccionada.</div>
-          <div class="row g-2 mt-3 d-none" data-other-receiver><div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div><div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div><div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div></div>
+          <div class="mt-3 d-none" data-other-receiver>
+            <label class="form-label">Seleccionar tercero receptor</label>
+            <input type="hidden" name="receiver_promoter_id" data-field="receiver_promoter_id">
+            <div class="invitation-search-picker" data-promoter-picker data-hidden-target="receiver_promoter_id" data-name-target="receiver_name" data-email-target="receiver_email" data-phone-target="receiver_phone">
+              <input class="form-control" placeholder="Buscar tercero por cualquier dato">
+              <div class="invitation-search-results"></div>
+              <button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button>
+            </div>
+            <div class="row g-2 mt-3">
+              <div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div>
+              <div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div>
+              <div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div>
+            </div>
+          </div>
         </div>
         <div class="invitation-step d-none" data-step="5"><h5>5. Cantidades</h5><div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div><label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea></div>
       </div>
@@ -639,19 +661,34 @@
   document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => { const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent); }));
 
   function fillTarget(form, fields, item){ const hidden = form.querySelector(`[data-field="${fields.hidden}"]`) || form.querySelector(`input[name="${fields.hidden}"]`); if(hidden) hidden.value = item.id || ''; ['name','email','phone'].forEach(k => { const input = form.querySelector(`input[name="${fields[k]}"]`); if(input) input.value = item[k === 'name' ? 'label' : (k === 'email' ? 'contact_email' : 'contact_phone')] || ''; }); }
-  document.querySelectorAll('[data-promoter-picker]').forEach(picker => { const input = picker.querySelector('input.form-control'); const results = picker.querySelector('.invitation-search-results'); const form = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; let timer; input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(async () => { const q = input.value.trim(); if(!q){ results.innerHTML=''; return; } const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`); const data = await res.json(); results.innerHTML = (data || []).map(item => `<button type="button" class="invitation-search-result" data-id="${item.id}" data-label="${item.label || ''}" data-email="${item.contact_email || ''}" data-phone="${item.contact_phone || ''}"><img src="${item.logo_url || placeholder}" alt=""><span><strong>${item.label || 'Sin nombre'}</strong><small>${item.contact_email || ''} ${item.contact_phone || ''}</small></span></button>`).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>'; results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => { const item={id:btn.dataset.id,label:btn.dataset.label,contact_email:btn.dataset.email,contact_phone:btn.dataset.phone}; fillTarget(form, fields, item); input.value = item.label; results.innerHTML=''; })); }, 200); }); });
-  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => { ev.preventDefault(); const form = ev.currentTarget; const fd = new FormData(form); const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd}); const data = await res.json(); if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; } document.querySelectorAll('[data-promoter-picker] input.form-control').forEach(input => { if(document.activeElement !== input) input.value = data.label || data.nick || ''; }); const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset(); });
+  document.querySelectorAll('[data-invitation-wizard="request"]').forEach(form => {
+    const updateReceiver = () => {
+      const mode = form.querySelector('[name="receiver_mode"]:checked')?.value || 'GUEST';
+      form.querySelector('[data-other-receiver]')?.classList.toggle('d-none', mode !== 'OTHER');
+      const summary = form.querySelector('[data-receiver-summary]');
+      if(summary){
+        summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Hace falta email o teléfono.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.'));
+      }
+    };
+    form.querySelectorAll('[name="receiver_mode"]').forEach(x => x.addEventListener('change', updateReceiver));
+    updateReceiver();
+  });
+  document.querySelectorAll('[data-promoter-picker]').forEach(picker => { const input = picker.querySelector('input.form-control'); const results = picker.querySelector('.invitation-search-results'); const form = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; const addBtn = picker.querySelector('[data-bs-target="#newPromoterModal"]'); if(addBtn){ addBtn.addEventListener('click', () => { window.__activePromoterPicker = picker; }); } let timer; input.addEventListener('focus', () => { window.__activePromoterPicker = picker; }); input.addEventListener('input', () => { window.__activePromoterPicker = picker; clearTimeout(timer); timer = setTimeout(async () => { const q = input.value.trim(); if(!q){ results.innerHTML=''; return; } const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`); const data = await res.json(); results.innerHTML = (data || []).map(item => `<button type="button" class="invitation-search-result" data-id="${item.id}" data-label="${item.label || ''}" data-email="${item.contact_email || ''}" data-phone="${item.contact_phone || ''}"><img src="${item.logo_url || placeholder}" alt=""><span><strong>${item.label || 'Sin nombre'}</strong><small>${item.contact_email || ''} ${item.contact_phone || ''}</small></span></button>`).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>'; results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => { const item={id:btn.dataset.id,label:btn.dataset.label,contact_email:btn.dataset.email,contact_phone:btn.dataset.phone}; fillTarget(form, fields, item); input.value = item.label; results.innerHTML=''; })); }, 200); }); });
+  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => { ev.preventDefault(); const form = ev.currentTarget; const fd = new FormData(form); const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd}); const data = await res.json(); if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; } const picker = window.__activePromoterPicker; if(picker){ const parentForm = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; const input = picker.querySelector('input.form-control'); const item = {id:data.id,label:data.label || data.nick || fd.get('nick') || '',contact_email:data.contact_email || fd.get('contact_email') || '',contact_phone:data.contact_phone || fd.get('contact_phone') || ''}; fillTarget(parentForm, fields, item); if(input) input.value = item.label; picker.querySelector('.invitation-search-results').innerHTML = ''; } const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset(); });
 
-  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST">Listado de invitados</option></select></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><select class="form-select" name="guest_list_mode[]"><option value="">No aplica</option><option value="BOX_OFFICE">Recogida en taquilla</option><option value="DOOR">Acceso directo por puerta</option></select></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
+  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
-  document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; const kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
-  function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-guest-list-panel]')?.classList.toggle('d-none', kind !== 'GUEST_LIST'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', kind === 'GUEST_LIST'); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', kind !== 'GUEST_LIST'); }
+  document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; let kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; const mode = (btn?.dataset.guestListMode || '').toUpperCase(); if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
+  function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; const isList = kind === 'GUEST_LIST_BOX_OFFICE' || kind === 'GUEST_LIST_DOOR' || kind === 'GUEST_LIST'; const hiddenMode = root.querySelector('[name="guest_list_mode"]'); if(hiddenMode) hiddenMode.value = kind === 'GUEST_LIST_DOOR' ? 'DOOR' : (isList ? 'BOX_OFFICE' : ''); root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', isList); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', !isList); }
   document.querySelectorAll('#ticketUploadModal [name="ticket_kind"]').forEach(x=>x.addEventListener('change', () => updateUploadKind(document.getElementById('ticketUploadModal'))));
   document.querySelector('[data-ticket-files]')?.addEventListener('change', (ev) => { const files = Array.from(ev.target.files || []); document.querySelector('[data-file-summary]').textContent = files.length ? `${files.length} archivo(s) seleccionados` : 'Selecciona varios PDFs sueltos.'; document.querySelector('[data-file-list]').innerHTML = files.map(f=>`<div class="list-group-item">${f.name}</div>`).join(''); });
 
+  document.querySelectorAll('[data-show-invitation-tab="tickets"]').forEach(link => link.addEventListener('click', () => { const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }));
+  if(window.location.hash === '#inv-tab-tickets'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
+
   document.querySelectorAll('.invitation-assignment-form').forEach(form => { const assignments = []; let currentSource = null; const updateHidden = () => { form.querySelector('[data-assignments-json]').value = JSON.stringify(assignments); form.querySelector('[data-assignment-results]').innerHTML = assignments.map(a => `<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>${a.label || 'Asignación'} · ${a.qty} invitación(es)</div>`).join(''); const available = form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length; form.querySelector('[data-available-counter]').textContent = available; };
     form.querySelectorAll('.assignment-source').forEach(src => { src.addEventListener('dragstart', ev => { currentSource = src; ev.dataTransfer.setData('text/plain', src.dataset.sourceId); }); src.addEventListener('click', () => { currentSource = src; form.querySelectorAll('.assignment-source').forEach(x=>x.classList.remove('is-selected')); src.classList.add('is-selected'); }); });
-    const assignToPool = () => { if(!currentSource){ alert('Selecciona o arrastra primero una petición/compromiso.'); return; } const qty = parseInt(currentSource.dataset.qty || '0',10); const seats = Array.from(form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)')).slice(0, qty); if(seats.length < qty){ alert('No tiene invitaciones suficientes.'); return; } seats.forEach(x=>x.classList.add('is-selected')); assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: seats.map(x=>x.dataset.ticketId), label: currentSource.querySelector('strong')?.textContent || ''}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); };
+    const assignToPool = () => { if(!currentSource){ alert('Selecciona o arrastra primero una petición/compromiso.'); return; } const qty = parseInt(currentSource.dataset.qty || '0',10); const label = currentSource.querySelector('strong')?.textContent || ''; if((form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST'){ assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: [], label: label}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); return; } const seats = Array.from(form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)')).slice(0, qty); if(seats.length < qty){ alert('No tiene invitaciones suficientes.'); return; } seats.forEach(x=>x.classList.add('is-selected')); assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: seats.map(x=>x.dataset.ticketId), label: label}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); };
     form.querySelector('[data-drop-zone]')?.addEventListener('dragover', ev => ev.preventDefault()); form.querySelector('[data-drop-zone]')?.addEventListener('drop', ev => { ev.preventDefault(); assignToPool(); }); form.querySelector('[data-drop-zone]')?.addEventListener('click', ev => { if(ev.target.closest('[data-ticket-id]')) assignToPool(); }); updateHidden(); });
 })();
 </script>

@@ -4,6 +4,7 @@
 <style>
   /* pequeño ajuste visual para el badge de estado */
   .status-pill{ cursor:pointer; border:1px solid rgba(0,0,0,.08); }
+  .status-borrador{ background:#dbeafe; color:#1d4ed8; }
   .status-hablado{ background:#ffe8a1; color:#7a5b00; }
   .status-reservado{ background:#cfe2ff; color:#084298; }
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
@@ -406,8 +407,8 @@
 
                 <!-- DER: estado + empresa factura -->
                 <div class="text-end" style="min-width:180px;">
-                  {% set st = (c.status or 'HABLADO') %}
-                  {% set st_class = 'status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado') %}
+                  {% set st = (c.status or 'BORRADOR') %}
+                  {% set st_class = 'status-borrador' if st=='BORRADOR' else ('status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado')) %}
 
                   {% if CAN_EDIT_CONCERTS %}
                     <div class="dropdown">

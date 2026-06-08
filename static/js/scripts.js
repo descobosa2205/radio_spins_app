@@ -1622,3 +1622,29 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     updateRoyaltySemesterScrollButtons();
   });
 })();
+
+// App_33 · Modales apilados y altas rápidas dentro de formularios.
+// Mantiene el modal padre abierto cuando se crea un tercero/recinto/etc. desde un popup secundario.
+(function(){
+  if (window.__app33ModalStackingReady) return;
+  window.__app33ModalStackingReady = true;
+  document.addEventListener('show.bs.modal', function(ev){
+    const openModals = Array.from(document.querySelectorAll('.modal.show'));
+    const z = 1065 + (openModals.length * 20);
+    ev.target.classList.add('app33-modal-stack');
+    ev.target.style.setProperty('--app33-modal-z', z);
+    setTimeout(function(){
+      const backdrops = Array.from(document.querySelectorAll('.modal-backdrop:not(.app33-modal-backdrop-stack)'));
+      const backdrop = backdrops[backdrops.length - 1];
+      if (backdrop) {
+        backdrop.classList.add('app33-modal-backdrop-stack');
+        backdrop.style.setProperty('--app33-backdrop-z', z - 5);
+      }
+    }, 0);
+  });
+  document.addEventListener('hidden.bs.modal', function(){
+    if (document.querySelectorAll('.modal.show').length) {
+      document.body.classList.add('modal-open');
+    }
+  });
+})();

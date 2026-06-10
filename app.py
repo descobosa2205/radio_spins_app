@@ -17029,6 +17029,7 @@ def concert_detail_view(cid):
             'office': sum(int(x.get('office_qty') or 0) for x in invitation_rows),
         }
         invitation_totals['total'] = invitation_totals['artist'] + invitation_totals['office']
+        invitation_open_for_requests = _invitation_event_is_active_for_requests(c) if '_invitation_event_is_active_for_requests' in globals() else True
         try:
             invitation_counts = _invitation_event_counts(session, c)
             invitation_categories_summary = [_invitation_category_payload(cat) for cat in _invitation_get_categories(session, c, ensure_defaults=False)]
@@ -17089,6 +17090,7 @@ def concert_detail_view(cid):
             invitation_totals=invitation_totals,
             invitation_counts=invitation_counts,
             invitation_categories_summary=invitation_categories_summary,
+            invitation_open_for_requests=invitation_open_for_requests,
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
@@ -32404,23 +32406,50 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     }
 
 
-def _invitation_concert_visible_for_user(concert: Concert | None) -> bool:
-    """Oculta solicitudes personales 24h después del concierto/evento."""
+def _invitation_event_cutoff_datetime(concert: Concert | None):
+    """Devuelve el corte operativo de invitaciones: 05:00 del día posterior al evento.
+
+    Las invitaciones deben seguir disponibles durante la madrugada posterior al concierto
+    para permitir gestión en puerta/taquilla, pero no deben aparecer ni poder solicitarse
+    cuando ya han pasado 5 horas desde el cierre del día del evento.
+    """
     event_date = getattr(concert, "date", None)
     if not event_date:
-        return True
+        return None
     try:
-        tz = ZoneInfo("Europe/Madrid")
-        raw_time = (getattr(concert, "show_time", None) or getattr(concert, "doors_time", None) or "").strip()
-        hour, minute = 23, 59
-        m = re.search(r"(\d{1,2})[:hH.](\d{2})", raw_time) or re.search(r"\b(\d{1,2})\b", raw_time)
-        if m:
-            hour = max(0, min(23, int(m.group(1))))
-            minute = max(0, min(59, int(m.group(2)))) if len(m.groups()) > 1 and m.group(2) else 0
-        event_dt = datetime.combine(event_date, datetime.min.time(), tzinfo=tz).replace(hour=hour, minute=minute)
-        return datetime.now(tz) < (event_dt + timedelta(hours=24))
+        if isinstance(event_date, datetime):
+            event_date = event_date.date()
+        return datetime.combine(event_date + timedelta(days=1), datetime.min.time(), tzinfo=TZ_MADRID).replace(hour=5, minute=0, second=0, microsecond=0)
+    except Exception:
+        return None
+
+
+def _invitation_event_is_active_for_requests(concert: Concert | None, *, now_value=None) -> bool:
+    """Indica si un evento puede aparecer en Pedir/Gestionar invitaciones.
+
+    Regla de negocio: desaparece 5 horas después del día del concierto/evento.
+    """
+    cutoff = _invitation_event_cutoff_datetime(concert)
+    if not cutoff:
+        return True
+    now_value = now_value or _now_madrid()
+    try:
+        if getattr(now_value, "tzinfo", None) is None:
+            now_value = now_value.replace(tzinfo=TZ_MADRID)
+        return now_value < cutoff
     except Exception:
         return True
+
+
+def _invitation_event_query_start_date() -> date:
+    """Fecha mínima SQL amplia para no perder eventos de ayer antes de las 05:00."""
+    now_value = _now_madrid()
+    return now_value.date() - timedelta(days=1 if now_value.hour < 5 else 0)
+
+
+def _invitation_concert_visible_for_user(concert: Concert | None) -> bool:
+    """Oculta solicitudes personales 5h después del día del concierto/evento."""
+    return _invitation_event_is_active_for_requests(concert)
 
 
 def _invitation_request_visible_for_user(row: InvitationRequest | None) -> bool:
@@ -32486,11 +32515,11 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
 
 
 def _invitation_configured_concert_query(session_db):
-    today = today_local()
+    query_start = _invitation_event_query_start_date()
     return (
         session_db.query(Concert)
         .options(joinedload(Concert.artist), joinedload(Concert.venue))
-        .filter(Concert.date >= today - timedelta(days=30))
+        .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
         .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
     )
 
@@ -32554,6 +32583,12 @@ def _invitation_parse_deadline(value: str | None):
 def _invitation_link_state(link: InvitationPublicLink) -> tuple[str, str]:
     if (link.status or "").upper() == "CANCELLED":
         return "cancelled", "Este enlace ha sido anulado y ya no está disponible. Por favor contacte con quien se lo ha enviado."
+    try:
+        concert = getattr(link, "concert", None)
+        if concert is not None and not _invitation_event_is_active_for_requests(concert):
+            return "expired", "Lo sentimos, este concierto o evento ya ha pasado y no admite nuevas peticiones de invitaciones."
+    except Exception:
+        pass
     if link.deadline_at:
         try:
             deadline = link.deadline_at
@@ -32893,16 +32928,19 @@ def invitations_view():
     try:
         artists = _invitation_artist_options(session_db)
         personnel = _invitation_personnel_options(session_db)
-        today = today_local()
+        query_start = _invitation_event_query_start_date()
         events = []
         query = (
             session_db.query(Concert)
             .options(joinedload(Concert.artist), joinedload(Concert.venue))
-            .filter(or_(Concert.date == None, Concert.date >= today - timedelta(days=30)))  # noqa: E711
+            .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
             .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
-            .limit(120)
+            .limit(160)
         )
+        now_value = _now_madrid()
         for concert in query.all():
+            if not _invitation_event_is_active_for_requests(concert, now_value=now_value):
+                continue
             # Para gestión mostramos todos los que tienen categorías/solicitudes/compromisos o datos de invitación legados.
             has_any = _invitation_event_has_config(session_db, concert)
             if not has_any:
@@ -32965,16 +33003,19 @@ def api_invitation_events():
     session_db = db()
     try:
         aid = str(_safe_uuid(artist_id) or '')
-        today = today_local()
+        query_start = _invitation_event_query_start_date()
         q = (
             session_db.query(Concert)
             .options(joinedload(Concert.artist), joinedload(Concert.venue))
-            .filter(or_(Concert.date == None, Concert.date >= today - timedelta(days=365)))  # noqa: E711
+            .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
             .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
-            .limit(200)
+            .limit(220)
         )
         rows = []
+        now_value = _now_madrid()
         for c in q.all():
+            if not _invitation_event_is_active_for_requests(c, now_value=now_value):
+                continue
             if aid and aid not in _concert_artist_ids(c):
                 continue
             if (not include_all) and (not _invitation_event_has_config(session_db, c)):
@@ -32993,6 +33034,8 @@ def api_invitation_event_categories(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        if not _invitation_event_is_active_for_requests(concert):
+            return jsonify({'ok': False, 'message': 'Este concierto o evento ya no admite solicitudes de invitaciones.'}), 410
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         counts = _invitation_event_counts(session_db, concert)
@@ -33014,6 +33057,9 @@ def invitation_event_detail(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        if not _invitation_event_is_active_for_requests(concert):
+            flash('Este concierto o evento ya no aparece en gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.', 'warning')
+            return redirect(url_for('invitations_view', tab='gestionar'))
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         # Releer tras crear defaults para contar bien.
@@ -33239,6 +33285,8 @@ def invitation_request_create():
         concert = session_db.get(Concert, to_uuid(request.form.get('concert_id')))
         if not concert:
             abort(404)
+        if not _invitation_event_is_active_for_requests(concert):
+            raise ValueError('Este concierto o evento ya no admite solicitudes de invitaciones.')
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         quantities = _invitation_quantities_from_form(request.form, categories)
         if _invitation_total_qty(quantities) <= 0:
@@ -33356,6 +33404,8 @@ def invitation_public_link_create():
         concert = session_db.get(Concert, to_uuid(request.form.get('concert_id')))
         if not concert:
             abort(404)
+        if not _invitation_event_is_active_for_requests(concert):
+            raise ValueError('Este concierto o evento ya no admite enlaces de peticiones de invitaciones.')
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         state = _current_user_state()
         target_promoter_id = _safe_uuid(request.form.get('target_promoter_id'))

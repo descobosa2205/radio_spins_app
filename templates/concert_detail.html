@@ -554,10 +554,17 @@
             <div class="text-muted small">Resumen por categoría, compromisos y peticiones vinculadas a esta actividad.</div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
-            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
-            <a class="btn btn-sm btn-danger" href="{{ url_for('invitations_view', tab='pedir') }}?event={{ concert.id }}"><i class="fa fa-plus me-1"></i>Realizar petición</a>
+            {% if invitation_open_for_requests %}
+              <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
+              <a class="btn btn-sm btn-danger" href="{{ url_for('invitations_view', tab='pedir') }}?event={{ concert.id }}"><i class="fa fa-plus me-1"></i>Realizar petición</a>
+            {% else %}
+              <span class="badge text-bg-secondary align-self-center">Evento pasado</span>
+            {% endif %}
           </div>
         </div>
+        {% if not invitation_open_for_requests %}
+          <div class="alert alert-warning small">Este concierto o evento ya no admite nuevas solicitudes ni gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.</div>
+        {% endif %}
         <div class="invitation-counts invitation-counts--large mb-3">
           <div><span>{{ invitation_counts.configured if invitation_counts else invitation_totals.total }}</span><small>Disponibles</small></div>
           <div><span>{{ invitation_counts.committed if invitation_counts else 0 }}</span><small>Comprometidas</small></div>
@@ -594,7 +601,11 @@
       <div class="card-body">
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
           <h5 class="mb-0">Invitados aprobados</h5>
-          <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
+          {% if invitation_open_for_requests %}
+            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
+          {% else %}
+            <button class="btn btn-sm btn-outline-secondary" type="button" disabled><i class="fa fa-lock me-1"></i>Gestión cerrada</button>
+          {% endif %}
         </div>
         <div class="text-muted small">La aprobación, asignación y envío se realiza en la gestión completa de invitaciones.</div>
       </div>

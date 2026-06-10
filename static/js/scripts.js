@@ -1648,3 +1648,102 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     }
   });
 })();
+
+// App33: vinculaciones genéricas y modales anidados estables.
+(function(){
+  function normalise(str){return (str||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,' ').toLowerCase().trim();}
+  function esc(str){return (str||'').toString().replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c];});}
+  function endpointFor(type){
+    return {promoter:'/api/promoters/create', venue:'/api/venues/create', media:'/api/media/create', ticketer:'/api/ticketers/create', publishing:'/api/publishing_companies/create'}[type] || '';
+  }
+  function configureCreateFields(modal){
+    const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
+    const mediaWrap=modal.querySelector('[data-create-media-type-wrap]');
+    if(mediaWrap) mediaWrap.classList.toggle('d-none', type!=='media');
+    const email=modal.querySelector('[data-create-email]');
+    const phone=modal.querySelector('[data-create-phone]');
+    if(email){ email.placeholder = type==='ticketer' ? 'URL de venta' : (type==='promoter' ? 'Email' : 'Email, web o URL'); }
+    if(phone){ phone.placeholder = type==='venue' ? 'Dirección' : (type==='media' ? 'Dirección' : 'Teléfono o dirección'); }
+  }
+  function selectLinkTarget(modal, item){
+    const targetType=modal.querySelector('[data-link-target-type]');
+    const targetId=modal.querySelector('[data-link-target-id]');
+    const save=modal.querySelector('[data-link-save]');
+    const selected=modal.querySelector('[data-link-selected]');
+    if(targetType) targetType.value=item.type || targetType.value || '';
+    if(targetId) targetId.value=item.id || '';
+    if(save) save.disabled = !(targetType && targetType.value && item.id);
+    if(selected){
+      selected.classList.remove('d-none');
+      selected.innerHTML='<img src="'+esc(item.logo_url||'/static/img/placeholder_photo.png')+'" alt=""><div class="min-w-0"><div class="fw-semibold text-truncate">'+esc(item.label||item.text||item.name||'Seleccionado')+'</div><div class="small text-muted text-truncate">'+esc(item.type_label||item.subtitle||'')+'</div></div>';
+    }
+  }
+  async function searchLinks(modal){
+    const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
+    const q=(modal.querySelector('[data-link-search]')||{}).value || '';
+    const box=modal.querySelector('[data-link-results]');
+    if(!box) return;
+    if(!type){ box.innerHTML='<div class="text-muted small p-3">Selecciona primero qué tipo de vinculación quieres crear.</div>'; return; }
+    box.innerHTML='<div class="text-muted small p-3">Buscando...</div>';
+    try{
+      const resp=await fetch('/api/vinculaciones/search?type='+encodeURIComponent(type)+'&q='+encodeURIComponent(q), {headers:{'Accept':'application/json'}});
+      const data=await resp.json();
+      if(!Array.isArray(data) || !data.length){ box.innerHTML='<div class="text-muted small p-3">Sin coincidencias. Puedes crear una nueva opción a la derecha.</div>'; return; }
+      box.innerHTML='';
+      data.forEach(function(item){
+        const btn=document.createElement('button'); btn.type='button'; btn.className='entity-link-result';
+        btn.innerHTML='<img src="'+esc(item.logo_url||'/static/img/placeholder_photo.png')+'" alt=""><div class="min-w-0"><div class="fw-semibold text-truncate">'+esc(item.label||item.text||item.name||'')+'</div><div class="small text-muted text-truncate">'+esc(item.subtitle||item.type_label||'')+'</div></div>';
+        btn.addEventListener('click',function(){ selectLinkTarget(modal,item); box.querySelectorAll('.entity-link-result').forEach(x=>x.classList.remove('active')); btn.classList.add('active'); });
+        box.appendChild(btn);
+      });
+    }catch(e){ box.innerHTML='<div class="text-danger small p-3">No se pudo buscar.</div>'; }
+  }
+  document.addEventListener('click', async function(ev){
+    const typeBtn=ev.target.closest('[data-link-type]');
+    if(typeBtn){
+      const modal=typeBtn.closest('.entity-link-modal'); if(!modal) return;
+      modal.querySelectorAll('[data-link-type]').forEach(x=>x.classList.toggle('active', x===typeBtn));
+      const input=modal.querySelector('[data-link-target-type]'); if(input) input.value=typeBtn.dataset.linkType||'';
+      const id=modal.querySelector('[data-link-target-id]'); if(id) id.value='';
+      const save=modal.querySelector('[data-link-save]'); if(save) save.disabled=true;
+      const selected=modal.querySelector('[data-link-selected]'); if(selected){ selected.classList.add('d-none'); selected.innerHTML=''; }
+      configureCreateFields(modal); searchLinks(modal); return;
+    }
+    const createBtn=ev.target.closest('[data-link-create]');
+    if(createBtn){
+      const modal=createBtn.closest('.entity-link-modal'); if(!modal) return;
+      const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
+      const endpoint=endpointFor(type); const msg=modal.querySelector('[data-link-create-msg]');
+      if(!endpoint){ if(msg) msg.innerHTML='<span class="text-warning">Selecciona primero un tipo.</span>'; return; }
+      const name=(modal.querySelector('[data-create-name]')||{}).value || '';
+      if(!name.trim()){ if(msg) msg.innerHTML='<span class="text-warning">Escribe un nombre.</span>'; return; }
+      const fd=new FormData();
+      fd.append(type==='promoter'?'nick':'name', name.trim());
+      const email=(modal.querySelector('[data-create-email]')||{}).value || '';
+      const phone=(modal.querySelector('[data-create-phone]')||{}).value || '';
+      const city=(modal.querySelector('[data-create-city]')||{}).value || '';
+      const prov=(modal.querySelector('[data-create-province]')||{}).value || '';
+      const logo=(modal.querySelector('[data-create-logo]')||{}).files ? modal.querySelector('[data-create-logo]').files[0] : null;
+      if(type==='promoter'){ fd.append('contact_email', email); fd.append('contact_phone', phone); }
+      else if(type==='venue'){ fd.append('address', phone); fd.append('municipality', city); fd.append('province', prov); fd.append('force_new','1'); }
+      else if(type==='media'){ fd.append('address', phone); fd.append('media_type', (modal.querySelector('[data-create-media-type]')||{}).value || 'OTRO'); }
+      else if(type==='ticketer'){ fd.append('link_url', email); }
+      if(logo) fd.append('logo', logo);
+      createBtn.disabled=true; if(msg) msg.innerHTML='<span class="text-muted">Creando...</span>';
+      try{
+        const resp=await fetch(endpoint,{method:'POST',body:fd,headers:{'Accept':'application/json'}});
+        const data=await resp.json();
+        if(!resp.ok || data.error){ throw new Error(data.error || 'No se pudo crear.'); }
+        data.type=type; data.type_label=data.type_label || ({promoter:'Tercero',venue:'Recinto',media:'Medio',ticketer:'Ticketera',publishing:'Editorial'}[type]||'');
+        data.label=data.label||data.text||data.name||name; data.logo_url=data.logo_url||data.photo_url||'/static/img/placeholder_photo.png';
+        selectLinkTarget(modal,data); if(msg) msg.innerHTML='<span class="text-success">Creado y seleccionado.</span>';
+      }catch(e){ if(msg) msg.innerHTML='<span class="text-danger">'+esc(e.message||e)+'</span>'; }
+      finally{ createBtn.disabled=false; }
+    }
+  });
+  document.addEventListener('input', function(ev){
+    if(ev.target.matches('[data-link-search]')){
+      const modal=ev.target.closest('.entity-link-modal'); clearTimeout(ev.target._entitySearchTimer); ev.target._entitySearchTimer=setTimeout(function(){searchLinks(modal);},180);
+    }
+  });
+})();

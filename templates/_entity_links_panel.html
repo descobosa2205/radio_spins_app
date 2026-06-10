@@ -1,0 +1,141 @@
+{% set ctx = entity_link_context or {} %}
+{% set source_type = ctx.get('type') %}
+{% set source_id = ctx.get('id') %}
+{% set source_label = ctx.get('label') or 'esta ficha' %}
+{% set editable_links = entity_links_can_edit if entity_links_can_edit is defined else true %}
+<div class="entity-links-panel" data-entity-links-panel data-source-type="{{ source_type }}" data-source-id="{{ source_id }}">
+  <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+      <h5 class="mb-0">Vinculaciones</h5>
+      <div class="text-muted small">Relaciones de {{ source_label }} con terceros, medios, recintos, ticketeras o editoriales.</div>
+    </div>
+    {% if editable_links %}
+      <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#entityLinkModal-{{ source_type }}-{{ source_id }}">
+        <i class="fa fa-link me-1"></i> Vincular
+      </button>
+    {% endif %}
+  </div>
+
+  {% if entity_links and entity_links|length %}
+    <div class="entity-link-grid">
+      {% for link in entity_links %}
+        {% set item = link.linked or {} %}
+        <div class="entity-link-card">
+          <a class="entity-link-main" href="{{ item.href or '#' }}">
+            <img class="entity-link-photo" src="{{ item.logo_url or DEFAULT_PHOTO_URL }}" alt="{{ item.label }}" data-default-photo="1">
+            <div class="min-w-0">
+              <div class="entity-link-title text-truncate">{{ item.label }}</div>
+              <div class="entity-link-subtitle text-truncate"><i class="fa {{ item.icon or 'fa-link' }} me-1"></i>{{ item.type_label }}</div>
+              {% if link.relation_title %}<span class="badge text-bg-light border mt-1">{{ link.relation_title }}</span>{% endif %}
+              <span class="badge text-bg-success-subtle text-success-emphasis border mt-1">Vinculado</span>
+              {% if link.note %}<div class="small text-muted mt-1 text-truncate">{{ link.note }}</div>{% endif %}
+            </div>
+          </a>
+          {% if editable_links %}
+            <div class="dropdown entity-link-actions">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones de vinculación"><i class="fa fa-ellipsis-h"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editEntityLinkModal-{{ link.id }}"><i class="fa fa-pen me-2"></i>Editar</button></li>
+                <li><hr class="dropdown-divider"></li>
+                <li>
+                  <form method="post" action="{{ url_for('entity_link_delete', link_id=link.id) }}" onsubmit="return confirm('¿Desvincular esta relación?');">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <button class="dropdown-item text-danger" type="submit"><i class="fa fa-unlink me-2"></i>Desvincular</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+
+        {% if editable_links %}
+          <div class="modal fade" id="editEntityLinkModal-{{ link.id }}" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+              <div class="modal-content">
+                <form method="post" action="{{ url_for('entity_link_update', link_id=link.id) }}">
+                  <input type="hidden" name="next" value="{{ request.full_path }}">
+                  <div class="modal-header"><h5 class="modal-title">Editar vinculación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+                  <div class="modal-body">
+                    <label class="form-label">Título o relación</label>
+                    <input class="form-control mb-3" name="relation_title" value="{{ link.relation_title or '' }}" placeholder="Ej: agencia, contacto, ticketera oficial...">
+                    <label class="form-label">Nota</label>
+                    <textarea class="form-control" name="note" rows="3">{{ link.note or '' }}</textarea>
+                  </div>
+                  <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Guardar</button></div>
+                </form>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="alert alert-light border mb-0">Todavía no hay vinculaciones guardadas.</div>
+  {% endif %}
+</div>
+
+{% if editable_links %}
+<div class="modal fade entity-link-modal" id="entityLinkModal-{{ source_type }}-{{ source_id }}" tabindex="-1" aria-hidden="true" data-source-type="{{ source_type }}" data-source-id="{{ source_id }}">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('entity_link_create') }}" data-entity-link-form>
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="source_type" value="{{ source_type }}">
+        <input type="hidden" name="source_id" value="{{ source_id }}">
+        <input type="hidden" name="target_type" data-link-target-type>
+        <input type="hidden" name="target_id" data-link-target-id>
+        <div class="modal-header">
+          <h5 class="modal-title">Vincular {{ source_label }}</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="entity-link-type-row mb-3" data-link-type-row>
+            {% for key, meta in (entity_link_types or {}).items() %}
+              {% if key != source_type %}
+                <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}">
+                  <i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span>
+                </button>
+              {% endif %}
+            {% endfor %}
+          </div>
+          <div class="row g-3">
+            <div class="col-lg-7">
+              <label class="form-label">Buscar para vincular</label>
+              <input type="search" class="form-control" data-link-search placeholder="Escribe cualquier dato para buscar..." autocomplete="off">
+              <div class="entity-link-results mt-2" data-link-results>
+                <div class="text-muted small p-3">Selecciona primero qué tipo de vinculación quieres crear.</div>
+              </div>
+              <div class="entity-link-selected mt-3 d-none" data-link-selected></div>
+            </div>
+            <div class="col-lg-5">
+              <div class="card border-dashed h-100">
+                <div class="card-body">
+                  <div class="fw-semibold mb-1">Añadir nuevo si no existe</div>
+                  <div class="text-muted small mb-3">Se crea en segundo plano y queda seleccionado sin cerrar este formulario.</div>
+                  <div class="row g-2" data-link-create-fields>
+                    <div class="col-12"><label class="form-label">Nombre / Nick</label><input class="form-control" data-create-name placeholder="Nombre"></div>
+                    <div class="col-12 d-none" data-create-media-type-wrap><label class="form-label">Tipo de medio</label><select class="form-select" data-create-media-type><option value="RADIO">Radio</option><option value="TV">TV</option><option value="PRENSA">Prensa</option><option value="DIGITAL">Digital</option><option value="OTRO">Otro</option></select></div>
+                    <div class="col-12"><label class="form-label">Email / URL</label><input class="form-control" data-create-email placeholder="Email, web o URL"></div>
+                    <div class="col-12"><label class="form-label">Teléfono / dirección</label><input class="form-control" data-create-phone placeholder="Teléfono o dirección"></div>
+                    <div class="col-6"><label class="form-label">Municipio</label><input class="form-control" data-create-city></div>
+                    <div class="col-6"><label class="form-label">Provincia</label><input class="form-control" data-create-province></div>
+                    <div class="col-12"><label class="form-label">Logo / foto</label><input type="file" class="form-control" data-create-logo accept="image/*"></div>
+                    <div class="col-12"><button type="button" class="btn btn-outline-primary w-100" data-link-create><i class="fa fa-plus me-1"></i> Crear y seleccionar</button></div>
+                    <div class="col-12"><div class="small" data-link-create-msg></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr>
+          <div class="row g-3">
+            <div class="col-md-5"><label class="form-label">Título o relación</label><input class="form-control" name="relation_title" placeholder="Ej: agencia, amigo de artista, ticketera oficial..."></div>
+            <div class="col-md-7"><label class="form-label">Nota</label><input class="form-control" name="note" placeholder="Nota opcional"></div>
+          </div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" data-link-save disabled>Guardar vinculación</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}

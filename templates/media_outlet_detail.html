@@ -41,6 +41,7 @@
 <ul class="nav nav-tabs mb-3">
   <li class="nav-item"><a class="nav-link {% if tab=='contactos' %}active{% endif %}" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='contactos') }}">Contactos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab=='historico' %}active{% endif %}" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='historico') }}">Histórico</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab=='vinculaciones' %}active{% endif %}" href="{{ url_for('media_outlet_detail_view', media_id=outlet.id, tab='vinculaciones') }}">Vinculaciones</a></li>
 </ul>
 
 {% if tab == 'contactos' %}
@@ -118,6 +119,8 @@
       <div class="col-12"><div class="alert alert-light border">Todavía no hay contactos en este medio.</div></div>
     {% endfor %}
   </div>
+{% elif tab == 'vinculaciones' %}
+  {% include '_entity_links_panel.html' %}
 {% else %}
   <form class="card card-body mb-3" method="get">
     <input type="hidden" name="tab" value="historico">

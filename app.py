@@ -105,6 +105,7 @@ from models import (
     ensure_third_party_and_contract_sheet_schema,
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
+    ensure_entity_links_schema,
     SessionLocal,
     User,
     Artist,
@@ -167,6 +168,8 @@ from models import (
     InvitationPublicLink,
     InvitationRequest,
     InvitationTicket,
+    ThirdPartyLink,
+    InvitationGuestListLink,
     # Ventas v2 (ticketeras)
     Ticketer,
     ConcertSalesConfig,
@@ -301,6 +304,7 @@ for _fn, _name in [
     (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
     (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
     (ensure_invitation_schema, "ensure_invitation_schema"),
+    (ensure_entity_links_schema, "ensure_entity_links_schema"),
 ]:
     _safe_ensure(_fn, _name)
 
@@ -16056,6 +16060,32 @@ def ticketer_delete(tid):
         session_db.close()
     return redirect(url_for("ticketers_view"))
 
+@app.get("/ticketeras/<tid>", endpoint="ticketer_detail_view")
+@admin_required
+def ticketer_detail_view(tid):
+    session_db = db()
+    try:
+        ticketer = session_db.get(Ticketer, to_uuid(tid))
+        if not ticketer:
+            flash("Ticketera no encontrada.", "warning")
+            return redirect(url_for("ticketers_view"))
+        return render_template(
+            "entity_link_detail.html",
+            item=ticketer,
+            item_type="ticketer",
+            item_title=ticketer.name or "Ticketera",
+            item_type_label="Ticketera",
+            item_photo_url=ticketer.logo_url or url_for('static', filename='img/placeholder_photo.png'),
+            item_subtitle=ticketer.link_url or "Sin URL registrada",
+            back_url=url_for("ticketers_view"),
+            entity_links=_entity_link_rows(session_db, 'ticketer', ticketer.id),
+            entity_link_context={'type': 'ticketer', 'id': str(ticketer.id), 'label': ticketer.name or 'ticketera'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=can_edit_catalogs(),
+        )
+    finally:
+        session_db.close()
+
 
 # --- API búsqueda (Select2) ---
 
@@ -18268,6 +18298,32 @@ def publishing_company_delete(pcid):
     finally:
         session_db.close()
     return redirect(url_for("publishing_companies_view"))
+
+@app.get("/editoriales/<pcid>", endpoint="publishing_company_detail_view")
+@admin_required
+def publishing_company_detail_view(pcid):
+    session_db = db()
+    try:
+        company = session_db.get(PublishingCompany, to_uuid(pcid))
+        if not company:
+            flash("Editorial no encontrada.", "warning")
+            return redirect(url_for("publishing_companies_view"))
+        return render_template(
+            "entity_link_detail.html",
+            item=company,
+            item_type="publishing",
+            item_title=company.name or "Editorial",
+            item_type_label="Editorial",
+            item_photo_url=company.logo_url or url_for('static', filename='img/placeholder_photo.png'),
+            item_subtitle="Editorial",
+            back_url=url_for("publishing_companies_view"),
+            entity_links=_entity_link_rows(session_db, 'publishing', company.id),
+            entity_link_context={'type': 'publishing', 'id': str(company.id), 'label': company.name or 'editorial'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=can_edit_catalogs(),
+        )
+    finally:
+        session_db.close()
 
 
 # -------------- VENTA DE ENTRADAS -----------
@@ -21056,12 +21112,191 @@ def api_search_promoters():
                 "publishing_company_id": str(pub.id) if pub else "",
                 "publishing_company_name": (pub.name or "") if pub else "",
                 "logo_url": (p.logo_url or ""),
+                "link_summary": _promoter_link_summary(session, p),
+                "link_summary_text": _promoter_link_summary_text(_promoter_link_summary(session, p)),
                 "companies": [_serialize_promoter_company(x) for x in (p.companies or [])],
             })
         return jsonify(out)
     finally:
         session.close()
 
+
+
+@app.get("/api/vinculaciones/search", endpoint="api_entity_link_search")
+@admin_required
+def api_entity_link_search():
+    entity_type = _entity_link_type(request.args.get("type"))
+    q = (request.args.get("q") or request.args.get("term") or "").strip()
+    session_db = db()
+    try:
+        if not entity_type:
+            return jsonify([])
+        rows = []
+        if entity_type == "promoter":
+            query = session_db.query(Promoter).options(joinedload(Promoter.publishing_company), selectinload(Promoter.companies))
+            if q:
+                query = query.filter(
+                    _sa_contains_text(Promoter.nick, q)
+                    | _sa_contains_text(Promoter.first_name, q)
+                    | _sa_contains_text(Promoter.last_name, q)
+                    | _sa_contains_text(Promoter.contact_email, q)
+                    | _sa_contains_text(Promoter.contact_phone, q)
+                    | _sa_contains_text(Promoter.tax_id, q)
+                    | Promoter.id.in_(session_db.query(PromoterCompany.promoter_id).filter(or_(_sa_contains_text(PromoterCompany.legal_name, q), _sa_contains_text(PromoterCompany.tax_id, q))))
+                )
+            for item in query.order_by(Promoter.nick.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "promoter", item.id)
+                if payload:
+                    payload["link_summary"] = _promoter_link_summary(session_db, item)
+                    rows.append(payload)
+        elif entity_type == "media":
+            query = session_db.query(MediaOutlet)
+            if q:
+                query = query.filter(_sa_contains_text(MediaOutlet.name, q) | _sa_contains_text(MediaOutlet.media_type, q) | _sa_contains_text(MediaOutlet.address, q) | _sa_contains_text(MediaOutlet.country_name, q))
+            for item in query.order_by(MediaOutlet.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "media", item.id)
+                if payload:
+                    rows.append(payload)
+        elif entity_type == "venue":
+            query = session_db.query(Venue)
+            if q:
+                query = query.filter(_sa_contains_text(Venue.name, q) | _sa_contains_text(Venue.address, q) | _sa_contains_text(Venue.municipality, q) | _sa_contains_text(Venue.province, q))
+            for item in query.order_by(Venue.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "venue", item.id)
+                if payload:
+                    rows.append(payload)
+        elif entity_type == "ticketer":
+            query = session_db.query(Ticketer)
+            if q:
+                query = query.filter(_sa_contains_text(Ticketer.name, q) | _sa_contains_text(Ticketer.link_url, q))
+            for item in query.order_by(Ticketer.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "ticketer", item.id)
+                if payload:
+                    rows.append(payload)
+        elif entity_type == "publishing":
+            query = session_db.query(PublishingCompany)
+            if q:
+                query = query.filter(_sa_contains_text(PublishingCompany.name, q))
+            for item in query.order_by(PublishingCompany.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "publishing", item.id)
+                if payload:
+                    rows.append(payload)
+        return jsonify(rows)
+    finally:
+        session_db.close()
+
+
+@app.post("/api/media/create", endpoint="api_create_media_outlet")
+@admin_required
+def api_create_media_outlet():
+    session_db = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        media_type = (request.form.get("media_type") or "OTRO").strip().upper() or "OTRO"
+        if not name:
+            return jsonify({"error": "El nombre del medio es obligatorio."}), 400
+        logo = request.files.get("logo") or request.files.get("photo")
+        logo_url = upload_image(logo, "media_outlets") if logo and getattr(logo, "filename", "") else None
+        country_code, country_name = _country_payload_from_form(request.form)
+        existing = session_db.query(MediaOutlet).filter(func.lower(MediaOutlet.name) == name.lower(), MediaOutlet.media_type == media_type).first()
+        if existing:
+            payload = _entity_link_payload(session_db, "media", existing.id)
+            return jsonify(payload or {"id": str(existing.id), "label": existing.name, "logo_url": existing.logo_url})
+        row = MediaOutlet(name=name, media_type=media_type, logo_url=logo_url, country_code=country_code, country_name=country_name, address=(request.form.get("address") or "").strip() or None)
+        session_db.add(row)
+        session_db.commit()
+        return jsonify(_entity_link_payload(session_db, "media", row.id))
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post("/vinculaciones/crear", endpoint="entity_link_create")
+@admin_required
+def entity_link_create():
+    session_db = db()
+    next_url = (request.form.get("next") or request.referrer or "").strip()
+    if not next_url.startswith('/'):
+        next_url = ''
+    try:
+        source_type = _entity_link_type(request.form.get("source_type"))
+        target_type = _entity_link_type(request.form.get("target_type"))
+        source_id = _safe_uuid(request.form.get("source_id"))
+        target_id = _safe_uuid(request.form.get("target_id"))
+        if not source_type or not target_type or not source_id or not target_id:
+            raise ValueError("Selecciona una vinculación válida.")
+        if source_type == target_type and source_id == target_id:
+            raise ValueError("No puedes vincular una ficha consigo misma.")
+        # Evita duplicados inversos creando siempre una orientación canónica.
+        pair_a = (source_type, str(source_id))
+        pair_b = (target_type, str(target_id))
+        if pair_b < pair_a:
+            source_type, target_type = target_type, source_type
+            source_id, target_id = target_id, source_id
+        row = session_db.query(ThirdPartyLink).filter_by(source_type=source_type, source_id=source_id, target_type=target_type, target_id=target_id).first()
+        if not row:
+            row = ThirdPartyLink(source_type=source_type, source_id=source_id, target_type=target_type, target_id=target_id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
+            session_db.add(row)
+        row.relation_title = (request.form.get("relation_title") or "").strip() or None
+        row.note = (request.form.get("note") or "").strip() or None
+        row.is_active = True
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Vinculación guardada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo guardar la vinculación: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url or url_for('promoters_view'))
+
+
+@app.post("/vinculaciones/<link_id>/actualizar", endpoint="entity_link_update")
+@admin_required
+def entity_link_update(link_id):
+    session_db = db()
+    next_url = (request.form.get("next") or request.referrer or "").strip()
+    if not next_url.startswith('/'):
+        next_url = ''
+    try:
+        row = session_db.get(ThirdPartyLink, to_uuid(link_id))
+        if not row:
+            abort(404)
+        row.relation_title = (request.form.get("relation_title") or "").strip() or None
+        row.note = (request.form.get("note") or "").strip() or None
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash("Vinculación actualizada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo actualizar la vinculación: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url or url_for('promoters_view'))
+
+
+@app.post("/vinculaciones/<link_id>/desvincular", endpoint="entity_link_delete")
+@admin_required
+def entity_link_delete(link_id):
+    session_db = db()
+    next_url = (request.form.get("next") or request.referrer or "").strip()
+    if not next_url.startswith('/'):
+        next_url = ''
+    try:
+        row = session_db.get(ThirdPartyLink, to_uuid(link_id))
+        if not row:
+            abort(404)
+        session_db.delete(row)
+        session_db.commit()
+        flash("Vinculación eliminada.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar la vinculación: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(next_url or url_for('promoters_view'))
 
 
 def _parse_hashtag_text(raw: str | None) -> list[str]:
@@ -21228,7 +21463,7 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos'}:
+        if tab not in {'general', 'contactos', 'vinculaciones'}:
             tab = 'general'
         promoter_email_addresses = (
             session.query(PromoterEmail)
@@ -21246,6 +21481,10 @@ def promoter_detail_view(pid):
             tab=tab,
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
+            entity_links=_entity_link_rows(session, 'promoter', promoter.id),
+            entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=(can_edit_catalogs() or can_edit_discografica()),
         )
     finally:
         session.close()
@@ -24460,7 +24699,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -28934,7 +29173,7 @@ def media_outlet_detail_view(media_id):
             flash("Medio no encontrado.", "warning")
             return redirect(url_for("media_outlets_view"))
         tab = (request.args.get("tab") or "contactos").strip().lower()
-        if tab not in {"contactos", "historico"}:
+        if tab not in {"contactos", "historico", "vinculaciones"}:
             tab = "contactos"
         if request.method == "POST":
             mode = (request.form.get("mode") or "").strip().lower()
@@ -29020,6 +29259,10 @@ def media_outlet_detail_view(media_id):
             filter_end=f_end.isoformat() if f_end else "",
             media_types=MEDIA_TYPES,
             country_options=country_options_es(),
+            entity_links=_entity_link_rows(session_db, 'media', outlet.id),
+            entity_link_context={'type': 'media', 'id': str(outlet.id), 'label': outlet.name or 'medio'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=True,
         )
     finally:
         session_db.close()
@@ -31117,6 +31360,11 @@ def venue_detail_view(vid):
             activities=activities,
             edit=_truthy(request.args.get('edit')) and can_edit_catalogs(),
             CAN_EDIT_CATALOGS=can_edit_catalogs(),
+            tab=(request.args.get('tab') or 'actividad').strip().lower(),
+            entity_links=_entity_link_rows(session_db, 'venue', venue.id),
+            entity_link_context={'type': 'venue', 'id': str(venue.id), 'label': venue.name or 'recinto'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=can_edit_catalogs(),
         )
     finally:
         session_db.close()
@@ -31469,6 +31717,158 @@ def _json_list(value) -> list:
         except Exception:
             return []
     return []
+
+
+APP33_ENTITY_LINK_TYPES = {
+    "promoter": {"label": "Tercero", "icon": "fa-user-tie"},
+    "media": {"label": "Medio", "icon": "fa-bullhorn"},
+    "venue": {"label": "Recinto", "icon": "fa-location-dot"},
+    "ticketer": {"label": "Ticketera", "icon": "fa-ticket"},
+    "publishing": {"label": "Editorial", "icon": "fa-pen-nib"},
+}
+APP33_ENTITY_LINK_ALIASES = {
+    "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
+    "medio": "media", "recinto": "venue", "ticketera": "ticketer", "editorial": "publishing",
+    "publishing_company": "publishing",
+}
+
+def _entity_link_type(raw: str | None) -> str:
+    value = (raw or "").strip().lower()
+    value = APP33_ENTITY_LINK_ALIASES.get(value, value)
+    return value if value in APP33_ENTITY_LINK_TYPES else ""
+
+
+def _entity_link_label(entity_type: str | None) -> str:
+    return APP33_ENTITY_LINK_TYPES.get(_entity_link_type(entity_type), {}).get("label", "Vinculación")
+
+
+def _entity_placeholder_url() -> str:
+    try:
+        return url_for("static", filename="img/placeholder_photo.png")
+    except Exception:
+        return ""
+
+
+def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict | None:
+    etype = _entity_link_type(entity_type)
+    eid = _safe_uuid(entity_id)
+    if not etype or not eid:
+        return None
+    row = None
+    label = ""
+    subtitle = ""
+    logo_url = ""
+    href = ""
+    if etype == "promoter":
+        row = session_db.get(Promoter, eid)
+        if row:
+            label = _promoter_display_name(row) or row.nick or "Tercero"
+            subtitle = " · ".join([x for x in [(row.contact_email or "").strip(), (row.contact_phone or "").strip()] if x])
+            logo_url = row.logo_url or ""
+            href = url_for("promoter_detail_view", pid=row.id)
+    elif etype == "media":
+        row = session_db.get(MediaOutlet, eid)
+        if row:
+            label = row.name or "Medio"
+            subtitle = (row.media_type or "").replace("_", " ").title()
+            logo_url = row.logo_url or ""
+            href = url_for("media_outlet_detail_view", media_id=row.id)
+    elif etype == "venue":
+        row = session_db.get(Venue, eid)
+        if row:
+            label = row.name or "Recinto"
+            subtitle = " · ".join([x for x in [(row.municipality or "").strip(), (row.province or "").strip()] if x])
+            logo_url = row.photo_url or ""
+            href = url_for("venue_detail_view", vid=row.id)
+    elif etype == "ticketer":
+        row = session_db.get(Ticketer, eid)
+        if row:
+            label = row.name or "Ticketera"
+            subtitle = row.link_url or ""
+            logo_url = row.logo_url or ""
+            href = url_for("ticketer_detail_view", tid=row.id)
+    elif etype == "publishing":
+        row = session_db.get(PublishingCompany, eid)
+        if row:
+            label = row.name or "Editorial"
+            subtitle = "Editorial"
+            logo_url = row.logo_url or ""
+            href = url_for("publishing_company_detail_view", pcid=row.id)
+    if not row:
+        return None
+    return {
+        "type": etype,
+        "type_label": _entity_link_label(etype),
+        "icon": APP33_ENTITY_LINK_TYPES.get(etype, {}).get("icon", "fa-link"),
+        "id": str(eid),
+        "label": label,
+        "subtitle": subtitle,
+        "logo_url": logo_url or _entity_placeholder_url(),
+        "href": href,
+    }
+
+
+def _entity_link_rows(session_db, entity_type: str | None, entity_id, active_only: bool = True) -> list[dict]:
+    etype = _entity_link_type(entity_type)
+    eid = _safe_uuid(entity_id)
+    if not etype or not eid:
+        return []
+    q = session_db.query(ThirdPartyLink).filter(
+        or_(
+            and_(ThirdPartyLink.source_type == etype, ThirdPartyLink.source_id == eid),
+            and_(ThirdPartyLink.target_type == etype, ThirdPartyLink.target_id == eid),
+        )
+    )
+    if active_only:
+        q = q.filter(ThirdPartyLink.is_active.is_(True))
+    rows = q.order_by(ThirdPartyLink.created_at.desc()).all()
+    out = []
+    for link in rows:
+        if link.source_type == etype and str(link.source_id) == str(eid):
+            other = _entity_link_payload(session_db, link.target_type, link.target_id)
+            source = _entity_link_payload(session_db, link.source_type, link.source_id)
+        else:
+            other = _entity_link_payload(session_db, link.source_type, link.source_id)
+            source = _entity_link_payload(session_db, link.target_type, link.target_id)
+        if not other:
+            continue
+        out.append({
+            "id": str(link.id),
+            "relation_title": link.relation_title or "",
+            "note": link.note or "",
+            "is_active": bool(link.is_active),
+            "created_at_label": _invitation_display_datetime(link.created_at) if "_invitation_display_datetime" in globals() else "",
+            "source": source,
+            "linked": other,
+        })
+    return out
+
+
+def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
+    if not promoter:
+        return {}
+    rows = _entity_link_rows(session_db, "promoter", promoter.id, active_only=True)
+    if not rows:
+        pub = getattr(promoter, "publishing_company", None)
+        if pub:
+            return {"label": pub.name, "type_label": "Editorial", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []}
+        return {}
+    first = rows[0].get("linked") or {}
+    label = first.get("label") or ""
+    type_label = first.get("type_label") or ""
+    return {
+        "label": label,
+        "type_label": type_label,
+        "logo_url": first.get("logo_url") or _entity_placeholder_url(),
+        "items": [{"label": (r.get("linked") or {}).get("label", ""), "type_label": (r.get("linked") or {}).get("type_label", ""), "logo_url": (r.get("linked") or {}).get("logo_url", "")} for r in rows[:3]],
+    }
+
+
+def _promoter_link_summary_text(summary: dict | None) -> str:
+    if not summary:
+        return ""
+    parts = [summary.get("type_label") or "", summary.get("label") or ""]
+    return " · ".join([x for x in parts if x])
 
 
 def _invitation_token() -> str:
@@ -31970,10 +32370,17 @@ def _invitation_status_badge(status: str | None) -> str:
 def _invitation_request_payload(row: InvitationRequest, categories: list[InvitationCategory] | None = None) -> dict:
     name_map = _invitation_category_name_map(categories or [])
     quantities = _json_dict(row.quantities_json)
+    link_summary = _json_dict(getattr(row, "guest_link_summary", None))
+    if not link_summary:
+        try:
+            link_summary = _promoter_link_summary(row._sa_instance_state.session, row.guest_promoter) if getattr(row, "guest_promoter", None) else {}
+        except Exception:
+            link_summary = {}
     return {
         "id": str(row.id),
         "guest_name": row.guest_name,
         "guest_company": row.guest_company or "",
+        "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": row.guest_email or "",
         "guest_phone": row.guest_phone or "",
         "requester_nick": row.requester_nick or row.requester_email or "—",
@@ -31986,6 +32393,8 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status": row.status or "SOLICITADAS",
         "status_label": INVITATION_STATUS_LABELS.get(row.status or "", row.status or "Solicitadas"),
         "status_badge": _invitation_status_badge(row.status),
+        "link_summary": link_summary,
+        "link_summary_text": _promoter_link_summary_text(link_summary),
         "note": row.note or "",
         "created_at_label": _invitation_display_datetime(row.created_at),
         "downloaded_at_label": _invitation_display_datetime(row.downloaded_at),
@@ -31996,14 +32405,20 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
 
 
 def _invitation_concert_visible_for_user(concert: Concert | None) -> bool:
-    """Oculta solicitudes personales 24h después de la fecha del evento/concierto."""
+    """Oculta solicitudes personales 24h después del concierto/evento."""
     event_date = getattr(concert, "date", None)
     if not event_date:
         return True
     try:
-        now_local = datetime.now(ZoneInfo("Europe/Madrid"))
-        hide_from = datetime.combine(event_date + timedelta(days=1), datetime.min.time(), tzinfo=ZoneInfo("Europe/Madrid"))
-        return now_local < hide_from
+        tz = ZoneInfo("Europe/Madrid")
+        raw_time = (getattr(concert, "show_time", None) or getattr(concert, "doors_time", None) or "").strip()
+        hour, minute = 23, 59
+        m = re.search(r"(\d{1,2})[:hH.](\d{2})", raw_time) or re.search(r"\b(\d{1,2})\b", raw_time)
+        if m:
+            hour = max(0, min(23, int(m.group(1))))
+            minute = max(0, min(59, int(m.group(2)))) if len(m.groups()) > 1 and m.group(2) else 0
+        event_dt = datetime.combine(event_date, datetime.min.time(), tzinfo=tz).replace(hour=hour, minute=minute)
+        return datetime.now(tz) < (event_dt + timedelta(hours=24))
     except Exception:
         return True
 
@@ -32343,6 +32758,113 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
     return subject, html_body, text_body
 
 
+
+def _invitation_event_logo_url(session_db, concert: Concert | None, external: bool = True) -> str:
+    if concert:
+        for company in (getattr(concert, "billing_company", None), getattr(concert, "group_company", None)):
+            logo = (getattr(company, "logo_url", None) or "").strip()
+            if logo:
+                return logo
+    return (_treinta_y_tres_logo_url(session_db) if "_treinta_y_tres_logo_url" in globals() else "") or url_for("static", filename="img/logo.png", _external=external)
+
+
+def _invitation_list_type_label(value: str | None) -> str:
+    key = (value or "COMPLETE").strip().upper()
+    return {"COMPLETE": "Listado completo", "DOOR": "Listado de puerta", "BOX_OFFICE": "Listado de taquilla"}.get(key, "Listado completo")
+
+
+def _invitation_request_list_kind(session_db, row: InvitationRequest, categories: list[InvitationCategory]) -> set[str]:
+    modes = set()
+    quantities = _json_dict(row.quantities_json)
+    cat_map = {str(c.id): c for c in categories}
+    for cid, qty in quantities.items():
+        if _safe_int(qty) <= 0:
+            continue
+        cat = cat_map.get(str(cid))
+        if cat and (cat.ticket_kind or '').upper() == 'GUEST_LIST':
+            modes.add((cat.guest_list_mode or 'BOX_OFFICE').upper())
+    rm = (row.receiver_mode or '').upper()
+    if rm in {'BOX_OFFICE', 'DOOR'}:
+        modes.add('DOOR' if rm == 'DOOR' else 'BOX_OFFICE')
+    if (row.status or '') in {'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}:
+        modes.add('BOX_OFFICE')
+    if not modes:
+        modes.add('COMPLETE')
+    return modes
+
+
+def _invitation_guest_list_rows(session_db, concert: Concert, list_type: str | None = 'COMPLETE') -> list[dict]:
+    list_type = (list_type or 'COMPLETE').strip().upper()
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+    rows = []
+    valid_statuses = {'APROBADAS', 'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+    query = (session_db.query(InvitationRequest)
+             .options(joinedload(InvitationRequest.guest_promoter))
+             .filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(valid_statuses))
+             .order_by(InvitationRequest.guest_name.asc().nullslast(), InvitationRequest.created_at.asc()))
+    for row in query.all():
+        modes = _invitation_request_list_kind(session_db, row, categories)
+        if list_type == 'DOOR' and 'DOOR' not in modes:
+            continue
+        if list_type == 'BOX_OFFICE' and 'BOX_OFFICE' not in modes:
+            continue
+        payload = _invitation_request_payload(row, categories)
+        flags = _invitation_request_kind_flags(session_db, row, categories)
+        payload.update(flags)
+        payload['list_modes'] = list(modes)
+        payload['list_type'] = 'DOOR' if 'DOOR' in modes else ('BOX_OFFICE' if 'BOX_OFFICE' in modes else 'COMPLETE')
+        payload['list_type_label'] = _invitation_list_type_label(payload['list_type'])
+        payload['show_check'] = list_type in {'DOOR', 'BOX_OFFICE'} or payload['list_type'] in {'DOOR', 'BOX_OFFICE'}
+        payload['download_url'] = _invitation_request_download_url(row) if flags.get('can_download_pdf') else payload.get('download_url')
+        rows.append(payload)
+    rows.sort(key=lambda x: _invitation_normalize_search(x.get('guest_name') or ''))
+    return rows
+
+
+def _build_invitation_guest_list_pdf(session_db, concert: Concert, list_type: str | None = 'COMPLETE') -> bytes:
+    rows = _invitation_guest_list_rows(session_db, concert, list_type)
+    event = _invitation_event_payload(session_db, concert)
+    if not REPORTLAB_AVAILABLE:
+        lines = ["Invitados", _invitation_list_type_label(list_type), " · ".join([x for x in [event.get('artist_names'), event.get('date_label'), event.get('venue'), event.get('city')] if x]), ""]
+        for r in rows:
+            lines.append(f"{r.get('guest_name','')} | {r.get('link_summary_text','')} | {r.get('guest_title','')} | {r.get('quantities_label','')} | {r.get('status_label','')}")
+        return "\n".join(lines).encode('utf-8')
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=34, rightMargin=34, topMargin=34, bottomMargin=34)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle('InvGuestTitle', parent=styles['Title'], alignment=TA_CENTER, fontSize=18, leading=22)
+    small = ParagraphStyle('InvGuestSmall', parent=styles['Normal'], fontSize=8, leading=10)
+    normal = ParagraphStyle('InvGuestNormal', parent=styles['Normal'], fontSize=9, leading=11)
+    story = []
+    logo_cell = ''
+    logo_url = _invitation_event_logo_url(session_db, concert)
+    if logo_url:
+        try:
+            logo_cell = _rl_image_flowable_from_url(logo_url, 3.1, 1.25) or ''
+        except Exception:
+            logo_cell = ''
+    header_text = '<br/>'.join([html.escape(x) for x in [event.get('artist_names'), event.get('type_label'), event.get('date_label'), event.get('venue'), event.get('city')] if x])
+    header = Table([[Paragraph(header_text or 'Evento', normal), logo_cell]], colWidths=[360, 120])
+    header.setStyle(TableStyle([('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(1,0),(1,0),'RIGHT')]))
+    story.extend([header, Spacer(1, 10), Paragraph('Invitados', title_style), Paragraph(html.escape(_invitation_list_type_label(list_type)), ParagraphStyle('InvGuestSub', parent=small, alignment=TA_CENTER)), Spacer(1, 12)])
+    data = [[Paragraph('<b>Invitado</b>', small), Paragraph('<b>Vinculación</b>', small), Paragraph('<b>Título</b>', small), Paragraph('<b>Categoría / nº</b>', small), Paragraph('<b>Estado</b>', small), Paragraph('<b>Check</b>', small)]]
+    for r in rows:
+        check = '☐' if (list_type or '').upper() in {'DOOR','BOX_OFFICE'} or r.get('show_check') else ''
+        status = '' if (r.get('status') == 'APROBADAS') else (r.get('status_label') or '')
+        data.append([
+            Paragraph(html.escape(r.get('guest_name') or ''), normal),
+            Paragraph(html.escape(r.get('link_summary_text') or ''), normal),
+            Paragraph(html.escape(r.get('guest_title') or ''), normal),
+            Paragraph(html.escape(r.get('quantities_label') or ''), normal),
+            Paragraph(html.escape(status), normal),
+            Paragraph(check, normal),
+        ])
+    table = Table(data, colWidths=[105, 90, 85, 105, 70, 30], repeatRows=1)
+    table.setStyle(TableStyle([('GRID',(0,0),(-1,-1),0.25,colors.HexColor('#d9dee6')),('BACKGROUND',(0,0),(-1,0),colors.HexColor('#f3f4f6')),('VALIGN',(0,0),(-1,-1),'TOP'),('ROWBACKGROUNDS',(0,1),(-1,-1),[colors.white, colors.HexColor('#fbfcfd')])]))
+    story.append(table)
+    doc.build(story)
+    return buf.getvalue()
+
 def _invitation_rejection_email_body(session_db, row: InvitationRequest, reason: str | None = None) -> tuple[str, str, str]:
     concert = row.concert or session_db.get(Concert, row.concert_id)
     event = _invitation_event_payload(session_db, concert) if concert else {}
@@ -32391,24 +32913,33 @@ def invitations_view():
                 events.append(_invitation_event_payload(session_db, concert, include_counts=True))
         current_user_id = _safe_uuid(session.get('user_id'))
         my_requests = []
+        my_denied_count = 0
+        show_denied = _truthy(request.args.get('show_denied'))
         if current_user_id:
-            rows = (
+            base_q = (
                 session_db.query(InvitationRequest)
                 .options(joinedload(InvitationRequest.concert))
                 .filter(InvitationRequest.requester_user_id == current_user_id)
-                .filter(InvitationRequest.status.notin_(['RECHAZADAS', 'ANULADAS']))
                 .order_by(InvitationRequest.created_at.desc())
-                .limit(120)
-                .all()
+                .limit(180)
             )
+            rows = base_q.all()
             for row in rows:
-                if not _invitation_request_visible_for_user(row):
+                if not _invitation_concert_visible_for_user(row.concert):
                     continue
+                is_denied = (row.status or '') in {'RECHAZADAS', 'ANULADAS'}
+                if is_denied:
+                    my_denied_count += 1
+                    if not show_denied:
+                        continue
                 concert = row.concert
                 cats = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
                 item = _invitation_request_payload(row, cats)
                 item['event'] = _invitation_event_payload(session_db, concert) if concert else {}
+                item['is_denied'] = is_denied
                 my_requests.append(item)
+                if len(my_requests) >= 120:
+                    break
         return render_template(
             'invitaciones.html',
             tab=tab,
@@ -32416,6 +32947,8 @@ def invitations_view():
             personnel=personnel,
             events=events,
             my_requests=my_requests,
+            my_denied_count=my_denied_count,
+            show_denied=show_denied,
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             status_labels=INVITATION_STATUS_LABELS,
@@ -32511,10 +33044,33 @@ def invitation_event_detail(concert_id):
                 "note": row.note or "",
             })
         requests = []
+        denied_count = 0
+        show_denied = _truthy(request.args.get('show_denied'))
         for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).order_by(InvitationRequest.created_at.desc()).all():
+            is_denied = (row.status or '') in {'RECHAZADAS', 'ANULADAS'}
+            if is_denied:
+                denied_count += 1
+                if not show_denied:
+                    continue
             item = _invitation_request_payload(row, categories)
             item.update(_invitation_request_kind_flags(session_db, row, categories))
+            item['is_denied'] = is_denied
             requests.append(item)
+        guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
+        guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
+        guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')
+        guest_list_links = []
+        for glink in session_db.query(InvitationGuestListLink).filter(InvitationGuestListLink.concert_id == concert.id).order_by(InvitationGuestListLink.created_at.desc()).limit(20).all():
+            guest_list_links.append({
+                'id': str(glink.id),
+                'token': glink.token,
+                'url': _external_url_for('public_invitation_guest_list', token=glink.token),
+                'list_type': glink.list_type or 'COMPLETE',
+                'list_type_label': _invitation_list_type_label(glink.list_type),
+                'status': glink.status or 'ACTIVE',
+                'created_at_label': _invitation_display_datetime(glink.created_at),
+                'created_by': glink.created_by_nick or '',
+            })
         links = []
         for link in session_db.query(InvitationPublicLink).filter(InvitationPublicLink.concert_id == concert.id).order_by(InvitationPublicLink.created_at.desc()).all():
             state, msg = _invitation_link_state(link)
@@ -32559,6 +33115,12 @@ def invitation_event_detail(concert_id):
             categories=cat_payloads,
             commitments=commitments,
             requests=requests,
+            denied_count=denied_count,
+            show_denied=show_denied,
+            guest_list_rows_complete=guest_list_rows_complete,
+            guest_list_rows_door=guest_list_rows_door,
+            guest_list_rows_box_office=guest_list_rows_box_office,
+            guest_list_links=guest_list_links,
             links=links,
             tickets=tickets,
             tickets_by_category=tickets_by_category,
@@ -32687,6 +33249,8 @@ def invitation_request_create():
         guest_email = (request.form.get('guest_email') or '').strip()
         guest_phone = (request.form.get('guest_phone') or '').strip()
         guest_company = (request.form.get('guest_company') or '').strip()
+        guest_title = (request.form.get('guest_title') or guest_company or '').strip()
+        guest_link_summary = {}
         guest_promoter_id = _safe_uuid(request.form.get('guest_promoter_id'))
         guest_artist_id = _safe_uuid(request.form.get('guest_artist_id'))
         guest_user_id = _safe_uuid(request.form.get('guest_user_id'))
@@ -32710,6 +33274,7 @@ def invitation_request_create():
                 guest_name = _promoter_display_name(promoter) or promoter.nick
                 guest_email = promoter.contact_email or guest_email
                 guest_phone = promoter.contact_phone or guest_phone
+                guest_link_summary = _promoter_link_summary(session_db, promoter)
         if not guest_name:
             guest_name = 'Invitado'
         receiver_mode = (request.form.get('receiver_mode') or 'GUEST').strip().upper()
@@ -32759,6 +33324,8 @@ def invitation_request_create():
             guest_user_id=guest_user_id,
             guest_name=guest_name,
             guest_company=guest_company,
+            guest_title=guest_title,
+            guest_link_summary=guest_link_summary,
             guest_email=guest_email,
             guest_phone=guest_phone,
             guest_note=(request.form.get('guest_note') or '').strip(),
@@ -33388,6 +33955,117 @@ def invitation_assignment_save(concert_id):
     return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
 
 
+
+@app.post('/invitaciones/evento/<concert_id>/listados/enlace', endpoint='invitation_guest_list_link_create')
+@admin_required
+def invitation_guest_list_link_create(concert_id):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        list_type = (request.form.get('list_type') or 'COMPLETE').strip().upper()
+        if list_type not in {'COMPLETE', 'DOOR', 'BOX_OFFICE'}:
+            list_type = 'COMPLETE'
+        row = InvitationGuestListLink(
+            concert_id=concert.id,
+            token=_invitation_token(),
+            list_type=list_type,
+            status='ACTIVE',
+            created_by_user_id=_safe_uuid(session.get('user_id')),
+            created_by_nick=_current_user_email(),
+        )
+        session_db.add(row)
+        session_db.commit()
+        share_url = _external_url_for('public_invitation_guest_list', token=row.token)
+        flash('Enlace de listado generado y listo para copiar.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=concert.id, generated_list_link=share_url) + '#inv-tab-listados')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo generar el enlace de listado: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-listados')
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/listados.pdf', endpoint='invitation_guest_list_pdf')
+@admin_required
+def invitation_guest_list_pdf(concert_id):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        list_type = (request.args.get('type') or 'COMPLETE').strip().upper()
+        data = _build_invitation_guest_list_pdf(session_db, concert, list_type)
+        return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name=f'listado_invitados_{list_type.lower()}.pdf')
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/listado/<token>', endpoint='public_invitation_guest_list')
+def public_invitation_guest_list(token):
+    session_db = db()
+    try:
+        link = session_db.query(InvitationGuestListLink).filter(InvitationGuestListLink.token == token).first()
+        if not link:
+            abort(404)
+        if (link.status or '').upper() != 'ACTIVE':
+            return render_template('public_invitation_guest_list.html', link=link, unavailable=True, message='Este listado ha sido anulado y ya no está disponible.', rows=[], event={}, list_type_label=_invitation_list_type_label(getattr(link, 'list_type', None)), logo_url=url_for('static', filename='img/logo.png'))
+        concert = link.concert or session_db.get(Concert, link.concert_id)
+        if not concert:
+            abort(404)
+        rows = _invitation_guest_list_rows(session_db, concert, link.list_type)
+        return render_template('public_invitation_guest_list.html', link=link, unavailable=False, rows=rows, event=_invitation_event_payload(session_db, concert), list_type_label=_invitation_list_type_label(link.list_type), logo_url=_invitation_event_logo_url(session_db, concert, external=False))
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/listado/<token>.pdf', endpoint='public_invitation_guest_list_pdf')
+def public_invitation_guest_list_pdf(token):
+    session_db = db()
+    try:
+        link = session_db.query(InvitationGuestListLink).filter(InvitationGuestListLink.token == token).first()
+        if not link or (link.status or '').upper() != 'ACTIVE':
+            abort(404)
+        concert = link.concert or session_db.get(Concert, link.concert_id)
+        if not concert:
+            abort(404)
+        data = _build_invitation_guest_list_pdf(session_db, concert, link.list_type)
+        return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name=f'listado_invitados_{(link.list_type or "complete").lower()}.pdf')
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/listado/<token>/solicitudes/<request_id>/estado', endpoint='public_invitation_guest_list_status')
+def public_invitation_guest_list_status(token, request_id):
+    session_db = db()
+    try:
+        link = session_db.query(InvitationGuestListLink).filter(InvitationGuestListLink.token == token, InvitationGuestListLink.status == 'ACTIVE').first()
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not link or not row or row.concert_id != link.concert_id:
+            abort(404)
+        action = (request.form.get('action') or '').strip().upper()
+        explicit_status = (request.form.get('status') or '').strip().upper()
+        if explicit_status in {'ENTREGADAS_MANO', 'RECOGIDAS_TAQUILLA'} or action in {'ENTERED', 'PICKED_UP', 'DELIVERED'}:
+            if explicit_status in {'ENTREGADAS_MANO', 'RECOGIDAS_TAQUILLA'}:
+                row.status = explicit_status
+            elif (link.list_type or '').upper() == 'DOOR' or action == 'ENTERED':
+                row.status = 'ENTREGADAS_MANO'
+            else:
+                row.status = 'RECOGIDAS_TAQUILLA'
+            row.delivered_at = _now_madrid()
+            row.updated_at = row.delivered_at
+            session_db.commit()
+            flash('Estado actualizado.', 'success')
+        return redirect(url_for('public_invitation_guest_list', token=token))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo actualizar el estado: {exc}', 'danger')
+        return redirect(url_for('public_invitation_guest_list', token=token))
+    finally:
+        session_db.close()
+
 @app.get('/invitaciones/p/<token>', endpoint='public_invitation_request_link')
 def public_invitation_request_link(token):
     session_db = db()
@@ -33465,6 +34143,7 @@ def public_invitation_request_submit(token):
             guest_type='THIRD_PARTY',
             guest_name=(request.form.get('guest_name') or '').strip() or 'Invitado',
             guest_company=(request.form.get('guest_company') or '').strip(),
+            guest_title=(request.form.get('guest_title') or request.form.get('guest_company') or '').strip(),
             guest_email=(request.form.get('guest_email') or '').strip(),
             guest_phone=(request.form.get('guest_phone') or '').strip(),
             guest_note=(request.form.get('guest_note') or '').strip(),

@@ -60,6 +60,7 @@
                 <div class="d-flex justify-content-end gap-2 flex-wrap">
                   <input type="file" name="logo" class="form-control form-control-sm" accept="image/*" style="max-width:220px" />
                   <button class="btn btn-outline-primary btn-sm">Guardar</button>
+                  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('ticketer_detail_view', tid=t.id) }}"><i class="fa fa-link"></i></a>
                   <button class="btn btn-outline-danger btn-sm"
                           formaction="{{ url_for('ticketer_delete', tid=t.id) }}"
                           onclick="return confirm('¿Borrar ticketera?');">
@@ -74,7 +75,7 @@
                 <img src="{{ t.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
               {% endif %}
             </td>
-            <td class="fw-semibold">{{ t.name }}</td>
+            <td class="fw-semibold"><a href="{{ url_for('ticketer_detail_view', tid=t.id) }}">{{ t.name }}</a></td>
             <td>
               {% if t.link_url %}
                 <a href="{{ t.link_url }}" target="_blank">{{ t.link_url }}</a>

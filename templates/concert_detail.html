@@ -570,7 +570,7 @@
               <div class="col-12 col-md-6 col-xl-4">
                 <div class="invitation-category-card h-100">
                   <div class="d-flex justify-content-between align-items-start gap-2">
-                    <div><strong>{{ cat.name }}</strong><div class="small text-muted">{{ cat.ticket_kind|replace('_',' ') }}</div></div>
+                    <div><strong>{{ cat.name }}</strong>{% if cat.ticket_kind == 'PDF_NUMBERED' %}<div class="small text-muted">Numeradas</div>{% elif cat.ticket_kind == 'GUEST_LIST' %}<div class="small text-muted">{{ 'Lista acceso directo en puerta' if cat.guest_list_mode == 'DOOR' else 'Lista en taquilla' }}</div>{% endif %}</div>
                     <span class="badge text-bg-light border">{{ cat.configured }}</span>
                   </div>
                   <div class="small mt-2">Contrato: {{ cat.qty_contract }} · Adicionales: {{ cat.qty_extra }}</div>

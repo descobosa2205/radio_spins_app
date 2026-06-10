@@ -23,15 +23,23 @@
   </div>
 {% endif %}
 
+{% if request.args.get('generated_list_link') %}
+  <div class="alert alert-success d-flex justify-content-between align-items-center gap-2 flex-wrap">
+    <div><strong>Listado generado:</strong> <a href="{{ request.args.get('generated_list_link') }}" target="_blank">{{ request.args.get('generated_list_link') }}</a></div>
+    <button class="btn btn-sm btn-outline-success" type="button" data-copy-text="{{ request.args.get('generated_list_link') }}"><i class="fa fa-copy me-1"></i>Copiar</button>
+  </div>
+{% endif %}
+
 {% if tab == 'pedir' %}
   <div class="card">
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h5 class="mb-0">Mis solicitudes</h5>
-        <div class="d-flex gap-2">
-          <button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal"><i class="fa fa-plus me-1"></i>Pedir invitaciones</button>
-          <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal"><i class="fa fa-link me-1"></i>Generar enlace</button>
-        </div>
+        {% if my_denied_count and not show_denied %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir', show_denied=1) }}"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>
+        {% elif show_denied %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir') }}"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>
+        {% endif %}
       </div>
       {% if my_requests %}
         <div class="list-group">
@@ -41,7 +49,8 @@
                 <div>
                   <strong>{{ row.event.artist_names }} · {{ row.event.date_label }}</strong>
                   <div class="text-muted small">{{ row.event.type_label }} · {{ row.event.title }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>
-                  <div class="mt-2">{{ row.guest_name }} · {{ row.quantities_label }}</div>
+                  <div class="mt-2">{{ row.guest_name }}{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %} · {{ row.quantities_label }}</div>
+                  {% if row.link_summary_text %}<div class="invitation-linked-mini mt-1"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></div>{% endif %}
                 </div>
                 <div class="text-end">
                   <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
@@ -147,6 +156,7 @@
   <ul class="nav nav-pills mb-3" id="invitationEventTabs" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#inv-tab-guests" type="button">Invitados</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-tickets" type="button">Invitaciones</button></li>
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-listados" type="button">Listados</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-links" type="button">Enlaces generados</button></li>
   </ul>
 
@@ -189,7 +199,11 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h5 class="mb-0">Peticiones de invitaciones</h5>
-            <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Solicitud</button>
+            <div class="d-flex gap-2 flex-wrap">
+              {% if denied_count and not show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id, show_denied=1) }}#inv-tab-guests"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>{% endif %}
+              {% if show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id) }}#inv-tab-guests"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>{% endif %}
+              <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Solicitud</button>
+            </div>
           </div>
           {% if requests %}
             <div class="list-group">
@@ -199,7 +213,8 @@
                     <div class="flex-grow-1">
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         <strong>{{ row.guest_name }}</strong>
-                        {% if row.guest_company %}<span class="text-muted">· {{ row.guest_company }}</span>{% endif %}
+                        {% if row.link_summary_text %}<span class="invitation-linked-mini"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}
+                        {% if row.guest_title %}<span class="text-muted">· {{ row.guest_title }}</span>{% endif %}
                         <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
                         {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
                       </div>
@@ -300,6 +315,61 @@
           </div>
         {% endfor %}
       </div>
+    </div>
+
+    <div class="tab-pane fade" id="inv-tab-listados">
+      <div class="card mb-4">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+            <div>
+              <h5 class="mb-0">Listados de invitados</h5>
+              <div class="small text-muted">Invitaciones aprobadas ordenadas alfabéticamente. Puedes imprimir, descargar PDF o generar un enlace abierto para puerta/taquilla.</div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap">
+              <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_guest_list_pdf', concert_id=event.id, type='COMPLETE') }}"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>
+              <button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#guestListLinkModal"><i class="fa fa-link me-1"></i>Generar link</button>
+            </div>
+          </div>
+          {% set list_rows = guest_list_rows_complete or [] %}
+          {% if list_rows %}
+            <div class="table-responsive">
+              <table class="table align-middle invitation-guest-list-table">
+                <thead class="table-light"><tr><th>Invitado</th><th>Vinculación</th><th>Título</th><th>Categoría / nº</th><th>PDF</th><th>Estado</th><th>Check</th></tr></thead>
+                <tbody>
+                  {% for row in list_rows %}
+                    <tr>
+                      <td><strong>{{ row.guest_name }}</strong></td>
+                      <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}</td>
+                      <td>{{ row.guest_title }}</td>
+                      <td>{{ row.quantities_label }}</td>
+                      <td>{% if row.download_url and row.can_download_pdf %}<a class="btn btn-sm btn-outline-danger" href="{{ row.download_url }}" title="Descargar invitaciones"><i class="fa fa-file-pdf"></i></a>{% endif %}</td>
+                      <td>{% if row.status != 'APROBADAS' %}<span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>{% endif %}</td>
+                      <td>{% if row.show_check %}<span class="guest-list-check-box"></span>{% endif %}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="alert alert-light border mb-0">No hay invitaciones aprobadas para listar.</div>
+          {% endif %}
+        </div>
+      </div>
+      {% if guest_list_links %}
+        <div class="card">
+          <div class="card-body">
+            <h6 class="mb-3">Enlaces de listados generados</h6>
+            <div class="list-group">
+              {% for link in guest_list_links %}
+                <div class="list-group-item d-flex justify-content-between gap-3 flex-wrap">
+                  <div><strong>{{ link.list_type_label }}</strong><div class="small text-muted">{{ link.created_at_label }}{% if link.created_by %} · {{ link.created_by }}{% endif %}</div><a class="small" href="{{ link.url }}" target="_blank">{{ link.url }}</a></div>
+                  <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-text="{{ link.url }}"><i class="fa fa-copy me-1"></i>Copiar</button>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      {% endif %}
     </div>
 
     <div class="tab-pane fade" id="inv-tab-links">
@@ -452,6 +522,22 @@
 {% endif %}
 
 {% if tab == 'evento' %}
+<div class="modal fade" id="guestListLinkModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-md modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('invitation_guest_list_link_create', concert_id=event.id) }}">
+      <div class="modal-header"><h5 class="modal-title">Generar link de listado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="invitation-icon-grid">
+          <label class="invitation-radio-option"><input type="radio" name="list_type" value="COMPLETE" checked><i class="fa fa-list"></i><span>Listado completo</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="list_type" value="DOOR"><i class="fa fa-door-open"></i><span>Listado de puerta</span></label>
+          <label class="invitation-radio-option"><input type="radio" name="list_type" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Listado de taquilla</span></label>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger"><i class="fa fa-link me-1"></i>Generar</button></div>
+    </form>
+  </div>
+</div>
+
 <div class="modal fade" id="categoryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('invitation_category_save', concert_id=event.id) }}">
@@ -557,8 +643,9 @@
           </div>
           <div class="mt-3 d-none" data-third-party-panel>
             <label class="form-label">Seleccionar tercero</label>
-            <div class="invitation-search-picker" data-promoter-picker data-hidden-target="guest_promoter_id" data-name-target="guest_name" data-email-target="guest_email" data-phone-target="guest_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div>
+            <div class="invitation-search-picker" data-promoter-picker data-hidden-target="guest_promoter_id" data-name-target="guest_name" data-email-target="guest_email" data-phone-target="guest_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div>
             <input type="hidden" name="guest_name"><input type="hidden" name="guest_email"><input type="hidden" name="guest_phone"><input type="hidden" name="guest_company">
+            <div class="row g-2 mt-3"><div class="col-md-6"><label class="form-label">Título / relación</label><input class="form-control" name="guest_title" placeholder="Ej: amigo de artista, prensa, patrocinador..."></div><div class="col-md-6 d-flex align-items-end"><button type="button" class="btn btn-outline-secondary w-100" data-open-selected-link disabled><i class="fa fa-link me-1"></i> Vincular tercero seleccionado</button></div></div>
           </div>
           <div class="mt-3 d-none" data-personnel-panel><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-user-id="{{ person.id }}" data-email="{{ person.email }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
           <div class="mt-3 d-none" data-artist-guest-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
@@ -578,13 +665,10 @@
             <div class="invitation-search-picker" data-promoter-picker data-hidden-target="receiver_promoter_id" data-name-target="receiver_name" data-email-target="receiver_email" data-phone-target="receiver_phone">
               <input class="form-control" placeholder="Buscar tercero por cualquier dato">
               <div class="invitation-search-results"></div>
+              <div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div>
               <button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button>
             </div>
-            <div class="row g-2 mt-3">
-              <div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div>
-              <div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div>
-              <div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div>
-            </div>
+            <input type="hidden" name="receiver_name"><input type="hidden" name="receiver_email"><input type="hidden" name="receiver_phone">
           </div>
         </div>
         <div class="invitation-step d-none" data-step="5"><h5>5. Cantidades</h5><div class="row g-3" data-category-qty-panel><div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div></div><label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea></div>
@@ -603,7 +687,7 @@
         <input type="hidden" name="concert_id" data-field="concert_id"><input type="hidden" name="target_promoter_id" data-field="target_promoter_id">
         <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
         <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
-        <div class="invitation-step d-none" data-step="3"><h5>3. ¿Para quién es el enlace?</h5><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><div class="row g-2 mt-3"><div class="col-md-4"><input class="form-control" name="target_name" placeholder="Nombre / tercero" required></div><div class="col-md-4"><input class="form-control" name="target_email" placeholder="Email"></div><div class="col-md-4"><input class="form-control" name="target_phone" placeholder="Teléfono"></div></div></div>
+        <div class="invitation-step d-none" data-step="3"><h5>3. ¿Para quién es el enlace?</h5><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><input type="hidden" name="target_name" required><input type="hidden" name="target_email"><input type="hidden" name="target_phone"></div>
         <div class="invitation-step d-none" data-step="4"><h5>4. Límites</h5><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="row g-3 mt-1 d-none" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
         <div class="invitation-step d-none" data-step="5"><h5>5. Límite temporal</h5><div class="invitation-icon-grid mb-3" data-deadline-group><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div><div class="row g-3 d-none" data-deadline-panel><div class="col-md-5"><label class="form-label">Fecha y hora límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div></div><div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div></div>
       </div>
@@ -614,6 +698,53 @@
 
 <div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-md modal-dialog-centered"><form class="modal-content" data-create-promoter-form><div class="modal-header"><h5 class="modal-title">Añadir tercero</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="mb-2"><label class="form-label">Nick / nombre</label><input class="form-control" name="nick" required></div><div class="mb-2"><label class="form-label">Email</label><input class="form-control" name="contact_email" type="email"></div><div class="mb-2"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone"></div><div class="alert alert-warning d-none" data-similar-warning></div></div><div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Crear tercero</button></div></form></div>
+</div>
+
+<div class="modal fade entity-link-modal" id="invitationQuickLinkModal" tabindex="-1" aria-hidden="true" data-source-type="promoter">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post" action="{{ url_for('entity_link_create') }}" data-entity-link-form>
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <input type="hidden" name="source_type" value="promoter">
+        <input type="hidden" name="source_id" value="">
+        <input type="hidden" name="target_type" data-link-target-type>
+        <input type="hidden" name="target_id" data-link-target-id>
+        <div class="modal-header"><h5 class="modal-title">Vincular tercero seleccionado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="entity-link-type-row mb-3" data-link-type-row>
+            <button type="button" class="entity-link-type-btn" data-link-type="media"><i class="fa fa-bullhorn"></i><span>Medio</span></button>
+            <button type="button" class="entity-link-type-btn" data-link-type="promoter"><i class="fa fa-user-tie"></i><span>Tercero</span></button>
+            <button type="button" class="entity-link-type-btn" data-link-type="venue"><i class="fa fa-location-dot"></i><span>Recinto</span></button>
+            <button type="button" class="entity-link-type-btn" data-link-type="ticketer"><i class="fa fa-ticket"></i><span>Ticketera</span></button>
+            <button type="button" class="entity-link-type-btn" data-link-type="publishing"><i class="fa fa-pen-nib"></i><span>Editorial</span></button>
+          </div>
+          <div class="row g-3">
+            <div class="col-lg-7">
+              <label class="form-label">Buscar</label><input type="search" class="form-control" data-link-search placeholder="Escribe cualquier dato para buscar...">
+              <div class="entity-link-results mt-2" data-link-results><div class="text-muted small p-3">Selecciona primero el tipo de vinculación.</div></div>
+              <div class="entity-link-selected mt-3 d-none" data-link-selected></div>
+            </div>
+            <div class="col-lg-5">
+              <div class="card border-dashed h-100"><div class="card-body"><div class="fw-semibold mb-1">Añadir nuevo</div><div class="text-muted small mb-3">Se crea y queda seleccionado sin cerrar el formulario de invitaciones.</div>
+                <div class="row g-2">
+                  <div class="col-12"><label class="form-label">Nombre / Nick</label><input class="form-control" data-create-name></div>
+                  <div class="col-12 d-none" data-create-media-type-wrap><label class="form-label">Tipo de medio</label><select class="form-select" data-create-media-type><option value="RADIO">Radio</option><option value="TV">TV</option><option value="PRENSA">Prensa</option><option value="DIGITAL">Digital</option><option value="OTRO">Otro</option></select></div>
+                  <div class="col-12"><label class="form-label">Email / URL</label><input class="form-control" data-create-email></div>
+                  <div class="col-12"><label class="form-label">Teléfono / dirección</label><input class="form-control" data-create-phone></div>
+                  <div class="col-6"><label class="form-label">Municipio</label><input class="form-control" data-create-city></div><div class="col-6"><label class="form-label">Provincia</label><input class="form-control" data-create-province></div>
+                  <div class="col-12"><label class="form-label">Logo / foto</label><input class="form-control" type="file" data-create-logo accept="image/*"></div>
+                  <div class="col-12"><button type="button" class="btn btn-outline-primary w-100" data-link-create><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+                  <div class="col-12"><div class="small" data-link-create-msg></div></div>
+                </div>
+              </div></div>
+            </div>
+          </div>
+          <hr><div class="row g-3"><div class="col-md-5"><label class="form-label">Título o relación</label><input class="form-control" name="relation_title"></div><div class="col-md-7"><label class="form-label">Nota</label><input class="form-control" name="note"></div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" data-link-save disabled>Guardar vinculación</button></div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -660,21 +791,112 @@
   document.querySelectorAll('[data-invitation-wizard]').forEach(form => { goStep(form, 1); form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); })); form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); })); form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1))); form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1))); form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY'); form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE'); form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST'); })); form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); })); form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); })); });
   document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => { const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent); }));
 
-  function fillTarget(form, fields, item){ const hidden = form.querySelector(`[data-field="${fields.hidden}"]`) || form.querySelector(`input[name="${fields.hidden}"]`); if(hidden) hidden.value = item.id || ''; ['name','email','phone'].forEach(k => { const input = form.querySelector(`input[name="${fields[k]}"]`); if(input) input.value = item[k === 'name' ? 'label' : (k === 'email' ? 'contact_email' : 'contact_phone')] || ''; }); }
+  function escHtml(value){ return (value || '').toString().replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch])); }
+  function renderPickerSelected(picker, item){
+    const selected = picker.querySelector('[data-picker-selected]');
+    if(!selected) return;
+    const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
+    selected.classList.remove('d-none');
+    selected.innerHTML = `<div class="d-flex align-items-center gap-2"><img src="${escHtml(item.logo_url || placeholder)}" alt="" style="width:38px;height:38px;border-radius:12px;object-fit:cover;"><div class="min-w-0"><div class="fw-semibold text-truncate">${escHtml(item.label || 'Tercero')}</div>${linkText ? `<div class="invitation-linked-mini"><img src="${escHtml((item.link_summary && item.link_summary.logo_url) || placeholder)}" alt=""><span>${escHtml(linkText)}</span></div>` : '<div class="small text-muted">Sin vinculación guardada</div>'}</div></div>`;
+    const panel = picker.closest('[data-third-party-panel]');
+    const linkBtn = panel ? panel.querySelector('[data-open-selected-link]') : null;
+    if(linkBtn){ linkBtn.disabled = !item.id; linkBtn.dataset.sourceId = item.id || ''; }
+  }
+  function fillTarget(form, fields, item){
+    const hidden = form.querySelector(`[data-field="${fields.hidden}"]`) || form.querySelector(`input[name="${fields.hidden}"]`);
+    if(hidden) hidden.value = item.id || '';
+    ['name','email','phone'].forEach(k => {
+      const input = form.querySelector(`input[name="${fields[k]}"]`);
+      if(input) input.value = item[k === 'name' ? 'label' : (k === 'email' ? 'contact_email' : 'contact_phone')] || '';
+    });
+    const companyInput = form.querySelector('input[name="guest_company"]');
+    if(companyInput && item.link_summary_text) companyInput.value = item.link_summary_text;
+  }
   document.querySelectorAll('[data-invitation-wizard="request"]').forEach(form => {
     const updateReceiver = () => {
       const mode = form.querySelector('[name="receiver_mode"]:checked')?.value || 'GUEST';
       form.querySelector('[data-other-receiver]')?.classList.toggle('d-none', mode !== 'OTHER');
       const summary = form.querySelector('[data-receiver-summary]');
       if(summary){
-        summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Hace falta email o teléfono.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.'));
+        summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Se usarán sus datos de ficha.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.'));
       }
     };
     form.querySelectorAll('[name="receiver_mode"]').forEach(x => x.addEventListener('change', updateReceiver));
     updateReceiver();
   });
-  document.querySelectorAll('[data-promoter-picker]').forEach(picker => { const input = picker.querySelector('input.form-control'); const results = picker.querySelector('.invitation-search-results'); const form = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; const addBtn = picker.querySelector('[data-bs-target="#newPromoterModal"]'); if(addBtn){ addBtn.addEventListener('click', () => { window.__activePromoterPicker = picker; }); } let timer; input.addEventListener('focus', () => { window.__activePromoterPicker = picker; }); input.addEventListener('input', () => { window.__activePromoterPicker = picker; clearTimeout(timer); timer = setTimeout(async () => { const q = input.value.trim(); if(!q){ results.innerHTML=''; return; } const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`); const data = await res.json(); results.innerHTML = (data || []).map(item => `<button type="button" class="invitation-search-result" data-id="${item.id}" data-label="${item.label || ''}" data-email="${item.contact_email || ''}" data-phone="${item.contact_phone || ''}"><img src="${item.logo_url || placeholder}" alt=""><span><strong>${item.label || 'Sin nombre'}</strong><small>${item.contact_email || ''} ${item.contact_phone || ''}</small></span></button>`).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>'; results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => { const item={id:btn.dataset.id,label:btn.dataset.label,contact_email:btn.dataset.email,contact_phone:btn.dataset.phone}; fillTarget(form, fields, item); input.value = item.label; results.innerHTML=''; })); }, 200); }); });
-  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => { ev.preventDefault(); const form = ev.currentTarget; const fd = new FormData(form); const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd}); const data = await res.json(); if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; } const picker = window.__activePromoterPicker; if(picker){ const parentForm = picker.closest('form'); const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget}; const input = picker.querySelector('input.form-control'); const item = {id:data.id,label:data.label || data.nick || fd.get('nick') || '',contact_email:data.contact_email || fd.get('contact_email') || '',contact_phone:data.contact_phone || fd.get('contact_phone') || ''}; fillTarget(parentForm, fields, item); if(input) input.value = item.label; picker.querySelector('.invitation-search-results').innerHTML = ''; } const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset(); });
+  document.querySelectorAll('[data-promoter-picker]').forEach(picker => {
+    const input = picker.querySelector('input.form-control');
+    const results = picker.querySelector('.invitation-search-results');
+    const form = picker.closest('form');
+    const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget};
+    const addBtn = picker.querySelector('[data-bs-target="#newPromoterModal"]');
+    if(addBtn){ addBtn.addEventListener('click', () => { window.__activePromoterPicker = picker; }); }
+    let timer;
+    input.addEventListener('focus', () => { window.__activePromoterPicker = picker; });
+    input.addEventListener('input', () => {
+      window.__activePromoterPicker = picker;
+      clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const q = input.value.trim();
+        if(!q){ results.innerHTML=''; return; }
+        const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        results.innerHTML = (data || []).map(item => {
+          const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
+          const linkLogo = (item.link_summary && item.link_summary.logo_url) || placeholder;
+          return `<button type="button" class="invitation-search-result" data-item='${JSON.stringify(item).replace(/'/g,"&#39;")}'><img src="${escHtml(item.logo_url || placeholder)}" alt=""><span><strong>${escHtml(item.label || 'Sin nombre')}</strong><small>${escHtml(item.contact_email || '')} ${escHtml(item.contact_phone || '')}</small>${linkText ? `<small class="invitation-linked-mini"><img src="${escHtml(linkLogo)}" alt=""><span>${escHtml(linkText)}</span></small>` : ''}</span></button>`;
+        }).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>';
+        results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => {
+          let item = {};
+          try{ item = JSON.parse((btn.dataset.item || '{}').replace(/&#39;/g,"'")); }catch(e){}
+          fillTarget(form, fields, item);
+          input.value = item.label || '';
+          renderPickerSelected(picker, item);
+          results.innerHTML='';
+        }));
+      }, 200);
+    });
+  });
+  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const form = ev.currentTarget;
+    const fd = new FormData(form);
+    const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd});
+    const data = await res.json();
+    if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; }
+    const picker = window.__activePromoterPicker;
+    if(picker){
+      const parentForm = picker.closest('form');
+      const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget};
+      const input = picker.querySelector('input.form-control');
+      const item = {id:data.id,label:data.label || data.nick || fd.get('nick') || '',contact_email:data.contact_email || fd.get('contact_email') || '',contact_phone:data.contact_phone || fd.get('contact_phone') || '', logo_url:data.logo_url || placeholder, link_summary:data.link_summary || {}, link_summary_text:data.link_summary_text || ''};
+      fillTarget(parentForm, fields, item);
+      renderPickerSelected(picker, item);
+      if(input) input.value = item.label;
+      picker.querySelector('.invitation-search-results').innerHTML = '';
+    }
+    const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset();
+  });
+  document.querySelectorAll('[data-open-selected-link]').forEach(btn => btn.addEventListener('click', () => {
+    const sourceId = btn.dataset.sourceId || '';
+    const modal = document.getElementById('invitationQuickLinkModal');
+    if(!sourceId || !modal) return;
+    modal.querySelector('[name="source_id"]').value = sourceId;
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  }));
+  document.querySelector('#invitationQuickLinkModal form')?.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const form = ev.currentTarget;
+    const save = form.querySelector('[data-link-save]');
+    save && (save.disabled = true);
+    try{
+      await fetch(form.action, {method:'POST', body:new FormData(form), headers:{'Accept':'text/html'}});
+      bootstrap.Modal.getInstance(document.getElementById('invitationQuickLinkModal'))?.hide();
+      alert('Vinculación guardada.');
+    }catch(e){ alert('No se pudo guardar la vinculación.'); }
+    finally{ save && (save.disabled = false); }
+  });
+
 
   document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
@@ -685,6 +907,7 @@
 
   document.querySelectorAll('[data-show-invitation-tab="tickets"]').forEach(link => link.addEventListener('click', () => { const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }));
   if(window.location.hash === '#inv-tab-tickets'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
+  if(window.location.hash === '#inv-tab-listados'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-listados"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
 
   document.querySelectorAll('.invitation-assignment-form').forEach(form => { const assignments = []; let currentSource = null; const updateHidden = () => { form.querySelector('[data-assignments-json]').value = JSON.stringify(assignments); form.querySelector('[data-assignment-results]').innerHTML = assignments.map(a => `<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>${a.label || 'Asignación'} · ${a.qty} invitación(es)</div>`).join(''); const available = form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length; form.querySelector('[data-available-counter]').textContent = available; };
     form.querySelectorAll('.assignment-source').forEach(src => { src.addEventListener('dragstart', ev => { currentSource = src; ev.dataTransfer.setData('text/plain', src.dataset.sourceId); }); src.addEventListener('click', () => { currentSource = src; form.querySelectorAll('.assignment-source').forEach(x=>x.classList.remove('is-selected')); src.classList.add('is-selected'); }); });

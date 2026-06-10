@@ -2043,6 +2043,8 @@ class InvitationRequest(Base):
     guest_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     guest_name = Column(Text, nullable=False)
     guest_company = Column(Text)
+    guest_title = Column(Text)
+    guest_link_summary = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     guest_email = Column(Text)
     guest_phone = Column(Text)
     guest_note = Column(Text)
@@ -2120,6 +2122,60 @@ class InvitationTicket(Base):
         Index("idx_invitation_tickets_assigned_request", "assigned_request_id"),
         Index("idx_invitation_tickets_sha", "pdf_sha256"),
         UniqueConstraint("concert_id", "ticket_code", name="uq_invitation_tickets_concert_code"),
+    )
+
+
+class ThirdPartyLink(Base):
+    """Vinculaciones genéricas entre terceros y entidades de la app."""
+
+    __tablename__ = "third_party_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    source_type = Column(Text, nullable=False)
+    source_id = Column(PGUUID(as_uuid=True), nullable=False)
+    target_type = Column(Text, nullable=False)
+    target_id = Column(PGUUID(as_uuid=True), nullable=False)
+    relation_title = Column(Text)
+    note = Column(Text)
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    created_by = relationship("User")
+
+    __table_args__ = (
+        Index("idx_third_party_links_source", "source_type", "source_id", "is_active"),
+        Index("idx_third_party_links_target", "target_type", "target_id", "is_active"),
+        UniqueConstraint("source_type", "source_id", "target_type", "target_id", name="uq_third_party_links_direct"),
+    )
+
+
+class InvitationGuestListLink(Base):
+    """Enlaces públicos para listados de invitados de un evento."""
+
+    __tablename__ = "invitation_guest_list_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    list_type = Column(Text, nullable=False, server_default=text("'COMPLETE'"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    cancelled_at = Column(DateTime(timezone=True))
+    cancelled_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+
+    concert = relationship("Concert")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    cancelled_by = relationship("User", foreign_keys=[cancelled_by_user_id])
+
+    __table_args__ = (
+        Index("idx_invitation_guest_list_links_concert", "concert_id", "status", "list_type"),
+        Index("idx_invitation_guest_list_links_token", "token"),
     )
 
 
@@ -4504,6 +4560,52 @@ def ensure_contracting_embargo_schema():
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
     ], "contracting_embargo_schema")
 
+def ensure_entity_links_schema():
+    """Asegura vinculaciones genéricas y campos extra de invitaciones."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS third_party_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            source_type text NOT NULL,
+            source_id uuid NOT NULL,
+            target_type text NOT NULL,
+            target_id uuid NOT NULL,
+            relation_title text,
+            note text,
+            is_active boolean NOT NULL DEFAULT true,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_third_party_links_direct UNIQUE(source_type, source_id, target_type, target_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_third_party_links_source ON third_party_links(source_type, source_id, is_active);",
+        "CREATE INDEX IF NOT EXISTS idx_third_party_links_target ON third_party_links(target_type, target_id, is_active);",
+        "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS guest_title text;",
+        "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS guest_link_summary jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        """
+        CREATE TABLE IF NOT EXISTS invitation_guest_list_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            list_type text NOT NULL DEFAULT 'COMPLETE',
+            status text NOT NULL DEFAULT 'ACTIVE',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            cancelled_at timestamptz,
+            cancelled_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_guest_list_links_concert ON invitation_guest_list_links(concert_id, status, list_type);",
+        "CREATE INDEX IF NOT EXISTS idx_invitation_guest_list_links_token ON invitation_guest_list_links(token);",
+    ]
+    _exec_ddl_statements(stmts, "entity_links_schema")
+
 def ensure_invitation_schema():
     """Asegura la funcionalidad completa de Invitaciones sin depender de Alembic."""
     Base.metadata.create_all(bind=engine)
@@ -4625,6 +4727,8 @@ def ensure_invitation_schema():
         "CREATE INDEX IF NOT EXISTS idx_invitation_requests_public_link ON invitation_requests(public_link_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_requests_requester ON invitation_requests(requester_user_id, created_at);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_requests_delivery_token ON invitation_requests(delivery_token);",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS guest_title text;",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS guest_link_summary jsonb NOT NULL DEFAULT '{}'::jsonb;",
         """
         CREATE TABLE IF NOT EXISTS invitation_tickets (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -25,6 +25,7 @@
 <ul class="nav nav-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='general') }}">Información general</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'contactos' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='contactos') }}">Datos de contacto</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'vinculaciones' %}active{% endif %}" href="{{ url_for('promoter_detail_view', pid=promoter.id, tab='vinculaciones') }}">Vinculaciones</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
@@ -132,6 +133,8 @@
         {% endif %}
       </div>
     </div>
+  {% elif tab == 'vinculaciones' %}
+    {% include '_entity_links_panel.html' %}
   {% else %}
     <div class="d-flex justify-content-between align-items-center mb-3">
       <div>

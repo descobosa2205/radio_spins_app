@@ -911,96 +911,260 @@ function initImageFallbacks(){
 }
 
 function initDropdownOverflowFix(){
-  if (!window.bootstrap) return;
-  const portalState = new WeakMap();
+  if (!window.bootstrap || !bootstrap.Dropdown) return;
 
-  function getMenu(toggle){
-    const root = toggle.closest('.dropdown, .btn-group');
-    return root ? root.querySelector(':scope > .dropdown-menu') : null;
+  // App_33 global dropdown manager.
+  // Objetivo: todos los menús de tres puntos y dropdowns se sacan al <body>
+  // mientras están abiertos y se posicionan en coordenadas de viewport. Así no
+  // quedan cortados por cards, tablas, listados, modales o contenedores con overflow.
+  if (window.__app33DropdownManager && typeof window.__app33DropdownManager.refresh === 'function') {
+    window.__app33DropdownManager.refresh();
+    return;
   }
 
-  function placeMenu(toggle, menu){
-    if (!toggle || !menu) return;
-    const rect = toggle.getBoundingClientRect();
-    const margin = 8;
-    const width = Math.max(menu.offsetWidth || 0, 190);
-    let left = rect.right - width;
-    left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
-    let top = rect.bottom + 6;
-    const height = menu.offsetHeight || 0;
-    if (top + height > window.innerHeight - margin) {
-      top = Math.max(margin, rect.top - height - 6);
+  const portalState = new WeakMap();
+  const activeToggles = new Set();
+  const TOGGLE_SELECTOR = '[data-bs-toggle="dropdown"]';
+
+  function cssEscape(value){
+    if (window.CSS && typeof CSS.escape === 'function') return CSS.escape(value);
+    return String(value || '').replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+  }
+
+  function getRoot(toggle){
+    return toggle ? toggle.closest('.dropdown, .btn-group, .dropup, .dropend, .dropstart') : null;
+  }
+
+  function getMenu(toggle){
+    if (!toggle) return null;
+    const controls = toggle.getAttribute('aria-controls');
+    if (controls) {
+      const byId = document.getElementById(controls);
+      if (byId && byId.classList.contains('dropdown-menu')) return byId;
     }
-    menu.style.left = `${left}px`;
-    menu.style.top = `${top}px`;
-    menu.style.right = 'auto';
-    menu.style.bottom = 'auto';
-    menu.style.minWidth = `${Math.max(width, rect.width)}px`;
+    const target = toggle.getAttribute('data-bs-target') || toggle.getAttribute('href');
+    if (target && target.charAt(0) === '#') {
+      try {
+        const byTarget = document.querySelector(target);
+        if (byTarget && byTarget.classList.contains('dropdown-menu')) return byTarget;
+      } catch (_) {}
+    }
+    const root = getRoot(toggle);
+    if (!root) return null;
+    try {
+      return root.querySelector(':scope > .dropdown-menu');
+    } catch (_) {
+      return root.querySelector('.dropdown-menu');
+    }
+  }
+
+  function dropdownOptions(){
+    return {
+      autoClose: true,
+      boundary: 'viewport',
+      display: 'static',
+      reference: 'toggle'
+    };
+  }
+
+  function prepareToggle(toggle){
+    if (!toggle || toggle.dataset.app33DropdownPrepared === '1') return;
+    toggle.dataset.app33DropdownPrepared = '1';
+    toggle.setAttribute('data-bs-boundary', 'viewport');
+    toggle.setAttribute('data-bs-display', 'static');
+    try {
+      const existing = bootstrap.Dropdown.getInstance(toggle);
+      if (existing) existing.dispose();
+    } catch (_) {}
+    try { bootstrap.Dropdown.getOrCreateInstance(toggle, dropdownOptions()); } catch (_) {}
+  }
+
+  function prepareAll(scope){
+    (scope || document).querySelectorAll(TOGGLE_SELECTOR).forEach(prepareToggle);
+  }
+
+  function setImportantStyle(menu, prop, value){
+    try { menu.style.setProperty(prop, value, 'important'); }
+    catch (_) { menu.style[prop] = value; }
+  }
+
+  function clearPositionStyles(menu){
+    ['position','left','top','right','bottom','transform','inset','margin','min-width','max-width'].forEach((prop) => {
+      try { menu.style.removeProperty(prop); } catch (_) {}
+    });
+    if (menu) {
+      delete menu.dataset.app33Positioned;
+      delete menu.dataset.app33Placement;
+    }
+  }
+
+  function desiredHorizontalPlacement(toggle, menu){
+    const root = getRoot(toggle);
+    const isEnd = menu.classList.contains('dropdown-menu-end') || (root && root.classList.contains('dropdown-menu-end'));
+    const isDropend = root && root.classList.contains('dropend');
+    const isDropstart = root && root.classList.contains('dropstart');
+    if (isDropend) return 'right-of-toggle';
+    if (isDropstart) return 'left-of-toggle';
+    return isEnd ? 'align-end' : 'align-start';
+  }
+
+  function placeMenu(toggle){
+    const state = portalState.get(toggle);
+    const menu = state ? state.menu : getMenu(toggle);
+    if (!toggle || !menu || !menu.isConnected) return;
+
+    // Forzamos display/visibility medibles aunque Bootstrap todavía esté terminando
+    // la transición de show. La visibilidad real se activa al marcar positioned=1.
+    setImportantStyle(menu, 'position', 'fixed');
+    setImportantStyle(menu, 'transform', 'none');
+    setImportantStyle(menu, 'inset', 'auto');
+    setImportantStyle(menu, 'margin', '0');
+
+    const rect = toggle.getBoundingClientRect();
+    const viewportW = window.innerWidth || document.documentElement.clientWidth || 1024;
+    const viewportH = window.innerHeight || document.documentElement.clientHeight || 768;
+    const margin = 8;
+
+    // Medición estable: al estar portaled y con .show se puede medir sin depender de Popper.
+    const menuRect = menu.getBoundingClientRect();
+    const minWidth = Math.max(rect.width, parseFloat(menu.dataset.app33MinWidth || '0') || 0, 180);
+    const width = Math.min(Math.max(menuRect.width || menu.offsetWidth || minWidth, minWidth), Math.max(220, viewportW - margin * 2));
+    const height = Math.min(menuRect.height || menu.offsetHeight || 0, Math.max(120, viewportH - margin * 2));
+    const placement = desiredHorizontalPlacement(toggle, menu);
+
+    let left;
+    if (placement === 'right-of-toggle') left = rect.right + 6;
+    else if (placement === 'left-of-toggle') left = rect.left - width - 6;
+    else if (placement === 'align-end') left = rect.right - width;
+    else left = rect.left;
+    left = Math.max(margin, Math.min(left, viewportW - width - margin));
+
+    let top = rect.bottom + 6;
+    const opensUp = (top + height > viewportH - margin) && (rect.top - height - 6 >= margin);
+    if (opensUp) top = rect.top - height - 6;
+    top = Math.max(margin, Math.min(top, viewportH - Math.min(height, viewportH - margin * 2) - margin));
+
+    setImportantStyle(menu, 'left', `${Math.round(left)}px`);
+    setImportantStyle(menu, 'top', `${Math.round(top)}px`);
+    setImportantStyle(menu, 'right', 'auto');
+    setImportantStyle(menu, 'bottom', 'auto');
+    setImportantStyle(menu, 'min-width', `${Math.round(minWidth)}px`);
+    setImportantStyle(menu, 'max-width', `${Math.round(viewportW - margin * 2)}px`);
+    menu.dataset.app33Positioned = '1';
+    menu.dataset.app33Placement = opensUp ? 'top' : 'bottom';
   }
 
   function portalMenu(toggle){
     const menu = getMenu(toggle);
-    if (!menu || portalState.has(toggle)) return;
-    const placeholder = document.createComment('dropdown-menu-portal-placeholder');
+    if (!toggle || !menu || portalState.has(toggle)) return;
     const parent = menu.parentNode;
+    if (!parent) return;
+    const placeholder = document.createComment('app33-dropdown-menu-placeholder');
     parent.insertBefore(placeholder, menu);
-    portalState.set(toggle, {menu, parent, placeholder});
+    portalState.set(toggle, { menu, parent, placeholder });
+    activeToggles.add(toggle);
+
+    menu.dataset.app33Portaled = '1';
     menu.classList.add('dropdown-menu-portal-active');
+    clearPositionStyles(menu);
     document.body.appendChild(menu);
-    window.requestAnimationFrame(() => placeMenu(toggle, menu));
+
+    // Se coloca varias veces durante el ciclo de Bootstrap para evitar desfases
+    // por cálculo tardío de tamaños, fuentes o imágenes en el menú.
+    placeMenu(toggle);
+    window.requestAnimationFrame(() => placeMenu(toggle));
+    setTimeout(() => placeMenu(toggle), 60);
   }
 
   function restoreMenu(toggle){
     const state = portalState.get(toggle);
     if (!state) return;
-    const {menu, parent, placeholder} = state;
+    const { menu, parent, placeholder } = state;
     menu.classList.remove('dropdown-menu-portal-active');
-    menu.style.left = '';
-    menu.style.top = '';
-    menu.style.right = '';
-    menu.style.bottom = '';
-    menu.style.minWidth = '';
+    delete menu.dataset.app33Portaled;
+    clearPositionStyles(menu);
     try {
-      parent.insertBefore(menu, placeholder);
-      placeholder.remove();
+      if (placeholder && placeholder.parentNode === parent) parent.insertBefore(menu, placeholder);
+      else parent.appendChild(menu);
+      if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
     } catch (_) {}
     portalState.delete(toggle);
+    activeToggles.delete(toggle);
   }
 
-  document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((toggle) => {
-    if (toggle.dataset.dropdownFixed === '1') return;
-    toggle.dataset.dropdownFixed = '1';
-    toggle.setAttribute('data-bs-boundary', 'viewport');
-    toggle.setAttribute('data-bs-display', 'dynamic');
-    try {
-      bootstrap.Dropdown.getOrCreateInstance(toggle, {
-        boundary: 'viewport',
-        popperConfig(defaultBsPopperConfig) {
-          const cfg = defaultBsPopperConfig || {};
-          cfg.strategy = 'fixed';
-          cfg.modifiers = cfg.modifiers || [];
-          cfg.modifiers.push({ name: 'preventOverflow', options: { boundary: 'viewport', padding: 8 } });
-          cfg.modifiers.push({ name: 'flip', options: { boundary: 'viewport', padding: 8 } });
-          return cfg;
-        }
-      });
-    } catch (_) {}
-    toggle.addEventListener('show.bs.dropdown', () => setTimeout(() => portalMenu(toggle), 0));
-    toggle.addEventListener('shown.bs.dropdown', () => {
-      const state = portalState.get(toggle);
-      if (state) placeMenu(toggle, state.menu);
+  function closeOtherOpenDropdowns(currentToggle){
+    Array.from(activeToggles).forEach((toggle) => {
+      if (toggle === currentToggle) return;
+      try { bootstrap.Dropdown.getOrCreateInstance(toggle, dropdownOptions()).hide(); }
+      catch (_) { restoreMenu(toggle); }
     });
-    toggle.addEventListener('hide.bs.dropdown', () => restoreMenu(toggle));
+  }
+
+  document.addEventListener('click', (ev) => {
+    const toggle = ev.target && ev.target.closest ? ev.target.closest(TOGGLE_SELECTOR) : null;
+    if (!toggle) return;
+    prepareToggle(toggle);
+    closeOtherOpenDropdowns(toggle);
+  }, true);
+
+  document.addEventListener('show.bs.dropdown', (ev) => {
+    const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
+    if (!toggle) return;
+    prepareToggle(toggle);
+    closeOtherOpenDropdowns(toggle);
+    portalMenu(toggle);
+  }, true);
+
+  document.addEventListener('shown.bs.dropdown', (ev) => {
+    const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
+    if (!toggle) return;
+    placeMenu(toggle);
+  }, true);
+
+  document.addEventListener('hide.bs.dropdown', (ev) => {
+    const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
+    if (!toggle) return;
+    const menu = portalState.get(toggle)?.menu;
+    if (menu) delete menu.dataset.app33Positioned;
+  }, true);
+
+  document.addEventListener('hidden.bs.dropdown', (ev) => {
+    const toggle = ev.target && ev.target.matches && ev.target.matches(TOGGLE_SELECTOR) ? ev.target : null;
+    if (!toggle) return;
+    restoreMenu(toggle);
+  }, true);
+
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Escape') return;
+    Array.from(activeToggles).forEach((toggle) => {
+      try { bootstrap.Dropdown.getOrCreateInstance(toggle, dropdownOptions()).hide(); }
+      catch (_) { restoreMenu(toggle); }
+    });
   });
 
   const repositionAll = () => {
-    document.querySelectorAll('[data-bs-toggle="dropdown"]').forEach((toggle) => {
-      const state = portalState.get(toggle);
-      if (state) placeMenu(toggle, state.menu);
-    });
+    Array.from(activeToggles).forEach((toggle) => placeMenu(toggle));
   };
   window.addEventListener('scroll', repositionAll, true);
   window.addEventListener('resize', repositionAll);
+
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach((node) => {
+        if (!node || node.nodeType !== 1) return;
+        if (node.matches && node.matches(TOGGLE_SELECTOR)) prepareToggle(node);
+        else if (node.querySelectorAll) prepareAll(node);
+      });
+    });
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+
+  prepareAll(document);
+  window.__app33DropdownManager = {
+    refresh: () => prepareAll(document),
+    reposition: repositionAll,
+    restoreAll: () => Array.from(activeToggles).forEach(restoreMenu)
+  };
 }
 
 function initVisualChoiceCards(){
@@ -1645,105 +1809,6 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
   document.addEventListener('hidden.bs.modal', function(){
     if (document.querySelectorAll('.modal.show').length) {
       document.body.classList.add('modal-open');
-    }
-  });
-})();
-
-// App33: vinculaciones genéricas y modales anidados estables.
-(function(){
-  function normalise(str){return (str||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,' ').toLowerCase().trim();}
-  function esc(str){return (str||'').toString().replace(/[&<>'"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c];});}
-  function endpointFor(type){
-    return {promoter:'/api/promoters/create', venue:'/api/venues/create', media:'/api/media/create', ticketer:'/api/ticketers/create', publishing:'/api/publishing_companies/create'}[type] || '';
-  }
-  function configureCreateFields(modal){
-    const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
-    const mediaWrap=modal.querySelector('[data-create-media-type-wrap]');
-    if(mediaWrap) mediaWrap.classList.toggle('d-none', type!=='media');
-    const email=modal.querySelector('[data-create-email]');
-    const phone=modal.querySelector('[data-create-phone]');
-    if(email){ email.placeholder = type==='ticketer' ? 'URL de venta' : (type==='promoter' ? 'Email' : 'Email, web o URL'); }
-    if(phone){ phone.placeholder = type==='venue' ? 'Dirección' : (type==='media' ? 'Dirección' : 'Teléfono o dirección'); }
-  }
-  function selectLinkTarget(modal, item){
-    const targetType=modal.querySelector('[data-link-target-type]');
-    const targetId=modal.querySelector('[data-link-target-id]');
-    const save=modal.querySelector('[data-link-save]');
-    const selected=modal.querySelector('[data-link-selected]');
-    if(targetType) targetType.value=item.type || targetType.value || '';
-    if(targetId) targetId.value=item.id || '';
-    if(save) save.disabled = !(targetType && targetType.value && item.id);
-    if(selected){
-      selected.classList.remove('d-none');
-      selected.innerHTML='<img src="'+esc(item.logo_url||'/static/img/placeholder_photo.png')+'" alt=""><div class="min-w-0"><div class="fw-semibold text-truncate">'+esc(item.label||item.text||item.name||'Seleccionado')+'</div><div class="small text-muted text-truncate">'+esc(item.type_label||item.subtitle||'')+'</div></div>';
-    }
-  }
-  async function searchLinks(modal){
-    const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
-    const q=(modal.querySelector('[data-link-search]')||{}).value || '';
-    const box=modal.querySelector('[data-link-results]');
-    if(!box) return;
-    if(!type){ box.innerHTML='<div class="text-muted small p-3">Selecciona primero qué tipo de vinculación quieres crear.</div>'; return; }
-    box.innerHTML='<div class="text-muted small p-3">Buscando...</div>';
-    try{
-      const resp=await fetch('/api/vinculaciones/search?type='+encodeURIComponent(type)+'&q='+encodeURIComponent(q), {headers:{'Accept':'application/json'}});
-      const data=await resp.json();
-      if(!Array.isArray(data) || !data.length){ box.innerHTML='<div class="text-muted small p-3">Sin coincidencias. Puedes crear una nueva opción a la derecha.</div>'; return; }
-      box.innerHTML='';
-      data.forEach(function(item){
-        const btn=document.createElement('button'); btn.type='button'; btn.className='entity-link-result';
-        btn.innerHTML='<img src="'+esc(item.logo_url||'/static/img/placeholder_photo.png')+'" alt=""><div class="min-w-0"><div class="fw-semibold text-truncate">'+esc(item.label||item.text||item.name||'')+'</div><div class="small text-muted text-truncate">'+esc(item.subtitle||item.type_label||'')+'</div></div>';
-        btn.addEventListener('click',function(){ selectLinkTarget(modal,item); box.querySelectorAll('.entity-link-result').forEach(x=>x.classList.remove('active')); btn.classList.add('active'); });
-        box.appendChild(btn);
-      });
-    }catch(e){ box.innerHTML='<div class="text-danger small p-3">No se pudo buscar.</div>'; }
-  }
-  document.addEventListener('click', async function(ev){
-    const typeBtn=ev.target.closest('[data-link-type]');
-    if(typeBtn){
-      const modal=typeBtn.closest('.entity-link-modal'); if(!modal) return;
-      modal.querySelectorAll('[data-link-type]').forEach(x=>x.classList.toggle('active', x===typeBtn));
-      const input=modal.querySelector('[data-link-target-type]'); if(input) input.value=typeBtn.dataset.linkType||'';
-      const id=modal.querySelector('[data-link-target-id]'); if(id) id.value='';
-      const save=modal.querySelector('[data-link-save]'); if(save) save.disabled=true;
-      const selected=modal.querySelector('[data-link-selected]'); if(selected){ selected.classList.add('d-none'); selected.innerHTML=''; }
-      configureCreateFields(modal); searchLinks(modal); return;
-    }
-    const createBtn=ev.target.closest('[data-link-create]');
-    if(createBtn){
-      const modal=createBtn.closest('.entity-link-modal'); if(!modal) return;
-      const type=(modal.querySelector('[data-link-target-type]')||{}).value || '';
-      const endpoint=endpointFor(type); const msg=modal.querySelector('[data-link-create-msg]');
-      if(!endpoint){ if(msg) msg.innerHTML='<span class="text-warning">Selecciona primero un tipo.</span>'; return; }
-      const name=(modal.querySelector('[data-create-name]')||{}).value || '';
-      if(!name.trim()){ if(msg) msg.innerHTML='<span class="text-warning">Escribe un nombre.</span>'; return; }
-      const fd=new FormData();
-      fd.append(type==='promoter'?'nick':'name', name.trim());
-      const email=(modal.querySelector('[data-create-email]')||{}).value || '';
-      const phone=(modal.querySelector('[data-create-phone]')||{}).value || '';
-      const city=(modal.querySelector('[data-create-city]')||{}).value || '';
-      const prov=(modal.querySelector('[data-create-province]')||{}).value || '';
-      const logo=(modal.querySelector('[data-create-logo]')||{}).files ? modal.querySelector('[data-create-logo]').files[0] : null;
-      if(type==='promoter'){ fd.append('contact_email', email); fd.append('contact_phone', phone); }
-      else if(type==='venue'){ fd.append('address', phone); fd.append('municipality', city); fd.append('province', prov); fd.append('force_new','1'); }
-      else if(type==='media'){ fd.append('address', phone); fd.append('media_type', (modal.querySelector('[data-create-media-type]')||{}).value || 'OTRO'); }
-      else if(type==='ticketer'){ fd.append('link_url', email); }
-      if(logo) fd.append('logo', logo);
-      createBtn.disabled=true; if(msg) msg.innerHTML='<span class="text-muted">Creando...</span>';
-      try{
-        const resp=await fetch(endpoint,{method:'POST',body:fd,headers:{'Accept':'application/json'}});
-        const data=await resp.json();
-        if(!resp.ok || data.error){ throw new Error(data.error || 'No se pudo crear.'); }
-        data.type=type; data.type_label=data.type_label || ({promoter:'Tercero',venue:'Recinto',media:'Medio',ticketer:'Ticketera',publishing:'Editorial'}[type]||'');
-        data.label=data.label||data.text||data.name||name; data.logo_url=data.logo_url||data.photo_url||'/static/img/placeholder_photo.png';
-        selectLinkTarget(modal,data); if(msg) msg.innerHTML='<span class="text-success">Creado y seleccionado.</span>';
-      }catch(e){ if(msg) msg.innerHTML='<span class="text-danger">'+esc(e.message||e)+'</span>'; }
-      finally{ createBtn.disabled=false; }
-    }
-  });
-  document.addEventListener('input', function(ev){
-    if(ev.target.matches('[data-link-search]')){
-      const modal=ev.target.closest('.entity-link-modal'); clearTimeout(ev.target._entitySearchTimer); ev.target._entitySearchTimer=setTimeout(function(){searchLinks(modal);},180);
     }
   });
 })();

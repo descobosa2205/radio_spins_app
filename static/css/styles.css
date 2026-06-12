@@ -841,5 +841,56 @@ img[data-default-photo="1"]{
   color: #1d4ed8;
 }
 
-/* Vinculaciones y listados de invitados */
-.entity-link-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.75rem}.entity-link-card{position:relative;display:flex;align-items:flex-start;justify-content:space-between;gap:.6rem;border:1px solid #e5e7eb;border-radius:18px;background:#fff;padding:.8rem;box-shadow:0 .35rem 1.2rem rgba(15,23,42,.05);min-width:0}.entity-link-main{display:flex;align-items:center;gap:.75rem;text-decoration:none;color:inherit;min-width:0;flex:1}.entity-link-photo{width:54px;height:54px;border-radius:15px;object-fit:cover;border:1px solid #eef2f7;background:#f3f4f6}.entity-link-title{font-weight:700;color:#111827}.entity-link-subtitle{font-size:.82rem;color:#6b7280}.entity-link-actions{flex:0 0 auto}.entity-link-type-row{display:flex;gap:.6rem;flex-wrap:wrap}.entity-link-type-btn{border:1px solid #dbe2ea;background:#fff;border-radius:16px;padding:.8rem 1rem;display:flex;flex-direction:column;align-items:center;gap:.35rem;min-width:96px;font-weight:700;color:#334155}.entity-link-type-btn i{font-size:1.35rem}.entity-link-type-btn.active{border-color:#e73346;background:#fff1f3;color:#e73346}.entity-link-results{border:1px solid #e5e7eb;border-radius:14px;max-height:320px;overflow:auto;background:#fff}.entity-link-result{width:100%;border:0;background:#fff;display:flex;align-items:center;gap:.75rem;padding:.72rem .85rem;text-align:left;border-bottom:1px solid #f1f5f9}.entity-link-result:hover,.entity-link-result.active{background:#f8fafc}.entity-link-result img,.entity-link-selected img,.invitation-linked-mini img{width:36px;height:36px;border-radius:11px;object-fit:cover;border:1px solid #e5e7eb;background:#f3f4f6}.entity-link-selected{border:1px solid #c7d2fe;background:#eef2ff;border-radius:14px;padding:.75rem;display:flex;align-items:center;gap:.7rem}.border-dashed{border-style:dashed!important}.invitation-linked-mini{display:inline-flex;align-items:center;gap:.38rem;font-size:.78rem;color:#64748b;vertical-align:middle}.invitation-linked-mini img{width:22px;height:22px;border-radius:7px}.public-card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:1.5rem;box-shadow:0 .75rem 2.5rem rgba(15,23,42,.08);max-width:1120px}.public-company-logo{max-width:150px;max-height:62px;object-fit:contain}.public-guest-list-table td,.public-guest-list-table th{white-space:nowrap}.guest-list-print-checkbox{width:18px;height:18px;border:2px solid #111827;border-radius:4px;display:inline-block}.badge.status-aprobadas{display:none}.modal{--bs-modal-zindex:1065}.modal-backdrop{--bs-backdrop-zindex:1060}.dropdown-menu{z-index:3000}.dropdown-menu.show{z-index:3000}.ticket-preview-iframe,.invitation-ticket-preview{width:100%!important;min-height:70vh;object-fit:contain;background:#f8fafc}.status-borrador,.badge-status-borrador{background:#dbeafe!important;color:#1d4ed8!important;border-color:#93c5fd!important}
+/* Hotfix 2026-06-11 · Dropdowns globales / botones de tres puntitos
+   Los menús se portalean al body y se posicionan con coordenadas fijas para
+   que no los recorten cards, tablas, listados ni modales. */
+.dropdown-menu.dropdown-menu-portal-active,
+.dropdown-menu[data-app33-portaled="1"] {
+  position: fixed !important;
+  z-index: 24000 !important;
+  inset: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+  max-height: calc(100vh - 16px) !important;
+  overflow: auto !important;
+  overscroll-behavior: contain;
+  box-shadow: 0 .9rem 2.4rem rgba(15, 23, 42, .20) !important;
+  border: 1px solid rgba(15, 23, 42, .12);
+  will-change: left, top;
+}
+.dropdown-menu.dropdown-menu-portal-active:not([data-app33-positioned="1"]),
+.dropdown-menu[data-app33-portaled="1"]:not([data-app33-positioned="1"]) {
+  visibility: hidden !important;
+}
+.dropdown-menu.dropdown-menu-portal-active[data-app33-positioned="1"],
+.dropdown-menu[data-app33-portaled="1"][data-app33-positioned="1"] {
+  visibility: visible !important;
+}
+.dropdown-menu.dropdown-menu-portal-active .dropdown-item,
+.dropdown-menu[data-app33-portaled="1"] .dropdown-item {
+  white-space: nowrap;
+}
+.dropdown-menu.dropdown-menu-portal-active form,
+.dropdown-menu[data-app33-portaled="1"] form {
+  margin: 0;
+}
+.dropdown-menu.dropdown-menu-portal-active form .dropdown-item,
+.dropdown-menu[data-app33-portaled="1"] form .dropdown-item {
+  width: 100%;
+  text-align: left;
+}
+.card,
+.card-body,
+.list-group,
+.list-group-item,
+.invitation-manage-row,
+.invitation-category-card,
+.invitation-ticket-module,
+.invitation-availability-fixed,
+.entity-link-card,
+.bag-expense-row,
+.roadmap-card {
+  overflow: visible;
+}

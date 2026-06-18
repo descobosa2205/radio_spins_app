@@ -11463,13 +11463,23 @@ def discografica_song_detail(song_id):
             .all()
         )
         grouped = defaultdict(lambda: {"rows": [], "total_gross": Decimal("0"), "total_net": Decimal("0"), "sort_key": None, "label": ""})
+        # Dedup semestre↔mes: si un semestre tiene fila(s) SEMESTER, prevalece sobre sus meses
+        # (mismo criterio que el motor de royalties/liquidaciones), para no contar doble.
+        semesters_with_semester_rows = set()
+        for _r in rows:
+            _ps = getattr(_r, "period_start", None)
+            if _ps and (_r.period_type or "").upper() == "SEMESTER":
+                semesters_with_semester_rows.add((_ps.year, 1 if _ps.month <= 6 else 2))
         for row in rows:
+            ps = getattr(row, "period_start", None)
+            if (row.period_type or "").upper() == "MONTH" and ps and \
+               (ps.year, 1 if ps.month <= 6 else 2) in semesters_with_semester_rows:
+                continue  # mes redundante: el semestre ya agrega este periodo
             gross = Decimal(row.gross or 0)
             net = Decimal(row.net or 0)
             song_income_total_gross += gross
             song_income_total_net += net
 
-            ps = getattr(row, "period_start", None)
             if song_income_group_mode == "month":
                 group_key = f"month:{ps.isoformat() if ps else 'na'}"
                 group_label = _month_label(ps) if ps else "Sin fecha"
@@ -18863,7 +18873,9 @@ def sales_update_view():
                 mode = (getattr(ct, "rebate_mode", None) or "").upper()
                 if mode == "FIXED":
                     fixed_gross = float(getattr(ct, "rebate_fixed_gross", 0) or 0.0)
-                    rn = (sold_i * fixed_gross) / 1.21 if fixed_gross else 0.0
+                    # Neto del rebate fijo usando el IVA configurado del concierto (no 21% fijo).
+                    vat_factor = 1.0 + (vat_pct / 100.0)
+                    rn = (sold_i * fixed_gross) / vat_factor if (fixed_gross and vat_factor > 0) else 0.0
                 elif mode == "PERCENT":
                     pct = float(getattr(ct, "rebate_pct", 0) or 0.0)
                     if pct and gross_f:
@@ -19703,7 +19715,9 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
                 mode = (getattr(ct, "rebate_mode", None) or "").upper()
                 if mode == "FIXED":
                     fixed_gross = float(getattr(ct, "rebate_fixed_gross", 0) or 0.0)
-                    rn = (sold_i * fixed_gross) / 1.21 if fixed_gross else 0.0
+                    # Neto del rebate fijo usando el IVA configurado del concierto (no 21% fijo).
+                    vat_factor = 1.0 + (vat_pct / 100.0)
+                    rn = (sold_i * fixed_gross) / vat_factor if (fixed_gross and vat_factor > 0) else 0.0
                 elif mode == "PERCENT":
                     pct = float(getattr(ct, "rebate_pct", 0) or 0.0)
                     if pct and gross_f:
@@ -20214,7 +20228,9 @@ def sales_update_report_pdf():
                 mode = (getattr(ct, "rebate_mode", None) or "").upper()
                 if mode == "FIXED":
                     fixed_gross = float(getattr(ct, "rebate_fixed_gross", 0) or 0.0)
-                    rn = (sold_i * fixed_gross) / 1.21 if fixed_gross else 0.0
+                    # Neto del rebate fijo usando el IVA configurado del concierto (no 21% fijo).
+                    vat_factor = 1.0 + (vat_pct / 100.0)
+                    rn = (sold_i * fixed_gross) / vat_factor if (fixed_gross and vat_factor > 0) else 0.0
                 elif mode == "PERCENT":
                     pct = float(getattr(ct, "rebate_pct", 0) or 0.0)
                     if pct and gross_f:
@@ -20528,7 +20544,7 @@ def sales_event_report_view(cid):
 
             # Construir detalle diario
             for r in details:
-                price = float(getattr(r.ticket_type, "price", 0) or 0)
+                price = float(getattr(r, "unit_price_gross", 0) or 0)
                 qty = int(r.qty or 0)
                 g = qty * price
                 daily_rows.append({
@@ -20678,10 +20694,10 @@ def sales_event_report_view(cid):
         pct = (total_sold / capacity * 100.0) if capacity else 0.0
         pending = max(0, capacity - total_sold) if capacity else 0
 
-        # Potencial (según categorías) y desglose neto
-        potential_gross_total = 0.0
-        for tt in (c.ticket_types or []):
-            potential_gross_total += float(getattr(tt, "price", 0) or 0) * float(getattr(tt, "qty_for_sale", 0) or 0)
+        # Potencial (según categorías) y desglose neto.
+        # El precio efectivo se deriva de las ventas (ya calculado por tipo en by_type);
+        # ConcertTicketType.price quedó obsoleto y siempre vale 0.
+        potential_gross_total = sum(float(t.get("potential_gross") or 0.0) for t in by_type)
         remaining_gross_total = max(0.0, potential_gross_total - gross_total)
 
         br = _sales_net_breakdown(gross_total, vat, sgae)
@@ -20797,7 +20813,7 @@ def sales_event_report_pdf(cid):
                 .all()
             )
             for r in details:
-                price = float(getattr(r.ticket_type, "price", 0) or 0)
+                price = float(getattr(r, "unit_price_gross", 0) or 0)
                 qty = int(r.qty or 0)
                 if show_econ:
                     daily_rows.append([
@@ -20836,9 +20852,27 @@ def sales_event_report_pdf(cid):
         pct = (total_sold / capacity * 100.0) if capacity else 0.0
         pending = max(0, capacity - total_sold) if capacity else 0
 
+        # Bruto potencial por tipo: aforo del tipo × precio efectivo (derivado de las ventas).
+        # ConcertTicketType.price quedó obsoleto (siempre 0); usamos unit_price_gross.
         potential_gross_total = 0.0
-        for tt in (c.ticket_types or []):
-            potential_gross_total += float(getattr(tt, "price", 0) or 0) * float(getattr(tt, "qty_for_sale", 0) or 0)
+        if has_v2:
+            type_potentials = (
+                session_db.query(
+                    ConcertTicketType.qty_for_sale,
+                    func.sum(TicketSaleDetail.qty),
+                    func.sum(TicketSaleDetail.qty * TicketSaleDetail.unit_price_gross),
+                )
+                .join(TicketSaleDetail, TicketSaleDetail.ticket_type_id == ConcertTicketType.id)
+                .filter(ConcertTicketType.concert_id == concert_id)
+                .filter(TicketSaleDetail.day <= day)
+                .group_by(ConcertTicketType.id)
+                .all()
+            )
+            for qfs, sold, g in type_potentials:
+                sold_i = int(sold or 0)
+                gross_f = float(g or 0)
+                price_f = (gross_f / sold_i) if sold_i else 0.0
+                potential_gross_total += float(int(qfs or 0)) * price_f
         remaining_gross_total = max(0.0, potential_gross_total - gross_total)
 
         br = _sales_net_breakdown(gross_total, vat, sgae)
@@ -27660,6 +27694,14 @@ def _production_request_row(session_db, req: ProductionRequest) -> dict:
     }
 
 
+def _search_normalize(value: str | None) -> str:
+    """Normaliza texto para búsquedas: sin acentos, alfanumérico y en minúsculas."""
+    raw = unicodedata.normalize("NFD", str(value or ""))
+    raw = "".join(ch for ch in raw if unicodedata.category(ch) != "Mn")
+    raw = re.sub(r"[^a-zA-Z0-9]+", " ", raw)
+    return raw.casefold().strip()
+
+
 def _production_passes_filters(row: dict, *, q: str = "", artist_id: str = "", activity_type: str = "") -> bool:
     if activity_type and (row.get("activity_type") or "").upper() != activity_type.upper():
         return False
@@ -29493,6 +29535,7 @@ def _bag_totals(expenses: list[BagExpense]) -> dict:
         "promoter": Decimal("0"),
         "office": Decimal("0"),
         "all": Decimal("0"),
+        "unpaid": Decimal("0"),
         "by_category": defaultdict(Decimal),
     }
     for expense in expenses:
@@ -29510,6 +29553,15 @@ def _bag_totals(expenses: list[BagExpense]) -> dict:
         else:
             totals["bag"] += amount
             totals["by_category"][(getattr(expense, "category", "OTROS") or "OTROS").upper()] += amount
+            # Importe pendiente de pago: lo que asume la bolsa y aún no está pagado del todo.
+            if (getattr(expense, "payment_status", "") or "").upper() != "PAGADO":
+                try:
+                    paid = Decimal(str(getattr(expense, "paid_amount", 0) or 0))
+                except Exception:
+                    paid = Decimal("0")
+                remaining = amount - paid
+                if remaining > 0:
+                    totals["unpaid"] += remaining
     totals["by_category"] = dict(totals["by_category"])
     return totals
 
@@ -30215,6 +30267,23 @@ def bag_expense_cover(bag_id, expense_id):
                 if expense.document_type == "TICKET":
                     expense.amount_net = share
                     expense.amount_tax = Decimal("0")
+            else:
+                # Reparto manual: las partes a otras bolsas no pueden superar el importe del gasto;
+                # el resto permanece en la bolsa origen, de modo que el total se conserva exacto
+                # (antes el origen mantenía el importe íntegro y se duplicaba dinero).
+                sum_targets = Decimal("0")
+                for target in valid_targets:
+                    sum_targets += _bag_money(request.form.get(f"split_amount__{target.id}"))
+                if sum_targets > current_amount:
+                    raise ValueError(
+                        f"El reparto no cuadra: las partes asignadas a otras bolsas suman {sum_targets} € "
+                        f"y el gasto es de {current_amount} €. No pueden superarlo."
+                    )
+                residual = current_amount - sum_targets
+                expense.amount_gross = residual
+                if expense.document_type == "TICKET":
+                    expense.amount_net = residual
+                    expense.amount_tax = Decimal("0")
             for target in valid_targets:
                 field = f"split_amount__{target.id}"
                 target_amount = share if equal_split else _bag_money(request.form.get(field))
@@ -30506,7 +30575,7 @@ def invoices_view():
                 issue_date=issue_date,
                 due_date=parse_optional_date(request.form.get("due_date")),
                 status=(request.form.get("status") or "PENDIENTE").strip().upper(),
-                total_amount=_safe_decimal(request.form.get("total_amount")) or Decimal("0"),
+                total_amount=_parse_money_decimal(request.form.get("total_amount")) or Decimal("0"),
                 pdf_url=pdf_url,
                 original_name=getattr(pdf, "filename", None) if pdf_url else None,
                 notes=(request.form.get("notes") or "").strip() or None,
@@ -33291,6 +33360,10 @@ def invitation_request_create():
         quantities = _invitation_quantities_from_form(request.form, categories)
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
+        # Validación de cupo del evento: no comprometer más invitaciones de las configuradas.
+        _inv_available = _invitation_event_counts(session_db, concert)['result']
+        if _invitation_total_qty(quantities) > _inv_available:
+            raise ValueError(f'No hay cupo suficiente: quedan {max(0, _inv_available)} invitaciones disponibles y solicitas {_invitation_total_qty(quantities)}.')
         state = _current_user_state()
         guest_type = (request.form.get('guest_type') or 'THIRD_PARTY').strip().upper()
         guest_name = (request.form.get('guest_name') or '').strip()
@@ -33529,6 +33602,15 @@ def invitation_commitment_save(concert_id):
         row = session_db.get(InvitationCommitment, commitment_id) if commitment_id else None
         if row and row.concert_id != concert.id:
             abort(403)
+        # Validación de cupo: si se edita un compromiso ya contado, sus cantidades vuelven al pool.
+        old_qty = 0
+        if row and (row.status or '') != 'ANULADAS':
+            old_qty = _invitation_total_qty(_json_dict(getattr(row, 'quantities_json', None)))
+        new_quantities = _invitation_quantities_from_form(request.form, categories)
+        new_qty = _invitation_total_qty(new_quantities)
+        _inv_available = _invitation_event_counts(session_db, concert)['result'] + old_qty
+        if new_qty > _inv_available:
+            raise ValueError(f'No hay cupo suficiente: quedan {max(0, _inv_available)} invitaciones disponibles y comprometes {new_qty}.')
         if not row:
             row = InvitationCommitment(concert_id=concert.id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
             session_db.add(row)
@@ -33537,7 +33619,7 @@ def invitation_commitment_save(concert_id):
         row.promoter_id = promoter_id
         row.name = (request.form.get('name') or (promoter.nick if promoter else '') or 'Compromiso').strip()
         row.reason = (request.form.get('reason') or '').strip()
-        row.quantities_json = _invitation_quantities_from_form(request.form, categories)
+        row.quantities_json = new_quantities
         row.note = (request.form.get('note') or '').strip()
         row.status = 'COMPROMETIDAS'
         row.updated_at = _now_madrid()
@@ -34158,6 +34240,8 @@ def public_invitation_request_submit(token):
             flash(msg or 'El enlace no está disponible.', 'warning')
             return redirect(url_for('public_invitation_request_link', token=token))
         concert = link.concert or session_db.get(Concert, link.concert_id)
+        if not concert:
+            abort(404)
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         existing = session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).all()
         quantities = _invitation_quantities_from_form(request.form, categories)
@@ -34166,6 +34250,10 @@ def public_invitation_request_submit(token):
             quantities = {'TOTAL': total}
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
+        # Validación de cupo global del evento (además de los límites propios del enlace).
+        _inv_available = _invitation_event_counts(session_db, concert)['result']
+        if _invitation_total_qty(quantities) > _inv_available:
+            raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
         limits = _invitation_public_limits(link, categories, existing)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')

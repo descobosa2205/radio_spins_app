@@ -1,0 +1,31 @@
+# NOTA (modo seguro): .env y users.txt se MANTIENEN versionados por ahora para no romper
+# la configuración ni el login de producción. Se retirarán en la fase de seguridad, tras
+# confirmar las variables de entorno en el panel de Render y que los usuarios están en la BD.
+
+# --- Entorno virtual de Python ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Cachés y bytecode de Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# --- Archivos del sistema operativo ---
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# --- Editores / IDE ---
+.idea/
+.vscode/
+*.swp
+
+# --- Logs y temporales ---
+*.log
+*.tmp
+tmp/

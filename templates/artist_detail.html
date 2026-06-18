@@ -467,7 +467,7 @@
                           <select form="commit-update-{{ m.id }}" name="base" class="form-select form-select-sm commitment-base" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
                             <option value="GROSS" {% if base == 'GROSS' %}selected{% endif %}>Bruto</option>
                             <option value="NET" {% if base == 'NET' %}selected{% endif %}>Neto</option>
-                            <option value="PROFIT" {% if base == 'PROFIT' %}selected{% endif %}>Beneficio</option>
+                            <option value="PROFIT" hidden {% if base == 'PROFIT' %}selected{% endif %}>Beneficio (en revisión)</option>
                           </select>
                         </td>
                         <td class="profit-scope-wrap">
@@ -524,7 +524,7 @@
                               <select name="base" class="form-select form-select-sm commitment-base">
                                 <option value="GROSS">Bruto</option>
                                 <option value="NET">Neto</option>
-                                <option value="PROFIT">Beneficio</option>
+                                <option value="PROFIT" hidden>Beneficio (en revisión)</option>
                               </select>
                             </div>
                             <div class="col-6 col-lg-2 profit-scope-wrap">

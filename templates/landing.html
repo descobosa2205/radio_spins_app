@@ -1,28 +1,153 @@
-{% extends "layout.html" %}
-{% block content %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>33 Producciones · Pies Records — Back Office</title>
+  <link rel="shortcut icon" href="{{ url_for('static', filename='favicon.ico') }}" type="image/x-icon">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32x32.png') }}">
+  <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" rel="stylesheet">
+  <style>
+    :root{
+      --red:{{ BRAND_PRIMARY or '#E33D48' }}; --red-d:#c5313b;
+      --teal:{{ BRAND_ACCENT or '#007CA2' }}; --teal-d:#016585;
+      --ink:#171a21; --muted:#5b6472; --line:#e7eaf0; --bg:#f6f8fb; --card:#fff;
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;line-height:1.55}
+    img{max-width:100%;display:block}
+    .wrap{max-width:1140px;margin:0 auto;padding:0 20px}
+    a{text-decoration:none;color:inherit}
+    .lp-nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.85);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+    .lp-nav__in{display:flex;align-items:center;justify-content:space-between;height:64px}
+    .lp-brands{display:flex;align-items:center;gap:14px}
+    .lp-brands img{height:26px}
+    .lp-sep{width:1px;height:26px;background:var(--line)}
+    .lp-btn{display:inline-flex;align-items:center;gap:8px;font-weight:700;font-size:14px;border-radius:11px;padding:11px 20px;border:1.5px solid transparent;cursor:pointer;transition:.15s}
+    .lp-btn--primary{background:var(--red);color:#fff}
+    .lp-btn--primary:hover{background:var(--red-d);transform:translateY(-1px);box-shadow:0 8px 20px rgba(227,61,72,.28)}
+    .lp-btn--ghost{background:#fff;color:var(--ink);border-color:var(--line)}
+    .lp-btn--ghost:hover{border-color:var(--teal);color:var(--teal)}
+    .lp-btn--white{background:#fff;color:var(--ink)}
+    .lp-btn--white:hover{transform:translateY(-1px);box-shadow:0 10px 24px rgba(0,0,0,.2)}
+    .lp-btn--lg{padding:14px 26px;font-size:15px}
+    .lp-hero{position:relative;overflow:hidden}
+    .lp-hero::before{content:"";position:absolute;inset:0;background:
+       radial-gradient(60% 80% at 12% 0%, rgba(0,124,162,.16), transparent 60%),
+       radial-gradient(55% 75% at 95% 25%, rgba(227,61,72,.16), transparent 55%);pointer-events:none}
+    .lp-hero__in{position:relative;display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center;padding:76px 0 64px}
+    .lp-eyebrow{display:inline-flex;align-items:center;gap:8px;background:rgba(0,124,162,.10);color:var(--teal-d);font-weight:700;font-size:12.5px;letter-spacing:.4px;text-transform:uppercase;padding:6px 13px;border-radius:999px;margin-bottom:18px}
+    .lp-eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--red)}
+    .lp-h1{font-size:46px;line-height:1.08;letter-spacing:-1px;font-weight:850}
+    .lp-h1 .grad{background:linear-gradient(100deg,var(--red),var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent}
+    .lp-lead{color:var(--muted);font-size:18px;max-width:540px;margin:18px 0 28px}
+    .lp-cta{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    .lp-note{margin-top:20px;color:var(--muted);font-size:13.5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .lp-note .chip{background:#fff;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:600;color:var(--ink)}
+    .lp-panel{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:0 24px 60px rgba(20,30,55,.10);padding:22px;transform:rotate(.4deg)}
+    .lp-panel__top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .lp-panel__top img{height:20px}
+    .lp-live{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;color:var(--teal-d)}
+    .lp-pulse{width:8px;height:8px;border-radius:50%;background:#19b886;box-shadow:0 0 0 0 rgba(25,184,134,.6);animation:lpp 1.8s infinite}
+    @keyframes lpp{70%{box-shadow:0 0 0 8px rgba(25,184,134,0)}100%{box-shadow:0 0 0 0 rgba(25,184,134,0)}}
+    .lp-rows{display:flex;flex-direction:column;gap:9px;margin-bottom:14px}
+    .lp-row{display:flex;align-items:center;gap:12px;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+    .lp-row i{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;font-size:15px}
+    .lp-row .t{font-weight:700;font-size:13.5px}
+    .lp-row .s{font-size:11.5px;color:var(--muted)}
+    .lp-bars{display:flex;align-items:flex-end;gap:7px;height:60px;padding:6px 2px 0}
+    .lp-bars i{flex:1;border-radius:5px 5px 0 0;background:linear-gradient(var(--teal),rgba(0,124,162,.45))}
+    .lp-bars i:nth-child(even){background:linear-gradient(var(--red),rgba(227,61,72,.45))}
+    .lp-sec{padding:60px 0}
+    .lp-head{text-align:center;max-width:620px;margin:0 auto 38px}
+    .lp-head h2{font-size:30px;letter-spacing:-.6px;font-weight:820}
+    .lp-head p{color:var(--muted);margin-top:10px;font-size:16px}
+    .lp-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+    .lp-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;transition:.18s}
+    .lp-card:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(20,30,55,.10);border-color:transparent}
+    .lp-card .ic{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;font-size:20px;margin-bottom:14px}
+    .ic--a{background:rgba(227,61,72,.12);color:var(--red)} .ic--b{background:rgba(0,124,162,.12);color:var(--teal)}
+    .lp-tag{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;color:var(--teal-d);background:rgba(0,124,162,.10);padding:3px 9px;border-radius:999px;margin-bottom:10px}
+    .lp-card h3{font-size:17px;font-weight:750;margin-bottom:6px}
+    .lp-card p{color:var(--muted);font-size:14px}
+    .lp-band{background:linear-gradient(120deg,var(--teal),var(--red));border-radius:24px;padding:46px;text-align:center;color:#fff}
+    .lp-band h2{font-size:28px;font-weight:820;letter-spacing:-.5px}
+    .lp-band p{opacity:.92;margin:10px 0 22px;font-size:16px}
+    .lp-foot{border-top:1px solid var(--line);margin-top:60px;padding:30px 0;color:var(--muted);font-size:13px}
+    .lp-foot__in{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap}
+    .lp-foot__in .logos{display:flex;align-items:center;gap:14px}
+    .lp-foot__in .logos img{height:24px;opacity:.9}
+    @media(max-width:860px){.lp-hero__in{grid-template-columns:1fr;gap:32px;padding:48px 0}.lp-h1{font-size:36px}.lp-grid{grid-template-columns:1fr 1fr}.lp-panel{transform:none}}
+    @media(max-width:560px){.lp-grid{grid-template-columns:1fr}.lp-brands img{height:22px}.lp-h1{font-size:30px}}
+  </style>
+</head>
+<body>
 
-<div class="landing-hero">
-  <div class="landing-hero__inner text-center">
-
-    <div class="d-flex justify-content-center align-items-center">
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES" class="landing-hero__logo">
-    </div>
-
-    <h1 class="landing-hero__title mt-4">Bienvenido</h1>
-    <p class="landing-hero__subtitle">Accede con tu email y contraseña para entrar al backoffice.</p>
-
-    <div class="d-flex justify-content-center mt-4">
-      <a class="btn btn-primary btn-lg px-4" href="{{ url_for('admin_login') }}">
-        <i class="fa fa-right-to-bracket me-2"></i> Iniciar sesión
-      </a>
-    </div>
-
-    <div class="landing-hero__hint mt-4">
-      <span class="badge text-bg-light border">Acceso por roles</span>
-      <span class="text-muted ms-2">Espacio personalizado para cada usuario.</span>
-    </div>
-
+<header class="lp-nav"><div class="wrap lp-nav__in">
+  <div class="lp-brands">
+    <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+    <span class="lp-sep"></span>
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
   </div>
-</div>
+  <a class="lp-btn lp-btn--primary" href="{{ url_for('admin_login') }}">Acceder al back office <i class="fa fa-arrow-right"></i></a>
+</div></header>
 
-{% endblock %}
+<section class="lp-hero"><div class="wrap lp-hero__in">
+  <div>
+    <span class="lp-eyebrow"><span class="dot"></span> Plataforma interna de gestión</span>
+    <h1 class="lp-h1">Toda la música,<br><span class="grad">en una sola plataforma.</span></h1>
+    <p class="lp-lead">Conciertos, discográfica, promoción, invitaciones y administración de
+      <b>33 Producciones</b> y <b>Pies Records</b>, gestionado desde un único back office.</p>
+    <div class="lp-cta">
+      <a class="lp-btn lp-btn--primary lp-btn--lg" href="{{ url_for('admin_login') }}"><i class="fa fa-right-to-bracket"></i> Iniciar sesión</a>
+      <a class="lp-btn lp-btn--ghost lp-btn--lg" href="#areas">Conocer las áreas <i class="fa fa-arrow-down"></i></a>
+    </div>
+    <div class="lp-note"><span class="chip">Acceso por roles</span> Cada usuario ve solo lo que le corresponde.</div>
+  </div>
+
+  <div class="lp-panel">
+    <div class="lp-panel__top">
+      <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="">
+      <span class="lp-live"><span class="lp-pulse"></span> BACK OFFICE</span>
+    </div>
+    <div class="lp-rows">
+      <div class="lp-row"><i class="ic--a"><i class="fa fa-microphone"></i></i><div><div class="t">Conciertos y giras</div><div class="s">Eventos, ventas y liquidaciones</div></div></div>
+      <div class="lp-row"><i class="ic--b"><i class="fa fa-compact-disc"></i></i><div><div class="t">Discográfica</div><div class="s">Canciones, álbumes y royalties</div></div></div>
+      <div class="lp-row"><i class="ic--a"><i class="fa fa-tower-broadcast"></i></i><div><div class="t">Promoción y radio</div><div class="s">Spins, medios y campañas</div></div></div>
+    </div>
+    <div class="lp-bars"><i style="height:40%"></i><i style="height:65%"></i><i style="height:50%"></i><i style="height:80%"></i><i style="height:60%"></i><i style="height:95%"></i><i style="height:72%"></i><i style="height:88%"></i></div>
+  </div>
+</div></section>
+
+<section class="lp-sec" id="areas"><div class="wrap">
+  <div class="lp-head">
+    <h2>Una herramienta para cada parte del negocio</h2>
+    <p>Del directo al estudio, de la promoción a la administración: todo conectado.</p>
+  </div>
+  <div class="lp-grid">
+    <div class="lp-card"><div class="ic ic--a"><i class="fa fa-microphone-lines"></i></div><span class="lp-tag">Directo</span><h3>Conciertos y giras</h3><p>Eventos, ventas de entradas por ticketera, cachés, repartos y liquidaciones.</p></div>
+    <div class="lp-card"><div class="ic ic--b"><i class="fa fa-compact-disc"></i></div><span class="lp-tag">Sello</span><h3>Discográfica</h3><p>Canciones, álbumes, ISRC, royalties, editorial e ingresos por periodo.</p></div>
+    <div class="lp-card"><div class="ic ic--a"><i class="fa fa-tower-broadcast"></i></div><span class="lp-tag">Medios</span><h3>Promoción y radio</h3><p>Spins por emisora, medios y contactos, acciones de marketing y campañas.</p></div>
+    <div class="lp-card"><div class="ic ic--b"><i class="fa fa-ticket"></i></div><span class="lp-tag">Eventos</span><h3>Invitaciones</h3><p>Cupos por evento, compromisos, enlaces públicos y listas de acceso.</p></div>
+    <div class="lp-card"><div class="ic ic--a"><i class="fa fa-file-invoice-dollar"></i></div><span class="lp-tag">Finanzas</span><h3>Administración</h3><p>Bolsas de trabajo, gastos, facturas, cobros y liquidaciones.</p></div>
+    <div class="lp-card"><div class="ic ic--b"><i class="fa fa-folder-open"></i></div><span class="lp-tag">Datos</span><h3>Catálogos</h3><p>Artistas, recintos, promotores y empresas, centralizados y reutilizables.</p></div>
+  </div>
+</div></section>
+
+<section class="wrap"><div class="lp-band">
+  <h2>Entra y ponte al día</h2>
+  <p>Accede con tu email y contraseña. Tu espacio se adapta a tu rol.</p>
+  <a class="lp-btn lp-btn--white lp-btn--lg" href="{{ url_for('admin_login') }}">Acceder al back office <i class="fa fa-arrow-right"></i></a>
+</div></section>
+
+<footer class="lp-foot"><div class="wrap lp-foot__in">
+  <div class="logos">
+    <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
+  </div>
+  <div>© {{ CURRENT_YEAR or 2026 }} · 33 Producciones · Pies Records — Plataforma interna · Acceso por roles</div>
+</div></footer>
+
+</body>
+</html>

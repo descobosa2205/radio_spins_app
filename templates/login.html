@@ -1,43 +1,41 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="row justify-content-center">
-  <div class="col-md-6 col-lg-5">
-    <div class="card shadow-sm border-0">
-      <div class="card-body p-4 p-lg-5">
-        <div class="text-center mb-4">
-          <div class="d-flex justify-content-center align-items-center gap-3 flex-wrap mb-3">
-            {% if TT_PRODUCCIONES_LOGO_URL %}
-              <img src="{{ TT_PRODUCCIONES_LOGO_URL }}" style="height:50px;object-fit:contain;" alt="Treinta y Tres Producciones">
-            {% endif %}
-            <img src="{{ url_for('static', filename='img/logo.png') }}" style="height:60px;" alt="PIES" data-keep-logo="1">
-          </div>
-          <h4 class="mt-2 mb-1">Iniciar sesión</h4>
-          <div class="small text-muted">Accede con tu email y tu contraseña del Back Office.</div>
+<div class="auth-wrap">
+  <div class="auth-card card border-0">
+    <div class="card-body p-4 p-lg-5">
+      <div class="text-center mb-4">
+        <div class="auth-logos mb-3">
+          <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones" class="auth-logo">
+          <span class="auth-sep"></span>
+          <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records" class="auth-logo">
         </div>
-        <form method="post" action="{{ url_for('admin_login') }}">
-          <input type="hidden" name="next" value="{{ next_url or '' }}">
-          <div class="mb-3">
-            <label class="form-label">Email</label>
-            <input name="email" type="email" class="form-control form-control-lg" required placeholder="tu@email.com">
-          </div>
-          <div class="mb-2">
-            <label class="form-label">Contraseña</label>
-            <input name="password" type="password" class="form-control form-control-lg" required placeholder="Tu contraseña">
-          </div>
-          <div class="text-end mb-3">
-            <a href="{{ url_for('password_forgot') }}" class="small text-decoration-none">He olvidado mi contraseña</a>
-          </div>
-          <div class="d-grid">
-            <button class="btn btn-primary btn-lg">Entrar</button>
-          </div>
-        </form>
+        <span class="auth-eyebrow"><i class="fa fa-lock me-1"></i> Back office</span>
+        <h1 class="auth-title mt-2 mb-1">Iniciar sesión</h1>
+        <div class="text-muted small">Accede con tu email y tu contraseña.</div>
       </div>
+      <form method="post" action="{{ url_for('admin_login') }}">
+        <input type="hidden" name="next" value="{{ next_url or '' }}">
+        <div class="mb-3">
+          <label class="form-label">Email</label>
+          <input name="email" type="email" class="form-control form-control-lg" required placeholder="tu@email.com">
+        </div>
+        <div class="mb-2">
+          <label class="form-label">Contraseña</label>
+          <input name="password" type="password" class="form-control form-control-lg" required placeholder="Tu contraseña">
+        </div>
+        <div class="text-end mb-3">
+          <a href="{{ url_for('password_forgot') }}" class="small text-decoration-none">He olvidado mi contraseña</a>
+        </div>
+        <div class="d-grid">
+          <button class="btn btn-primary btn-lg"><i class="fa fa-right-to-bracket me-2"></i> Entrar</button>
+        </div>
+      </form>
     </div>
-    <div class="text-center mt-3">
-      <a href="{{ url_for('landing') }}" class="text-decoration-none">
-        <i class="fa fa-arrow-left me-1"></i> Volver
-      </a>
-    </div>
+  </div>
+  <div class="text-center mt-3">
+    <a href="{{ url_for('landing') }}" class="text-decoration-none text-muted">
+      <i class="fa fa-arrow-left me-1"></i> Volver al inicio
+    </a>
   </div>
 </div>
 {% endblock %}

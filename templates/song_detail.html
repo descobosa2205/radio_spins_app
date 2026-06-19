@@ -149,7 +149,7 @@
 
     <!-- Barra de estados -->
     {% set has_collabs = (song.display_collaborator or song.collaborator or '')|trim != '' %}
-    <div class="song-status-bar mt-3">
+    <div class="song-status-bar mt-3" id="songStatusBar" data-inline-zone>
       <div class="d-flex flex-wrap gap-2 align-items-center">
 
         <!-- Portada (automático) -->
@@ -176,7 +176,7 @@
         <!-- Contrato colaboración (solo si hay colaboradores) -->
         {% if has_collabs %}
           {% if CAN_EDIT_DISCOGRAFICA %}
-            <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+            <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0" data-inline data-inline-target="#songStatusBar">
               <input type="hidden" name="key" value="collaboration_contract">
               <input type="hidden" name="next" value="{{ request.full_path }}">
               <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
@@ -196,7 +196,7 @@
 
         <!-- AGEDI -->
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0" data-inline data-inline-target="#songStatusBar">
             <input type="hidden" name="key" value="agedi">
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
@@ -215,7 +215,7 @@
 
         <!-- SGAE -->
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0" data-inline data-inline-target="#songStatusBar">
             <input type="hidden" name="key" value="sgae">
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
@@ -234,7 +234,7 @@
 
         <!-- RITMONET -->
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0" data-inline data-inline-target="#songStatusBar">
             <input type="hidden" name="key" value="ritmonet">
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
@@ -253,7 +253,7 @@
 
         <!-- Distribuida -->
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_song_status_toggle', song_id=song.id) }}" class="m-0" data-inline data-inline-target="#songStatusBar">
             <input type="hidden" name="key" value="distributed">
             <input type="hidden" name="next" value="{{ request.full_path }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"

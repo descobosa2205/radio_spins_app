@@ -34,7 +34,7 @@ function initSelect2(){
         const flag = $(data.element).data('flag') || '';
         return $(`<span><span class="select2-country-flag">${flag}</span>${data.text}</span>`);
       }
-      const photo = $(data.element).data('photo');
+      const photo = $(data.element).data('photo') || $(data.element).data('logo');
       const imgClass = isSquare ? 'thumb thumb-square' : 'thumb';
       const placeholder = isSquare ? `<span class="me-2"><i class="fa fa-ticket"></i></span>` : `<span class="me-2"><i class="fa fa-user-circle"></i></span>`;
       const img = photo ? `<img class="${imgClass}" src="${photo}" />` : placeholder;

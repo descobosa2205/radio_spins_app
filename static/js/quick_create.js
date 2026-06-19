@@ -14,7 +14,7 @@
     if (f) f.innerHTML = html || '';
   }
 
-  function selectInTarget(targetId, id, label) {
+  function selectInTarget(targetId, id, label, logo) {
     var sel = document.getElementById(targetId);
     if (!sel || !id) return;
     if (sel.tagName === 'SELECT') {
@@ -27,6 +27,7 @@
       } else {
         opt.textContent = label;
       }
+      if (logo) { opt.setAttribute('data-photo', logo); }
       sel.value = id;
       if (window.jQuery && jQuery.fn.select2 && jQuery(sel).hasClass('select2-hidden-accessible')) {
         jQuery(sel).trigger('change');
@@ -77,7 +78,7 @@
           return;
         }
         var label = data.label || data.text || data.name || data.nick || '';
-        selectInTarget(targetId, data.id, label);
+        selectInTarget(targetId, data.id, label, data.logo_url || data.photo_url || '');
         if (modalEl && window.bootstrap) bootstrap.Modal.getInstance(modalEl).hide();
       })
       .catch(function () {

@@ -24945,7 +24945,7 @@ def _build_access_resources_from_app() -> list[dict]:
     dynamic_sort = 1000
     for rule in app.url_map.iter_rules():
         endpoint = (rule.endpoint or "").strip()
-        if not endpoint or endpoint in known or endpoint in {"static", "landing", "admin_login", "admin_logout"}:
+        if not endpoint or endpoint in known or endpoint in {"static", "landing", "admin_login", "admin_logout", "personnel_bulk_access"}:
             continue
         if endpoint.startswith("public_") or endpoint in PUBLIC_ENDPOINTS_EXTRA:
             continue
@@ -25164,6 +25164,43 @@ def _descendant_keys(key: str) -> list[str]:
     return out
 
 
+def _resource_has_children(key: str) -> bool:
+    return bool(_ACCESS_CHILDREN.get(key))
+
+
+def _coherent_grant_values(resource, *, view: bool, econ: bool, edit: bool) -> tuple[bool, bool, bool]:
+    """Normaliza un grant para que NUNCA tenga contradicciones de permisos.
+
+    Reglas de coherencia:
+    - Recursos contenedor (con pestañas hijas): su acceso se DERIVA de las hijas
+      (el enforcement usa include_descendants), por lo que su grant propio queda en
+      False. Así, activar una sección es solo un atajo sobre sus pestañas y las
+      funcionalidades nuevas entran siempre desactivadas.
+    - "Ver datos económicos" solo aplica si el recurso tiene datos económicos.
+    - Editar ⟹ Ver;  Ver económico ⟹ Ver;  sin Ver ⟹ nada.
+    - Editar un recurso con datos económicos ⟹ poder verlos (para poder ejecutarlo).
+    """
+    if _resource_has_children(resource.key):
+        return (False, False, False)
+    economic = bool(getattr(resource, "economic_capable", False))
+    edit = bool(edit)
+    econ = bool(econ) and economic
+    view = bool(view) or edit or econ
+    if not view:
+        return (False, False, False)
+    if edit and economic:
+        econ = True
+    return (view, econ, edit)
+
+
+def _leaf_keys_under(key: str) -> list[str]:
+    """Devuelve las hojas (recursos sin hijos) bajo un recurso; el propio si ya es hoja."""
+    leaves = [k for k in _descendant_keys(key) if not _resource_has_children(k)]
+    if not leaves and not _resource_has_children(key):
+        return [key]
+    return leaves
+
+
 def _grant_matches(grant: dict | None, *, edit: bool = False, econ: bool = False) -> bool:
     if not grant:
         return False
@@ -25323,7 +25360,7 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.conciertos"
     if endpoint == "quadrantes_view":
         return "contratacion.cuadrantes"
-    if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view"}:
+    if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
             if admin_tab in {"pendiente", "liquidaciones", "pagos", "cobros", "embargos"}:
@@ -25338,6 +25375,7 @@ def _resolve_request_resource_key() -> str | None:
             "contabilidad_view": "contabilidad",
             "personnel_view": "personal.usuarios",
             "personnel_detail_view": "personal.usuarios.accesos",
+            "personnel_bulk_access": "personal.usuarios.accesos",
         }
         return mapping.get(endpoint)
     if endpoint.startswith("action_") or endpoint.startswith("acciones_"):
@@ -28976,6 +29014,8 @@ def personnel_detail_view(user_id):
                 flash("Usuario actualizado.", "success")
                 return redirect(url_for("personnel_detail_view", user_id=user.id, tab="datos"))
             if mode == "accesos":
+                if not is_master():
+                    return forbid("Solo dirección puede modificar los accesos del personal.")
                 grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all()}
                 resources = session_db.query(UserAccessResource).order_by(UserAccessResource.sort_order.asc(), UserAccessResource.label.asc()).all()
                 for resource in resources:
@@ -28983,16 +29023,12 @@ def personnel_detail_view(user_id):
                     if not grant:
                         grant = UserAccessGrant(user_id=user.id, resource_key=resource.key)
                         session_db.add(grant)
-                    view_basic = request.form.get(f"perm__{resource.key}__view") == "1"
-                    view_econ = bool(resource.economic_capable) and request.form.get(f"perm__{resource.key}__econ") == "1"
-                    can_edit_flag = request.form.get(f"perm__{resource.key}__edit") == "1"
-                    if can_edit_flag:
-                        view_basic = True
-                        if resource.economic_capable:
-                            view_econ = True
-                    grant.can_view_basic = view_basic
-                    grant.can_view_econ = view_econ
-                    grant.can_edit = can_edit_flag
+                    grant.can_view_basic, grant.can_view_econ, grant.can_edit = _coherent_grant_values(
+                        resource,
+                        view=request.form.get(f"perm__{resource.key}__view") == "1",
+                        econ=request.form.get(f"perm__{resource.key}__econ") == "1",
+                        edit=request.form.get(f"perm__{resource.key}__edit") == "1",
+                    )
                 session_db.commit()
                 flash("Accesos actualizados.", "success")
                 return redirect(url_for("personnel_detail_view", user_id=user.id, tab="accesos"))
@@ -29011,7 +29047,79 @@ def personnel_detail_view(user_id):
             grants=grants,
             artists=artists,
             assigned_artist_ids=assigned_artist_ids,
+            container_keys=set(_ACCESS_CHILDREN.keys()),
+            target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
         )
+    finally:
+        session_db.close()
+
+
+BULK_ACCESS_OPERATIONS = {
+    "view": (True, False, False),
+    "view_edit": (True, False, True),
+    "view_econ": (True, True, False),
+    "full": (True, True, True),
+    "remove": (False, False, False),
+}
+
+
+@app.route("/personal/accesos-bloque", methods=["GET", "POST"], endpoint="personnel_bulk_access")
+@admin_required
+def personnel_bulk_access():
+    # Solo dirección (rol master) puede configurar accesos en bloque.
+    if not is_master():
+        return forbid("Solo dirección puede configurar accesos del personal.")
+    session_db = db()
+    try:
+        if request.method == "POST":
+            user_ids = [to_uuid(x) for x in request.form.getlist("user_ids") if (x or "").strip()]
+            section_keys = [x for x in request.form.getlist("section_keys") if (x or "").strip()]
+            operation = (request.form.get("operation") or "").strip().lower()
+            if not user_ids or not section_keys or operation not in BULK_ACCESS_OPERATIONS:
+                flash("Selecciona al menos un trabajador, una sección y una operación.", "warning")
+                return redirect(url_for("personnel_bulk_access"))
+            # Hojas afectadas (pestañas/funcionalidades reales) de las secciones elegidas.
+            leaf_keys = []
+            for sk in section_keys:
+                leaf_keys.extend(_leaf_keys_under(sk))
+            leaf_keys = list(dict.fromkeys(leaf_keys))
+            res_map = {r.key: r for r in session_db.query(UserAccessResource).filter(UserAccessResource.key.in_(leaf_keys)).all()}
+            target_view, target_econ, target_edit = BULK_ACCESS_OPERATIONS[operation]
+            applied = 0
+            for uid in user_ids:
+                target = session_db.get(User, uid)
+                if not target or int(getattr(target, "role", 0) or 0) == 10:
+                    continue  # nunca tocar a dirección
+                grants = {g.resource_key: g for g in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == uid).all()}
+                for lk in leaf_keys:
+                    resource = res_map.get(lk)
+                    if not resource:
+                        continue
+                    grant = grants.get(lk)
+                    if not grant:
+                        grant = UserAccessGrant(user_id=uid, resource_key=lk)
+                        session_db.add(grant)
+                    grant.can_view_basic, grant.can_view_econ, grant.can_edit = _coherent_grant_values(
+                        resource, view=target_view, econ=target_econ, edit=target_edit
+                    )
+                applied += 1
+            session_db.commit()
+            flash(f"Accesos aplicados a {applied} trabajador(es).", "success")
+            return redirect(url_for("personnel_bulk_access"))
+
+        rows = (
+            session_db.query(User, UserProfile, UserSecurity)
+            .outerjoin(UserProfile, UserProfile.user_id == User.id)
+            .outerjoin(UserSecurity, UserSecurity.user_id == User.id)
+            .all()
+        )
+        users = [
+            (u, p, s) for (u, p, s) in rows
+            if not (s and getattr(s, "is_deleted", False)) and int(getattr(u, "role", 0) or 0) != 10
+        ]
+        users.sort(key=lambda t: ((t[1].nick if t[1] and t[1].nick else t[0].email) or "").lower())
+        access_rows = _build_personnel_access_rows()
+        return render_template("personnel_bulk.html", users=users, access_rows=access_rows)
     finally:
         session_db.close()
 

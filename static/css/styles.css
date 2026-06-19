@@ -958,3 +958,46 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
   letter-spacing:.4px; text-transform:uppercase; color:var(--brand-accent-d);
   background:rgba(0,124,162,.10); padding:5px 12px; border-radius:999px; }
 .auth-title{ font-weight:820; letter-spacing:-.3px; }
+
+/* =========================================================
+   Accesos del personal (permisos por sección/pestaña)
+   ========================================================= */
+.acc-toolbar{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+.acc-search{ flex:1; min-width:200px; position:relative; }
+.acc-search input{ width:100%; border:1px solid var(--line-2); border-radius:11px; padding:10px 14px 10px 36px; }
+.acc-search .fa{ position:absolute; left:13px; top:12px; color:var(--muted-2); }
+.acc-legend{ display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:var(--muted-2); margin:0 2px 12px; }
+.acc-legend i.dot{ display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:5px; vertical-align:-1px; }
+.acc-sec{ background:#fff; border:1px solid var(--line-2); border-radius:14px; margin-bottom:12px; box-shadow:var(--shadow-sm-2); overflow:hidden; }
+.acc-sec__head{ display:flex; align-items:center; gap:12px; padding:13px 16px; cursor:pointer; user-select:none; }
+.acc-sec__head:hover{ background:#fafbfd; }
+.acc-chev{ transition:transform .2s; color:var(--muted-2); width:14px; text-align:center; }
+.acc-sec.open .acc-chev{ transform:rotate(90deg); }
+.acc-sec__ic{ width:38px; height:38px; border-radius:11px; display:grid; place-items:center; font-size:16px; background:rgba(0,124,162,.10); color:var(--brand-accent); }
+.acc-sec__name{ font-weight:700; }
+.acc-sec__count{ font-size:12px; color:var(--muted-2); }
+.acc-sec__masters{ margin-left:auto; display:flex; gap:14px; align-items:center; }
+.acc-sec__body{ display:none; border-top:1px solid var(--line-2); padding:4px 16px 12px; }
+.acc-sec.open .acc-sec__body{ display:block; }
+.acc-row{ display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; padding:9px 4px; border-bottom:1px dashed var(--line-2); }
+.acc-row:last-child{ border-bottom:0; }
+.acc-row.sub .acc-rl{ padding-left:18px; }
+.acc-row.head .acc-rl{ font-size:11px; text-transform:uppercase; letter-spacing:.3px; color:var(--muted-2); }
+.acc-rl{ font-size:14px; font-weight:600; }
+.acc-rl .tagn{ font-size:10px; font-weight:700; color:var(--amber,#E0922F); background:rgba(224,146,47,.13); padding:1px 7px; border-radius:999px; margin-left:8px; text-transform:uppercase; }
+.acc-grouphdr{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; color:var(--muted-2); padding:10px 4px 4px; }
+.acc-perms{ display:flex; gap:14px; align-items:center; }
+.acc-perm{ width:52px; display:flex; justify-content:center; }
+.acc-mlab{ font-size:9.5px; color:var(--muted-2); font-weight:700; text-transform:uppercase; text-align:center; width:52px; }
+.acc-na{ color:#c2c9d4; text-align:center; width:40px; }
+.sw{ position:relative; width:40px; height:23px; flex:0 0 auto; display:inline-block; }
+.sw input{ opacity:0; width:0; height:0; position:absolute; }
+.sw .tr{ position:absolute; inset:0; background:#cfd6e0; border-radius:999px; transition:.18s; cursor:pointer; }
+.sw .tr::before{ content:""; position:absolute; width:17px; height:17px; left:3px; top:3px; background:#fff; border-radius:50%; transition:.18s; box-shadow:0 1px 2px rgba(0,0,0,.25); }
+.sw input:checked + .tr::before{ transform:translateX(17px); }
+.sw.view input:checked + .tr{ background:var(--brand-accent); }
+.sw.econ input:checked + .tr{ background:var(--amber,#E0922F); }
+.sw.edit input:checked + .tr{ background:var(--brand-primary); }
+.sw input:disabled + .tr{ opacity:.4; cursor:not-allowed; background:#e5e9f0; }
+.sw input:indeterminate + .tr{ background:linear-gradient(90deg,var(--brand-accent) 50%,#cfd6e0 50%); }
+.acc-note{ font-size:12.5px; color:var(--muted-2); margin-top:14px; padding:10px 12px; background:#fff; border:1px dashed var(--line-2); border-radius:10px; }

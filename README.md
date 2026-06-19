@@ -276,6 +276,32 @@ cambios de backend.
   resaltado), dashboard (hero con degradado sutil, tiles e iconos con color de marca, métricas
   destacadas) y foco de formularios en color de marca. Se aplica de forma uniforme a toda la app.
 
+### Rediseño del sistema de accesos del personal
+
+Permisos por **sección → pestaña → funcionalidad**, cada uno con **Ver / Ver datos económicos /
+Editar**. **No requiere migración**: usa las tablas existentes `user_access_resources` y
+`user_access_grants`.
+
+- **Coherencia garantizada** (`_coherent_grant_values` en `app.py`): editar ⟹ ver; ver económico ⟹
+  ver; sin ver ⟹ nada; editar algo económico ⟹ poder verlo; el económico solo donde hay datos
+  económicos. Los recursos **contenedor** (secciones/pestañas con hijos) derivan su acceso de sus
+  hijos (el enforcement usa `include_descendants`), por lo que activar una sección es un **atajo**
+  sobre sus pestañas y **las funcionalidades nuevas entran siempre desactivadas**.
+- **Solo dirección (role 10)** ve y edita los accesos; dirección tiene **acceso total automático** y
+  sus permisos no se configuran.
+- **UI nueva** (`templates/personnel_detail.html`): tarjetas plegables por sección con interruptores
+  de color (Ver / € / Editar), interruptor maestro por sección, contador de accesos, buscador,
+  acciones rápidas y **coherencia en vivo** (JS).
+- **Configuración en bloque** (`/personal/accesos-bloque`, endpoint `personnel_bulk_access`,
+  `templates/personnel_bulk.html`): seleccionar varios trabajadores + secciones y aplicar una
+  operación (solo ver / ver+editar / ver+económico / completo / quitar). Solo dirección; nunca
+  modifica a usuarios de dirección.
+- **Auto-actualización**: el sistema descubre las funcionalidades nuevas y las añade desactivadas
+  para todos; la pantalla de bloque se excluye del catálogo (no es un permiso configurable).
+
+> Nota: el catálogo arrastra algunas entradas auto-generadas heredadas del sistema previo; si en uso
+> resultan redundantes, se pueden depurar en un pulido posterior (no afectan al funcionamiento).
+
 ---
 
 ## 9. Pendientes y auditoría

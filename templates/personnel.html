@@ -5,9 +5,14 @@
     <h3 class="m-0">Personal</h3>
     <div class="text-muted">Gestión de usuarios, departamentos y accesos del Back Office.</div>
   </div>
-  <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
-    <i class="fa fa-plus me-1"></i> Añadir usuario
-  </button>
+  <div class="d-flex gap-2 flex-wrap">
+    {% if IS_MASTER %}
+    <a class="btn btn-outline-primary" href="{{ url_for('personnel_bulk_access') }}"><i class="fa fa-users-gear me-1"></i> Accesos en bloque</a>
+    {% endif %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newUserModal">
+      <i class="fa fa-plus me-1"></i> Añadir usuario
+    </button>
+  </div>
 </div>
 
 <div class="row g-3">

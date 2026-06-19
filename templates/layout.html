@@ -148,14 +148,17 @@
 <script>
 (function(){
   var overlay=document.getElementById('globalLoader'); if(!overlay) return;
-  var timer=null, safety=null;
-  function show(){
-    if(timer||overlay.classList.contains('show')) return;
-    timer=setTimeout(function(){ overlay.classList.add('show'); timer=null; }, 150); // evita parpadeo en cargas instantáneas
-    clearTimeout(safety); safety=setTimeout(hide, 12000); // fallback de seguridad
-  }
-  function hide(){ if(timer){clearTimeout(timer);timer=null;} clearTimeout(safety); overlay.classList.remove('show'); }
-  var DOWNLOAD_RE=/\.(pdf|zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
+  var navSafety=null;
+  function show(){ overlay.classList.add('show'); }
+  function hide(){ overlay.classList.remove('show'); }
+  function showForNav(){ show(); clearTimeout(navSafety); navSafety=setTimeout(hide, 15000); } // fallback por si la navegación no llega
+  window.appLoader={ show:show, hide:hide };  // para mostrarlo manualmente desde cualquier script
+
+  // Descargas directas por extensión (no son "carga de página"); el PDF por fetch SÍ se cubre abajo.
+  var DOWNLOAD_RE=/\.(zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
+
+  // Navegación por enlaces internos: se muestra INMEDIATO (síncrono), clave para que Safari lo pinte
+  // antes de congelar el JS al iniciar la navegación.
   document.addEventListener('click', function(e){
     var a=e.target.closest('a'); if(!a) return;
     var href=a.getAttribute('href')||'';
@@ -165,14 +168,26 @@
     if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0) return;
     if(a.host && a.host!==location.host) return;          // enlaces externos
     if(DOWNLOAD_RE.test(href)) return;                    // descargas directas
-    show();
+    showForNav();
   }, true);
   document.addEventListener('submit', function(e){
     var f=e.target; if(!f) return;
     if(f.hasAttribute('data-no-loader')||f.getAttribute('target')==='_blank'||f.classList.contains('no-loader')) return;
-    show();
+    showForNav();
   }, true);
   window.addEventListener('pageshow', hide);   // oculta al cargar la página o al volver atrás (bfcache)
+
+  // Acciones AJAX (fetch) que tardan, p. ej. "Generar liquidación": muestra el loader si la petición
+  // supera ~300 ms (así las llamadas rápidas de autocompletado no lo activan).
+  if(window.fetch){
+    var _fetch=window.fetch, active=0, t=null;
+    window.fetch=function(){
+      active++;
+      if(!t) t=setTimeout(function(){ t=null; if(active>0) show(); }, 300);
+      function done(){ active=Math.max(0,active-1); if(active===0){ if(t){clearTimeout(t);t=null;} hide(); } }
+      return _fetch.apply(this, arguments).then(function(r){ done(); return r; }, function(err){ done(); throw err; });
+    };
+  }
 })();
 </script>
 {% block scripts %}{% endblock %}

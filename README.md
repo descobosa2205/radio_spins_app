@@ -330,6 +330,17 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
    Con más RAM, subir `WEB_CONCURRENCY` (workers) a 2-4.
 4. (Opcional) **Compute add-on** en Supabase si la BD va justa de CPU/RAM.
 
+### Rediseño de interfaz — Fase 2 (toda la web)
+
+- **Estética global por CSS** (`static/css/styles.css`): se estilizan de forma unificada los
+  componentes comunes de Bootstrap que usan todas las pantallas — **tablas** (cabeceras sutiles,
+  filas con hover, líneas suaves), **pestañas** (`nav-tabs` con subrayado de marca), **listas**,
+  **desplegables**, **formularios** (etiquetas y foco) y **badges**. Así toda la web adopta el
+  estilo sin reescribir las ~76 plantillas una a una.
+- **Limpieza de subtítulos descriptivos**: se eliminan los textos genéricos bajo los títulos de
+  sección (p. ej. *"Control de pendientes, liquidaciones, pagos, cobros y embargos."*) que no
+  aportan información. Se conservan las ayudas de formulario y los textos con datos.
+
 ---
 
 ## 9. Pendientes y auditoría

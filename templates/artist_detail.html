@@ -33,7 +33,6 @@
 
     <div class="flex-grow-1">
       <h3 class="m-0">{{ artist.name }}</h3>
-      <div class="small text-muted">Ficha del artista</div>
       <div class="d-flex align-items-center gap-2 flex-wrap mt-2 artist-social-strip">
         {% for link in social_links_display or [] %}
           <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}">

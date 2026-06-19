@@ -1015,3 +1015,59 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
   animation:glspin .7s linear infinite; }
 @keyframes glspin{ to{ transform:rotate(360deg); } }
 #globalLoader .gl-text{ font-weight:700; color:var(--brand-accent-d); font-size:14px; letter-spacing:.3px; }
+
+/* =========================================================
+   Fase 2 — estética global de componentes (toda la web)
+   ========================================================= */
+
+/* Tablas: cabeceras sutiles, filas con hover, líneas suaves */
+.table { --bs-table-bg: transparent; margin-bottom: 0; }
+.table > thead th,
+.table > thead td {
+  font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px;
+  font-weight: 700; color: var(--muted-2);
+  background: #f7f9fc; border-bottom: 1px solid var(--line-2); border-top: 0;
+  white-space: nowrap;
+}
+.table > tbody > tr { border-color: var(--line-2); }
+.table > tbody > tr > td { vertical-align: middle; }
+.table-hover > tbody > tr:hover > * { background: rgba(0,124,162,.045); }
+.table-responsive { border-radius: 12px; }
+
+/* Pestañas internas: estilo "subrayado" con color de marca */
+.nav-tabs { border-bottom: 2px solid var(--line-2); gap: 2px; }
+.nav-tabs .nav-link {
+  border: 0; border-bottom: 2px solid transparent; margin-bottom: -2px;
+  color: var(--muted-2); font-weight: 600; border-radius: 9px 9px 0 0; padding: .55rem .95rem;
+}
+.nav-tabs .nav-link:hover { color: var(--brand-primary); background: rgba(227,61,72,.05); border-color: transparent; }
+.nav-tabs .nav-link.active {
+  color: var(--brand-primary); background: transparent;
+  border-bottom: 2px solid var(--brand-primary);
+}
+
+/* Pills (botones-pestaña tipo enlace) */
+.nav-pills .nav-link.active { background: var(--brand-primary); }
+
+/* Listas */
+.list-group-item { border-color: var(--line-2); }
+.list-group-item-action:hover { background: rgba(0,124,162,.04); }
+
+/* Dropdowns */
+.dropdown-menu { border: 1px solid var(--line-2); border-radius: 12px; box-shadow: var(--shadow-md-2); padding: 6px; }
+.dropdown-item { border-radius: 8px; padding: .5rem .7rem; font-weight: 500; }
+.dropdown-item.text-danger:hover { background: rgba(227,61,72,.08); color: var(--brand-primary) !important; }
+
+/* Formularios: etiquetas y ayudas más claras */
+.form-label { font-weight: 600; font-size: 13.5px; color: #39414f; margin-bottom: .3rem; }
+.form-control, .form-select { border-color: var(--line-2); border-radius: 10px; }
+.form-text { color: var(--faint, #6b7382); }
+.input-group-text { background: #f7f9fc; border-color: var(--line-2); }
+
+/* Cabecera de página unificada (para secciones que la adopten) */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
+.page-head h1, .page-head h2, .page-head h3 { margin: 0; font-weight: 820; letter-spacing: -.4px; }
+
+/* Badges un poco más redondeados */
+.badge { border-radius: 7px; font-weight: 600; }
+.badge.rounded-pill { border-radius: 999px; }

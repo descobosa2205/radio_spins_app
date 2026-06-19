@@ -61,8 +61,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   deja la entidad seleccionada sin recargar y gestiona duplicados.
 - **Loader global**: `#globalLoader` en `layout.html`; aparece al navegar, enviar formularios o en
   `fetch` >300 ms. Excluir con clase/atributo `no-loader`/`data-no-loader`.
-- **Cambios de estado in-place**: objetivo migrar los `POST`+redirect a AJAX (devolver JSON y
-  actualizar el DOM). Referencia ya AJAX: `concert_quick_status`, `setRoyaltyLiquidationStatus`.
+- **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
+  `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
+  cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`
+  (un elemento con `id` + `data-inline-zone` que contiene el form y el badge que cambia), sin recargar
+  ni mover el scroll; si no localiza la zona, hace recarga normal (fallback seguro). NO usarlo en
+  borrados ni acciones que navegan a otra página. Ya AJAX nativo aparte: `concert_quick_status`,
+  `setRoyaltyLiquidationStatus`.
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

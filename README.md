@@ -352,6 +352,10 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
   al nombre (`initSelect2` + `data-photo`/`data-logo`). Activar en un select: añadir la clase
   `select-providers` / `select-venues` / `select-with-thumbs` / `select-artists` y
   `data-photo="{{ X.logo_url or X.photo_url }}"` a sus opciones.
+- **Cambios de estado in-place (sin recargar)** (`static/js/ajax_inline.js`): un formulario de cambio
+  de estado marcado con `data-inline` + `data-inline-target="#zonaId"` se envía por fetch y solo
+  refresca esa zona (badge/estado), sin recargar ni mover el scroll. Los endpoints no cambian (siguen
+  `POST`+redirect); si la zona no se localiza, recarga normal como red de seguridad.
 
 ---
 

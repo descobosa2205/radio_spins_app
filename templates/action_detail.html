@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap" id="actionStatusBar" data-inline-zone>
   <div class="d-flex gap-3 align-items-center">
     <img src="{{ display.artist_photo_url }}" alt="" style="width:82px;height:82px;border-radius:50%;object-fit:cover;">
     <div>
@@ -14,7 +14,7 @@
   </div>
   <div class="d-flex gap-2 flex-wrap">
     <a class="btn btn-outline-secondary" href="{{ url_for('acciones_view', tab='acciones') }}">Volver</a>
-    <form method="post" class="d-flex gap-2">
+    <form method="post" class="d-flex gap-2" data-inline data-inline-target="#actionStatusBar">
       <input type="hidden" name="form_action" value="status">
       <select name="status" class="form-select">
         <option value="RESERVA" {% if display.status == 'RESERVA' %}selected{% endif %}>Reserva de confirmar</option>

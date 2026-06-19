@@ -136,7 +136,7 @@
       </div>
     </div>
 
-    <div class="song-status-bar mb-3">
+    <div class="song-status-bar mb-3" id="albumStatusBar" data-inline-zone>
       <div class="d-flex flex-wrap gap-2 align-items-center">
         <span class="song-status-item" data-bs-toggle="tooltip"
               title="{% if album_status and album_status.cover_updated_at %}{{ album_status.cover_updated_at.strftime('%d/%m/%Y') }}{% elif album_materials_status and album_materials_status.last_cover_at %}{{ album_materials_status.last_cover_at.strftime('%d/%m/%Y') }}{% else %}Pendiente{% endif %}">
@@ -152,7 +152,7 @@
 
 
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0" data-inline data-inline-target="#albumStatusBar">
             <input type="hidden" name="key" value="agedi">
             <input type="hidden" name="next" value="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion') }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"
@@ -170,7 +170,7 @@
         {% endif %}
 
         {% if CAN_EDIT_DISCOGRAFICA %}
-          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0">
+          <form method="post" action="{{ url_for('discografica_album_status_toggle', album_id=album.id) }}" class="m-0" data-inline data-inline-target="#albumStatusBar">
             <input type="hidden" name="key" value="distributed">
             <input type="hidden" name="next" value="{{ url_for('discografica_album_detail', album_id=album.id, tab='informacion') }}">
             <button class="btn btn-link p-0 song-status-item" type="submit" data-bs-toggle="tooltip"

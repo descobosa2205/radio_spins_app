@@ -151,12 +151,12 @@
           </div>
           <div class="row g-3 mt-1">
             {% for item in author.songs %}
-              <div class="col-12 col-lg-6 registros-song-col">{{ registro_media_card(item, '') }}
+              <div class="col-12 col-lg-6 registros-song-col" id="reg-sgae-{{ author.id }}-{{ item.item_id }}" data-inline-zone>{{ registro_media_card(item, '') }}
                 <div class="d-flex justify-content-end pe-3 pb-3">
                   {% if item.sgae_done %}
                     <span class="badge text-bg-success">Registrado</span>
                   {% else %}
-                    <form method="post" action="{{ item.sgae_register_url }}">
+                    <form method="post" action="{{ item.sgae_register_url }}" data-inline data-inline-target="#reg-sgae-{{ author.id }}-{{ item.item_id }}">
                       <input type="hidden" name="next" value="{{ url_for('registros_view', tab='sgae') }}">
                       <button class="badge text-bg-warning text-dark border-0">Pendiente de registro</button>
                     </form>

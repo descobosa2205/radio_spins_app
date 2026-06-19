@@ -36,7 +36,7 @@
           <div class="card-header bg-white"><strong>Solicitudes de pago inmediato</strong></div>
           <div class="card-body p-0">
             {% for expense in payment_requests %}
-              <div class="p-3 border-bottom">
+              <div class="p-3 border-bottom" id="admin-payreq-{{ expense.id }}" data-inline-zone>
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
@@ -47,8 +47,8 @@
                   </div>
                   <div class="d-flex flex-column gap-2" style="min-width:280px;">
                     {% if expense.attachment_url %}<a class="btn btn-sm btn-outline-secondary" href="{{ expense.attachment_url }}" target="_blank">Ver factura/ticket</a>{% endif %}
-                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='ACCEPT') }}" class="d-flex gap-1"><input class="form-control form-control-sm" name="note" placeholder="Nota opcional"><button class="btn btn-sm btn-success">Aceptar</button></form>
-                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='REJECT') }}" class="d-flex gap-1"><input class="form-control form-control-sm" name="note" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='ACCEPT') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-payreq-{{ expense.id }}"><input class="form-control form-control-sm" name="note" placeholder="Nota opcional"><button class="btn btn-sm btn-success">Aceptar</button></form>
+                    <form method="post" action="{{ url_for('administration_payment_request_decision', expense_id=expense.id, decision='REJECT') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-payreq-{{ expense.id }}"><input class="form-control form-control-sm" name="note" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
                   </div>
                 </div>
               </div>
@@ -61,7 +61,7 @@
           <div class="card-header bg-white"><strong>Solicitudes sin factura/ticket</strong></div>
           <div class="card-body p-0">
             {% for expense in pending_no_invoice %}
-              <div class="p-3 border-bottom">
+              <div class="p-3 border-bottom" id="admin-noinv-{{ expense.id }}" data-inline-zone>
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
@@ -70,8 +70,8 @@
                     <span class="badge text-bg-warning mt-2">Sin factura</span>
                   </div>
                   <div class="d-flex flex-column gap-2" style="min-width:280px;">
-                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='approve') }}"><button class="btn btn-sm btn-success w-100">Aceptar sin factura</button></form>
-                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='reject') }}" class="d-flex gap-1"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
+                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='approve') }}" data-inline data-inline-target="#admin-noinv-{{ expense.id }}"><button class="btn btn-sm btn-success w-100">Aceptar sin factura</button></form>
+                    <form method="post" action="{{ url_for('administration_no_invoice_decision', expense_id=expense.id, decision='reject') }}" class="d-flex gap-1" data-inline data-inline-target="#admin-noinv-{{ expense.id }}"><input type="text" name="reason" class="form-control form-control-sm" placeholder="Motivo rechazo" required><button class="btn btn-sm btn-outline-danger">Rechazar</button></form>
                   </div>
                 </div>
               </div>
@@ -117,9 +117,9 @@
         {% for bag in closed_bags %}
           {% if bag.liquidation_status in ['NO_INICIADA','PENDIENTE_ADMIN','PENDIENTE_LIQUIDACION'] %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
-            <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
+            <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap" id="admin-liqval-{{ bag.id }}" data-inline-zone>
               <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Cerrada: {{ bag.closed_at.strftime('%d/%m/%Y') if bag.closed_at else '—' }}</div>{% if totals.get('unpaid', 0) %}<span class="badge text-bg-warning">Pagos pendientes</span>{% else %}<span class="badge text-bg-success">Sin pagos pendientes</span>{% endif %}</div>
-              <div class="d-flex gap-2 align-items-start"><a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Revisar gastos</a><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="VALIDAR"><button class="btn btn-sm btn-success">Validar ingresos/gastos</button></form></div>
+              <div class="d-flex gap-2 align-items-start"><a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Revisar gastos</a><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqval-{{ bag.id }}"><input type="hidden" name="mode" value="VALIDAR"><button class="btn btn-sm btn-success">Validar ingresos/gastos</button></form></div>
             </div>
           {% endif %}
         {% else %}<div class="p-3 text-muted">No hay liquidaciones pendientes.</div>{% endfor %}
@@ -132,14 +132,14 @@
         {% for bag in closed_bags %}
           {% if bag.liquidation_status in ['PENDIENTE_CIERRE','VALIDADA','PENDIENTE_PAGO'] %}
             {% set totals = bag_totals.get(bag.id|string, {}) %}
-            <div class="p-3 border-bottom">
+            <div class="p-3 border-bottom" id="admin-liqclose-{{ bag.id }}" data-inline-zone>
               <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
                 <div><div class="fw-semibold">{{ bag.title }}</div><div class="small text-muted">{{ bag.artist.name if bag.artist else 'Sin artista' }} · Estado: {{ bag.liquidation_status }}</div><div class="fw-bold mt-2">Resultado provisional: {{ totals.get('bag', 0)|eur }}</div></div>
                 <div class="btn-group">
                   <a class="btn btn-sm btn-outline-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Ver liquidación</a>
                   <button class="btn btn-sm btn-outline-secondary dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown"></button>
                   <ul class="dropdown-menu dropdown-menu-end">
-                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="PAGO"><button class="dropdown-item">Cerrar liquidación y pasar a pago</button></form></li>
+                    <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqclose-{{ bag.id }}"><input type="hidden" name="mode" value="PAGO"><button class="dropdown-item">Cerrar liquidación y pasar a pago</button></form></li>
                     <li><form method="post" action="{{ url_for('administration_bag_close_liquidation', bag_id=bag.id) }}"><input type="hidden" name="mode" value="ARCHIVAR"><button class="dropdown-item">Cerrar y archivar sin pago</button></form></li>
                   </ul>
                 </div>
@@ -156,7 +156,7 @@
     <div class="card-body p-0">
       {% for bag in closed_bags %}
         {% set totals = bag_totals.get(bag.id|string, {}) %}
-        <div class="p-3 border-bottom">
+        <div class="p-3 border-bottom" id="admin-liqrow-{{ bag.id }}" data-inline-zone>
           <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
             <div>
               <div class="fw-semibold">{{ bag.title }}</div>
@@ -168,8 +168,8 @@
               <div class="fw-bold">{{ totals.get('bag', 0)|eur }}</div>
               <div class="d-flex gap-2 justify-content-end mt-2">
                 <a href="{{ url_for('bag_detail_view', bag_id=bag.id) }}" class="btn btn-sm btn-outline-primary">Ver bolsa</a>
-                <form method="post" action="{{ url_for('administration_bag_liquidate', bag_id=bag.id) }}"><button class="btn btn-sm btn-success">Aprobar liquidación</button></form>
-                <form method="post" action="{{ url_for('administration_bag_mark_paid', bag_id=bag.id) }}"><button class="btn btn-sm btn-outline-success">Marcar pagada</button></form>
+                <form method="post" action="{{ url_for('administration_bag_liquidate', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqrow-{{ bag.id }}"><button class="btn btn-sm btn-success">Aprobar liquidación</button></form>
+                <form method="post" action="{{ url_for('administration_bag_mark_paid', bag_id=bag.id) }}" data-inline data-inline-target="#admin-liqrow-{{ bag.id }}"><button class="btn btn-sm btn-outline-success">Marcar pagada</button></form>
               </div>
             </div>
           </div>
@@ -186,7 +186,7 @@
         <div class="card-header bg-white"><strong>Solicitudes de pago inmediato / en proceso</strong></div>
         <div class="card-body p-0">
           {% for expense in payment_requests %}
-            <div class="p-3 border-bottom">
+            <div class="p-3 border-bottom" id="admin-pay-{{ expense.id }}" data-inline-zone>
               <div class="d-flex justify-content-between gap-3 align-items-start">
                 <div>
                   <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
@@ -194,7 +194,7 @@
                   <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
                   <span class="badge text-bg-warning mt-2">{{ payment_status_labels.get(expense.payment_status, expense.payment_status) }}</span>
                 </div>
-                <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="text-end" style="min-width:220px;">
+                <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="text-end" style="min-width:220px;" data-inline data-inline-target="#admin-pay-{{ expense.id }}">
                   <input type="text" name="paid_amount" class="form-control form-control-sm mb-2" value="{{ expense.immediate_payment_amount or expense.amount_gross }}">
                   <select name="payment_method" class="form-select form-select-sm mb-2"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}" {% if expense.payment_method == method %}selected{% endif %}>{{ method }}</option>{% endfor %}</select>
                   <button class="btn btn-sm btn-success w-100">Registrar pago</button>
@@ -210,9 +210,9 @@
         <div class="card-header bg-white"><strong>Gastos consolidados pendientes de pago</strong></div>
         <div class="card-body p-0">
           {% for expense in payable_expenses %}
-            <div class="p-3 border-bottom d-flex justify-content-between gap-3">
+            <div class="p-3 border-bottom d-flex justify-content-between gap-3" id="admin-payexp-{{ expense.id }}" data-inline-zone>
               <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}</div>
-              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
+              <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start" data-inline data-inline-target="#admin-payexp-{{ expense.id }}"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
             </div>
           {% else %}<div class="p-3 text-muted">No hay gastos consolidados pendientes.</div>{% endfor %}
         </div>
@@ -225,7 +225,7 @@
     <div class="card-body table-responsive">
       <table class="table align-middle">
         <thead><tr><th>Factura</th><th>Tercero</th><th>Bolsa</th><th>Vencimiento</th><th class="text-end">Importe</th><th></th></tr></thead>
-        <tbody>{% for invoice in receivable_invoices %}<tr><td>{{ invoice.invoice_number }}</td><td>{{ invoice.third_party_name }}</td><td>{{ invoice.bag.title if invoice.bag else '—' }}</td><td>{{ invoice.due_date.strftime('%d/%m/%Y') if invoice.due_date else '—' }}</td><td class="text-end">{{ invoice.total_amount|eur }}</td><td class="text-end"><form method="post" action="{{ url_for('administration_invoice_mark_paid', invoice_id=invoice.id) }}"><button class="btn btn-sm btn-outline-success">Marcar cobrada</button></form></td></tr>{% else %}<tr><td colspan="6" class="text-muted">No hay cobros pendientes.</td></tr>{% endfor %}</tbody>
+        <tbody>{% for invoice in receivable_invoices %}<tr id="admin-cobro-{{ invoice.id }}" data-inline-zone><td>{{ invoice.invoice_number }}</td><td>{{ invoice.third_party_name }}</td><td>{{ invoice.bag.title if invoice.bag else '—' }}</td><td>{{ invoice.due_date.strftime('%d/%m/%Y') if invoice.due_date else '—' }}</td><td class="text-end">{{ invoice.total_amount|eur }}</td><td class="text-end"><form method="post" action="{{ url_for('administration_invoice_mark_paid', invoice_id=invoice.id) }}" data-inline data-inline-target="#admin-cobro-{{ invoice.id }}"><button class="btn btn-sm btn-outline-success">Marcar cobrada</button></form></td></tr>{% else %}<tr><td colspan="6" class="text-muted">No hay cobros pendientes.</td></tr>{% endfor %}</tbody>
       </table>
     </div>
   </div>

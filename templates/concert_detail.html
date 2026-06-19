@@ -136,7 +136,7 @@
                   <thead class="table-light"><tr><th>Concepto</th><th class="text-end">Importe</th><th>Fecha límite</th><th>Estado</th><th class="text-end">Acciones</th></tr></thead>
                   <tbody>
                     {% for row in payment_terms %}
-                      <tr>
+                      <tr id="payment-row-{{ row.idx }}" data-inline-zone>
                         <td>
                           <div class="fw-semibold">{{ row.concept or 'Pago' }}</div>
                           {% if row.invoice_url %}<a href="{{ row.invoice_url }}" target="_blank" class="small">{{ row.invoice_name or 'Factura' }}</a>{% endif %}
@@ -154,7 +154,7 @@
                               </form>
                             {% endif %}
                             {% if row.can_mark_collected %}
-                              <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=concert.id, payment_idx=row.idx) }}" class="d-inline">
+                              <form method="post" action="{{ url_for('concert_payment_mark_collected', cid=concert.id, payment_idx=row.idx) }}" class="d-inline" data-inline data-inline-target="#payment-row-{{ row.idx }}">
                                 <input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">
                                 <button class="btn btn-sm btn-outline-success">Marcar cobrado</button>
                               </form>

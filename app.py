@@ -32872,6 +32872,39 @@ def _invitation_artist_options(session_db) -> list[dict]:
     return [_artist_chip_payload(a) for a in rows]
 
 
+def _invitation_event_artist_options(session_db) -> list[dict]:
+    """Artistas con al menos un concierto/festival/evento vigente para solicitudes de
+    invitaciones (de hoy en adelante, o aún sin fecha asignada).
+
+    Se usa en el paso "Selecciona artista" de Pedir invitaciones (alta interna y enlace),
+    para no ofrecer artistas cuyas actividades ya pasaron ni los que no tienen ninguna.
+    Mismo criterio de vigencia que el listado de eventos del módulo: actividad sin fecha
+    asignada (TBD) o con fecha >= hoy (vía `_invitation_event_query_start_date`), más la
+    regla de las 5 h (`_invitation_event_is_active_for_requests`). Solo selecciona las
+    columnas necesarias para no cargar los payloads JSONB pesados del concierto.
+    """
+    query_start = _invitation_event_query_start_date()
+    now_value = _now_madrid()
+    wanted_ids = set()
+    for row in (
+        session_db.query(Concert.id, Concert.date, Concert.artist_id, Concert.artist_ids)
+        .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
+        .all()
+    ):
+        if not _invitation_event_is_active_for_requests(row, now_value=now_value):
+            continue
+        for aid in _concert_artist_ids(row):
+            if aid:
+                wanted_ids.add(aid)
+    if not wanted_ids:
+        return []
+    uuids = [u for u in (_safe_uuid(a) for a in wanted_ids) if u]
+    if not uuids:
+        return []
+    rows = session_db.query(Artist).filter(Artist.id.in_(uuids)).order_by(Artist.name.asc()).all()
+    return [_artist_chip_payload(a) for a in rows]
+
+
 def _invitation_personnel_options(session_db) -> list[dict]:
     rows = (
         session_db.query(User, UserProfile)
@@ -33155,6 +33188,7 @@ def invitations_view():
     session_db = db()
     try:
         artists = _invitation_artist_options(session_db)
+        event_artists = _invitation_event_artist_options(session_db)
         personnel = _invitation_personnel_options(session_db)
         query_start = _invitation_event_query_start_date()
         events = []
@@ -33210,6 +33244,7 @@ def invitations_view():
             'invitaciones.html',
             tab=tab,
             artists=artists,
+            event_artists=event_artists,
             personnel=personnel,
             events=events,
             my_requests=my_requests,
@@ -33407,6 +33442,7 @@ def invitation_event_detail(concert_id):
                 'photo_url': current_state.get('photo_url') or url_for('static', filename='img/placeholder_photo.png'),
             },
             artists=_invitation_artist_options(session_db),
+            event_artists=_invitation_event_artist_options(session_db),
             personnel=_invitation_personnel_options(session_db),
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,

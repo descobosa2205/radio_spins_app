@@ -368,6 +368,21 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
     (753 líneas, incluida desde `discografica.html`).
 - Resultado: **80 plantillas** (antes 82). Sin cambios de backend; las 80 plantillas siguen parseando.
 
+### Invitaciones — el selector de artista solo muestra artistas con actividad vigente
+
+- En **Pedir invitaciones**, el paso "1. Selecciona artista" (tanto en el alta interna como en
+  *Generar enlace de peticiones*) ya **no lista todos los artistas**: solo los que tienen al menos un
+  concierto/festival/evento **vigente** para solicitudes de invitaciones — fecha **de hoy en adelante**
+  o **aún sin fecha asignada (TBD)** — aplicando además la regla de las 5 h del módulo. Así no se ofrecen
+  artistas cuyas actividades ya pasaron ni los que no tienen ninguna programada.
+- Implementación (`app.py`): nuevo helper `_invitation_event_artist_options()`, que usa el **mismo
+  criterio de vigencia que el listado de eventos** (`or_(Concert.date == None, Concert.date >= hoy)` +
+  `_invitation_event_is_active_for_requests`). Se pasa a la plantilla como `event_artists` desde
+  `invitations_view` e `invitation_event_detail`. Consulta solo las columnas necesarias (sin cargar los
+  payloads JSONB pesados del concierto).
+- El selector de "**invitado que es artista**" (paso "¿Para quién son?") **no** se filtra: ahí el
+  artista es el destinatario de la invitación, no el del evento, así que se siguen mostrando todos.
+
 ---
 
 ## 9. Pendientes y auditoría

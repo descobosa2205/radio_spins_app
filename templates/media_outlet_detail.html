@@ -127,9 +127,9 @@
     <div class="row g-3 align-items-end">
       <div class="col-md-4">
         <label class="form-label">Artista</label>
-        <select name="artist" class="form-select">
+        <select name="artist" class="form-select select-artists">
           <option value="">Todos</option>
-          {% for artist in artists %}<option value="{{ artist.id }}" {% if filter_artist == (artist.id|string) %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}
+          {% for artist in artists %}<option value="{{ artist.id }}" data-photo="{{ (artist.logo_url or artist.photo_url) or '' }}" {% if filter_artist == (artist.id|string) %}selected{% endif %}>{{ artist.name }}</option>{% endfor %}
         </select>
       </div>
       <div class="col-md-2"><label class="form-label">Desde</label><input type="date" name="start" class="form-control" value="{{ filter_start }}"></div>
@@ -143,7 +143,7 @@
       <h5 class="mb-3">Añadir registro al histórico</h5>
       <form method="post" class="row g-2">
         <input type="hidden" name="mode" value="add_history">
-        <div class="col-md-3"><select name="artist_id" class="form-select"><option value="">Artista</option>{% for artist in artists %}<option value="{{ artist.id }}">{{ artist.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><div class="input-group"><select name="artist_id" id="mediaHistoryArtistId" class="form-select select-artists"><option value="">Artista</option>{% for artist in artists %}<option value="{{ artist.id }}" data-photo="{{ (artist.logo_url or artist.photo_url) or '' }}">{{ artist.name }}</option>{% endfor %}</select><button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="artist" data-target="mediaHistoryArtistId" title="Crear"><i class="fa fa-plus"></i></button></div></div>
         <div class="col-md-3"><input type="text" name="promotion_title" class="form-control" placeholder="Marketing"></div>
         <div class="col-md-2"><input type="text" name="program_name" class="form-control" placeholder="Programa"></div>
         <div class="col-md-2"><input type="date" name="promoted_at" class="form-control"></div>

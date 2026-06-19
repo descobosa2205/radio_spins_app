@@ -26,11 +26,14 @@
   <!-- fila 2: Artista / Fecha / Nombre -->
   <div class="col-md-5">
     <label class="form-label">Artista</label>
-    <select name="artist_id" class="form-select select-artists" required>
-      {% for a in artists %}
-        <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>
-      {% endfor %}
-    </select>
+    <div class="input-group">
+      <select name="artist_id" id="concertArtistId" class="form-select select-artists" required>
+        {% for a in artists %}
+          <option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="artist" data-target="concertArtistId" title="Crear"><i class="fa fa-plus"></i></button>
+    </div>
   </div>
   <div class="col-md-2">
     <label class="form-label">Fecha</label>
@@ -44,11 +47,14 @@
   <!-- fila 3: Recinto / Aforo / Salida / Empresa factura -->
   <div class="col-md-5">
     <label class="form-label">Recinto</label>
-    <select name="venue_id" class="form-select" required>
-      {% for v in venues %}
-        <option value="{{ v.id }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>
-      {% endfor %}
-    </select>
+    <div class="input-group">
+      <select name="venue_id" id="concertVenueId" class="form-select select-venues" required>
+        {% for v in venues %}
+          <option value="{{ v.id }}" data-photo="{{ (v.logo_url or v.photo_url) or '' }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="venue" data-target="concertVenueId" title="Crear"><i class="fa fa-plus"></i></button>
+    </div>
   </div>
   <div class="col-md-2">
     <label class="form-label">Aforo a la venta</label>

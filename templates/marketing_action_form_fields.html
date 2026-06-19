@@ -1,6 +1,7 @@
 {% set row = edit_row if edit_row is defined else none %}
 {% set target = row.media_target_json if row else {} %}
 {% set details = row.details_json if row else {} %}
+{% set qc_uid = (row.id if row else 'new') %}
 <div class="row g-4">
   <div class="col-12">
     <label class="form-label fw-semibold">Tipo de acción</label>
@@ -38,12 +39,15 @@
   </div>
   <div class="col-12 col-lg-6">
     <label class="form-label">Proveedor / tercero</label>
-    <select class="form-select select-with-thumbs" name="provider_id">
-      <option value="">Sin proveedor asignado</option>
-      {% for provider in promoters %}
-        <option value="{{ provider.id }}" data-photo="{{ provider.logo_url or url_for('static', filename='img/default_promoter.png') }}" {% if row and row.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>
-      {% endfor %}
-    </select>
+    <div class="input-group">
+      <select class="form-select select-with-thumbs select-providers" name="provider_id" id="maProviderId-{{ qc_uid }}">
+        <option value="">Sin proveedor asignado</option>
+        {% for provider in promoters %}
+          <option value="{{ provider.id }}" data-photo="{{ provider.logo_url or url_for('static', filename='img/default_promoter.png') }}" {% if row and row.provider_id == provider.id %}selected{% endif %}>{{ provider.nick }}</option>
+        {% endfor %}
+      </select>
+      <button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="promoter" data-target="maProviderId-{{ qc_uid }}" title="Crear"><i class="fa fa-plus"></i></button>
+    </div>
   </div>
   <div class="col-12 col-lg-6">
     <label class="form-label">Sociedad del proveedor</label>

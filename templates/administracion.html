@@ -323,7 +323,7 @@
                     <label class="form-label small mb-1">Vincular manualmente a tercero</label>
                     <select name="promoter_id" class="form-select form-select-sm third-party-select">
                       <option value="">Seleccionar tercero...</option>
-                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }} {% for company in promoter.companies %}{{ company.legal_name }} {{ company.tax_id }} {% endfor %}">{{ promoter.nick }}</option>{% endfor %}
+                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-photo="{{ (promoter.logo_url or promoter.photo_url) or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }} {% for company in promoter.companies %}{{ company.legal_name }} {{ company.tax_id }} {% endfor %}">{{ promoter.nick }}</option>{% endfor %}
                     </select>
                   </div>
                   <div class="col-md-3 col-xl-2"><button class="btn btn-sm btn-outline-primary w-100">Vincular</button></div>

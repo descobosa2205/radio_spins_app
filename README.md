@@ -341,6 +341,18 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
   sección (p. ej. *"Control de pendientes, liquidaciones, pagos, cobros y embargos."*) que no
   aportan información. Se conservan las ayudas de formulario y los textos con datos.
 
+### Mejoras de UX — alta rápida de entidades y logos en desplegables
+
+- **Alta rápida en modal superpuesto**: junto a un desplegable de recinto/tercero/ticketera/editorial/
+  artista, un botón "+" abre un modal superpuesto (`templates/_quick_create_modals.html`), crea la
+  entidad vía `/api/<tipo>/create` y la deja **seleccionada sin recargar** ni perder el formulario
+  (`static/js/quick_create.js`); gestiona duplicados. Para añadirlo a un select:
+  `<button data-quick-create="TIPO" data-target="ID_DEL_SELECT">`.
+- **Logos en los desplegables**: las opciones de los selects de entidad muestran el logo/foto junto
+  al nombre (`initSelect2` + `data-photo`/`data-logo`). Activar en un select: añadir la clase
+  `select-providers` / `select-venues` / `select-with-thumbs` / `select-artists` y
+  `data-photo="{{ X.logo_url or X.photo_url }}"` a sus opciones.
+
 ---
 
 ## 9. Pendientes y auditoría

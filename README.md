@@ -302,6 +302,34 @@ Editar**. **No requiere migración**: usa las tablas existentes `user_access_res
 > Nota: el catálogo arrastra algunas entradas auto-generadas heredadas del sistema previo; si en uso
 > resultan redundantes, se pueden depurar en un pulido posterior (no afectan al funcionamiento).
 
+### Rendimiento y experiencia de carga
+
+Optimizaciones de **código** (sin migración):
+
+- **Motor de BD** (`models.py`): pool con `pool_pre_ping`, `pool_recycle=280` y `keepalives` TCP →
+  menos reconexiones y errores por conexiones caducadas del pooler/Supabase.
+- **Índices automáticos en claves foráneas** (`ensure_performance_indexes`): crea, de forma
+  idempotente y **en segundo plano al arrancar**, los índices que faltaban en columnas FK
+  (≈60). Es la mejora de mayor impacto en los listados/JOINs (filtros por `concert_id`, `song_id`,
+  `bag_id`, etc., que antes recorrían la tabla entera).
+- **Registro de actividad en segundo plano** (`track_user_activity`): antes cada página hacía un
+  `INSERT + commit` síncrono; ahora va en un hilo aparte y no suma latencia a la respuesta.
+- **Indicador de carga global** (`layout.html` + `styles.css`): overlay con spinner de marca que
+  aparece al navegar o enviar formularios (retardo de 150 ms para no parpadear en cargas
+  instantáneas; se oculta al cargar la página o al volver atrás; excluye descargas y enlaces
+  externos). Marca un formulario/enlace con `data-no-loader` / clase `no-loader` para excluirlo.
+
+Configuración de **infraestructura** (a revisar en Render/Supabase):
+
+1. **Supabase – usar el _connection pooler_** (no conexión directa). Project Settings → Database →
+   *Connection pooling* → copiar la cadena del **Session pooler** y ponerla como `DATABASE_URL` en
+   Render. La app actual conecta directa al puerto 5432; el pooler aguanta mucha más concurrencia.
+2. **Misma región** Render ↔ Supabase (p. ej. ambos en Frankfurt/EU). Si están en continentes
+   distintos, cada consulta cruza el Atlántico y multiplica el tiempo de carga.
+3. **Render sin _spin-down_**: plan Starter/Standard (el Free duerme y la 1ª carga tarda ~30-60 s).
+   Con más RAM, subir `WEB_CONCURRENCY` (workers) a 2-4.
+4. (Opcional) **Compute add-on** en Supabase si la BD va justa de CPU/RAM.
+
 ---
 
 ## 9. Pendientes y auditoría

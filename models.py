@@ -26,7 +26,22 @@ if not settings.DATABASE_URL:
         "DATABASE_URL=postgresql+psycopg2://... ?sslmode=require"
     )
 
-engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_pre_ping=True,        # descarta conexiones muertas antes de reutilizarlas
+    pool_recycle=280,          # recicla antes de que el pooler/Supabase corte por inactividad (~300s)
+    pool_size=5,
+    max_overflow=10,
+    pool_timeout=30,
+    connect_args={
+        "connect_timeout": 10,
+        "application_name": "radio_spins_app",
+        "keepalives": 1,
+        "keepalives_idle": 30,
+        "keepalives_interval": 10,
+        "keepalives_count": 5,
+    },
+)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 
@@ -4842,4 +4857,31 @@ def ensure_roadmap_onesheet_schema():
         """,
     ]
     _exec_ddl_statements(stmts, "roadmap_onesheets")
+
+
+def ensure_performance_indexes():
+    """Crea índices en columnas de clave foránea que no los tengan (acelera JOINs/filtros).
+
+    PostgreSQL NO indexa las claves foráneas automáticamente; sin estos índices, los
+    listados que filtran por concert_id / song_id / bag_id / user_id, etc. recorren la
+    tabla entera. Es idempotente (CREATE INDEX IF NOT EXISTS): solo crea los que faltan.
+    """
+    stmts = []
+    for table in Base.metadata.tables.values():
+        indexed_first = set()
+        for idx in table.indexes:
+            cols = list(idx.columns)
+            if cols:
+                indexed_first.add(cols[0].name)
+        pk_cols = {c.name for c in table.primary_key.columns}
+        for col in table.columns:
+            if not col.foreign_keys:
+                continue
+            if col.name in indexed_first or col.name in pk_cols:
+                continue
+            ix_name = ("ix_%s_%s" % (table.name, col.name))[:63]
+            stmts.append('CREATE INDEX IF NOT EXISTS "%s" ON "%s" ("%s");' % (ix_name, table.name, col.name))
+    # Índice compuesto para el ranking de uso del menú (consulta por usuario + fecha).
+    stmts.append('CREATE INDEX IF NOT EXISTS "ix_user_activity_logs_user_created" ON "user_activity_logs" ("user_id", "created_at");')
+    _exec_ddl_statements(stmts, "performance_indexes")
 

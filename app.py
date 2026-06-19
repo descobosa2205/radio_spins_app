@@ -1,5 +1,6 @@
 from datetime import date, timedelta, datetime
 import os
+import threading
 import smtplib
 from uuid import UUID
 import uuid as _uuid
@@ -106,6 +107,7 @@ from models import (
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
     ensure_entity_links_schema,
+    ensure_performance_indexes,
     SessionLocal,
     User,
     Artist,
@@ -307,6 +309,12 @@ for _fn, _name in [
     (ensure_entity_links_schema, "ensure_entity_links_schema"),
 ]:
     _safe_ensure(_fn, _name)
+
+# Índices de rendimiento (claves foráneas sin índice). En segundo plano para no retrasar
+# el arranque del servidor: es idempotente y solo crea los índices que falten.
+def _ensure_perf_indexes_bg():
+    _safe_ensure(ensure_performance_indexes, "ensure_performance_indexes")
+threading.Thread(target=_ensure_perf_indexes_bg, daemon=True).start()
 
 
 CONCERT_SALE_TYPE_LABELS = {
@@ -25968,21 +25976,39 @@ def track_user_activity(response):
         key = _resolve_request_resource_key()
         if not key:
             return response
-        session_db = db()
-        try:
-            session_db.add(UserActivityLog(
-                user_id=to_uuid(uid),
-                resource_key=key,
-                endpoint=request.endpoint,
-                path=request.path,
-                method=request.method,
-            ))
-            session_db.commit()
-        finally:
-            session_db.close()
+        # Registramos la actividad en segundo plano: así no añadimos un INSERT+commit
+        # al tiempo de respuesta de cada página (antes lo hacía de forma síncrona).
+        payload = {
+            "user_id": uid,
+            "resource_key": key,
+            "endpoint": request.endpoint,
+            "path": request.path,
+            "method": request.method,
+        }
+        threading.Thread(target=_record_user_activity, args=(payload,), daemon=True).start()
     except Exception:
         pass
     return response
+
+
+def _record_user_activity(payload: dict):
+    session_db = db()
+    try:
+        session_db.add(UserActivityLog(
+            user_id=to_uuid(payload["user_id"]),
+            resource_key=payload.get("resource_key"),
+            endpoint=payload.get("endpoint"),
+            path=payload.get("path"),
+            method=payload.get("method"),
+        ))
+        session_db.commit()
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+    finally:
+        session_db.close()
 
 
 def _require_login_v2():

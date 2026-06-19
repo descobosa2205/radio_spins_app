@@ -1001,3 +1001,16 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .sw input:disabled + .tr{ opacity:.4; cursor:not-allowed; background:#e5e9f0; }
 .sw input:indeterminate + .tr{ background:linear-gradient(90deg,var(--brand-accent) 50%,#cfd6e0 50%); }
 .acc-note{ font-size:12.5px; color:var(--muted-2); margin-top:14px; padding:10px 12px; background:#fff; border:1px dashed var(--line-2); border-radius:10px; }
+
+/* =========================================================
+   Indicador de carga global
+   ========================================================= */
+#globalLoader{ position:fixed; inset:0; z-index:3000; display:none; align-items:center; justify-content:center;
+  background:rgba(255,255,255,.70); backdrop-filter:blur(2px); -webkit-backdrop-filter:blur(2px); }
+#globalLoader.show{ display:flex; }
+#globalLoader .gl-box{ display:flex; flex-direction:column; align-items:center; gap:14px; }
+#globalLoader .gl-spinner{ width:54px; height:54px; border-radius:50%;
+  border:5px solid rgba(0,124,162,.18); border-top-color:var(--brand-primary); border-right-color:var(--brand-accent);
+  animation:glspin .7s linear infinite; }
+@keyframes glspin{ to{ transform:rotate(360deg); } }
+#globalLoader .gl-text{ font-weight:700; color:var(--brand-accent-d); font-size:14px; letter-spacing:.3px; }

@@ -23,6 +23,7 @@
   </style>
 </head>
 <body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}">
+<div id="globalLoader" aria-hidden="true"><div class="gl-box"><div class="gl-spinner"></div><div class="gl-text">Cargando…</div></div></div>
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') if IS_ADMIN else url_for('landing') }}">
@@ -144,6 +145,36 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="{{ url_for('static', filename='js/scripts.js') }}"></script>
 <script src="{{ url_for('static', filename='js/typeahead.js') }}"></script>
+<script>
+(function(){
+  var overlay=document.getElementById('globalLoader'); if(!overlay) return;
+  var timer=null, safety=null;
+  function show(){
+    if(timer||overlay.classList.contains('show')) return;
+    timer=setTimeout(function(){ overlay.classList.add('show'); timer=null; }, 150); // evita parpadeo en cargas instantáneas
+    clearTimeout(safety); safety=setTimeout(hide, 12000); // fallback de seguridad
+  }
+  function hide(){ if(timer){clearTimeout(timer);timer=null;} clearTimeout(safety); overlay.classList.remove('show'); }
+  var DOWNLOAD_RE=/\.(pdf|zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
+  document.addEventListener('click', function(e){
+    var a=e.target.closest('a'); if(!a) return;
+    var href=a.getAttribute('href')||'';
+    if(!href || href.charAt(0)==='#') return;
+    if(href.indexOf('javascript:')===0||href.indexOf('mailto:')===0||href.indexOf('tel:')===0) return;
+    if(a.target==='_blank'||a.hasAttribute('download')||a.hasAttribute('data-bs-toggle')||a.classList.contains('no-loader')) return;
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0) return;
+    if(a.host && a.host!==location.host) return;          // enlaces externos
+    if(DOWNLOAD_RE.test(href)) return;                    // descargas directas
+    show();
+  }, true);
+  document.addEventListener('submit', function(e){
+    var f=e.target; if(!f) return;
+    if(f.hasAttribute('data-no-loader')||f.getAttribute('target')==='_blank'||f.classList.contains('no-loader')) return;
+    show();
+  }, true);
+  window.addEventListener('pageshow', hide);   // oculta al cargar la página o al volver atrás (bfcache)
+})();
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

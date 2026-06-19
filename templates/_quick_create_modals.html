@@ -1,0 +1,84 @@
+{# Modales reutilizables para crear entidades al vuelo desde CUALQUIER formulario.
+   Uso: junto a un <select id="X"> poner un botón
+        <button type="button" class="btn btn-outline-secondary qc-open" data-quick-create="venue" data-target="X">+</button>
+   El helper (quick_create.js) abre el modal, crea la entidad por /api/.../create,
+   añade la opción al <select> y la deja seleccionada, sin recargar ni salir del formulario. #}
+<div class="qc-modals">
+
+  <div class="modal fade" id="qcModal-venue" tabindex="-1" aria-hidden="true" data-qc-type="venue">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_venue') }}" data-qc-json="1">
+        <div class="modal-header"><h5 class="modal-title">Nuevo recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label">Municipio</label><input class="form-control" name="municipality"></div>
+            <div class="col-md-6"><label class="form-label">Provincia</label><input class="form-control" name="province"></div>
+          </div>
+          <div class="mt-2"><label class="form-label">Dirección</label><input class="form-control" name="address"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="qcModal-promoter" tabindex="-1" aria-hidden="true" data-qc-type="promoter">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_promoter') }}">
+        <div class="modal-header"><h5 class="modal-title">Nuevo tercero</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre / nick *</label><input class="form-control" name="nick" required></div>
+          <div class="mb-2"><label class="form-label">Email de contacto</label><input type="email" class="form-control" name="contact_email"></div>
+          <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="qcModal-ticketer" tabindex="-1" aria-hidden="true" data-qc-type="ticketer">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_ticketer') }}">
+        <div class="modal-header"><h5 class="modal-title">Nueva ticketera</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
+          <div class="mb-2"><label class="form-label">Enlace (web)</label><input class="form-control" name="link_url" placeholder="https://..."></div>
+          <div><label class="form-label">Logo (PNG)</label><input type="file" class="form-control" name="logo" accept="image/png"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="qcModal-publishing_company" tabindex="-1" aria-hidden="true" data-qc-type="publishing_company">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_publishing_company') }}">
+        <div class="modal-header"><h5 class="modal-title">Nueva editorial</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
+          <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
+  <div class="modal fade" id="qcModal-artist" tabindex="-1" aria-hidden="true" data-qc-type="artist">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <form class="qc-form" data-qc-endpoint="{{ url_for('api_create_artist') }}">
+        <div class="modal-header"><h5 class="modal-title">Nuevo artista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required></div>
+          <div><label class="form-label">Foto</label><input type="file" class="form-control" name="photo" accept="image/*"></div>
+          <div class="qc-feedback mt-2"></div>
+        </div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
+      </form>
+    </div></div>
+  </div>
+
+</div>

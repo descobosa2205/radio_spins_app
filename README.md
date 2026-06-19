@@ -357,6 +357,17 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
   refresca esa zona (badge/estado), sin recargar ni mover el scroll. Los endpoints no cambian (siguen
   `POST`+redirect); si la zona no se localiza, recarga normal como red de seguridad.
 
+### Limpieza — plantillas duplicadas eliminadas
+
+- Se eliminan dos plantillas duplicadas heredadas (sufijo " 2" de copia accidental de macOS) que
+  **no referenciaba nadie** (ni `render_template`, ni `{% include %}`, ni `{% extends %}`) y que eran
+  además **versiones menos completas** que sus originales en uso:
+  - `templates/discografica 2.html` (444 líneas) → se conserva `discografica.html` (1361 líneas,
+    renderizada en `app.py`).
+  - `templates/discografica_ingresos 2.html` (440 líneas) → se conserva `discografica_ingresos.html`
+    (753 líneas, incluida desde `discografica.html`).
+- Resultado: **80 plantillas** (antes 82). Sin cambios de backend; las 80 plantillas siguen parseando.
+
 ---
 
 ## 9. Pendientes y auditoría
@@ -369,8 +380,9 @@ auditoría adjunto. Resumen de lo que queda:
   plano; añadir protección CSRF; reforzar control de acceso por rol en algunas secciones.
 - **Lógica económica con decisión de negocio pendiente:** royalties "sobre beneficio" (PROFIT),
   acumulación de pagos parciales, IVA del *rebate* fijo, vistas de ventas especializadas.
-- **Calidad:** eliminar código y plantillas duplicadas, unificar el sistema de permisos
-  (hay restos de una versión antigua), migrar a Alembic.
+- **Calidad:** eliminar código duplicado, unificar el sistema de permisos (hay restos de una versión
+  antigua), migrar a Alembic. *(Plantillas duplicadas `* 2.html`: ya eliminadas — ver registro de
+  cambios.)*
 
 ### Rotación de credenciales (recordatorio de seguridad)
 

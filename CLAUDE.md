@@ -19,8 +19,8 @@ Detalle ampliado en `README.md`.
   jQuery + Chart.js. Servidor: **Gunicorn**.
 - Monolito: **`app.py`** (~34k líneas, ~344 rutas, TODA la lógica) · **`models.py`** (~93 modelos +
   funciones `ensure_*_schema`) · `config.py` · `supabase_utils.py` (Storage).
-- **`templates/`** (Jinja2, ~82) · **`static/css/styles.css`** · **`static/js/scripts.js`**
-  (+ `quick_create.js`, `typeahead.js`).
+- **`templates/`** (Jinja2, 80) · **`static/css/styles.css`** · **`static/js/scripts.js`**
+  (+ `quick_create.js`, `typeahead.js`, `ajax_inline.js`).
 - **Sin Alembic**: el esquema se crea/actualiza al arrancar con `init_db()` + `ensure_*_schema()`
   (idempotentes). Para cambios de modelo basta reiniciar; no hay migración manual.
 

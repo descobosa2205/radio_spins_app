@@ -25711,6 +25711,30 @@ def _nav_item_usage_score(item: dict, scores: dict[str, int]) -> int:
     return total
 
 
+# Icono Font Awesome por sección (compartido por el menú principal y la pantalla de accesos).
+SECTION_ICONS = {
+    "home": "fa-house",
+    "radio": "fa-tower-broadcast",
+    "ventas": "fa-ticket",
+    "artists": "fa-users",
+    "discografica": "fa-compact-disc",
+    "registros": "fa-clipboard-list",
+    "third_parties": "fa-handshake",
+    "contratacion": "fa-file-signature",
+    "concerts": "fa-microphone",
+    "quadrantes": "fa-table-cells",
+    "promocion": "fa-bullhorn",
+    "marketing": "fa-bullhorn",
+    "acciones": "fa-rocket",
+    "invitaciones": "fa-envelope-open-text",
+    "produccion": "fa-screwdriver-wrench",
+    "administracion": "fa-file-invoice-dollar",
+    "contabilidad": "fa-calculator",
+    "personal": "fa-users-gear",
+    "databases": "fa-database",
+}
+
+
 def _sort_nav_menu_for_user(items: list[dict]) -> list[dict]:
     scores = _current_nav_usage_scores()
     if not scores:
@@ -25922,6 +25946,7 @@ def inject_personnel_globals():
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
+        "SECTION_ICONS": SECTION_ICONS,
     }
 
 

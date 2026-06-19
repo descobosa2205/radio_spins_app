@@ -39,7 +39,7 @@
           {% for item in NAV_MENU %}
             {% if item.type == 'dropdown' %}
               <li class="nav-item dropdown" data-nav-key="{{ item.key }}">
-                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" data-nav-key="{{ item.key }}">{{ item.label }}</a>
+                <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown" data-nav-key="{{ item.key }}"><i class="fa {{ SECTION_ICONS.get(item.key, 'fa-circle-dot') }} me-2"></i>{{ item.label }}</a>
                 <ul class="dropdown-menu dropdown-menu-end">
                   {% for child in item.children %}
                     <li><a class="dropdown-item" href="{{ child.url }}" data-nav-key="{{ child.key }}">{{ child.label }}</a></li>
@@ -48,7 +48,7 @@
               </li>
             {% else %}
               <li class="nav-item" data-nav-key="{{ item.key }}">
-                <a class="nav-link" href="{{ item.url }}" data-nav-key="{{ item.key }}">{{ item.label }}</a>
+                <a class="nav-link" href="{{ item.url }}" data-nav-key="{{ item.key }}"><i class="fa {{ SECTION_ICONS.get(item.key, 'fa-circle-dot') }} me-2"></i>{{ item.label }}</a>
               </li>
             {% endif %}
           {% endfor %}

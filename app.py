@@ -18347,6 +18347,26 @@ def concert_equipment_note_delete(cid, nid=None, note_id=None):
         session.close()
     return redirect(next_url)
 
+
+@app.post("/conciertos/<cid>/contracts/<ctid>/delete", endpoint="concert_contract_delete")
+@admin_required
+def concert_contract_delete(cid, ctid):
+    session = db()
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
+    try:
+        ct = session.get(ConcertContract, to_uuid(ctid))
+        if ct:
+            session.delete(ct)
+            session.commit()
+            flash("Contrato eliminado.", "success")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error eliminando contrato: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(next_url)
+
+
 # --------- EMPRESAS ---------------------
 @app.route("/empresas", methods=["GET", "POST"])
 @admin_required

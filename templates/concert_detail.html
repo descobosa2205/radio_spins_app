@@ -1,36 +1,36 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
-  <div class="d-flex gap-3 align-items-center">
-    <img src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" style="width:84px;height:84px;border-radius:50%;object-fit:cover;">
-    <div>
-      <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
-        <h3 class="mb-0">{{ concert.artist.name if concert.artist else 'Concierto' }}</h3>
-        <span class="badge text-bg-light border">{{ sale_type_label }}</span>
-        <span class="badge {% if concert.status == 'CONFIRMADO' %}bg-success{% elif concert.status == 'RESERVADO' %}bg-primary{% elif concert.status == 'BORRADOR' %}status-borrador{% else %}bg-warning text-dark{% endif %}">{{ concert.status }}</span>
-        {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
-        {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
-      </div>
-      <div class="text-muted">
-        {% if concert.date %}{{ concert.date.strftime('%d/%m/%Y') }}{% endif %}
-        {% if location_summary %} · {{ location_summary }}{% endif %}
-        {% if concert.festival_name %} · {{ concert.festival_name }}{% endif %}
-      </div>
-      <div class="mt-2 d-flex flex-wrap gap-2">
+<div class="ficha-hero">
+  <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1">
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">{{ sale_type_label }}</div>
+    <div class="d-flex flex-wrap align-items-center gap-2">
+      <h1 class="ficha-hero__title">{{ concert.artist.name if concert.artist else 'Concierto' }}</h1>
+      <span class="badge {% if concert.status == 'CONFIRMADO' %}bg-success{% elif concert.status == 'RESERVADO' %}bg-primary{% elif concert.status == 'BORRADOR' %}status-borrador{% else %}bg-warning text-dark{% endif %}">{{ concert.status }}</span>
+      {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
+      {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
+    </div>
+    <div class="ficha-hero__facts">
+      {% if concert.date %}<span><i class="fa fa-calendar-day"></i>{{ concert.date.strftime('%d/%m/%Y') }}</span>{% endif %}
+      {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
+      {% if concert.festival_name %}<span><i class="fa fa-star"></i>{{ concert.festival_name }}</span>{% endif %}
+    </div>
+    {% if (concert.tags_clean or concert.hashtags or []) %}
+      <div class="mt-2 d-flex flex-wrap gap-1">
         {% for tag in (concert.tags_clean or concert.hashtags or []) %}<span class="badge text-bg-light border">#{{ tag }}</span>{% endfor %}
       </div>
-    </div>
+    {% endif %}
   </div>
-  <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}">Volver</a>
+  <div class="ficha-hero__actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     {% if CAN_EDIT_CONCERTS %}
-      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal">Solicitar ficha al promotor</button>
-      <a class="btn btn-primary" href="{{ url_for('concert_edit_view', cid=concert.id) }}">Editar</a>
+      <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha</button>
+      <a class="btn btn-primary" href="{{ url_for('concert_edit_view', cid=concert.id) }}"><i class="fa fa-pen me-1"></i>Editar</a>
     {% endif %}
   </div>
 </div>
 
-<ul class="nav nav-tabs mb-0">
+<ul class="nav nav-tabs ficha-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
@@ -39,13 +39,10 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha promotor</a></li>
 </ul>
 
-<div class="bg-white border border-top-0 rounded-bottom p-3">
+<div class="ficha-tabpane">
   {% if tab == 'general' %}
     <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
-      <div>
-        <h5 class="mb-1">Ficha de contratación</h5>
-        <div class="text-muted small">Información consolidada de la actividad. Los campos vacíos no se muestran en esta vista.</div>
-      </div>
+      <h5 class="mb-0">Ficha de contratación</h5>
       <div class="d-flex gap-2 flex-wrap">
         {% if contract_sheet_status == 'RECEIVED' %}
           <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Importar datos recibidos</a>
@@ -189,7 +186,6 @@
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <div>
         <h5 class="mb-0">Cartelería</h5>
-        <div class="text-muted small">Gestiona si los carteles los hace el promotor o el equipo interno, y comparte los formatos cuando estén subidos.</div>
       </div>
       <div class="d-flex gap-2 align-items-center flex-wrap">
         {% if artwork_badge %}<span class="badge {{ artwork_badge.class }}">{{ artwork_badge.label }}</span>{% endif %}
@@ -454,8 +450,7 @@
   {% elif tab == 'produccion' %}
     <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
       <div>
-        <h5 class="mb-1">Producción</h5>
-        <div class="text-muted small">Bolsa, hoja de ruta y presupuesto operativo vinculados a esta actividad.</div>
+        <h5 class="mb-0">Producción</h5>
       </div>
       {% if production_panel.bag %}
         <a class="btn btn-outline-primary btn-sm" href="{{ url_for('bag_detail_view', bag_id=production_panel.bag.id) }}">Abrir bolsa</a>
@@ -551,7 +546,6 @@
         <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
           <div>
             <h5 class="mb-0">Invitaciones disponibles</h5>
-            <div class="text-muted small">Resumen por categoría, compromisos y peticiones vinculadas a esta actividad.</div>
           </div>
           <div class="d-flex gap-2 flex-wrap">
             {% if invitation_open_for_requests %}

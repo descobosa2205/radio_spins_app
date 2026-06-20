@@ -431,6 +431,22 @@ credenciales (esto último lo haces tú al final).
 | `SESSION_COOKIE_SECURE` | `1` | Recomendada (sirves por HTTPS) |
 | `EXTERNAL_BASE_URL` | `https://tu-dominio` | Recomendada (blinda los enlaces de email) |
 
+### Invitaciones — menos clics en Pedir invitaciones (auto-avance de pasos)
+
+- En el asistente de **Pedir invitaciones**, al pinchar una opción que **no requiere más datos** se
+  **pasa automáticamente al siguiente paso** (sin pulsar "Siguiente"), para reducir clics:
+  - Paso "**¿Para quién son?**": *Para mí* avanza directo; *Empleado* y *Artista* avanzan al elegir la
+    persona/artista en el panel; *Tercero* se queda (hay que elegir el tercero y permite título/relación).
+  - Paso "**Entrega**": *Enviar al invitado* / *Dejar en taquilla* / *Enviar a mí* avanzan directo;
+    *Enviar a otro* se queda (hay que elegir el tercero receptor).
+  - (Ya existía) elegir **artista** y elegir **evento** también auto-avanzan.
+- Solo plantilla (`templates/invitaciones.html`, vía `goStep`/`getStep`); sin cambios de backend.
+- **Revisados todos los formularios de alta**: el patrón solo encaja en el asistente de invitaciones.
+  El **asistente de conciertos** (`_concert_wizard_modal.html`) y el **alta de medios**
+  (`media_outlets.html`) tienen pasos **multicampo** (p. ej. tipo de actividad + modo, o tipo de medio +
+  nombre/datos obligatorios), por lo que conservan el botón "Siguiente". Las altas rápidas
+  (`_quick_create_modals.html`) y las de una sola pantalla no tienen pasos.
+
 ---
 
 ## 9. Pendientes y auditoría

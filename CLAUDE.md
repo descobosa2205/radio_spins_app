@@ -68,6 +68,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ni mover el scroll; si no localiza la zona, hace recarga normal (fallback seguro). NO usarlo en
   borrados ni acciones que navegan a otra página. Ya AJAX nativo aparte: `concert_quick_status`,
   `setRoyaltyLiquidationStatus`.
+- **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
+  **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente
+  de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,
+  "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
+  `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
 
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).

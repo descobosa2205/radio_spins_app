@@ -1693,6 +1693,9 @@ class UserSecurity(Base):
     blocked_at = Column(DateTime(timezone=True))
     is_deleted = Column(Boolean, nullable=False, server_default=text("false"))
     deleted_at = Column(DateTime(timezone=True))
+    # DEPRECADA por seguridad: ya no se almacena la contraseña en claro. La columna se conserva por
+    # compatibilidad pero se mantiene siempre vacía (ver el UPDATE de borrado en
+    # ensure_personnel_and_operations_schema). No volver a escribir aquí.
     password_preview = Column(Text)
     password_last_changed_at = Column(DateTime(timezone=True))
     password_reset_sent_at = Column(DateTime(timezone=True))
@@ -3982,6 +3985,9 @@ def ensure_personnel_and_operations_schema():
     Base.metadata.create_all(bind=engine)
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        # SEGURIDAD: borra cualquier contraseña en claro almacenada históricamente. Ya no se guardan
+        # (gestión solo por hash + enlace de restablecimiento); este UPDATE limpia los valores viejos.
+        'UPDATE user_security SET password_preview = NULL WHERE password_preview IS NOT NULL;',
         """
         ALTER TABLE IF EXISTS user_profiles
             ADD COLUMN IF NOT EXISTS assigned_artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;

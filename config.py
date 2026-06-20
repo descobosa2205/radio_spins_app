@@ -1,4 +1,5 @@
 import os
+import secrets
 from dotenv import load_dotenv, find_dotenv
 
 # Carga el .env esté donde esté (sube hasta encontrarlo)
@@ -18,7 +19,9 @@ def _norm_db_url(url: str | None) -> str | None:
     return url
 
 class Settings:
-    SECRET_KEY = os.getenv("FLASK_SECRET_KEY", "dev-secret")
+    # Nunca usar una clave fija conocida: si falta la variable, generamos una aleatoria
+    # (así un despliegue mal configurado no queda con la clave por defecto pública).
+    SECRET_KEY = os.getenv("FLASK_SECRET_KEY") or secrets.token_urlsafe(48)
 
     # Admitimos varios nombres por si estás en un entorno que expone otros:
     _RAW_DB_URL = (

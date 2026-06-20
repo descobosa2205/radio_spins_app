@@ -36,7 +36,6 @@
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
-                <li><button type="button" class="dropdown-item trigger-password-view" data-password-url="{{ url_for('personnel_user_password_view', user_id=user.id) }}" data-user-label="{{ nick }}">Ver contraseña</button></li>
                 <li>
                   <form method="post" action="{{ url_for('personnel_user_password_send_reset', user_id=user.id) }}">
                     <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
@@ -175,20 +174,6 @@
   </div>
 </div>
 
-<div class="modal fade" id="passwordViewModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h5 class="modal-title">Contraseña actual</h5>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-      </div>
-      <div class="modal-body">
-        <div class="small text-muted mb-2" id="passwordViewUserLabel"></div>
-        <div class="password-preview-box" id="passwordViewValue">—</div>
-      </div>
-    </div>
-  </div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -223,25 +208,6 @@
   }
   document.querySelectorAll('.personnel-department-check').forEach(function(input){ input.addEventListener('change', refreshAssignedArtistPanels); });
   refreshAssignedArtistPanels();
-
-  const passwordModal = document.getElementById('passwordViewModal');
-  const passwordLabel = document.getElementById('passwordViewUserLabel');
-  const passwordValue = document.getElementById('passwordViewValue');
-  document.querySelectorAll('.trigger-password-view').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      passwordLabel.textContent = btn.dataset.userLabel || '';
-      passwordValue.textContent = 'Cargando...';
-      const modal = new bootstrap.Modal(passwordModal);
-      modal.show();
-      try {
-        const res = await fetch(btn.dataset.passwordUrl, {headers: {'X-Requested-With': 'XMLHttpRequest'}});
-        const data = await res.json();
-        passwordValue.textContent = data.password || data.message || 'No disponible';
-      } catch (err) {
-        passwordValue.textContent = 'No se pudo cargar la contraseña.';
-      }
-    });
-  });
 })();
 </script>
 {% endblock %}

@@ -472,15 +472,6 @@ button.song-status-item:focus {
   font-size: .92rem;
 }
 
-.password-preview-box{
-  border: 1px dashed rgba(0,0,0,.16);
-  border-radius: 14px;
-  background: #f8f9fa;
-  padding: 1rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 1.05rem;
-}
-
 .access-table th,
 .access-table td{
   vertical-align: middle;

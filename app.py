@@ -183,6 +183,15 @@ from models import (
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
+# Cookies de sesión más seguras. HTTPONLY y SAMESITE=Lax no afectan al uso normal y mitigan robo
+# de cookie por XSS y ataques CSRF cross-site. SECURE (solo HTTPS) se activa con
+# SESSION_COOKIE_SECURE=1 en producción (Render sirve HTTPS); por defecto off para no romper el
+# servidor de desarrollo local en http.
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=(os.getenv("SESSION_COOKIE_SECURE", "0") == "1"),
+)
 # Subidas pesadas: evita rechazos prematuros de Flask/Werkzeug con masters WAV grandes.
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
 app.config["MAX_FORM_MEMORY_SIZE"] = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(1024 * 1024 * 1024)))
@@ -882,7 +891,9 @@ def admin_login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = (request.form.get("password") or "").strip()
-        nxt = request.form.get("next") or url_for("home")
+        # safe_next_or evita open redirect: solo permite rutas internas; si "next" apunta fuera del
+        # sitio, cae al destino por defecto (home).
+        nxt = safe_next_or(request.form.get("next") or url_for("home"))
 
         txt_users = load_users_from_txt()
 
@@ -1820,7 +1831,10 @@ def _send_optional_email(
 
 
 def _external_url_for(endpoint: str, **values) -> str:
-    base = request.url_root.rstrip('/')
+    # Base fija configurable (EXTERNAL_BASE_URL) para enlaces que salen por email (reset de
+    # contraseña, etc.): así un atacante no puede falsear el dominio del enlace manipulando la
+    # cabecera Host de la petición. Si no se configura, se usa el host de la petición (igual que antes).
+    base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip('/')
     return base + url_for(endpoint, **values)
 
 
@@ -25058,17 +25072,13 @@ def _ensure_user_profile(session_db, user: User, legacy_full_seed: bool = False,
     return profile
 
 
-def _ensure_user_security(session_db, user: User, password_preview: str | None = None) -> UserSecurity:
+def _ensure_user_security(session_db, user: User) -> UserSecurity:
+    # NOTA SEGURIDAD: ya no se almacena la contraseña en claro (password_preview). La gestión de
+    # contraseñas se hace solo por hash + enlace de restablecimiento.
     security = session_db.get(UserSecurity, user.id)
     if security:
-        if password_preview and not security.password_preview:
-            security.password_preview = password_preview
-            security.updated_at = _now_madrid()
         return security
-    security = UserSecurity(
-        user_id=user.id,
-        password_preview=password_preview,
-    )
+    security = UserSecurity(user_id=user.id)
     session_db.add(security)
     session_db.flush()
     return security
@@ -25139,7 +25149,7 @@ def _bootstrap_access_and_personnel():
                 except Exception:
                     pass
             _ensure_user_profile(session_db, user, legacy_full_seed=True, nick=_email_to_nick(email))
-            _ensure_user_security(session_db, user, password_preview=(rec.get("password") or None))
+            _ensure_user_security(session_db, user)
         users = session_db.query(User).all()
         for user in users:
             profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
@@ -26054,7 +26064,9 @@ def _admin_login_extended():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip().lower()
         password = (request.form.get("password") or "").strip()
-        nxt = request.form.get("next") or url_for("home")
+        # safe_next_or evita open redirect: solo permite rutas internas; si "next" apunta fuera del
+        # sitio, cae al destino por defecto (home).
+        nxt = safe_next_or(request.form.get("next") or url_for("home"))
         txt_users = load_users_from_txt()
         session_db = db()
         try:
@@ -26087,7 +26099,7 @@ def _admin_login_extended():
                     user.password_hash = generate_password_hash(password)
                     user.role = role
                 profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
-                security = _ensure_user_security(session_db, user, password_preview=password)
+                security = _ensure_user_security(session_db, user)
                 security.last_login_at = _now_madrid()
                 _sync_user_access_grants(session_db, user, profile)
                 session_db.commit()
@@ -26170,7 +26182,6 @@ def password_set(token):
                 flash("Las contraseñas no coinciden.", "danger")
                 return render_template("password_set.html", token=token, email=user.email)
             user.password_hash = generate_password_hash(password)
-            security.password_preview = password
             security.password_last_changed_at = _now_madrid()
             security.is_blocked = False
             security.blocked_at = None
@@ -28995,7 +29006,7 @@ def personnel_view():
                 departments=_normalize_departments(request.form.getlist("departments")),
                 assigned_artist_ids=_normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids")),
             )
-            _ensure_user_security(session_db, user, password_preview=temp_password)
+            _ensure_user_security(session_db, user)
             _sync_user_access_grants(session_db, user, profile)
             token = _make_password_token(user.id, purpose="welcome")
             ok, err = _send_optional_email(
@@ -29178,6 +29189,8 @@ def personnel_bulk_access():
 @app.post("/personal/<user_id>/block")
 @admin_required
 def personnel_user_block(user_id):
+    if not is_master():
+        return forbid("Solo dirección puede gestionar usuarios.")
     session_db = db()
     try:
         security = session_db.get(UserSecurity, to_uuid(user_id))
@@ -29194,6 +29207,8 @@ def personnel_user_block(user_id):
 @app.post("/personal/<user_id>/unblock")
 @admin_required
 def personnel_user_unblock(user_id):
+    if not is_master():
+        return forbid("Solo dirección puede gestionar usuarios.")
     session_db = db()
     try:
         security = session_db.get(UserSecurity, to_uuid(user_id))
@@ -29210,6 +29225,8 @@ def personnel_user_unblock(user_id):
 @app.post("/personal/<user_id>/delete")
 @admin_required
 def personnel_user_delete(user_id):
+    if not is_master():
+        return forbid("Solo dirección puede gestionar usuarios.")
     session_db = db()
     try:
         security = session_db.get(UserSecurity, to_uuid(user_id))
@@ -29225,24 +29242,11 @@ def personnel_user_delete(user_id):
     return redirect(safe_next_or(url_for("personnel_view")))
 
 
-@app.get("/personal/<user_id>/password/view")
-@admin_required
-def personnel_user_password_view(user_id):
-    session_db = db()
-    try:
-        security = session_db.get(UserSecurity, to_uuid(user_id))
-        if not security:
-            return jsonify({"ok": False, "message": "No hay información de contraseña."}), 404
-        if security.password_preview:
-            return jsonify({"ok": True, "password": security.password_preview})
-        return jsonify({"ok": False, "message": "La contraseña aún no se ha definido."}), 404
-    finally:
-        session_db.close()
-
-
 @app.post("/personal/<user_id>/password/send-reset")
 @admin_required
 def personnel_user_password_send_reset(user_id):
+    if not is_master():
+        return forbid("Solo dirección puede gestionar usuarios.")
     session_db = db()
     try:
         user = session_db.get(User, to_uuid(user_id))
@@ -29272,6 +29276,8 @@ def personnel_user_password_send_reset(user_id):
 @app.post("/personal/<user_id>/password/regenerate")
 @admin_required
 def personnel_user_password_regenerate(user_id):
+    if not is_master():
+        return forbid("Solo dirección puede gestionar usuarios.")
     session_db = db()
     try:
         user = session_db.get(User, to_uuid(user_id))
@@ -29281,7 +29287,7 @@ def personnel_user_password_regenerate(user_id):
         security = _ensure_user_security(session_db, user)
         new_password = _generate_temporary_password()
         user.password_hash = generate_password_hash(new_password)
-        security.password_preview = new_password
+        # No se persiste la contraseña en claro: se muestra una sola vez en el aviso de abajo.
         security.password_last_changed_at = _now_madrid()
         security.is_blocked = False
         security.blocked_at = None

@@ -89,6 +89,8 @@ Se cargan desde `.env` en local y desde el **panel del proveedor** en producció
 | `MAX_CONTENT_LENGTH` | No | Tamaño máx. de subida en bytes. Por defecto 1 GiB. |
 | `WEB_CONCURRENCY` | No | Nº de workers de Gunicorn. Por defecto 1. |
 | `GUNICORN_TIMEOUT` | No | Timeout de Gunicorn (s). Por defecto 300 (subidas de audio grandes). |
+| `SESSION_COOKIE_SECURE` | No | Pon `1` en producción (HTTPS): la cookie de sesión solo viaja cifrada. Por defecto off para no romper el desarrollo local en `http`. |
+| `EXTERNAL_BASE_URL` | No | Dominio público fijo (p. ej. `https://backoffice.tudominio.com`) para los enlaces que salen por email. Si no se indica, se usa el host de la petición. Recomendada (evita *host-header injection*). |
 
 > 🔒 **Seguridad:** `.env` y `users.txt` contienen secretos y **no deben subirse a git** (ya están en
 > `.gitignore`). Si alguna vez se subieron, **rota las claves** (ver sección 9).
@@ -383,6 +385,52 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
 - El selector de "**invitado que es artista**" (paso "¿Para quién son?") **no** se filtra: ahí el
   artista es el destinatario de la invitación, no el del evento, así que se siguen mostrando todos.
 
+### Seguridad — Lote 1 (endurecimiento base + contraseñas en claro)
+
+Primer bloque de la fase de seguridad. Cambios de bajo riesgo que **no alteran el uso normal** de la
+app pero cierran agujeros importantes. Quedan para lotes siguientes: CSRF, tokens de restablecimiento
+de un solo uso, validación de subidas/SSRF y la retirada de `.env`/`users.txt` del repo + rotación de
+credenciales (esto último lo haces tú al final).
+
+**Endurecimiento base (S1)**
+
+- **Clave de sesión sin valor por defecto inseguro** (`config.py`): se elimina el `"dev-secret"` que
+  venía fijo. Si no hay `FLASK_SECRET_KEY`, se genera una aleatoria al arrancar. ⚠️ **En producción
+  hay que fijar `FLASK_SECRET_KEY`**; si no, al reiniciar el servidor se invalidan todas las sesiones
+  (los usuarios tendrían que volver a iniciar sesión).
+- **Cookies de sesión más seguras** (`app.py`): `HttpOnly` + `SameSite=Lax` siempre (mitiga robo de
+  cookie por XSS y CSRF cross-site). El flag `Secure` (cookie solo por HTTPS) se activa poniendo
+  `SESSION_COOKIE_SECURE=1` — **recomendado en Render**; por defecto off para no romper el desarrollo
+  local en `http`.
+- **Open redirect en el login** (`app.py`): el parámetro `next` ahora pasa por `safe_next_or`, que
+  solo admite rutas internas; un `next` que apunte a otro dominio cae a la home. Aplicado a los dos
+  manejadores de login.
+- **Host-header injection en enlaces de email** (`app.py`, `_external_url_for`): si se configura
+  `EXTERNAL_BASE_URL`, los enlaces que salen por correo (restablecimiento, bienvenida) usan ese
+  dominio fijo en vez de fiarse de la cabecera `Host` de la petición (que un atacante puede falsear).
+- **Gestión de usuarios solo para dirección** (`app.py`): bloquear, desbloquear, eliminar, enviar
+  recuperación y crear nueva contraseña ahora exigen rol **dirección** (role 10), no solo tener sesión.
+
+**Contraseñas en texto plano (S3)**
+
+- **Eliminado "Ver contraseña"**: se retira el botón, su modal/JS y el endpoint que devolvía la
+  contraseña en claro por JSON.
+- **La app ya no almacena contraseñas en claro** (`password_preview`): ni al crear usuario, ni en el
+  login, ni al fijar/regenerar contraseña. La columna queda en el modelo marcada como deprecada y
+  siempre vacía.
+- **Borrado de las históricas**: al arrancar, un `UPDATE` idempotente pone a `NULL` cualquier
+  contraseña en claro que quedara almacenada de antes.
+- **"Crear nueva contraseña"** (regenerar) se mantiene, pero ya **no la guarda**: solo la muestra una
+  vez en pantalla para comunicarla. La vía recomendada sigue siendo **"Enviar recuperación"** (enlace).
+
+**Variables de entorno nuevas (Render → Environment):**
+
+| Variable | Valor | Importancia |
+|---|---|---|
+| `FLASK_SECRET_KEY` | cadena larga aleatoria | **Obligatoria** en producción (si falta, las sesiones se pierden en cada reinicio) |
+| `SESSION_COOKIE_SECURE` | `1` | Recomendada (sirves por HTTPS) |
+| `EXTERNAL_BASE_URL` | `https://tu-dominio` | Recomendada (blinda los enlaces de email) |
+
 ---
 
 ## 9. Pendientes y auditoría
@@ -390,9 +438,11 @@ Configuración de **infraestructura** (a revisar en Render/Supabase):
 Se ha realizado una auditoría completa (46 hallazgos). El detalle priorizado está en el informe de
 auditoría adjunto. Resumen de lo que queda:
 
-- **Seguridad (fase posterior, según lo acordado):** rotar las credenciales que estuvieron en git
-  (service-role de Supabase, contraseña de BD, `FLASK_SECRET_KEY`); retirar contraseñas en texto
-  plano; añadir protección CSRF; reforzar control de acceso por rol en algunas secciones.
+- **Seguridad (en curso):** ✅ Hecho en el *Lote 1 de seguridad* (ver registro de cambios):
+  contraseñas en claro retiradas, cookies endurecidas, open-redirect y host-header cerrados, y gestión
+  de usuarios restringida a dirección. ⏳ Pendiente: protección CSRF, tokens de restablecimiento de un
+  solo uso, validación de subidas/SSRF, y rotación de credenciales + retirada de `.env`/`users.txt`
+  del repositorio (esto último lo haces tú al final).
 - **Lógica económica con decisión de negocio pendiente:** royalties "sobre beneficio" (PROFIT),
   acumulación de pagos parciales, IVA del *rebate* fijo, vistas de ventas especializadas.
 - **Calidad:** eliminar código duplicado, unificar el sistema de permisos (hay restos de una versión

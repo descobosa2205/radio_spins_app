@@ -545,9 +545,23 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
   (no se reescribe la lógica de cachés/participaciones/comisiones).
 - **Vistas consolidadas de todas las secciones** (cachés, colaboradores, comisionistas, equipamiento,
   contratos, notas) — antes solo se veían en la página de edición; ahora la ficha **muestra todo lo
-  cumplimentado** en tarjetas de marca (solo si hay datos), cada una con su botón *Editar*. La
-  **edición inline** de estas secciones complejas (con sus filas dinámicas) es el siguiente incremento;
-  de momento su *Editar* abre el formulario completo.
+  cumplimentado** en tarjetas de marca, cada una con su botón *Editar*.
+- **Edición inline de todas las secciones complejas del concierto** (colaboradores, comisionistas,
+  cachés, equipamiento, contratos y notas) **con sus filas dinámicas**, sin salir de la ficha:
+  - La lógica de filas dinámicas se ha extraído a **`static/js/concert_form.js`** (toggle por sección +
+    constructores de filas por delegación, sin `onclick` inline), que lee los catálogos de
+    promotores/empresas desde `window.CONCERT_FORM` inyectado por la plantilla. Las filas existentes se
+    rehidratan en JS desde placeholders `<script type="application/json">` (una sola fuente de markup).
+  - `concert_section_update` admite ahora las secciones `colaboradores`, `comisionistas`, `caches`,
+    `equipamiento`, `contratos` y `notas`, reutilizando los mismos helpers económicos que
+    `concert_update` (`_parse_share_rows`/`_replace_*`, `_parse_zone_rows`, `_parse_cache_rows`,
+    `_add_contracts_from_request`, etc.). Colaboradores/comisionistas/cachés **reemplazan** sus filas;
+    equipamiento/contratos/notas **añaden** (con borrado individual inline desde la vista, vía
+    `ajax_inline` con `next` a la ficha).
+  - Los formularios de caché usan una estructura **alineada** (un único input por cada campo del
+    backend), que corrige el desajuste de arrays del formulario monolítico con cachés variables/múltiples.
+  - Colaboradores y comisionistas solo se muestran si el tipo de actividad **no es VENDIDO**.
+  - La página de edición completa (`concert_edit.html`) se mantiene como respaldo temporal.
 
 ---
 

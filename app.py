@@ -17779,6 +17779,73 @@ def concert_section_update_handler(cid, section):
             if artwork_resend and artwork_row:
                 _send_artwork_request_email(c, artwork_row, is_update=True)
             flash("Datos de la actividad actualizados.", "success")
+        elif section == "colaboradores":
+            if (c.sale_type or "").strip().upper() == "VENDIDO":
+                raise ValueError("Un concierto vendido no admite colaboradores.")
+            p_rows = _parse_share_rows(
+                request.form.getlist("promoter_share_id[]"),
+                request.form.getlist("promoter_share_pct[]"),
+                request.form.getlist("promoter_share_pct_base[]"),
+                request.form.getlist("promoter_share_amount[]"),
+                request.form.getlist("promoter_share_amount_base[]"),
+            )
+            _replace_concert_promoter_shares(session, c.id, p_rows)
+            g_rows = _parse_share_rows(
+                request.form.getlist("company_share_id[]"),
+                request.form.getlist("company_share_pct[]"),
+                request.form.getlist("company_share_pct_base[]"),
+                request.form.getlist("company_share_amount[]"),
+                request.form.getlist("company_share_amount_base[]"),
+            )
+            _replace_concert_company_shares(session, c.id, g_rows)
+            session.commit()
+            flash("Colaboradores actualizados.", "success")
+        elif section == "comisionistas":
+            if (c.sale_type or "").strip().upper() == "VENDIDO":
+                raise ValueError("Un concierto vendido no admite comisionistas.")
+            z_rows = _parse_zone_rows(
+                request.form.getlist("zone_promoter_id[]"),
+                request.form.getlist("zone_commission_mode[]"),
+                request.form.getlist("zone_commission_pct[]"),
+                request.form.getlist("zone_commission_base[]"),
+                request.form.getlist("zone_commission_amount[]"),
+                request.form.getlist("zone_exempt_amount[]"),
+                request.form.getlist("zone_concept[]"),
+            )
+            _replace_concert_zone_agents(session, c.id, z_rows)
+            session.commit()
+            flash("Comisionistas actualizados.", "success")
+        elif section == "caches":
+            cache_rows = _parse_cache_rows(
+                request.form.getlist("cache_kind[]"),
+                request.form.getlist("cache_concept[]"),
+                request.form.getlist("cache_amount[]"),
+                request.form.getlist("cache_var_mode[]"),
+                request.form.getlist("cache_var_option[]"),
+                request.form.getlist("cache_from_ticket[]"),
+                request.form.getlist("cache_min_tickets[]"),
+                request.form.getlist("cache_min_revenue[]"),
+                request.form.getlist("cache_pct[]"),
+                request.form.getlist("cache_pct_base[]"),
+                request.form.getlist("cache_ticket_type[]"),
+            )
+            _replace_concert_caches(session, c.id, cache_rows)
+            session.commit()
+            flash("Cachés actualizados.", "success")
+        elif section == "equipamiento":
+            _upsert_equipment_from_request(session, c.id)
+            _add_equipment_docs_from_request(session, c.id)
+            _add_equipment_notes_from_request(session, c.id)
+            session.commit()
+            flash("Equipamiento actualizado.", "success")
+        elif section == "contratos":
+            _add_contracts_from_request(session, c.id)
+            session.commit()
+            flash("Contratos actualizados.", "success")
+        elif section == "notas":
+            _add_concert_notes_from_request(session, c.id)
+            session.commit()
+            flash("Notas actualizadas.", "success")
         else:
             raise ValueError("Sección no reconocida.")
     except Exception as e:
@@ -18245,6 +18312,7 @@ def concert_note_delete(nid=None, cid=None, note_id=None):
 @admin_required
 def concert_equipment_doc_delete(cid, did):
     session = db()
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
     try:
         d = session.get(ConcertEquipmentDocument, to_uuid(did))
         if d:
@@ -18256,7 +18324,7 @@ def concert_equipment_doc_delete(cid, did):
         flash(f"Error eliminando documento: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("concert_edit_view", cid=cid))
+    return redirect(next_url)
 
 
 @app.post("/conciertos/<cid>/equipment_notes/<nid>/delete", endpoint="concert_equipment_note_delete")
@@ -18264,6 +18332,7 @@ def concert_equipment_doc_delete(cid, did):
 @admin_required
 def concert_equipment_note_delete(cid, nid=None, note_id=None):
     session = db()
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
     try:
         target_id = nid or note_id
         n = session.get(ConcertEquipmentNote, to_uuid(target_id)) if target_id else None
@@ -18276,7 +18345,7 @@ def concert_equipment_note_delete(cid, nid=None, note_id=None):
         flash(f"Error eliminando nota: {e}", "danger")
     finally:
         session.close()
-    return redirect(url_for("concert_edit_view", cid=cid))
+    return redirect(next_url)
 
 # --------- EMPRESAS ---------------------
 @app.route("/empresas", methods=["GET", "POST"])

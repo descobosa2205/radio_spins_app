@@ -20,7 +20,8 @@ Detalle ampliado en `README.md`.
 - Monolito: **`app.py`** (~34k líneas, ~344 rutas, TODA la lógica) · **`models.py`** (~93 modelos +
   funciones `ensure_*_schema`) · `config.py` · `supabase_utils.py` (Storage).
 - **`templates/`** (Jinja2, 80) · **`static/css/styles.css`** · **`static/js/scripts.js`**
-  (+ `quick_create.js`, `typeahead.js`, `ajax_inline.js`, `modal_stack.js`, `csrf.js`, `entity_links.js`).
+  (+ `quick_create.js`, `typeahead.js`, `ajax_inline.js`, `modal_stack.js`, `csrf.js`, `entity_links.js`,
+  `concert_form.js`).
 - **Sin Alembic**: el esquema se crea/actualiza al arrancar con `init_db()` + `ensure_*_schema()`
   (idempotentes). Para cambios de modelo basta reiniciar; no hay migración manual.
 
@@ -85,9 +86,15 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   campos rellenos, sin textos explicativos) con **edición inline por sección** (`.ficha-section`):
   botón *Editar* (`[data-edit-toggle]`) que muestra el formulario (todos los campos, también vacíos) y
   *Cancelar* (`[data-edit-cancel]`); guarda **sin recargar** con `data-inline`/`ajax_inline` contra
-  endpoints de **guardado parcial por sección** (p. ej. `concert_section_update`, que reutiliza los
-  helpers de `concert_update` sin reescribir la lógica económica). Clases en `styles.css`. Empezado
-  por concierto; se replica a canción/álbum/artista.
+  endpoints de **guardado parcial por sección** (`concert_section_update`, que reutiliza los helpers de
+  `concert_update` sin reescribir la lógica económica). En **concierto** TODAS las secciones se editan
+  inline (datos, colaboradores, comisionistas, cachés, equipamiento, contratos, notas); las filas
+  dinámicas viven en **`static/js/concert_form.js`** (toggle por sección + constructores de filas por
+  delegación: `[data-add-row]`/`[data-rows]`/`[data-remove-row]`; catálogos vía `window.CONCERT_FORM`;
+  filas existentes rehidratadas desde placeholders `<script type="application/json" data-row-type>`).
+  Secciones que **reemplazan** al guardar: colaboradores/comisionistas/cachés; que **añaden** (con
+  borrado individual inline en la vista): equipamiento/contratos/notas. `concert_edit.html` queda como
+  respaldo. Clases en `styles.css`. Falta replicar el inline por sección a canción/álbum/artista.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

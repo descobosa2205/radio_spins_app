@@ -272,64 +272,127 @@
     </div>
     </div><!-- /data-datos-view -->
 
-    {# ---------- Secciones consolidadas (solo si hay datos) ---------- #}
-    {% if concert.company_shares or concert.promoter_shares %}
+    {# ---------- Secciones consolidadas (vista + edición inline por sección) ---------- #}
+    {% if concert.sale_type != 'VENDIDO' %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body"><div class="ficha-fields">
-        {% for s in concert.company_shares %}<div><div class="ficha-field__label">{{ s.company.name if s.company else 'Empresa' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% else %}Participa{% endif %}</div></div>{% endfor %}
-        {% for s in concert.promoter_shares %}<div><div class="ficha-field__label">{{ s.promoter.nick if s.promoter else 'Tercero' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% else %}Participa{% endif %}</div></div>{% endfor %}
-      </div></div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert.company_shares or concert.promoter_shares %}<div class="ficha-fields">
+        {% for s in concert.company_shares %}<div><div class="ficha-field__label">{{ s.company.name if s.company else 'Empresa' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+        {% for s in concert.promoter_shares %}<div><div class="ficha-field__label">{{ s.promoter.nick if s.promoter else 'Tercero' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% elif s.amount %}{{ s.amount|eur }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+      </div>{% else %}<div class="ficha-empty">Sin colaboradores. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='colaboradores') }}" data-inline data-inline-target="#concert-general-zone">
+        <div class="fw-semibold small text-muted mb-1">Participaciones de empresas</div>
+        <div data-rows="company-share">{% for s in concert.company_shares %}<script type="application/json" data-row-type="company-share">{{ {'company_share_id': (s.company_id|string if s.company_id else ''), 'company_share_pct': (s.pct|string if s.pct is not none else ''), 'company_share_pct_base': (s.pct_base or 'GROSS'), 'company_share_amount': (s.amount|string if s.amount is not none else ''), 'company_share_amount_base': (s.amount_base or 'GROSS')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="company-share"><i class="fa fa-plus me-1"></i>Empresa</button>
+        <div class="fw-semibold small text-muted mb-1">Promotores / terceros</div>
+        <div data-rows="promoter-share">{% for s in concert.promoter_shares %}<script type="application/json" data-row-type="promoter-share">{{ {'promoter_share_id': (s.promoter_id|string if s.promoter_id else ''), 'promoter_share_pct': (s.pct|string if s.pct is not none else ''), 'promoter_share_pct_base': (s.pct_base or 'GROSS'), 'promoter_share_amount': (s.amount|string if s.amount is not none else ''), 'promoter_share_amount_base': (s.amount_base or 'GROSS')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="promoter-share"><i class="fa fa-plus me-1"></i>Promotor / tercero</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
     {% endif %}
 
-    {% if concert.caches %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body"><div class="ficha-fields">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert.caches %}<div class="ficha-fields">
         {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
-      </div></div>
+      </div>{% else %}<div class="ficha-empty">Sin cachés. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
+      </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='caches') }}" data-inline data-inline-target="#concert-general-zone">
+        <div data-rows="cache">{% for ch in concert.caches %}{% set cfg = ch.config or {} %}<script type="application/json" data-row-type="cache">{{ {'cache_kind': (ch.kind or 'FIXED'), 'cache_concept': (ch.concept or ''), 'cache_amount': (ch.amount|string if ch.amount is not none else ''), 'cache_pct': (ch.pct|string if ch.pct is not none else ''), 'cache_pct_base': (ch.pct_base or 'GROSS'), 'cache_var_mode': (cfg.get('mode') or 'FIXED'), 'cache_var_option': (cfg.get('option') or ''), 'cache_from_ticket': (cfg.get('from_ticket')|string if cfg.get('from_ticket') is not none else ''), 'cache_min_tickets': (cfg.get('min_tickets')|string if cfg.get('min_tickets') is not none else ''), 'cache_min_revenue': (cfg.get('min_revenue')|string if cfg.get('min_revenue') is not none else ''), 'cache_ticket_type': (cfg.get('ticket_type') or '')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="cache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
-    {% endif %}
 
-    {% if concert.zone_agents %}
+    {% if concert.sale_type != 'VENDIDO' %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisionistas</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisionistas</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert.zone_agents %}
         {% for z in concert.zone_agents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1{% if not loop.last %} border-bottom{% endif %}"><div class="min-w-0"><span class="fw-semibold">{{ z.promoter.nick if z.promoter else 'Comisionista' }}</span>{% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}</div><div class="fw-semibold text-nowrap">{% if z.commission_type == 'PERCENT' %}{{ z.commission_pct }}% · {{ 'Bruto' if z.commission_base=='GROSS' else 'Neto' }}{% else %}{{ z.commission_amount|eur }}{% endif %}</div></div>{% endfor %}
+        {% else %}<div class="ficha-empty">Sin comisionistas. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
       </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='comisionistas') }}" data-inline data-inline-target="#concert-general-zone">
+        <div data-rows="zone">{% for z in concert.zone_agents %}<script type="application/json" data-row-type="zone">{{ {'zone_promoter_id': (z.promoter_id|string if z.promoter_id else ''), 'zone_commission_mode': ('PERCENT' if z.commission_type=='PERCENT' else 'FIXED'), 'zone_commission_pct': (z.commission_pct|string if z.commission_pct is not none else ''), 'zone_commission_base': (z.commission_base or 'GROSS'), 'zone_commission_amount': (z.commission_amount|string if z.commission_amount is not none else ''), 'zone_exempt_amount': (z.exempt_amount|string if z.exempt_amount is not none else ''), 'zone_concept': (z.concept or '')}|tojson }}</script>{% endfor %}</div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="zone"><i class="fa fa-plus me-1"></i>Añadir comisionista</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
     {% endif %}
 
-    {% if concert.equipment or concert.equipment_documents or concert.equipment_notes %}
     {% set eq = concert.equipment %}
+    {% set eq_option = '' %}
+    {% if eq %}{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}{% set eq_option = 'FESTIVAL_RIDER' %}{% elif eq.covered_by_promoter %}{% set eq_option = 'PROMOTER' %}{% elif eq.included or eq.other %}{% set eq_option = 'INCLUDED' %}{% endif %}{% endif %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-toolbox"></i>Equipamiento</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-toolbox"></i>Equipamiento</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if eq or concert.equipment_documents or concert.equipment_notes %}
         {% if eq %}<div class="mb-2 fw-semibold">{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}Rider de festival{% elif eq.covered_by_promoter %}Promotor cubre equipos{% elif eq.included or eq.other %}Equipos incluidos{% endif %}</div>{% endif %}
-        {% for d in concert.equipment_documents %}<div><a href="{{ d.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ d.concept }}</a></div>{% endfor %}
-        {% for n in concert.equipment_notes %}<div class="small text-muted mt-1">{{ n.body }}</div>{% endfor %}
+        {% for d in concert.equipment_documents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1"><a href="{{ d.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ d.concept }}</a>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_doc_delete', cid=concert.id, did=d.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar este documento?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
+        {% for n in concert.equipment_notes %}<div class="d-flex justify-content-between align-items-start gap-2 py-1"><div class="small text-muted">{{ n.body }}</div>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_equipment_note_delete', cid=concert.id, note_id=n.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar esta nota?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
+        {% else %}<div class="ficha-empty">Sin información de equipamiento. Pulsa <i class="fa fa-pen"></i> para añadir.</div>{% endif %}
       </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" enctype="multipart/form-data" action="{{ url_for('concert_section_update', cid=concert.id, section='equipamiento') }}" data-inline data-inline-target="#concert-general-zone">
+        <label class="form-label">Equipamiento</label>
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="" {% if not eq_option %}checked{% endif %}>Sin información</label>
+          <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="INCLUDED" {% if eq_option=='INCLUDED' %}checked{% endif %}>Equipos incluidos</label>
+          <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="PROMOTER" {% if eq_option=='PROMOTER' %}checked{% endif %}>Promotor cubre equipos</label>
+          <label class="form-check-label border rounded px-3 py-2"><input class="form-check-input me-2" type="radio" name="equipment_option" value="FESTIVAL_RIDER" {% if eq_option=='FESTIVAL_RIDER' %}checked{% endif %}>Rider de festival</label>
+        </div>
+        <div class="fw-semibold small text-muted mb-1">Adjuntar riders / PDFs nuevos</div>
+        <div data-rows="equip-doc"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="equip-doc"><i class="fa fa-plus me-1"></i>Adjuntar PDF</button>
+        <div class="fw-semibold small text-muted mb-1">Añadir notas de equipamiento</div>
+        <div data-rows="equip-note"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="equip-note"><i class="fa fa-plus me-1"></i>Añadir nota</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
-    {% endif %}
 
-    {% if concert.contracts %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Añadir contrato"><i class="fa fa-plus"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert.contracts %}
         {% for ct in concert.contracts %}<div class="py-1{% if not loop.last %} border-bottom{% endif %}"><a href="{{ ct.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ ct.concept or 'Contrato' }}</a>{% if ct.uploaded_at %}<span class="small text-muted"> · {{ ct.uploaded_at.strftime('%d/%m/%Y') }}</span>{% endif %}</div>{% endfor %}
+        {% else %}<div class="ficha-empty">Sin contratos. Pulsa <i class="fa fa-plus"></i> para adjuntar.</div>{% endif %}
       </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" enctype="multipart/form-data" action="{{ url_for('concert_section_update', cid=concert.id, section='contratos') }}" data-inline data-inline-target="#concert-general-zone">
+        <div data-rows="contract"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="contract"><i class="fa fa-plus me-1"></i>Adjuntar PDF</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
-    {% endif %}
 
-    {% if concert.notes %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas de contratación</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
-      <div class="ficha-section__body">
-        {% for n in concert.notes %}<div class="py-1{% if not loop.last %} border-bottom{% endif %}"><div class="fw-semibold">{{ n.title or 'Nota' }}{% if n.created_at %}<span class="small text-muted fw-normal"> · {{ n.created_at.strftime('%d/%m/%Y') }}</span>{% endif %}</div><div>{{ n.body }}</div></div>{% endfor %}
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas de contratación</h6>{% if CAN_EDIT_CONCERTS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Añadir nota"><i class="fa fa-plus"></i></button>{% endif %}</div>
+      <div class="ficha-section__body" data-section-view>
+        {% if concert.notes %}
+        {% for n in concert.notes %}<div class="d-flex justify-content-between align-items-start gap-2 py-1{% if not loop.last %} border-bottom{% endif %}"><div class="min-w-0"><div class="fw-semibold">{{ n.title or 'Nota' }}{% if n.created_at %}<span class="small text-muted fw-normal"> · {{ n.created_at.strftime('%d/%m/%Y') }}</span>{% endif %}</div><div>{{ n.body }}</div></div>{% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('concert_note_delete', cid=concert.id, note_id=n.id) }}" data-inline data-inline-target="#concert-general-zone" data-confirm="¿Eliminar esta nota?"><input type="hidden" name="next" value="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash"></i></button></form>{% endif %}</div>{% endfor %}
+        {% else %}<div class="ficha-empty">Sin notas. Pulsa <i class="fa fa-plus"></i> para añadir.</div>{% endif %}
       </div>
+      {% if CAN_EDIT_CONCERTS %}
+      <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='notas') }}" data-inline data-inline-target="#concert-general-zone">
+        <div data-rows="note"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mb-3" data-add-row="note"><i class="fa fa-plus me-1"></i>Añadir nota</button>
+        <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button><button class="btn btn-primary btn-sm"><i class="fa fa-check me-1"></i>Guardar</button></div>
+      </form>
+      {% endif %}
     </div>
-    {% endif %}
 
     </div><!-- /concert-general-zone -->
   {% elif tab == 'carteleria' %}
@@ -993,50 +1056,16 @@ document.addEventListener('DOMContentLoaded', function(){
     toggle();
   }
 });
-
-// Edición inline por sección (vista consolidada <-> formulario). Delegado para sobrevivir a
-// los reemplazos de zona de ajax_inline.
-(function(){
-  function showForm(form){
-    if(!form) return;
-    form.classList.remove('d-none');
-    var view = document.querySelector('[data-datos-view]'); if(view) view.classList.add('d-none');
-    try { if(window.initSelect2) window.initSelect2(); } catch(e){}
-    initDatosForm(form);
-    try { form.scrollIntoView({behavior:'smooth', block:'nearest'}); } catch(e){}
-  }
-  function hideForm(form){
-    if(form) form.classList.add('d-none');
-    var view = document.querySelector('[data-datos-view]'); if(view) view.classList.remove('d-none');
-  }
-  function applySaleType(form){
-    var sel = form.querySelector('[data-sale-type]');
-    var v = sel ? sel.value : '';
-    var prom = form.querySelector('[data-promoter-wrap]');
-    var be = form.querySelector('[data-breakeven-wrap]');
-    if(prom) prom.style.display = ['VENDIDO','GRATUITO','GIRAS_COMPRADAS'].indexOf(v) >= 0 ? '' : 'none';
-    if(be) be.style.display = (v === 'VENDIDO' || v === 'GRATUITO') ? 'none' : '';
-  }
-  window.initDatosForm = function(form){
-    if(form.__datosInit){ applySaleType(form); return; }
-    form.__datosInit = true;
-    var sel = form.querySelector('[data-sale-type]');
-    if(sel) sel.addEventListener('change', function(){ applySaleType(form); });
-    applySaleType(form);
-    if(window.initConcertTagManager && document.getElementById('concertTagInputDetail')){
-      window.concertTagManagers = window.concertTagManagers || {};
-      window.concertTagManagers.detail = window.initConcertTagManager({
-        inputId: 'concertTagInputDetail', chipsId: 'concertTagChipsDetail', hiddenId: 'concertTagHiddenDetail',
-        initialTags: {{ (concert.tags_clean or concert.hashtags or [])|tojson }}
-      });
-    }
-  };
-  document.addEventListener('click', function(e){
-    var t = e.target.closest('[data-edit-toggle]');
-    if(t){ e.preventDefault(); showForm(document.querySelector(t.getAttribute('data-edit-toggle'))); return; }
-    var c = e.target.closest('[data-edit-cancel]');
-    if(c){ e.preventDefault(); hideForm(document.querySelector(c.getAttribute('data-edit-cancel'))); }
-  });
-})();
 </script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  window.CONCERT_FORM = {
+    promoterOptionsHtml: {% filter tojson %}<option value="">—</option>{% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}">{{ p.nick }}</option>{% endfor %}{% endfilter %},
+    companyOptionsHtml: {% filter tojson %}<option value="">—</option>{% for co in companies %}<option value="{{ co.id }}">{{ co.name }}</option>{% endfor %}{% endfilter %},
+    initialTags: {{ (concert.tags_clean or concert.hashtags or [])|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='js/concert_form.js') }}"></script>
 {% endblock %}

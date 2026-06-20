@@ -466,6 +466,39 @@ credenciales (esto último lo haces tú al final).
   artista) crean por **AJAX y seleccionan el resultado**; no hay altas que naveguen y pierdan el
   formulario.
 
+### Seguridad — Lote 2 (protección CSRF)
+
+Cierra los ataques **CSRF** (que una web maliciosa fuerce a tu navegador, ya logueado, a enviar
+acciones a la app sin tu consentimiento). Se ha hecho de forma **automática** para no tener que tocar
+los ~300 formularios ni las llamadas AJAX una a una.
+
+**Servidor (`app.py`, `requirements.txt`)**
+
+- Se añade **Flask-WTF** (`CSRFProtect`): toda petición que modifica datos (`POST/PUT/PATCH/DELETE`)
+  exige un token válido; si falta o es inválido, se rechaza. Nuevas dependencias en `requirements.txt`:
+  `Flask-WTF` y `WTForms` (Render las instala solo al desplegar).
+- **Token de vida larga** (`WTF_CSRF_TIME_LIMIT=None`): vive mientras dure la sesión, así no caduca
+  aunque dejes un formulario abierto mucho rato.
+- **Comprobación de Referer desactivada** (`WTF_CSRF_SSL_STRICT=False`): la protección real es el token
+  + la cookie `SameSite=Lax` del Lote 1; la comprobación extra de Referer la omiten algunos
+  proxies/navegadores y daría rechazos falsos. La seguridad se mantiene.
+- **Mensaje claro** si el token caduca ("Tu sesión ha caducado…") en vez de un error 400 crudo.
+- **Endpoints públicos eximidos** (formularios accesibles por enlace, sin sesión, en plantillas sin
+  layout): subida de cartelería, ficha de contratación pública, subida de documentos de bolsa, y
+  listado/peticiones públicas de invitaciones. *(El login y la recuperación de contraseña SÍ llevan
+  CSRF: usan el layout y reciben el token.)*
+
+**Cliente (`templates/layout.html`, `static/js/csrf.js`)**
+
+- El layout publica el token en `<meta name="csrf-token">`.
+- `csrf.js` lo inyecta automáticamente: añade un campo oculto `csrf_token` a cada formulario POST (al
+  cargar, en formularios creados dinámicamente, y justo antes de enviar) y manda la cabecera
+  `X-CSRFToken` en todas las peticiones `fetch`. No hay que tocar formularios ni AJAX manualmente.
+
+> ℹ️ **No requiere variables nuevas.** Tras el despliegue, haz **una recarga forzada** (Ctrl/Cmd+Shift+R)
+> para que el navegador cargue el `layout` nuevo con `csrf.js` (si no, formularios cacheados podrían dar
+> "sesión caducada" hasta refrescar).
+
 ---
 
 ## 9. Pendientes y auditoría
@@ -473,11 +506,11 @@ credenciales (esto último lo haces tú al final).
 Se ha realizado una auditoría completa (46 hallazgos). El detalle priorizado está en el informe de
 auditoría adjunto. Resumen de lo que queda:
 
-- **Seguridad (en curso):** ✅ Hecho en el *Lote 1 de seguridad* (ver registro de cambios):
-  contraseñas en claro retiradas, cookies endurecidas, open-redirect y host-header cerrados, y gestión
-  de usuarios restringida a dirección. ⏳ Pendiente: protección CSRF, tokens de restablecimiento de un
-  solo uso, validación de subidas/SSRF, y rotación de credenciales + retirada de `.env`/`users.txt`
-  del repositorio (esto último lo haces tú al final).
+- **Seguridad (en curso):** ✅ Hecho en los *Lotes 1 y 2 de seguridad* (ver registro de cambios):
+  contraseñas en claro retiradas, cookies endurecidas, open-redirect y host-header cerrados, gestión
+  de usuarios restringida a dirección, y **protección CSRF** en toda la app. ⏳ Pendiente: tokens de
+  restablecimiento de un solo uso, validación de subidas/SSRF, y rotación de credenciales + retirada de
+  `.env`/`users.txt` del repositorio (esto último lo haces tú al final).
 - **Lógica económica con decisión de negocio pendiente:** royalties "sobre beneficio" (PROFIT),
   acumulación de pagos parciales, IVA del *rebate* fijo, vistas de ventas especializadas.
 - **Calidad:** eliminar código duplicado, unificar el sistema de permisos (hay restos de una versión

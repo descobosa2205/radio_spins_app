@@ -181,6 +181,8 @@ from models import (
     TicketSaleDetail,
 )
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
 app.secret_key = settings.SECRET_KEY
 # Cookies de sesión más seguras. HTTPONLY y SAMESITE=Lax no afectan al uso normal y mitigan robo
@@ -195,6 +197,44 @@ app.config.update(
 # Subidas pesadas: evita rechazos prematuros de Flask/Werkzeug con masters WAV grandes.
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
 app.config["MAX_FORM_MEMORY_SIZE"] = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(1024 * 1024 * 1024)))
+
+# Protección CSRF en todas las peticiones que modifican datos (POST/PUT/PATCH/DELETE). El token se
+# inyecta de forma automática en formularios y en peticiones fetch desde static/js/csrf.js (cargado
+# en layout.html), así que no hay que tocar formulario por formulario. WTF_CSRF_TIME_LIMIT=None: el
+# token vive mientras dure la sesión y no caduca aunque se tenga un formulario abierto mucho rato.
+app.config["WTF_CSRF_TIME_LIMIT"] = None
+# La protección real es el token + la cookie SESSION_COOKIE_SAMESITE=Lax. Desactivamos la comprobación
+# extra de la cabecera Referer (SSL_STRICT) porque algunos proxies/navegadores la omiten y provocaría
+# rechazos falsos ("sesión caducada") en formularios legítimos. La seguridad CSRF se mantiene.
+app.config["WTF_CSRF_SSL_STRICT"] = False
+csrf = CSRFProtect(app)
+
+# Endpoints públicos accesibles por enlace (sin sesión de back-office) cuyas plantillas standalone no
+# cargan el layout (ni, por tanto, el token CSRF). Se eximen; el riesgo es bajo (hay que conocer el
+# enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
+# el layout y sí llevan token. La exención se aplica al final del módulo, cuando ya están registradas
+# todas las rutas (ver el bucle sobre _CSRF_EXEMPT_ENDPOINTS).
+_CSRF_EXEMPT_ENDPOINTS = {
+    "concert_artwork_public_upload",
+    "concert_contract_public_form",
+    "public_bag_expense_document_upload",
+    "public_invitation_guest_list_status",
+    "public_invitation_request_submit",
+    "public_invitation_request_cancel",
+}
+
+
+@app.errorhandler(CSRFError)
+def _handle_csrf_error(e):
+    # Token ausente/incorrecto o sesión caducada: en vez de un 400 crudo, mensaje claro.
+    msg = "Tu sesión ha caducado o el formulario no es válido. Recarga la página e inténtalo de nuevo."
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return jsonify({"ok": False, "error": "csrf", "message": msg}), 400
+    flash(msg, "warning")
+    ref = request.referrer
+    if ref and ref.startswith(request.host_url):
+        return redirect(ref)
+    return redirect(url_for("home"))
 
 
 # Países en español para emisoras/medios. Usa la traducción ISO incluida en pycountry
@@ -34560,6 +34600,14 @@ def _home_invitation_requests_for_current_user(limit: int = 12) -> list[dict]:
     finally:
         session_db.close()
 
+
+
+# Aplicar las exenciones de CSRF una vez registradas todas las rutas (las view functions ya existen en
+# app.view_functions). Si algún endpoint no existiera, se ignora sin romper el arranque.
+for _csrf_ep in _CSRF_EXEMPT_ENDPOINTS:
+    _csrf_vf = app.view_functions.get(_csrf_ep)
+    if _csrf_vf is not None:
+        csrf.exempt(_csrf_vf)
 
 
 if __name__ == "__main__":

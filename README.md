@@ -450,18 +450,22 @@ credenciales (esto último lo haces tú al final).
 ### Modales apilados — dar de alta una entidad sin salir del formulario (toda la app)
 
 - **Problema**: al añadir una entidad (p. ej. un tercero) desde un formulario que ya estaba en un
-  modal (Pedir invitaciones y otros), el modal de alta se abría pero el de debajo quedaba mal
-  tapado y, al cerrarse, parecía que **"se cerraba el formulario en el que estabas"**. Es el problema
-  clásico de **modales apilados de Bootstrap 5**: el 2º modal y su backdrop quedan al mismo z-index
-  que el de debajo, y al cerrar el de arriba Bootstrap quita el bloqueo de scroll del `<body>`.
-- **Solución global** (`static/js/modal_stack.js`, cargado en `layout.html`): cuando un modal se abre
-  sobre otro ya abierto, se le sube el z-index (a él y a su backdrop) por encima del de debajo; y al
-  cerrarlo, si aún queda algún modal abierto, se restaura el bloqueo de scroll. Afecta a **toda la
-  app** sin tocar cada modal; los modales sueltos (el caso normal) no cambian de comportamiento.
-- **Resultado**: el alta rápida de entidades (`_quick_create_modals.html` + `quick_create.js`) y el
-  "Añadir tercero" de invitaciones —que ya creaban por AJAX y dejaban la entidad seleccionada— ahora
-  **se superponen sin sacar al usuario de donde estaba**: al crear, queda seleccionada y se sigue en
-  el mismo punto.
+  modal (Pedir invitaciones y otros), **se cerraba el modal en el que estabas**.
+- **Causa raíz** (verificada en el fuente de Bootstrap 5.3.3): el *data-api* de modales cierra a
+  propósito el modal abierto al pulsar cualquier disparador `data-bs-toggle="modal"`
+  (`if (alreadyOpen) Modal.getInstance(alreadyOpen).hide()`), y además ese handler se registra en
+  **fase de captura**. Por eso un parche que solo tocaba el z-index no servía: Bootstrap cerraba el
+  modal antes.
+- **Solución global** (`static/js/modal_stack.js`): hace tres cosas — (1) durante el clic en un
+  disparador, deja `hide` de los modales abiertos como no-op (neutraliza el auto-cierre) sin parar la
+  propagación, así los listeners propios del botón siguen corriendo; (2) sube el z-index del modal
+  nuevo y su backdrop por encima del de debajo; (3) restaura el bloqueo de scroll del `<body>` al
+  cerrar el de arriba si queda otro abierto. **Debe cargarse ANTES que Bootstrap** en `layout.html`,
+  para que su listener de captura se registre antes que el del *data-api* y pueda neutralizarlo.
+- **Resultado** (probado en navegador, abrir+crear+cerrar): el de debajo **sigue abierto y superpuesto**;
+  al crear, la entidad queda **seleccionada** y se sigue **en el mismo punto**. Funciona tanto con
+  modales `data-bs-toggle` (p. ej. "Añadir tercero") como con los abiertos por JS (alta rápida
+  `quick_create.js`). Los modales sueltos no cambian.
 - **Revisado en toda la app**: todas las altas de entidad (recinto/tercero/ticketera/editorial/
   artista) crean por **AJAX y seleccionan el resultado**; no hay altas que naveguen y pierdan el
   formulario.

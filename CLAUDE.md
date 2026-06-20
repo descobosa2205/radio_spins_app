@@ -59,12 +59,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`
   (TIPO ∈ venue|promoter|ticketer|publishing_company|artist). Crea por `/api/<tipo>/create` (JSON),
   deja la entidad seleccionada sin recargar y gestiona duplicados.
-- **Modales apilados** (`static/js/modal_stack.js`, global en `layout.html`): un modal abierto desde
-  dentro de otro se superpone correctamente (z-index escalonado + restaura el bloqueo de scroll del
-  `<body>` al cerrar el de arriba) **sin sacar** del de debajo. Gracias a esto, el alta rápida de
-  entidades (y cualquier modal de alta) funciona desde cualquier formulario/modal: al crear, la
-  entidad queda seleccionada y se sigue en el mismo punto. Es automático; no hay que hacer nada por
-  modal. Cualquier modal de alta nuevo debe crear por **AJAX y dejar seleccionado** (no navegar).
+- **Modales apilados** (`static/js/modal_stack.js`): un modal abierto desde dentro de otro se
+  superpone **sin cerrar** el de debajo; al cerrarlo se vuelve al mismo punto con la entidad
+  seleccionada. Neutraliza el auto-cierre del data-api de Bootstrap (deja `hide` como no-op durante
+  el clic), escalona el z-index y restaura el bloqueo de scroll. **Se carga ANTES que Bootstrap en
+  `layout.html`** (su listener de captura debe registrarse antes que el del data-api; si no, no
+  funciona — no reordenar). Es automático y global (sirve para `data-bs-toggle` y para modales
+  abiertos por JS como `quick_create.js`). Cualquier modal de alta nuevo debe crear por **AJAX y
+  dejar seleccionado** (no navegar).
 - **Loader global**: `#globalLoader` en `layout.html`; aparece al navegar, enviar formularios o en
   `fetch` >300 ms. Excluir con clase/atributo `no-loader`/`data-no-loader`.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un

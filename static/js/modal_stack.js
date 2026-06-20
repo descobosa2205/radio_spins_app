@@ -1,54 +1,73 @@
-/* modal_stack.js — Modales apilados (uno abierto desde DENTRO de otro).
+/* modal_stack.js — Abrir un modal (p. ej. "Añadir tercero") DESDE DENTRO de otro y que el de
+   debajo SIGA ABIERTO (superpuesto), sin salir del punto donde estabas. Al crear la entidad queda
+   seleccionada y se sigue ahí.
 
-   Problema: Bootstrap 5 no gestiona bien el apilado. Al abrir un 2º modal sobre otro, ambos y
-   sus backdrops quedan al mismo z-index, de modo que el de arriba no tapa bien al de abajo, y al
-   CERRAR el de arriba Bootstrap quita `modal-open` del <body> (pierde el bloqueo de scroll),
-   dejando el de abajo roto y dando la sensación de que "se cerró el formulario en el que estabas".
+   ⚠️ IMPORTANTE: este script debe cargarse ANTES que `bootstrap.bundle.min.js`. Motivo: Bootstrap
+   registra el handler del data-api de modales en fase de CAPTURA (en su fuente,
+   `element.addEventListener(typeEvent, fn, isDelegated)` con isDelegated=true). Ese handler cierra a
+   propósito el modal abierto al pulsar un disparador `data-bs-toggle="modal"`:
+       const alreadyOpen = SelectorEngine.findOne('.modal.show');
+       if (alreadyOpen) { Modal.getInstance(alreadyOpen).hide(); }
+   Como los listeners de captura se ejecutan por orden de registro, para neutralizar ese cierre
+   nuestro listener de captura tiene que registrarse ANTES (cargar este fichero antes que Bootstrap).
 
-   Esto rompía el alta rápida de entidades (recinto, tercero, ticketera, editorial, artista…)
-   cuando se abre desde otro formulario/modal: al crear, debe quedarse SELECCIONADA y el usuario
-   debe SEGUIR donde estaba, sin salir.
+   Qué corrige (verificado en Bootstrap 5.3.3):
+   1) AUTO-CIERRE: durante el clic en un disparador, dejamos `hide` de los modales abiertos como
+      no-op (captura, antes que Bootstrap), así el de debajo NO se cierra. No paramos la propagación,
+      de modo que los listeners propios del botón (p. ej. el que recuerda en qué campo dejar la
+      entidad creada) siguen ejecutándose. Los modales abiertos por JS (alta rápida `quick_create.js`)
+      no usan el data-api, así que no se autocierran.
+   2) APILADO VISUAL: al mostrarse un modal sobre otro, le subimos el z-index (y el de su backdrop).
+   3) BLOQUEO DE SCROLL: al cerrar el de arriba, Bootstrap quita `modal-open` del <body> aunque quede
+      otro abierto; lo restauramos.
 
-   Solución (global, para toda la app): al abrir un modal que se superpone a otro ya abierto, se le
-   sube el z-index (a él y a su backdrop) por encima del de debajo; y al cerrarlo, si aún queda
-   algún modal abierto, se restaura el bloqueo de scroll del <body>. Los modales sueltos (el caso
-   normal, sin apilar) no cambian de comportamiento.
+   Es global y automático; los modales sueltos (sin otro abierto debajo) no cambian.
 */
 (function () {
   'use strict';
-  if (!window.bootstrap) return;
-
-  var BASE_Z = 1055; // --bs-modal-zindex por defecto en Bootstrap 5 (.modal); backdrop = 1050
+  var BASE_Z = 1055; // --bs-modal-zindex por defecto (.modal); backdrop = 1050
   var STEP = 20;
 
+  // (1) Evitar que Bootstrap cierre el modal de debajo al pulsar un disparador de modal.
+  // Captura + registrado antes que Bootstrap => corre antes que su handler de captura.
+  document.addEventListener('click', function (e) {
+    if (!window.bootstrap || !window.bootstrap.Modal) return;
+    var trigger = e.target.closest('[data-bs-toggle="modal"]');
+    if (!trigger) return;
+    var open = document.querySelectorAll('.modal.show');
+    if (!open.length) return; // no hay otro abierto: comportamiento normal de Bootstrap
+
+    var sel = trigger.getAttribute('data-bs-target') || trigger.getAttribute('href') || '';
+    var targetModal = null;
+    try { targetModal = sel && sel !== '#' ? document.querySelector(sel) : null; } catch (err) { targetModal = null; }
+
+    open.forEach(function (m) {
+      if (m === targetModal) return; // no neutralizar el propio destino
+      var inst = bootstrap.Modal.getInstance(m);
+      if (!inst || inst.__stackNoHide) return;
+      inst.__stackNoHide = true;
+      var realHide = inst.hide;
+      inst.hide = function () {};               // no-op SOLO durante este clic
+      setTimeout(function () { inst.hide = realHide; delete inst.__stackNoHide; }, 0);
+    });
+  }, true);
+
+  // (2) Apilado visual: el modal que se abre sobre otro va por encima (z-index + backdrop).
   document.addEventListener('show.bs.modal', function (e) {
-    var modal = e.target;
-    // En 'show.bs.modal' el modal que se abre AÚN no tiene la clase .show, así que esto cuenta
-    // solo los que ya estaban abiertos. Si no hay ninguno, es un modal suelto: no tocar nada.
-    var alreadyOpen = document.querySelectorAll('.modal.show').length;
-    if (alreadyOpen < 1) return;
-
+    var alreadyOpen = document.querySelectorAll('.modal.show').length; // sin contar el que se abre
+    if (alreadyOpen < 1) return; // modal suelto: no tocar
     var z = BASE_Z + alreadyOpen * STEP;
-    modal.style.zIndex = String(z);
-
-    // El backdrop de este modal lo inserta Bootstrap justo después de este evento: en el siguiente
-    // frame lo subimos por encima del modal de debajo (z-1) y por debajo de este modal (z).
+    e.target.style.zIndex = String(z);
     requestAnimationFrame(function () {
       var pending = document.querySelectorAll('.modal-backdrop:not([data-stacked])');
       var last = pending[pending.length - 1];
-      if (last) {
-        last.setAttribute('data-stacked', '1');
-        last.style.zIndex = String(z - 1);
-      }
+      if (last) { last.setAttribute('data-stacked', '1'); last.style.zIndex = String(z - 1); }
     });
   });
 
+  // (3) Al cerrar un modal apilado, conservar el bloqueo de scroll si queda alguno abierto.
   document.addEventListener('hidden.bs.modal', function (e) {
-    // Limpiar el z-index propio para que un reuso futuro lo recalcule.
     e.target.style.zIndex = '';
-    // Bootstrap quita `modal-open` del <body> al cerrar ESTE modal aunque queden otros abiertos
-    // debajo: si es así, lo restauramos para conservar el bloqueo de scroll y dejar el de abajo
-    // plenamente operativo (no "cerrado").
     if (document.querySelectorAll('.modal.show').length > 0) {
       document.body.classList.add('modal-open');
     }

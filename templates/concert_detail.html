@@ -271,6 +271,66 @@
       </div>
     </div>
     </div><!-- /data-datos-view -->
+
+    {# ---------- Secciones consolidadas (solo si hay datos) ---------- #}
+    {% if concert.company_shares or concert.promoter_shares %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Colaboradores</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body"><div class="ficha-fields">
+        {% for s in concert.company_shares %}<div><div class="ficha-field__label">{{ s.company.name if s.company else 'Empresa' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+        {% for s in concert.promoter_shares %}<div><div class="ficha-field__label">{{ s.promoter.nick if s.promoter else 'Tercero' }}</div><div class="ficha-field__value">{% if s.pct %}{{ s.pct }}% · {{ 'Bruto' if s.pct_base=='GROSS' else 'Neto' }}{% else %}Participa{% endif %}</div></div>{% endfor %}
+      </div></div>
+    </div>
+    {% endif %}
+
+    {% if concert.caches %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-coins"></i>Cachés</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body"><div class="ficha-fields">
+        {% for ch in concert.caches %}<div><div class="ficha-field__label">{% if ch.kind == 'FIXED' %}Caché fijo{% elif ch.kind == 'VARIABLE' %}Caché variable{% else %}{{ ch.concept or 'Otros' }}{% endif %}</div><div class="ficha-field__value">{% if ch.kind == 'VARIABLE' and ch.pct %}{{ ch.pct }}% · {{ 'Bruto' if ch.pct_base=='GROSS' else 'Neto' }}{% elif ch.amount %}{{ ch.amount|eur }}{% else %}—{% endif %}</div></div>{% endfor %}
+      </div></div>
+    </div>
+    {% endif %}
+
+    {% if concert.zone_agents %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tag"></i>Comisionistas</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body">
+        {% for z in concert.zone_agents %}<div class="d-flex justify-content-between align-items-center gap-2 py-1{% if not loop.last %} border-bottom{% endif %}"><div class="min-w-0"><span class="fw-semibold">{{ z.promoter.nick if z.promoter else 'Comisionista' }}</span>{% if z.concept %}<span class="text-muted"> · {{ z.concept }}</span>{% endif %}</div><div class="fw-semibold text-nowrap">{% if z.commission_type == 'PERCENT' %}{{ z.commission_pct }}% · {{ 'Bruto' if z.commission_base=='GROSS' else 'Neto' }}{% else %}{{ z.commission_amount|eur }}{% endif %}</div></div>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if concert.equipment or concert.equipment_documents or concert.equipment_notes %}
+    {% set eq = concert.equipment %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-toolbox"></i>Equipamiento</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body">
+        {% if eq %}<div class="mb-2 fw-semibold">{% if eq.covered_by_promoter and eq.covered_mode == 'RIDER' %}Rider de festival{% elif eq.covered_by_promoter %}Promotor cubre equipos{% elif eq.included or eq.other %}Equipos incluidos{% endif %}</div>{% endif %}
+        {% for d in concert.equipment_documents %}<div><a href="{{ d.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ d.concept }}</a></div>{% endfor %}
+        {% for n in concert.equipment_notes %}<div class="small text-muted mt-1">{{ n.body }}</div>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if concert.contracts %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-file-contract"></i>Contratos</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body">
+        {% for ct in concert.contracts %}<div class="py-1{% if not loop.last %} border-bottom{% endif %}"><a href="{{ ct.pdf_url }}" target="_blank"><i class="fa fa-file-pdf me-1"></i>{{ ct.concept or 'Contrato' }}</a>{% if ct.uploaded_at %}<span class="small text-muted"> · {{ ct.uploaded_at.strftime('%d/%m/%Y') }}</span>{% endif %}</div>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if concert.notes %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-note-sticky"></i>Notas de contratación</h6>{% if CAN_EDIT_CONCERTS %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_edit_view', cid=concert.id) }}" title="Editar"><i class="fa fa-pen"></i></a>{% endif %}</div>
+      <div class="ficha-section__body">
+        {% for n in concert.notes %}<div class="py-1{% if not loop.last %} border-bottom{% endif %}"><div class="fw-semibold">{{ n.title or 'Nota' }}{% if n.created_at %}<span class="small text-muted fw-normal"> · {{ n.created_at.strftime('%d/%m/%Y') }}</span>{% endif %}</div><div>{{ n.body }}</div></div>{% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
     </div><!-- /concert-general-zone -->
   {% elif tab == 'carteleria' %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">

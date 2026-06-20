@@ -542,9 +542,12 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
   despliega el formulario en la propia ficha y guarda **sin recargar** (vía `ajax_inline`).
 - **Backend**: nuevo endpoint de **guardado parcial por sección** `concert_section_update` que
   actualiza solo los campos de esa sección **reutilizando los helpers económicos** de `concert_update`
-  (no se reescribe la lógica de cachés/participaciones/comisiones). Las secciones complejas (cachés,
-  colaboradores, comisionistas, equipamiento, contratos, notas) se pasarán a inline en el siguiente
-  incremento; de momento se editan desde su botón aparte.
+  (no se reescribe la lógica de cachés/participaciones/comisiones).
+- **Vistas consolidadas de todas las secciones** (cachés, colaboradores, comisionistas, equipamiento,
+  contratos, notas) — antes solo se veían en la página de edición; ahora la ficha **muestra todo lo
+  cumplimentado** en tarjetas de marca (solo si hay datos), cada una con su botón *Editar*. La
+  **edición inline** de estas secciones complejas (con sus filas dinámicas) es el siguiente incremento;
+  de momento su *Editar* abre el formulario completo.
 
 ---
 

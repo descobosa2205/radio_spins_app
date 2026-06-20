@@ -136,7 +136,18 @@
       </a>
     </li>
   {% endif %}
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='vinculaciones' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='vinculaciones') }}">
+      Vinculaciones
+    </a>
+  </li>
 </ul>
+
+{# ===================== TAB: VINCULACIONES ===================== #}
+{% if tab == 'vinculaciones' %}
+  {% include '_entity_links_panel.html' %}
+{% endif %}
 
 {# ===================== TAB: DATOS ===================== #}
 {% if tab == 'datos' %}

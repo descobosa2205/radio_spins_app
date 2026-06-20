@@ -1217,6 +1217,10 @@ def artist_detail_view(artist_id):
             contracting_general_rows=contracting_general_rows,
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
+            entity_links=_entity_link_rows(session_db, 'artist', artist.id),
+            entity_link_context={'type': 'artist', 'id': str(artist.id), 'label': artist.name or 'artista'},
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            entity_links_can_edit=True,
         )
     finally:
         session_db.close()
@@ -21247,6 +21251,14 @@ def api_entity_link_search():
                 if payload:
                     payload["link_summary"] = _promoter_link_summary(session_db, item)
                     rows.append(payload)
+        elif entity_type == "artist":
+            query = session_db.query(Artist)
+            if q:
+                query = query.filter(_sa_contains_text(Artist.name, q))
+            for item in query.order_by(Artist.name.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "artist", item.id)
+                if payload:
+                    rows.append(payload)
         elif entity_type == "media":
             query = session_db.query(MediaOutlet)
             if q:
@@ -31997,6 +32009,7 @@ def _json_list(value) -> list:
 
 APP33_ENTITY_LINK_TYPES = {
     "promoter": {"label": "Tercero", "icon": "fa-user-tie"},
+    "artist": {"label": "Artista", "icon": "fa-microphone-lines"},
     "media": {"label": "Medio", "icon": "fa-bullhorn"},
     "venue": {"label": "Recinto", "icon": "fa-location-dot"},
     "ticketer": {"label": "Ticketera", "icon": "fa-ticket"},
@@ -32004,6 +32017,7 @@ APP33_ENTITY_LINK_TYPES = {
 }
 APP33_ENTITY_LINK_ALIASES = {
     "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
+    "artista": "artist",
     "medio": "media", "recinto": "venue", "ticketera": "ticketer", "editorial": "publishing",
     "publishing_company": "publishing",
 }
@@ -32042,6 +32056,13 @@ def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict
             subtitle = " · ".join([x for x in [(row.contact_email or "").strip(), (row.contact_phone or "").strip()] if x])
             logo_url = row.logo_url or ""
             href = url_for("promoter_detail_view", pid=row.id)
+    elif etype == "artist":
+        row = session_db.get(Artist, eid)
+        if row:
+            label = row.name or "Artista"
+            subtitle = (getattr(row, "genre", "") or "").strip()
+            logo_url = getattr(row, "photo_url", "") or ""
+            href = url_for("artist_detail_view", artist_id=row.id)
     elif etype == "media":
         row = session_db.get(MediaOutlet, eid)
         if row:
@@ -32135,15 +32156,26 @@ def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
     return {
         "label": label,
         "type_label": type_label,
+        "relation_title": rows[0].get("relation_title") or "",
+        "icon": first.get("icon") or "fa-link",
         "logo_url": first.get("logo_url") or _entity_placeholder_url(),
-        "items": [{"label": (r.get("linked") or {}).get("label", ""), "type_label": (r.get("linked") or {}).get("type_label", ""), "logo_url": (r.get("linked") or {}).get("logo_url", "")} for r in rows[:3]],
+        "items": [{
+            "label": (r.get("linked") or {}).get("label", ""),
+            "type_label": (r.get("linked") or {}).get("type_label", ""),
+            "relation_title": r.get("relation_title", ""),
+            "icon": (r.get("linked") or {}).get("icon", "fa-link"),
+            "logo_url": (r.get("linked") or {}).get("logo_url", ""),
+        } for r in rows[:3]],
     }
 
 
 def _promoter_link_summary_text(summary: dict | None) -> str:
+    """Texto corto y legible del vínculo principal, con la relación por delante.
+    Ej.: "director · Radio X" o, si no hay relación, "Medio · Radio X"."""
     if not summary:
         return ""
-    parts = [summary.get("type_label") or "", summary.get("label") or ""]
+    lead = (summary.get("relation_title") or "").strip() or (summary.get("type_label") or "")
+    parts = [lead, summary.get("label") or ""]
     return " · ".join([x for x in parts if x])
 
 

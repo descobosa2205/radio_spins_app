@@ -503,6 +503,29 @@ los ~300 formularios ni las llamadas AJAX una a una.
 > para que el navegador cargue el `layout` nuevo con `csrf.js` (si no, formularios cacheados podrían dar
 > "sesión caducada" hasta refrescar).
 
+### Vinculaciones entre entidades — rediseño completo (visual y funcional)
+
+Se rehace por completo el sistema de **vincular** un tercero/artista/medio/recinto/ticketera/editorial
+con otra entidad, indicando **la relación** (un texto, p. ej. *"director de la radio"*, *"novia del
+artista"*, *"agencia"*). Antes no era funcional ni visual; ahora:
+
+- **La lógica del modal NO existía** (faltaba el JS de buscar/seleccionar/crear): se añade
+  `static/js/entity_links.js`, genérico para cualquier `<form data-entity-link-form>`. Flujo:
+  **elegir tipo** (iconos) → **buscar y seleccionar** mostrando **foto/logo** → si no existe,
+  **crear rápido** ahí mismo → escribir la **relación** → guardar. Verificado en navegador.
+- **Nuevo tipo `artista`** como entidad vinculable (antes solo tercero/medio/recinto/ticketera/
+  editorial): `APP33_ENTITY_LINK_TYPES`, `_entity_link_payload`, `api_entity_link_search`.
+- **Panel rediseñado** (`templates/_entity_links_panel.html`, CSS de marca en `styles.css`): lista
+  visual con foto + icono de tipo, **relación destacada**, y menú de **3 puntitos** para *editar
+  relación* o *desvincular*. Solo se guarda la relación (sin nota).
+- **Bidireccional y en todas las fichas**: la vinculación aparece en la ficha de ambas partes
+  (tercero, medio, recinto, ticketera, editorial y ahora **artista**, con nueva pestaña
+  *Vinculaciones*).
+- **Visible en invitaciones/correo**: el resumen (`_promoter_link_summary`) lleva **la relación por
+  delante** (p. ej. *"director · Radio X"*), así se ve de un vistazo quién es el invitado.
+- Funciona **superpuesto** sin salir del formulario (en invitaciones, con `data-link-ajax`), apoyado
+  en `modal_stack.js`; el token CSRF lo añade `csrf.js` automáticamente.
+
 ---
 
 ## 9. Pendientes y auditoría

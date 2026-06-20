@@ -701,49 +701,46 @@
 </div>
 
 <div class="modal fade entity-link-modal" id="invitationQuickLinkModal" tabindex="-1" aria-hidden="true" data-source-type="promoter">
-  <div class="modal-dialog modal-xl modal-dialog-centered">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('entity_link_create') }}" data-entity-link-form>
-        <input type="hidden" name="next" value="{{ request.full_path }}">
-        <input type="hidden" name="source_type" value="promoter">
-        <input type="hidden" name="source_id" value="">
-        <input type="hidden" name="target_type" data-link-target-type>
-        <input type="hidden" name="target_id" data-link-target-id>
-        <div class="modal-header"><h5 class="modal-title">Vincular tercero seleccionado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-          <div class="entity-link-type-row mb-3" data-link-type-row>
-            <button type="button" class="entity-link-type-btn" data-link-type="media"><i class="fa fa-bullhorn"></i><span>Medio</span></button>
-            <button type="button" class="entity-link-type-btn" data-link-type="promoter"><i class="fa fa-user-tie"></i><span>Tercero</span></button>
-            <button type="button" class="entity-link-type-btn" data-link-type="venue"><i class="fa fa-location-dot"></i><span>Recinto</span></button>
-            <button type="button" class="entity-link-type-btn" data-link-type="ticketer"><i class="fa fa-ticket"></i><span>Ticketera</span></button>
-            <button type="button" class="entity-link-type-btn" data-link-type="publishing"><i class="fa fa-pen-nib"></i><span>Editorial</span></button>
-          </div>
-          <div class="row g-3">
-            <div class="col-lg-7">
-              <label class="form-label">Buscar</label><input type="search" class="form-control" data-link-search placeholder="Escribe cualquier dato para buscar...">
-              <div class="entity-link-results mt-2" data-link-results><div class="text-muted small p-3">Selecciona primero el tipo de vinculación.</div></div>
-              <div class="entity-link-selected mt-3 d-none" data-link-selected></div>
-            </div>
-            <div class="col-lg-5">
-              <div class="card border-dashed h-100"><div class="card-body"><div class="fw-semibold mb-1">Añadir nuevo</div><div class="text-muted small mb-3">Se crea y queda seleccionado sin cerrar el formulario de invitaciones.</div>
-                <div class="row g-2">
-                  <div class="col-12"><label class="form-label">Nombre / Nick</label><input class="form-control" data-create-name></div>
-                  <div class="col-12 d-none" data-create-media-type-wrap><label class="form-label">Tipo de medio</label><select class="form-select" data-create-media-type><option value="RADIO">Radio</option><option value="TV">TV</option><option value="PRENSA">Prensa</option><option value="DIGITAL">Digital</option><option value="OTRO">Otro</option></select></div>
-                  <div class="col-12"><label class="form-label">Email / URL</label><input class="form-control" data-create-email></div>
-                  <div class="col-12"><label class="form-label">Teléfono / dirección</label><input class="form-control" data-create-phone></div>
-                  <div class="col-6"><label class="form-label">Municipio</label><input class="form-control" data-create-city></div><div class="col-6"><label class="form-label">Provincia</label><input class="form-control" data-create-province></div>
-                  <div class="col-12"><label class="form-label">Logo / foto</label><input class="form-control" type="file" data-create-logo accept="image/*"></div>
-                  <div class="col-12"><button type="button" class="btn btn-outline-primary w-100" data-link-create><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>
-                  <div class="col-12"><div class="small" data-link-create-msg></div></div>
-                </div>
-              </div></div>
-            </div>
-          </div>
-          <hr><div class="row g-3"><div class="col-md-5"><label class="form-label">Título o relación</label><input class="form-control" name="relation_title"></div><div class="col-md-7"><label class="form-label">Nota</label><input class="form-control" name="note"></div></div>
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('entity_link_create') }}" data-entity-link-form data-link-ajax>
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="source_type" value="promoter">
+      <input type="hidden" name="source_id" value="">
+      <input type="hidden" name="target_type" data-link-target-type>
+      <input type="hidden" name="target_id" data-link-target-id>
+      <div class="modal-header"><h5 class="modal-title">Vincular tercero seleccionado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="form-label">1. ¿Qué quieres vincular?</div>
+        <div class="entity-link-type-row mb-3" data-link-type-row>
+          <button type="button" class="entity-link-type-btn" data-link-type="artist"><i class="fa fa-microphone-lines"></i><span>Artista</span></button>
+          <button type="button" class="entity-link-type-btn" data-link-type="media"><i class="fa fa-bullhorn"></i><span>Medio</span></button>
+          <button type="button" class="entity-link-type-btn" data-link-type="promoter"><i class="fa fa-user-tie"></i><span>Tercero</span></button>
+          <button type="button" class="entity-link-type-btn" data-link-type="venue"><i class="fa fa-location-dot"></i><span>Recinto</span></button>
+          <button type="button" class="entity-link-type-btn" data-link-type="ticketer"><i class="fa fa-ticket"></i><span>Ticketera</span></button>
+          <button type="button" class="entity-link-type-btn" data-link-type="publishing"><i class="fa fa-pen-nib"></i><span>Editorial</span></button>
         </div>
-        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" data-link-save disabled>Guardar vinculación</button></div>
-      </form>
-    </div>
+        <div class="form-label">2. Busca y selecciona</div>
+        <input type="search" class="form-control" data-link-search placeholder="Escribe cualquier dato para buscar…" autocomplete="off">
+        <div class="entity-link-results mt-2" data-link-results><div class="text-muted small p-3">Elige primero qué quieres vincular.</div></div>
+        <div class="entity-link-selected mt-2 d-none" data-link-selected></div>
+        <div class="mt-2">
+          <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-link-create-toggle><i class="fa fa-plus me-1"></i>No existe: crear nueva</button>
+          <div class="entity-link-create d-none mt-2" data-link-create-panel>
+            <div class="row g-2">
+              <div class="col-12"><input class="form-control form-control-sm" data-link-create-name placeholder="Nombre"></div>
+              <div class="col-12 d-none" data-link-create-media-wrap><select class="form-select form-select-sm" data-link-create-media-type><option value="RADIO">Radio</option><option value="TV">TV</option><option value="PRENSA">Prensa</option><option value="DIGITAL">Digital</option><option value="OTRO">Otro</option></select></div>
+              <div class="col-12"><input type="file" class="form-control form-control-sm" data-link-create-logo accept="image/*"></div>
+              <div class="col-12"><button type="button" class="btn btn-sm btn-outline-primary w-100" data-link-create-submit><i class="fa fa-check me-1"></i>Crear y seleccionar</button></div>
+              <div class="col-12"><div class="small" data-link-create-msg></div></div>
+            </div>
+          </div>
+        </div>
+        <hr>
+        <label class="form-label">3. Relación <span class="text-muted fw-normal">(lo que se mostrará)</span></label>
+        <input class="form-control" name="relation_title" placeholder="Ej: director de la radio, novia del artista, agencia…">
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary" data-link-save disabled><i class="fa fa-link me-1"></i>Guardar vinculación</button></div>
+    </form>
   </div>
 </div>
 
@@ -884,19 +881,6 @@
     modal.querySelector('[name="source_id"]').value = sourceId;
     bootstrap.Modal.getOrCreateInstance(modal).show();
   }));
-  document.querySelector('#invitationQuickLinkModal form')?.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const form = ev.currentTarget;
-    const save = form.querySelector('[data-link-save]');
-    save && (save.disabled = true);
-    try{
-      await fetch(form.action, {method:'POST', body:new FormData(form), headers:{'Accept':'text/html'}});
-      bootstrap.Modal.getInstance(document.getElementById('invitationQuickLinkModal'))?.hide();
-      alert('Vinculación guardada.');
-    }catch(e){ alert('No se pudo guardar la vinculación.'); }
-    finally{ save && (save.disabled = false); }
-  });
-
 
   document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });

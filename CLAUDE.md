@@ -80,6 +80,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   sin salir, p. ej. en invitaciones).
 - **Loader global**: `#globalLoader` en `layout.html`; aparece al navegar, enviar formularios o en
   `fetch` >300 ms. Excluir con clase/atributo `no-loader`/`data-no-loader`.
+- **Fichas (concierto/canción/álbum/artista) — estructura común** (en curso): **cabecera visual**
+  (`.ficha-hero`) + **pestañas** (`.ficha-tabs`/`.ficha-tabpane`) + contenido **consolidado** (solo
+  campos rellenos, sin textos explicativos) con **edición inline por sección** (`.ficha-section`):
+  botón *Editar* (`[data-edit-toggle]`) que muestra el formulario (todos los campos, también vacíos) y
+  *Cancelar* (`[data-edit-cancel]`); guarda **sin recargar** con `data-inline`/`ajax_inline` contra
+  endpoints de **guardado parcial por sección** (p. ej. `concert_section_update`, que reutiliza los
+  helpers de `concert_update` sin reescribir la lógica económica). Clases en `styles.css`. Empezado
+  por concierto; se replica a canción/álbum/artista.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

@@ -17140,6 +17140,18 @@ def concert_detail_view(cid):
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c, ensure_token=True)
+
+        # Listas para la edición inline (solo en la pestaña general).
+        edit_artists = edit_venues = edit_promoters = edit_companies = []
+        edit_type_choices = []
+        all_concert_tags = []
+        if tab == "general" and (is_master() or can_edit_concerts()):
+            edit_artists = session.query(Artist).order_by(Artist.name.asc()).all()
+            edit_venues = session.query(Venue).order_by(Venue.name.asc()).all()
+            edit_promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
+            edit_companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+            all_concert_tags = _collect_all_concert_tags(session)
+            edit_type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
         session.commit()
 
         return render_template(
@@ -17194,6 +17206,12 @@ def concert_detail_view(cid):
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
+            artists=edit_artists,
+            venues=edit_venues,
+            companies=edit_companies,
+            promoters=edit_promoters,
+            type_choices=edit_type_choices,
+            all_concert_tags=all_concert_tags,
         )
     finally:
         session.close()
@@ -17690,6 +17708,85 @@ def concert_update_handler(cid):
         session.close()
 
     return redirect(url_for("concert_detail_view", cid=cid))
+
+
+@app.post("/conciertos/<cid>/seccion/<section>", endpoint="concert_section_update")
+@admin_required
+def concert_section_update_handler(cid, section):
+    """Guardado PARCIAL por sección de la ficha de concierto (edición inline).
+
+    Actualiza solo los campos de la sección indicada, reutilizando los mismos helpers que
+    `concert_update` para no alterar la lógica económica. Las secciones no tocadas quedan intactas.
+    """
+    session = db()
+    c = session.get(Concert, to_uuid(cid))
+    if not c:
+        flash("Concierto no encontrado.", "warning")
+        session.close()
+        return redirect(url_for("concerts_view", tab="vista"))
+    try:
+        if section == "datos":
+            sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
+            if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
+                sale_type = "EMPRESA"
+            venue_raw = (request.form.get("venue_id") or "").strip()
+            if not venue_raw:
+                raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
+            c.date = parse_date(request.form["date"])
+            c.festival_name = (request.form.get("festival_name") or "").strip() or None
+            c.venue_id = to_uuid(venue_raw)
+            c.sale_type = sale_type
+            c.artist_id = to_uuid(request.form["artist_id"])
+            c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
+            requested_capacity = max(0, int(request.form.get("capacity") or 0))
+            previous_effective_capacity = _concert_capacity_from_ticket_types(c)
+            c.capacity = requested_capacity
+            c.sale_start_date = parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type)
+            c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
+            c.status = _norm_status(request.form.get("status"))
+            c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
+            c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
+            # Coherencia: si pasa a VENDIDO no hay colaboradores/comisionistas.
+            if sale_type == "VENDIDO":
+                _replace_concert_promoter_shares(session, c.id, [])
+                _replace_concert_company_shares(session, c.id, [])
+                _replace_concert_zone_agents(session, c.id, [])
+            if requested_capacity != previous_effective_capacity:
+                _sync_concert_capacity_after_manual_edit(session, c.id, requested_capacity)
+            # Reenvío de cartelería si cambiaron fecha/recinto/horarios (igual que concert_update).
+            artwork_row = getattr(c, 'artwork_request', None)
+            session.flush()
+            try:
+                session.expire(c, ['venue'])
+            except Exception:
+                pass
+            artwork_resend = False
+            if artwork_row and (getattr(artwork_row, 'handled_by', None) or 'OURS').strip().upper() == 'OURS':
+                if _artwork_request_has_event_changes(artwork_row, c):
+                    _archive_current_artwork_assets(artwork_row)
+                    now = datetime.now(ZoneInfo('Europe/Madrid'))
+                    artwork_row.status = 'REQUESTED'
+                    artwork_row.requested_at = now
+                    artwork_row.updated_at = now
+                    artwork_row.needs_refresh = False
+                    artwork_row.event_snapshot = _concert_artwork_snapshot(c)
+                    artwork_resend = True
+                else:
+                    _sync_artwork_request_refresh_flag(c)
+            else:
+                _sync_artwork_request_refresh_flag(c)
+            session.commit()
+            if artwork_resend and artwork_row:
+                _send_artwork_request_email(c, artwork_row, is_update=True)
+            flash("Datos de la actividad actualizados.", "success")
+        else:
+            raise ValueError("Sección no reconocida.")
+    except Exception as e:
+        session.rollback()
+        flash(f"Error actualizando: {e}", "danger")
+    finally:
+        session.close()
+    return redirect(url_for("concert_detail_view", cid=cid, tab="general"))
 
 
 # ---------- BORRAR ----------

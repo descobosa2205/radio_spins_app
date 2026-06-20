@@ -41,15 +41,103 @@
 
 <div class="ficha-tabpane">
   {% if tab == 'general' %}
+    <div id="concert-general-zone" data-inline-zone>
     <div class="d-flex justify-content-between align-items-start gap-2 mb-3 flex-wrap">
       <h5 class="mb-0">Ficha de contratación</h5>
       <div class="d-flex gap-2 flex-wrap">
         {% if contract_sheet_status == 'RECEIVED' %}
-          <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}">Importar datos recibidos</a>
+          <a class="btn btn-warning btn-sm" href="{{ url_for('concert_contract_sheet_review', cid=concert.id) }}"><i class="fa fa-file-import me-1"></i>Importar datos recibidos</a>
         {% endif %}
-        {% if CAN_EDIT_CONCERTS %}<a class="btn btn-outline-primary btn-sm" href="{{ url_for('concert_edit_view', cid=concert.id) }}">Editar ficha</a>{% endif %}
+        {% if CAN_EDIT_CONCERTS %}
+          <button type="button" class="btn btn-primary btn-sm" data-edit-toggle="#concert-datos-edit"><i class="fa fa-pen me-1"></i>Editar datos</button>
+          <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_edit_view', cid=concert.id) }}"><i class="fa fa-sliders me-1"></i>Cachés, colaboradores…</a>
+        {% endif %}
       </div>
     </div>
+
+    {% if CAN_EDIT_CONCERTS %}
+    <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Editar datos de la actividad</h6></div>
+      <div class="ficha-section__body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label">Estado</label>
+            <select name="status" class="form-select" required>
+              <option value="HABLADO" {% if concert.status=='HABLADO' %}selected{% endif %}>Hablado</option>
+              <option value="RESERVADO" {% if concert.status=='RESERVADO' %}selected{% endif %}>Reservado</option>
+              <option value="CONFIRMADO" {% if concert.status=='CONFIRMADO' %}selected{% endif %}>Confirmado</option>
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Artista</label>
+            <div class="input-group">
+              <select name="artist_id" id="concertDatosArtist" class="form-select select-artists" required>
+                {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {% if concert.artist_id == a.id %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+              </select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="artist" data-target="concertDatosArtist"><i class="fa fa-plus"></i></button>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Fecha</label>
+            <input type="date" name="date" class="form-control" required value="{{ concert.date.isoformat() if concert.date else '' }}">
+          </div>
+          <div class="col-md-7">
+            <label class="form-label">Recinto</label>
+            <div class="input-group">
+              <select name="venue_id" id="concertDatosVenue" class="form-select select-venues" required>
+                {% for v in venues %}<option value="{{ v.id }}" data-photo="{{ (v.logo_url or v.photo_url) or '' }}" {% if concert.venue_id == v.id %}selected{% endif %}>{{ v.name }} — {{ v.municipality }} ({{ v.province }})</option>{% endfor %}
+              </select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="venue" data-target="concertDatosVenue"><i class="fa fa-plus"></i></button>
+            </div>
+          </div>
+          <div class="col-md-5">
+            <label class="form-label">Festival / evento <span class="text-muted fw-normal">(opcional)</span></label>
+            <input name="festival_name" class="form-control" value="{{ concert.festival_name or '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Aforo a la venta</label>
+            <input type="number" name="capacity" class="form-control" min="0" value="{{ concert.capacity or 0 }}">
+          </div>
+          <div class="col-md-3" data-sale-start-wrap>
+            <label class="form-label">Salida a la venta</label>
+            <input type="date" name="sale_start_date" class="form-control" value="{{ concert.sale_start_date.isoformat() if concert.sale_start_date else '' }}">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Empresa que factura</label>
+            <select name="billing_company_id" class="form-select"><option value="">—</option>{% for co in companies %}<option value="{{ co.id }}" {% if concert.billing_company_id == co.id %}selected{% endif %}>{{ co.name }}</option>{% endfor %}</select>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label">Tipo</label>
+            <select name="sale_type" class="form-select" data-sale-type>{% for value, label in type_choices %}<option value="{{ value }}" {% if concert.sale_type==value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          </div>
+          <div class="col-md-5" data-promoter-wrap>
+            <label class="form-label">Promotor</label>
+            <div class="input-group">
+              <select name="promoter_id" id="concertDatosPromoter" class="form-select select-providers"><option value="">—</option>{% for p in promoters %}<option value="{{ p.id }}" data-photo="{{ p.logo_url or '' }}" {% if concert.promoter_id == p.id %}selected{% endif %}>{{ p.nick }}</option>{% endfor %}</select>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="concertDatosPromoter"><i class="fa fa-plus"></i></button>
+            </div>
+          </div>
+          <div class="col-md-3" data-breakeven-wrap>
+            <label class="form-label">Punto de empate <span class="text-muted fw-normal">(opcional)</span></label>
+            <input type="number" name="break_even_ticket" class="form-control" min="0" value="{{ concert.break_even_ticket or '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label"># / gira / concepto</label>
+            <input class="form-control" id="concertTagInputDetail" list="concertTagOptionsDetail" placeholder="Escribe un # y pulsa Añadir">
+            <datalist id="concertTagOptionsDetail">{% for tag in all_concert_tags %}<option value="#{{ tag }}"></option><option value="{{ tag }}"></option>{% endfor %}</datalist>
+            <div id="concertTagChipsDetail" class="d-flex flex-wrap gap-2 mt-2"></div>
+            <div id="concertTagHiddenDetail"></div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-end gap-2 mt-3">
+          <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#concert-datos-edit">Cancelar</button>
+          <button class="btn btn-primary"><i class="fa fa-check me-1"></i>Guardar</button>
+        </div>
+      </div>
+    </form>
+    {% endif %}
+
+    <div data-datos-view>
 
     {% if contract_sheet_status == 'RECEIVED' %}
       <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -182,6 +270,8 @@
         </div>
       </div>
     </div>
+    </div><!-- /data-datos-view -->
+    </div><!-- /concert-general-zone -->
   {% elif tab == 'carteleria' %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <div>
@@ -843,5 +933,50 @@ document.addEventListener('DOMContentLoaded', function(){
     toggle();
   }
 });
+
+// Edición inline por sección (vista consolidada <-> formulario). Delegado para sobrevivir a
+// los reemplazos de zona de ajax_inline.
+(function(){
+  function showForm(form){
+    if(!form) return;
+    form.classList.remove('d-none');
+    var view = document.querySelector('[data-datos-view]'); if(view) view.classList.add('d-none');
+    try { if(window.initSelect2) window.initSelect2(); } catch(e){}
+    initDatosForm(form);
+    try { form.scrollIntoView({behavior:'smooth', block:'nearest'}); } catch(e){}
+  }
+  function hideForm(form){
+    if(form) form.classList.add('d-none');
+    var view = document.querySelector('[data-datos-view]'); if(view) view.classList.remove('d-none');
+  }
+  function applySaleType(form){
+    var sel = form.querySelector('[data-sale-type]');
+    var v = sel ? sel.value : '';
+    var prom = form.querySelector('[data-promoter-wrap]');
+    var be = form.querySelector('[data-breakeven-wrap]');
+    if(prom) prom.style.display = ['VENDIDO','GRATUITO','GIRAS_COMPRADAS'].indexOf(v) >= 0 ? '' : 'none';
+    if(be) be.style.display = (v === 'VENDIDO' || v === 'GRATUITO') ? 'none' : '';
+  }
+  window.initDatosForm = function(form){
+    if(form.__datosInit){ applySaleType(form); return; }
+    form.__datosInit = true;
+    var sel = form.querySelector('[data-sale-type]');
+    if(sel) sel.addEventListener('change', function(){ applySaleType(form); });
+    applySaleType(form);
+    if(window.initConcertTagManager && document.getElementById('concertTagInputDetail')){
+      window.concertTagManagers = window.concertTagManagers || {};
+      window.concertTagManagers.detail = window.initConcertTagManager({
+        inputId: 'concertTagInputDetail', chipsId: 'concertTagChipsDetail', hiddenId: 'concertTagHiddenDetail',
+        initialTags: {{ (concert.tags_clean or concert.hashtags or [])|tojson }}
+      });
+    }
+  };
+  document.addEventListener('click', function(e){
+    var t = e.target.closest('[data-edit-toggle]');
+    if(t){ e.preventDefault(); showForm(document.querySelector(t.getAttribute('data-edit-toggle'))); return; }
+    var c = e.target.closest('[data-edit-cancel]');
+    if(c){ e.preventDefault(); hideForm(document.querySelector(c.getAttribute('data-edit-cancel'))); }
+  });
+})();
 </script>
 {% endblock %}

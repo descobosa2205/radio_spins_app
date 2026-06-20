@@ -526,6 +526,26 @@ artista"*, *"agencia"*). Antes no era funcional ni visual; ahora:
 - Funciona **superpuesto** sin salir del formulario (en invitaciones, con `data-link-ajax`), apoyado
   en `modal_stack.js`; el token CSRF lo añade `csrf.js` automáticamente.
 
+### Rediseño de fichas (estructura común) — en curso
+
+Objetivo: que las fichas de **concierto/actividad, canción, álbum y artista** compartan la misma
+estructura — **cabecera visual** + **pestañas** + contenido **consolidado** (solo campos rellenos,
+sin textos explicativos) con **edición inline por sección** (vista de solo lectura ↔ formulario al
+pulsar *Editar*; en modo edición se ven todos los campos, también los vacíos). Estética de marca común
+en `styles.css` (`.ficha-hero`, `.ficha-tabs`, `.ficha-tabpane`, `.ficha-section`, `.ficha-fields`).
+
+Se hace por incrementos, validando y subiendo cada uno. Empezando por **concierto**:
+- **Cabecera "hero"** de marca (foto + título + estado/badges + datos básicos con iconos) + pestañas
+  reestilizadas + eliminados los textos descriptivos de secciones.
+- **Edición inline de "Datos de la actividad"** (estado, artista, fecha, recinto, festival, aforo,
+  salida a la venta, empresa que factura, tipo, promotor, punto de empate, #tags): botón *Editar* que
+  despliega el formulario en la propia ficha y guarda **sin recargar** (vía `ajax_inline`).
+- **Backend**: nuevo endpoint de **guardado parcial por sección** `concert_section_update` que
+  actualiza solo los campos de esa sección **reutilizando los helpers económicos** de `concert_update`
+  (no se reescribe la lógica de cachés/participaciones/comisiones). Las secciones complejas (cachés,
+  colaboradores, comisionistas, equipamiento, contratos, notas) se pasarán a inline en el siguiente
+  incremento; de momento se editan desde su botón aparte.
+
 ---
 
 ## 9. Pendientes y auditoría

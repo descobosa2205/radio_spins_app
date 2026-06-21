@@ -17961,6 +17961,15 @@ def concert_detail_view(cid):
         except Exception:
             invitation_counts = {'configured': invitation_totals['total'], 'committed': 0, 'requested': 0, 'result': invitation_totals['total']}
             invitation_categories_summary = []
+        invitation_can_manage = False
+        invitation_ficha_groups = []
+        if tab == 'invitations':
+            try:
+                invitation_can_manage = _user_can_manage_invitations(c, session_db=session)
+                invitation_ficha_groups = _invitation_ficha_overview(session, c, _invitation_get_categories(session, c, ensure_defaults=False))
+            except Exception:
+                invitation_can_manage = False
+                invitation_ficha_groups = []
         payment_terms = _concert_payment_rows(c, pending_only=False)
         payment_pending = _concert_payment_total(c, pending_only=True)
         payment_total_configured = _concert_payment_total(c, pending_only=False)
@@ -18028,6 +18037,8 @@ def concert_detail_view(cid):
             invitation_counts=invitation_counts,
             invitation_categories_summary=invitation_categories_summary,
             invitation_open_for_requests=invitation_open_for_requests,
+            invitation_can_manage=invitation_can_manage,
+            invitation_ficha_groups=invitation_ficha_groups,
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
@@ -33587,6 +33598,74 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
         "download_url": url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
     }
+
+
+def _invitation_ficha_overview(session_db, concert, categories) -> list[dict]:
+    """Compromisos y peticiones del evento agrupados por categoría para la ficha del concierto.
+
+    Cada petición/compromiso aparece bajo cada categoría en la que tenga cantidad > 0; los que no
+    encajan en ninguna van a un grupo 'Sin categoría'. Incluye foto y vínculo del invitado."""
+    cat_objs = list(categories or [])
+    cat_order = [str(c.id) for c in cat_objs]
+    cat_name = {str(c.id): c.name for c in cat_objs}
+    cat_kind = {str(c.id): (c.ticket_kind or 'PDF_UNNUMBERED') for c in cat_objs}
+    groups = {cid: {"category_id": cid, "category_name": cat_name[cid], "ticket_kind": cat_kind[cid], "commitments": [], "requests": []} for cid in cat_order}
+    sin = {"category_id": "", "category_name": "Sin categoría", "ticket_kind": "", "commitments": [], "requests": []}
+
+    reqs = (
+        session_db.query(InvitationRequest)
+        .filter(InvitationRequest.concert_id == concert.id)
+        .filter(InvitationRequest.status.notin_(['RECHAZADAS', 'ANULADAS']))
+        .order_by(InvitationRequest.created_at.asc())
+        .all()
+    )
+    for row in reqs:
+        payload = _invitation_request_payload(row, cat_objs)
+        quantities = payload.get("quantities") or {}
+        placed = False
+        for cid in cat_order:
+            qty = _safe_int(quantities.get(cid))
+            if qty > 0:
+                item = dict(payload)
+                item["qty"] = qty
+                groups[cid]["requests"].append(item)
+                placed = True
+        if not placed:
+            item = dict(payload)
+            item["qty"] = payload.get("qty_total") or 0
+            sin["requests"].append(item)
+
+    for row in (
+        session_db.query(InvitationCommitment)
+        .filter(InvitationCommitment.concert_id == concert.id)
+        .filter(InvitationCommitment.status != 'ANULADAS')
+        .order_by(InvitationCommitment.created_at.asc())
+        .all()
+    ):
+        quantities = _json_dict(row.quantities_json)
+        base = {
+            "id": str(row.id),
+            "name": row.name,
+            "reason": row.reason or "",
+            "photo_url": (getattr(row.promoter, "logo_url", None) if getattr(row, "promoter", None) else None) or url_for("static", filename="img/placeholder_photo.png"),
+        }
+        placed = False
+        for cid in cat_order:
+            qty = _safe_int(quantities.get(cid))
+            if qty > 0:
+                item = dict(base)
+                item["qty"] = qty
+                groups[cid]["commitments"].append(item)
+                placed = True
+        if not placed:
+            item = dict(base)
+            item["qty"] = _invitation_total_qty(quantities)
+            sin["commitments"].append(item)
+
+    out = [groups[cid] for cid in cat_order]
+    if sin["requests"] or sin["commitments"]:
+        out.append(sin)
+    return [g for g in out if g["requests"] or g["commitments"]]
 
 
 def _invitation_event_cutoff_datetime(concert: Concert | None):

@@ -526,7 +526,7 @@ artista"*, *"agencia"*). Antes no era funcional ni visual; ahora:
 - Funciona **superpuesto** sin salir del formulario (en invitaciones, con `data-link-ajax`), apoyado
   en `modal_stack.js`; el token CSRF lo añade `csrf.js` automáticamente.
 
-### Rediseño de fichas (estructura común) — en curso
+### Rediseño de fichas (estructura común) — concierto/artista/álbum/canción unificados
 
 Objetivo: que las fichas de **concierto/actividad, canción, álbum y artista** compartan la misma
 estructura — **cabecera visual** + **pestañas** + contenido **consolidado** (solo campos rellenos,
@@ -564,6 +564,17 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
   - La página de edición monolítica `concert_edit.html` y sus rutas (`concert_edit_view`/`concert_update`)
     se han **retirado**: el concierto se edita 100% inline. Los botones "Editar" de la lista de conciertos
     y de ventas (`sales_update`) abren ahora la **ficha** (`concert_detail_view`).
+- **Las 4 fichas comparten ya el patrón** (concierto, artista, álbum y canción): cabecera `ficha-hero`,
+  pestañas `ficha-tabs`/`ficha-tabpane` y edición inline por sección.
+  - **Artista**: cabecera de marca; pestaña *Datos* con vista consolidada + edición inline por sección
+    ("Datos básicos" guarda sin recargar; emails/personas como secciones; borrar en "Zona peligrosa").
+  - **Álbum** y **canción**: cabecera `ficha-hero` (preservando portada, plataformas, badges y, en canción,
+    "Forma parte de"); el botón *Editar* de **Información** (que antes recargaba con `?edit=1`) pasa a
+    **edición inline** (vista ↔ formulario, guarda sin recargar). Barra de estado, secciones (ISRC,
+    certificaciones, contratos, beneficiarios…) y modales se mantienen intactos.
+  - Nuevo **`static/js/ficha_inline.js`**: toggle inline genérico y reutilizable (no toca `concert_form.js`;
+    se carga solo en estas fichas). Las pestañas económicas siguen editando en sitio con sus modales/
+    formularios (no se han reescrito: ahí está la lógica sensible de royalties/participaciones).
 
 ---
 

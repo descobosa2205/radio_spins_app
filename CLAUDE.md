@@ -21,7 +21,7 @@ Detalle ampliado en `README.md`.
   funciones `ensure_*_schema`) · `config.py` · `supabase_utils.py` (Storage).
 - **`templates/`** (Jinja2, 80) · **`static/css/styles.css`** · **`static/js/scripts.js`**
   (+ `quick_create.js`, `typeahead.js`, `ajax_inline.js`, `modal_stack.js`, `csrf.js`, `entity_links.js`,
-  `concert_form.js`).
+  `concert_form.js`, `ficha_inline.js`).
 - **Sin Alembic**: el esquema se crea/actualiza al arrancar con `init_db()` + `ensure_*_schema()`
   (idempotentes). Para cambios de modelo basta reiniciar; no hay migración manual.
 
@@ -95,7 +95,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   Secciones que **reemplazan** al guardar: colaboradores/comisionistas/cachés; que **añaden** (con
   borrado individual inline en la vista): equipamiento/contratos/notas. La página monolítica
   `concert_edit.html` y sus rutas (`concert_edit_view`/`concert_update`) se **retiraron** (concierto 100%
-  inline). Clases en `styles.css`. Falta replicar el inline por sección a canción/álbum/artista.
+  inline). Clases en `styles.css`. **Las 4 fichas ya comparten el patrón** (concierto/artista/álbum/
+  canción): cabecera `ficha-hero` + `ficha-tabs`/`ficha-tabpane` + secciones inline. Canción/álbum/
+  artista usan **`static/js/ficha_inline.js`** (toggle inline genérico por sección: `[data-edit-toggle]`/
+  `[data-edit-cancel]`; `viewFor` soporta `.ficha-section` y el patrón "zona" `[data-inline-zone]` con
+  vista `[data-section-view]` + form `[data-section-form]`). En canción/álbum, el "Editar" de Información
+  (antes `?edit=1` con recarga) es ahora inline. El concierto usa su propio `concert_form.js` (toggle
+  duplicado a propósito por aislamiento; unificable a futuro).
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

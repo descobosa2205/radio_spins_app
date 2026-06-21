@@ -1,95 +1,43 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<div class="mb-3">
-  <a href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}" class="btn btn-outline-secondary">
-    <i class="fa fa-arrow-left"></i> Volver
-  </a>
-</div>
-
-<!-- Cabecera -->
-<div class="song-hero">
-  <div class="d-flex gap-3 flex-wrap align-items-start">
-    <img src="{{ song.cover_url or DEFAULT_PHOTO_URL }}" class="song-hero-cover" alt="">
-
-    <div class="flex-grow-1">
-      <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
-        <div>
-          <h3 class="m-0">{{ song.title }}</h3>
-
-          <div class="d-flex align-items-center gap-2 mt-2">
-            <img src="{{ primary_artist.photo_url if primary_artist else DEFAULT_PHOTO_URL }}" class="artist-avatar" alt="">
-            <div>
-              <div class="fw-semibold">{{ primary_artist.name if primary_artist else '—' }}</div>
-              {% set song_collaborators = song.display_collaborator or song.collaborator %}
-              {% if song_collaborators %}
-                <div class="text-muted small">Colaboradores: {{ song_collaborators }}</div>
-              {% endif %}
-              <div class="mt-1">
-                <span class="badge {{ song_type_badge_class }}">{{ song_type_label }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Enlaces plataformas -->
-        <div>
-          <div class="d-flex align-items-center gap-2 flex-wrap">
-            {% set sp = song.spotify_url %}
-            {% set ap = song.apple_music_url %}
-            {% set am = song.amazon_music_url %}
-            {% set tk = song.tiktok_url %}
-            {% set yt = song.youtube_url %}
-
-            <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}"
-               data-platform="spotify" data-platform-label="Spotify"
-               {% if sp %}href="{{ sp }}" target="_blank"{% else %}href="#"{% endif %}>
-              <i class="fab fa-spotify"></i>
-            </a>
-            <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}"
-               data-platform="apple_music" data-platform-label="Apple Music"
-               {% if ap %}href="{{ ap }}" target="_blank"{% else %}href="#"{% endif %}>
-              <i class="fab fa-apple"></i>
-            </a>
-            <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}"
-               data-platform="amazon_music" data-platform-label="Amazon Music"
-               {% if am %}href="{{ am }}" target="_blank"{% else %}href="#"{% endif %}>
-              <i class="fab fa-amazon"></i>
-            </a>
-            <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}"
-               data-platform="tiktok" data-platform-label="TikTok"
-               {% if tk %}href="{{ tk }}" target="_blank"{% else %}href="#"{% endif %}>
-              <i class="fab fa-tiktok"></i>
-            </a>
-            <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}"
-               data-platform="youtube" data-platform-label="YouTube"
-               {% if yt %}href="{{ yt }}" target="_blank"{% else %}href="#"{% endif %}>
-              <i class="fab fa-youtube"></i>
-            </a>
-          </div>
-          {% if linked_albums and (linked_albums|length) > 0 %}
-            <div class="mt-3">
-              <div class="small text-muted mb-2">Forma parte de:</div>
-              <div class="d-flex align-items-start gap-2 flex-wrap">
-                {% for album_link in linked_albums %}
-                  <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset" title="{{ album_link.title }}">
-                    <div class="border rounded p-2 bg-white text-center" style="width:96px;">
-                      <img src="{{ album_link.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ album_link.title }}" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid #eee;">
-                      <div class="small fw-semibold mt-2 text-truncate">{{ album_link.title }}</div>
-                    </div>
-                  </a>
-                {% endfor %}
-              </div>
-            </div>
-          {% endif %}
-        </div>
+<div class="ficha-hero">
+  <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
+    <h1 class="ficha-hero__title">{{ song.title }}</h1>
+    <div class="ficha-hero__facts">
+      <span><i class="fa fa-user"></i>{{ primary_artist.name if primary_artist else '—' }}</span>
+      {% set song_collaborators = song.display_collaborator or song.collaborator %}
+      {% if song_collaborators %}<span><i class="fa fa-users"></i>{{ song_collaborators }}</span>{% endif %}
+    </div>
+    {% if linked_albums and (linked_albums|length) > 0 %}
+      <div class="mt-2 d-flex align-items-center gap-2 flex-wrap">
+        <span class="small text-muted">Forma parte de:</span>
+        {% for album_link in linked_albums %}
+          <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset d-inline-flex align-items-center gap-1" title="{{ album_link.title }}">
+            <img src="{{ album_link.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ album_link.title }}" style="width:30px;height:30px;object-fit:cover;border-radius:6px;border:1px solid #eee;">
+            <span class="small fw-semibold">{{ album_link.title }}</span>
+          </a>
+        {% endfor %}
       </div>
+    {% endif %}
+  </div>
+  <div class="ficha-hero__actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      {% set sp = song.spotify_url %}{% set ap = song.apple_music_url %}{% set am = song.amazon_music_url %}{% set tk = song.tiktok_url %}{% set yt = song.youtube_url %}
+      <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}" data-platform="spotify" data-platform-label="Spotify" {% if sp %}href="{{ sp }}" target="_blank"{% else %}href="#"{% endif %}><i class="fab fa-spotify"></i></a>
+      <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}" data-platform="apple_music" data-platform-label="Apple Music" {% if ap %}href="{{ ap }}" target="_blank"{% else %}href="#"{% endif %}><i class="fab fa-apple"></i></a>
+      <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}" data-platform="amazon_music" data-platform-label="Amazon Music" {% if am %}href="{{ am }}" target="_blank"{% else %}href="#"{% endif %}><i class="fab fa-amazon"></i></a>
+      <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}" data-platform="tiktok" data-platform-label="TikTok" {% if tk %}href="{{ tk }}" target="_blank"{% else %}href="#"{% endif %}><i class="fab fa-tiktok"></i></a>
+      <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}" data-platform="youtube" data-platform-label="YouTube" {% if yt %}href="{{ yt }}" target="_blank"{% else %}href="#"{% endif %}><i class="fab fa-youtube"></i></a>
     </div>
   </div>
 </div>
 
 <!-- Pestañas ficha -->
-<ul class="nav nav-tabs mt-3">
+<ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
   {% set tabs = [
     ('informacion','Información','discografica.canciones'),
     ('editorial','Editorial','discografica.editorial'),
@@ -107,7 +55,7 @@
   {% endfor %}
 </ul>
 
-<div class="bg-white border border-top-0 rounded-bottom p-3">
+<div class="ficha-tabpane">
 
   {% if tab == 'informacion' %}
 
@@ -130,19 +78,11 @@
           </ul>
         </div>
         {% if CAN_EDIT_DISCOGRAFICA %}
-          {% if edit %}
-            <form method="post" action="{{ url_for('song_delete', song_id=song.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar esta canción? Esta acción no se puede deshacer.');">
-              <input type="hidden" name="next" value="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
-              <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Eliminar canción</button>
-            </form>
-            <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">
-              Cancelar edición
-            </a>
-          {% else %}
-            <a class="btn btn-primary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion', edit=1) }}">
-              <i class="fa fa-edit"></i> Editar
-            </a>
-          {% endif %}
+          <form method="post" action="{{ url_for('song_delete', song_id=song.id) }}" class="m-0" onsubmit="return confirm('¿Eliminar esta canción? Esta acción no se puede deshacer.');">
+            <input type="hidden" name="next" value="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}">
+            <button class="btn btn-outline-danger"><i class="fa fa-trash"></i> Eliminar canción</button>
+          </form>
+          <button type="button" class="btn btn-primary" data-edit-toggle="#songInfoForm"><i class="fa fa-edit"></i> Editar</button>
         {% endif %}
       </div>
     </div>
@@ -292,8 +232,9 @@
 
       <div class="col-12 col-lg-7">
 
-        {% if edit and CAN_EDIT_DISCOGRAFICA %}
-          <form class="card" method="post" action="{{ url_for('discografica_song_info_update', song_id=song.id) }}" enctype="multipart/form-data">
+        <div id="song-info-zone" data-inline-zone>
+        {% if CAN_EDIT_DISCOGRAFICA %}
+          <form id="songInfoForm" class="card d-none" data-section-form data-inline data-inline-target="#song-info-zone" method="post" action="{{ url_for('discografica_song_info_update', song_id=song.id) }}" enctype="multipart/form-data">
             <div class="card-body">
               <h6 class="mb-3">Editar información</h6>
 
@@ -485,12 +426,13 @@
               </div>
 
               <div class="d-flex justify-content-end mt-3 gap-2">
-                <a class="btn btn-outline-secondary" href="{{ url_for('discografica_song_detail', song_id=song.id, tab='informacion') }}">Cancelar</a>
+                <button type="button" class="btn btn-outline-secondary" data-edit-cancel="#songInfoForm">Cancelar</button>
                 <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
               </div>
             </div>
           </form>
-        {% else %}
+        {% endif %}
+        <div data-section-view>
 
           <!-- Vista solo lectura (solo campos rellenos) -->
           <div class="card">
@@ -623,7 +565,8 @@
               {% endif %}
             </div>
           </div>
-        {% endif %}
+        </div><!-- /data-section-view -->
+        </div><!-- /song-info-zone -->
 
       </div>
 
@@ -2513,4 +2456,8 @@
 </div>
 {% endif %}
 
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/ficha_inline.js') }}"></script>
 {% endblock %}

@@ -2233,6 +2233,26 @@ class InvitationGuestListLink(Base):
     )
 
 
+class InvitationManagerOptIn(Base):
+    """Actividades que un usuario ha añadido manualmente a su lista de gestión de
+    invitaciones ('Gestionar otros'), aunque no le correspondan por artista o departamento."""
+
+    __tablename__ = "invitation_manager_optins"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    user = relationship("User")
+    concert = relationship("Concert")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "concert_id", name="uq_invitation_manager_optins_user_concert"),
+        Index("idx_invitation_manager_optins_user", "user_id"),
+    )
+
+
 class CompanyActionRequest(Base):
     """Solicitudes previas a la creación de una acción."""
 
@@ -4875,6 +4895,16 @@ def ensure_invitation_schema():
           sort_order = EXCLUDED.sort_order,
           updated_at = now();
         """,
+        """
+        CREATE TABLE IF NOT EXISTS invitation_manager_optins (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            concert_id uuid NOT NULL REFERENCES concerts(id) ON DELETE CASCADE,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_invitation_manager_optins_user_concert UNIQUE(user_id, concert_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_invitation_manager_optins_user ON invitation_manager_optins(user_id);",
     ]
     _exec_ddl_statements(stmts, "invitation_schema")
 

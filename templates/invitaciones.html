@@ -72,7 +72,10 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
         <h5 class="mb-0">Gestionar invitaciones</h5>
-        <input class="form-control invitation-search" style="max-width:360px" placeholder="Buscar por artista, evento, ciudad, provincia..." data-filter-target=".invitation-manage-row">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <input class="form-control invitation-search" style="max-width:320px" placeholder="Buscar por artista, evento, ciudad, provincia..." data-filter-target=".invitation-manage-row">
+          <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#manageOthersModal"><i class="fa fa-user-plus me-1"></i>Gestionar otros</button>
+        </div>
       </div>
       {% if events %}
         <div class="invitation-manage-list">
@@ -105,6 +108,109 @@
       {% endif %}
     </div>
   </div>
+
+  <div class="modal fade" id="manageOthersModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Gestionar otros</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Artistas con actividades futuras que no gestionas todavía. Elige un artista y añade la actividad concreta a tu lista de gestión.</p>
+          <div data-manage-others-artists>
+            <div class="text-muted small">Cargando…</div>
+          </div>
+          <div data-manage-others-activities class="d-none">
+            <button type="button" class="btn btn-sm btn-link px-0 mb-2" data-manage-others-back><i class="fa fa-arrow-left me-1"></i>Volver a artistas</button>
+            <div data-manage-others-activities-list></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function(){
+    const modal = document.getElementById('manageOthersModal');
+    if (!modal) return;
+    const artistsBox = modal.querySelector('[data-manage-others-artists]');
+    const activitiesWrap = modal.querySelector('[data-manage-others-activities]');
+    const activitiesList = modal.querySelector('[data-manage-others-activities-list]');
+    const ARTISTS_URL = "{{ url_for('api_invitation_manage_others_artists') }}";
+    const ACTIVITIES_URL = "{{ url_for('api_invitation_manage_others_activities', artist_id='00000000-0000-0000-0000-000000000000') }}";
+    const ADD_URL = "{{ url_for('invitation_manage_others_add') }}";
+    const GESTIONAR_URL = "{{ url_for('invitations_view', tab='gestionar') }}";
+
+    function showArtists(){ activitiesWrap.classList.add('d-none'); artistsBox.classList.remove('d-none'); }
+    function showActivities(){ artistsBox.classList.add('d-none'); activitiesWrap.classList.remove('d-none'); }
+
+    async function loadArtists(){
+      artistsBox.innerHTML = '<div class="text-muted small">Cargando…</div>';
+      try {
+        const res = await fetch(ARTISTS_URL);
+        const data = await res.json();
+        const artists = (data && data.artists) || [];
+        if (!artists.length){ artistsBox.innerHTML = '<div class="alert alert-light border mb-0">No hay otros artistas con actividades pendientes de gestionar.</div>'; return; }
+        const wrap = document.createElement('div');
+        wrap.className = 'd-flex flex-column gap-2';
+        artists.forEach(a => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn btn-light border d-flex align-items-center gap-3 text-start';
+          btn.innerHTML = `<img src="${a.photo_url}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover"><span class="flex-grow-1"><strong>${a.name}</strong></span><span class="badge text-bg-secondary">${a.activity_count}</span>`;
+          btn.addEventListener('click', () => loadActivities(a));
+          wrap.appendChild(btn);
+        });
+        artistsBox.innerHTML = '';
+        artistsBox.appendChild(wrap);
+      } catch(e){ artistsBox.innerHTML = '<div class="alert alert-danger mb-0">No se pudieron cargar los artistas.</div>'; }
+    }
+
+    async function loadActivities(artist){
+      showActivities();
+      activitiesList.innerHTML = '<div class="text-muted small">Cargando…</div>';
+      try {
+        const res = await fetch(ACTIVITIES_URL.replace('00000000-0000-0000-0000-000000000000', encodeURIComponent(artist.id)));
+        const data = await res.json();
+        const events = (data && data.events) || [];
+        if (!events.length){ activitiesList.innerHTML = '<div class="alert alert-light border mb-0">No quedan actividades por añadir de este artista.</div>'; return; }
+        const wrap = document.createElement('div');
+        wrap.className = 'd-flex flex-column gap-2';
+        events.forEach(ev => {
+          const row = document.createElement('div');
+          row.className = 'd-flex align-items-center gap-2 border rounded p-2';
+          row.innerHTML = `<div class="flex-grow-1"><span class="badge text-bg-light border">${ev.type_label}</span> <strong>${ev.title || ''}</strong><div class="small text-muted">${ev.date_label || ''}${ev.city ? ' · '+ev.city : ''}</div></div>`;
+          const addBtn = document.createElement('button');
+          addBtn.type = 'button';
+          addBtn.className = 'btn btn-sm btn-danger';
+          addBtn.innerHTML = '<i class="fa fa-plus me-1"></i>Añadir';
+          addBtn.addEventListener('click', () => addActivity(ev.id, addBtn));
+          row.appendChild(addBtn);
+          wrap.appendChild(row);
+        });
+        activitiesList.innerHTML = '';
+        activitiesList.appendChild(wrap);
+      } catch(e){ activitiesList.innerHTML = '<div class="alert alert-danger mb-0">No se pudieron cargar las actividades.</div>'; }
+    }
+
+    async function addActivity(concertId, btn){
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
+      try {
+        const fd = new FormData();
+        fd.append('concert_id', concertId);
+        const res = await fetch(ADD_URL, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data && data.ok){ window.location = GESTIONAR_URL; }
+        else { btn.disabled = false; btn.innerHTML = '<i class="fa fa-plus me-1"></i>Añadir'; alert((data && data.error) || 'No se pudo añadir.'); }
+      } catch(e){ btn.disabled = false; btn.innerHTML = '<i class="fa fa-plus me-1"></i>Añadir'; alert('No se pudo añadir.'); }
+    }
+
+    modal.querySelector('[data-manage-others-back]').addEventListener('click', showArtists);
+    modal.addEventListener('show.bs.modal', () => { showArtists(); loadArtists(); });
+  })();
+  </script>
 {% elif tab == 'evento' %}
   <div class="card mb-3 invitation-event-header">
     <div class="card-body">

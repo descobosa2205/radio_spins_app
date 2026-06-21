@@ -175,6 +175,7 @@ from models import (
     InvitationTicket,
     ThirdPartyLink,
     InvitationGuestListLink,
+    InvitationManagerOptIn,
     # Ventas v2 (ticketeras)
     Ticketer,
     ConcertSalesConfig,
@@ -26850,6 +26851,7 @@ def inject_personnel_globals():
         "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
+        "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
@@ -33596,6 +33598,97 @@ def _invitation_concert_visible_for_user(concert: Concert | None) -> bool:
     return _invitation_event_is_active_for_requests(concert)
 
 
+def _user_is_ticketing(state: dict | None = None) -> bool:
+    """True si el usuario actual pertenece al departamento de Ticketing."""
+    state = state or _current_user_state()
+    return any(str(d).strip().lower() == "ticketing" for d in (state.get("departments") or []))
+
+
+def _concert_is_group_promoted(session_db, concert) -> bool:
+    """True si una empresa del grupo participa como promotora (group_company_id) o como
+    socio (ConcertCompanyShare) en el concierto/actividad."""
+    if not concert:
+        return False
+    if getattr(concert, "group_company_id", None):
+        return True
+    cid = getattr(concert, "id", None)
+    if not cid:
+        return False
+    try:
+        return session_db.query(ConcertCompanyShare.id).filter(ConcertCompanyShare.concert_id == cid).first() is not None
+    except Exception:
+        return False
+
+
+def _filter_manageable_concerts(session_db, concerts, state: dict | None = None) -> list:
+    """Devuelve solo los conciertos que el usuario actual puede GESTIONAR en invitaciones.
+
+    Criterio de negocio:
+      - Rol 10 (dirección): todos.
+      - Requiere acceso a 'invitaciones.gestionar'.
+      - Si tiene artistas asignados: solo conciertos de esos artistas.
+      - Si es del departamento de Ticketing: conciertos de empresa del grupo (promotor/socio).
+      - Además, los añadidos manualmente vía 'Gestionar otros' (opt-in).
+    """
+    concerts = [c for c in (concerts or []) if c is not None]
+    if not concerts:
+        return []
+    state = state or _current_user_state()
+    if int(state.get("role") or 0) == 10:
+        return list(concerts)
+    if not _state_has_access(state, "invitaciones.gestionar", include_descendants=True):
+        return []
+    uid = _safe_uuid(state.get("user_id"))
+    assigned = {str(x) for x in (state.get("assigned_artist_ids") or []) if x}
+    is_ticketing = _user_is_ticketing(state)
+    concert_ids = [c.id for c in concerts if getattr(c, "id", None)]
+    opt_in_ids: set[str] = set()
+    group_share_ids: set[str] = set()
+    if uid and concert_ids:
+        for (cid,) in (
+            session_db.query(InvitationManagerOptIn.concert_id)
+            .filter(InvitationManagerOptIn.user_id == uid, InvitationManagerOptIn.concert_id.in_(concert_ids))
+            .all()
+        ):
+            opt_in_ids.add(str(cid))
+    if is_ticketing and concert_ids:
+        for (cid,) in (
+            session_db.query(ConcertCompanyShare.concert_id)
+            .filter(ConcertCompanyShare.concert_id.in_(concert_ids))
+            .distinct()
+            .all()
+        ):
+            group_share_ids.add(str(cid))
+    out = []
+    for c in concerts:
+        cid = str(getattr(c, "id", "") or "")
+        if cid and cid in opt_in_ids:
+            out.append(c)
+            continue
+        if assigned and (assigned & set(_concert_artist_ids(c))):
+            out.append(c)
+            continue
+        if is_ticketing and (getattr(c, "group_company_id", None) or (cid in group_share_ids)):
+            out.append(c)
+            continue
+    return out
+
+
+def _user_can_manage_invitations(concert, *, state: dict | None = None, session_db=None) -> bool:
+    """Indica si el usuario actual puede gestionar las invitaciones de un concierto concreto."""
+    if not concert:
+        return False
+    own = False
+    if session_db is None:
+        session_db = db()
+        own = True
+    try:
+        return bool(_filter_manageable_concerts(session_db, [concert], state=state))
+    finally:
+        if own:
+            session_db.close()
+
+
 def _invitation_request_visible_for_user(row: InvitationRequest | None) -> bool:
     if not row or (row.status or "") in {"RECHAZADAS", "ANULADAS"}:
         return False
@@ -34107,7 +34200,6 @@ def invitations_view():
         event_artists = _invitation_event_artist_options(session_db)
         personnel = _invitation_personnel_options(session_db)
         query_start = _invitation_event_query_start_date()
-        events = []
         query = (
             session_db.query(Concert)
             .options(joinedload(Concert.artist), joinedload(Concert.venue))
@@ -34116,6 +34208,7 @@ def invitations_view():
             .limit(160)
         )
         now_value = _now_madrid()
+        candidates = []
         for concert in query.all():
             if not _invitation_event_is_active_for_requests(concert, now_value=now_value):
                 continue
@@ -34126,7 +34219,12 @@ def invitations_view():
             if not has_any:
                 has_any = session_db.query(InvitationCommitment.id).filter(InvitationCommitment.concert_id == concert.id).first() is not None
             if has_any or tab == 'pedir':
-                events.append(_invitation_event_payload(session_db, concert, include_counts=True))
+                candidates.append(concert)
+        # En "Gestionar" cada usuario solo ve lo que le corresponde (artistas asignados; Ticketing ->
+        # empresas del grupo; opt-ins de "Gestionar otros"). Dirección (rol 10) ve todo.
+        if tab == 'gestionar':
+            candidates = _filter_manageable_concerts(session_db, candidates, state=_current_user_state())
+        events = [_invitation_event_payload(session_db, c, include_counts=True) for c in candidates]
         current_user_id = _safe_uuid(session.get('user_id'))
         my_requests = []
         my_denied_count = 0
@@ -34170,6 +34268,104 @@ def invitations_view():
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             status_labels=INVITATION_STATUS_LABELS,
         )
+    finally:
+        session_db.close()
+
+
+@app.get('/api/invitaciones/gestionar-otros/artistas', endpoint='api_invitation_manage_others_artists')
+@admin_required
+def api_invitation_manage_others_artists():
+    """Artistas con actividades futuras que el usuario NO gestiona todavía ('Gestionar otros')."""
+    state = _current_user_state()
+    session_db = db()
+    try:
+        if int(state.get('role') or 0) != 10 and not _state_has_access(state, 'invitaciones.gestionar', include_descendants=True):
+            return jsonify({'ok': False, 'artists': []}), 403
+        query_start = _invitation_event_query_start_date()
+        now_value = _now_madrid()
+        concerts = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist))
+            .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
+            .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
+            .limit(400)
+            .all()
+        )
+        active = [c for c in concerts if _invitation_event_is_active_for_requests(c, now_value=now_value)]
+        managed_ids = {str(c.id) for c in _filter_manageable_concerts(session_db, active, state=state)}
+        not_managed = [c for c in active if str(c.id) not in managed_ids]
+        counts: dict[str, int] = {}
+        for c in not_managed:
+            for aid in _concert_artist_ids(c):
+                if aid:
+                    counts[aid] = counts.get(aid, 0) + 1
+        if not counts:
+            return jsonify({'ok': True, 'artists': []})
+        uuids = [u for u in (_safe_uuid(a) for a in counts.keys()) if u]
+        rows = session_db.query(Artist).filter(Artist.id.in_(uuids)).all() if uuids else []
+        artists = []
+        for a in rows:
+            payload = _artist_chip_payload(a)
+            payload['activity_count'] = counts.get(str(a.id), 0)
+            artists.append(payload)
+        artists.sort(key=lambda x: (-x['activity_count'], (x.get('name') or '').lower()))
+        return jsonify({'ok': True, 'artists': artists})
+    finally:
+        session_db.close()
+
+
+@app.get('/api/invitaciones/gestionar-otros/artista/<artist_id>/actividades', endpoint='api_invitation_manage_others_activities')
+@admin_required
+def api_invitation_manage_others_activities(artist_id):
+    """Actividades futuras de un artista que el usuario aún no gestiona."""
+    state = _current_user_state()
+    aid = _safe_uuid(artist_id)
+    session_db = db()
+    try:
+        if not aid:
+            return jsonify({'ok': False, 'events': []}), 400
+        query_start = _invitation_event_query_start_date()
+        now_value = _now_madrid()
+        concerts = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
+            .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
+            .limit(400)
+            .all()
+        )
+        active = [c for c in concerts if _invitation_event_is_active_for_requests(c, now_value=now_value)]
+        managed_ids = {str(c.id) for c in _filter_manageable_concerts(session_db, active, state=state)}
+        target = [c for c in active if str(aid) in set(_concert_artist_ids(c)) and str(c.id) not in managed_ids]
+        events = [_invitation_event_payload(session_db, c, include_counts=True) for c in target]
+        return jsonify({'ok': True, 'events': events})
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/gestionar-otros/anadir', endpoint='invitation_manage_others_add')
+@admin_required
+def invitation_manage_others_add():
+    """Añade una actividad a la lista de gestión del usuario ('Gestionar otros')."""
+    state = _current_user_state()
+    uid = _safe_uuid(state.get('user_id'))
+    data = request.get_json(silent=True) or {}
+    concert_id = _safe_uuid(request.form.get('concert_id') or data.get('concert_id'))
+    if not uid or not concert_id:
+        return jsonify({'ok': False, 'error': 'Datos incompletos'}), 400
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, concert_id)
+        if not concert:
+            return jsonify({'ok': False, 'error': 'Actividad no encontrada'}), 404
+        existing = session_db.query(InvitationManagerOptIn).filter_by(user_id=uid, concert_id=concert_id).first()
+        if not existing:
+            session_db.add(InvitationManagerOptIn(user_id=uid, concert_id=concert_id))
+            session_db.commit()
+        return jsonify({'ok': True, 'concert_id': str(concert_id)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 500
     finally:
         session_db.close()
 
@@ -35479,6 +35675,68 @@ def _home_registros_pending(limit: int = 20) -> list[dict]:
                 "materials_pending": int(mat_pending),
                 "detail_url": url_for("discografica_song_detail", song_id=s.id, tab="materiales"),
             })
+        return rows
+    except Exception:
+        return []
+    finally:
+        session_db.close()
+
+
+def _home_invitations_to_manage(limit: int = 24) -> list[dict]:
+    """Conciertos/actividades futuros que el usuario actual puede GESTIONAR y que tienen
+    solicitudes de invitaciones. Alimenta el módulo del inicio 'Invitaciones pendientes de
+    gestionar': tarjeta con artista(s)+foto, datos del evento y nº de solicitudes pendientes.
+    Si todo está enviado o en taquilla, se marca como 'ya gestionadas' (etiqueta verde)."""
+    state = _current_user_state()
+    if int(state.get("role") or 0) != 10 and not _state_has_access(state, "invitaciones.gestionar", include_descendants=True):
+        return []
+    session_db = db()
+    try:
+        query_start = _invitation_event_query_start_date()
+        now_value = _now_madrid()
+        concerts = (
+            session_db.query(Concert)
+            .options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(or_(Concert.date == None, Concert.date >= query_start))  # noqa: E711
+            .order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
+            .limit(300)
+            .all()
+        )
+        active = [c for c in concerts if _invitation_event_is_active_for_requests(c, now_value=now_value)]
+        manageable = _filter_manageable_concerts(session_db, active, state=state)
+        if not manageable:
+            return []
+        ids = [c.id for c in manageable]
+        pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
+        handled_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+        pending_by_concert: dict[str, int] = {}
+        handled_by_concert: dict[str, int] = {}
+        for cid, status, cnt in (
+            session_db.query(InvitationRequest.concert_id, InvitationRequest.status, func.count(InvitationRequest.id))
+            .filter(InvitationRequest.concert_id.in_(ids))
+            .group_by(InvitationRequest.concert_id, InvitationRequest.status)
+            .all()
+        ):
+            key = str(cid)
+            st = (status or "").upper()
+            if st in pending_statuses:
+                pending_by_concert[key] = pending_by_concert.get(key, 0) + int(cnt or 0)
+            elif st in handled_statuses:
+                handled_by_concert[key] = handled_by_concert.get(key, 0) + int(cnt or 0)
+        rows = []
+        for c in manageable:
+            key = str(c.id)
+            pending = pending_by_concert.get(key, 0)
+            handled = handled_by_concert.get(key, 0)
+            if pending == 0 and handled == 0:
+                continue  # sin solicitudes reales que gestionar (ignora rechazadas/anuladas)
+            payload = _invitation_event_payload(session_db, c)
+            payload["pending_count"] = pending
+            payload["managed"] = (pending == 0 and handled > 0)
+            payload["detail_url"] = url_for("invitation_event_detail", concert_id=c.id)
+            rows.append(payload)
+            if len(rows) >= limit:
+                break
         return rows
     except Exception:
         return []

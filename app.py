@@ -33308,21 +33308,31 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
         rows = []
         for row_label in sorted(grouped[sector].keys(), key=lambda x: str(x).casefold()):
             seats = sorted(grouped[sector][row_label], key=lambda x: _safe_int(x.get("seat_number")) if str(x.get("seat_number") or "").isdigit() else 999999)
+            numbered = [(_safe_int(s.get("seat_number")), s) for s in seats if str(s.get("seat_number") or "").isdigit()]
+            non_numbered = [s for s in seats if not str(s.get("seat_number") or "").isdigit()]
+            # Detección automática del patrón: si todas las butacas de la fila son de la misma
+            # paridad (todas pares o todas impares) se numeran de 2 en 2 (pares/impares); si no,
+            # correlativas. Así el plano muestra "butacas seguidas" sin inventar huecos de la
+            # paridad contraria.
+            step = 2 if (len(numbered) >= 2 and len({n % 2 for n, _ in numbered}) == 1 and (numbered[-1][0] - numbered[0][0]) >= 2) else 1
             visual = []
             last_num = None
-            for seat in seats:
-                current = _safe_int(seat.get("seat_number")) if str(seat.get("seat_number") or "").isdigit() else None
-                if last_num is not None and current is not None:
-                    gap = current - last_num
-                    if gap > 4:
-                        visual.append({"type": "gap-large", "count": gap - 1})
-                    elif gap > 1:
-                        for missing in range(last_num + 1, current):
-                            visual.append({"type": "missing", "seat": missing})
+            for num, seat in numbered:
+                if last_num is not None:
+                    diff = num - last_num
+                    missing_slots = (diff // step) - 1 if (step and diff % step == 0) else 0
+                    if missing_slots > 4:
+                        visual.append({"type": "gap-large", "count": missing_slots})
+                    elif missing_slots > 0:
+                        m = last_num + step
+                        while m < num:
+                            visual.append({"type": "missing", "seat": m})
+                            m += step
                 visual.append({"type": "seat", "seat": seat})
-                if current is not None:
-                    last_num = current
-            rows.append({"row_label": row_label, "seats": seats, "visual": visual})
+                last_num = num
+            for seat in non_numbered:
+                visual.append({"type": "seat", "seat": seat})
+            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "step": step})
         out.append({"sector": sector, "rows": rows})
     return out
 

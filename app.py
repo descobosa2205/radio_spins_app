@@ -33805,6 +33805,14 @@ def _user_can_manage_invitations(concert, *, state: dict | None = None, session_
             session_db.close()
 
 
+def _ensure_can_manage_invitations(session_db, concert):
+    """Aborta con 403 si el usuario actual no puede gestionar las invitaciones del concierto.
+    Refuerza server-side la restricción que la UI ya aplica (artistas asignados / Ticketing /
+    'Gestionar otros' / dirección)."""
+    if not concert or not _user_can_manage_invitations(concert, session_db=session_db):
+        abort(403)
+
+
 def _invitation_request_visible_for_user(row: InvitationRequest | None) -> bool:
     if not row or (row.status or "") in {"RECHAZADAS", "ANULADAS"}:
         return False
@@ -34548,6 +34556,7 @@ def invitation_event_detail(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         if not _invitation_event_is_active_for_requests(concert):
             flash('Este concierto o evento ya no aparece en gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.', 'warning')
             return redirect(url_for('invitations_view', tab='gestionar'))
@@ -34709,6 +34718,7 @@ def invitation_category_save(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
 
         # Modo tabla: permite configurar de una vez todas las categorías con contrato/adicionales.
         row_names = request.form.getlist('category_name[]')
@@ -34900,6 +34910,7 @@ def invitation_public_link_create():
         concert = session_db.get(Concert, to_uuid(request.form.get('concert_id')))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         if not _invitation_event_is_active_for_requests(concert):
             raise ValueError('Este concierto o evento ya no admite enlaces de peticiones de invitaciones.')
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
@@ -34961,6 +34972,7 @@ def invitation_public_link_update(link_id):
         link = session_db.get(InvitationPublicLink, to_uuid(link_id))
         if not link:
             abort(404)
+        _ensure_can_manage_invitations(session_db, link.concert)
         categories = _invitation_get_categories(session_db, link.concert, ensure_defaults=True)
         link.target_name = (request.form.get('target_name') or link.target_name or '').strip()
         link.target_email = (request.form.get('target_email') or link.target_email or '').strip()
@@ -35002,6 +35014,7 @@ def invitation_public_link_cancel(link_id):
         link = session_db.get(InvitationPublicLink, to_uuid(link_id))
         if not link:
             abort(404)
+        _ensure_can_manage_invitations(session_db, link.concert)
         link.status = 'CANCELLED'
         link.cancelled_at = _now_madrid()
         link.cancelled_by_user_id = _safe_uuid(session.get('user_id'))
@@ -35020,6 +35033,7 @@ def invitation_commitment_save(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         commitment_id = _safe_uuid(request.form.get('commitment_id'))
         row = session_db.get(InvitationCommitment, commitment_id) if commitment_id else None
@@ -35064,6 +35078,7 @@ def invitation_commitment_delete(commitment_id):
         row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
         if not row:
             abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
         cid = row.concert_id
         session_db.delete(row)
         session_db.commit()
@@ -35082,6 +35097,11 @@ def invitation_request_status(request_id):
         if not row:
             abort(404)
         action = (request.form.get('action') or '').strip().upper()
+        _state = _current_user_state()
+        _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
+        # El peticionario puede anular SU propia solicitud; el resto de acciones exigen gestión.
+        if not (action == 'CANCEL' and _is_owner):
+            _ensure_can_manage_invitations(session_db, row.concert)
         old_status = row.status
         if action == 'APPROVE':
             row.status = 'APROBADAS'
@@ -35140,6 +35160,7 @@ def invitation_request_auto_assign(request_id):
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
         concert = row.concert or session_db.get(Concert, row.concert_id)
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         cat_map = {str(c.id): c for c in categories}
@@ -35195,6 +35216,7 @@ def invitation_request_send(request_id):
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
         channel = (request.form.get('channel') or 'email').strip().lower()
         categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
         flags = _invitation_request_kind_flags(session_db, row, categories)
@@ -35250,6 +35272,7 @@ def invitation_event_send_all(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
         rows = (
             session_db.query(InvitationRequest)
@@ -35334,6 +35357,7 @@ def invitation_tickets_upload(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         category = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
         if not category or category.concert_id != concert.id:
             raise ValueError('Categoría no válida.')
@@ -35454,6 +35478,7 @@ def invitation_ticket_release(ticket_id):
         ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
         if not ticket:
             abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
         if ticket.assigned_label:
             ticket.previous_assignment_warning = f"Ya había sido asignada a {ticket.assigned_label}."
@@ -35484,6 +35509,7 @@ def invitation_ticket_update(ticket_id):
         ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
         if not ticket:
             abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
         ticket.ticket_code = (request.form.get('ticket_code') or ticket.ticket_code or '').strip() or None
         ticket.sector = (request.form.get('sector') or '').strip() or None
@@ -35511,6 +35537,7 @@ def invitation_ticket_move_category(ticket_id):
         ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
         if not ticket:
             abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
         new_cat = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
         if not new_cat or new_cat.concert_id != ticket.concert_id:
@@ -35543,6 +35570,7 @@ def invitation_ticket_delete(ticket_id):
         ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
         if not ticket:
             abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
         session_db.delete(ticket)
         session_db.commit()
@@ -35565,6 +35593,7 @@ def invitation_assignment_save(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         payload = _json_list(request.form.get('assignments_json'))
         if not payload:
             raise ValueError('No hay cambios de asignación para guardar.')
@@ -35670,6 +35699,7 @@ def invitation_guest_list_link_create(concert_id):
         concert = session_db.get(Concert, to_uuid(concert_id))
         if not concert:
             abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
         list_type = (request.form.get('list_type') or 'COMPLETE').strip().upper()
         if list_type not in {'COMPLETE', 'DOOR', 'BOX_OFFICE'}:
             list_type = 'COMPLETE'

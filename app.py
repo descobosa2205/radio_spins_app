@@ -35161,6 +35161,76 @@ def invitation_request_send(request_id):
         session_db.close()
 
 
+@app.post('/invitaciones/evento/<concert_id>/enviar-asignadas', endpoint='invitation_event_send_all')
+@admin_required
+def invitation_event_send_all(concert_id):
+    """Envía por email, de una vez, todas las peticiones del evento que tienen entradas asignadas
+    (estado ASIGNADAS). Las de recogida en taquilla (receiver_mode=BOX_OFFICE) NO se envían."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        rows = (
+            session_db.query(InvitationRequest)
+            .filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status == 'ASIGNADAS')
+            .all()
+        )
+        sent = 0
+        skipped_box = 0
+        no_email = 0
+        failed = 0
+        for row in rows:
+            if (row.receiver_mode or '').strip().upper() == 'BOX_OFFICE':
+                skipped_box += 1
+                continue
+            flags = _invitation_request_kind_flags(session_db, row, categories)
+            if not flags.get('can_send'):
+                continue
+            row.delivery_token = row.delivery_token or _invitation_token()
+            download_url = _invitation_request_download_url(row)
+            subject, html_body, text_body = _invitation_email_body(session_db, row, download_url)
+            recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(row))
+            if not recipients:
+                no_email += 1
+                continue
+            ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
+            if ok:
+                row.status = 'ENVIADAS'
+                row.sent_at = _now_madrid()
+                for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+                    ticket.status = 'SENT'
+                    ticket.sent_at = row.sent_at
+                    ticket.updated_at = row.sent_at
+                sent += 1
+            else:
+                failed += 1
+        session_db.commit()
+        parts = []
+        if sent:
+            parts.append(f'{sent} enviadas')
+        if skipped_box:
+            parts.append(f'{skipped_box} de taquilla (no se envían)')
+        if no_email:
+            parts.append(f'{no_email} sin email')
+        if failed:
+            parts.append(f'{failed} con error de envío')
+        if sent:
+            flash('Envío masivo: ' + ', '.join(parts) + '.', 'success')
+        elif parts:
+            flash('No se envió ninguna invitación: ' + ', '.join(parts) + '.', 'warning')
+        else:
+            flash('No hay invitaciones asignadas pendientes de enviar.', 'info')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-guests')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo completar el envío masivo: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id))
+    finally:
+        session_db.close()
+
+
 @app.get('/invitaciones/descarga/<token>.pdf', endpoint='invitation_request_download')
 def invitation_request_download(token):
     session_db = db()

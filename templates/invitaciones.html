@@ -308,6 +308,12 @@
             <div class="d-flex gap-2 flex-wrap">
               {% if denied_count and not show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id, show_denied=1) }}#inv-tab-guests"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>{% endif %}
               {% if show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id) }}#inv-tab-guests"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>{% endif %}
+              {% set assigned_reqs = (requests or []) | selectattr('status', 'equalto', 'ASIGNADAS') | list %}
+              {% if assigned_reqs %}
+              <form method="post" action="{{ url_for('invitation_event_send_all', concert_id=event.id) }}" class="d-inline" onsubmit="return confirm('¿Enviar todas las invitaciones asignadas? Las de recogida en taquilla no se envían.');">
+                <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar todas las asignadas</button>
+              </form>
+              {% endif %}
               <button class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Solicitud</button>
             </div>
           </div>

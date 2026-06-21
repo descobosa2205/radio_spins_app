@@ -665,8 +665,23 @@ Un **enlace público de un solo uso** para que un tercero entregue información 
 - **Privacidad**: el tercero **escribe** los datos del autor (no se expone la base de autores en el
   formulario público); la vinculación/creación en la BD se hará al validar.
 
-> Pendiente (Fase 2c): validación/consolidación en la ficha (check/rechazar/editar + barra de estado en
-> amarillo mientras haya pendientes). Y Fase 3: tareas pendientes en el inicio para Registros.
+### Materiales de canción — Validación/consolidación de la entrega (Fase 2c)
+
+Cierra el ciclo: lo recibido por el enlace llega como **pendiente** y el equipo lo valida en la ficha.
+
+- **Materiales recibidos** (`SongMaterial` con `validation_status='PENDING'`): cada archivo pendiente
+  muestra **✓ Validar** (pasa a `VALIDATED` y sustituye al del mismo slot) y **✗ Rechazar** (elimina).
+  Los stems se validan/rechazan **en bloque** (`…/stems/<bundle>/validate`).
+- **Datos recibidos** (producción/autoral/letra, en `SongMasterDeliveryLink.data`): panel **"Entrega
+  recibida · pendiente de revisar"** con **Consolidar** o **Descartar** por sección. Consolidar
+  **aplica** a la canción: producción → campos de `Song`; letra → `Song.lyrics_text`; autoral →
+  crea/actualiza `SongEditorialShare` (busca o **crea** el autor `Promoter` y su editorial
+  `PublishingCompany`).
+- **Barra de estado**: mientras haya cualquier material **pendiente**, materiales se queda en
+  **amarillo** (nunca "completo"); pasa a **verde** al validar/completar.
+
+> Pendiente (Fase 3): módulo de **tareas pendientes** en el inicio para el departamento de Registros,
+> que guíe la validación de las entregas recibidas.
 
 ---
 

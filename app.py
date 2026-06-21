@@ -3985,6 +3985,7 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
         ("TV_TRACK", "DEFAULT"): False,
     }
     any_non_cover = False
+    has_pending = False   # algún material recibido por entrega aún sin validar
     last_cover_at = None
     last_material_at = None
     cover_principal = False   # portada PRINCIPAL (slot COVER); la provisional NO pone el icono en verde
@@ -4004,7 +4005,10 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
         any_non_cover = True
         if dt and (last_material_at is None or dt > last_material_at):
             last_material_at = dt
-        if (category, slot) in basics:
+        vstatus = (getattr(row, "validation_status", None) or "VALIDATED").strip().upper()
+        if vstatus == "PENDING":
+            has_pending = True
+        elif (category, slot) in basics:
             basics[(category, slot)] = True
 
     # Legacy: cover_url sin material COVER asociado → se considera portada principal.
@@ -4012,9 +4016,10 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
         cover_principal = True
 
     completed_basics = sum(1 for value in basics.values() if value)
-    if completed_basics == len(basics):
+    # Mientras haya algún material pendiente de validar, el estado NO puede ser "completo" (queda amarillo).
+    if completed_basics == len(basics) and not has_pending:
         state = "complete"
-    elif completed_basics > 0 or any_non_cover:
+    elif completed_basics > 0 or any_non_cover or has_pending:
         state = "partial"
     else:
         state = "none"
@@ -4333,6 +4338,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         group.update({
             "label": group["label"],
             "file_count": len(group["rows"]),
+            "is_pending": any(r.get("is_pending") for r in group["rows"]),
             "share_url": share_url,
             "download_zip_url": url_for("discografica_song_stems_bundle_download", song_id=song.id, bundle_key=bundle_key),
         })
@@ -11461,6 +11467,24 @@ def discografica_song_detail(song_id):
             "public_url": _song_delivery_public_url(_delivery_active),
         }
 
+    # Datos recibidos por entrega (producción/autoral/letra) pendientes de consolidar en la ficha.
+    pending_delivery = None
+    for _pl in (
+        session_db.query(SongMasterDeliveryLink)
+        .filter(SongMasterDeliveryLink.song_id == s.id, SongMasterDeliveryLink.status == "SUBMITTED")
+        .order_by(SongMasterDeliveryLink.submitted_at.desc())
+        .all()
+    ):
+        _d = _pl.data or {}
+        if _d.get("production") or _d.get("authoral") or (_d.get("lyrics") or "").strip():
+            pending_delivery = {
+                "link_id": str(_pl.id),
+                "production": _d.get("production"),
+                "authoral": _d.get("authoral"),
+                "lyrics": _d.get("lyrics"),
+            }
+            break
+
     song_cert_rows = (
         session_db.query(SongCertification)
         .filter(SongCertification.song_id == s.id)
@@ -11802,6 +11826,9 @@ def discografica_song_detail(song_id):
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
+        pending_delivery=pending_delivery,
+        delivery_production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
+        delivery_author_roles=dict(SONG_DELIVERY_AUTHOR_ROLES),
         linked_albums=linked_albums,
         song_cert_groups=song_cert_groups,
         country_options=country_options,
@@ -13252,6 +13279,231 @@ def public_song_master_delivery(token):
         return render_template("public_song_master_delivery.html", state="form", form={}, **base_ctx)
     finally:
         session_db.close()
+
+
+def _parse_timing_to_seconds(txt):
+    txt = (txt or "").strip()
+    if not txt:
+        return None
+    if ":" in txt:
+        try:
+            parts = [int(p) for p in txt.split(":")]
+        except ValueError:
+            return None
+        if len(parts) == 2:
+            return parts[0] * 60 + parts[1]
+        if len(parts) == 3:
+            return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        return None
+    try:
+        return int(txt)
+    except ValueError:
+        return None
+
+
+def _delivery_get_or_create_promoter(session_db, name):
+    name = (name or "").strip()
+    if not name:
+        return None
+    existing = session_db.query(Promoter).filter(func.lower(Promoter.nick) == name.lower()).first()
+    if existing:
+        return existing
+    pr = Promoter(nick=name)
+    session_db.add(pr)
+    session_db.flush()
+    return pr
+
+
+def _delivery_get_or_create_publishing(session_db, name):
+    name = (name or "").strip()
+    if not name:
+        return None
+    existing = session_db.query(PublishingCompany).filter(func.lower(PublishingCompany.name) == name.lower()).first()
+    if existing:
+        return existing
+    pc = PublishingCompany(name=name)
+    session_db.add(pc)
+    session_db.flush()
+    return pc
+
+
+@app.post("/discografica/canciones/<song_id>/materials/<material_id>/validate")
+@admin_required
+def discografica_song_material_validate(song_id, material_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para validar materiales.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        row = session_db.get(SongMaterial, to_uuid(material_id))
+        if not song or not row or row.song_id != song.id:
+            flash("Material no encontrado.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        cat = (row.category or "").upper()
+        slot = (row.slot_key or "DEFAULT").upper()
+        # Al validar un slot fijo, sustituye al material validado previo de ese mismo slot.
+        if cat in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} and slot != "SUBPRODUCT":
+            for other in session_db.query(SongMaterial).filter(
+                SongMaterial.song_id == song.id,
+                func.upper(SongMaterial.category) == cat,
+                func.upper(SongMaterial.slot_key) == slot,
+                SongMaterial.id != row.id,
+                func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) != "PENDING",
+            ).all():
+                session_db.delete(other)
+        row.validation_status = "VALIDATED"
+        row.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(row)
+        session_db.flush()
+        _refresh_song_material_status(session_db, song)
+        session_db.commit()
+        flash("Material validado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error validando el material: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/validate")
+@admin_required
+def discografica_song_stems_validate(song_id, bundle_key):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        rows = session_db.query(SongMaterial).filter(
+            SongMaterial.song_id == song.id, SongMaterial.bundle_key == (bundle_key or "").strip()
+        ).all()
+        for r in rows:
+            r.validation_status = "VALIDATED"
+            session_db.add(r)
+        session_db.flush()
+        _refresh_song_material_status(session_db, song)
+        session_db.commit()
+        flash("Stems validados.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error validando los stems: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/entrega/<link_id>/consolidar")
+@admin_required
+def discografica_song_delivery_consolidate(song_id, link_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    section = (request.form.get("section") or "").strip().lower()
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
+        if not song or not link or link.song_id != song.id:
+            flash("Entrega no encontrada.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        data = dict(link.data or {})
+        if section == "production" and data.get("production"):
+            p = data["production"]
+            secs = _parse_timing_to_seconds(p.get("duration"))
+            if secs is not None:
+                song.duration_seconds = secs
+            try:
+                if (p.get("bpm") or "").strip():
+                    song.bpm = int(float(p["bpm"]))
+            except (ValueError, TypeError):
+                pass
+            rdate = parse_optional_date(p.get("recording_date"))
+            if rdate:
+                song.recording_date = rdate
+            if (p.get("studio") or "").strip():
+                song.studio = p["studio"].strip()
+            if (p.get("producer") or "").strip():
+                song.producers = [s.strip() for s in p["producer"].split(",") if s.strip()]
+            if (p.get("arranger") or "").strip():
+                song.arrangers = [s.strip() for s in p["arranger"].split(",") if s.strip()]
+            if (p.get("recording_engineer") or "").strip():
+                song.recording_engineer = p["recording_engineer"].strip()
+            if (p.get("mixing_engineer") or "").strip():
+                song.mixing_engineer = p["mixing_engineer"].strip()
+            if (p.get("mastering_engineer") or "").strip():
+                song.mastering_engineer = p["mastering_engineer"].strip()
+            if (p.get("musicians") or "").strip():
+                song.musicians = [s.strip() for s in p["musicians"].splitlines() if s.strip()]
+            flash("Producción consolidada en la ficha.", "success")
+        elif section == "lyrics" and "lyrics" in data:
+            song.lyrics_text = (data.get("lyrics") or "").strip()
+            song.lyrics_updated_at = datetime.now(TZ_MADRID)
+            flash("Letra consolidada.", "success")
+        elif section == "authoral" and data.get("authoral"):
+            for a in data["authoral"]:
+                promoter = _delivery_get_or_create_promoter(session_db, a.get("name"))
+                if not promoter:
+                    continue
+                editorial = _delivery_get_or_create_publishing(session_db, a.get("editorial"))
+                if editorial and not getattr(promoter, "publishing_company_id", None):
+                    promoter.publishing_company_id = editorial.id
+                    session_db.add(promoter)
+                role = (a.get("role") or "AUTHOR").upper()
+                if role not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"}:
+                    role = "AUTHOR"
+                pct_val = a.get("pct") or 0
+                existing = session_db.query(SongEditorialShare).filter(
+                    SongEditorialShare.song_id == song.id,
+                    SongEditorialShare.promoter_id == promoter.id,
+                    SongEditorialShare.role == role,
+                ).first()
+                if existing:
+                    existing.pct = pct_val
+                    session_db.add(existing)
+                else:
+                    session_db.add(SongEditorialShare(song_id=song.id, promoter_id=promoter.id, role=role, pct=pct_val))
+            flash("Autoría consolidada (revisa Editorial).", "success")
+        else:
+            flash("No hay datos de esa sección por consolidar.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        data.pop(section, None)
+        link.data = data
+        link.updated_at = datetime.now(TZ_MADRID)
+        session_db.add(song)
+        session_db.add(link)
+        session_db.commit()
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error consolidando: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/entrega/<link_id>/descartar-datos")
+@admin_required
+def discografica_song_delivery_discard_section(song_id, link_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    section = (request.form.get("section") or "").strip().lower()
+    session_db = db()
+    try:
+        link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
+        if link and str(link.song_id) == str(to_uuid(song_id)):
+            data = dict(link.data or {})
+            data.pop(section, None)
+            link.data = data
+            session_db.add(link)
+            session_db.commit()
+            flash("Sección descartada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/delete")

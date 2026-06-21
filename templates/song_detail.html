@@ -1274,6 +1274,10 @@
           <div class="mat-file__name"><i class="fa fa-file-audio text-muted me-2"></i>{{ item.base_name }}{% if item.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}</div>
           <audio class="mat-file__audio" controls preload="none" src="{{ item.file_url }}"></audio>
         </div>
+        {% if item.is_pending and CAN_EDIT_DISCOGRAFICA %}
+          <form method="post" action="{{ url_for('discografica_song_material_validate', song_id=song.id, material_id=item.id) }}" class="d-inline me-1"><button class="btn btn-sm btn-success" title="Validar"><i class="fa fa-check"></i></button></form>
+          <form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=item.id) }}" class="d-inline me-1" onsubmit="return confirm('¿Rechazar y eliminar este archivo?');"><button class="btn btn-sm btn-outline-danger" title="Rechazar"><i class="fa fa-xmark"></i></button></form>
+        {% endif %}
         <div class="dropdown">
           <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
@@ -1298,6 +1302,44 @@
         Audios completos {{ materials_status.completed_basics if materials_status else 0 }}/{{ materials_status.total_basics if materials_status else 5 }}
       </span>
     </div>
+
+    {% if pending_delivery and CAN_EDIT_DISCOGRAFICA %}
+      {% set pd = pending_delivery %}
+      <div class="card border-warning mb-3">
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-1"><i class="fa fa-inbox text-warning"></i><h6 class="m-0">Entrega recibida · pendiente de revisar</h6></div>
+          <div class="small text-muted mb-3">Revisa cada sección y consolídala en la ficha, o descártala.</div>
+          {% macro pd_actions(section) %}
+            <div class="d-flex gap-1">
+              <form method="post" action="{{ url_for('discografica_song_delivery_consolidate', song_id=song.id, link_id=pending_delivery.link_id) }}"><input type="hidden" name="section" value="{{ section }}"><button class="btn btn-sm btn-success"><i class="fa fa-check me-1"></i>Consolidar</button></form>
+              <form method="post" action="{{ url_for('discografica_song_delivery_discard_section', song_id=song.id, link_id=pending_delivery.link_id) }}" onsubmit="return confirm('¿Descartar esta sección recibida?');"><input type="hidden" name="section" value="{{ section }}"><button class="btn btn-sm btn-outline-danger" title="Descartar"><i class="fa fa-xmark"></i></button></form>
+            </div>
+          {% endmacro %}
+          {% if pd.production %}
+            <div class="border rounded p-2 mb-2" style="background:#fffdf5;">
+              <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Información de producción</span>{{ pd_actions('production') }}</div>
+              <div class="row g-1 small">
+                {% for key, label, req in delivery_production_fields %}{% if pd.production.get(key) %}<div class="col-12 col-md-6"><span class="text-muted">{{ label }}:</span> {{ pd.production.get(key) }}</div>{% endif %}{% endfor %}
+              </div>
+            </div>
+          {% endif %}
+          {% if pd.authoral %}
+            <div class="border rounded p-2 mb-2" style="background:#fffdf5;">
+              <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Información autoral</span>{{ pd_actions('authoral') }}</div>
+              <div class="table-responsive"><table class="table table-sm mb-0 small"><thead><tr><th>Autor</th><th>Editorial</th><th>Rol</th><th class="text-end">%</th></tr></thead><tbody>
+                {% for a in pd.authoral %}<tr><td>{{ a.name }}</td><td>{{ a.editorial or '—' }}</td><td>{{ delivery_author_roles.get(a.role, a.role) }}</td><td class="text-end">{{ a.pct }}</td></tr>{% endfor %}
+              </tbody></table></div>
+            </div>
+          {% endif %}
+          {% if pd.lyrics %}
+            <div class="border rounded p-2" style="background:#fffdf5;">
+              <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-2"><span class="fw-semibold">Letra</span>{{ pd_actions('lyrics') }}</div>
+              <pre class="small mb-0" style="white-space:pre-wrap;max-height:220px;overflow:auto;">{{ pd.lyrics }}</pre>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
 
     {# ---------- PORTADA: principal + provisional ---------- #}
     <div class="card mb-3">
@@ -1437,10 +1479,14 @@
                 {% for group in song_materials.stem_groups %}
                   <div class="mat-module">
                     <div class="mat-module__head">
-                      <span class="fw-semibold">{{ group.label }} <span class="text-muted small fw-normal">· {{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</span></span>
+                      <span class="fw-semibold">{{ group.label }} <span class="text-muted small fw-normal">· {{ group.file_count }} archivo{% if group.file_count != 1 %}s{% endif %}</span>{% if group.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}</span>
                       <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
+                          {% if group.is_pending and CAN_EDIT_DISCOGRAFICA %}
+                            <li><form method="post" action="{{ url_for('discografica_song_stems_validate', song_id=song.id, bundle_key=group.bundle_key) }}"><button class="dropdown-item text-success"><i class="fa fa-check fa-fw me-1"></i>Validar stems</button></form></li>
+                            <li><hr class="dropdown-divider"></li>
+                          {% endif %}
                           <li><h6 class="dropdown-header">Compartir (paquete completo)</h6></li>
                           <li><button class="dropdown-item" type="button" onclick="shareByMail({{ (group.label ~ ' · ' ~ song.title)|tojson }}, {{ group.share_url|tojson }})"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</button></li>
                           <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp({{ (group.label ~ ' · ' ~ song.title)|tojson }}, {{ group.share_url|tojson }})"><i class="fab fa-whatsapp fa-fw me-1"></i>WhatsApp</button></li>

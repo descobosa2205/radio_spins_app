@@ -127,8 +127,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   masters) → endpoints `discografica_song_delivery_create`/`_cancel`; formulario público
   `public_song_master_delivery` (`templates/public_song_master_delivery.html`, exento CSRF/login, logo
   PIES). Lo recibido entra **pendiente**: datos en `data`, materiales `SongMaterial` con
-  `validation_status='PENDING'` + `delivery_link_id`. *(Pendiente: validación/consolidación en la ficha +
-  tareas Registros.)*
+  `validation_status='PENDING'` + `delivery_link_id`. **Validación en la ficha**: materiales con
+  ✓Validar/✗Rechazar (`…/materials/<id>/validate`; stems `…/stems/<b>/validate`); datos en panel
+  *"Entrega recibida"* con Consolidar/Descartar por sección (`…/entrega/<id>/consolidar`, aplica a
+  `Song`/`SongEditorialShare`). Barra de estado amarilla mientras haya `PENDING`. *(Pendiente: módulo de
+  tareas Registros en el inicio.)*
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

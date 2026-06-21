@@ -3887,12 +3887,16 @@ def _song_material_slot_label(category: str | None, slot_key: str | None, displa
     cat = (category or "").strip().upper()
     slot = (slot_key or "DEFAULT").strip().upper()
     if cat == "COVER":
+        if slot == "COVER_PROVISIONAL":
+            return "Portada provisional"
         return "Portada"
     if cat == "MASTER":
+        if slot == "MASTER_48":
+            return "Master 48 bits"
         if slot == "MASTER_24":
-            return "Master 24 Bits"
+            return "Master 24 bits"
         if slot == "MASTER_16":
-            return "Master 16 Bits"
+            return "Master 16 bits"
         return (display_name or "").strip() or "Subproducto"
     if cat == "INSTRUMENTAL":
         if slot == "DEFAULT":
@@ -3972,6 +3976,7 @@ def _convert_audio_content_to_mp3(data: bytes, source_ext: str | None = None) ->
 
 def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]) -> dict:
     basics = {
+        ("MASTER", "MASTER_48"): False,
         ("MASTER", "MASTER_24"): False,
         ("MASTER", "MASTER_16"): False,
         ("INSTRUMENTAL", "DEFAULT"): False,
@@ -3980,14 +3985,17 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
     any_non_cover = False
     last_cover_at = None
     last_material_at = None
-    cover_exists = bool(getattr(song, "cover_url", None))
+    cover_principal = False   # portada PRINCIPAL (slot COVER); la provisional NO pone el icono en verde
+    any_cover_material = False
 
     for row in material_rows or []:
         category = (getattr(row, "category", None) or "").strip().upper()
         slot = (getattr(row, "slot_key", None) or "DEFAULT").strip().upper()
         dt = getattr(row, "updated_at", None) or getattr(row, "created_at", None)
         if category == "COVER":
-            cover_exists = True
+            any_cover_material = True
+            if slot != "COVER_PROVISIONAL":
+                cover_principal = True
             if dt and (last_cover_at is None or dt > last_cover_at):
                 last_cover_at = dt
             continue
@@ -3996,6 +4004,10 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
             last_material_at = dt
         if (category, slot) in basics:
             basics[(category, slot)] = True
+
+    # Legacy: cover_url sin material COVER asociado → se considera portada principal.
+    if not any_cover_material and bool(getattr(song, "cover_url", None)):
+        cover_principal = True
 
     completed_basics = sum(1 for value in basics.values() if value)
     if completed_basics == len(basics):
@@ -4006,7 +4018,7 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
         state = "none"
 
     return {
-        "cover_done": cover_exists,
+        "cover_done": cover_principal,
         "last_cover_at": last_cover_at,
         "last_material_at": last_material_at,
         "completed_basics": completed_basics,
@@ -4044,6 +4056,36 @@ def _ensure_song_cover_material_row(session_db, song: Song | None) -> None:
         )
     )
     session_db.flush()
+
+
+def _resolve_song_cover_url(session_db, song: Song, material_rows: list[SongMaterial] | None = None) -> None:
+    """Recalcula Song.cover_url: portada principal (slot COVER) si existe; si no, la provisional."""
+    if not song or not getattr(song, "id", None):
+        return
+    if material_rows is None:
+        material_rows = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .filter(func.upper(SongMaterial.category) == "COVER")
+            .all()
+        )
+    principal = None
+    provisional = None
+    for row in material_rows or []:
+        if (getattr(row, "category", None) or "").strip().upper() != "COVER":
+            continue
+        slot = (getattr(row, "slot_key", None) or "COVER").strip().upper()
+        if slot == "COVER_PROVISIONAL":
+            if provisional is None:
+                provisional = row
+        elif principal is None:
+            principal = row
+    chosen = principal or provisional
+    if chosen is not None:
+        song.cover_url = (getattr(chosen, "file_url", None) or "").strip() or None
+    else:
+        song.cover_url = None
+    session_db.add(song)
 
 
 def _refresh_song_material_status(session_db, song_or_id, material_rows: list[SongMaterial] | None = None, status_obj: SongStatus | None = None) -> dict:
@@ -4205,11 +4247,13 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
             "download_png_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="png") if category == "COVER" else "",
             "download_wav_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="wav") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
             "download_mp3_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mp3") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
+            "is_audio": category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"},
         }
         return payload
 
-    cover_item = None
-    masters_default = {"MASTER_24": None, "MASTER_16": None}
+    cover_principal = None
+    cover_provisional = None
+    masters_default = {"MASTER_48": None, "MASTER_24": None, "MASTER_16": None}
     master_subproducts = []
     instrumental_default = None
     instrumental_subproducts = []
@@ -4221,8 +4265,12 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
         category = (getattr(row, "category", None) or "").strip().upper()
         slot_key = (getattr(row, "slot_key", None) or "DEFAULT").strip().upper()
         payload = row_payload(row)
-        if category == "COVER" and cover_item is None:
-            cover_item = payload
+        if category == "COVER":
+            if slot_key == "COVER_PROVISIONAL":
+                if cover_provisional is None:
+                    cover_provisional = payload
+            elif cover_principal is None:
+                cover_principal = payload
             continue
         if category == "MASTER":
             if slot_key in masters_default and masters_default[slot_key] is None:
@@ -4254,8 +4302,8 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
             if payload["created_at"] and (group["created_at"] is None or payload["created_at"] > group["created_at"]):
                 group["created_at"] = payload["created_at"]
 
-    if cover_item is None and (getattr(song, "cover_url", None) or "").strip():
-        cover_item = {
+    if cover_principal is None and (getattr(song, "cover_url", None) or "").strip():
+        cover_principal = {
             "id": "",
             "category": "COVER",
             "slot_key": "COVER",
@@ -4290,7 +4338,9 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
 
     completion = _song_material_completion_meta(song, material_rows or [])
     return {
-        "cover_item": cover_item,
+        "cover_item": cover_principal,
+        "cover_principal": cover_principal,
+        "cover_provisional": cover_provisional,
         "masters_default": masters_default,
         "master_subproducts": master_subproducts,
         "instrumental_default": instrumental_default,
@@ -12747,9 +12797,10 @@ def discografica_song_material_upload(song_id):
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
     if category == "COVER":
-        slot_key = "COVER"
-    elif category == "MASTER" and slot_key not in {"MASTER_24", "MASTER_16", "SUBPRODUCT"}:
-        slot_key = "MASTER_24"
+        if slot_key != "COVER_PROVISIONAL":
+            slot_key = "COVER"
+    elif category == "MASTER" and slot_key not in {"MASTER_48", "MASTER_24", "MASTER_16", "SUBPRODUCT"}:
+        slot_key = "MASTER_48"
     elif category in {"INSTRUMENTAL", "TV_TRACK"} and slot_key not in {"DEFAULT", "SUBPRODUCT"}:
         slot_key = "DEFAULT"
     elif category == "STEMS":
@@ -12762,6 +12813,12 @@ def discografica_song_material_upload(song_id):
     if not files:
         flash("Selecciona al menos un archivo.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+    if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"}:
+        non_wav = [f for f in files if Path((f.filename or "").replace("\\", "/")).suffix.lower() not in {".wav", ".wave"}]
+        if non_wav:
+            flash("Los masters, la instrumental y el TV track deben subirse en formato .wav.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
     session_db = db()
     try:
@@ -12796,20 +12853,30 @@ def discografica_song_material_upload(song_id):
             session_db.flush()
 
         if category == "COVER":
-            for row in session_db.query(SongMaterial).filter(SongMaterial.song_id == song.id).filter(func.upper(SongMaterial.category) == "COVER").all():
+            cover_slot = "COVER_PROVISIONAL" if slot_key == "COVER_PROVISIONAL" else "COVER"
+            # Reemplaza solo la portada del MISMO rol (principal o provisional).
+            for row in (
+                session_db.query(SongMaterial)
+                .filter(SongMaterial.song_id == song.id)
+                .filter(func.upper(SongMaterial.category) == "COVER")
+                .filter(func.upper(SongMaterial.slot_key) == cover_slot)
+                .all()
+            ):
                 session_db.delete(row)
             file_url = upload_image(files[0], "song_materials")
-            row = SongMaterial(
-                song_id=song.id,
-                category="COVER",
-                slot_key="COVER",
-                display_name="Portada",
-                file_name=Path(files[0].filename or "portada").name,
-                file_url=file_url,
-                mime_type=(getattr(files[0], "mimetype", "") or "").strip() or None,
+            session_db.add(
+                SongMaterial(
+                    song_id=song.id,
+                    category="COVER",
+                    slot_key=cover_slot,
+                    display_name="Portada provisional" if cover_slot == "COVER_PROVISIONAL" else "Portada",
+                    file_name=Path(files[0].filename or "portada").name,
+                    file_url=file_url,
+                    mime_type=(getattr(files[0], "mimetype", "") or "").strip() or None,
+                )
             )
-            session_db.add(row)
-            song.cover_url = file_url
+            session_db.flush()
+            _resolve_song_cover_url(session_db, song)
 
         elif category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"}:
             if slot_key != "SUBPRODUCT":
@@ -12822,7 +12889,7 @@ def discografica_song_material_upload(song_id):
                 ):
                     session_db.delete(row)
             file_storage = files[0]
-            file_url = upload_file(file_storage, "song_materials", allowed_extensions={".wav", ".wave", ".aif", ".aiff", ".flac", ".mp3", ".m4a", ".aac", ".ogg"})
+            file_url = upload_file(file_storage, "song_materials", allowed_extensions={".wav", ".wave"})
             session_db.add(
                 SongMaterial(
                     song_id=song.id,
@@ -12886,11 +12953,11 @@ def discografica_song_material_delete(song_id, material_id):
         if not song or not row or row.song_id != song.id:
             flash("Material no encontrado.", "warning")
             return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
-        if (row.category or "").upper() == "COVER":
-            song.cover_url = None
-            session_db.add(song)
+        was_cover = (row.category or "").upper() == "COVER"
         session_db.delete(row)
         session_db.flush()
+        if was_cover:
+            _resolve_song_cover_url(session_db, song)
         material_rows = (
             session_db.query(SongMaterial)
             .filter(SongMaterial.song_id == song.id)
@@ -12906,6 +12973,49 @@ def discografica_song_material_delete(song_id, material_id):
     finally:
         session_db.close()
 
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/materials/<material_id>/cover-role")
+@admin_required
+def discografica_song_cover_role(song_id, material_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para editar materiales.")
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        row = session_db.get(SongMaterial, to_uuid(material_id))
+        if not song or not row or row.song_id != song.id or (row.category or "").upper() != "COVER":
+            flash("Portada no encontrada.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        current = (row.slot_key or "COVER").strip().upper()
+        target = "COVER" if current == "COVER_PROVISIONAL" else "COVER_PROVISIONAL"
+        # Solo una principal y una provisional: si ya hay otra en el rol destino, se intercambian.
+        other = (
+            session_db.query(SongMaterial)
+            .filter(SongMaterial.song_id == song.id)
+            .filter(func.upper(SongMaterial.category) == "COVER")
+            .filter(func.upper(SongMaterial.slot_key) == target)
+            .filter(SongMaterial.id != row.id)
+            .first()
+        )
+        if other is not None:
+            other.slot_key = current
+            other.display_name = "Portada provisional" if current == "COVER_PROVISIONAL" else "Portada"
+            session_db.add(other)
+        row.slot_key = target
+        row.display_name = "Portada provisional" if target == "COVER_PROVISIONAL" else "Portada"
+        session_db.add(row)
+        session_db.flush()
+        _resolve_song_cover_url(session_db, song)
+        _refresh_song_material_status(session_db, song)
+        session_db.commit()
+        flash("Portada actualizada.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error actualizando la portada: {e}", "danger")
+    finally:
+        session_db.close()
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
 

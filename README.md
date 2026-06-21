@@ -622,6 +622,31 @@ invitaciones) y **cuadrantes** (cabecera por artista y *popover* del calendario 
 ya presente en el payload). El resto de pantallas (conciertos, ventas, canciones, discográfica, gira,
 producción, marketing, promoción, invitaciones, registros) **ya mostraban** la foto.
 
+### Materiales de canción — rediseño de la pestaña (Fase 1)
+
+Primera fase del rediseño de **Materiales** en la ficha de canción (`song_detail.html` + helpers de
+`app.py`). Reaprovecha el modelo `SongMaterial` existente (sin columnas nuevas), apoyándose en nuevos
+valores de `slot_key`.
+
+- **UI rehecha**: tarjetas por módulo (Portada / Masters / Instrumental / TV Track / Stems) con menú de
+  3 puntos (compartir email/WhatsApp/SMS/enlace + descargar) y **reproductor de audio inline**
+  (`<audio>`) en cada archivo, sin descargarlo.
+- **Tres masters**: **48, 24 y 16 bits** (antes 24 y 16). La barra de estado pasa a **5 audios básicos**
+  (48/24/16 + instrumental + TV track): rojo sin nada, amarillo si faltan, verde al completarlos.
+- **Portada principal + provisional**: dos huecos; la **principal** manda como portada del single en la
+  app (si no hay, se usa la provisional). Menú con **"Convertir en principal/provisional"**, reemplazar,
+  eliminar y descargar (JPG/PNG). El icono de portada de la barra de estado se pone verde **solo con la
+  principal**.
+- **Validación estricta `.wav`** en master/instrumental/TV track (los stems siguen admitiendo varios
+  archivos o ZIP).
+- **Backend**: `_song_material_slot_label`, `_song_material_completion_meta` y
+  `_build_song_material_context` adaptados; nuevo `_resolve_song_cover_url` (portada efectiva) y nuevo
+  endpoint `…/materials/<id>/cover-role` (principal↔provisional). Reutiliza compartir/descargar/tokens y
+  la conversión de audio/imagen ya existentes.
+
+> Próximas fases: enlace público de **entrega de masters** y módulo de **tareas pendientes** en el
+> inicio para el departamento de Registros.
+
 ---
 
 ## 9. Pendientes y auditoría

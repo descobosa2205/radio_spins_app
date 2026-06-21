@@ -114,6 +114,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **solo en modo edición** usar **`data-edit-only="#formId"`** (lo togglea `ficha_inline.js` en `show`/`hide`):
   así el botón *Eliminar* de canción/álbum solo aparece al editar Información (vive dentro de la zona inline,
   por lo que también se oculta al guardar).
+- **Materiales de canción** (`song_detail.html` pestaña *materiales* + helpers `_song_material_*` /
+  `_build_song_material_context` / upload en `app.py`): `SongMaterial.slot_key` — portada `COVER`
+  (principal) / `COVER_PROVISIONAL`; master `MASTER_48`/`MASTER_24`/`MASTER_16` + `SUBPRODUCT`;
+  instrumental/TV track `DEFAULT` + `SUBPRODUCT`; stems `BUNDLE` (varios archivos por `bundle_key`). La
+  portada efectiva (`Song.cover_url`) la resuelve `_resolve_song_cover_url` (principal o, si no,
+  provisional). Audio **solo `.wav`**; barra de estado de 5 básicos, verde solo con portada **principal**.
+  Reproductor inline `<audio>` + menú de 3 puntos (compartir/descargar/reemplazar/eliminar) vía macros
+  locales de la plantilla. *(En curso: entrega pública de masters + tareas Registros.)*
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

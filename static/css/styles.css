@@ -737,6 +737,24 @@ img[data-default-photo="1"]{
 .artist-chip img, .tiny-avatar { width:24px; height:24px; object-fit:cover; border-radius:50%; background:#eef0f3; }
 .tiny-avatar { width:18px; height:18px; }
 .artist-avatar-inline{ width:22px; height:22px; object-fit:cover; border-radius:50%; vertical-align:middle; border:1px solid #eee; background:#eef0f3; margin-right:.15rem; }
+/* Materiales de canción (rediseño) */
+.mat-module{ border:1px solid #e9ecef; border-radius:.6rem; padding:.6rem .75rem; background:#fff; }
+.mat-module__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; margin-bottom:.4rem; }
+.mat-file{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
+.mat-file__main{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; min-width:0; flex:1; }
+.mat-file__name{ font-size:.85rem; color:#1e2530; word-break:break-word; }
+.mat-file__audio{ height:34px; max-width:240px; }
+.mat-stemfile{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; padding:.25rem 0; border-top:1px dashed #eef0f3; }
+.mat-stemfile:first-child{ border-top:0; }
+.mat-stemfile__name{ font-size:.82rem; color:#3a424d; word-break:break-word; }
+.mat-empty{ font-size:.82rem; color:#8a94a6; }
+.mat-subhead{ font-size:.72rem; letter-spacing:.04em; text-transform:uppercase; color:#8a94a6; margin-bottom:.4rem; }
+.mat-cover{ position:relative; border:1px solid #e9ecef; border-radius:.7rem; padding:.75rem; display:flex; align-items:center; gap:.75rem; min-height:96px; background:#fff; }
+.mat-cover__img{ width:84px; height:84px; object-fit:cover; border-radius:.6rem; border:1px solid #eee; }
+.mat-cover__placeholder{ width:84px; height:84px; border-radius:.6rem; border:1px dashed #d4d9e0; display:flex; align-items:center; justify-content:center; color:#c2c8d2; font-size:1.5rem; }
+.mat-cover__body{ flex:1; min-width:0; }
+.mat-cover__badge{ position:absolute; top:.5rem; right:.5rem; font-size:.68rem; font-weight:600; padding:.1rem .45rem; border-radius:999px; background:#eef0f3; color:#6b7280; }
+.mat-cover__badge--main{ background:var(--brand-primary, #E33D48); color:#fff; }
 .invitation-manage-list { display:flex; flex-direction:column; gap:.75rem; }
 .invitation-manage-row { display:block; color:inherit; border:1px solid #e3e6eb; border-radius:1rem; padding:1rem; background:#fff; transition:box-shadow .15s ease, transform .15s ease; }
 .invitation-manage-row:hover { color:inherit; transform:translateY(-1px); box-shadow:0 8px 24px rgba(20,25,35,.08); }

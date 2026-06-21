@@ -130,8 +130,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `validation_status='PENDING'` + `delivery_link_id`. **Validación en la ficha**: materiales con
   ✓Validar/✗Rechazar (`…/materials/<id>/validate`; stems `…/stems/<b>/validate`); datos en panel
   *"Entrega recibida"* con Consolidar/Descartar por sección (`…/entrega/<id>/consolidar`, aplica a
-  `Song`/`SongEditorialShare`). Barra de estado amarilla mientras haya `PENDING`. *(Pendiente: módulo de
-  tareas Registros en el inicio.)*
+  `Song`/`SongEditorialShare`). Barra de estado amarilla mientras haya `PENDING`. **Inicio**: módulo
+  *Tareas pendientes · Registros* en `home.html` (`_home_registros_pending` + `inject_personnel_globals`,
+  visible con `has_access_key('registros')`) que lista canciones con entregas pendientes y enlaza a la ficha.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

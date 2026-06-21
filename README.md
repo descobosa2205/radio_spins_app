@@ -680,8 +680,19 @@ Cierra el ciclo: lo recibido por el enlace llega como **pendiente** y el equipo 
 - **Barra de estado**: mientras haya cualquier material **pendiente**, materiales se queda en
   **amarillo** (nunca "completo"); pasa a **verde** al validar/completar.
 
-> Pendiente (Fase 3): módulo de **tareas pendientes** en el inicio para el departamento de Registros,
-> que guíe la validación de las entregas recibidas.
+### Materiales de canción — Tareas pendientes en el inicio para Registros (Fase 3)
+
+Cierra el encargo: el equipo de **Registros** ve en su inicio las entregas que esperan validación.
+
+- Nuevo módulo **"Tareas pendientes · Registros"** en `home.html`, visible solo si el usuario tiene
+  acceso a **Registros** (`has_access_key("registros")`). Lista las canciones con **materiales
+  pendientes** (`validation_status='PENDING'`) o **datos de entrega sin consolidar**, con portada,
+  título, artista y enlace directo a la **pestaña Materiales** de la ficha (donde están los controles de
+  validación de la Fase 2c).
+- Datos vía `_home_registros_pending()` inyectado en `inject_personnel_globals`.
+
+Con esto el flujo de entrega de masters queda completo: generar enlace → entrega pública → recepción como
+pendiente → aviso en el inicio de Registros → validación/consolidación en la ficha → barra en verde.
 
 ---
 

@@ -26623,6 +26623,7 @@ def inject_personnel_globals():
         "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
+        "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
@@ -35207,6 +35208,53 @@ def public_invitation_request_cancel(token, request_id):
         session_db.commit()
         flash('Petición anulada.', 'success')
         return redirect(url_for('public_invitation_request_link', token=token))
+    finally:
+        session_db.close()
+
+
+def _home_registros_pending(limit: int = 20) -> list[dict]:
+    """Canciones con entregas de masters pendientes de validar (materiales PENDING o datos sin consolidar)."""
+    session_db = db()
+    try:
+        pending_ids = set()
+        for (sid,) in (
+            session_db.query(SongMaterial.song_id)
+            .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) == "PENDING")
+            .distinct().all()
+        ):
+            if sid:
+                pending_ids.add(sid)
+        for link in session_db.query(SongMasterDeliveryLink).filter(SongMasterDeliveryLink.status == "SUBMITTED").all():
+            d = link.data or {}
+            if d.get("production") or d.get("authoral") or (d.get("lyrics") or "").strip():
+                pending_ids.add(link.song_id)
+        if not pending_ids:
+            return []
+        songs = (
+            session_db.query(Song)
+            .options(joinedload(Song.artists))
+            .filter(Song.id.in_(list(pending_ids)))
+            .limit(limit).all()
+        )
+        rows = []
+        for s in songs:
+            mat_pending = (
+                session_db.query(func.count(SongMaterial.id))
+                .filter(SongMaterial.song_id == s.id)
+                .filter(func.upper(func.coalesce(SongMaterial.validation_status, "VALIDATED")) == "PENDING")
+                .scalar()
+            ) or 0
+            rows.append({
+                "id": str(s.id),
+                "title": s.title,
+                "artist_names": ", ".join([a.name for a in (s.artists or []) if getattr(a, "name", None)]) or "—",
+                "cover_url": (s.cover_url or "").strip(),
+                "materials_pending": int(mat_pending),
+                "detail_url": url_for("discografica_song_detail", song_id=s.id, tab="materiales"),
+            })
+        return rows
+    except Exception:
+        return []
     finally:
         session_db.close()
 

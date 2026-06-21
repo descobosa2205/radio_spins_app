@@ -249,6 +249,7 @@ class SongMasterDeliveryLink(Base):
     song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
     token = Column(Text, nullable=False, unique=True)
     sections_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    materials_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))  # módulos de material solicitados
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
     data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
@@ -3121,6 +3122,7 @@ def ensure_isrc_and_song_detail_schema():
         """,
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
         "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
+        "ALTER TABLE IF EXISTS song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',
 

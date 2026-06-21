@@ -13,10 +13,10 @@
 </head>
 <body>
   <main class="container py-4 py-md-5" style="max-width:840px;">
-    <div class="text-center mb-3">
-      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES Records" style="height:48px;object-fit:contain;">
+    <div class="d-flex justify-content-between align-items-center mb-4 gap-3">
+      <h3 class="m-0">Entrega de masters</h3>
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES Records" style="height:44px;object-fit:contain;">
     </div>
-    <h3 class="text-center mb-4">Entrega de masters</h3>
 
     <div class="card shadow-sm border-0 mb-3">
       <div class="card-body d-flex align-items-center gap-3">
@@ -51,7 +51,7 @@
             <h6 class="mb-3"><i class="fa fa-sliders me-2 text-muted"></i>{{ section_labels['PRODUCTION'] }}</h6>
             <div class="row g-3">
               {% for key, label, req in production_fields %}
-                <div class="col-12 col-md-6">
+                <div class="col-12">
                   <label class="form-label">{{ label }}{% if not req %} <span class="text-muted small">(opcional)</span>{% endif %}</label>
                   {% if key == 'recording_date' %}
                     <input type="date" class="form-control" name="prod_{{ key }}" value="{{ form.get('prod_' + key, '') }}" {% if req %}required{% endif %}>
@@ -90,15 +90,17 @@
             <div class="small text-muted mb-3">Sube cada archivo en formato <strong>.wav</strong>.</div>
             <div class="row g-3">
               {% for field, label in material_specs %}
-                <div class="col-12 col-md-6">
+                <div class="col-12">
                   <label class="form-label">{{ label }}</label>
                   <input type="file" class="form-control" name="{{ field }}" accept=".wav,.wave" required>
                 </div>
               {% endfor %}
+              {% if show_stems %}
               <div class="col-12">
-                <label class="form-label">Stems <span class="text-muted small">(opcional · varios archivos o ZIP)</span></label>
+                <label class="form-label">Stems <span class="text-muted small">(varios archivos o ZIP)</span></label>
                 <input type="file" class="form-control" name="stems" accept=".wav,.wave,.zip" multiple>
               </div>
+              {% endif %}
             </div>
           </div></div>
         {% endif %}

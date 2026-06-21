@@ -73,29 +73,64 @@
       <div class="modal-body">
         {% set sec_labels = {'PRODUCTION':'Información de producción','AUTHORAL':'Información autoral','LYRICS':'Letra','MASTERS':'Masters / materiales'} %}
         {% if master_delivery %}
-          <div class="alert alert-info small mb-3">Ya hay un enlace activo. Compártelo o anúlalo para generar uno nuevo.</div>
+          <div class="alert alert-success small mb-3"><i class="fa fa-circle-check me-1"></i>Enlace activo. Cópialo o envíalo por correo; anúlalo para generar uno nuevo.</div>
           <label class="form-label small text-muted">Enlace público</label>
           <div class="input-group input-group-sm mb-2">
             <input type="text" class="form-control" readonly value="{{ master_delivery.public_url }}" id="masterDeliveryUrl">
-            <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('masterDeliveryUrl').value); this.textContent='Copiado';"><i class="fa fa-copy"></i></button>
+            <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('masterDeliveryUrl').value); this.textContent='Copiado';"><i class="fa fa-copy me-1"></i>Copiar</button>
           </div>
           <div class="small text-muted mb-3">Solicita: {% for s in master_delivery.sections %}{{ sec_labels.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+          <hr>
+          <label class="form-label small text-muted">Enviar por correo</label>
+          <form method="post" action="{{ url_for('discografica_song_delivery_send_email', song_id=song.id, link_id=master_delivery.id) }}">
+            <select class="form-select form-select-sm mb-2" id="deliveryEmailPicker"><option value=""></option></select>
+            <input type="email" class="form-control form-control-sm mb-2" name="to_email" id="deliveryEmailInput" placeholder="email@destinatario.com (o elige arriba)" required>
+            <div class="text-end"><button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button></div>
+          </form>
+          <hr>
           <form method="post" action="{{ url_for('discografica_song_delivery_cancel', song_id=song.id, link_id=master_delivery.id) }}" class="text-end">
             <button class="btn btn-sm btn-outline-danger"><i class="fa fa-ban me-1"></i>Anular enlace</button>
           </form>
+          <script>
+            document.addEventListener('DOMContentLoaded', function(){
+              try {
+                if (window.jQuery && jQuery.fn && jQuery.fn.select2) {
+                  jQuery('#deliveryEmailPicker').select2({
+                    dropdownParent: jQuery('#masterDeliveryModal'),
+                    width: '100%',
+                    placeholder: 'Buscar persona en la base de datos…',
+                    allowClear: true,
+                    minimumInputLength: 2,
+                    ajax: {
+                      url: '/api/search/promoters', dataType: 'json', delay: 250,
+                      data: function(p){ return { q: p.term }; },
+                      processResults: function(d){ return { results: (d || []).filter(function(r){ return r.contact_email; }).map(function(r){ return { id: r.contact_email, text: r.label + ' · ' + r.contact_email }; }) }; }
+                    }
+                  }).on('select2:select', function(e){ document.getElementById('deliveryEmailInput').value = e.params.data.id || ''; });
+                }
+              } catch (err) {}
+            });
+          </script>
         {% else %}
           <form method="post" action="{{ url_for('discografica_song_delivery_create', song_id=song.id) }}">
             <p class="small text-muted">Genera un enlace público para que un tercero rellene la información y suba los materiales de esta canción. Elige qué solicitar:</p>
             {% for key, label in song_delivery_sections %}
               <div class="form-check">
-                <input class="form-check-input" type="checkbox" name="sections" value="{{ key }}" id="deliverySec{{ key }}" checked>
+                <input class="form-check-input" type="checkbox" name="sections" value="{{ key }}" id="deliverySec{{ key }}" checked{% if key == 'MASTERS' %} onchange="document.getElementById('deliveryMaterials').classList.toggle('d-none', !this.checked)"{% endif %}>
                 <label class="form-check-label" for="deliverySec{{ key }}">{{ label }}</label>
               </div>
+              {% if key == 'MASTERS' %}
+                <div id="deliveryMaterials" class="ms-4 mb-2 ps-3 border-start">
+                  <div class="small text-muted mb-1">Materiales a pedir (desmarca los que no necesites):</div>
+                  {% for mkey, mlabel in song_delivery_material_modules %}
+                    <div class="form-check">
+                      <input class="form-check-input" type="checkbox" name="materials" value="{{ mkey }}" id="deliveryMat{{ mkey }}" checked>
+                      <label class="form-check-label small" for="deliveryMat{{ mkey }}">{{ mlabel }}</label>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
             {% endfor %}
-            <div class="row g-2 mt-2">
-              <div class="col-12 col-md-6"><input class="form-control form-control-sm" name="target_name" placeholder="Destinatario (opcional)"></div>
-              <div class="col-12 col-md-6"><input class="form-control form-control-sm" type="email" name="target_email" placeholder="Email (opcional)"></div>
-            </div>
             <div class="text-end mt-3"><button class="btn btn-primary"><i class="fa fa-link me-1"></i>Generar enlace</button></div>
           </form>
         {% endif %}
@@ -1341,43 +1376,47 @@
       </div>
     {% endif %}
 
-    {# ---------- PORTADA: principal + provisional ---------- #}
+    {# ---------- PORTADA: principal (+ provisional solo si existe) ---------- #}
+    {% macro cover_box(role_slot, role_label, role_item) %}
+      <div class="mat-cover">
+        <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_slot == 'COVER' else '' }}">{{ role_label }}</span>
+        {% if role_item %}
+          <img class="mat-cover__img" src="{{ role_item.file_url or url_for('static', filename='img/logo.png') }}" alt="Portada {{ role_label|lower }}">
+          <div class="mat-cover__body"><div class="small text-muted text-truncate">{{ role_item.base_name }}</div></div>
+          <div class="dropdown">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end">
+              {{ mat_share_dl('Portada', role_item, is_cover=True) }}
+              {% if CAN_EDIT_DISCOGRAFICA %}
+                <li><hr class="dropdown-divider"></li>
+                <li><form method="post" action="{{ url_for('discografica_song_cover_role', song_id=song.id, material_id=role_item.id) }}"><button class="dropdown-item"><i class="fa fa-arrows-rotate fa-fw me-1"></i>{{ 'Convertir en provisional' if role_slot == 'COVER' else 'Convertir en principal' }}</button></form></li>
+                <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'{{ role_slot }}', materialId:{{ role_item.id|tojson }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
+                <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=role_item.id) }}" onsubmit="return confirm('¿Eliminar esta portada?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+              {% endif %}
+            </ul>
+          </div>
+        {% else %}
+          <div class="mat-cover__placeholder"><i class="fa fa-image"></i></div>
+          <div class="mat-cover__body"><div class="small text-muted">Sin portada {{ role_label|lower }}.</div></div>
+          {% if CAN_EDIT_DISCOGRAFICA %}
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir portada {{ role_label|lower }}', category:'COVER', slotKey:'{{ role_slot }}', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
+          {% endif %}
+        {% endif %}
+      </div>
+    {% endmacro %}
     <div class="card mb-3">
       <div class="card-body">
-        <div class="d-flex align-items-center gap-2 mb-3"><i class="fa fa-image text-muted"></i><h6 class="m-0">Portada</h6></div>
+        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap mb-3">
+          <div class="d-flex align-items-center gap-2"><i class="fa fa-image text-muted"></i><h6 class="m-0">Portada</h6></div>
+          {% if CAN_EDIT_DISCOGRAFICA and not song_materials.cover_provisional %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" onclick="openSongMaterialModal({title:'Subir portada provisional', category:'COVER', slotKey:'COVER_PROVISIONAL', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-plus me-1"></i>Portada provisional</button>
+          {% endif %}
+        </div>
         <div class="row g-3">
-          {% for role_slot, role_label, role_item in [
-            ('COVER', 'Principal', song_materials.cover_principal),
-            ('COVER_PROVISIONAL', 'Provisional', song_materials.cover_provisional)
-          ] %}
-            <div class="col-12 col-md-6">
-              <div class="mat-cover">
-                <span class="mat-cover__badge {{ 'mat-cover__badge--main' if role_slot == 'COVER' else '' }}">{{ role_label }}</span>
-                {% if role_item %}
-                  <img class="mat-cover__img" src="{{ role_item.file_url or url_for('static', filename='img/logo.png') }}" alt="Portada {{ role_label|lower }}">
-                  <div class="mat-cover__body"><div class="small text-muted text-truncate">{{ role_item.base_name }}</div></div>
-                  <div class="dropdown">
-                    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-h"></i></button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                      {{ mat_share_dl('Portada', role_item, is_cover=True) }}
-                      {% if CAN_EDIT_DISCOGRAFICA %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><form method="post" action="{{ url_for('discografica_song_cover_role', song_id=song.id, material_id=role_item.id) }}"><button class="dropdown-item"><i class="fa fa-arrows-rotate fa-fw me-1"></i>{{ 'Convertir en provisional' if role_slot == 'COVER' else 'Convertir en principal' }}</button></form></li>
-                        <li><button class="dropdown-item" type="button" onclick="openSongMaterialModal({title:'Sustituir portada', category:'COVER', slotKey:'{{ role_slot }}', materialId:{{ role_item.id|tojson }}, showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-rotate fa-fw me-1"></i>Reemplazar</button></li>
-                        <li><form method="post" action="{{ url_for('discografica_song_material_delete', song_id=song.id, material_id=role_item.id) }}" onsubmit="return confirm('¿Eliminar esta portada?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
-                      {% endif %}
-                    </ul>
-                  </div>
-                {% else %}
-                  <div class="mat-cover__placeholder"><i class="fa fa-image"></i></div>
-                  <div class="mat-cover__body"><div class="small text-muted">Sin portada {{ role_label|lower }}.</div></div>
-                  {% if CAN_EDIT_DISCOGRAFICA %}
-                    <button type="button" class="btn btn-sm btn-outline-primary" onclick="openSongMaterialModal({title:'Subir portada {{ role_label|lower }}', category:'COVER', slotKey:'{{ role_slot }}', showDisplayName:false, multiple:false, stemMode:false})"><i class="fa fa-upload me-1"></i>Subir</button>
-                  {% endif %}
-                {% endif %}
-              </div>
-            </div>
-          {% endfor %}
+          <div class="{{ 'col-12 col-md-6' if song_materials.cover_provisional else 'col-12' }}">{{ cover_box('COVER', 'Principal', song_materials.cover_principal) }}</div>
+          {% if song_materials.cover_provisional %}
+            <div class="col-12 col-md-6">{{ cover_box('COVER_PROVISIONAL', 'Provisional', song_materials.cover_provisional) }}</div>
+          {% endif %}
         </div>
       </div>
     </div>

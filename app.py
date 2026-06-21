@@ -38,7 +38,7 @@ from sqlalchemy import func, text, or_, and_
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
-from markupsafe import Markup
+from markupsafe import Markup, escape
 import calendar as _cal
 from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
@@ -11826,6 +11826,7 @@ def discografica_song_detail(song_id):
         materials_status=materials_status,
         master_delivery=master_delivery,
         song_delivery_sections=SONG_DELIVERY_SECTIONS,
+        song_delivery_material_modules=SONG_DELIVERY_MATERIAL_MODULES,
         pending_delivery=pending_delivery,
         delivery_production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
         delivery_author_roles=dict(SONG_DELIVERY_AUTHOR_ROLES),
@@ -13094,6 +13095,16 @@ SONG_DELIVERY_MATERIAL_SPECS = [
     ("instrumental", "INSTRUMENTAL", "DEFAULT"),
     ("tv_track", "TV_TRACK", "DEFAULT"),
 ]
+# Módulos de material solicitables (claves en materials_json); incluye stems aparte de los slots fijos.
+SONG_DELIVERY_MATERIAL_MODULES = [
+    ("master_48", "Master 48 bits"),
+    ("master_24", "Master 24 bits"),
+    ("master_16", "Master 16 bits"),
+    ("instrumental", "Instrumental"),
+    ("tv_track", "TV Track"),
+    ("stems", "Stems"),
+]
+SONG_DELIVERY_MATERIAL_MODULE_KEYS = {k for k, _ in SONG_DELIVERY_MATERIAL_MODULES}
 
 
 def _song_delivery_public_url(link) -> str:
@@ -13127,11 +13138,17 @@ def discografica_song_delivery_create(song_id):
             old.status = "CANCELLED"
             old.cancelled_at = datetime.now(TZ_MADRID)
             session_db.add(old)
+        materials = []
+        if "MASTERS" in sections:
+            materials = [m for m in request.form.getlist("materials") if m in SONG_DELIVERY_MATERIAL_MODULE_KEYS]
+            if not materials:
+                materials = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]
         uid = session.get("user_id")
         link = SongMasterDeliveryLink(
             song_id=song.id,
             token=uuid.uuid4().hex,
             sections_json=[k for k, _ in SONG_DELIVERY_SECTIONS if k in sections],
+            materials_json=materials,
             status="ACTIVE",
             data={},
             requested_by_user_id=to_uuid(uid) if uid else None,
@@ -13175,6 +13192,60 @@ def discografica_song_delivery_cancel(song_id, link_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
 
+def _song_delivery_email_html(song, title_artist, url_pub, cover_url) -> str:
+    logo = _external_url_for("static", filename="img/logo.png")
+    cover_img = ('<img src="%s" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #eee;margin-right:12px;">' % escape(cover_url)) if cover_url else ""
+    return (
+        '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1e2530;">'
+        '<div style="text-align:right;margin-bottom:12px;"><img src="%s" alt="PIES Records" style="height:38px;"></div>'
+        '<h2 style="margin:0 0 4px;">Solicitud de entrega de masters</h2>'
+        '<p style="color:#555;">Se solicita la entrega de información y materiales de la siguiente canción:</p>'
+        '<div style="border:1px solid #eee;border-radius:8px;padding:12px;display:flex;align-items:center;">'
+        '%s<div><div style="font-weight:600;">%s</div><div style="color:#666;font-size:14px;">%s</div></div></div>'
+        '<div style="text-align:center;margin:24px 0;"><a href="%s" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block;">Subir masters e información</a></div>'
+        '<p style="color:#888;font-size:12px;">Si el botón no funciona, copia este enlace:<br>%s</p>'
+        '</div>'
+    ) % (escape(logo), cover_img, escape(song.title or ""), escape(title_artist), escape(url_pub), escape(url_pub))
+
+
+@app.post("/discografica/canciones/<song_id>/entrega/<link_id>/enviar-correo")
+@admin_required
+def discografica_song_delivery_send_email(song_id, link_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    to_email = (request.form.get("to_email") or "").strip()
+    if not to_email:
+        flash("Indica un email de destinatario.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
+        if not song or not link or link.song_id != song.id or link.status != "ACTIVE":
+            flash("Enlace de entrega no válido.", "warning")
+            return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+        artist = _song_artist_names_str(song)
+        collab = (getattr(song, "collaborator", None) or "").strip()
+        title_artist = artist + (" (con %s)" % collab if collab else "")
+        subject = "Solicitud entrega masters · %s · %s" % (title_artist, song.title or "")
+        url_pub = _song_delivery_public_url(link)
+        html = _song_delivery_email_html(song, title_artist, url_pub, (song.cover_url or "").strip())
+        ok, err = _send_optional_email(to_email, subject, html, text_body="Solicitud de entrega de masters. Enlace: " + url_pub, reply_to=_current_user_email())
+        if ok:
+            link.target_email = to_email
+            session_db.add(link)
+            session_db.commit()
+            flash("Correo de solicitud enviado a %s." % to_email, "success")
+        else:
+            flash("No se pudo enviar el correo: %s" % (err or "revisa la configuración SMTP"), "danger")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error enviando el correo: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
 @app.route("/entrega-masters/<token>", methods=["GET", "POST"], endpoint="public_song_master_delivery")
 def public_song_master_delivery(token):
     session_db = db()
@@ -13186,12 +13257,16 @@ def public_song_master_delivery(token):
         if not song:
             abort(404)
         sections = [k for k, _ in SONG_DELIVERY_SECTIONS if k in (link.sections_json or [])]
+        req_materials = list(link.materials_json or [])
+        if "MASTERS" in sections and not req_materials:
+            req_materials = [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]  # compat enlaces antiguos
         base_ctx = dict(
             link=link, song=song, sections=sections,
             section_labels=dict(SONG_DELIVERY_SECTIONS),
             production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
             author_roles=SONG_DELIVERY_AUTHOR_ROLES,
-            material_specs=[(f, _song_material_slot_label(c, s)) for f, c, s in SONG_DELIVERY_MATERIAL_SPECS],
+            material_specs=[(f, _song_material_slot_label(c, s)) for f, c, s in SONG_DELIVERY_MATERIAL_SPECS if f in req_materials],
+            show_stems=("stems" in req_materials),
             artist_names=_song_artist_names_str(song),
         )
         if link.status != "ACTIVE":
@@ -13236,7 +13311,10 @@ def public_song_master_delivery(token):
                 data["lyrics"] = lyrics
             uploads = []
             if "MASTERS" in sections:
+                req_materials = list(link.materials_json or []) or [k for k, _ in SONG_DELIVERY_MATERIAL_MODULES]
                 for field, cat, slot in SONG_DELIVERY_MATERIAL_SPECS:
+                    if field not in req_materials:
+                        continue
                     fs = request.files.get(field)
                     if not fs or not getattr(fs, "filename", ""):
                         errors.append("Materiales: falta «%s» (.wav)." % _song_material_slot_label(cat, slot))
@@ -13245,7 +13323,7 @@ def public_song_master_delivery(token):
                         errors.append("Materiales: «%s» debe ser .wav." % _song_material_slot_label(cat, slot))
                         continue
                     uploads.append((fs, cat, slot))
-                stems = [fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")]
+                stems = [fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")] if "stems" in req_materials else []
             else:
                 stems = []
 

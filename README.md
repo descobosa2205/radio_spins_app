@@ -694,6 +694,22 @@ Cierra el encargo: el equipo de **Registros** ve en su inicio las entregas que e
 Con esto el flujo de entrega de masters queda completo: generar enlace → entrega pública → recepción como
 pendiente → aviso en el inicio de Registros → validación/consolidación en la ficha → barra en verde.
 
+### Entrega de masters — refinamientos de UX
+
+- **Formulario público**: logo PIES a la derecha; campos en una sola columna (más legible).
+- **Portada provisional**: en la ficha el hueco de provisional **solo aparece si existe**; botón
+  *"Portada provisional"* para añadirla cuando no hay.
+- **Generar enlace — módulos de material**: al pedir *Masters* se muestran los módulos (48/24/16,
+  instrumental, TV track, stems) **activados por defecto y desactivables** (p. ej. pedir solo el TV track).
+  Se guardan en `SongMasterDeliveryLink.materials_json`; el formulario solo pide esos.
+- **Enviar el enlace por correo**: tras generarlo, además de copiarlo se puede **enviar por correo**
+  (buscador de persona en la BD vía `/api/search/promoters` o email a mano; endpoint
+  `discografica_song_delivery_send_email` + `_send_optional_email`). Asunto *"Solicitud entrega masters ·
+  artista (+colaboradores) · canción"* y cuerpo con la cabecera de la canción y un botón al formulario.
+- Los materiales recibidos se **añaden** a los existentes (entran como pendientes; no reemplazan).
+
+> Pendiente: autocompletado de autores/editoriales en el formulario público (con creación rápida).
+
 ---
 
 ## 9. Pendientes y auditoría

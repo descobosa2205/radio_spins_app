@@ -1610,15 +1610,12 @@
 
       <!-- ARTISTA (auto) -->
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Artista</div>
-              {% if royalties_artist and royalties_artist.concept %}
-                <span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>
-              {% endif %}
-            </div>
-
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-user"></i>Artista (royalties)</h6>
+            {% if royalties_artist and royalties_artist.concept %}<span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>{% endif %}
+          </div>
+          <div class="ficha-section__body">
             {% if royalties_artist %}
               <div class="d-flex align-items-center justify-content-between gap-3 mt-3 flex-wrap">
                 <div class="d-flex align-items-center gap-2">
@@ -1651,29 +1648,25 @@
 
       <!-- TERCEROS BENEFICIARIOS (placeholder) -->
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Terceros beneficiarios</div>
-              <span class="badge text-bg-secondary">Pendiente</span>
-            </div>
-            <div class="text-muted mt-2">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-users"></i>Terceros beneficiarios</h6>
+            <span class="badge text-bg-secondary">Pendiente</span>
+          </div>
+          <div class="ficha-section__body">
+            <div class="text-muted">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
           </div>
         </div>
       </div>
 
       <!-- OTROS BENEFICIARIOS -->
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-              <div class="fw-semibold">Otros beneficiarios</div>
-              {% if CAN_EDIT_DISCOGRAFICA %}
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openRoyaltyBeneficiaryAdd()">
-                  <i class="fa fa-plus"></i>
-                </button>
-              {% endif %}
-            </div>
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-hand-holding-dollar"></i>Otros beneficiarios</h6>
+            {% if CAN_EDIT_DISCOGRAFICA %}<button type="button" class="btn btn-outline-primary btn-sm" onclick="openRoyaltyBeneficiaryAdd()"><i class="fa fa-plus"></i></button>{% endif %}
+          </div>
+          <div class="ficha-section__body">
 
             {% if not royalty_other_beneficiaries or (royalty_other_beneficiaries|length) == 0 %}
               <div class="text-muted">No hay otros beneficiarios todavía.</div>
@@ -1941,15 +1934,15 @@
     </div>
 
     <div id="editorialData" class="mt-3" data-total="{{ editorial_total_pct or 0 }}">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h6 class="m-0">Listado</h6>
-            <div class="text-muted small">
-              Total asignado: <strong>{{ editorial_total_pct or 0 }}%</strong>
-              · Restante: <strong>{{ editorial_remaining_pct or 0 }}%</strong>
-            </div>
+      <div class="ficha-section">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-list"></i>Autores / compositores</h6>
+          <div class="text-muted small">
+            Total asignado: <strong>{{ editorial_total_pct or 0 }}%</strong>
+            · Restante: <strong>{{ editorial_remaining_pct or 0 }}%</strong>
           </div>
+        </div>
+        <div class="ficha-section__body">
 
           {% if editorial_shares and (editorial_shares|length) > 0 %}
             <div class="list-group mt-3">
@@ -2003,16 +1996,12 @@
         </div>
       </div>
 
-      <div class="card mt-3">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <h6 class="m-0">Declaración de obra (PDF)</h6>
-            {% if song.work_declaration_url %}
-              <a class="btn btn-outline-primary btn-sm" href="{{ song.work_declaration_url }}" target="_blank">
-                <i class="fa fa-file-pdf"></i> Ver PDF
-              </a>
-            {% endif %}
-          </div>
+      <div class="ficha-section mt-3">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-file-pdf"></i>Declaración de obra (PDF)</h6>
+          {% if song.work_declaration_url %}<a class="btn btn-outline-primary btn-sm" href="{{ song.work_declaration_url }}" target="_blank"><i class="fa fa-file-pdf"></i> Ver PDF</a>{% endif %}
+        </div>
+        <div class="ficha-section__body">
 
           {% if song.work_declaration_uploaded_at %}
             <div class="text-muted small mt-2">Subida: {{ song.work_declaration_uploaded_at.strftime('%d/%m/%Y') }}</div>
@@ -2030,11 +2019,11 @@
         </div>
       </div>
 
-      <div class="card mt-3">
-        <div class="card-body">
+      <div class="ficha-section mt-3">
+        <div class="ficha-section__body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div>
-              <h6 class="m-0">Letra</h6>
+              <h6 class="m-0"><i class="fa fa-align-left me-2 text-muted"></i>Letra</h6>
               <div class="text-muted small">Texto de la canción para compartir o descargar en PDF.</div>
             </div>
             <div class="dropdown">
@@ -2288,15 +2277,15 @@
     {% else %}
       <div class="d-flex flex-column gap-3">
         {% for group in song_income_groups %}
-          <div class="card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <h6 class="m-0">{{ group.label }}</h6>
-                <div class="d-flex gap-2 flex-wrap">
-                  <span class="badge text-bg-light text-dark">Bruto {{ group.total_gross|eur }}</span>
-                  <span class="badge text-bg-light text-dark">Neto {{ group.total_net|eur }}</span>
-                </div>
+          <div class="ficha-section">
+            <div class="ficha-section__head">
+              <h6 class="ficha-section__title"><i class="fa fa-calendar"></i>{{ group.label }}</h6>
+              <div class="d-flex gap-2 flex-wrap">
+                <span class="badge text-bg-light text-dark">Bruto {{ group.total_gross|eur }}</span>
+                <span class="badge text-bg-light text-dark">Neto {{ group.total_net|eur }}</span>
               </div>
+            </div>
+            <div class="ficha-section__body">
               <div class="table-responsive">
                 <table class="table table-sm align-middle mb-0">
                   <thead class="table-light">

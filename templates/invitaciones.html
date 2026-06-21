@@ -553,7 +553,7 @@
     {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
     <div class="modal fade" id="assignModal{{ cat.id }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
+        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-release-url="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
           <div class="modal-header"><h5 class="modal-title">Asignar invitaciones · {{ cat.name }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
           <div class="modal-body">
             <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
@@ -606,7 +606,7 @@
               </div>
             </div>
           </div>
-          <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Guardar cambios</button></div>
+          <div class="modal-footer"><span class="me-auto small text-muted"><i class="fa fa-circle-check text-success me-1"></i>Los cambios se guardan automáticamente.</span><button class="btn btn-danger" type="button" data-bs-dismiss="modal">Cerrar</button></div>
         </form>
       </div>
     </div>
@@ -1014,15 +1014,14 @@
 
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
     const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';
-    const assignments = [];          // [{source_type, source_id, category_id, qty, ticket_ids, label}]
+    const assignments = [];          // sesión: [{source_type, source_id, category_id, qty, ticket_ids, label}]
     let activeSource = null;
-    const resultsBox = form.querySelector('[data-assignment-results]');
+    let busy = false;
     const counterEl = form.querySelector('[data-available-counter]');
     const remainingEl = form.querySelector('[data-remaining-indicator]');
+    const releaseTpl = form.dataset.releaseUrl || '';
     const sources = () => Array.from(form.querySelectorAll('.assignment-source'));
     const seatEls = () => Array.from(form.querySelectorAll('[data-ticket-id]'));
-    const availableCount = () => form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length;
-    const visibleAssignments = () => assignments.filter(a => a.ticket_ids.length || isGuestList);
 
     const entryFor = (src) => {
       let e = assignments.find(a => a.source_id === src.dataset.sourceId && a.source_type === src.dataset.sourceType);
@@ -1034,6 +1033,12 @@
       return e;
     };
 
+    const setSeatState = (seatEl, status) => {
+      seatEl.dataset.ticketStatus = status;
+      seatEl.classList.remove('invitation-seat--available', 'invitation-seat--assigned', 'invitation-seat--sent');
+      seatEl.classList.add(status === 'AVAILABLE' ? 'invitation-seat--available' : (status === 'SENT' ? 'invitation-seat--sent' : 'invitation-seat--assigned'));
+    };
+
     const markDone = () => {
       sources().forEach(src => {
         const e = assignments.find(a => a.source_id === src.dataset.sourceId && a.source_type === src.dataset.sourceType);
@@ -1042,73 +1047,111 @@
       });
     };
 
-    const updateRemaining = () => {
-      if (!remainingEl || isGuestList) return;
-      if (!activeSource) { remainingEl.innerHTML = '<span class="text-muted">Selecciona un invitado a la izquierda y luego pincha las butacas (o arrástralo al mapa).</span>'; return; }
-      const e = entryFor(activeSource);
-      const left = Math.max(e.qty - e.ticket_ids.length, 0);
-      remainingEl.innerHTML = left > 0 ? ('Asignando a <strong>' + e.label + '</strong> · faltan <strong>' + left + '</strong>') : ('<strong>' + e.label + '</strong> · completado');
-    };
-
-    const updateHidden = () => {
-      form.querySelector('[data-assignments-json]').value = JSON.stringify(visibleAssignments());
-      if (resultsBox) resultsBox.innerHTML = visibleAssignments().map(a => '<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>' + (a.label || 'Asignación') + ' · ' + (isGuestList ? 'listado' : (a.ticket_ids.length + ' invitación(es)')) + '</div>').join('');
-      if (counterEl && !isGuestList) counterEl.textContent = availableCount();
+    const refresh = () => {
+      if (counterEl && !isGuestList) counterEl.textContent = form.querySelectorAll('[data-ticket-status="AVAILABLE"]').length;
       markDone();
-      updateRemaining();
+      if (remainingEl && !isGuestList) {
+        if (!activeSource) { remainingEl.innerHTML = '<span class="text-muted">Selecciona un invitado a la izquierda y pincha las butacas una a una (o arrástralo al mapa). Se guarda solo.</span>'; }
+        else { const e = entryFor(activeSource); const left = Math.max(e.qty - e.ticket_ids.length, 0); remainingEl.innerHTML = left > 0 ? ('Asignando a <strong>' + e.label + '</strong> · faltan <strong>' + left + '</strong>') : ('<strong>' + e.label + '</strong> · completado'); }
+      }
     };
 
-    const setActive = (src) => {
+    const postAssign = async (entry, ticketIds, qty) => {
+      const fd = new FormData();
+      fd.append('assignments_json', JSON.stringify([{ source_type: entry.source_type, source_id: entry.source_id, category_id: entry.category_id, qty: qty || 0, ticket_ids: ticketIds || [] }]));
+      fd.append('ajax', '1');
+      fd.append('accept_warnings', '1');
+      try { const res = await fetch(form.action, { method: 'POST', body: fd }); const d = await res.json().catch(() => null); return !!(res.ok && d && d.ok); }
+      catch (err) { return false; }
+    };
+
+    const postRelease = async (ticketId) => {
+      if (!releaseTpl) return false;
+      const fd = new FormData(); fd.append('ajax', '1');
+      try { const res = await fetch(releaseTpl.replace('RELEASE_TICKET_ID', encodeURIComponent(ticketId)), { method: 'POST', body: fd }); const d = await res.json().catch(() => null); return !!(res.ok && d && d.ok); }
+      catch (err) { return false; }
+    };
+
+    const assignSeat = async (seatEl) => {
+      if (busy) return;
+      if (!activeSource) { alert('Selecciona primero a quién asignar (un invitado o compromiso a la izquierda).'); return; }
+      const e = entryFor(activeSource);
+      if (e.ticket_ids.length >= e.qty) { alert('Ya has asignado todas las invitaciones de ' + e.label + '.'); return; }
+      const tid = seatEl.dataset.ticketId;
+      busy = true; setSeatState(seatEl, 'ASSIGNED'); seatEl.classList.add('is-pending');
+      const ok = await postAssign(e, [tid], 0);
+      seatEl.classList.remove('is-pending'); busy = false;
+      if (ok) { e.ticket_ids.push(tid); } else { setSeatState(seatEl, 'AVAILABLE'); alert('No se pudo asignar la butaca.'); }
+      refresh();
+    };
+
+    const releaseSeat = async (seatEl) => {
+      if (busy) return;
+      if (!confirm('¿Desasignar esta butaca? Volverá a estar disponible.')) return;
+      const tid = seatEl.dataset.ticketId;
+      busy = true; seatEl.classList.add('is-pending');
+      const ok = await postRelease(tid);
+      seatEl.classList.remove('is-pending'); busy = false;
+      if (ok) { setSeatState(seatEl, 'AVAILABLE'); assignments.forEach(a => { const i = a.ticket_ids.indexOf(tid); if (i >= 0) a.ticket_ids.splice(i, 1); }); }
+      else { alert('No se pudo desasignar la butaca.'); }
+      refresh();
+    };
+
+    const onSeatClick = (seatEl) => {
+      if (isGuestList) return;
+      const st = (seatEl.dataset.ticketStatus || '');
+      if (st === 'AVAILABLE') assignSeat(seatEl);
+      else if (st === 'ASSIGNED') releaseSeat(seatEl);
+    };
+
+    const autoFillActive = async () => {
+      if (busy || !activeSource || isGuestList) return;
+      const e = entryFor(activeSource);
+      const need = e.qty - e.ticket_ids.length;
+      if (need <= 0) return;
+      const free = seatEls().filter(s => s.dataset.ticketStatus === 'AVAILABLE').slice(0, need);
+      if (!free.length) { alert('No quedan invitaciones disponibles.'); return; }
+      busy = true; free.forEach(s => { setSeatState(s, 'ASSIGNED'); s.classList.add('is-pending'); });
+      const ok = await postAssign(e, free.map(s => s.dataset.ticketId), 0);
+      free.forEach(s => s.classList.remove('is-pending')); busy = false;
+      if (ok) { free.forEach(s => e.ticket_ids.push(s.dataset.ticketId)); }
+      else { free.forEach(s => setSeatState(s, 'AVAILABLE')); alert('No se pudieron asignar las invitaciones.'); }
+      refresh();
+    };
+
+    const setActive = async (src) => {
       if (isGuestList) {
-        const e = entryFor(src); e.ticket_ids = [];
-        src.classList.add('assignment-source--done');
-        activeSource = null; updateHidden(); return;
+        if (busy) return;
+        busy = true; const e = entryFor(src); const ok = await postAssign(e, [], e.qty || 1); busy = false;
+        if (ok) { src.classList.add('assignment-source--done'); } else { alert('No se pudo asignar el listado.'); }
+        return;
       }
       activeSource = src;
       sources().forEach(x => x.classList.toggle('is-active', x === src));
-      updateRemaining();
-    };
-
-    const toggleSeat = (seatEl) => {
-      if (isGuestList) return;
-      if (!activeSource) { alert('Selecciona primero a quién asignar (un invitado o compromiso a la izquierda).'); return; }
-      const e = entryFor(activeSource);
-      const tid = seatEl.dataset.ticketId;
-      const idx = e.ticket_ids.indexOf(tid);
-      if (idx >= 0) { e.ticket_ids.splice(idx, 1); seatEl.classList.remove('is-selected'); updateHidden(); return; }
-      if (seatEl.classList.contains('is-selected')) return;             // ya elegida por otra asignación en curso
-      if ((seatEl.dataset.ticketStatus || '') !== 'AVAILABLE') return;  // ocupada / enviada
-      if (e.ticket_ids.length >= e.qty) { alert('Ya has asignado todas las invitaciones de ' + e.label + '.'); return; }
-      e.ticket_ids.push(tid); seatEl.classList.add('is-selected');
-      updateHidden();
-    };
-
-    const autoFillActive = () => {
-      if (!activeSource || isGuestList) return;
-      const e = entryFor(activeSource);
-      const free = seatEls().filter(s => (s.dataset.ticketStatus === 'AVAILABLE') && !s.classList.contains('is-selected'));
-      free.slice(0, Math.max(e.qty - e.ticket_ids.length, 0)).forEach(s => { e.ticket_ids.push(s.dataset.ticketId); s.classList.add('is-selected'); });
-      updateHidden();
+      refresh();
     };
 
     sources().forEach(src => {
-      src.addEventListener('dragstart', () => setActive(src));
+      src.addEventListener('dragstart', () => { if (!isGuestList) { activeSource = src; sources().forEach(x => x.classList.toggle('is-active', x === src)); refresh(); } });
       src.addEventListener('click', () => setActive(src));
     });
     const zone = form.querySelector('[data-drop-zone]');
     if (zone) {
       zone.addEventListener('dragover', ev => ev.preventDefault());
       zone.addEventListener('drop', ev => { ev.preventDefault(); autoFillActive(); });
-      zone.addEventListener('click', ev => { const seat = ev.target.closest('[data-ticket-id]'); if (seat) toggleSeat(seat); });
+      zone.addEventListener('click', ev => { const seat = ev.target.closest('[data-ticket-id]'); if (seat) onSeatClick(seat); });
     }
     const autoAll = form.querySelector('[data-auto-all]');
-    if (autoAll) autoAll.addEventListener('click', () => {
-      sources().forEach(src => { setActive(src); autoFillActive(); });
-      activeSource = null;
-      sources().forEach(x => x.classList.remove('is-active'));
-      updateHidden();
+    if (autoAll) autoAll.addEventListener('click', async () => {
+      for (const src of sources()) {
+        if (src.classList.contains('assignment-source--done')) continue;
+        activeSource = src; sources().forEach(x => x.classList.toggle('is-active', x === src));
+        await autoFillActive();
+      }
+      activeSource = null; sources().forEach(x => x.classList.remove('is-active')); refresh();
     });
-    updateHidden();
+    form.addEventListener('submit', ev => ev.preventDefault());
+    refresh();
   });
 })();
 </script>

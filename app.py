@@ -35369,6 +35369,7 @@ def invitation_tickets_upload(concert_id):
 @app.post('/invitaciones/tickets/<ticket_id>/liberar', endpoint='invitation_ticket_release')
 @admin_required
 def invitation_ticket_release(ticket_id):
+    _ajax = _truthy(request.form.get('ajax'))
     session_db = db()
     try:
         ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
@@ -35382,8 +35383,16 @@ def invitation_ticket_release(ticket_id):
         ticket.assigned_commitment_id = None
         ticket.assigned_label = None
         session_db.commit()
+        if _ajax:
+            return jsonify({'ok': True, 'ticket_id': str(ticket.id)})
         flash('Entrada liberada.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
+        flash(f'No se pudo liberar la entrada: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 
@@ -35437,6 +35446,7 @@ def invitation_ticket_delete(ticket_id):
 @app.post('/invitaciones/evento/<concert_id>/asignaciones', endpoint='invitation_assignment_save')
 @admin_required
 def invitation_assignment_save(concert_id):
+    _ajax = _truthy(request.form.get('ajax'))
     session_db = db()
     try:
         concert = session_db.get(Concert, to_uuid(concert_id))
@@ -35525,9 +35535,13 @@ def invitation_assignment_save(concert_id):
                 commitment_row.status = 'ASIGNADAS'
                 commitment_row.updated_at = _now_madrid()
         session_db.commit()
+        if _ajax:
+            return jsonify({'ok': True, 'changes': changes})
         flash(f'Asignaciones guardadas ({changes}).', 'success')
     except Exception as exc:
         session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudieron guardar las asignaciones: {exc}', 'danger')
     finally:
         session_db.close()

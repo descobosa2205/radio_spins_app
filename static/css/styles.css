@@ -771,6 +771,7 @@ img[data-default-photo="1"]{
 .invitation-seat--available { color:#16803a; background:#effaf2; }
 .invitation-seat--assigned { color:#8a6800; background:#fff7d6; }
 .invitation-seat--sent, .invitation-seat--delivered, .invitation-seat--picked_up { color:#b42318; background:#fff1f0; }
+.invitation-seat.is-pending { opacity:.5; pointer-events:none; }
 .invitation-option-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.75rem; }
 .invitation-option, .invitation-event-option, .invitation-icon-option, .invitation-radio-option { border:1px solid #dfe4ea; border-radius:1rem; background:#fff; padding:.85rem; cursor:pointer; transition:.15s ease; text-align:left; color:#18202b; }
 .invitation-option:hover, .invitation-event-option:hover, .invitation-icon-option:hover, .invitation-radio-option:hover, .invitation-option.is-selected, .invitation-event-option.is-selected, .invitation-icon-option.is-selected { border-color:#e83b4b; box-shadow:0 0 0 .18rem rgba(232,59,75,.12); }

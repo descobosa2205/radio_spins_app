@@ -573,8 +573,14 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
     **edición inline** (vista ↔ formulario, guarda sin recargar). Barra de estado, secciones (ISRC,
     certificaciones, contratos, beneficiarios…) y modales se mantienen intactos.
   - Nuevo **`static/js/ficha_inline.js`**: toggle inline genérico y reutilizable (no toca `concert_form.js`;
-    se carga solo en estas fichas). Las pestañas económicas siguen editando en sitio con sus modales/
-    formularios (no se han reescrito: ahí está la lógica sensible de royalties/participaciones).
+    se carga solo en estas fichas).
+- **Pestañas económicas también unificadas** (sin reescribir la lógica sensible de royalties/participaciones,
+  solo presentación):
+  - Las de edición por modal (álbum *Beneficiarios*, canción *Royalties*/*Editorial*) y de solo lectura
+    (canción *Ingresos*) se han **enmarcado en `.ficha-section`** con cabeceras de icono.
+  - Artista *Contratos* (tabla siempre editable): cada contrato muestra ahora un **resumen de compromisos
+    en solo lectura** + botón *Editar* que despliega la tabla editable (zona inline por contrato), con
+    *Cerrar edición*. Los formularios por fila y la lógica de %/base/beneficio quedan intactos.
 
 ---
 

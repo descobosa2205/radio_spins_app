@@ -969,15 +969,12 @@
 
     <div class="row g-3">
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Artista</div>
-              {% if royalties_artist and royalties_artist.concept %}
-                <span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>
-              {% endif %}
-            </div>
-
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-user"></i>Artista (royalties)</h6>
+            {% if royalties_artist and royalties_artist.concept %}<span class="badge text-bg-light">Aplicado: {{ royalties_artist.concept }}{% if royalties_artist.contract_name %} — {{ royalties_artist.contract_name }}{% endif %}</span>{% endif %}
+          </div>
+          <div class="ficha-section__body">
             {% if royalties_artist %}
               <div class="d-flex align-items-center justify-content-between gap-3 mt-3 flex-wrap">
                 <div class="d-flex align-items-center gap-2">
@@ -1009,28 +1006,24 @@
       </div>
 
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-              <div class="fw-semibold">Terceros beneficiarios</div>
-              <span class="badge text-bg-secondary">Pendiente</span>
-            </div>
-            <div class="text-muted mt-2">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-users"></i>Terceros beneficiarios</h6>
+            <span class="badge text-bg-secondary">Pendiente</span>
+          </div>
+          <div class="ficha-section__body">
+            <div class="text-muted">Este apartado aparecerá en blanco para que más adelante se rellene.</div>
           </div>
         </div>
       </div>
 
       <div class="col-12">
-        <div class="card">
-          <div class="card-body">
-            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
-              <div class="fw-semibold">Otros beneficiarios</div>
-              {% if CAN_EDIT_DISCOGRAFICA %}
-                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openAlbumRoyaltyBeneficiaryAdd()">
-                  <i class="fa fa-plus"></i>
-                </button>
-              {% endif %}
-            </div>
+        <div class="ficha-section">
+          <div class="ficha-section__head">
+            <h6 class="ficha-section__title"><i class="fa fa-hand-holding-dollar"></i>Otros beneficiarios</h6>
+            {% if CAN_EDIT_DISCOGRAFICA %}<button type="button" class="btn btn-outline-primary btn-sm" onclick="openAlbumRoyaltyBeneficiaryAdd()"><i class="fa fa-plus"></i></button>{% endif %}
+          </div>
+          <div class="ficha-section__body">
 
             {% if not royalty_other_beneficiaries or (royalty_other_beneficiaries|length) == 0 %}
               <div class="text-muted">No hay otros beneficiarios todavía.</div>

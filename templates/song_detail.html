@@ -10,7 +10,7 @@
     <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
     <h1 class="ficha-hero__title">{{ song.title }}</h1>
     <div class="ficha-hero__facts">
-      <span><i class="fa fa-user"></i>{{ primary_artist.name if primary_artist else '—' }}</span>
+      <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name) }}{{ primary_artist.name }}{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
       {% set song_collaborators = song.display_collaborator or song.collaborator %}
       {% if song_collaborators %}<span><i class="fa fa-users"></i>{{ song_collaborators }}</span>{% endif %}
     </div>

@@ -55,6 +55,11 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `select-venues` (recintos), `select-with-thumbs` (ticketeras/editoriales, miniatura cuadrada),
   `select-artists` (artistas). Campos de logo: promoter/ticketer/publishing → `logo_url`;
   venue/artist → `photo_url`.
+- **Foto del artista junto al nombre (global)**: para mostrar la foto del artista **en círculo delante
+  del nombre** en cualquier plantilla, usar los helpers globales **`artist_chip(nombre, foto_url)`**
+  (cápsula foto+nombre, clase `.artist-chip`) o **`artist_avatar(foto_url, nombre)`** (solo la foto, clase
+  `.artist-avatar-inline`). Definidos en `inject_globals` (`app.py`); escapan con `Markup` (seguros XSS) y
+  caen al logo por defecto si no hay foto. Muchas pantallas ya la mostraban con su propio markup.
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`

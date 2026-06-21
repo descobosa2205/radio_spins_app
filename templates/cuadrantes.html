@@ -557,7 +557,7 @@
           <div class="artist-group-head mb-2">
             <div class="d-flex align-items-center gap-2" style="min-width:0;">
               <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
-              <div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
+              {{ artist_avatar(g.artist_photo, g.artist_name) }}<div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
             </div>
             <div class="mini-pill">{{ (g.events or [])|length }}</div>
           </div>
@@ -903,9 +903,10 @@
         const tags = e.hashtags_text ? `<div class="small text-muted">${escapeHtml(e.hashtags_text)}</div>` : '';
         const saleType = e.sale_type_label ? `<div class="small text-muted">${escapeHtml(e.sale_type_label)}</div>` : '';
         const promoter = e.promoter_name ? `<div class="small text-muted">${escapeHtml(e.promoter_name)}</div>` : '';
+        const artistImg = e.artist_photo ? '<img src="' + escapeHtml(e.artist_photo) + '" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid #eee;vertical-align:middle;">' : '';
         const html = `
           <div style="min-width:240px">
-            <div><b>${escapeHtml(e.artist_name || '')} · Evento ${escapeHtml(e.n || '')}</b></div>
+            <div style="display:flex;align-items:center;gap:.4rem;">${artistImg}<b>${escapeHtml(e.artist_name || '')} · Evento ${escapeHtml(e.n || '')}</b></div>
             <div>${escapeHtml(e.date_es || '')}</div>
             <div>${escapeHtml(e.venue_name || '')} — ${escapeHtml(e.municipality || '')}${e.province ? ', ' + escapeHtml(e.province) : ''}</div>
             ${saleType}

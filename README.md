@@ -603,6 +603,23 @@ plantillas y `esprima` del JS.
   sum(spins) > 0` en la consulta de `radio_station_rows`, `app.py`), **ordenadas de más a menos**
   tocadas (el `ORDER BY total_spins DESC` ya existía). Las emisoras con 0 dejan de aparecer.
 
+### Foto del artista junto al nombre — en toda la app
+
+La foto del artista se muestra **en círculo, justo delante del nombre**, allá donde se le menciona.
+Para no repetir markup, dos **helpers globales** (en `inject_globals`, `app.py`) disponibles en todas
+las plantillas:
+
+- **`artist_chip(nombre, foto_url)`** → cápsula con foto circular + nombre (reusa la clase `.artist-chip`).
+- **`artist_avatar(foto_url, nombre)`** → solo la foto en círculo (clase `.artist-avatar-inline`, nueva en
+  `styles.css`), para anteponerla a un nombre ya escrito.
+- Ambos **escapan** sus argumentos (`Markup`) → seguros frente a XSS; si no hay foto, usan el logo por defecto.
+
+Aplicado donde aún faltaba: fichas de **canción** y **álbum** (artista en la cabecera), **contratación**
+(lista de artistas de la tarjeta), **detalle de acción** (chips), **dashboard** (`home`, tarjetas de
+invitaciones) y **cuadrantes** (cabecera por artista y *popover* del calendario en JS, con `e.artist_photo`
+ya presente en el payload). El resto de pantallas (conciertos, ventas, canciones, discográfica, gira,
+producción, marketing, promoción, invitaciones, registros) **ya mostraban** la foto.
+
 ---
 
 ## 9. Pendientes y auditoría

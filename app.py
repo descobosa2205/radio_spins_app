@@ -38,6 +38,7 @@ from sqlalchemy import func, text, or_, and_
 
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.exceptions import RequestEntityTooLarge
+from markupsafe import Markup
 import calendar as _cal
 from urllib.parse import quote_plus, urlsplit, urlunsplit, parse_qsl, parse_qs, urlencode, unquote
 from urllib.request import Request, urlopen
@@ -885,11 +886,32 @@ def inject_globals():
     def has_endpoint(name: str) -> bool:
         # permite: {% if has_endpoint('mi_vista') %} ...
         return name in app.view_functions
+
+    def _artist_photo_src(photo_url=None):
+        return photo_url or url_for("static", filename="img/logo.png")
+
+    def artist_avatar(photo_url=None, name="", cls="artist-avatar-inline"):
+        # Solo la foto del artista en círculo (sin nombre); para ponerla delante de un nombre ya escrito.
+        return Markup('<img class="%s" src="%s" alt="" title="%s" loading="lazy">') % (
+            cls, _artist_photo_src(photo_url), (name or ""),
+        )
+
+    def artist_chip(name, photo_url=None):
+        # Foto en círculo + nombre en una cápsula (.artist-chip). Devuelve '' si no hay nombre.
+        name = (name or "").strip()
+        if not name:
+            return Markup("")
+        return Markup('<span class="artist-chip"><img src="%s" alt="" loading="lazy">%s</span>') % (
+            _artist_photo_src(photo_url), name,
+        )
+
     return dict(
         BRAND_PRIMARY=settings.BRAND_PRIMARY,
         BRAND_ACCENT=settings.BRAND_ACCENT,
         IS_ADMIN=bool(session.get("user_id")),
         has_endpoint=has_endpoint,
+        artist_chip=artist_chip,
+        artist_avatar=artist_avatar,
         ROLE=current_role(),
         ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
         CAN_VIEW_ECON=can_view_economics(),

@@ -736,6 +736,7 @@ img[data-default-photo="1"]{
 .artist-chip { display:inline-flex; align-items:center; gap:.35rem; border:1px solid #e3e6eb; border-radius:999px; padding:.18rem .55rem; background:#fff; font-size:.84rem; color:#1e2530; }
 .artist-chip img, .tiny-avatar { width:24px; height:24px; object-fit:cover; border-radius:50%; background:#eef0f3; }
 .tiny-avatar { width:18px; height:18px; }
+.artist-avatar-inline{ width:22px; height:22px; object-fit:cover; border-radius:50%; vertical-align:middle; border:1px solid #eee; background:#eef0f3; margin-right:.15rem; }
 .invitation-manage-list { display:flex; flex-direction:column; gap:.75rem; }
 .invitation-manage-row { display:block; color:inherit; border:1px solid #e3e6eb; border-radius:1rem; padding:1rem; background:#fff; transition:box-shadow .15s ease, transform .15s ease; }
 .invitation-manage-row:hover { color:inherit; transform:translateY(-1px); box-shadow:0 8px 24px rgba(20,25,35,.08); }

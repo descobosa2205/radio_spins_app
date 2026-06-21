@@ -38,24 +38,72 @@
   </div>
 </div>
 
-<!-- Pestañas ficha -->
-<ul class="nav nav-tabs ficha-tabs mt-3 mb-0">
-  {% set tabs = [
-    ('informacion','Información','discografica.canciones'),
-    ('editorial','Editorial','discografica.editorial'),
-    ('materiales','Materiales','discografica.canciones'),
-    ('royalties','Royalties','discografica.royalties'),
-    ('ingresos','Ingresos','discografica.ingresos'),
-    ('gastos','Gastos','contabilidad'),
-    ('marketing','Marketing','promocion'),
-    ('radio','Radio','radio.reportes')
-  ] %}
-  {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
-    <li class="nav-item">
-      <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
-    </li>
-  {% endfor %}
-</ul>
+<!-- Pestañas ficha + acción de entrega de masters -->
+<div class="d-flex justify-content-between align-items-end gap-2 flex-wrap mt-3">
+  <ul class="nav nav-tabs ficha-tabs mb-0">
+    {% set tabs = [
+      ('informacion','Información','discografica.canciones'),
+      ('editorial','Editorial','discografica.editorial'),
+      ('materiales','Materiales','discografica.canciones'),
+      ('royalties','Royalties','discografica.royalties'),
+      ('ingresos','Ingresos','discografica.ingresos'),
+      ('gastos','Gastos','contabilidad'),
+      ('marketing','Marketing','promocion'),
+      ('radio','Radio','radio.reportes')
+    ] %}
+    {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
+      <li class="nav-item">
+        <a class="nav-link {% if tab==k %}active{% endif %}" href="{{ url_for('discografica_song_detail', song_id=song.id, tab=k) }}">{{ label }}</a>
+      </li>
+    {% endfor %}
+  </ul>
+  {% if CAN_EDIT_DISCOGRAFICA %}
+    <button type="button" class="btn btn-sm btn-outline-primary mb-1 {% if master_delivery %}position-relative{% endif %}" data-bs-toggle="modal" data-bs-target="#masterDeliveryModal">
+      <i class="fa fa-paper-plane me-1"></i>Entrega de masters
+      {% if master_delivery %}<span class="badge text-bg-success ms-1">activo</span>{% endif %}
+    </button>
+  {% endif %}
+</div>
+
+{% if CAN_EDIT_DISCOGRAFICA %}
+<div class="modal fade" id="masterDeliveryModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-paper-plane me-2"></i>Entrega de masters</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% set sec_labels = {'PRODUCTION':'Información de producción','AUTHORAL':'Información autoral','LYRICS':'Letra','MASTERS':'Masters / materiales'} %}
+        {% if master_delivery %}
+          <div class="alert alert-info small mb-3">Ya hay un enlace activo. Compártelo o anúlalo para generar uno nuevo.</div>
+          <label class="form-label small text-muted">Enlace público</label>
+          <div class="input-group input-group-sm mb-2">
+            <input type="text" class="form-control" readonly value="{{ master_delivery.public_url }}" id="masterDeliveryUrl">
+            <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('masterDeliveryUrl').value); this.textContent='Copiado';"><i class="fa fa-copy"></i></button>
+          </div>
+          <div class="small text-muted mb-3">Solicita: {% for s in master_delivery.sections %}{{ sec_labels.get(s, s) }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+          <form method="post" action="{{ url_for('discografica_song_delivery_cancel', song_id=song.id, link_id=master_delivery.id) }}" class="text-end">
+            <button class="btn btn-sm btn-outline-danger"><i class="fa fa-ban me-1"></i>Anular enlace</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ url_for('discografica_song_delivery_create', song_id=song.id) }}">
+            <p class="small text-muted">Genera un enlace público para que un tercero rellene la información y suba los materiales de esta canción. Elige qué solicitar:</p>
+            {% for key, label in song_delivery_sections %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="sections" value="{{ key }}" id="deliverySec{{ key }}" checked>
+                <label class="form-check-label" for="deliverySec{{ key }}">{{ label }}</label>
+              </div>
+            {% endfor %}
+            <div class="row g-2 mt-2">
+              <div class="col-12 col-md-6"><input class="form-control form-control-sm" name="target_name" placeholder="Destinatario (opcional)"></div>
+              <div class="col-12 col-md-6"><input class="form-control form-control-sm" type="email" name="target_email" placeholder="Email (opcional)"></div>
+            </div>
+            <div class="text-end mt-3"><button class="btn btn-primary"><i class="fa fa-link me-1"></i>Generar enlace</button></div>
+          </form>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="ficha-tabpane">
 
@@ -1223,7 +1271,7 @@
     {% macro audio_row(concept, item, fixed_slot=True) %}
       <div class="mat-file">
         <div class="mat-file__main">
-          <div class="mat-file__name"><i class="fa fa-file-audio text-muted me-2"></i>{{ item.base_name }}</div>
+          <div class="mat-file__name"><i class="fa fa-file-audio text-muted me-2"></i>{{ item.base_name }}{% if item.is_pending %} <span class="badge text-bg-warning text-dark ms-1">Pendiente de validar</span>{% endif %}</div>
           <audio class="mat-file__audio" controls preload="none" src="{{ item.file_url }}"></audio>
         </div>
         <div class="dropdown">

@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrega de masters · {{ song.title }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
+  <style>
+    body { background:#f5f6f8; }
+    .delivery-cover { width:64px; height:64px; object-fit:cover; border-radius:10px; border:1px solid #e7e9ee; }
+  </style>
+</head>
+<body>
+  <main class="container py-4 py-md-5" style="max-width:840px;">
+    <div class="text-center mb-3">
+      <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES Records" style="height:48px;object-fit:contain;">
+    </div>
+    <h3 class="text-center mb-4">Entrega de masters</h3>
+
+    <div class="card shadow-sm border-0 mb-3">
+      <div class="card-body d-flex align-items-center gap-3">
+        <img class="delivery-cover" src="{{ song.cover_url or url_for('static', filename='img/logo.png') }}" alt="">
+        <div>
+          <div class="fw-semibold">{{ song.title }}</div>
+          <div class="text-muted small">{{ artist_names }}</div>
+        </div>
+      </div>
+    </div>
+
+    {% if state == 'submitted' %}
+      <div class="card shadow-sm border-0"><div class="card-body text-center p-5">
+        <i class="fa fa-circle-check text-success" style="font-size:3rem;"></i>
+        <h4 class="mt-3">¡Recibido!</h4>
+        <p class="text-muted mb-0">Gracias. La información y los materiales se han enviado correctamente. Este enlace ya no está activo.</p>
+      </div></div>
+    {% elif state == 'closed' %}
+      <div class="card shadow-sm border-0"><div class="card-body text-center p-5">
+        <i class="fa fa-circle-info text-secondary" style="font-size:3rem;"></i>
+        <h4 class="mt-3">Enlace no disponible</h4>
+        <p class="text-muted mb-0">Este enlace ya se utilizó o fue anulado. Solicita uno nuevo si necesitas entregar de nuevo.</p>
+      </div></div>
+    {% else %}
+      {% if errors %}
+        <div class="alert alert-danger"><ul class="mb-0">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul></div>
+      {% endif %}
+      <form method="post" enctype="multipart/form-data" id="deliveryForm">
+
+        {% if 'PRODUCTION' in sections %}
+          <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+            <h6 class="mb-3"><i class="fa fa-sliders me-2 text-muted"></i>{{ section_labels['PRODUCTION'] }}</h6>
+            <div class="row g-3">
+              {% for key, label, req in production_fields %}
+                <div class="col-12 col-md-6">
+                  <label class="form-label">{{ label }}{% if not req %} <span class="text-muted small">(opcional)</span>{% endif %}</label>
+                  {% if key == 'recording_date' %}
+                    <input type="date" class="form-control" name="prod_{{ key }}" value="{{ form.get('prod_' + key, '') }}" {% if req %}required{% endif %}>
+                  {% elif key == 'bpm' %}
+                    <input type="number" min="0" class="form-control" name="prod_{{ key }}" value="{{ form.get('prod_' + key, '') }}" {% if req %}required{% endif %}>
+                  {% elif key == 'musicians' %}
+                    <textarea class="form-control" name="prod_{{ key }}" rows="2" placeholder="Instrumento y nombre, uno por línea">{{ form.get('prod_' + key, '') }}</textarea>
+                  {% else %}
+                    <input type="text" class="form-control" name="prod_{{ key }}" value="{{ form.get('prod_' + key, '') }}" {% if req %}required{% endif %}>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            </div>
+          </div></div>
+        {% endif %}
+
+        {% if 'AUTHORAL' in sections %}
+          <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+            <h6 class="mb-1"><i class="fa fa-feather me-2 text-muted"></i>{{ section_labels['AUTHORAL'] }}</h6>
+            <div class="small text-muted mb-3">Los porcentajes deben sumar 100 %. Restante: <span id="authRemaining" class="fw-semibold">100</span> %</div>
+            <div id="authorRows" class="d-flex flex-column gap-2"></div>
+            <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="addAuthorBtn"><i class="fa fa-plus me-1"></i>Añadir autor</button>
+          </div></div>
+        {% endif %}
+
+        {% if 'LYRICS' in sections %}
+          <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+            <h6 class="mb-3"><i class="fa fa-align-left me-2 text-muted"></i>{{ section_labels['LYRICS'] }}</h6>
+            <textarea class="form-control" name="lyrics" rows="8" placeholder="Pega aquí la letra de la canción" required>{{ form.get('lyrics', '') }}</textarea>
+          </div></div>
+        {% endif %}
+
+        {% if 'MASTERS' in sections %}
+          <div class="card shadow-sm border-0 mb-3"><div class="card-body">
+            <h6 class="mb-3"><i class="fa fa-file-audio me-2 text-muted"></i>{{ section_labels['MASTERS'] }}</h6>
+            <div class="small text-muted mb-3">Sube cada archivo en formato <strong>.wav</strong>.</div>
+            <div class="row g-3">
+              {% for field, label in material_specs %}
+                <div class="col-12 col-md-6">
+                  <label class="form-label">{{ label }}</label>
+                  <input type="file" class="form-control" name="{{ field }}" accept=".wav,.wave" required>
+                </div>
+              {% endfor %}
+              <div class="col-12">
+                <label class="form-label">Stems <span class="text-muted small">(opcional · varios archivos o ZIP)</span></label>
+                <input type="file" class="form-control" name="stems" accept=".wav,.wave,.zip" multiple>
+              </div>
+            </div>
+          </div></div>
+        {% endif %}
+
+        <div class="d-grid mb-5"><button class="btn btn-primary btn-lg" type="submit"><i class="fa fa-paper-plane me-2"></i>Enviar entrega</button></div>
+      </form>
+
+      {% if 'AUTHORAL' in sections %}
+      <script>
+        (function(){
+          var roles = {{ author_roles|tojson }};
+          var rowsWrap = document.getElementById('authorRows');
+          var remainingEl = document.getElementById('authRemaining');
+          function roleOptions(sel){ return roles.map(function(r){ return '<option value="' + r[0] + '"' + (r[0] === sel ? ' selected' : '') + '>' + r[1] + '</option>'; }).join(''); }
+          function recalc(){
+            var total = 0;
+            rowsWrap.querySelectorAll('input[name="author_pct"]').forEach(function(i){ total += parseFloat((i.value || '0').replace(',', '.')) || 0; });
+            remainingEl.textContent = (Math.round((100 - total) * 100) / 100);
+            remainingEl.className = Math.abs(total - 100) < 0.01 ? 'fw-semibold text-success' : 'fw-semibold text-danger';
+          }
+          function addRow(){
+            var div = document.createElement('div');
+            div.className = 'border rounded p-2';
+            div.innerHTML = '<div class="row g-2 align-items-end">'
+              + '<div class="col-12 col-md-4"><label class="form-label small mb-0">Nombre</label><input class="form-control form-control-sm" name="author_name" required></div>'
+              + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Editorial</label><input class="form-control form-control-sm" name="author_editorial" placeholder="(opcional)"></div>'
+              + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Rol</label><select class="form-select form-select-sm" name="author_role" required>' + roleOptions('') + '</select></div>'
+              + '<div class="col-8 col-md-1"><label class="form-label small mb-0">%</label><input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm" name="author_pct" required></div>'
+              + '<div class="col-4 col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-rm>&times;</button></div>'
+              + '</div>';
+            rowsWrap.appendChild(div);
+            div.querySelector('[data-rm]').addEventListener('click', function(){ div.remove(); recalc(); });
+            div.querySelector('input[name="author_pct"]').addEventListener('input', recalc);
+            recalc();
+          }
+          document.getElementById('addAuthorBtn').addEventListener('click', addRow);
+          addRow();
+          document.getElementById('deliveryForm').addEventListener('submit', function(e){
+            var total = 0;
+            rowsWrap.querySelectorAll('input[name="author_pct"]').forEach(function(i){ total += parseFloat((i.value || '0').replace(',', '.')) || 0; });
+            if (Math.abs(total - 100) > 0.01){ e.preventDefault(); alert('Los porcentajes de autoría deben sumar 100 %. Actual: ' + total + ' %'); }
+          });
+        })();
+      </script>
+      {% endif %}
+    {% endif %}
+  </main>
+</body>
+</html>

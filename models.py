@@ -235,6 +235,38 @@ class Song(Base):
     plays = relationship("Play", back_populates="song", cascade="all, delete-orphan")
 
 
+class SongMasterDeliveryLink(Base):
+    """Enlace público de un solo uso para que un tercero entregue info y materiales de una canción.
+
+    sections_json: lista de secciones solicitadas (PRODUCTION/AUTHORAL/LYRICS/MASTERS).
+    status: ACTIVE (a la espera) | SUBMITTED (recibido, se desactiva) | CANCELLED.
+    data: payload entregado (producción/autoral/letra) pendiente de validar.
+    """
+
+    __tablename__ = "song_master_delivery_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    sections_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    target_name = Column(Text)
+    target_email = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    submitted_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
+
+    song = relationship("Song")
+
+    __table_args__ = (
+        Index("idx_song_master_delivery_song", "song_id", "status"),
+    )
+
+
 class ISRCConfig(Base):
     """Configuración global de ISRC.
 
@@ -333,6 +365,9 @@ class SongMaterial(Base):
     file_name = Column(Text, nullable=False)
     file_url = Column(Text, nullable=False)
     mime_type = Column(Text)
+    # Validación de entrega pública: VALIDATED (lo sube el equipo) | PENDING (recibido por enlace, a revisar)
+    validation_status = Column(Text, nullable=False, server_default=text("'VALIDATED'"))
+    delivery_link_id = Column(PGUUID(as_uuid=True))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3084,6 +3119,8 @@ def ensure_isrc_and_song_detail_schema():
             CONSTRAINT chk_song_material_category CHECK (category IN ('COVER','MASTER','INSTRUMENTAL','TV_TRACK','STEMS'))
         );
         """,
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_id ON song_materials(song_id);',
         'CREATE INDEX IF NOT EXISTS idx_song_materials_song_category ON song_materials(song_id, category, slot_key);',
 

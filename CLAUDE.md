@@ -121,7 +121,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   portada efectiva (`Song.cover_url`) la resuelve `_resolve_song_cover_url` (principal o, si no,
   provisional). Audio **solo `.wav`**; barra de estado de 5 básicos, verde solo con portada **principal**.
   Reproductor inline `<audio>` + menú de 3 puntos (compartir/descargar/reemplazar/eliminar) vía macros
-  locales de la plantilla. *(En curso: entrega pública de masters + tareas Registros.)*
+  locales de la plantilla.
+- **Entrega de masters (enlace público)**: `SongMasterDeliveryLink` (token, `sections_json`, `status`
+  ACTIVE/SUBMITTED/CANCELLED, `data` JSONB). Botón en la ficha (modal: secciones producción/autoral/letra/
+  masters) → endpoints `discografica_song_delivery_create`/`_cancel`; formulario público
+  `public_song_master_delivery` (`templates/public_song_master_delivery.html`, exento CSRF/login, logo
+  PIES). Lo recibido entra **pendiente**: datos en `data`, materiales `SongMaterial` con
+  `validation_status='PENDING'` + `delivery_link_id`. *(Pendiente: validación/consolidación en la ficha +
+  tareas Registros.)*
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

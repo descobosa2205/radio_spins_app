@@ -647,6 +647,27 @@ valores de `slot_key`.
 > Próximas fases: enlace público de **entrega de masters** y módulo de **tareas pendientes** en el
 > inicio para el departamento de Registros.
 
+### Materiales de canción — Entrega de masters por enlace público (Fase 2, recepción)
+
+Un **enlace público de un solo uso** para que un tercero entregue información y archivos de una canción.
+
+- **Generar enlace** desde la ficha (botón *Entrega de masters* a la altura de las pestañas): un modal
+  permite elegir qué solicitar (**Producción / Autoral / Letra / Masters**) y crea el enlace (modelo
+  nuevo `SongMasterDeliveryLink`); un único enlace activo por canción, anulable y regenerable.
+- **Formulario público** sin login (`templates/public_song_master_delivery.html`, endpoint
+  `public_song_master_delivery`, exento de CSRF/login): logo PIES, cabecera de la canción y solo las
+  secciones solicitadas. Producción (campos de `Song`), **autoral** (tabla dinámica de autores con rol
+  y % que **debe sumar 100**), letra y subida de **materiales en `.wav`**. Todo obligatorio; al enviarse,
+  el enlace **se desactiva** (estado `SUBMITTED`).
+- **Recepción**: la info (producción/autoral/letra) se guarda en `SongMasterDeliveryLink.data` y los
+  materiales se crean como `SongMaterial` con **`validation_status='PENDING'`** (campo nuevo) +
+  `delivery_link_id`. En la pestaña Materiales, lo recibido muestra el badge **"Pendiente de validar"**.
+- **Privacidad**: el tercero **escribe** los datos del autor (no se expone la base de autores en el
+  formulario público); la vinculación/creación en la BD se hará al validar.
+
+> Pendiente (Fase 2c): validación/consolidación en la ficha (check/rechazar/editar + barra de estado en
+> amarillo mientras haya pendientes). Y Fase 3: tareas pendientes en el inicio para Registros.
+
 ---
 
 ## 9. Pendientes y auditoría

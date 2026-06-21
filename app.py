@@ -122,6 +122,7 @@ from models import (
     SongInterpreter,
     SongISRCCode,
     SongMaterial,
+    SongMasterDeliveryLink,
     SongCertification,
     SongProductionContract,
     SongStatus,
@@ -222,6 +223,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_guest_list_status",
     "public_invitation_request_submit",
     "public_invitation_request_cancel",
+    "public_song_master_delivery",
 }
 
 
@@ -543,7 +545,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery"}
     if request.endpoint in allowed:
         return
 
@@ -4248,6 +4250,7 @@ def _build_song_material_context(session_db, song: Song, material_rows: list[Son
             "download_wav_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="wav") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
             "download_mp3_url": url_for("discografica_song_material_download", song_id=song.id, material_id=row.id, format="mp3") if category in {"MASTER", "INSTRUMENTAL", "TV_TRACK"} else "",
             "is_audio": category in {"MASTER", "INSTRUMENTAL", "TV_TRACK", "STEMS"},
+            "is_pending": (getattr(row, "validation_status", None) or "VALIDATED").strip().upper() == "PENDING",
         }
         return payload
 
@@ -11444,6 +11447,20 @@ def discografica_song_detail(song_id):
     song_materials = _build_song_material_context(session_db, s, material_rows=material_rows)
     materials_status = song_materials.get("completion") or materials_status
 
+    _delivery_active = (
+        session_db.query(SongMasterDeliveryLink)
+        .filter(SongMasterDeliveryLink.song_id == s.id, SongMasterDeliveryLink.status == "ACTIVE")
+        .order_by(SongMasterDeliveryLink.created_at.desc())
+        .first()
+    )
+    master_delivery = None
+    if _delivery_active:
+        master_delivery = {
+            "id": str(_delivery_active.id),
+            "sections": list(_delivery_active.sections_json or []),
+            "public_url": _song_delivery_public_url(_delivery_active),
+        }
+
     song_cert_rows = (
         session_db.query(SongCertification)
         .filter(SongCertification.song_id == s.id)
@@ -11783,6 +11800,8 @@ def discografica_song_detail(song_id):
         song_income_entries=song_income_entries,
         song_materials=song_materials,
         materials_status=materials_status,
+        master_delivery=master_delivery,
+        song_delivery_sections=SONG_DELIVERY_SECTIONS,
         linked_albums=linked_albums,
         song_cert_groups=song_cert_groups,
         country_options=country_options,
@@ -13017,6 +13036,222 @@ def discografica_song_cover_role(song_id, material_id):
     finally:
         session_db.close()
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+# ---------- ENTREGA DE MASTERS (enlace público) ----------
+SONG_DELIVERY_SECTIONS = [
+    ("PRODUCTION", "Información de producción"),
+    ("AUTHORAL", "Información autoral"),
+    ("LYRICS", "Letra"),
+    ("MASTERS", "Masters / materiales"),
+]
+SONG_DELIVERY_SECTION_KEYS = {k for k, _ in SONG_DELIVERY_SECTIONS}
+SONG_DELIVERY_AUTHOR_ROLES = [("AUTHOR", "Autor"), ("COMPOSER", "Compositor"), ("AUTHOR_COMPOSER", "Autor y compositor")]
+# Campos de producción: (clave, etiqueta, obligatorio)
+SONG_DELIVERY_PRODUCTION_FIELDS = [
+    ("duration", "Duración (Timing)", True),
+    ("bpm", "BPM", True),
+    ("recording_date", "Fecha de grabación", True),
+    ("studio", "Estudio de grabación", True),
+    ("producer", "Productor", True),
+    ("arranger", "Arreglista", False),
+    ("recording_engineer", "Ingeniero de grabación", True),
+    ("mixing_engineer", "Ingeniero de mezcla", False),
+    ("mastering_engineer", "Ingeniero de masterización", True),
+    ("musicians", "Músicos (instrumento y nombre)", False),
+]
+SONG_DELIVERY_MATERIAL_SPECS = [
+    ("master_48", "MASTER", "MASTER_48"),
+    ("master_24", "MASTER", "MASTER_24"),
+    ("master_16", "MASTER", "MASTER_16"),
+    ("instrumental", "INSTRUMENTAL", "DEFAULT"),
+    ("tv_track", "TV_TRACK", "DEFAULT"),
+]
+
+
+def _song_delivery_public_url(link) -> str:
+    return _external_url_for("public_song_master_delivery", token=link.token)
+
+
+def _song_artist_names_str(song) -> str:
+    names = [getattr(a, "name", None) for a in (getattr(song, "artists", None) or [])]
+    return ", ".join([n for n in names if n]) or "—"
+
+
+@app.post("/discografica/canciones/<song_id>/entrega/crear")
+@admin_required
+def discografica_song_delivery_create(song_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos para generar enlaces de entrega.")
+    sections = [s for s in request.form.getlist("sections") if s in SONG_DELIVERY_SECTION_KEYS]
+    if not sections:
+        flash("Selecciona al menos una sección a solicitar.", "warning")
+        return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            flash("Canción no encontrada.", "warning")
+            return redirect(url_for("discografica_view", section="canciones"))
+        # Un único enlace activo por canción: anula los anteriores.
+        for old in session_db.query(SongMasterDeliveryLink).filter(
+            SongMasterDeliveryLink.song_id == song.id, SongMasterDeliveryLink.status == "ACTIVE"
+        ).all():
+            old.status = "CANCELLED"
+            old.cancelled_at = datetime.now(TZ_MADRID)
+            session_db.add(old)
+        uid = session.get("user_id")
+        link = SongMasterDeliveryLink(
+            song_id=song.id,
+            token=uuid.uuid4().hex,
+            sections_json=[k for k, _ in SONG_DELIVERY_SECTIONS if k in sections],
+            status="ACTIVE",
+            data={},
+            requested_by_user_id=to_uuid(uid) if uid else None,
+            requested_by_nick=(_current_user_state() or {}).get("nick"),
+            target_name=(request.form.get("target_name") or "").strip() or None,
+            target_email=(request.form.get("target_email") or "").strip() or None,
+        )
+        session_db.add(link)
+        session_db.commit()
+        pub = _song_delivery_public_url(link)
+        flash(Markup('Enlace de entrega generado. Cópialo y envíalo: <a href="%s" target="_blank" rel="noopener">%s</a>') % (pub, pub), "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error generando el enlace: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.post("/discografica/canciones/<song_id>/entrega/<link_id>/anular")
+@admin_required
+def discografica_song_delivery_cancel(song_id, link_id):
+    if not can_edit_discografica():
+        return forbid("No tienes permisos.")
+    session_db = db()
+    try:
+        link = session_db.get(SongMasterDeliveryLink, to_uuid(link_id))
+        if link and str(link.song_id) == str(to_uuid(song_id)):
+            link.status = "CANCELLED"
+            link.cancelled_at = datetime.now(TZ_MADRID)
+            session_db.add(link)
+            session_db.commit()
+            flash("Enlace de entrega anulado.", "success")
+        else:
+            flash("Enlace no encontrado.", "warning")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error anulando el enlace: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+
+
+@app.route("/entrega-masters/<token>", methods=["GET", "POST"], endpoint="public_song_master_delivery")
+def public_song_master_delivery(token):
+    session_db = db()
+    try:
+        link = session_db.query(SongMasterDeliveryLink).filter(SongMasterDeliveryLink.token == (token or "").strip()).first()
+        if not link:
+            abort(404)
+        song = session_db.get(Song, link.song_id)
+        if not song:
+            abort(404)
+        sections = [k for k, _ in SONG_DELIVERY_SECTIONS if k in (link.sections_json or [])]
+        base_ctx = dict(
+            link=link, song=song, sections=sections,
+            section_labels=dict(SONG_DELIVERY_SECTIONS),
+            production_fields=SONG_DELIVERY_PRODUCTION_FIELDS,
+            author_roles=SONG_DELIVERY_AUTHOR_ROLES,
+            material_specs=[(f, _song_material_slot_label(c, s)) for f, c, s in SONG_DELIVERY_MATERIAL_SPECS],
+            artist_names=_song_artist_names_str(song),
+        )
+        if link.status != "ACTIVE":
+            return render_template("public_song_master_delivery.html", state="closed", **base_ctx)
+
+        if request.method == "POST":
+            data, errors = {}, []
+            if "PRODUCTION" in sections:
+                prod = {key: (request.form.get("prod_" + key) or "").strip() for key, _lbl, _req in SONG_DELIVERY_PRODUCTION_FIELDS}
+                for key, lbl, req in SONG_DELIVERY_PRODUCTION_FIELDS:
+                    if req and not prod.get(key):
+                        errors.append("Producción: falta «%s»." % lbl)
+                data["production"] = prod
+            if "AUTHORAL" in sections:
+                names = request.form.getlist("author_name")
+                editorials = request.form.getlist("author_editorial")
+                roles = request.form.getlist("author_role")
+                pcts = request.form.getlist("author_pct")
+                authors, total = [], 0.0
+                for i, nm in enumerate(names):
+                    nm = (nm or "").strip()
+                    if not nm:
+                        continue
+                    role = (roles[i] if i < len(roles) else "").strip().upper()
+                    try:
+                        pct = float((pcts[i] if i < len(pcts) else "0").replace(",", "."))
+                    except ValueError:
+                        pct = 0.0
+                    authors.append({"name": nm, "editorial": (editorials[i] if i < len(editorials) else "").strip(), "role": role, "pct": pct})
+                    total += pct
+                if not authors:
+                    errors.append("Autoral: añade al menos un autor.")
+                elif any(a["role"] not in {"AUTHOR", "COMPOSER", "AUTHOR_COMPOSER"} for a in authors):
+                    errors.append("Autoral: indica el rol de cada autor.")
+                elif abs(total - 100.0) > 0.01:
+                    errors.append("Autoral: los porcentajes deben sumar 100%% (actual: %.2f%%)." % total)
+                data["authoral"] = authors
+            if "LYRICS" in sections:
+                lyrics = (request.form.get("lyrics") or "").strip()
+                if not lyrics:
+                    errors.append("La letra es obligatoria.")
+                data["lyrics"] = lyrics
+            uploads = []
+            if "MASTERS" in sections:
+                for field, cat, slot in SONG_DELIVERY_MATERIAL_SPECS:
+                    fs = request.files.get(field)
+                    if not fs or not getattr(fs, "filename", ""):
+                        errors.append("Materiales: falta «%s» (.wav)." % _song_material_slot_label(cat, slot))
+                        continue
+                    if Path((fs.filename or "").replace("\\", "/")).suffix.lower() not in {".wav", ".wave"}:
+                        errors.append("Materiales: «%s» debe ser .wav." % _song_material_slot_label(cat, slot))
+                        continue
+                    uploads.append((fs, cat, slot))
+                stems = [fs for fs in request.files.getlist("stems") if fs and getattr(fs, "filename", "")]
+            else:
+                stems = []
+
+            if errors:
+                return render_template("public_song_master_delivery.html", state="form", errors=errors, form=request.form, **base_ctx)
+
+            stems_bundle = uuid.uuid4().hex
+            for fs, cat, slot in uploads:
+                file_url = upload_file(fs, "song_materials", allowed_extensions={".wav", ".wave"})
+                session_db.add(SongMaterial(
+                    song_id=song.id, category=cat, slot_key=slot,
+                    file_name=(fs.filename or "audio.wav").replace("\\", "/"), file_url=file_url,
+                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                    validation_status="PENDING", delivery_link_id=link.id,
+                ))
+            for fs in stems:
+                file_url = upload_file(fs, "song_materials")
+                session_db.add(SongMaterial(
+                    song_id=song.id, category="STEMS", slot_key="BUNDLE", bundle_key=stems_bundle,
+                    display_name="Stems (entrega)", file_name=(fs.filename or "stem").replace("\\", "/"), file_url=file_url,
+                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                    validation_status="PENDING", delivery_link_id=link.id,
+                ))
+            link.data = data
+            link.status = "SUBMITTED"
+            link.submitted_at = datetime.now(TZ_MADRID)
+            session_db.add(link)
+            session_db.commit()
+            return render_template("public_song_master_delivery.html", state="submitted", **base_ctx)
+
+        return render_template("public_song_master_delivery.html", state="form", form={}, **base_ctx)
+    finally:
+        session_db.close()
 
 
 @app.post("/discografica/canciones/<song_id>/materials/stems/<bundle_key>/delete")
@@ -24932,7 +25167,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery"}
 
 
 def _resource_label_from_key(key: str) -> str:

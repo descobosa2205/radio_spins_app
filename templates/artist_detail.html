@@ -9,43 +9,27 @@
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
 </style>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <a class="btn btn-outline-secondary" href="{{ url_for('artists_view') }}">
-    <i class="fa fa-arrow-left"></i> Volver a artistas
-  </a>
-
-  <div>
-    {% if CAN_EDIT_ARTISTS_STATIONS %}
-      <span class="badge text-bg-primary">Edición</span>
-    {% else %}
-      <span class="badge text-bg-secondary">Lectura</span>
-    {% endif %}
-  </div>
-</div>
-
-<div class="artist-hero mb-3">
-  <div class="d-flex flex-wrap gap-3 align-items-center">
-    <img
-      src="{{ artist.photo_url or DEFAULT_PHOTO_URL }}"
-      class="artist-hero-photo"
-      alt="Foto artista"
-    >
-
-    <div class="flex-grow-1">
-      <h3 class="m-0">{{ artist.name }}</h3>
-      <div class="d-flex align-items-center gap-2 flex-wrap mt-2 artist-social-strip">
-        {% for link in social_links_display or [] %}
-          <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}">
-            <i class="{{ link.icon }}"></i>
-          </a>
-        {% endfor %}
-        {% if CAN_EDIT_ARTISTS_STATIONS %}
-          <button class="artist-social-icon add-social" type="button" data-bs-toggle="modal" data-bs-target="#artistSocialModal" title="Añadir perfil">
-            <i class="fa fa-plus"></i>
-          </button>
-        {% endif %}
-      </div>
+<div class="ficha-hero">
+  <img class="ficha-hero__media ficha-hero__media--round" src="{{ artist.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+  <div class="ficha-hero__body">
+    <div class="ficha-hero__eyebrow">Artista</div>
+    <h1 class="ficha-hero__title">{{ artist.name }}</h1>
+    <div class="d-flex align-items-center gap-2 flex-wrap mt-2 artist-social-strip">
+      {% for link in social_links_display or [] %}
+        <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}">
+          <i class="{{ link.icon }}"></i>
+        </a>
+      {% endfor %}
+      {% if CAN_EDIT_ARTISTS_STATIONS %}
+        <button class="artist-social-icon add-social" type="button" data-bs-toggle="modal" data-bs-target="#artistSocialModal" title="Añadir perfil">
+          <i class="fa fa-plus"></i>
+        </button>
+      {% endif %}
     </div>
+  </div>
+  <div class="ficha-hero__actions">
+    <a class="btn btn-outline-secondary" href="{{ url_for('artists_view') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+    {% if CAN_EDIT_ARTISTS_STATIONS %}<span class="badge text-bg-primary align-self-center">Edición</span>{% else %}<span class="badge text-bg-secondary align-self-center">Lectura</span>{% endif %}
   </div>
 </div>
 {% if CAN_EDIT_ARTISTS_STATIONS %}
@@ -73,7 +57,7 @@
 </div>
 {% endif %}
 
-<ul class="nav nav-tabs mb-3">
+<ul class="nav nav-tabs ficha-tabs mb-0">
   {% if has_access_key('artists.datos', include_descendants=True) %}
     <li class="nav-item">
       <a class="nav-link {% if tab=='datos' %}active{% endif %}"
@@ -144,6 +128,8 @@
   </li>
 </ul>
 
+<div class="ficha-tabpane">
+
 {# ===================== TAB: VINCULACIONES ===================== #}
 {% if tab == 'vinculaciones' %}
   {% include '_entity_links_panel.html' %}
@@ -152,58 +138,48 @@
 {# ===================== TAB: DATOS ===================== #}
 {% if tab == 'datos' %}
 
+  <div id="artist-datos-zone" data-inline-zone>
   <div class="row g-3">
     <div class="col-12 col-lg-5">
-      <div class="card">
-        <div class="card-body">
-          <h6 class="mb-3">Datos básicos</h6>
 
-          {% if CAN_EDIT_ARTISTS_STATIONS %}
-            <form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" class="row g-2 align-items-end">
-              <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-
-              <div class="col-12">
-                <label class="form-label">Nombre artístico</label>
-                <input name="name" class="form-control" value="{{ artist.name }}" required>
-              </div>
-
-              <div class="col-12">
-                <label class="form-label">Email principal</label>
-                <input type="email" name="email" class="form-control" value="{{ artist.email or '' }}" placeholder="Para envíos de royalties y notificaciones">
-                <div class="form-text">Se usará como dirección principal para envíos y liquidaciones de royalties.</div>
-              </div>
-
-              <div class="col-12">
-                <label class="form-label">Foto (PNG)</label>
-                <input type="file" name="photo" accept="image/png" class="form-control">
-              </div>
-
-              <div class="col-12 d-grid">
-                <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
-              </div>
-            </form>
-
-            <hr>
-
-            <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}" onsubmit="return confirm('¿Borrar artista?');">
-              <input type="hidden" name="next" value="{{ url_for('artists_view') }}">
-              <button class="btn btn-outline-danger w-100">
-                <i class="fa fa-trash"></i> Eliminar artista
-              </button>
-            </form>
-
-          {% else %}
-            <div class="text-muted">No tienes permisos de edición en esta sección.</div>
-          {% endif %}
-
-          <hr>
-
-          <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-            <div>
-              <h6 class="mb-0">Emails adicionales</h6>
-              <div class="small text-muted">Conceptos como gestor, royalties, administración, etc.</div>
+      <div class="ficha-section">
+        <div class="ficha-section__head">
+          <h6 class="ficha-section__title"><i class="fa fa-id-card"></i>Datos básicos</h6>
+          {% if CAN_EDIT_ARTISTS_STATIONS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}
+        </div>
+        <div class="ficha-section__body" data-section-view>
+          {% if artist.email %}<div class="ficha-fields"><div><div class="ficha-field__label">Email principal</div><div class="ficha-field__value">{{ artist.email }}</div></div></div>{% else %}<div class="ficha-empty">Sin email principal. Pulsa <i class="fa fa-pen"></i> para completar.</div>{% endif %}
+        </div>
+        {% if CAN_EDIT_ARTISTS_STATIONS %}
+        <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" data-inline data-inline-target="#artist-datos-zone">
+          <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
+          <div class="row g-2">
+            <div class="col-12">
+              <label class="form-label">Nombre artístico</label>
+              <input name="name" class="form-control" value="{{ artist.name }}" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Email principal</label>
+              <input type="email" name="email" class="form-control" value="{{ artist.email or '' }}" placeholder="Para envíos de royalties y notificaciones">
+              <div class="form-text">Se usará como dirección principal para envíos y liquidaciones de royalties.</div>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Foto (PNG)</label>
+              <input type="file" name="photo" accept="image/png" class="form-control">
             </div>
           </div>
+          <div class="d-flex justify-content-end gap-2 mt-3">
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-edit-cancel>Cancelar</button>
+            <button class="btn btn-primary btn-sm"><i class="fa fa-save me-1"></i>Guardar</button>
+          </div>
+        </form>
+        {% endif %}
+      </div>
+
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-envelope"></i>Emails adicionales</h6></div>
+        <div class="ficha-section__body">
+          <div class="small text-muted mb-2">Conceptos como gestor, royalties, administración, etc.</div>
 
           {% if artist_email_addresses and (artist_email_addresses|length) > 0 %}
             <div class="table-responsive">
@@ -266,15 +242,22 @@
           {% endif %}
         </div>
       </div>
+
+      {% if CAN_EDIT_ARTISTS_STATIONS %}
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title text-danger"><i class="fa fa-triangle-exclamation"></i>Zona peligrosa</h6></div>
+        <div class="ficha-section__body">
+          <form method="post" action="{{ url_for('artist_delete', artist_id=artist.id) }}" onsubmit="return confirm('¿Borrar artista?');"><input type="hidden" name="next" value="{{ url_for('artists_view') }}"><button class="btn btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar artista</button></form>
+        </div>
+      </div>
+      {% endif %}
+
     </div>
 
     <div class="col-12 col-lg-7">
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">Personas (nombre y apellidos)</h6>
-            <span class="small text-muted">(puede haber más de una si el artista es un grupo)</span>
-          </div>
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-users"></i>Personas</h6><span class="small text-muted">varias si es un grupo</span></div>
+        <div class="ficha-section__body">
 
           {% if people and (people|length) > 0 %}
             <div class="table-responsive">
@@ -341,6 +324,7 @@
       </div>
     </div>
   </div>
+  </div><!-- /artist-datos-zone -->
 
 {# ===================== TAB: CONTRATOS ===================== #}
 {% elif tab == 'contratos' %}
@@ -833,4 +817,10 @@
 
 {% endif %}
 
+</div><!-- /ficha-tabpane -->
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/ficha_inline.js') }}"></script>
 {% endblock %}

@@ -21,8 +21,13 @@
   'use strict';
 
   function viewFor(form) {
+    // Caso 1: form dentro de una .ficha-section (su vista hermana).
     var s = form.closest('.ficha-section');
-    return s ? s.querySelector('[data-section-view]') : null;
+    if (s) { var v = s.querySelector('[data-section-view]'); if (v) return v; }
+    // Caso 2: form y vista como hermanos dentro de una zona [data-inline-zone].
+    var z = form.closest('[data-inline-zone]');
+    if (z) { var v2 = z.querySelector('[data-section-view]'); if (v2) return v2; }
+    return null;
   }
 
   function show(form) {

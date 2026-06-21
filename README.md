@@ -601,7 +601,9 @@ plantillas y `esprima` del JS.
   que más…"*). Continúa la línea de "Limpieza de subtítulos descriptivos".
 - **Desglose por emisoras (canción/Radio)**: solo se listan las emisoras **con tocadas** (`HAVING
   sum(spins) > 0` en la consulta de `radio_station_rows`, `app.py`), **ordenadas de más a menos**
-  tocadas (el `ORDER BY total_spins DESC` ya existía). Las emisoras con 0 dejan de aparecer.
+  tocadas (el `ORDER BY total_spins DESC` ya existía). Las emisoras con 0 dejan de aparecer. Se retira
+  además la tarjeta-resumen *"Emisoras con actividad"* (su conteo ya aparece en el propio desglose, era
+  redundante); se mantiene la de *"Total de tocadas"*.
 
 ### Foto del artista junto al nombre — en toda la app
 

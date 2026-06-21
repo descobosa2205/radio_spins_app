@@ -118,7 +118,7 @@
 
       {% if 'AUTHORAL' in sections %}
       <script>
-        (function(){
+        document.addEventListener('DOMContentLoaded', function(){
           var roles = {{ author_roles|tojson }};
           var SEARCH_AUTHORS = {{ url_for('public_song_delivery_authors', token=link.token)|tojson }};
           var SEARCH_PUB = {{ url_for('public_song_delivery_publishers', token=link.token)|tojson }};
@@ -203,7 +203,7 @@
             rowsWrap.querySelectorAll('input[name="author_pct"]').forEach(function(i){ total += parseFloat((i.value || '0').replace(',', '.')) || 0; });
             if (Math.abs(total - 100) > 0.01){ e.preventDefault(); alert('Los porcentajes de autoría deben sumar 100 %. Actual: ' + total + ' %'); }
           });
-        })();
+        });
       </script>
       {% endif %}
     {% endif %}

@@ -13162,13 +13162,13 @@ def discografica_song_delivery_create(song_id):
         session_db.add(link)
         session_db.commit()
         pub = _song_delivery_public_url(link)
-        flash(Markup('Enlace de entrega generado. Cópialo y envíalo: <a href="%s" target="_blank" rel="noopener">%s</a>') % (pub, pub), "success")
+        flash(Markup('Enlace de entrega generado. Cópialo o envíalo por correo abajo.'), "success")
     except Exception as e:
         session_db.rollback()
         flash(f"Error generando el enlace: {e}", "danger")
     finally:
         session_db.close()
-    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
+    return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales", delivery_created=1))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/anular")
@@ -13195,9 +13195,37 @@ def discografica_song_delivery_cancel(song_id, link_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
 
-def _song_delivery_email_html(song, title_artist, url_pub, cover_url) -> str:
+@app.get("/api/promoters/<promoter_id>/emails", endpoint="api_promoter_emails")
+@admin_required
+def api_promoter_emails(promoter_id):
+    session_db = db()
+    try:
+        p = session_db.get(Promoter, to_uuid(promoter_id))
+        if not p:
+            return jsonify([])
+        out, seen = [], set()
+
+        def _add(email, label):
+            email = (email or "").strip()
+            if not email or email.lower() in seen:
+                return
+            seen.add(email.lower())
+            out.append({"email": email, "label": label})
+
+        _add(getattr(p, "contact_email", None), "Principal")
+        for e in session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == p.id).order_by(PromoterEmail.created_at.asc()).all():
+            _add(getattr(e, "email", None), (getattr(e, "concept", None) or "Email"))
+        for c in session_db.query(PromoterContact).filter(PromoterContact.promoter_id == p.id, PromoterContact.email.isnot(None)).order_by(PromoterContact.created_at.asc()).all():
+            _add(getattr(c, "email", None), (getattr(c, "name", None) or "Contacto"))
+        return jsonify(out)
+    finally:
+        session_db.close()
+
+
+def _song_delivery_email_html(song, title_artist, url_pub, cover_url, note=None) -> str:
     logo = _external_url_for("static", filename="img/logo.png")
     cover_img = ('<img src="%s" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid #eee;margin-right:12px;">' % escape(cover_url)) if cover_url else ""
+    note_html = ('<div style="border-left:3px solid #E33D48;padding:8px 12px;margin:16px 0;color:#444;white-space:pre-wrap;">%s</div>' % escape(note)) if (note or "").strip() else ""
     return (
         '<div style="font-family:Arial,Helvetica,sans-serif;max-width:560px;margin:0 auto;color:#1e2530;">'
         '<div style="text-align:right;margin-bottom:12px;"><img src="%s" alt="PIES Records" style="height:38px;"></div>'
@@ -13205,10 +13233,11 @@ def _song_delivery_email_html(song, title_artist, url_pub, cover_url) -> str:
         '<p style="color:#555;">Se solicita la entrega de información y materiales de la siguiente canción:</p>'
         '<div style="border:1px solid #eee;border-radius:8px;padding:12px;display:flex;align-items:center;">'
         '%s<div><div style="font-weight:600;">%s</div><div style="color:#666;font-size:14px;">%s</div></div></div>'
+        '%s'
         '<div style="text-align:center;margin:24px 0;"><a href="%s" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;display:inline-block;">Subir masters e información</a></div>'
         '<p style="color:#888;font-size:12px;">Si el botón no funciona, copia este enlace:<br>%s</p>'
         '</div>'
-    ) % (escape(logo), cover_img, escape(song.title or ""), escape(title_artist), escape(url_pub), escape(url_pub))
+    ) % (escape(logo), cover_img, escape(song.title or ""), escape(title_artist), note_html, escape(url_pub), escape(url_pub))
 
 
 @app.post("/discografica/canciones/<song_id>/entrega/<link_id>/enviar-correo")
@@ -13216,9 +13245,14 @@ def _song_delivery_email_html(song, title_artist, url_pub, cover_url) -> str:
 def discografica_song_delivery_send_email(song_id, link_id):
     if not can_edit_discografica():
         return forbid("No tienes permisos.")
-    to_email = (request.form.get("to_email") or "").strip()
-    if not to_email:
-        flash("Indica un email de destinatario.", "warning")
+    recipients = [e.strip() for e in request.form.getlist("recipients") if e.strip()]
+    extra = (request.form.get("extra_email") or "").strip()
+    if extra:
+        recipients.append(extra)
+    recipients = list(dict.fromkeys(recipients))  # dedupe conservando orden
+    note = (request.form.get("note") or "").strip()
+    if not recipients:
+        flash("Indica al menos un destinatario.", "warning")
         return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
     session_db = db()
     try:
@@ -13232,13 +13266,13 @@ def discografica_song_delivery_send_email(song_id, link_id):
         title_artist = artist + (" (con %s)" % collab if collab else "")
         subject = "Solicitud entrega masters · %s · %s" % (title_artist, song.title or "")
         url_pub = _song_delivery_public_url(link)
-        html = _song_delivery_email_html(song, title_artist, url_pub, (song.cover_url or "").strip())
-        ok, err = _send_optional_email(to_email, subject, html, text_body="Solicitud de entrega de masters. Enlace: " + url_pub, reply_to=_current_user_email())
+        html = _song_delivery_email_html(song, title_artist, url_pub, (song.cover_url or "").strip(), note=note)
+        ok, err = _send_optional_email(recipients, subject, html, text_body="Solicitud de entrega de masters. Enlace: " + url_pub, reply_to=_current_user_email())
         if ok:
-            link.target_email = to_email
+            link.target_email = recipients[0]
             session_db.add(link)
             session_db.commit()
-            flash("Correo de solicitud enviado a %s." % to_email, "success")
+            flash("Correo de solicitud enviado a %s." % ", ".join(recipients), "success")
         else:
             flash("No se pudo enviar el correo: %s" % (err or "revisa la configuración SMTP"), "danger")
     except Exception as e:

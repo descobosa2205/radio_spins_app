@@ -66,6 +66,9 @@
 </div>
 
 {% if CAN_EDIT_DISCOGRAFICA %}
+{% if request.args.get('delivery_created') and master_delivery %}
+<script>document.addEventListener('DOMContentLoaded', function(){ try { var m = document.getElementById('masterDeliveryModal'); if (m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); } catch (e) {} });</script>
+{% endif %}
 <div class="modal fade" id="masterDeliveryModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
@@ -83,8 +86,10 @@
           <hr>
           <label class="form-label small text-muted">Enviar por correo</label>
           <form method="post" action="{{ url_for('discografica_song_delivery_send_email', song_id=song.id, link_id=master_delivery.id) }}">
-            <select class="form-select form-select-sm mb-2" id="deliveryEmailPicker"><option value=""></option></select>
-            <input type="email" class="form-control form-control-sm mb-2" name="to_email" id="deliveryEmailInput" placeholder="email@destinatario.com (o elige arriba)" required>
+            <select class="form-select form-select-sm mb-2" id="deliveryPromoterPicker"><option value=""></option></select>
+            <div id="deliveryEmailList" class="mb-2"></div>
+            <input type="email" class="form-control form-control-sm mb-2" name="extra_email" id="deliveryExtraEmail" placeholder="…o escribe un correo directo">
+            <textarea class="form-control form-control-sm mb-2" name="note" rows="2" placeholder="Nota para el destinatario (opcional)"></textarea>
             <div class="text-end"><button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar solicitud</button></div>
           </form>
           <hr>
@@ -95,18 +100,27 @@
             document.addEventListener('DOMContentLoaded', function(){
               try {
                 if (window.jQuery && jQuery.fn && jQuery.fn.select2) {
-                  jQuery('#deliveryEmailPicker').select2({
+                  jQuery('#deliveryPromoterPicker').select2({
                     dropdownParent: jQuery('#masterDeliveryModal'),
                     width: '100%',
-                    placeholder: 'Buscar persona en la base de datos…',
+                    placeholder: 'Buscar tercero en la base de datos…',
                     allowClear: true,
                     minimumInputLength: 2,
                     ajax: {
                       url: '/api/search/promoters', dataType: 'json', delay: 250,
                       data: function(p){ return { q: p.term }; },
-                      processResults: function(d){ return { results: (d || []).filter(function(r){ return r.contact_email; }).map(function(r){ return { id: r.contact_email, text: r.label + ' · ' + r.contact_email }; }) }; }
-                    }
-                  }).on('select2:select', function(e){ document.getElementById('deliveryEmailInput').value = e.params.data.id || ''; });
+                      processResults: function(d){ return { results: (d || []).map(function(r){ return { id: r.id, text: r.label, logo: r.logo_url }; }) }; }
+                    },
+                    templateResult: function(o){ if (!o.id) return o.text; var img = o.logo ? '<img src="' + o.logo + '" style="width:24px;height:24px;border-radius:50%;object-fit:cover;margin-right:6px;vertical-align:middle;">' : ''; return jQuery('<span>' + img + jQuery('<span>').text(o.text).html() + '</span>'); }
+                  }).on('select2:select', function(e){
+                    var pid = e.params.data.id;
+                    var list = document.getElementById('deliveryEmailList');
+                    list.innerHTML = '<div class="small text-muted">Cargando correos…</div>';
+                    fetch('/api/promoters/' + encodeURIComponent(pid) + '/emails').then(function(r){ return r.json(); }).then(function(emails){
+                      if (!emails || !emails.length) { list.innerHTML = '<div class="small text-muted">Este tercero no tiene correos guardados; escribe uno abajo.</div>'; return; }
+                      list.innerHTML = '<div class="small text-muted mb-1">Correos del tercero (marca los que quieras):</div>' + emails.map(function(em, i){ var v = jQuery('<span>').text(em.email).html(); var lb = jQuery('<span>').text(em.label).html(); return '<div class="form-check"><input class="form-check-input" type="checkbox" name="recipients" value="' + v + '" id="delEm' + i + '"' + (i === 0 ? ' checked' : '') + '><label class="form-check-label small" for="delEm' + i + '">' + v + ' <span class="text-muted">· ' + lb + '</span></label></div>'; }).join('');
+                    }).catch(function(){ list.innerHTML = '<div class="small text-danger">No se pudieron cargar los correos.</div>'; });
+                  });
                 }
               } catch (err) {}
             });

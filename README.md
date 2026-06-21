@@ -719,6 +719,19 @@ pendiente → aviso en el inicio de Registros → validación/consolidación en 
   **`ensure_song_delivery_schema`** dedicado y **robusto** (cada sentencia en su propia transacción, sin
   depender de `create_all`), para que el arranque en Render aplique siempre la tabla y las columnas nuevas.
 
+### Entrega de masters — correcciones de UX y correo
+
+- **Bug del formulario público**: el botón de añadir/crear autor no respondía porque el `<script>` se
+  ejecutaba antes de existir el popup (`createAuthorOverlay`); ahora va en `DOMContentLoaded`.
+- **Envío del enlace por correo (rediseño)**: el buscador localiza **cualquier tercero** de la base (con
+  foto/logo); al elegirlo se cargan **sus correos vinculados** (principal + adicionales + contactos) como
+  casillas para marcar a cuáles enviar; además se puede **escribir un correo directo** y añadir una
+  **nota** que va en el cuerpo del email. Envío a varios destinatarios (`api_promoter_emails` + endpoint
+  de envío con `recipients[]` + `note`).
+- **Tras generar el enlace** se reabre el modal mostrando las dos opciones (copiar / enviar por correo).
+- **Reply-To**: confirmado que **todos los correos** de la app responden a la persona que los envía
+  (`_send_optional_email` usa `reply_to or _current_user_email()`).
+
 ---
 
 ## 9. Pendientes y auditoría

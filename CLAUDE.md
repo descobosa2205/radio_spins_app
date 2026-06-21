@@ -137,7 +137,10 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   **enviar el enlace por correo** (`discografica_song_delivery_send_email` + `_send_optional_email`, con
   buscador `/api/search/promoters`). El hueco de portada **provisional** solo se muestra si existe. El
   formulario público autocompleta **autores** (con foto + editorial) y permite crearlos vía endpoints
-  ligados al token (`public_song_delivery_authors` / `_publishers` / `_create_author`).
+  ligados al token (`public_song_delivery_authors` / `_publishers` / `_create_author`). El envío del enlace
+  por correo busca terceros y carga sus **correos vinculados** (`api_promoter_emails`) para elegir
+  destinatarios + nota. **Todos los correos del servidor (`_send_optional_email`) llevan Reply-To al usuario
+  que envía** por defecto (`reply_to or _current_user_email()`).
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

@@ -54,7 +54,7 @@
     </div>
 
     {% if CAN_EDIT_CONCERTS %}
-    <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form>
+    <form id="concert-datos-edit" class="ficha-section d-none mb-3" method="post" action="{{ url_for('concert_section_update', cid=concert.id, section='datos') }}" data-inline data-inline-target="#concert-general-zone" data-concert-datos-form data-view="[data-datos-view]">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Editar datos de la actividad</h6></div>
       <div class="ficha-section__body">
         <div class="row g-3">

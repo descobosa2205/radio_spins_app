@@ -269,48 +269,18 @@
     try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
   }
 
-  // ---------------------------------------------------------------- toggle vista <-> form
-  function viewFor(form) {
-    if (!form) return null;
-    if (form.matches('[data-concert-datos-form]')) return document.querySelector('[data-datos-view]');
-    var s = form.closest('.ficha-section');
-    return s ? s.querySelector('[data-section-view]') : null;
-  }
-
-  function showForm(form) {
+  // El toggle vista<->form (mostrar/ocultar) lo gestiona ahora `ficha_inline.js` (compartido por
+  // todas las fichas). Aquí solo reaccionamos a su evento "ficha:shown" para los inicializadores
+  // específicos del concierto (sale_type+tags en "datos"; rehidratar filas en las secciones).
+  document.addEventListener('ficha:shown', function (e) {
+    var form = e.detail && e.detail.form;
     if (!form) return;
-    form.classList.remove('d-none');
-    var v = viewFor(form); if (v) v.classList.add('d-none');
-    try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
     if (form.matches('[data-concert-datos-form]')) initDatosForm(form);
-    else initSectionForm(form);
-    try { form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
-  }
+    else if (form.matches('[data-section-form]')) initSectionForm(form);
+  });
 
-  function hideForm(form) {
-    if (!form) return;
-    form.classList.add('d-none');
-    var v = viewFor(form); if (v) v.classList.remove('d-none');
-  }
-
-  // ------------------------------------------------------------------- listeners (delegados)
+  // ------------------------------------------------------------------- filas dinámicas (delegado)
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-edit-toggle]');
-    if (t) {
-      e.preventDefault();
-      var sel = t.getAttribute('data-edit-toggle');
-      var form = sel ? document.querySelector(sel) : (function () { var s = t.closest('.ficha-section'); return s ? s.querySelector('[data-section-form]') : null; })();
-      showForm(form);
-      return;
-    }
-    var c = e.target.closest('[data-edit-cancel]');
-    if (c) {
-      e.preventDefault();
-      var csel = c.getAttribute('data-edit-cancel');
-      var cform = csel ? document.querySelector(csel) : (c.closest('[data-section-form]') || c.closest('form'));
-      hideForm(cform);
-      return;
-    }
     var add = e.target.closest('[data-add-row]');
     if (add) {
       e.preventDefault();

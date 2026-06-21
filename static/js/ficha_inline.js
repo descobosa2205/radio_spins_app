@@ -21,6 +21,10 @@
   'use strict';
 
   function viewFor(form) {
+    // Caso 0: selector de vista explícito en el form (p. ej. el "Datos" del concierto, cuya vista
+    // es [data-datos-view] y no encaja en los casos por contenedor).
+    var explicit = form.getAttribute('data-view');
+    if (explicit) { var ve = document.querySelector(explicit); if (ve) return ve; }
     // Caso 1: form dentro de una .ficha-section (su vista hermana).
     var s = form.closest('.ficha-section');
     if (s) { var v = s.querySelector('[data-section-view]'); if (v) return v; }
@@ -36,6 +40,9 @@
     var v = viewFor(form);
     if (v) v.classList.add('d-none');
     try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
+    // Aviso para inicializadores específicos de cada ficha (p. ej. concert_form.js: sale_type+tags,
+    // rehidratación de filas). Quien lo necesite escucha "ficha:shown".
+    try { document.dispatchEvent(new CustomEvent('ficha:shown', { detail: { form: form } })); } catch (e) {}
     try { form.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
   }
 

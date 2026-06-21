@@ -96,12 +96,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   borrado individual inline en la vista): equipamiento/contratos/notas. La página monolítica
   `concert_edit.html` y sus rutas (`concert_edit_view`/`concert_update`) se **retiraron** (concierto 100%
   inline). Clases en `styles.css`. **Las 4 fichas ya comparten el patrón** (concierto/artista/álbum/
-  canción): cabecera `ficha-hero` + `ficha-tabs`/`ficha-tabpane` + secciones inline. Canción/álbum/
-  artista usan **`static/js/ficha_inline.js`** (toggle inline genérico por sección: `[data-edit-toggle]`/
-  `[data-edit-cancel]`; `viewFor` soporta `.ficha-section` y el patrón "zona" `[data-inline-zone]` con
-  vista `[data-section-view]` + form `[data-section-form]`). En canción/álbum, el "Editar" de Información
-  (antes `?edit=1` con recarga) es ahora inline. El concierto usa su propio `concert_form.js` (toggle
-  duplicado a propósito por aislamiento; unificable a futuro).
+  canción): cabecera `ficha-hero` + `ficha-tabs`/`ficha-tabpane` + secciones inline (incluidas las
+  pestañas económicas: las de modal/solo-lectura enmarcadas en `.ficha-section`; las de tabla siempre
+  editable —p. ej. Contratos del artista— con vista consolidada + Editar). El **toggle inline es
+  `static/js/ficha_inline.js`** (GLOBAL en `layout.html`, compartido por las 4 fichas): `[data-edit-toggle]`/
+  `[data-edit-cancel]`; `viewFor` resuelve la vista por `data-view` (selector explícito, p. ej. el "Datos"
+  del concierto → `[data-datos-view]`), por `.ficha-section`→`[data-section-view]`, o por zona
+  `[data-inline-zone]`→`[data-section-view]`; al mostrar emite el evento **`ficha:shown`**. `concert_form.js`
+  ya NO duplica el toggle: solo aporta lo específico del concierto (filas dinámicas + init de datos/secciones,
+  reaccionando a `ficha:shown`). En canción/álbum, el "Editar" de Información (antes `?edit=1` con recarga) es
+  inline.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

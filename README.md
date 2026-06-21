@@ -561,7 +561,9 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
   - Los formularios de caché usan una estructura **alineada** (un único input por cada campo del
     backend), que corrige el desajuste de arrays del formulario monolítico con cachés variables/múltiples.
   - Colaboradores y comisionistas solo se muestran si el tipo de actividad **no es VENDIDO**.
-  - La página de edición completa (`concert_edit.html`) se mantiene como respaldo temporal.
+  - La página de edición monolítica `concert_edit.html` y sus rutas (`concert_edit_view`/`concert_update`)
+    se han **retirado**: el concierto se edita 100% inline. Los botones "Editar" de la lista de conciertos
+    y de ventas (`sales_update`) abren ahora la **ficha** (`concert_detail_view`).
 
 ---
 

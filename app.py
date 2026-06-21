@@ -17514,202 +17514,6 @@ def concert_payment_mark_collected(cid, payment_idx):
     return redirect(safe_next_or(url_for('concerts_view', tab='facturacion')))
 
 
-# ---------- EDITAR (vista dedicada) ----------
-@app.get("/conciertos/<cid>/editar", endpoint="concert_edit_view")
-@admin_required
-def concert_edit_view(cid):
-    if not (is_master() or can_edit_concerts()):
-        return forbid("Tu usuario no tiene permisos para editar conciertos.")
-    session = db()
-    try:
-        c = (
-            session.query(Concert)
-            .options(
-                joinedload(Concert.artist),
-                joinedload(Concert.venue),
-                joinedload(Concert.promoter),
-                joinedload(Concert.group_company),
-                joinedload(Concert.billing_company),
-                selectinload(Concert.promoter_shares).joinedload(ConcertPromoterShare.promoter),
-                selectinload(Concert.company_shares).joinedload(ConcertCompanyShare.company),
-                selectinload(Concert.zone_agents).joinedload(ConcertZoneAgent.promoter),
-                selectinload(Concert.caches),
-                selectinload(Concert.contracts),
-                selectinload(Concert.notes),
-                selectinload(Concert.equipment),
-                selectinload(Concert.equipment_documents),
-                selectinload(Concert.equipment_notes),
-            )
-            .filter(Concert.id == to_uuid(cid))
-            .first()
-        )
-        if not c:
-            flash("Concierto no encontrado.", "warning")
-            return redirect(url_for("concerts_view", tab="vista"))
-
-        setattr(c, "tags_clean", _concert_tags(c))
-        setattr(c, "sale_type_label", _sale_type_label(c.sale_type))
-
-        artists = session.query(Artist).order_by(Artist.name.asc()).all()
-        venues = session.query(Venue).order_by(Venue.name.asc()).all()
-        promoters = session.query(Promoter).order_by(Promoter.nick.asc()).all()
-        companies = session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-        all_concert_tags = _collect_all_concert_tags(session)
-        type_choices = [(k, CONCERT_SALE_TYPE_LABELS.get(k, k)) for k in CONCERTS_SECTION_ORDER]
-
-        return render_template(
-            "concert_edit.html",
-            concert=c,
-            c=c,
-            artists=artists,
-            venues=venues,
-            promoters=promoters,
-            companies=companies,
-            all_concert_tags=all_concert_tags,
-            type_choices=type_choices,
-        )
-
-    finally:
-        session.close()
-
-
-# ---------- ACTUALIZAR ----------
-@app.post("/conciertos/<cid>/update", endpoint="concert_update")
-@admin_required
-def concert_update_handler(cid):
-    session = db()
-    c = session.get(Concert, to_uuid(cid))
-    if not c:
-        flash("Concierto no encontrado.", "warning")
-        session.close()
-        return redirect(url_for("concerts_view", tab="vista"))
-
-    try:
-        sale_type = (request.form.get("sale_type") or c.sale_type or "EMPRESA").strip().upper()
-        if sale_type not in CONCERT_SALE_TYPES_ALL_SET:
-            sale_type = "EMPRESA"
-
-        venue_raw = (request.form.get("venue_id") or "").strip()
-        if not venue_raw:
-            raise ValueError("Debes seleccionar un recinto de la lista (o crearlo desde el botón +).")
-
-        c.date = parse_date(request.form["date"])
-        c.festival_name = (request.form.get("festival_name") or "").strip() or None
-        c.venue_id = to_uuid(venue_raw)
-        c.sale_type = sale_type
-        c.artist_id = to_uuid(request.form["artist_id"])
-        c.billing_company_id = to_uuid(request.form.get("billing_company_id") or None)
-        requested_capacity = max(0, int(request.form.get("capacity") or 0))
-        previous_effective_capacity = _concert_capacity_from_ticket_types(c)
-        c.capacity = requested_capacity
-        c.sale_start_date = parse_concert_sale_start_date(request.form.get("sale_start_date"), sale_type)
-        c.break_even_ticket = None if sale_type in ("VENDIDO", "GRATUITO") else _parse_optional_positive_int((request.form.get("break_even_ticket") or "").strip())
-        c.status = _norm_status(request.form.get("status"))
-        c.group_company_id = None
-        c.promoter_id = to_uuid(request.form.get("promoter_id") or None) if sale_type in ("VENDIDO", "GRATUITO", "GIRAS_COMPRADAS") else None
-        c.hashtags = _dedupe_concert_tags(request.form.getlist("concert_tags[]"))
-
-        if sale_type != "VENDIDO":
-            p_rows = _parse_share_rows(
-                request.form.getlist("promoter_share_id[]"),
-                request.form.getlist("promoter_share_pct[]"),
-                request.form.getlist("promoter_share_pct_base[]"),
-                request.form.getlist("promoter_share_amount[]"),
-                request.form.getlist("promoter_share_amount_base[]"),
-            )
-            _replace_concert_promoter_shares(session, c.id, p_rows)
-
-            g_rows = _parse_share_rows(
-                request.form.getlist("company_share_id[]"),
-                request.form.getlist("company_share_pct[]"),
-                request.form.getlist("company_share_pct_base[]"),
-                request.form.getlist("company_share_amount[]"),
-                request.form.getlist("company_share_amount_base[]"),
-            )
-            _replace_concert_company_shares(session, c.id, g_rows)
-
-            z_rows = _parse_zone_rows(
-                request.form.getlist("zone_promoter_id[]"),
-                request.form.getlist("zone_commission_mode[]"),
-                request.form.getlist("zone_commission_pct[]"),
-                request.form.getlist("zone_commission_base[]"),
-                request.form.getlist("zone_commission_amount[]"),
-                request.form.getlist("zone_exempt_amount[]"),
-                request.form.getlist("zone_concept[]"),
-            )
-            _replace_concert_zone_agents(session, c.id, z_rows)
-        else:
-            _replace_concert_promoter_shares(session, c.id, [])
-            _replace_concert_company_shares(session, c.id, [])
-            _replace_concert_zone_agents(session, c.id, [])
-
-        cache_rows = _parse_cache_rows(
-            request.form.getlist("cache_kind[]"),
-            request.form.getlist("cache_concept[]"),
-            request.form.getlist("cache_amount[]"),
-            request.form.getlist("cache_var_mode[]"),
-            request.form.getlist("cache_var_option[]"),
-            request.form.getlist("cache_from_ticket[]"),
-            request.form.getlist("cache_min_tickets[]"),
-            request.form.getlist("cache_min_revenue[]"),
-            request.form.getlist("cache_pct[]"),
-            request.form.getlist("cache_pct_base[]"),
-            request.form.getlist("cache_ticket_type[]"),
-        )
-        _replace_concert_caches(session, c.id, cache_rows)
-
-        _add_contracts_from_request(session, c.id)
-        _add_concert_notes_from_request(session, c.id)
-        _upsert_equipment_from_request(session, c.id)
-        _add_equipment_docs_from_request(session, c.id)
-        _add_equipment_notes_from_request(session, c.id)
-
-        if requested_capacity != previous_effective_capacity:
-            _sync_concert_capacity_after_manual_edit(session, c.id, requested_capacity)
-
-        artwork_resend = False
-        artwork_row = getattr(c, 'artwork_request', None)
-
-        session.flush()
-        try:
-            session.expire(c, ['venue'])
-        except Exception:
-            pass
-        if artwork_row and (getattr(artwork_row, 'handled_by', None) or 'OURS').strip().upper() == 'OURS':
-            if _artwork_request_has_event_changes(artwork_row, c):
-                _archive_current_artwork_assets(artwork_row)
-                now = datetime.now(ZoneInfo('Europe/Madrid'))
-                artwork_row.status = 'REQUESTED'
-                artwork_row.requested_at = now
-                artwork_row.updated_at = now
-                artwork_row.needs_refresh = False
-                artwork_row.event_snapshot = _concert_artwork_snapshot(c)
-                artwork_resend = True
-            else:
-                _sync_artwork_request_refresh_flag(c)
-        else:
-            _sync_artwork_request_refresh_flag(c)
-
-        session.commit()
-        if artwork_resend and artwork_row:
-            ok, error = _send_artwork_request_email(c, artwork_row, is_update=True)
-            if ok:
-                flash('Concierto actualizado. Se ha reenviado la solicitud de cartelería por cambios en fecha/recinto/horarios.', 'success')
-            else:
-                flash(f'Concierto actualizado, pero no se pudo reenviar la solicitud de cartelería: {error}', 'warning')
-        else:
-            flash("Concierto actualizado.", "success")
-
-    except Exception as e:
-        session.rollback()
-        flash(f"Error actualizando: {e}", "danger")
-
-    finally:
-        session.close()
-
-    return redirect(url_for("concert_detail_view", cid=cid))
-
-
 @app.post("/conciertos/<cid>/seccion/<section>", endpoint="concert_section_update")
 @admin_required
 def concert_section_update_handler(cid, section):
@@ -18312,7 +18116,7 @@ def concert_note_delete(nid=None, cid=None, note_id=None):
 @admin_required
 def concert_equipment_doc_delete(cid, did):
     session = db()
-    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_detail_view", cid=cid, tab="general")
     try:
         d = session.get(ConcertEquipmentDocument, to_uuid(did))
         if d:
@@ -18332,7 +18136,7 @@ def concert_equipment_doc_delete(cid, did):
 @admin_required
 def concert_equipment_note_delete(cid, nid=None, note_id=None):
     session = db()
-    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_detail_view", cid=cid, tab="general")
     try:
         target_id = nid or note_id
         n = session.get(ConcertEquipmentNote, to_uuid(target_id)) if target_id else None
@@ -18352,7 +18156,7 @@ def concert_equipment_note_delete(cid, nid=None, note_id=None):
 @admin_required
 def concert_contract_delete(cid, ctid):
     session = db()
-    next_url = (request.form.get("next") or "").strip() or url_for("concert_edit_view", cid=cid)
+    next_url = (request.form.get("next") or "").strip() or url_for("concert_detail_view", cid=cid, tab="general")
     try:
         ct = session.get(ConcertContract, to_uuid(ctid))
         if ct:

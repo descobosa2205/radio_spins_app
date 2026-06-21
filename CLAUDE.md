@@ -93,8 +93,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   delegación: `[data-add-row]`/`[data-rows]`/`[data-remove-row]`; catálogos vía `window.CONCERT_FORM`;
   filas existentes rehidratadas desde placeholders `<script type="application/json" data-row-type>`).
   Secciones que **reemplazan** al guardar: colaboradores/comisionistas/cachés; que **añaden** (con
-  borrado individual inline en la vista): equipamiento/contratos/notas. `concert_edit.html` queda como
-  respaldo. Clases en `styles.css`. Falta replicar el inline por sección a canción/álbum/artista.
+  borrado individual inline en la vista): equipamiento/contratos/notas. La página monolítica
+  `concert_edit.html` y sus rutas (`concert_edit_view`/`concert_update`) se **retiraron** (concierto 100%
+  inline). Clases en `styles.css`. Falta replicar el inline por sección a canción/álbum/artista.
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

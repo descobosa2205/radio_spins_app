@@ -35422,6 +35422,40 @@ def invitation_ticket_update(ticket_id):
         session_db.close()
 
 
+@app.post('/invitaciones/tickets/<ticket_id>/mover-categoria', endpoint='invitation_ticket_move_category')
+@admin_required
+def invitation_ticket_move_category(ticket_id):
+    """Mueve una entrada a otra categoría del mismo evento. Si estaba asignada, se libera
+    (la asignación pertenecía a la categoría anterior) y queda disponible en la nueva."""
+    session_db = db()
+    try:
+        ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
+        if not ticket:
+            abort(404)
+        cid = ticket.concert_id
+        new_cat = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
+        if not new_cat or new_cat.concert_id != ticket.concert_id:
+            raise ValueError('Categoría destino no válida.')
+        if new_cat.id != ticket.category_id:
+            ticket.category_id = new_cat.id
+            ticket.is_numbered = (new_cat.ticket_kind or '').upper() == 'PDF_NUMBERED'
+            if (ticket.status or '') != 'AVAILABLE':
+                ticket.status = 'AVAILABLE'
+                ticket.assigned_request_id = None
+                ticket.assigned_commitment_id = None
+                ticket.assigned_label = None
+            ticket.updated_at = _now_madrid()
+            session_db.commit()
+            flash(f'Entrada movida a «{new_cat.name}».', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo mover la entrada: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/tickets/<ticket_id>/eliminar', endpoint='invitation_ticket_delete')
 @admin_required
 def invitation_ticket_delete(ticket_id):

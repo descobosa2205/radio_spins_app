@@ -2143,7 +2143,7 @@ class InvitationTicket(Base):
 
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="CASCADE"), nullable=False)
-    category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_categories.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_categories.id", ondelete="CASCADE"), nullable=True)
     ticket_code = Column(Text)
     pdf_url = Column(Text, nullable=False)
     pdf_name = Column(Text)
@@ -4880,6 +4880,7 @@ def ensure_invitation_schema():
         "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_concert_category ON invitation_tickets(concert_id, category_id, status);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_assigned_request ON invitation_tickets(assigned_request_id);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_sha ON invitation_tickets(pdf_sha256);",
+        "ALTER TABLE invitation_tickets ALTER COLUMN category_id DROP NOT NULL;",
         """
         INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
         VALUES

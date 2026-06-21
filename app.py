@@ -34647,6 +34647,7 @@ def invitation_event_detail(concert_id):
         tickets_by_category = {str(c.id): [] for c in categories}
         for item in tickets:
             tickets_by_category.setdefault(str(item['category_id']), []).append(item)
+        uncategorized_tickets = tickets_by_category.get('None', [])
         ticket_groups_by_category = {
             cid: _invitation_ticket_groups(rows)
             for cid, rows in tickets_by_category.items()
@@ -34670,6 +34671,7 @@ def invitation_event_detail(concert_id):
             links=links,
             tickets=tickets,
             tickets_by_category=tickets_by_category,
+            uncategorized_tickets=uncategorized_tickets,
             ticket_groups_by_category=ticket_groups_by_category,
             pending_assignments=pending_assignments,
             current_user_invitation={
@@ -35358,20 +35360,27 @@ def invitation_tickets_upload(concert_id):
         if not concert:
             abort(404)
         _ensure_can_manage_invitations(session_db, concert)
-        category = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
-        if not category or category.concert_id != concert.id:
+        cat_id_raw = (request.form.get('category_id') or '').strip()
+        category = session_db.get(InvitationCategory, to_uuid(cat_id_raw)) if cat_id_raw else None
+        if cat_id_raw and (not category or category.concert_id != concert.id):
             raise ValueError('Categoría no válida.')
-        ticket_kind, guest_mode = _invitation_parse_ticket_kind_and_guest_mode(
-            request.form.get('ticket_kind'),
-            category.ticket_kind or 'PDF_UNNUMBERED',
-            request.form.get('guest_list_mode') or category.guest_list_mode or 'BOX_OFFICE',
-        )
-        category.ticket_kind = ticket_kind
-        category.guest_list_mode = guest_mode
-        if ticket_kind == 'GUEST_LIST':
-            session_db.commit()
-            flash('Categoría configurada como listado de invitados.', 'success')
-            return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
+        if category is not None:
+            ticket_kind, guest_mode = _invitation_parse_ticket_kind_and_guest_mode(
+                request.form.get('ticket_kind'),
+                category.ticket_kind or 'PDF_UNNUMBERED',
+                request.form.get('guest_list_mode') or category.guest_list_mode or 'BOX_OFFICE',
+            )
+            category.ticket_kind = ticket_kind
+            category.guest_list_mode = guest_mode
+            if ticket_kind == 'GUEST_LIST':
+                session_db.commit()
+                flash('Categoría configurada como listado de invitados.', 'success')
+                return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
+        else:
+            # Subida "sin clasificar": entra sin categoría y luego se mueve a una concreta.
+            ticket_kind, _gm = _invitation_parse_ticket_kind_and_guest_mode(request.form.get('ticket_kind'), 'PDF_UNNUMBERED', None)
+            if ticket_kind == 'GUEST_LIST':
+                ticket_kind = 'PDF_UNNUMBERED'
         is_numbered = ticket_kind == 'PDF_NUMBERED' or _truthy(request.form.get('is_numbered'))
         files = request.files.getlist('tickets[]') or request.files.getlist('files[]')
         if not files:
@@ -35380,7 +35389,7 @@ def invitation_tickets_upload(concert_id):
         created = 0
         seen_codes = set()   # evita duplicados dentro del mismo lote (códigos)
         seen_shas = set()    # evita duplicados dentro del mismo lote (páginas idénticas)
-        folder = f'invitaciones/{concert.id}/{category.id}'
+        folder = f'invitaciones/{concert.id}/{category.id if category else "sin-categoria"}'
         for idx, file in enumerate(files):
             if not file or not getattr(file, 'filename', ''):
                 continue
@@ -35441,7 +35450,7 @@ def invitation_tickets_upload(concert_id):
                     seat_val = (request.form.get(f'seat_{idx}') or meta_seat or '').strip() or None
                 ticket = InvitationTicket(
                     concert_id=concert.id,
-                    category_id=category.id,
+                    category_id=(category.id if category else None),
                     ticket_code=code,
                     pdf_url=url,
                     pdf_name=(f'{stem}.pdf' if multi else fname),
@@ -35455,7 +35464,8 @@ def invitation_tickets_upload(concert_id):
                 )
                 session_db.add(ticket)
                 created += 1
-        category.updated_at = _now_madrid()
+        if category is not None:
+            category.updated_at = _now_madrid()
         session_db.commit()
         if created:
             flash(f'{created} invitaciones subidas.', 'success')

@@ -2900,6 +2900,46 @@ def ensure_discografica_schema():
         conn.exec_driver_sql(stmt)
 
 
+def ensure_song_delivery_schema():
+    """Esquema de la entrega de masters (tabla + columnas nuevas).
+
+    Robusto: cada statement va en su propia transacción para que, si uno falla
+    (BD ocupada, etc.), no aborte los demás. Idempotente.
+    """
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS song_master_delivery_links (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            sections_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            materials_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            data jsonb NOT NULL DEFAULT '{}'::jsonb,
+            requested_by_user_id uuid,
+            requested_by_nick text,
+            target_name text,
+            target_email text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            submitted_at timestamptz,
+            cancelled_at timestamptz
+        );
+        """,
+        "ALTER TABLE song_master_delivery_links ADD COLUMN IF NOT EXISTS materials_json jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_song_master_delivery_song ON song_master_delivery_links(song_id, status);",
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS validation_status text NOT NULL DEFAULT 'VALIDATED';",
+        "ALTER TABLE song_materials ADD COLUMN IF NOT EXISTS delivery_link_id uuid;",
+    ]
+    for _s in stmts:
+        try:
+            with engine.begin() as conn:
+                conn.exec_driver_sql(_s)
+        except Exception as e:
+            print(f"[schema] ensure_song_delivery_schema aviso: {e}")
+
+
 def ensure_isrc_and_song_detail_schema():
     """Asegura el esquema necesario para:
 

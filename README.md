@@ -714,6 +714,10 @@ pendiente → aviso en el inicio de Registros → validación/consolidación en 
   un popup (nombre, apellidos, editorial con búsqueda + creación). Endpoints públicos **ligados al token**
   del enlace (`public_song_delivery_authors` / `_publishers` / `_create_author`), así solo quien tiene un
   enlace activo puede buscar/crear.
+- **Fix de despliegue (esquema)**: el esquema de la entrega (`song_master_delivery_links` + columnas
+  `materials_json` / `validation_status` / `delivery_link_id`) se crea ahora en un
+  **`ensure_song_delivery_schema`** dedicado y **robusto** (cada sentencia en su propia transacción, sin
+  depender de `create_all`), para que el arranque en Render aplique siempre la tabla y las columnas nuevas.
 
 ---
 

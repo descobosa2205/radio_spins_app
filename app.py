@@ -86,10 +86,11 @@ except Exception:
     pycountry = None
 
 try:
-    from pypdf import PdfReader
+    from pypdf import PdfReader, PdfWriter
     PYPDF_AVAILABLE = True
 except Exception:
     PdfReader = None
+    PdfWriter = None
     PYPDF_AVAILABLE = False
 
 from config import settings
@@ -33326,6 +33327,32 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
     return out
 
 
+def _invitation_split_pdf_pages(data: bytes) -> list[bytes]:
+    """Divide un PDF en una lista de PDFs de una sola página (bytes), una entrada por página.
+
+    Si pypdf no está disponible, el PDF tiene una sola página o no se puede leer/dividir, devuelve
+    `[data]` (se trata como una única entrada, comportamiento previo)."""
+    if not data:
+        return []
+    if not PYPDF_AVAILABLE or PdfReader is None or PdfWriter is None:
+        return [data]
+    try:
+        reader = PdfReader(BytesIO(data))
+        pages = list(reader.pages)
+        if len(pages) <= 1:
+            return [data]
+        blobs = []
+        for page in pages:
+            writer = PdfWriter()
+            writer.add_page(page)
+            buf = BytesIO()
+            writer.write(buf)
+            blobs.append(buf.getvalue())
+        return blobs
+    except Exception:
+        return [data]
+
+
 def _invitation_extract_pdf_text_from_bytes(data: bytes) -> str:
     if not data or not PYPDF_AVAILABLE or PdfReader is None:
         return ""
@@ -35168,50 +35195,83 @@ def invitation_tickets_upload(concert_id):
             raise ValueError('No se han seleccionado PDFs.')
         errors = []
         created = 0
+        seen_codes = set()   # evita duplicados dentro del mismo lote (códigos)
+        seen_shas = set()    # evita duplicados dentro del mismo lote (páginas idénticas)
+        folder = f'invitaciones/{concert.id}/{category.id}'
         for idx, file in enumerate(files):
             if not file or not getattr(file, 'filename', ''):
                 continue
             fname = (file.filename or f'invitacion_{idx+1}.pdf').strip()
-            data = file.read()
+            if not fname.lower().endswith('.pdf'):
+                errors.append(f'{fname}: solo se admiten PDFs')
+                continue
+            raw = file.read()
             try:
                 file.stream.seek(0)
             except Exception:
                 pass
-            sha = hashlib.sha256(data).hexdigest()
-            meta = _invitation_extract_ticket_metadata(data, fname) if is_numbered else {}
-            code = (
-                request.form.get(f'ticket_code_{idx}')
-                or meta.get('ticket_code')
-                or Path(fname).stem
-                or sha[:16]
-            ).strip()
-            if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.ticket_code == code).first():
-                errors.append(f'{fname}: código duplicado ({code})')
-                continue
-            if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == sha).first():
-                errors.append(f'{fname}: PDF ya subido')
-                continue
-            try:
-                file.stream = BytesIO(data)
-            except Exception:
-                pass
-            url = upload_file(file, f'invitaciones/{concert.id}/{category.id}', allowed_extensions={'.pdf'})
-            ticket = InvitationTicket(
-                concert_id=concert.id,
-                category_id=category.id,
-                ticket_code=code,
-                pdf_url=url,
-                pdf_name=fname,
-                pdf_sha256=sha,
-                is_numbered=is_numbered,
-                sector=(request.form.get(f'sector_{idx}') or request.form.get('sector') or meta.get('sector') or '').strip() or None,
-                row_label=(request.form.get(f'row_{idx}') or request.form.get('row_label') or meta.get('row_label') or '').strip() or None,
-                seat_number=(request.form.get(f'seat_{idx}') or meta.get('seat_number') or '').strip() or None,
-                uploaded_by_user_id=_safe_uuid(session.get('user_id')),
-                uploaded_by_nick=_current_user_email(),
-            )
-            session_db.add(ticket)
-            created += 1
+            stem = Path(fname).stem or f'invitacion_{idx+1}'
+            # Un PDF puede traer varias entradas: lo dividimos en una entrada por página.
+            page_blobs = _invitation_split_pdf_pages(raw)
+            multi = len(page_blobs) > 1
+            form_code_single = (request.form.get(f'ticket_code_{idx}') or '').strip()
+            for pidx, page_bytes in enumerate(page_blobs):
+                page_sha = hashlib.sha256(page_bytes).hexdigest()
+                page_label = f'{stem} (pág. {pidx + 1})' if multi else stem
+                meta = _invitation_extract_ticket_metadata(page_bytes, f'{stem}-p{pidx + 1}.pdf')
+                if not multi and form_code_single:
+                    code = form_code_single
+                else:
+                    code = (meta.get('ticket_code') or f'{stem}-p{pidx + 1}' or page_sha[:16]).strip()
+                code = code[:120]
+                # Duplicados: por código o por contenido (SHA de la página). Se salta la duplicada
+                # e informa cuál, pero el resto del PDF que no esté duplicado sí se sube.
+                if page_sha in seen_shas:
+                    errors.append(f'{page_label}: entrada duplicada en esta subida')
+                    continue
+                if code in seen_codes:
+                    errors.append(f'{page_label}: código duplicado ({code})')
+                    continue
+                if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.ticket_code == code).first():
+                    errors.append(f'{page_label}: código duplicado ({code})')
+                    continue
+                if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == page_sha).first():
+                    errors.append(f'{page_label}: entrada ya subida')
+                    continue
+                try:
+                    url = upload_pdf_bytes(page_bytes, folder)
+                except Exception as up_exc:
+                    errors.append(f'{page_label}: no se pudo subir ({up_exc})')
+                    continue
+                seen_codes.add(code)
+                seen_shas.add(page_sha)
+                meta_sector = meta.get('sector') if is_numbered else None
+                meta_row = meta.get('row_label') if is_numbered else None
+                meta_seat = meta.get('seat_number') if is_numbered else None
+                if multi:
+                    sector_val = (request.form.get('sector') or meta_sector or '').strip() or None
+                    row_val = (request.form.get('row_label') or meta_row or '').strip() or None
+                    seat_val = (meta_seat or '').strip() or None
+                else:
+                    sector_val = (request.form.get(f'sector_{idx}') or request.form.get('sector') or meta_sector or '').strip() or None
+                    row_val = (request.form.get(f'row_{idx}') or request.form.get('row_label') or meta_row or '').strip() or None
+                    seat_val = (request.form.get(f'seat_{idx}') or meta_seat or '').strip() or None
+                ticket = InvitationTicket(
+                    concert_id=concert.id,
+                    category_id=category.id,
+                    ticket_code=code,
+                    pdf_url=url,
+                    pdf_name=(f'{stem}.pdf' if multi else fname),
+                    pdf_sha256=page_sha,
+                    is_numbered=is_numbered,
+                    sector=sector_val,
+                    row_label=row_val,
+                    seat_number=seat_val,
+                    uploaded_by_user_id=_safe_uuid(session.get('user_id')),
+                    uploaded_by_nick=_current_user_email(),
+                )
+                session_db.add(ticket)
+                created += 1
         category.updated_at = _now_madrid()
         session_db.commit()
         if created:

@@ -9,6 +9,9 @@
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
 </style>
 
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('artists_view') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+</div>
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ artist.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
   <div class="ficha-hero__body">
@@ -28,7 +31,6 @@
     </div>
   </div>
   <div class="ficha-hero__actions">
-    <a class="btn btn-outline-secondary" href="{{ url_for('artists_view') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     {% if CAN_EDIT_ARTISTS_STATIONS %}<span class="badge text-bg-primary align-self-center">Edición</span>{% else %}<span class="badge text-bg-secondary align-self-center">Lectura</span>{% endif %}
   </div>
 </div>

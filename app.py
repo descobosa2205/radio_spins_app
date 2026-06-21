@@ -11619,6 +11619,7 @@ def discografica_song_detail(song_id):
             .join(Play, Play.station_id == RadioStation.id)
             .filter(Play.song_id == s.id)
             .group_by(RadioStation.id, RadioStation.name, RadioStation.logo_url, RadioStation.country_code, RadioStation.country_name)
+            .having(func.coalesce(func.sum(Play.spins), 0) > 0)
             .order_by(text("total_spins DESC"), RadioStation.name.asc())
             .all()
         )

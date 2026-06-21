@@ -34,11 +34,21 @@
     return null;
   }
 
+  // Elementos que solo deben verse en modo edición de un form concreto: [data-edit-only="#formId"].
+  // (p. ej. el botón "Eliminar" de canción/álbum, que aparece solo al editar la Información.)
+  function setEditOnly(form, visible) {
+    if (!form || !form.id) return;
+    document.querySelectorAll('[data-edit-only="#' + form.id + '"]').forEach(function (el) {
+      el.classList.toggle('d-none', !visible);
+    });
+  }
+
   function show(form) {
     if (!form) return;
     form.classList.remove('d-none');
     var v = viewFor(form);
     if (v) v.classList.add('d-none');
+    setEditOnly(form, true);
     try { if (window.initSelect2) window.initSelect2(); } catch (e) {}
     // Aviso para inicializadores específicos de cada ficha (p. ej. concert_form.js: sale_type+tags,
     // rehidratación de filas). Quien lo necesite escucha "ficha:shown".
@@ -51,6 +61,7 @@
     form.classList.add('d-none');
     var v = viewFor(form);
     if (v) v.classList.remove('d-none');
+    setEditOnly(form, false);
   }
 
   document.addEventListener('click', function (e) {

@@ -1,5 +1,8 @@
 {% extends "layout.html" %}
 {% block content %}
+<div class="mb-2">
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
+</div>
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ (concert.artist.photo_url if concert.artist else None) or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1">
   <div class="ficha-hero__body">
@@ -22,7 +25,6 @@
     {% endif %}
   </div>
   <div class="ficha-hero__actions">
-    <a class="btn btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
     {% if CAN_EDIT_CONCERTS %}
       <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#requestContractSheetModal"><i class="fa fa-file-signature me-1"></i>Solicitar ficha</button>
     {% endif %}

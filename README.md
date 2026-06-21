@@ -582,6 +582,27 @@ Se hace por incrementos, validando y subiendo cada uno. Empezando por **conciert
     en solo lectura** + botón *Editar* que despliega la tabla editable (zona inline por contrato), con
     *Cerrar edición*. Los formularios por fila y la lógica de %/base/beneficio quedan intactos.
 
+### Fichas — pulido de UI (cabeceras, notas aclaratorias y desglose de radio)
+
+Ajustes de interfaz sobre las fichas de detalle (solo plantillas + un filtro de consulta; **sin tocar
+lógica económica**). Verificado: `py_compile`, pyflakes (sin nombres indefinidos), parseo Jinja de las
+plantillas y `esprima` del JS.
+
+- **Botón "Volver" fuera de la cabecera**: en las 4 fichas (canción, álbum, artista, concierto) el
+  enlace *Volver* sale de `.ficha-hero__actions` y pasa a una barra propia **encima** del hero.
+- **"Eliminar canción/álbum" solo en modo edición**: el borrado deja de estar siempre visible en la
+  cabecera; ahora aparece al pulsar *Editar* (Información) y se oculta al *Cancelar* o *Guardar*.
+  Implementado con un atributo declarativo nuevo y reutilizable **`data-edit-only="#formId"`** en
+  `static/js/ficha_inline.js` (en `show()` muestra esos elementos, en `hide()` los oculta). El form de
+  borrado vive **dentro** de la zona inline, así al guardar (que reemplaza la zona) vuelve a ocultarse.
+- **Notas aclaratorias eliminadas** (canción y álbum): los subtítulos `text-muted` meramente
+  descriptivos — Información (*"Vista por defecto…"* / *"Ficha general del álbum…"*), Certificaciones
+  (*"Reconocimientos … por tipo y país."*) y Radio (*"Resumen total de tocadas…"* y *"Ordenadas de la
+  que más…"*). Continúa la línea de "Limpieza de subtítulos descriptivos".
+- **Desglose por emisoras (canción/Radio)**: solo se listan las emisoras **con tocadas** (`HAVING
+  sum(spins) > 0` en la consulta de `radio_station_rows`, `app.py`), **ordenadas de más a menos**
+  tocadas (el `ORDER BY total_spins DESC` ya existía). Las emisoras con 0 dejan de aparecer.
+
 ---
 
 ## 9. Pendientes y auditoría

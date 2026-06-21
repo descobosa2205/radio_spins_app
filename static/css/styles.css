@@ -810,6 +810,9 @@ img[data-default-photo="1"]{
 .assignment-source-list { display: flex; flex-direction: column; gap: .6rem; max-height: 60vh; overflow: auto; }
 .assignment-source { border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }
 .assignment-source.is-selected, .assignment-source:hover { border-color: #e83b4b; box-shadow: 0 0 0 .16rem rgba(232,59,75,.1); }
+.assignment-source.is-active { border-color: #e83b4b; box-shadow: 0 0 0 .2rem rgba(232,59,75,.18); }
+.assignment-source--done { opacity: .55; border-color: #16803a; }
+.invitation-remaining { min-height: 1.2rem; }
 .assignment-drop-zone { min-height: 260px; border: 1px dashed #cfd6df; border-radius: 1rem; padding: .9rem; background: #fafbfc; }
 .assignment-unnumbered-pool { display: flex; flex-wrap: wrap; gap: .45rem; }
 .assignment-result-list .alert { border-radius: .8rem; }

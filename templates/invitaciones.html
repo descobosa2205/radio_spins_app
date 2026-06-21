@@ -574,7 +574,14 @@
                 </div>
               </div>
               <div class="col-12 col-lg-8">
-                <div class="d-flex justify-content-between align-items-center mb-2"><h6 class="mb-0">Disponibles</h6><span class="badge text-bg-success" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span></div>
+                <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                  <h6 class="mb-0">Disponibles</h6>
+                  <div class="d-flex gap-2 align-items-center">
+                    {% if cat.ticket_kind not in ['PDF_NUMBERED', 'GUEST_LIST'] %}<button type="button" class="btn btn-sm btn-outline-danger" data-auto-all><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar a todos</button>{% endif %}
+                    <span class="badge text-bg-success" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span>
+                  </div>
+                </div>
+                <div class="small mb-2 invitation-remaining" data-remaining-indicator>{% if cat.ticket_kind != 'GUEST_LIST' %}<span class="text-muted">Selecciona un invitado a la izquierda y luego pincha las butacas (o arrástralo al mapa).</span>{% endif %}</div>
                 <div class="assignment-drop-zone" data-drop-zone>
                   {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                     {% for sector in ticket_groups_by_category.get(cat.id, []) %}
@@ -1005,10 +1012,104 @@
   if(window.location.hash === '#inv-tab-tickets'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
   if(window.location.hash === '#inv-tab-listados'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-listados"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
 
-  document.querySelectorAll('.invitation-assignment-form').forEach(form => { const assignments = []; let currentSource = null; const updateHidden = () => { form.querySelector('[data-assignments-json]').value = JSON.stringify(assignments); form.querySelector('[data-assignment-results]').innerHTML = assignments.map(a => `<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>${a.label || 'Asignación'} · ${a.qty} invitación(es)</div>`).join(''); const available = form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length; form.querySelector('[data-available-counter]').textContent = available; };
-    form.querySelectorAll('.assignment-source').forEach(src => { src.addEventListener('dragstart', ev => { currentSource = src; ev.dataTransfer.setData('text/plain', src.dataset.sourceId); }); src.addEventListener('click', () => { currentSource = src; form.querySelectorAll('.assignment-source').forEach(x=>x.classList.remove('is-selected')); src.classList.add('is-selected'); }); });
-    const assignToPool = () => { if(!currentSource){ alert('Selecciona o arrastra primero una petición/compromiso.'); return; } const qty = parseInt(currentSource.dataset.qty || '0',10); const label = currentSource.querySelector('strong')?.textContent || ''; if((form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST'){ assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: [], label: label}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); return; } const seats = Array.from(form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)')).slice(0, qty); if(seats.length < qty){ alert('No tiene invitaciones suficientes.'); return; } seats.forEach(x=>x.classList.add('is-selected')); assignments.push({source_type: currentSource.dataset.sourceType, source_id: currentSource.dataset.sourceId, category_id: currentSource.dataset.categoryId, qty: qty, ticket_ids: seats.map(x=>x.dataset.ticketId), label: label}); currentSource.classList.add('d-none'); currentSource = null; updateHidden(); };
-    form.querySelector('[data-drop-zone]')?.addEventListener('dragover', ev => ev.preventDefault()); form.querySelector('[data-drop-zone]')?.addEventListener('drop', ev => { ev.preventDefault(); assignToPool(); }); form.querySelector('[data-drop-zone]')?.addEventListener('click', ev => { if(ev.target.closest('[data-ticket-id]')) assignToPool(); }); updateHidden(); });
+  document.querySelectorAll('.invitation-assignment-form').forEach(form => {
+    const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';
+    const assignments = [];          // [{source_type, source_id, category_id, qty, ticket_ids, label}]
+    let activeSource = null;
+    const resultsBox = form.querySelector('[data-assignment-results]');
+    const counterEl = form.querySelector('[data-available-counter]');
+    const remainingEl = form.querySelector('[data-remaining-indicator]');
+    const sources = () => Array.from(form.querySelectorAll('.assignment-source'));
+    const seatEls = () => Array.from(form.querySelectorAll('[data-ticket-id]'));
+    const availableCount = () => form.querySelectorAll('[data-ticket-status="AVAILABLE"]:not(.is-selected)').length;
+    const visibleAssignments = () => assignments.filter(a => a.ticket_ids.length || isGuestList);
+
+    const entryFor = (src) => {
+      let e = assignments.find(a => a.source_id === src.dataset.sourceId && a.source_type === src.dataset.sourceType);
+      if (!e) {
+        const strongEl = src.querySelector('strong');
+        e = { source_type: src.dataset.sourceType, source_id: src.dataset.sourceId, category_id: src.dataset.categoryId, qty: parseInt(src.dataset.qty || '0', 10), ticket_ids: [], label: (strongEl ? strongEl.textContent : '') };
+        assignments.push(e);
+      }
+      return e;
+    };
+
+    const markDone = () => {
+      sources().forEach(src => {
+        const e = assignments.find(a => a.source_id === src.dataset.sourceId && a.source_type === src.dataset.sourceType);
+        const done = isGuestList ? src.classList.contains('assignment-source--done') : !!(e && e.qty > 0 && e.ticket_ids.length >= e.qty);
+        src.classList.toggle('assignment-source--done', done);
+      });
+    };
+
+    const updateRemaining = () => {
+      if (!remainingEl || isGuestList) return;
+      if (!activeSource) { remainingEl.innerHTML = '<span class="text-muted">Selecciona un invitado a la izquierda y luego pincha las butacas (o arrástralo al mapa).</span>'; return; }
+      const e = entryFor(activeSource);
+      const left = Math.max(e.qty - e.ticket_ids.length, 0);
+      remainingEl.innerHTML = left > 0 ? ('Asignando a <strong>' + e.label + '</strong> · faltan <strong>' + left + '</strong>') : ('<strong>' + e.label + '</strong> · completado');
+    };
+
+    const updateHidden = () => {
+      form.querySelector('[data-assignments-json]').value = JSON.stringify(visibleAssignments());
+      if (resultsBox) resultsBox.innerHTML = visibleAssignments().map(a => '<div class="alert alert-warning py-2 mb-2"><i class="fa fa-ticket-alt me-1"></i>' + (a.label || 'Asignación') + ' · ' + (isGuestList ? 'listado' : (a.ticket_ids.length + ' invitación(es)')) + '</div>').join('');
+      if (counterEl && !isGuestList) counterEl.textContent = availableCount();
+      markDone();
+      updateRemaining();
+    };
+
+    const setActive = (src) => {
+      if (isGuestList) {
+        const e = entryFor(src); e.ticket_ids = [];
+        src.classList.add('assignment-source--done');
+        activeSource = null; updateHidden(); return;
+      }
+      activeSource = src;
+      sources().forEach(x => x.classList.toggle('is-active', x === src));
+      updateRemaining();
+    };
+
+    const toggleSeat = (seatEl) => {
+      if (isGuestList) return;
+      if (!activeSource) { alert('Selecciona primero a quién asignar (un invitado o compromiso a la izquierda).'); return; }
+      const e = entryFor(activeSource);
+      const tid = seatEl.dataset.ticketId;
+      const idx = e.ticket_ids.indexOf(tid);
+      if (idx >= 0) { e.ticket_ids.splice(idx, 1); seatEl.classList.remove('is-selected'); updateHidden(); return; }
+      if (seatEl.classList.contains('is-selected')) return;             // ya elegida por otra asignación en curso
+      if ((seatEl.dataset.ticketStatus || '') !== 'AVAILABLE') return;  // ocupada / enviada
+      if (e.ticket_ids.length >= e.qty) { alert('Ya has asignado todas las invitaciones de ' + e.label + '.'); return; }
+      e.ticket_ids.push(tid); seatEl.classList.add('is-selected');
+      updateHidden();
+    };
+
+    const autoFillActive = () => {
+      if (!activeSource || isGuestList) return;
+      const e = entryFor(activeSource);
+      const free = seatEls().filter(s => (s.dataset.ticketStatus === 'AVAILABLE') && !s.classList.contains('is-selected'));
+      free.slice(0, Math.max(e.qty - e.ticket_ids.length, 0)).forEach(s => { e.ticket_ids.push(s.dataset.ticketId); s.classList.add('is-selected'); });
+      updateHidden();
+    };
+
+    sources().forEach(src => {
+      src.addEventListener('dragstart', () => setActive(src));
+      src.addEventListener('click', () => setActive(src));
+    });
+    const zone = form.querySelector('[data-drop-zone]');
+    if (zone) {
+      zone.addEventListener('dragover', ev => ev.preventDefault());
+      zone.addEventListener('drop', ev => { ev.preventDefault(); autoFillActive(); });
+      zone.addEventListener('click', ev => { const seat = ev.target.closest('[data-ticket-id]'); if (seat) toggleSeat(seat); });
+    }
+    const autoAll = form.querySelector('[data-auto-all]');
+    if (autoAll) autoAll.addEventListener('click', () => {
+      sources().forEach(src => { setActive(src); autoFillActive(); });
+      activeSource = null;
+      sources().forEach(x => x.classList.remove('is-active'));
+      updateHidden();
+    });
+    updateHidden();
+  });
 })();
 </script>
 {% endblock %}

@@ -708,7 +708,12 @@ pendiente → aviso en el inicio de Registros → validación/consolidación en 
   artista (+colaboradores) · canción"* y cuerpo con la cabecera de la canción y un botón al formulario.
 - Los materiales recibidos se **añaden** a los existentes (entran como pendientes; no reemplazan).
 
-> Pendiente: autocompletado de autores/editoriales en el formulario público (con creación rápida).
+- **Autocompletado de autores** (formulario público): al escribir el nombre se buscan coincidencias en la
+  base de terceros (con foto y editorial; al elegir se autorrellena la editorial y se guardan
+  `promoter_id`/`publishing_company_id` para no duplicar al consolidar). Opción **"Crear autor nuevo"** en
+  un popup (nombre, apellidos, editorial con búsqueda + creación). Endpoints públicos **ligados al token**
+  del enlace (`public_song_delivery_authors` / `_publishers` / `_create_author`), así solo quien tiene un
+  enlace activo puede buscar/crear.
 
 ---
 

@@ -224,6 +224,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_submit",
     "public_invitation_request_cancel",
     "public_song_master_delivery",
+    "public_song_delivery_create_author",
 }
 
 
@@ -545,7 +546,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author"}
     if request.endpoint in allowed:
         return
 
@@ -13246,6 +13247,100 @@ def discografica_song_delivery_send_email(song_id, link_id):
     return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
 
+def _song_delivery_active_link(session_db, token):
+    return session_db.query(SongMasterDeliveryLink).filter(
+        SongMasterDeliveryLink.token == (token or "").strip(),
+        SongMasterDeliveryLink.status == "ACTIVE",
+    ).first()
+
+
+def _delivery_promoter_label(p):
+    fn = (getattr(p, "first_name", None) or "").strip()
+    ln = (getattr(p, "last_name", None) or "").strip()
+    return (fn + " " + ln).strip() or (getattr(p, "nick", None) or "").strip() or "—"
+
+
+@app.get("/entrega-masters/<token>/api/autores", endpoint="public_song_delivery_authors")
+def public_song_delivery_authors(token):
+    session_db = db()
+    try:
+        if not _song_delivery_active_link(session_db, token):
+            return jsonify([])
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 2:
+            return jsonify([])
+        like = "%" + q + "%"
+        rows = (
+            session_db.query(Promoter)
+            .options(joinedload(Promoter.publishing_company))
+            .filter(or_(Promoter.nick.ilike(like), Promoter.first_name.ilike(like), Promoter.last_name.ilike(like)))
+            .order_by(Promoter.nick.asc()).limit(10).all()
+        )
+        out = []
+        for p in rows:
+            pc = getattr(p, "publishing_company", None)
+            out.append({
+                "id": str(p.id),
+                "name": _delivery_promoter_label(p),
+                "logo_url": (getattr(p, "logo_url", None) or ""),
+                "publishing_company_id": str(p.publishing_company_id) if getattr(p, "publishing_company_id", None) else "",
+                "publishing_company_name": (pc.name if pc else ""),
+            })
+        return jsonify(out)
+    finally:
+        session_db.close()
+
+
+@app.get("/entrega-masters/<token>/api/editoriales", endpoint="public_song_delivery_publishers")
+def public_song_delivery_publishers(token):
+    session_db = db()
+    try:
+        if not _song_delivery_active_link(session_db, token):
+            return jsonify([])
+        q = (request.args.get("q") or "").strip()
+        if len(q) < 2:
+            return jsonify([])
+        rows = session_db.query(PublishingCompany).filter(PublishingCompany.name.ilike("%" + q + "%")).order_by(PublishingCompany.name.asc()).limit(10).all()
+        return jsonify([{"id": str(r.id), "name": r.name, "logo_url": (getattr(r, "logo_url", None) or "")} for r in rows])
+    finally:
+        session_db.close()
+
+
+@app.post("/entrega-masters/<token>/api/crear-autor", endpoint="public_song_delivery_create_author")
+def public_song_delivery_create_author(token):
+    session_db = db()
+    try:
+        if not _song_delivery_active_link(session_db, token):
+            return jsonify({"error": "Enlace no válido"}), 400
+        first = (request.form.get("first_name") or "").strip()
+        last = (request.form.get("last_name") or "").strip()
+        nick = (first + " " + last).strip() or (request.form.get("name") or "").strip()
+        if not nick:
+            return jsonify({"error": "Indica el nombre del autor"}), 400
+        pc = None
+        pc_id = (request.form.get("publishing_company_id") or "").strip()
+        pc_name = (request.form.get("publishing_company_name") or "").strip()
+        if pc_id:
+            pc = session_db.get(PublishingCompany, to_uuid(pc_id))
+        if not pc and pc_name:
+            pc = _delivery_get_or_create_publishing(session_db, pc_name)
+        pr = Promoter(nick=nick, first_name=first or None, last_name=last or None, publishing_company_id=(pc.id if pc else None))
+        session_db.add(pr)
+        session_db.flush()
+        result = {
+            "id": str(pr.id), "name": nick, "logo_url": "",
+            "publishing_company_id": str(pc.id) if pc else "",
+            "publishing_company_name": (pc.name if pc else ""),
+        }
+        session_db.commit()
+        return jsonify(result)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
 @app.route("/entrega-masters/<token>", methods=["GET", "POST"], endpoint="public_song_master_delivery")
 def public_song_master_delivery(token):
     session_db = db()
@@ -13285,6 +13380,8 @@ def public_song_master_delivery(token):
                 editorials = request.form.getlist("author_editorial")
                 roles = request.form.getlist("author_role")
                 pcts = request.form.getlist("author_pct")
+                promoter_ids = request.form.getlist("author_promoter_id")
+                publishing_ids = request.form.getlist("author_publishing_id")
                 authors, total = [], 0.0
                 for i, nm in enumerate(names):
                     nm = (nm or "").strip()
@@ -13295,7 +13392,13 @@ def public_song_master_delivery(token):
                         pct = float((pcts[i] if i < len(pcts) else "0").replace(",", "."))
                     except ValueError:
                         pct = 0.0
-                    authors.append({"name": nm, "editorial": (editorials[i] if i < len(editorials) else "").strip(), "role": role, "pct": pct})
+                    authors.append({
+                        "name": nm,
+                        "editorial": (editorials[i] if i < len(editorials) else "").strip(),
+                        "role": role, "pct": pct,
+                        "promoter_id": (promoter_ids[i] if i < len(promoter_ids) else "").strip(),
+                        "publishing_company_id": (publishing_ids[i] if i < len(publishing_ids) else "").strip(),
+                    })
                     total += pct
                 if not authors:
                     errors.append("Autoral: añade al menos un autor.")
@@ -13521,10 +13624,20 @@ def discografica_song_delivery_consolidate(song_id, link_id):
             flash("Letra consolidada.", "success")
         elif section == "authoral" and data.get("authoral"):
             for a in data["authoral"]:
-                promoter = _delivery_get_or_create_promoter(session_db, a.get("name"))
+                promoter = None
+                pid = (a.get("promoter_id") or "").strip()
+                if pid:
+                    promoter = session_db.get(Promoter, to_uuid(pid))
+                if not promoter:
+                    promoter = _delivery_get_or_create_promoter(session_db, a.get("name"))
                 if not promoter:
                     continue
-                editorial = _delivery_get_or_create_publishing(session_db, a.get("editorial"))
+                editorial = None
+                pcid = (a.get("publishing_company_id") or "").strip()
+                if pcid:
+                    editorial = session_db.get(PublishingCompany, to_uuid(pcid))
+                if not editorial:
+                    editorial = _delivery_get_or_create_publishing(session_db, a.get("editorial"))
                 if editorial and not getattr(promoter, "publishing_company_id", None):
                     promoter.publishing_company_id = editorial.id
                     session_db.add(promoter)

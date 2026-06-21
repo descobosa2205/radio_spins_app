@@ -135,7 +135,9 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   visible con `has_access_key('registros')`) que lista canciones con entregas pendientes y enlaza a la ficha.
   El modal de generar permite elegir **qué materiales** pedir (`materials_json`, módulos desactivables) y
   **enviar el enlace por correo** (`discografica_song_delivery_send_email` + `_send_optional_email`, con
-  buscador `/api/search/promoters`). El hueco de portada **provisional** solo se muestra si existe.
+  buscador `/api/search/promoters`). El hueco de portada **provisional** solo se muestra si existe. El
+  formulario público autocompleta **autores** (con foto + editorial) y permite crearlos vía endpoints
+  ligados al token (`public_song_delivery_authors` / `_publishers` / `_create_author`).
 - **Cambios de estado in-place** (`static/js/ajax_inline.js`): un
   `<form method="post" data-inline data-inline-target="#zonaId">` se envía por fetch (el endpoint NO
   cambia: sigue POST+redirect), se sigue el redirect y se **reemplaza solo la zona** `#zonaId`

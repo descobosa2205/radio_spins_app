@@ -9,6 +9,14 @@
   <style>
     body { background:#f5f6f8; }
     .delivery-cover { width:64px; height:64px; object-fit:cover; border-radius:10px; border:1px solid #e7e9ee; }
+    .ac-wrap { position:relative; }
+    .ac-results { position:absolute; z-index:1080; left:0; right:0; top:100%; background:#fff; border:1px solid #dee2e6; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,.12); max-height:240px; overflow:auto; display:none; }
+    .ac-item { display:flex; align-items:center; gap:.5rem; padding:.4rem .6rem; cursor:pointer; font-size:.86rem; }
+    .ac-item:hover { background:#f1f3f5; }
+    .ac-item img { width:26px; height:26px; border-radius:50%; object-fit:cover; background:#eef0f3; flex-shrink:0; }
+    .ac-create { color:#0d6efd; font-weight:600; border-top:1px solid #eee; }
+    .ov-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1090; display:none; align-items:center; justify-content:center; padding:1rem; }
+    .ov-card { background:#fff; border-radius:12px; max-width:440px; width:100%; padding:1.25rem; }
   </style>
 </head>
 <body>
@@ -112,8 +120,14 @@
       <script>
         (function(){
           var roles = {{ author_roles|tojson }};
+          var SEARCH_AUTHORS = {{ url_for('public_song_delivery_authors', token=link.token)|tojson }};
+          var SEARCH_PUB = {{ url_for('public_song_delivery_publishers', token=link.token)|tojson }};
+          var CREATE_AUTHOR = {{ url_for('public_song_delivery_create_author', token=link.token)|tojson }};
           var rowsWrap = document.getElementById('authorRows');
           var remainingEl = document.getElementById('authRemaining');
+          var activeRow = null;
+          function esc(s){ return (s || '').replace(/[&<>"]/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]; }); }
+          function debounce(fn){ var t; return function(){ var a = arguments, c = this; clearTimeout(t); t = setTimeout(function(){ fn.apply(c, a); }, 250); }; }
           function roleOptions(sel){ return roles.map(function(r){ return '<option value="' + r[0] + '"' + (r[0] === sel ? ' selected' : '') + '>' + r[1] + '</option>'; }).join(''); }
           function recalc(){
             var total = 0;
@@ -121,12 +135,38 @@
             remainingEl.textContent = (Math.round((100 - total) * 100) / 100);
             remainingEl.className = Math.abs(total - 100) < 0.01 ? 'fw-semibold text-success' : 'fw-semibold text-danger';
           }
+          function setRowAuthor(row, d){
+            row.querySelector('[name="author_name"]').value = d.name || '';
+            row.querySelector('[name="author_promoter_id"]').value = d.id || '';
+            if (d.publishing_company_name){ row.querySelector('[name="author_editorial"]').value = d.publishing_company_name; row.querySelector('[name="author_publishing_id"]').value = d.publishing_company_id || ''; }
+          }
+          function attachAC(row){
+            var input = row.querySelector('[name="author_name"]');
+            var box = row.querySelector('.ac-results');
+            var run = debounce(function(){
+              var q = input.value.trim();
+              row.querySelector('[name="author_promoter_id"]').value = '';
+              if (q.length < 2){ box.style.display = 'none'; return; }
+              fetch(SEARCH_AUTHORS + '?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(list){
+                var html = (list || []).map(function(it){ return '<div class="ac-item" data-pick=\'' + JSON.stringify(it).replace(/'/g, '&#39;') + '\'><img src="' + (it.logo_url || '') + '" onerror="this.style.visibility=\'hidden\'"><span>' + esc(it.name) + (it.publishing_company_name ? ' · <span class="text-muted">' + esc(it.publishing_company_name) + '</span>' : '') + '</span></div>'; }).join('');
+                html += '<div class="ac-item ac-create" data-create="1">+ Crear autor nuevo…</div>';
+                box.innerHTML = html; box.style.display = 'block';
+              });
+            });
+            input.addEventListener('input', run);
+            input.addEventListener('blur', function(){ setTimeout(function(){ box.style.display = 'none'; }, 200); });
+            box.addEventListener('mousedown', function(e){
+              if (e.target.closest('[data-create]')){ openCreate(row); box.style.display = 'none'; return; }
+              var pick = e.target.closest('[data-pick]');
+              if (pick){ try { setRowAuthor(row, JSON.parse(pick.getAttribute('data-pick').replace(/&#39;/g, "'"))); } catch (_){} box.style.display = 'none'; }
+            });
+          }
           function addRow(){
             var div = document.createElement('div');
             div.className = 'border rounded p-2';
             div.innerHTML = '<div class="row g-2 align-items-end">'
-              + '<div class="col-12 col-md-4"><label class="form-label small mb-0">Nombre</label><input class="form-control form-control-sm" name="author_name" required></div>'
-              + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Editorial</label><input class="form-control form-control-sm" name="author_editorial" placeholder="(opcional)"></div>'
+              + '<div class="col-12 col-md-4 ac-wrap"><label class="form-label small mb-0">Nombre</label><input class="form-control form-control-sm" name="author_name" autocomplete="off" required><div class="ac-results"></div><input type="hidden" name="author_promoter_id"></div>'
+              + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Editorial</label><input class="form-control form-control-sm" name="author_editorial" placeholder="(opcional)"><input type="hidden" name="author_publishing_id"></div>'
               + '<div class="col-6 col-md-3"><label class="form-label small mb-0">Rol</label><select class="form-select form-select-sm" name="author_role" required>' + roleOptions('') + '</select></div>'
               + '<div class="col-8 col-md-1"><label class="form-label small mb-0">%</label><input type="number" min="0" max="100" step="0.01" class="form-control form-control-sm" name="author_pct" required></div>'
               + '<div class="col-4 col-md-1 text-end"><button type="button" class="btn btn-sm btn-outline-danger" data-rm>&times;</button></div>'
@@ -134,8 +174,28 @@
             rowsWrap.appendChild(div);
             div.querySelector('[data-rm]').addEventListener('click', function(){ div.remove(); recalc(); });
             div.querySelector('input[name="author_pct"]').addEventListener('input', recalc);
+            attachAC(div);
             recalc();
           }
+          var ov = document.getElementById('createAuthorOverlay');
+          function openCreate(row){ activeRow = row; document.getElementById('caFirst').value = row.querySelector('[name="author_name"]').value || ''; document.getElementById('caLast').value = ''; document.getElementById('caEditorial').value = ''; document.getElementById('caEditorialId').value = ''; document.getElementById('caError').style.display = 'none'; ov.style.display = 'flex'; }
+          function closeCreate(){ ov.style.display = 'none'; activeRow = null; }
+          document.getElementById('caCancel').addEventListener('click', closeCreate);
+          (function(){
+            var input = document.getElementById('caEditorial'), box = document.getElementById('caEditorialResults');
+            var run = debounce(function(){ var q = input.value.trim(); document.getElementById('caEditorialId').value = ''; if (q.length < 2){ box.style.display = 'none'; return; } fetch(SEARCH_PUB + '?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(list){ box.innerHTML = (list || []).map(function(it){ return '<div class="ac-item" data-pid="' + it.id + '" data-pname="' + esc(it.name) + '">' + esc(it.name) + '</div>'; }).join(''); box.style.display = 'block'; }); });
+            input.addEventListener('input', run);
+            input.addEventListener('blur', function(){ setTimeout(function(){ box.style.display = 'none'; }, 200); });
+            box.addEventListener('mousedown', function(e){ var it = e.target.closest('[data-pid]'); if (it){ input.value = it.getAttribute('data-pname'); document.getElementById('caEditorialId').value = it.getAttribute('data-pid'); box.style.display = 'none'; } });
+          })();
+          document.getElementById('caSave').addEventListener('click', function(){
+            var fd = new FormData();
+            fd.append('first_name', document.getElementById('caFirst').value);
+            fd.append('last_name', document.getElementById('caLast').value);
+            fd.append('publishing_company_name', document.getElementById('caEditorial').value);
+            fd.append('publishing_company_id', document.getElementById('caEditorialId').value);
+            fetch(CREATE_AUTHOR, { method: 'POST', body: fd }).then(function(r){ return r.json(); }).then(function(d){ if (d.error){ var er = document.getElementById('caError'); er.textContent = d.error; er.style.display = 'block'; return; } if (activeRow) setRowAuthor(activeRow, d); closeCreate(); }).catch(function(){ var er = document.getElementById('caError'); er.textContent = 'No se pudo crear el autor.'; er.style.display = 'block'; });
+          });
           document.getElementById('addAuthorBtn').addEventListener('click', addRow);
           addRow();
           document.getElementById('deliveryForm').addEventListener('submit', function(e){
@@ -148,5 +208,18 @@
       {% endif %}
     {% endif %}
   </main>
+
+  {% if state == 'form' and 'AUTHORAL' in sections %}
+  <div class="ov-backdrop" id="createAuthorOverlay">
+    <div class="ov-card">
+      <h5 class="mb-3">Crear autor nuevo</h5>
+      <div class="mb-2"><label class="form-label small mb-0">Nombre</label><input class="form-control" id="caFirst" autocomplete="off"></div>
+      <div class="mb-2"><label class="form-label small mb-0">Apellidos</label><input class="form-control" id="caLast" autocomplete="off"></div>
+      <div class="mb-2 ac-wrap"><label class="form-label small mb-0">Editorial <span class="text-muted">(opcional)</span></label><input class="form-control" id="caEditorial" autocomplete="off"><div class="ac-results" id="caEditorialResults"></div><input type="hidden" id="caEditorialId"></div>
+      <div class="text-danger small mb-2" id="caError" style="display:none;"></div>
+      <div class="d-flex justify-content-end gap-2"><button type="button" class="btn btn-outline-secondary btn-sm" id="caCancel">Cancelar</button><button type="button" class="btn btn-primary btn-sm" id="caSave">Crear autor</button></div>
+    </div>
+  </div>
+  {% endif %}
 </body>
 </html>

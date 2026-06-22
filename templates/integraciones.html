@@ -1,0 +1,66 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h1 class="h4 mb-0"><i class="fa fa-plug me-2"></i>Integraciones</h1>
+</div>
+
+<div class="row g-3">
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="h5 mb-0">Pleo <span class="text-muted small fw-normal">· Gastos</span></h2>
+          {% if pleo_configured %}
+            <span class="badge text-bg-success">Configurada</span>
+          {% else %}
+            <span class="badge text-bg-secondary">Desactivada</span>
+          {% endif %}
+        </div>
+        <p class="text-muted small mb-3">Importar gastos y recibos de Pleo para cruzarlos con las bolsas.</p>
+        {% if pleo_configured %}
+          <form method="post" class="d-inline">
+            <button name="action" value="ping_pleo" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+          </form>
+        {% else %}
+          <div class="small text-muted">
+            Para activarla: pide a Pleo una <strong>Standalone API Key</strong> y añádela en Render como
+            <code>PLEO_API_KEY</code>.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12 col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="h5 mb-0">Chartmetric <span class="text-muted small fw-normal">· Métricas</span></h2>
+          {% if chartmetric_configured %}
+            <span class="badge text-bg-success">Configurada</span>
+          {% else %}
+            <span class="badge text-bg-secondary">Desactivada</span>
+          {% endif %}
+        </div>
+        <p class="text-muted small mb-3">Métricas de audiencia, playlists y charts de vuestros artistas.</p>
+        {% if chartmetric_configured %}
+          <form method="post" class="d-inline">
+            <button name="action" value="ping_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+          </form>
+        {% else %}
+          <div class="small text-muted">
+            Para activarla: solicita el <strong>Developer API</strong> a Chartmetric y añade el refresh token
+            en Render como <code>CHARTMETRIC_REFRESH_TOKEN</code>.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alert alert-light border mt-4 small mb-0">
+  <i class="fa fa-shield-halved me-1"></i>
+  Las credenciales se configuran como variables de entorno en Render (nunca en el código). Mientras no
+  estén, cada integración queda <strong>desactivada</strong> y no afecta al resto de la web.
+</div>
+{% endblock %}

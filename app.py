@@ -36340,6 +36340,32 @@ for _csrf_ep in _CSRF_EXEMPT_ENDPOINTS:
         csrf.exempt(_csrf_vf)
 
 
+@app.route("/integraciones", methods=["GET", "POST"], endpoint="integrations_view")
+@admin_required
+def integrations_view():
+    # Solo dirección: gestiona credenciales sensibles de servicios externos.
+    if not is_master():
+        return forbid("Solo dirección puede acceder a las integraciones.")
+    # Import perezoso: si por lo que sea un módulo de integración fallara, no afecta al arranque.
+    import pleo_utils
+    import chartmetric_utils
+    if request.method == "POST":
+        action = (request.form.get("action") or "").strip()
+        if action == "ping_pleo":
+            ok, msg = pleo_utils.pleo_ping()
+            flash(f"Pleo: {msg}", "success" if ok else "danger")
+        elif action == "ping_chartmetric":
+            ok, msg = chartmetric_utils.chartmetric_ping()
+            flash(f"Chartmetric: {msg}", "success" if ok else "danger")
+        return redirect(url_for("integrations_view"))
+    return render_template(
+        "integraciones.html",
+        title="Integraciones",
+        pleo_configured=pleo_utils.pleo_configured(),
+        chartmetric_configured=chartmetric_utils.chartmetric_configured(),
+    )
+
+
 if __name__ == "__main__":
     init_db()
     app.run(debug=True)

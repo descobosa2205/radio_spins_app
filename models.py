@@ -5107,6 +5107,13 @@ class ChartmetricPlaylistEntry(Base):
     )
 
 
+class ChartmetricMeta(Base):
+    """Fila única (id=1) para coordinar el refresco diario automático entre procesos (workers)."""
+    __tablename__ = "chartmetric_meta"
+    id = Column(Integer, primary_key=True)
+    last_auto_refresh = Column(Date)
+
+
 def ensure_chartmetric_schema():
     """Crea/actualiza las tablas de caché de Chartmetric (idempotente). Inofensivo si no se usa."""
     Base.metadata.create_all(bind=engine)
@@ -5115,5 +5122,6 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
+        "INSERT INTO chartmetric_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",
     ], "chartmetric")
 

@@ -117,6 +117,7 @@ from models import (
     ChartmetricArtist,
     ChartmetricMetricPoint,
     ChartmetricPlaylistEntry,
+    ChartmetricMeta,
     Artist,
     ArtistPerson,
     ArtistEmail,
@@ -967,8 +968,8 @@ def admin_logout():
 
 @app.get("/home", endpoint="home")
 def home():
-    # Si ya tienes un control de sesión/rol, puedes leer:
-    # role = session.get("role")  # 'admin' | 'viewer'
+    # Refresco diario automático de Chartmetric (sin configurar nada; no bloquea ni rompe la home).
+    _chartmetric_maybe_daily_refresh()
     return render_template("home.html")
 
 # ---------- ARTISTAS ----------
@@ -36851,6 +36852,44 @@ def _chartmetric_refresh_all_bg():
         pass
     finally:
         s.close()
+
+
+_chartmetric_daily_check_date = None
+
+
+def _chartmetric_maybe_daily_refresh():
+    """Refresco diario automático SIN configurar nada: una vez al día, el primer proceso que entra lo
+    reclama de forma atómica en BD (chartmetric_meta) y lanza el refresco de todos en segundo plano.
+    Se llama desde home(); barato (throttle en memoria por worker). No lanza."""
+    global _chartmetric_daily_check_date
+    try:
+        import chartmetric_utils as cm
+        if not cm.chartmetric_configured():
+            return
+        today = _now_madrid().date()
+        if _chartmetric_daily_check_date == today:
+            return  # este worker ya lo comprobó hoy (evita consultar la BD en cada visita)
+        _chartmetric_daily_check_date = today
+        claimed = False
+        s = db()
+        try:
+            res = s.execute(text(
+                "UPDATE chartmetric_meta SET last_auto_refresh = CURRENT_DATE "
+                "WHERE id = 1 AND (last_auto_refresh IS NULL OR last_auto_refresh < CURRENT_DATE)"
+            ))
+            s.commit()
+            claimed = (res.rowcount or 0) > 0
+        except Exception:
+            try:
+                s.rollback()
+            except Exception:
+                pass
+        finally:
+            s.close()
+        if claimed:
+            threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
+    except Exception:
+        pass
 
 
 def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, song_id=None, status="current", only_official=True):

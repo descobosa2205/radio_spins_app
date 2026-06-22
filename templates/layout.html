@@ -60,6 +60,12 @@
             {% endif %}
           {% endfor %}
 
+          {% if has_access_key('discografica', include_descendants=True) or has_access_key('artists', include_descendants=True) %}
+          <li class="nav-item" data-nav-key="playlisting">
+            <a class="nav-link {% if request.endpoint == 'playlisting_view' %}active{% endif %}" href="{{ url_for('playlisting_view') }}" data-nav-key="playlisting"><i class="fa fa-headphones me-2"></i>Playlisting</a>
+          </li>
+          {% endif %}
+
           <li class="nav-item dropdown nav-overflow-dropdown d-none" id="navOverflowItem">
             <a class="nav-link" href="#" data-bs-toggle="dropdown" aria-label="Más secciones">
               <i class="fa fa-bars"></i>

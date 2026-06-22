@@ -53,6 +53,9 @@
           <form method="post" class="d-inline" onsubmit="return confirm('Esto hará llamadas a Chartmetric y consume crédito de API. ¿Continuar?');">
             <button name="action" value="refresh_chartmetric_test" class="btn btn-sm btn-outline-secondary"><i class="fa fa-rotate me-1"></i>Probar refresco (3 artistas)</button>
           </form>
+          <form method="post" class="d-inline" onsubmit="return confirm('Refrescará métricas y playlists de TODOS los artistas vinculados (en segundo plano, consume crédito). ¿Continuar?');">
+            <button name="action" value="refresh_all_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar todos</button>
+          </form>
           <div class="small text-muted mt-2">
             En caché: <strong>{{ cm_linked|default(0) }}</strong> artistas vinculados ·
             <strong>{{ cm_points|default(0) }}</strong> puntos de métrica ·

@@ -36756,6 +36756,14 @@ def integrations_view():
                 flash(f"Error al desvincular: {e}", "danger")
             finally:
                 s.close()
+        elif action == "refresh_all_chartmetric":
+            s = db()
+            try:
+                n = s.query(ChartmetricArtist).filter(ChartmetricArtist.chartmetric_id.isnot(None)).count()
+            finally:
+                s.close()
+            threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
+            flash(f"Refresco de {n} artista(s) en marcha en segundo plano. Vuelve en unos minutos y recarga la página.", "info")
         return redirect(url_for("integrations_view"))
     # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
     cm_linked = cm_points = cm_playlists = 0
@@ -36781,6 +36789,100 @@ def integrations_view():
         cm_playlists=cm_playlists,
         review_rows=review_rows,
     )
+
+
+def _chartmetric_refresh_all_bg():
+    """Refresca métricas + playlists de TODOS los artistas vinculados (en segundo plano)."""
+    s = db()
+    try:
+        arts = (
+            s.query(Artist)
+            .join(ChartmetricArtist, ChartmetricArtist.artist_id == Artist.id)
+            .filter(ChartmetricArtist.chartmetric_id.isnot(None))
+            .all()
+        )
+        for a in arts:
+            try:
+                _chartmetric_refresh_artist(s, a)
+            except Exception:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    finally:
+        s.close()
+
+
+def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, status="current", only_official=True):
+    """Playlists agrupadas por plataforma (Spotify/Apple/Amazon), ordenadas por oyentes desc.
+    Marca is_new si la canción entró en la lista en los últimos 7 días."""
+    q = session_db.query(ChartmetricPlaylistEntry).filter(ChartmetricPlaylistEntry.status == status)
+    if artist_id is not None:
+        q = q.filter(ChartmetricPlaylistEntry.artist_id == artist_id)
+    if cm_track:
+        q = q.filter(ChartmetricPlaylistEntry.cm_track == str(cm_track))
+    if only_official:
+        q = q.filter(ChartmetricPlaylistEntry.is_official.is_(True))
+    entries = q.all()
+    today = _now_madrid().date()
+    groups = []
+    for key, label in (("spotify", "Spotify"), ("applemusic", "Apple Music"), ("amazon", "Amazon Music")):
+        items = [e for e in entries if e.platform == key]
+        items.sort(key=lambda e: float(e.followers or 0), reverse=True)
+        rows = []
+        for e in items:
+            rows.append({
+                "track_name": e.track_name,
+                "playlist_name": e.playlist_name,
+                "position": e.position,
+                "days": e.days_in_list,
+                "added_at": e.added_at,
+                "is_new": bool(e.added_at and (today - e.added_at).days <= 7),
+                "followers": int(e.followers) if e.followers is not None else None,
+                "image_url": e.image_url,
+                "owner_name": e.owner_name,
+            })
+        if rows:
+            groups.append({"key": key, "label": label, "count": len(rows), "rows": rows})
+    return groups
+
+
+def _chartmetric_playlisting_overview(session_db):
+    """Sección Playlisting del menú: artistas con playlists oficiales actuales, agrupadas."""
+    arts = (
+        session_db.query(Artist)
+        .join(ChartmetricArtist, ChartmetricArtist.artist_id == Artist.id)
+        .filter(ChartmetricArtist.chartmetric_id.isnot(None))
+        .order_by(Artist.name.asc())
+        .all()
+    )
+    out = []
+    for a in arts:
+        groups = _chartmetric_playlists_grouped(session_db, artist_id=a.id)
+        total = sum(g["count"] for g in groups)
+        if total:
+            out.append({
+                "artist_id": str(a.id),
+                "artist_name": a.name,
+                "artist_photo": a.photo_url,
+                "total": total,
+                "groups": groups,
+            })
+    return out
+
+
+@app.get("/playlisting", endpoint="playlisting_view")
+@admin_required
+def playlisting_view():
+    """Sección Playlisting: artistas y en qué playlists oficiales están sus canciones ahora mismo."""
+    s = db()
+    try:
+        overview = _chartmetric_playlisting_overview(s)
+    finally:
+        s.close()
+    return render_template("playlisting.html", title="Playlisting", overview=overview)
 
 
 if __name__ == "__main__":

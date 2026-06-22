@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h1 class="h4 mb-0"><i class="fa fa-headphones me-2"></i>Playlisting</h1>
+</div>
+
+{% if not overview %}
+  <div class="alert alert-light border">
+    Aún no hay datos de playlists. Ve a <strong>Integraciones</strong> y pulsa <strong>«Actualizar todos»</strong>
+    para traerlos de Chartmetric (luego se actualizan solos a diario).
+  </div>
+{% else %}
+  {% for art in overview %}
+  <div class="card mb-3">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <img src="{{ art.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+        <a href="{{ url_for('artist_detail_view', artist_id=art.artist_id, tab='datos') }}" class="h5 mb-0 text-decoration-none">{{ art.artist_name }}</a>
+        <span class="badge text-bg-light border ms-1">{{ art.total }} listas oficiales</span>
+      </div>
+      {% for g in art.groups %}
+      <div class="mb-3">
+        <div class="fw-semibold small text-muted mb-1">{{ g.label }} · {{ g.count }}</div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle mb-0">
+            <tbody>
+            {% for r in g.rows %}
+              <tr>
+                <td style="width:52px">{% if r.image_url %}<img src="{{ r.image_url }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">{% endif %}</td>
+                <td>
+                  <div class="fw-semibold">{{ r.playlist_name or '—' }}{% if r.is_new %} <span class="badge text-bg-success">Novedad</span>{% endif %}</div>
+                  {% if r.track_name %}<div class="small text-muted">{{ r.track_name }}</div>{% endif %}
+                </td>
+                <td class="small text-nowrap">{% if r.position %}Puesto {{ r.position }}{% endif %}</td>
+                <td class="small text-nowrap">{% if r.followers %}{{ "{:,}".format(r.followers).replace(",", ".") }} oyentes{% endif %}</td>
+                <td class="small text-nowrap">{% if r.days %}{{ r.days }} días{% endif %}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

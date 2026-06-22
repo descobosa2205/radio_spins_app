@@ -255,12 +255,6 @@ _COUNTRY_FALLBACK_ES = {
     "BO": "Bolivia", "EC": "Ecuador", "BR": "Brasil", "CA": "Canadá", "AU": "Australia",
 }
 
-def _country_flag_emoji(code: str | None) -> str:
-    code = (code or "ES").strip().upper()[:2]
-    if len(code) != 2 or not code.isalpha():
-        code = "ES"
-    return "".join(chr(127397 + ord(ch)) for ch in code)
-
 def _country_name_es(code: str | None, fallback: str | None = None) -> str:
     code = (code or "ES").strip().upper()[:2]
     if code in _COUNTRY_NAME_CACHE:
@@ -642,52 +636,6 @@ def current_role() -> int:
     except Exception:
         return 10
 
-def can_view_economics() -> bool:
-    return current_role() in (3, 4, 6, 10)
-
-def can_edit_radio() -> bool:
-    return current_role() in (2, 10)
-
-def can_edit_concerts() -> bool:
-    # Roles que pueden dar de alta / editar conciertos
-    return current_role() in (5, 6, 10)
-
-def can_edit_catalogs() -> bool:
-    # Roles que pueden modificar catálogos/bases de datos (artistas, recintos, empresas, etc.)
-    return current_role() in (5, 6, 10)
-
-
-def can_edit_discografica() -> bool:
-    """Roles que pueden modificar Discográfica (fichas, ISRC, ingresos, royalties...).
-
-    Nota: rol 2 debe poder editar discográfica sin ampliar permisos al resto de catálogos.
-    """
-    return current_role() in (2, 5, 6, 10)
-
-
-def can_edit_artists_stations() -> bool:
-    """Permiso específico: artistas + emisoras.
-
-    Petición del cliente: los usuarios de rango 2 deben poder añadir/editar
-    artistas y emisoras, sin ampliar permisos al resto de catálogos.
-    """
-    return current_role() in (2, 5, 6, 10)
-
-def can_edit_sales() -> bool:
-    return current_role() in (3, 10)
-
-def can_view_sales_report() -> bool:
-    """Permiso para generar/ver reportes de ventas.
-
-    En la app hay dos pantallas relacionadas:
-    - /ventas (actualizar ventas) -> requiere can_edit_sales()
-    - /ventas/reporte (reporte) -> visible para más roles pero sin economía según permisos
-
-    Este helper lo usamos para endpoints de informe/pdfs relacionados con ventas.
-    """
-    return can_edit_sales() or is_master()
-
-
 def is_master() -> bool:
     return current_role() == 10
 
@@ -834,23 +782,6 @@ def format_eur(n):
 def format_isrc_filter(value):
     return _norm_isrc(value) if value not in (None, "") else "—"
 
-
-def _parse_share_pairs(ids_list, pct_list):
-    """
-    (['id1','id2'], ['10','40']) -> [('id1',10), ('id2',40)] sin duplicados, último gana.
-    """
-    dedup = {}
-    for sid, pct in zip(ids_list or [], pct_list or []):
-        sid = (sid or "").strip()
-        if not sid:
-            continue
-        try:
-            v = int(pct)
-        except Exception:
-            v = 0
-        v = max(0, min(100, v))
-        dedup[sid] = v
-    return list(dedup.items())
 
 def _parse_share_pairs(ids_list, pct_list):
     """Normaliza y DEDUPLICA: el último gana; % en [0..100]."""
@@ -3176,12 +3107,6 @@ def _current_user_row(session_db=None) -> User | None:
     finally:
         if close_session:
             session_db.close()
-
-
-def _current_user_email(session_db=None) -> str | None:
-    user = _current_user_row(session_db=session_db)
-    email = (getattr(user, "email", None) or "").strip()
-    return email or None
 
 
 def _royalty_public_serializer() -> URLSafeTimedSerializer:
@@ -30581,13 +30506,6 @@ def _parse_bag_expense_upload_token(token: str | None, max_age: int = 60 * 60 * 
     except (BadSignature, SignatureExpired):
         return None
     return data if isinstance(data, dict) else None
-
-
-def _safe_uuid(value):
-    try:
-        return to_uuid(value)
-    except Exception:
-        return None
 
 
 def _bag_money(value) -> Decimal:

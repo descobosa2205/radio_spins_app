@@ -189,6 +189,26 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-06-22 — Estabilidad (hotfix web caída) + limpieza de código muerto
+
+**Hotfix (toda la web caída, commit `d91c2c3`):** el commit de «Ver como» dejó el decorador
+`@app.context_processor` sobre la función auxiliar `_impersonator_nick` en vez de sobre
+`inject_personnel_globals`; al no registrarse ese context processor, `has_access_key` (y
+`CURRENT_USER`, `NAV_MENU`, `SECTION_ICONS`…) quedaban *undefined* en `layout.html` → **500 en
+todas las páginas**. Restaurado el decorador sobre `inject_personnel_globals`; `_impersonator_nick`
+pasa a ser solo un helper.
+
+**Limpieza de código muerto** (`app.py`, **sin cambio de comportamiento**): eliminadas **12
+funciones duplicadas** cuya segunda definición ya pisaba silenciosamente a la primera (Python se
+queda con la última; la versión activa se conserva intacta). Riesgo que se elimina: editar la
+versión vieja "muerta" creyendo que está activa (cambio sin efecto).
+- **8 permisos `can_*`** (`can_view_economics`, `can_edit_radio`, `can_edit_concerts`,
+  `can_edit_catalogs`, `can_edit_discografica`, `can_edit_artists_stations`, `can_edit_sales`,
+  `can_view_sales_report`): se elimina la versión vieja basada **solo en `current_role()`**; queda
+  la **v2** (`has_access_key` + grants `UserAccessGrant` con fallback por rol).
+- `_current_user_email`, `_country_flag_emoji`, `_parse_share_pairs`, `_safe_uuid`: se elimina la
+  copia muerta; queda la activa (todas las llamadas ya usaban la activa).
+
 ### 2026-06-22 — Entrega de masters (autores) + Personal (facetas y «Ver como»)
 
 **Entrega de masters · formulario público de autores** (`app.py`, `templates/public_song_master_delivery.html`, `models.py`):

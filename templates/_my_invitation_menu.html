@@ -1,0 +1,88 @@
+{# Acciones de una solicitud de invitaciones propia. Compartido por "Mis solicitudes"
+   (invitaciones.html) y el módulo de inicio (home.html) para que ambos tengan SIEMPRE las
+   mismas funcionalidades. `row` = payload de _invitation_request_payload (+ row.event). #}
+
+{% macro request_kebab(row) %}
+  {% set has_tickets = row.download_url and row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
+  {% set share_text = 'Invitaciones para ' ~ row.event.artist_names ~ ' (' ~ row.event.date_label ~ '): ' ~ row.download_url_abs %}
+  <div class="dropdown dropdown-menu-end">
+    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+      <li><button type="button" class="dropdown-item" data-edit-request
+            data-action="{{ url_for('invitation_request_update', request_id=row.id) }}"
+            data-guest-name="{{ row.guest_name|e }}" data-guest-email="{{ row.guest_email|e }}"
+            data-guest-phone="{{ row.guest_phone|e }}" data-guest-title="{{ row.guest_title|e }}"
+            data-note="{{ row.note|e }}" data-qty="{{ row.qty_total }}"
+            data-canqty="{{ 1 if row.can_edit_public else 0 }}"
+            data-multi="{{ 1 if (row.quantities|length) > 1 else 0 }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+      {% if has_tickets %}
+        <li><a class="dropdown-item" href="{{ row.download_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
+        <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
+        <li><a class="dropdown-item" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>
+        <li><a class="dropdown-item" href="mailto:?subject={{ ('Invitaciones · ' ~ row.event.artist_names)|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</a></li>
+      {% endif %}
+      <li><hr class="dropdown-divider"></li>
+      <li><form method="post" action="{{ url_for('invitation_request_delete', request_id=row.id) }}" onsubmit="return confirm('¿Eliminar esta solicitud de invitaciones?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+    </ul>
+  </div>
+{% endmacro %}
+
+{# Modal de edición + lógica. Se incluye UNA sola vez por página. Usa delegación de eventos,
+   así funciona con cualquier número de botones [data-edit-request] de la página. #}
+{% macro edit_modal() %}
+  <div class="modal fade" id="editMyRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+      <form method="post" id="editMyRequestForm">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Editar solicitud</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-2"><label class="form-label">Invitado</label><input class="form-control" name="guest_name" id="emrName"></div>
+            <div class="row g-2">
+              <div class="col-12 col-md-6 mb-2"><label class="form-label">Email</label><input type="email" class="form-control" name="guest_email" id="emrEmail"></div>
+              <div class="col-12 col-md-6 mb-2"><label class="form-label">Teléfono</label><input class="form-control" name="guest_phone" id="emrPhone"></div>
+            </div>
+            <div class="mb-2"><label class="form-label">Cargo / empresa</label><input class="form-control" name="guest_title" id="emrTitle"></div>
+            <div class="mb-2" id="emrQtyWrap">
+              <label class="form-label">Nº de invitaciones</label>
+              <input type="number" min="1" class="form-control" name="qty_total" id="emrQty">
+              <div class="form-text" id="emrQtyMulti" style="display:none;">Esta solicitud tiene varias categorías; el número se gestiona desde la ficha del evento.</div>
+            </div>
+            <div class="mb-2"><label class="form-label">Nota</label><textarea class="form-control" name="note" id="emrNote" rows="2"></textarea></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+            <button type="submit" class="btn btn-primary">Guardar cambios</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var modalEl = document.getElementById('editMyRequestModal');
+      if (!modalEl) return;
+      var form = document.getElementById('editMyRequestForm');
+      document.addEventListener('click', function(ev){
+        var btn = ev.target.closest('[data-edit-request]');
+        if (!btn) return;
+        form.action = btn.getAttribute('data-action') || '';
+        document.getElementById('emrName').value = btn.getAttribute('data-guest-name') || '';
+        document.getElementById('emrEmail').value = btn.getAttribute('data-guest-email') || '';
+        document.getElementById('emrPhone').value = btn.getAttribute('data-guest-phone') || '';
+        document.getElementById('emrTitle').value = btn.getAttribute('data-guest-title') || '';
+        document.getElementById('emrNote').value = btn.getAttribute('data-note') || '';
+        var multi = btn.getAttribute('data-multi') === '1';
+        var canqty = btn.getAttribute('data-canqty') === '1';
+        var qtyWrap = document.getElementById('emrQtyWrap');
+        var qtyInput = document.getElementById('emrQty');
+        qtyInput.value = btn.getAttribute('data-qty') || '';
+        if (!canqty) { qtyWrap.style.display = 'none'; qtyInput.disabled = true; }
+        else { qtyWrap.style.display = ''; qtyInput.disabled = multi; qtyInput.style.display = multi ? 'none' : ''; document.getElementById('emrQtyMulti').style.display = multi ? '' : 'none'; }
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      });
+    })();
+  </script>
+{% endmacro %}

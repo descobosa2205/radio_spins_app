@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
+{% import '_my_invitation_menu.html' as inv_menu with context %}
 <div class="dash-hero mb-4">
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
@@ -29,7 +30,10 @@
                 <div class="small text-muted">{{ row.event.type_label }} · {{ row.event.date_label }} · {{ row.event.city }}</div>
                 <div class="small mt-1">{{ row.guest_name }} · {{ row.quantities_label }}</div>
               </div>
-              <span class="badge text-bg-{{ row.status_badge }} align-self-start">{{ row.status_label }}</span>
+              <div class="d-flex align-items-center gap-2 align-self-start">
+                <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                {{ inv_menu.request_kebab(row) }}
+              </div>
             </div>
           </div>
         </div>
@@ -37,6 +41,7 @@
     </div>
   </div>
 </div>
+{{ inv_menu.edit_modal() }}
 {% endif %}
 
 {% if HOME_REGISTROS_PENDING %}

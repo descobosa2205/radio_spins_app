@@ -94,6 +94,9 @@
               {% if has_access_key('personal', include_descendants=True) %}
                 <li><a class="dropdown-item" href="{{ url_for('personnel_view') }}"><i class="fa fa-users-cog me-2"></i> Personal</a></li>
               {% endif %}
+              {% if session.get('role') == 10 %}
+                <li><a class="dropdown-item" href="{{ url_for('integrations_view') }}"><i class="fa fa-plug me-2"></i> Integraciones</a></li>
+              {% endif %}
               <li><a class="dropdown-item" href="{{ url_for('admin_logout') }}"><i class="fa fa-right-from-bracket me-2"></i> Salir</a></li>
             </ul>
           </li>

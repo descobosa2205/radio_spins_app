@@ -36383,6 +36383,35 @@ def _chartmetric_pick_cmid(payload):
     return None
 
 
+def _chartmetric_norm_name(s: str) -> str:
+    """Normaliza un nombre para comparar: minúsculas, sin acentos, sin espacios extra."""
+    s = unicodedata.normalize("NFKD", s or "")
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return " ".join(s.lower().split())
+
+
+def _chartmetric_cmid_by_name(name: str):
+    """Respaldo: busca el artista por nombre en Chartmetric. Devuelve el CMID solo si hay coincidencia
+    EXACTA de nombre (normalizada), eligiendo el de mayor score; None si no hay match claro (evita
+    vincular un artista equivocado en nombres ambiguos)."""
+    import chartmetric_utils as cm
+    if not (name or "").strip():
+        return None
+    try:
+        results = cm.search_artists(name, limit=10) or []
+    except Exception:
+        return None
+    target = _chartmetric_norm_name(name)
+    matches = [
+        a for a in results
+        if isinstance(a, dict) and a.get("id") and _chartmetric_norm_name(a.get("name", "")) == target
+    ]
+    if not matches:
+        return None
+    matches.sort(key=lambda a: (a.get("cm_artist_score") or 0), reverse=True)
+    return matches[0].get("id")
+
+
 def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
     """Resuelve y persiste el Chartmetric ID del artista. Devuelve el CMID o None."""
     import chartmetric_utils as cm
@@ -36399,13 +36428,16 @@ def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
             data = cm.get_chartmetric_id_from_spotify(spotify_id)
             payload = data.get("obj", data) if isinstance(data, dict) else data
             cmid = _chartmetric_pick_cmid(payload)
+        if not cmid:
+            # Respaldo: búsqueda por nombre (coincidencia exacta, el de mayor score).
+            cmid = _chartmetric_cmid_by_name(artist.name)
         if cmid:
             link.chartmetric_id = str(cmid)
             link.status = "LINKED"
             link.last_error = None
         else:
             link.status = "NOT_FOUND"
-            link.last_error = "Sin Spotify en social_links o sin coincidencia en Chartmetric."
+            link.last_error = "No se encontró en Chartmetric (ni por Spotify ni por nombre exacto)."
     except Exception as e:
         link.status = "ERROR"
         link.last_error = str(e)[:500]

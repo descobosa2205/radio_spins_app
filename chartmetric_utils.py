@@ -136,6 +136,19 @@ def get_artist_playlists(cmid: int | str, platform: str = "spotify", status: str
     return data.get("obj", data) if isinstance(data, dict) else data
 
 
+def search_artists(query: str, limit: int = 10) -> list:
+    """Busca artistas por nombre. Devuelve lista de dicts {id (CMID), name, image_url,
+    sp_monthly_listeners, cm_artist_score, verified...}. [] si no hay query o resultados."""
+    if not (query or "").strip():
+        return []
+    data = _get("/api/search", {"q": query, "type": "artists", "limit": limit})
+    payload = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(payload, dict):
+        arts = payload.get("artists")
+        return arts if isinstance(arts, list) else []
+    return payload if isinstance(payload, list) else []
+
+
 def chartmetric_ping() -> tuple[bool, str]:
     """Prueba de conexión para la página de Integraciones. Devuelve (ok, mensaje). No lanza."""
     if not chartmetric_configured():

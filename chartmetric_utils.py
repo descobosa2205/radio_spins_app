@@ -119,6 +119,23 @@ def get_artist_stat(cmid: int | str, source: str, params: dict | None = None) ->
     return _get(f"/api/artist/{cmid}/stat/{source}", params=params)
 
 
+def get_artist_urls(cmid: int | str) -> list:
+    """Enlaces a los perfiles del artista por plataforma. Devuelve lista de {domain, url[]}."""
+    data = _get(f"/api/artist/{cmid}/urls")
+    return data.get("obj", data) if isinstance(data, dict) else data
+
+
+def get_artist_playlists(cmid: int | str, platform: str = "spotify", status: str = "current", limit: int = 100) -> list:
+    """Playlists (actuales o pasadas) en las que está el artista, por plataforma.
+
+    `platform`: spotify | applemusic | amazon. `status`: current | past.
+    Cada item trae (bajo 'playlist'): position, peak_position, period (días), added_at, name,
+    image_url, owner_name/curator_name, editorial, followers, track/cm_track.
+    """
+    data = _get(f"/api/artist/{cmid}/{platform}/{status}/playlists", params={"limit": limit})
+    return data.get("obj", data) if isinstance(data, dict) else data
+
+
 def chartmetric_ping() -> tuple[bool, str]:
     """Prueba de conexión para la página de Integraciones. Devuelve (ok, mensaje). No lanza."""
     if not chartmetric_configured():

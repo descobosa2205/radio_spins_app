@@ -114,6 +114,9 @@ from models import (
     ensure_performance_indexes,
     SessionLocal,
     User,
+    ChartmetricArtist,
+    ChartmetricMetricPoint,
+    ChartmetricPlaylistEntry,
     Artist,
     ArtistPerson,
     ArtistEmail,
@@ -36342,6 +36345,169 @@ for _csrf_ep in _CSRF_EXEMPT_ENDPOINTS:
         csrf.exempt(_csrf_vf)
 
 
+# ---------------------------------------------------------------------------
+# Chartmetric — motor de refresco (Fase 1): resuelve el ID de Chartmetric de cada artista, trae
+# métricas (oyentes/seguidores) y playlists y lo cachea en BD. Todo dormido si no hay token.
+# ---------------------------------------------------------------------------
+def _chartmetric_extract_spotify_artist_id(artist) -> str | None:
+    """Busca un id de artista de Spotify en social_links (open.spotify.com/artist/<id>)."""
+    links = getattr(artist, "social_links", None) or {}
+    if isinstance(links, dict):
+        values = list(links.values())
+    elif isinstance(links, (list, tuple)):
+        values = list(links)
+    else:
+        values = []
+    for v in values:
+        if isinstance(v, str):
+            m = re.search(r"open\.spotify\.com/artist/([A-Za-z0-9]+)", v)
+            if m:
+                return m.group(1)
+    return None
+
+
+def _chartmetric_pick_cmid(payload):
+    """Extrae el Chartmetric ID de la respuesta de get-ids (defensivo; CONFIRMAR forma exacta)."""
+    if isinstance(payload, list) and payload:
+        return _chartmetric_pick_cmid(payload[0])
+    if isinstance(payload, dict):
+        for key in ("chartmetric", "cm_artist", "chartmetric_id", "id"):
+            v = payload.get(key)
+            if isinstance(v, list) and v:
+                v = v[0]
+            if isinstance(v, dict):
+                v = v.get("id") or v.get("cm_artist")
+            if v:
+                return v
+    return None
+
+
+def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
+    """Resuelve y persiste el Chartmetric ID del artista. Devuelve el CMID o None."""
+    import chartmetric_utils as cm
+    link = session_db.get(ChartmetricArtist, artist.id)
+    if link and link.chartmetric_id:
+        return link.chartmetric_id
+    if not link:
+        link = ChartmetricArtist(artist_id=artist.id)
+        session_db.add(link)
+    try:
+        spotify_id = _chartmetric_extract_spotify_artist_id(artist)
+        cmid = None
+        if spotify_id:
+            data = cm.get_chartmetric_id_from_spotify(spotify_id)
+            payload = data.get("obj", data) if isinstance(data, dict) else data
+            cmid = _chartmetric_pick_cmid(payload)
+        if cmid:
+            link.chartmetric_id = str(cmid)
+            link.status = "LINKED"
+            link.last_error = None
+        else:
+            link.status = "NOT_FOUND"
+            link.last_error = "Sin Spotify en social_links o sin coincidencia en Chartmetric."
+    except Exception as e:
+        link.status = "ERROR"
+        link.last_error = str(e)[:500]
+    link.updated_at = _now_madrid()
+    return link.chartmetric_id
+
+
+def _chartmetric_upsert_metric_points(session_db, artist_id, source, field, series, keep_days=120):
+    for pt in (series or [])[-keep_days:]:
+        if not isinstance(pt, dict):
+            continue
+        ts = (pt.get("timestp") or "")[:10]
+        if not ts:
+            continue
+        try:
+            d = date.fromisoformat(ts)
+        except (ValueError, TypeError):
+            continue
+        existing = (
+            session_db.query(ChartmetricMetricPoint)
+            .filter_by(artist_id=artist_id, source=source, field=field, date=d)
+            .first()
+        )
+        if existing:
+            existing.value = pt.get("value")
+            existing.fetched_at = _now_madrid()
+        else:
+            session_db.add(ChartmetricMetricPoint(
+                artist_id=artist_id, source=source, field=field, date=d, value=pt.get("value"),
+            ))
+
+
+def _chartmetric_replace_current_playlists(session_db, artist_id, platform, items):
+    """Reemplaza las playlists 'actuales' del artista en esa plataforma con el snapshot recibido."""
+    session_db.query(ChartmetricPlaylistEntry).filter_by(
+        artist_id=artist_id, platform=platform, status="current"
+    ).delete()
+    seen = set()
+    official_owners = {"spotify", "apple music", "apple", "applemusic", "amazon", "amazon music"}
+    for it in (items or []):
+        pl = it.get("playlist", it) if isinstance(it, dict) else None
+        if not isinstance(pl, dict):
+            continue
+        playlist_id = str(pl.get("playlist_id") or pl.get("id") or "").strip()
+        cm_track = str(pl.get("cm_track") or pl.get("track_id") or "").strip()
+        if not playlist_id:
+            continue
+        key = (playlist_id, cm_track)
+        if key in seen:
+            continue
+        seen.add(key)
+        owner = pl.get("owner_name") or pl.get("curator_name")
+        is_official = bool(pl.get("editorial")) or (str(owner or "").strip().lower() in official_owners)
+        added_d = None
+        added = (pl.get("added_at") or "")[:10]
+        if added:
+            try:
+                added_d = date.fromisoformat(added)
+            except (ValueError, TypeError):
+                added_d = None
+        session_db.add(ChartmetricPlaylistEntry(
+            artist_id=artist_id, platform=platform, status="current",
+            cm_track=cm_track or None, track_name=pl.get("track"),
+            playlist_id=playlist_id, playlist_name=pl.get("name"),
+            owner_name=owner, is_official=is_official,
+            position=pl.get("position"), peak_position=pl.get("peak_position"),
+            days_in_list=pl.get("period"), added_at=added_d,
+            followers=pl.get("followers"), image_url=pl.get("image_url") or pl.get("playlist_image_url"),
+        ))
+
+
+def _chartmetric_refresh_artist(session_db, artist) -> dict:
+    """Refresca métricas + playlists de un artista. Dormant si no configurado. No lanza."""
+    import chartmetric_utils as cm
+    if not cm.chartmetric_configured():
+        return {"ok": False, "message": "Chartmetric no configurado."}
+    cmid = _chartmetric_resolve_cmid(session_db, artist)
+    if not cmid:
+        session_db.commit()
+        return {"ok": False, "message": "Sin Chartmetric ID (no se pudo vincular el artista)."}
+    link = session_db.get(ChartmetricArtist, artist.id)
+    errors = []
+    for source, fields in (("spotify", ["listeners", "followers"]), ("instagram", ["followers"]), ("tiktok", ["followers"])):
+        try:
+            data = cm.get_artist_stat(cmid, source)
+            payload = data.get("obj", data) if isinstance(data, dict) else data
+            for field in fields:
+                _chartmetric_upsert_metric_points(session_db, artist.id, source, field, (payload or {}).get(field))
+        except Exception as e:
+            errors.append(f"stat:{source}:{str(e)[:80]}")
+    for platform in ("spotify", "applemusic", "amazon"):
+        try:
+            items = cm.get_artist_playlists(cmid, platform=platform, status="current")
+            _chartmetric_replace_current_playlists(session_db, artist.id, platform, items)
+        except Exception as e:
+            errors.append(f"pl:{platform}:{str(e)[:80]}")
+    link.last_refreshed_at = _now_madrid()
+    link.last_error = "; ".join(errors)[:500] if errors else None
+    link.status = "LINKED" if not errors else "ERROR"
+    session_db.commit()
+    return {"ok": not errors, "message": "Actualizado." if not errors else "; ".join(errors)[:200]}
+
+
 @app.route("/integraciones", methods=["GET", "POST"], endpoint="integrations_view")
 @admin_required
 def integrations_view():
@@ -36359,12 +36525,43 @@ def integrations_view():
         elif action == "ping_chartmetric":
             ok, msg = chartmetric_utils.chartmetric_ping()
             flash(f"Chartmetric: {msg}", "success" if ok else "danger")
+        elif action == "refresh_chartmetric_test":
+            s = db()
+            try:
+                results = []
+                for a in s.query(Artist).order_by(Artist.created_at.desc()).limit(3).all():
+                    r = _chartmetric_refresh_artist(s, a)
+                    results.append(f"{a.name}: {r['message']}")
+                flash("Prueba Chartmetric · " + (" | ".join(results) or "no hay artistas"), "info")
+            except Exception as e:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+                flash(f"Error en la prueba de Chartmetric: {e}", "danger")
+            finally:
+                s.close()
         return redirect(url_for("integrations_view"))
+    # Resumen de la caché (para comprobar que el motor produce datos tras un refresco).
+    cm_linked = cm_points = cm_playlists = 0
+    if chartmetric_utils.chartmetric_configured():
+        s = db()
+        try:
+            cm_linked = s.query(ChartmetricArtist).filter(ChartmetricArtist.chartmetric_id.isnot(None)).count()
+            cm_points = s.query(ChartmetricMetricPoint).count()
+            cm_playlists = s.query(ChartmetricPlaylistEntry).filter_by(status="current").count()
+        except Exception:
+            pass
+        finally:
+            s.close()
     return render_template(
         "integraciones.html",
         title="Integraciones",
         pleo_configured=pleo_utils.pleo_configured(),
         chartmetric_configured=chartmetric_utils.chartmetric_configured(),
+        cm_linked=cm_linked,
+        cm_points=cm_points,
+        cm_playlists=cm_playlists,
     )
 
 

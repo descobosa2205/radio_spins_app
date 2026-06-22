@@ -5072,6 +5072,37 @@ class ChartmetricMetricPoint(Base):
     )
 
 
+class ChartmetricPlaylistEntry(Base):
+    """Pertenencia de una canción de un artista a una playlist (actual o pasada), por plataforma.
+
+    Una fila = (artista, plataforma, canción, playlist). 'is_official' = la lista la cura la propia
+    plataforma (owner/curator Spotify/Apple/Amazon o editorial=true). 'days_in_list' = días que lleva.
+    """
+    __tablename__ = "chartmetric_playlist_entry"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    platform = Column(Text, nullable=False)   # spotify, applemusic, amazon
+    status = Column(Text, nullable=False, server_default=text("'current'"))  # current | past
+    cm_track = Column(Text)                    # id de track en Chartmetric
+    track_name = Column(Text)
+    playlist_id = Column(Text, nullable=False)
+    playlist_name = Column(Text)
+    owner_name = Column(Text)                  # curator/owner (p. ej. "Spotify")
+    is_official = Column(Boolean, nullable=False, server_default=text("false"))
+    position = Column(Integer)
+    peak_position = Column(Integer)
+    days_in_list = Column(Integer)             # 'period' de Chartmetric
+    added_at = Column(Date)
+    followers = Column(Numeric)                # oyentes/seguidores de la lista (puede faltar en editoriales)
+    image_url = Column(Text)
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("artist_id", "platform", "status", "playlist_id", "cm_track", name="uq_cm_playlist_entry"),
+        Index("idx_cm_playlist_entry_artist", "artist_id", "platform", "status"),
+        Index("idx_cm_playlist_entry_track", "cm_track", "platform", "status"),
+    )
+
+
 def ensure_chartmetric_schema():
     """Crea las tablas de caché de Chartmetric (idempotente). Inofensivo aunque la API no se use."""
     Base.metadata.create_all(bind=engine)

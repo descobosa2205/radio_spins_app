@@ -34959,18 +34959,31 @@ def invitation_request_create():
                 guest_link_summary = _promoter_link_summary(session_db, promoter)
         if not guest_name:
             guest_name = 'Invitado'
+        # Correo añadido a mano en el paso de entrega (cuando el invitado no lo tiene en su ficha).
+        if not guest_email:
+            guest_email = (request.form.get('guest_fallback_email') or '').strip()
         receiver_mode = (request.form.get('receiver_mode') or 'GUEST').strip().upper()
         receiver_payload = {
             'name': (request.form.get('receiver_name') or '').strip(),
             'email': (request.form.get('receiver_email') or '').strip(),
             'phone': (request.form.get('receiver_phone') or '').strip(),
         }
+        no_guest_contact = False
         if receiver_mode == 'GUEST':
             receiver_payload['name'] = receiver_payload.get('name') or guest_name
             receiver_payload['email'] = receiver_payload.get('email') or guest_email
             receiver_payload['phone'] = receiver_payload.get('phone') or guest_phone
             if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-                raise ValueError('Para enviar al invitado hace falta email o teléfono si no consta en la ficha.')
+                # El invitado no tiene correo ni teléfono: en vez de fallar, la petición se completa
+                # y las invitaciones se envían a quien las solicita (puede añadir un correo después).
+                no_guest_contact = True
+                receiver_mode = 'ME'
+                receiver_payload = {
+                    'name': state.get('nick') or state.get('email') or 'Solicitante',
+                    'email': state.get('email') or '',
+                    'phone': state.get('phone') or '',
+                    'fallback_from_guest': True,
+                }
         elif receiver_mode == 'ME':
             receiver_payload = {
                 'name': state.get('nick') or state.get('email') or 'Solicitante',
@@ -35020,7 +35033,10 @@ def invitation_request_create():
         )
         session_db.add(row)
         session_db.commit()
-        flash('Solicitud de invitaciones guardada como solicitada.', 'success')
+        if no_guest_contact:
+            flash('El invitado no tenía correo configurado: la solicitud se completó y las invitaciones te llegarán a ti (quien las pide). Puedes añadir un correo a su ficha para enviárselas directamente.', 'warning')
+        else:
+            flash('Solicitud de invitaciones guardada como solicitada.', 'success')
         # Volvemos a la vista de invitaciones (pestaña "pedir", con "Mis solicitudes"), que el
         # solicitante siempre puede ver. La ficha del evento exige permiso de gestión, así que
         # redirigir allí daría 403 a quien solo tiene habilitado "pedir".

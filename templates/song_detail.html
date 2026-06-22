@@ -157,14 +157,6 @@
 
 <div class="ficha-tabpane">
 
-  {% if tab == 'playlisting' %}
-    <div class="ficha-section">
-      <h2 class="h6 mb-3">Playlists oficiales (Spotify · Apple Music · Amazon Music)</h2>
-      {% set groups = chartmetric_playlists %}
-      {% include '_chartmetric_playlists.html' %}
-    </div>
-  {% endif %}
-
   {% if tab == 'informacion' %}
 
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">
@@ -2466,9 +2458,15 @@
 
   {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
+  {% elif tab == 'playlisting' %}
+    <div class="ficha-section">
+      <h2 class="h6 mb-3">Playlists oficiales (Spotify · Apple Music · Amazon Music)</h2>
+      {% set groups = chartmetric_playlists %}
+      {% include '_chartmetric_playlists.html' %}
+    </div>
   {% else %}
     {% set ns = namespace(lbl='') %}
-    {% for k, label in tabs %}
+    {% for k, label, access_key in tabs %}
       {% if k == tab %}{% set ns.lbl = label %}{% endif %}
     {% endfor %}
     <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap">

@@ -26903,7 +26903,6 @@ def _section_stats_counts() -> dict:
         session_db.close()
 
 
-@app.context_processor
 def _impersonator_nick() -> str:
     """Nick del usuario real (dirección) cuando se está en modo «Ver como»."""
     imp = session.get("impersonator_id")
@@ -26922,6 +26921,7 @@ def _impersonator_nick() -> str:
         session_db.close()
 
 
+@app.context_processor
 def inject_personnel_globals():
     current_user = _build_current_user_summary() if session.get("user_id") else None
     return {

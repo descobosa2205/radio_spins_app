@@ -1023,6 +1023,8 @@ def admin_login():
 def admin_logout():
     session.pop("user_id", None)
     session.pop("role", None)
+    session.pop("impersonator_id", None)
+    session.pop("impersonator_role", None)
     flash("Sesión cerrada.", "success")
     return redirect(url_for("landing"))
 
@@ -4538,6 +4540,19 @@ def _rl_image_flowable_from_url(file_url: str | None, width_cm: float, height_cm
         return None
 
 
+def _share_publisher(share):
+    """Editorial efectiva de un registro de autoría.
+
+    Devuelve el snapshot guardado en el propio registro (`SongEditorialShare`) y, si no lo
+    tiene (registros antiguos), la editorial actual del tercero (compatibilidad hacia atrás).
+    """
+    pub = getattr(share, "publishing_company", None)
+    if pub is not None:
+        return pub
+    promoter = getattr(share, "promoter", None)
+    return getattr(promoter, "publishing_company", None) if promoter else None
+
+
 def _song_label_copy_author_rows(session_db, song: Song) -> tuple[list[list[str]], float]:
     shares = (
         session_db.query(SongEditorialShare)
@@ -4555,7 +4570,7 @@ def _song_label_copy_author_rows(session_db, song: Song) -> tuple[list[list[str]
     total_pct = 0.0
     for share in shares or []:
         promoter = share.promoter
-        publisher = getattr(promoter, 'publishing_company', None) if promoter else None
+        publisher = _share_publisher(share)
         pct = float(getattr(share, 'pct', 0) or 0)
         total_pct += pct
         rows.append([
@@ -5286,7 +5301,7 @@ def _song_sgae_editorial_rows(session_db, song: Song) -> tuple[list[dict], float
     total_pct = 0.0
     for share in shares or []:
         promoter = share.promoter
-        publisher = getattr(promoter, 'publishing_company', None) if promoter else None
+        publisher = _share_publisher(share)
         pct = float(getattr(share, 'pct', 0) or 0)
         total_pct += pct
         rows.append(
@@ -11771,7 +11786,7 @@ def discografica_song_detail(song_id):
             full_name = " ".join([x for x in [(p.first_name or "").strip(), (p.last_name or "").strip()] if x]).strip()
             if not full_name:
                 full_name = (p.nick or "").strip()
-            pub = p.publishing_company
+            pub = _share_publisher(sh)
             publisher_name = (pub.name or "").strip() if pub else ""
 
             pct_val = float(sh.pct or 0)
@@ -11969,6 +11984,7 @@ def discografica_song_editorial_share_save(song_id):
             sh.promoter_id = promoter.id
             sh.role = role
             sh.pct = pct
+            sh.publishing_company_id = publishing_company.id
             sh.updated_at = datetime.now(TZ_MADRID)
             session_db.add(sh)
         else:
@@ -11977,6 +11993,7 @@ def discografica_song_editorial_share_save(song_id):
                 promoter_id=promoter.id,
                 role=role,
                 pct=pct,
+                publishing_company_id=publishing_company.id,
                 created_at=datetime.now(TZ_MADRID),
                 updated_at=datetime.now(TZ_MADRID),
             )
@@ -13307,11 +13324,14 @@ def public_song_delivery_authors(token):
         q = (request.args.get("q") or "").strip()
         if len(q) < 2:
             return jsonify([])
-        like = "%" + q + "%"
         rows = (
             session_db.query(Promoter)
             .options(joinedload(Promoter.publishing_company))
-            .filter(or_(Promoter.nick.ilike(like), Promoter.first_name.ilike(like), Promoter.last_name.ilike(like)))
+            .filter(or_(
+                _sa_contains_text(Promoter.nick, q),
+                _sa_contains_text(Promoter.first_name, q),
+                _sa_contains_text(Promoter.last_name, q),
+            ))
             .order_by(Promoter.nick.asc()).limit(10).all()
         )
         out = []
@@ -13338,8 +13358,30 @@ def public_song_delivery_publishers(token):
         q = (request.args.get("q") or "").strip()
         if len(q) < 2:
             return jsonify([])
-        rows = session_db.query(PublishingCompany).filter(PublishingCompany.name.ilike("%" + q + "%")).order_by(PublishingCompany.name.asc()).limit(10).all()
+        rows = session_db.query(PublishingCompany).filter(_sa_contains_text(PublishingCompany.name, q)).order_by(PublishingCompany.name.asc()).limit(10).all()
         return jsonify([{"id": str(r.id), "name": r.name, "logo_url": (getattr(r, "logo_url", None) or "")} for r in rows])
+    finally:
+        session_db.close()
+
+
+@app.post("/entrega-masters/<token>/api/crear-editorial", endpoint="public_song_delivery_create_publisher")
+def public_song_delivery_create_publisher(token):
+    session_db = db()
+    try:
+        if not _song_delivery_active_link(session_db, token):
+            return jsonify({"error": "Enlace no válido"}), 400
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "Indica el nombre de la editorial"}), 400
+        pc = _delivery_get_or_create_publishing(session_db, name)
+        if not pc:
+            return jsonify({"error": "No se pudo crear la editorial"}), 400
+        result = {"id": str(pc.id), "name": pc.name, "logo_url": (getattr(pc, "logo_url", None) or "")}
+        session_db.commit()
+        return jsonify(result)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"error": str(e)}), 500
     finally:
         session_db.close()
 
@@ -13676,7 +13718,9 @@ def discografica_song_delivery_consolidate(song_id, link_id):
                     editorial = session_db.get(PublishingCompany, to_uuid(pcid))
                 if not editorial:
                     editorial = _delivery_get_or_create_publishing(session_db, a.get("editorial"))
-                if editorial and not getattr(promoter, "publishing_company_id", None):
+                if editorial and getattr(promoter, "publishing_company_id", None) != editorial.id:
+                    # La editorial elegida pasa a ser la del tercero de aquí en adelante; los
+                    # registros ya guardados conservan su snapshot y no se ven afectados.
                     promoter.publishing_company_id = editorial.id
                     session_db.add(promoter)
                 role = (a.get("role") or "AUTHOR").upper()
@@ -13690,9 +13734,14 @@ def discografica_song_delivery_consolidate(song_id, link_id):
                 ).first()
                 if existing:
                     existing.pct = pct_val
+                    if editorial:
+                        existing.publishing_company_id = editorial.id
                     session_db.add(existing)
                 else:
-                    session_db.add(SongEditorialShare(song_id=song.id, promoter_id=promoter.id, role=role, pct=pct_val))
+                    session_db.add(SongEditorialShare(
+                        song_id=song.id, promoter_id=promoter.id, role=role, pct=pct_val,
+                        publishing_company_id=(editorial.id if editorial else None),
+                    ))
             flash("Autoría consolidada (revisa Editorial).", "success")
         else:
             flash("No hay datos de esa sección por consolidar.", "warning")
@@ -18806,7 +18855,7 @@ def api_song_editorial_share_detail(share_id):
             return jsonify({"error": "not found"}), 404
 
         p = sh.promoter
-        pub = p.publishing_company
+        pub = _share_publisher(sh)
         return jsonify({
             "id": str(sh.id),
             "song_id": str(sh.song_id),
@@ -26855,6 +26904,24 @@ def _section_stats_counts() -> dict:
 
 
 @app.context_processor
+def _impersonator_nick() -> str:
+    """Nick del usuario real (dirección) cuando se está en modo «Ver como»."""
+    imp = session.get("impersonator_id")
+    if not imp:
+        return ""
+    session_db = db()
+    try:
+        prof = session_db.get(UserProfile, to_uuid(imp))
+        if prof and (getattr(prof, "nick", None) or "").strip():
+            return prof.nick.strip()
+        u = session_db.get(User, to_uuid(imp))
+        return _email_to_nick(u.email) if u and u.email else "dirección"
+    except Exception:
+        return "dirección"
+    finally:
+        session_db.close()
+
+
 def inject_personnel_globals():
     current_user = _build_current_user_summary() if session.get("user_id") else None
     return {
@@ -26869,6 +26936,8 @@ def inject_personnel_globals():
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
         "SECTION_ICONS": SECTION_ICONS,
+        "IMPERSONATING": bool(session.get("impersonator_id")),
+        "IMPERSONATOR_NICK": _impersonator_nick() if session.get("impersonator_id") else "",
     }
 
 
@@ -26941,6 +27010,10 @@ def _require_login_v2():
 
 def _enforce_role_permissions_v2():
     if not session.get("user_id"):
+        return
+    # Salir del modo «Ver como» debe estar siempre disponible, aunque el usuario impersonado
+    # no tenga permisos en ninguna sección.
+    if request.endpoint == "impersonate_stop":
         return
     state = _current_user_state()
     security = state.get("security")
@@ -29974,7 +30047,15 @@ def personnel_detail_view(user_id):
                 profile.birth_date = parse_optional_date(request.form.get("birth_date"))
                 profile.mobile_phones = _parse_phone_rows_from_form(request.form)
                 profile.departments = _normalize_departments(request.form.getlist("departments"))
-                profile.assigned_artist_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids"))
+                _prod_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_produccion"))
+                _sello_ids = _normalize_assigned_artist_ids(request.form.getlist("assigned_artist_ids_sello"))
+                _union_ids = []
+                for _aid in _prod_ids + _sello_ids:
+                    if _aid not in _union_ids:
+                        _union_ids.append(_aid)
+                profile.assigned_artist_ids_produccion = _prod_ids
+                profile.assigned_artist_ids_sello = _sello_ids
+                profile.assigned_artist_ids = _union_ids
                 user.email = (request.form.get("email") or user.email or "").strip().lower() or user.email
                 session_db.commit()
                 flash("Usuario actualizado.", "success")
@@ -30003,6 +30084,16 @@ def personnel_detail_view(user_id):
         access_rows = _build_personnel_access_rows()
         artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
         assigned_artist_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids", None) or [])]
+        assigned_prod_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids_produccion", None) or [])]
+        assigned_sello_ids = [str(x) for x in (getattr(profile, "assigned_artist_ids_sello", None) or [])]
+        # Migración suave (en memoria, sin escribir BD): los usuarios antiguos solo tienen la lista
+        # única; la repartimos por departamento para prerrellenar las facetas en el formulario.
+        if not assigned_prod_ids and not assigned_sello_ids and assigned_artist_ids:
+            _depts = list(getattr(profile, "departments", None) or [])
+            if "Sello" in _depts and "Producción" not in _depts:
+                assigned_sello_ids = list(assigned_artist_ids)
+            else:
+                assigned_prod_ids = list(assigned_artist_ids)
         return render_template(
             "personnel_detail.html",
             user=user,
@@ -30013,11 +30104,69 @@ def personnel_detail_view(user_id):
             grants=grants,
             artists=artists,
             assigned_artist_ids=assigned_artist_ids,
+            assigned_prod_ids=assigned_prod_ids,
+            assigned_sello_ids=assigned_sello_ids,
             container_keys=set(_ACCESS_CHILDREN.keys()),
             target_is_master=(int(getattr(user, "role", 0) or 0) == 10),
         )
     finally:
         session_db.close()
+
+
+@app.post("/personal/<user_id>/ver-como", endpoint="impersonate_start")
+@admin_required
+def impersonate_start(user_id):
+    """Activa el modo «Ver como»: dirección usa la app con la identidad y permisos de otro usuario."""
+    if not is_master():
+        return forbid("Solo dirección puede usar el modo «Ver como».")
+    if session.get("impersonator_id"):
+        flash("Ya estás en modo visión. Sal primero para cambiar de usuario.", "warning")
+        return redirect(url_for("personnel_detail_view", user_id=user_id))
+    session_db = db()
+    try:
+        target = session_db.get(User, to_uuid(user_id))
+        if not target:
+            flash("Usuario no encontrado.", "warning")
+            return redirect(url_for("personnel_view"))
+        if str(target.id) == str(session.get("user_id")):
+            flash("No puedes verte como tú mismo.", "warning")
+            return redirect(url_for("personnel_detail_view", user_id=user_id))
+        security = _ensure_user_security(session_db, target)
+        if getattr(security, "is_deleted", False) or getattr(security, "is_blocked", False):
+            flash("No puedes ver como un usuario bloqueado o eliminado.", "warning")
+            return redirect(url_for("personnel_detail_view", user_id=user_id))
+        profile = _ensure_user_profile(session_db, target, legacy_full_seed=False)
+        session_db.commit()
+        nick = (getattr(profile, "nick", None) or _email_to_nick(target.email or "")).strip()
+        # Intercambiamos la identidad de sesión: a partir de aquí toda la app (permisos, menú,
+        # economía, módulos de inicio) refleja al usuario impersonado. La identidad real se
+        # guarda para poder volver y para autorizar la salida.
+        session["impersonator_id"] = str(session.get("user_id"))
+        session["impersonator_role"] = int(session.get("role") or 10)
+        session["user_id"] = str(target.id)
+        session["role"] = int(getattr(target, "role", 10) or 10)
+        flash(f"Estás viendo la app como {nick}.", "info")
+        return redirect(url_for("home"))
+    finally:
+        session_db.close()
+
+
+@app.get("/salir-modo-vision", endpoint="impersonate_stop")
+def impersonate_stop():
+    """Sale del modo «Ver como» y restaura la sesión real de dirección."""
+    imp = session.get("impersonator_id")
+    if not imp:
+        return redirect(url_for("home"))
+    viewed_id = session.get("user_id")
+    session["user_id"] = str(imp)
+    session["role"] = int(session.get("impersonator_role") or 10)
+    session.pop("impersonator_id", None)
+    session.pop("impersonator_role", None)
+    flash("Has salido del modo visión.", "success")
+    try:
+        return redirect(url_for("personnel_detail_view", user_id=viewed_id, tab="datos"))
+    except Exception:
+        return redirect(url_for("home"))
 
 
 BULK_ACCESS_OPERATIONS = {

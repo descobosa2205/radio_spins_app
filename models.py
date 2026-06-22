@@ -750,10 +750,18 @@ class SongEditorialShare(Base):
     role = Column(Text, nullable=False)
     pct = Column(Numeric, nullable=False, server_default=text("0"))
 
+    # Editorial "congelada" en el momento del registro (snapshot). Si es NULL (registros
+    # antiguos) se cae a la editorial actual del tercero al mostrarla.
+    publishing_company_id = Column(
+        PGUUID(as_uuid=True),
+        ForeignKey("publishing_companies.id", ondelete="SET NULL"),
+    )
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     promoter = relationship("Promoter")
+    publishing_company = relationship("PublishingCompany")
 
     __table_args__ = (
         UniqueConstraint("song_id", "promoter_id", "role", name="uq_song_editorial_share"),
@@ -1709,7 +1717,11 @@ class UserProfile(Base):
     birth_date = Column(Date)
     mobile_phones = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     departments = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Unión (compatibilidad). Las facetas separan qué artistas se asignan por Producción y por Sello
+    # (una persona puede ser de ambos a la vez).
     assigned_artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    assigned_artist_ids_produccion = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    assigned_artist_ids_sello = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     legacy_permissions_seeded = Column(Boolean, nullable=False, server_default=text("false"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3301,6 +3313,28 @@ def ensure_editorial_schema():
         );
         """,
         'CREATE INDEX IF NOT EXISTS idx_song_editorial_shares_song_id ON song_editorial_shares(song_id);',
+        # Snapshot de la editorial por registro (la editorial del tercero puede cambiar
+        # en el futuro sin afectar a registros ya guardados).
+        'ALTER TABLE IF EXISTS song_editorial_shares ADD COLUMN IF NOT EXISTS publishing_company_id uuid;',
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema='public' AND table_name='song_editorial_shares'
+            ) AND NOT EXISTS (
+                SELECT 1 FROM information_schema.table_constraints
+                WHERE table_schema='public' AND table_name='song_editorial_shares'
+                  AND constraint_name='song_editorial_shares_publishing_company_id_fkey'
+            ) THEN
+                ALTER TABLE song_editorial_shares
+                    ADD CONSTRAINT song_editorial_shares_publishing_company_id_fkey
+                    FOREIGN KEY (publishing_company_id)
+                    REFERENCES publishing_companies(id)
+                    ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """,
         """
         DO $$
         BEGIN
@@ -4089,7 +4123,9 @@ def ensure_personnel_and_operations_schema():
         'UPDATE user_security SET password_preview = NULL WHERE password_preview IS NOT NULL;',
         """
         ALTER TABLE IF EXISTS user_profiles
-            ADD COLUMN IF NOT EXISTS assigned_artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;
+            ADD COLUMN IF NOT EXISTS assigned_artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS assigned_artist_ids_produccion jsonb NOT NULL DEFAULT '[]'::jsonb,
+            ADD COLUMN IF NOT EXISTS assigned_artist_ids_sello jsonb NOT NULL DEFAULT '[]'::jsonb;
         """,
         """
         UPDATE user_profiles

@@ -189,6 +189,18 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-06-22 — Entrega de masters (autores) + Personal (facetas y «Ver como»)
+
+**Entrega de masters · formulario público de autores** (`app.py`, `templates/public_song_master_delivery.html`, `models.py`):
+- Búsqueda de autores y editoriales **insensible a tildes/símbolos** (`_sa_contains_text`).
+- Campo **Editorial** con **logo + crear editorial nueva** (solo el nombre) en cada fila y en el modal; nuevo endpoint `public_song_delivery_create_publisher`.
+- **Sugerencia de duplicados** al crear un autor nuevo (coincidencias con foto).
+- La editorial de cada autor se **guarda por registro** (`SongEditorialShare.publishing_company_id`, snapshot): cambiar la editorial de un tercero se aplica **de aquí en adelante** sin alterar registros anteriores (helper `_share_publisher`; alta de columna idempotente en `ensure_editorial_schema`). Histórico previo no retrocongelado (decisión: solo de aquí en adelante).
+
+**Personal** (`app.py`, `templates/personnel_detail.html`, `templates/layout.html`, `models.py`):
+- **Artistas por faceta** Producción/Sello (`UserProfile.assigned_artist_ids_produccion` / `_sello`; `assigned_artist_ids` = unión, compat). Dos selectores en el perfil según departamentos.
+- **Modo «Ver como»**: dirección (role 10) puede ver y usar la app como cualquier miembro, desde su perfil (`impersonate_start`); botón rojo **«Salir del modo visión»** en el navbar (`impersonate_stop`, exento del enforcement). Intercambio de identidad en sesión (`impersonator_id`/`impersonator_role`).
+
 ### Lote 1 — Bugs que provocaban error 500 + higiene del repositorio
 
 **Bugs de runtime corregidos** (`app.py`):

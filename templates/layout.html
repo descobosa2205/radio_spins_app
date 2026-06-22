@@ -31,6 +31,11 @@
       <img src="{{ url_for('static', filename='img/Banner.png') }}" alt="Logo" style="height:32px;">
     </a>
 
+    {% if IMPERSONATING %}
+    <a href="{{ url_for('impersonate_stop') }}" class="btn btn-sm btn-danger fw-semibold me-2 no-loader d-flex align-items-center" title="Volver a tu sesión de dirección"><i class="fa fa-arrow-left-long me-1"></i><span class="d-none d-sm-inline">Salir del modo visión</span><span class="d-sm-none">Salir</span></a>
+    <span class="navbar-text small text-danger d-none d-md-inline me-2"><i class="fa fa-user-secret me-1"></i>Viendo como <strong>{{ CURRENT_USER.nick if CURRENT_USER else 'usuario' }}</strong></span>
+    {% endif %}
+
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain">
       <span class="navbar-toggler-icon"></span>
     </button>

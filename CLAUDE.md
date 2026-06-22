@@ -48,6 +48,16 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   total y único que edita permisos). Enforcement: `_enforce_role_permissions_v2` (usa
   `include_descendants`). Coherencia: `_coherent_grant_values`. Las funcionalidades nuevas se
   autodescubren y entran **desactivadas**. UI en `personnel_detail.html` + `personnel_bulk.html`.
+  **Artistas por faceta**: `UserProfile.assigned_artist_ids_produccion` / `_sello` (una persona puede
+  ser de ambos); `assigned_artist_ids` se mantiene como **unión** (compat) y se recalcula al guardar.
+  En el perfil se muestran dos selectores según departamentos (Producción/Sello).
+  **Modo «Ver como» (impersonación)**: solo dirección (role 10), desde el perfil de cada persona
+  (`impersonate_start`, `POST /personal/<id>/ver-como`). Intercambia `session["user_id"]` por el del
+  objetivo y guarda el real en `session["impersonator_id"]`/`["impersonator_role"]`, así TODA la app
+  (permisos, menú, economía) refleja al impersonado sin tocar los *choke points*. Salir:
+  `impersonate_stop` (`GET /salir-modo-vision`, **exento** del enforcement) — botón rojo en el navbar
+  (`layout.html`, globales `IMPERSONATING`/`IMPERSONATOR_NICK`). No anidable, no a uno mismo, no a
+  bloqueados/eliminados; `logout` limpia las claves.
 - **Iconos de sección**: dict `SECTION_ICONS` en `app.py`, inyectado al contexto; usado en el menú
   (`layout.html`) y en permisos.
 - **Select2 con logos**: `initSelect2()` (scripts.js) pinta la imagen de cada opción desde
@@ -136,8 +146,13 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   El modal de generar permite elegir **qué materiales** pedir (`materials_json`, módulos desactivables) y
   **enviar el enlace por correo** (`discografica_song_delivery_send_email` + `_send_optional_email`, con
   buscador `/api/search/promoters`). El hueco de portada **provisional** solo se muestra si existe. El
-  formulario público autocompleta **autores** (con foto + editorial) y permite crearlos vía endpoints
-  ligados al token (`public_song_delivery_authors` / `_publishers` / `_create_author`). El envío del enlace
+  formulario público autocompleta **autores** (con foto, búsqueda **acento-insensible** vía
+  `_sa_contains_text`) y permite crearlos vía endpoints ligados al token (`public_song_delivery_authors` /
+  `_publishers` / `_create_author` / `_create_publisher`), con **sugerencia de duplicados** al crear y
+  selector de **editorial con logo + crear nueva**. La editorial se **congela por registro** en
+  `SongEditorialShare.publishing_company_id` (snapshot; al mostrarla se cae a la del tercero si está vacío,
+  helper `_share_publisher`): cambiarla actualiza el tercero **de aquí en adelante** sin tocar registros
+  anteriores. El envío del enlace
   por correo busca terceros y carga sus **correos vinculados** (`api_promoter_emails`) para elegir
   destinatarios + nota. **Todos los correos del servidor (`_send_optional_email`) llevan Reply-To al usuario
   que envía** por defecto (`reply_to or _current_user_email()`).

@@ -1188,6 +1188,7 @@ def artist_detail_view(artist_id):
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=True,
             chartmetric_header=_chartmetric_header_metrics(session_db, artist),
+            chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, artist_id=artist.id) if tab == 'playlisting' else None),
         )
     finally:
         session_db.close()
@@ -11337,6 +11338,7 @@ def discografica_song_detail(song_id):
         "promocion",
         "marketing",
         "radio",
+        "playlisting",
     }
     if tab not in allowed_tabs:
         tab = "informacion"
@@ -11748,6 +11750,7 @@ def discografica_song_detail(song_id):
         song=s,
         primary_artist=primary_artist,
         tab=tab,
+        chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, song_id=s.id) if tab == 'playlisting' else None),
         edit=edit,
         status=st,
         interpreters=interpreters,
@@ -25639,7 +25642,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "cron_chartmetric_refresh"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -36850,12 +36853,14 @@ def _chartmetric_refresh_all_bg():
         s.close()
 
 
-def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, status="current", only_official=True):
+def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, song_id=None, status="current", only_official=True):
     """Playlists agrupadas por plataforma (Spotify/Apple/Amazon), ordenadas por oyentes desc.
     Marca is_new si la canción entró en la lista en los últimos 7 días."""
     q = session_db.query(ChartmetricPlaylistEntry).filter(ChartmetricPlaylistEntry.status == status)
     if artist_id is not None:
         q = q.filter(ChartmetricPlaylistEntry.artist_id == artist_id)
+    if song_id is not None:
+        q = q.filter(ChartmetricPlaylistEntry.song_id == song_id)
     if cm_track:
         q = q.filter(ChartmetricPlaylistEntry.cm_track == str(cm_track))
     if only_official:
@@ -36919,6 +36924,21 @@ def playlisting_view():
     finally:
         s.close()
     return render_template("playlisting.html", title="Playlisting", overview=overview)
+
+
+@app.get("/cron/chartmetric/refresh", endpoint="cron_chartmetric_refresh")
+def cron_chartmetric_refresh():
+    """Refresco diario automático de Chartmetric (lo llama una tarea programada de Render con ?key=).
+    Protegido por CHARTMETRIC_CRON_KEY; no requiere sesión. Lanza el refresco en segundo plano."""
+    expected = (os.getenv("CHARTMETRIC_CRON_KEY") or "").strip()
+    key = (request.args.get("key") or "").strip()
+    if not expected or key != expected:
+        return ("forbidden", 403)
+    import chartmetric_utils as cm
+    if not cm.chartmetric_configured():
+        return ("chartmetric no configurado", 200)
+    threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
+    return ("refresco en marcha", 200)
 
 
 if __name__ == "__main__":

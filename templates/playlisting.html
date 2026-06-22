@@ -18,39 +18,8 @@
         <a href="{{ url_for('artist_detail_view', artist_id=art.artist_id, tab='datos') }}" class="h5 mb-0 text-decoration-none">{{ art.artist_name }}</a>
         <span class="badge text-bg-light border ms-1">{{ art.total }} listas oficiales</span>
       </div>
-      {% for g in art.groups %}
-      <div class="mb-3">
-        <div class="fw-semibold small text-muted mb-1">{{ g.label }} · {{ g.count }}</div>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle mb-0">
-            <colgroup>
-              <col style="width:52px"><col><col><col style="width:90px"><col style="width:130px"><col style="width:80px">
-            </colgroup>
-            <thead><tr class="small text-muted">
-              <th></th><th>Playlist</th><th>Canción</th><th class="text-end">Puesto</th><th class="text-end">Oyentes</th><th class="text-end">Días</th>
-            </tr></thead>
-            <tbody>
-            {% for r in g.rows %}
-              <tr>
-                <td>{% if r.image_url %}<img src="{{ r.image_url }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">{% endif %}</td>
-                <td>
-                  <span class="fw-semibold">{{ r.playlist_name or '—' }}</span>
-                  {% if r.is_new %}<span class="badge text-bg-success ms-1">Novedad</span>{% endif %}
-                </td>
-                <td>
-                  {% if r.song_id %}<a href="{{ url_for('discografica_song_detail', song_id=r.song_id) }}">{{ r.track_name or '—' }}</a>
-                  {% else %}{{ r.track_name or '—' }}{% endif %}
-                </td>
-                <td class="text-end">{% if r.position %}{{ r.position }}{% endif %}</td>
-                <td class="text-end">{% if r.followers %}{{ "{:,}".format(r.followers).replace(",", ".") }}{% endif %}</td>
-                <td class="text-end">{% if r.days %}{{ r.days }}{% endif %}</td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      {% endfor %}
+      {% set groups = art.groups %}
+      {% include '_chartmetric_playlists.html' %}
     </div>
   </div>
   {% endfor %}

@@ -49,7 +49,8 @@
       ('ingresos','Ingresos','discografica.ingresos'),
       ('gastos','Gastos','contabilidad'),
       ('marketing','Marketing','promocion'),
-      ('radio','Radio','radio.reportes')
+      ('radio','Radio','radio.reportes'),
+      ('playlisting','Playlisting','discografica.canciones')
     ] %}
     {% for k, label, access_key in tabs if has_access_key(access_key, include_descendants=True) %}
       <li class="nav-item">
@@ -155,6 +156,14 @@
 {% endif %}
 
 <div class="ficha-tabpane">
+
+  {% if tab == 'playlisting' %}
+    <div class="ficha-section">
+      <h2 class="h6 mb-3">Playlists oficiales (Spotify · Apple Music · Amazon Music)</h2>
+      {% set groups = chartmetric_playlists %}
+      {% include '_chartmetric_playlists.html' %}
+    </div>
+  {% endif %}
 
   {% if tab == 'informacion' %}
 

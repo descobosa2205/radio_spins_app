@@ -49,5 +49,7 @@ class Settings:
     # Chartmetric (métricas): refresh token de larga duración que Chartmetric envía por email.
     CHARTMETRIC_REFRESH_TOKEN = os.getenv("CHARTMETRIC_REFRESH_TOKEN")
     CHARTMETRIC_API_BASE = os.getenv("CHARTMETRIC_API_BASE", "https://api.chartmetric.com")
+    # Clave secreta para el refresco diario automático (lo llama una tarea programada de Render).
+    CHARTMETRIC_CRON_KEY = os.getenv("CHARTMETRIC_CRON_KEY")
 
 settings = Settings()

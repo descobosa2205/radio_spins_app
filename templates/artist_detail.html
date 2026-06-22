@@ -142,6 +142,12 @@
       Vinculaciones
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='playlisting' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='playlisting') }}">
+      Playlisting
+    </a>
+  </li>
 </ul>
 
 <div class="ficha-tabpane">
@@ -149,6 +155,15 @@
 {# ===================== TAB: VINCULACIONES ===================== #}
 {% if tab == 'vinculaciones' %}
   {% include '_entity_links_panel.html' %}
+{% endif %}
+
+{# ===================== TAB: PLAYLISTING ===================== #}
+{% if tab == 'playlisting' %}
+  <div class="ficha-section">
+    <h2 class="h6 mb-3">Playlists oficiales (Spotify · Apple Music · Amazon Music)</h2>
+    {% set groups = chartmetric_playlists %}
+    {% include '_chartmetric_playlists.html' %}
+  </div>
 {% endif %}
 
 {# ===================== TAB: DATOS ===================== #}

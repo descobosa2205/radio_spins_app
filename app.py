@@ -33529,13 +33529,15 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
         r"(?:asiento|butaca|seat)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
         r"n[ºo°]?\.?\s*(?:asiento|butaca)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
     ])
-    # Código fiable = el que viene etiquetado en el PDF. El comodín genérico (cadena larga) NO es
-    # fiable para deduplicar (puede ser un dato común a todas las entradas, p. ej. el ID del evento).
+    # Código de barras numérico (12-20 dígitos): es lo único realmente ÚNICO por entrada/butaca.
+    barcode = pick([r"\b(\d{12,20})\b"])
+    # "Localizador"/"Código" etiquetado: puede venir COMPARTIDO por todo el pedido (mismo en todas las
+    # entradas), así que NO es fiable para deduplicar; solo se usa si no hay código de barras numérico.
     labeled_code = pick([
         r"(?:c[oó]digo(?:\s*de\s*barras)?|c[oó]d\.?|code|barcode|localizador|locator|n[ºo°]?\.?\s*entrada|ticket)\s*[:#\.\-]?\s*([A-Z0-9][A-Z0-9._/-]{4,64})",
     ])
-    code = labeled_code or pick([r"\b([A-Z0-9]{10,})\b"])
-    code_reliable = bool(labeled_code)
+    code = barcode or labeled_code or pick([r"\b([A-Z0-9]{10,})\b"])
+    code_reliable = bool(barcode)
     if not code:
         code = (Path(filename or "").stem or hashlib.sha256(data or b"").hexdigest()[:16]).strip()
     return {

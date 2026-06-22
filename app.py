@@ -36520,8 +36520,14 @@ def _chartmetric_upsert_metric_points(session_db, artist_id, source, field, seri
             ))
 
 
-def _chartmetric_replace_current_playlists(session_db, artist_id, platform, items):
-    """Reemplaza las playlists 'actuales' del artista en esa plataforma con el snapshot recibido."""
+def _chartmetric_replace_current_playlists(session_db, artist_id, platform, items, track_map=None, song_by_isrc=None):
+    """Reemplaza las playlists 'actuales' del artista en esa plataforma con el snapshot recibido.
+
+    track_map: cm_track -> {name, isrc}. Las playlists de Apple/Amazon NO traen el nombre de la
+    canción, así que lo sacamos de aquí; y casamos con nuestra Song por ISRC para enlazar la ficha.
+    """
+    track_map = track_map or {}
+    song_by_isrc = song_by_isrc or {}
     session_db.query(ChartmetricPlaylistEntry).filter_by(
         artist_id=artist_id, platform=platform, status="current"
     ).delete()
@@ -36548,9 +36554,18 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
                 added_d = date.fromisoformat(added)
             except (ValueError, TypeError):
                 added_d = None
+        track_name = pl.get("track")
+        song_id = None
+        info = track_map.get(cm_track)
+        if info:
+            if not track_name:
+                track_name = info.get("name")
+            isrc = info.get("isrc")
+            if isrc:
+                song_id = song_by_isrc.get(isrc)
         session_db.add(ChartmetricPlaylistEntry(
             artist_id=artist_id, platform=platform, status="current",
-            cm_track=cm_track or None, track_name=pl.get("track"),
+            cm_track=cm_track or None, track_name=track_name, song_id=song_id,
             playlist_id=playlist_id, playlist_name=pl.get("name"),
             owner_name=owner, is_official=is_official,
             position=pl.get("position"), peak_position=pl.get("peak_position"),
@@ -36578,10 +36593,30 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
                 _chartmetric_upsert_metric_points(session_db, artist.id, source, field, (payload or {}).get(field))
         except Exception as e:
             errors.append(f"stat:{source}:{str(e)[:80]}")
+    # Mapa de tracks (cm_track -> nombre + ISRC) para nombrar canciones en TODAS las plataformas
+    # (Apple/Amazon no lo traen) y enlazarlas con nuestra ficha por ISRC.
+    track_map = {}
+    try:
+        for t in (cm.get_artist_tracks(cmid) or []):
+            if isinstance(t, dict):
+                cmt = str(t.get("cm_track") or t.get("id") or "").strip()
+                if cmt:
+                    track_map[cmt] = {"name": t.get("name"), "isrc": t.get("isrc")}
+    except Exception as e:
+        errors.append(f"tracks:{str(e)[:80]}")
+    isrcs = [v["isrc"] for v in track_map.values() if v.get("isrc")]
+    song_by_isrc = {}
+    if isrcs:
+        try:
+            for sg in session_db.query(Song).filter(Song.isrc.in_(isrcs)).all():
+                if sg.isrc:
+                    song_by_isrc[sg.isrc] = sg.id
+        except Exception:
+            pass
     for platform in ("spotify", "applemusic", "amazon"):
         try:
             items = cm.get_artist_playlists(cmid, platform=platform, status="current")
-            _chartmetric_replace_current_playlists(session_db, artist.id, platform, items)
+            _chartmetric_replace_current_playlists(session_db, artist.id, platform, items, track_map, song_by_isrc)
         except Exception as e:
             errors.append(f"pl:{platform}:{str(e)[:80]}")
     link.last_refreshed_at = _now_madrid()
@@ -36835,6 +36870,7 @@ def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, st
         for e in items:
             rows.append({
                 "track_name": e.track_name,
+                "song_id": (str(e.song_id) if e.song_id else None),
                 "playlist_name": e.playlist_name,
                 "position": e.position,
                 "days": e.days_in_list,

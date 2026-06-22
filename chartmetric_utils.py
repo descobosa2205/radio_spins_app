@@ -136,6 +136,13 @@ def get_artist_playlists(cmid: int | str, platform: str = "spotify", status: str
     return data.get("obj", data) if isinstance(data, dict) else data
 
 
+def get_artist_tracks(cmid: int | str, limit: int = 200) -> list:
+    """Tracks del artista. Cada item trae cm_track, isrc, name, spotify/itunes/amazon track ids...
+    Sirve para mapear las playlists (que solo traen cm_track) a nombre + ISRC."""
+    data = _get(f"/api/artist/{cmid}/tracks", params={"limit": limit})
+    return data.get("obj", data) if isinstance(data, dict) else data
+
+
 def search_artists(query: str, limit: int = 10) -> list:
     """Busca artistas por nombre. Devuelve lista de dicts {id (CMID), name, image_url,
     sp_monthly_listeners, cm_artist_score, verified...}. [] si no hay query o resultados."""

@@ -5088,6 +5088,7 @@ class ChartmetricPlaylistEntry(Base):
     status = Column(Text, nullable=False, server_default=text("'current'"))  # current | past
     cm_track = Column(Text)                    # id de track en Chartmetric
     track_name = Column(Text)
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="SET NULL"))  # nuestra canción
     playlist_id = Column(Text, nullable=False)
     playlist_name = Column(Text)
     owner_name = Column(Text)                  # curator/owner (p. ej. "Spotify")
@@ -5113,5 +5114,6 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_name text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
+        "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
     ], "chartmetric")
 

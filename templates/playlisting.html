@@ -23,17 +23,27 @@
         <div class="fw-semibold small text-muted mb-1">{{ g.label }} · {{ g.count }}</div>
         <div class="table-responsive">
           <table class="table table-sm align-middle mb-0">
+            <colgroup>
+              <col style="width:52px"><col><col><col style="width:90px"><col style="width:130px"><col style="width:80px">
+            </colgroup>
+            <thead><tr class="small text-muted">
+              <th></th><th>Playlist</th><th>Canción</th><th class="text-end">Puesto</th><th class="text-end">Oyentes</th><th class="text-end">Días</th>
+            </tr></thead>
             <tbody>
             {% for r in g.rows %}
               <tr>
-                <td style="width:52px">{% if r.image_url %}<img src="{{ r.image_url }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">{% endif %}</td>
+                <td>{% if r.image_url %}<img src="{{ r.image_url }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">{% endif %}</td>
                 <td>
-                  <div class="fw-semibold">{{ r.playlist_name or '—' }}{% if r.is_new %} <span class="badge text-bg-success">Novedad</span>{% endif %}</div>
-                  {% if r.track_name %}<div class="small text-muted">{{ r.track_name }}</div>{% endif %}
+                  <span class="fw-semibold">{{ r.playlist_name or '—' }}</span>
+                  {% if r.is_new %}<span class="badge text-bg-success ms-1">Novedad</span>{% endif %}
                 </td>
-                <td class="small text-nowrap">{% if r.position %}Puesto {{ r.position }}{% endif %}</td>
-                <td class="small text-nowrap">{% if r.followers %}{{ "{:,}".format(r.followers).replace(",", ".") }} oyentes{% endif %}</td>
-                <td class="small text-nowrap">{% if r.days %}{{ r.days }} días{% endif %}</td>
+                <td>
+                  {% if r.song_id %}<a href="{{ url_for('discografica_song_detail', song_id=r.song_id) }}">{{ r.track_name or '—' }}</a>
+                  {% else %}{{ r.track_name or '—' }}{% endif %}
+                </td>
+                <td class="text-end">{% if r.position %}{{ r.position }}{% endif %}</td>
+                <td class="text-end">{% if r.followers %}{{ "{:,}".format(r.followers).replace(",", ".") }}{% endif %}</td>
+                <td class="text-end">{% if r.days %}{{ r.days }}{% endif %}</td>
               </tr>
             {% endfor %}
             </tbody>

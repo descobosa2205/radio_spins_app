@@ -825,8 +825,8 @@ img[data-default-photo="1"]{
 .invitation-ticket-preview {
   display: block;
   width: 100%;
-  height: min(78vh, 760px);
-  min-height: 520px;
+  height: min(85vh, 1100px);
+  min-height: 600px;
   background: #f8f9fa;
 }
 .modal.app33-modal-stack,

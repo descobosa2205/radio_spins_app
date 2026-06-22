@@ -35696,6 +35696,39 @@ def invitation_ticket_update(ticket_id):
         session_db.close()
 
 
+@app.post('/invitaciones/tickets/<ticket_id>/reemplazar', endpoint='invitation_ticket_replace')
+@admin_required
+def invitation_ticket_replace(ticket_id):
+    """Sustituye el PDF de una entrada (manteniendo su sitio, código y asignación)."""
+    session_db = db()
+    try:
+        ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
+        if not ticket:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
+        cid = ticket.concert_id
+        file = request.files.get('ticket') or request.files.get('tickets[]')
+        fname = (getattr(file, 'filename', '') or '').strip()
+        if not file or not fname or not fname.lower().endswith('.pdf'):
+            raise ValueError('Selecciona un PDF para reemplazar la entrada.')
+        raw = file.read()
+        blobs = _invitation_split_pdf_pages(raw)
+        page_bytes = blobs[0] if blobs else raw   # una entrada = una página
+        ticket.pdf_url = upload_pdf_bytes(page_bytes, f'invitaciones/{cid}/{ticket.category_id or "sin-categoria"}')
+        ticket.pdf_name = fname
+        ticket.pdf_sha256 = hashlib.sha256(page_bytes).hexdigest()
+        ticket.updated_at = _now_madrid()
+        session_db.commit()
+        flash('PDF de la entrada reemplazado.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo reemplazar la entrada: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/tickets/<ticket_id>/mover-categoria', endpoint='invitation_ticket_move_category')
 @admin_required
 def invitation_ticket_move_category(ticket_id):

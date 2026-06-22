@@ -35786,6 +35786,62 @@ def invitation_ticket_delete(ticket_id):
         session_db.close()
 
 
+@app.post('/invitaciones/evento/<concert_id>/tickets/bulk', endpoint='invitation_tickets_bulk')
+@admin_required
+def invitation_tickets_bulk(concert_id):
+    """Acciones en bloque sobre varias entradas: eliminar o mover de categoría a la vez."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        action = (request.form.get('action') or '').strip().lower()
+        ids = [to_uuid(x) for x in (request.form.get('ticket_ids') or '').split(',') if to_uuid(x)]
+        if not ids:
+            raise ValueError('No has seleccionado ninguna invitación.')
+        tickets = (
+            session_db.query(InvitationTicket)
+            .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.id.in_(ids))
+            .all()
+        )
+        if action == 'delete':
+            n = 0
+            for t in tickets:
+                session_db.delete(t)
+                n += 1
+            session_db.commit()
+            flash(f'{n} invitación(es) eliminada(s).', 'success')
+        elif action == 'move':
+            new_cat = session_db.get(InvitationCategory, to_uuid(request.form.get('category_id')))
+            if not new_cat or new_cat.concert_id != concert.id:
+                raise ValueError('Categoría destino no válida.')
+            n = 0
+            for t in tickets:
+                if t.category_id == new_cat.id:
+                    continue
+                t.category_id = new_cat.id
+                t.is_numbered = (new_cat.ticket_kind or '').upper() == 'PDF_NUMBERED'
+                if (t.status or '') != 'AVAILABLE':
+                    t.status = 'AVAILABLE'
+                    t.assigned_request_id = None
+                    t.assigned_commitment_id = None
+                    t.assigned_label = None
+                t.updated_at = _now_madrid()
+                n += 1
+            session_db.commit()
+            flash(f'{n} invitación(es) movida(s) a «{new_cat.name}».', 'success')
+        else:
+            raise ValueError('Acción no válida.')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo completar la acción en bloque: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/evento/<concert_id>/asignaciones', endpoint='invitation_assignment_save')
 @admin_required
 def invitation_assignment_save(concert_id):

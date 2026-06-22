@@ -376,6 +376,21 @@
     </div>
 
     <div class="tab-pane fade" id="inv-tab-tickets">
+      <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>
+        <span class="small text-muted" data-select-hint>Actívalo y pincha las entradas para eliminarlas o moverlas de categoría en bloque.</span>
+      </div>
+      <form method="post" action="{{ url_for('invitation_tickets_bulk', concert_id=event.id) }}" class="invitation-bulk-bar d-none align-items-center flex-wrap gap-2 mb-3 p-2 border rounded" data-bulk-bar>
+        <input type="hidden" name="action" data-bulk-action value="">
+        <input type="hidden" name="ticket_ids" data-bulk-ids value="">
+        <span class="fw-semibold"><span data-bulk-count>0</span> seleccionada(s)</span>
+        <div class="d-flex align-items-center gap-1 ms-md-2">
+          <select class="form-select form-select-sm" name="category_id" data-bulk-category style="max-width:220px">{% for cat in categories %}<option value="{{ cat.id }}">{{ cat.name }}</option>{% endfor %}</select>
+          <button type="submit" class="btn btn-sm btn-outline-danger text-nowrap" data-bulk-move><i class="fa fa-right-left me-1"></i>Mover a</button>
+        </div>
+        <button type="submit" class="btn btn-sm btn-danger" data-bulk-delete><i class="fa fa-trash me-1"></i>Eliminar</button>
+        <button type="button" class="btn btn-sm btn-link ms-auto" data-select-cancel>Cancelar</button>
+      </form>
       <div class="row g-4">
         {% for cat in categories %}
           {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
@@ -405,7 +420,7 @@
                               {% for cell in row.visual %}
                                 {% if cell.type == 'seat' %}
                                   {% set t = cell.seat %}
-                                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
+                                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
                                 {% elif cell.type == 'missing' %}
                                   <span class="invitation-seat invitation-seat--missing"><span><s>{{ cell.seat }}</s></span></span>
                                 {% else %}
@@ -430,7 +445,7 @@
                   {% if cat_tickets %}
                     <div class="invitation-seat-grid mt-3">
                       {% for t in cat_tickets %}
-                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} {{ t.assigned_label }} {{ t.warning }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
                       {% endfor %}
                     </div>
                   {% endif %}
@@ -449,7 +464,7 @@
               </div>
               <div class="invitation-seat-grid">
                 {% for t in uncategorized_tickets %}
-                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
+                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
                 {% endfor %}
               </div>
             </div>
@@ -1072,6 +1087,50 @@
     const w = window.open(b.dataset.printTicket, '_blank');
     if(w){ try { w.addEventListener('load', function(){ try { w.focus(); w.print(); } catch(e){} }); } catch(e){} }
   });
+  // Selección múltiple en "Invitaciones": eliminar o mover varias entradas a la vez.
+  (function(){
+    const tab = document.getElementById('inv-tab-tickets');
+    if(!tab) return;
+    const bar = tab.querySelector('[data-bulk-bar]');
+    const countEl = tab.querySelector('[data-bulk-count]');
+    const toggleBtn = tab.querySelector('[data-select-toggle]');
+    const selected = new Set();
+    const isSelecting = () => tab.classList.contains('is-selecting');
+    const update = () => { if(countEl) countEl.textContent = selected.size; };
+    const setMode = (on) => {
+      tab.classList.toggle('is-selecting', on);
+      if(bar) bar.classList.toggle('d-none', !on);
+      if(toggleBtn) toggleBtn.classList.toggle('active', on);
+      if(!on){ selected.clear(); tab.querySelectorAll('[data-ticket-id].is-checked').forEach(b => b.classList.remove('is-checked')); update(); }
+    };
+    if(toggleBtn) toggleBtn.addEventListener('click', () => setMode(!isSelecting()));
+    const cancelBtn = tab.querySelector('[data-select-cancel]');
+    if(cancelBtn) cancelBtn.addEventListener('click', () => setMode(false));
+    tab.addEventListener('click', (ev) => {
+      if(!isSelecting()) return;
+      const seat = ev.target.closest('[data-ticket-id]');
+      if(!seat) return;
+      ev.preventDefault(); ev.stopPropagation();
+      const id = seat.dataset.ticketId;
+      if(selected.has(id)){ selected.delete(id); seat.classList.remove('is-checked'); }
+      else { selected.add(id); seat.classList.add('is-checked'); }
+      update();
+    }, true);
+    if(bar){
+      const idsField = bar.querySelector('[data-bulk-ids]');
+      const actionField = bar.querySelector('[data-bulk-action]');
+      const moveBtn = bar.querySelector('[data-bulk-move]');
+      const delBtn = bar.querySelector('[data-bulk-delete]');
+      if(moveBtn) moveBtn.addEventListener('click', () => { actionField.value = 'move'; });
+      if(delBtn) delBtn.addEventListener('click', () => { actionField.value = 'delete'; });
+      bar.addEventListener('submit', (ev) => {
+        if(!selected.size){ ev.preventDefault(); alert('Selecciona al menos una invitación.'); return; }
+        idsField.value = Array.from(selected).join(',');
+        const msg = actionField.value === 'delete' ? ('¿Eliminar ' + selected.size + ' invitación(es)? No se puede deshacer.') : ('¿Mover ' + selected.size + ' invitación(es) a la categoría seleccionada?');
+        if(!confirm(msg)){ ev.preventDefault(); }
+      });
+    }
+  })();
   document.querySelector('[data-ticket-files]')?.addEventListener('change', (ev) => { const files = Array.from(ev.target.files || []); document.querySelector('[data-file-summary]').textContent = files.length ? `${files.length} archivo(s) seleccionados` : 'Selecciona varios PDFs sueltos.'; document.querySelector('[data-file-list]').innerHTML = files.map(f=>`<div class="list-group-item">${f.name}</div>`).join(''); });
 
   document.querySelectorAll('[data-show-invitation-tab="tickets"]').forEach(link => link.addEventListener('click', () => { const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }));

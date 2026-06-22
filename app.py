@@ -1187,6 +1187,7 @@ def artist_detail_view(artist_id):
             entity_link_context={'type': 'artist', 'id': str(artist.id), 'label': artist.name or 'artista'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
             entity_links_can_edit=True,
+            chartmetric_header=_chartmetric_header_metrics(session_db, artist),
         )
     finally:
         session_db.close()
@@ -36506,6 +36507,62 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
     link.status = "LINKED" if not errors else "ERROR"
     session_db.commit()
     return {"ok": not errors, "message": "Actualizado." if not errors else "; ".join(errors)[:200]}
+
+
+def _social_url_for(artist, *needles):
+    """Primera URL de social_links que contenga alguno de los 'needles' (dominio). None si no hay."""
+    links = getattr(artist, "social_links", None) or {}
+    if isinstance(links, dict):
+        values = list(links.values())
+    elif isinstance(links, (list, tuple)):
+        values = list(links)
+    else:
+        values = []
+    for v in values:
+        if isinstance(v, str) and any(n in v.lower() for n in needles):
+            return v
+    return None
+
+
+def _chartmetric_header_metrics(session_db, artist):
+    """Métricas de cabecera (oyentes Spotify, seguidores IG/TikTok) con variación mensual.
+
+    Lee SOLO de la caché (chartmetric_metric_point); devuelve [] si no hay datos (no llama a la API).
+    Defensivo: ante cualquier error devuelve [] para no romper la ficha del artista.
+    """
+    plan = [
+        ("spotify", "listeners", "Oyentes Spotify", "fa-brands fa-spotify", ("open.spotify.com", "spotify.com")),
+        ("instagram", "followers", "Seguidores Instagram", "fa-brands fa-instagram", ("instagram.com",)),
+        ("tiktok", "followers", "Seguidores TikTok", "fa-brands fa-tiktok", ("tiktok.com",)),
+    ]
+    out = []
+    try:
+        for source, field, label, icon, needles in plan:
+            rows = (
+                session_db.query(ChartmetricMetricPoint)
+                .filter_by(artist_id=artist.id, source=source, field=field)
+                .order_by(ChartmetricMetricPoint.date.desc())
+                .limit(45)
+                .all()
+            )
+            rows = [r for r in rows if r.value is not None]
+            if not rows:
+                continue
+            cur = float(rows[0].value)
+            target = rows[0].date - timedelta(days=30)
+            prev = next((r for r in rows if r.date <= target), None)
+            delta = (cur - float(prev.value)) if prev is not None else None
+            out.append({
+                "label": label,
+                "icon": icon,
+                "value_fmt": f"{int(cur):,}".replace(",", "."),
+                "up": delta is not None and delta > 0,
+                "down": delta is not None and delta < 0,
+                "url": _social_url_for(artist, *needles),
+            })
+    except Exception:
+        return []
+    return out
 
 
 @app.route("/integraciones", methods=["GET", "POST"], endpoint="integrations_view")

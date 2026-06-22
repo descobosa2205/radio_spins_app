@@ -29,6 +29,20 @@
         </button>
       {% endif %}
     </div>
+    {% if chartmetric_header %}
+    <div class="d-flex align-items-center gap-4 flex-wrap mt-3 artist-metrics-strip">
+      {% for m in chartmetric_header %}
+      <div class="text-center">
+        <div class="d-flex align-items-center justify-content-center gap-1">
+          {% if m.url %}<a href="{{ m.url }}" target="_blank" rel="noopener" title="{{ m.label }}"><i class="{{ m.icon }}"></i></a>{% else %}<i class="{{ m.icon }}"></i>{% endif %}
+          <strong>{{ m.value_fmt }}</strong>
+          {% if m.up %}<i class="fa fa-arrow-up text-success" title="Sube respecto al mes anterior"></i>{% elif m.down %}<i class="fa fa-arrow-down text-danger" title="Baja respecto al mes anterior"></i>{% endif %}
+        </div>
+        <div class="small text-muted">{{ m.label }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
   </div>
   <div class="ficha-hero__actions">
     {% if CAN_EDIT_ARTISTS_STATIONS %}<span class="badge text-bg-primary align-self-center">Edición</span>{% else %}<span class="badge text-bg-secondary align-self-center">Lectura</span>{% endif %}

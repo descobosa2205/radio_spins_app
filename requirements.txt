@@ -3,6 +3,13 @@ SQLAlchemy==2.0.35
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 supabase==2.6.0
+# Cadena de pydantic FIJADA a la versión que funciona: en un build limpio, pip instalaba pydantic
+# 2.13.x (más nuevo) que rompe `import supabase` al arrancar -> gunicorn no abría el puerto y Render
+# fallaba el deploy ("No open ports detected"). Con estas versiones (las del entorno que funciona)
+# el arranque vuelve a estar OK.
+pydantic==2.12.4
+pydantic-core==2.41.5
+anyio==4.11.0
 requests==2.32.5
 Werkzeug==3.0.4
 Flask-WTF==1.2.1

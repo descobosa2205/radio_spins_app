@@ -35515,6 +35515,7 @@ def invitation_tickets_upload(concert_id):
         if not files:
             raise ValueError('No se han seleccionado PDFs.')
         errors = []
+        duplicates = []      # entradas que no se suben por estar ya repetidas
         created = 0
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
@@ -35548,7 +35549,7 @@ def invitation_tickets_upload(concert_id):
                 # Duplicado real = misma página (SHA): se salta e informa; el resto del lote sí se sube.
                 if page_sha in seen_shas or session_db.query(InvitationTicket.id).filter(
                         InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == page_sha).first():
-                    errors.append(f'{page_label}: entrada duplicada (mismo PDF)')
+                    duplicates.append(page_label)
                     continue
                 meta = _invitation_extract_ticket_metadata(page_bytes, f'{stem}-p{pidx + 1}.pdf')
                 reliable_code = bool(meta.get('code_reliable'))
@@ -35562,7 +35563,7 @@ def invitation_tickets_upload(concert_id):
                 # si no, se garantiza un código único (sufijo) para no perder PDFs distintos.
                 if _code_taken(code):
                     if reliable_code:
-                        errors.append(f'{page_label}: código duplicado ({code})')
+                        duplicates.append(f'{page_label} · {code}')
                         continue
                     base = code[:110]
                     suffix = 2
@@ -35608,8 +35609,11 @@ def invitation_tickets_upload(concert_id):
         session_db.commit()
         if created:
             flash(f'{created} invitaciones subidas.', 'success')
+        if duplicates:
+            extra = f' (+{len(duplicates) - 8} más)' if len(duplicates) > 8 else ''
+            flash(f'⚠️ {len(duplicates)} invitación(es) duplicada(s): solo se mantiene una de cada. No subidas: ' + ' · '.join(duplicates[:8]) + extra, 'warning')
         if errors:
-            flash('Algunas invitaciones no se subieron: ' + ' · '.join(errors[:8]), 'warning')
+            flash('Algunas invitaciones no se pudieron subir: ' + ' · '.join(errors[:8]), 'warning')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudieron subir las invitaciones: {exc}', 'danger')

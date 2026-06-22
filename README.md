@@ -189,6 +189,34 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-06-22 — Invitaciones: permisos de «pedir/gestionar» + peticiones sin tope de cupo
+
+Dos fallos corregidos en `app.py` (`_resolve_request_resource_key`, `_enforce_role_permissions_v2`,
+`_infer_group_key_from_path`, `invitation_request_create`):
+
+**Permisos (bug: 403 al pedir aunque tuvieras la función habilitada).** El enforcement v2 no tenía
+mapeado **ningún** endpoint de invitaciones a un recurso, así que `_resolve_request_resource_key`
+devolvía `None` y, para cualquier escritura (POST), la regla `if not key and not is_master()`
+bloqueaba a **todo el personal que no fuera dirección** (rol 10) — p. ej. al pedir invitaciones.
+- Ahora los endpoints de invitaciones se mapean a su recurso: la página y las APIs de lectura →
+  `invitaciones`; `invitation_request_create` → `invitaciones.pedir`; el resto (gestión) →
+  `invitaciones.gestionar` (+ se añade `/invitaciones` a `_infer_group_key_from_path` como red de
+  seguridad).
+- Los recursos de invitaciones se tratan como **«de acción»**: tener la pestaña habilitada (acceso
+  **básico**) basta para ejecutar sus acciones —coherente con `_ensure_can_manage_invitations` y
+  `_filter_manageable_concerts`, que ya usaban acceso básico—. El control fino de gestión (por
+  artista/concierto) lo siguen haciendo los propios endpoints. Dirección (rol 10) sin cambios.
+- Tras crear una solicitud se redirige a la **vista de invitaciones** (pestaña «pedir», con «Mis
+  solicitudes»), no a la ficha del evento (que exige permiso de gestión y daba 403 a quien solo
+  podía pedir).
+
+**Cupo (bug: no se podía pedir si el evento no tenía invitaciones configuradas o estaban completas).**
+`invitation_request_create` ya **no** valida el cupo del evento: una **petición** puede hacerse
+aunque el cupo esté a 0 o sin configurar, porque el control de cupo se ejerce al **aceptar/asignar**
+la solicitud (para eso existe el flujo de aprobación; además luego se puede ampliar el cupo). Se
+mantienen las validaciones de cupo en **compromisos** (`invitation_commitment_save`) y en el
+**enlace público** (`public_invitation_request_submit`, que además tiene límites propios del enlace).
+
 ### 2026-06-22 — Estabilidad (hotfix web caída) + limpieza de código muerto
 
 **Hotfix (toda la web caída, commit `d91c2c3`):** el commit de «Ver como» dejó el decorador

@@ -46,7 +46,14 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Permisos**: catálogo `UserAccessResource` (SECTION→TAB→SUBTAB, `economic_capable`) + grants
   `UserAccessGrant` (`can_view_basic`/`can_view_econ`/`can_edit`). **role 10 = dirección** (acceso
   total y único que edita permisos). Enforcement: `_enforce_role_permissions_v2` (usa
-  `include_descendants`). Coherencia: `_coherent_grant_values`. Las funcionalidades nuevas se
+  `include_descendants`); las versiones legacy `enforce_role_permissions`/`require_login` quedan
+  **sustituidas** por las `_v2` vía `_replace_before_request` al final del módulo (son código muerto,
+  no editarlas). `_resolve_request_resource_key` mapea endpoint→recurso (respaldo:
+  `_infer_group_key_from_path`); **si da `None` en un POST, solo dirección pasa** → al añadir
+  endpoints nuevos hay que mapearlos. **Invitaciones = recursos «de acción»**: su POST exige solo
+  **acceso básico** a `invitaciones.pedir`/`invitaciones.gestionar` (tener la pestaña habilitada =
+  poder pedir/gestionar; el control fino por artista/concierto lo hace `_ensure_can_manage_invitations`),
+  no `can_edit`. Coherencia: `_coherent_grant_values`. Las funcionalidades nuevas se
   autodescubren y entran **desactivadas**. UI en `personnel_detail.html` + `personnel_bulk.html`.
   **Artistas por faceta**: `UserProfile.assigned_artist_ids_produccion` / `_sello` (una persona puede
   ser de ambos); `assigned_artist_ids` se mantiene como **unión** (compat) y se recalcula al guardar.

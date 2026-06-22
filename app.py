@@ -26152,6 +26152,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/produccion", "produccion"),
         ("/administracion", "administracion"),
         ("/contabilidad", "contabilidad"),
+        ("/invitaciones", "invitaciones"),
     ]:
         if path.startswith(prefix):
             return key
@@ -26282,6 +26283,14 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.bags"
     if endpoint.startswith("invoice_") or endpoint == "invoices_view":
         return "databases.invoices"
+    # Invitaciones: la página y las APIs de lectura cuelgan de la sección; "pedir" y "gestionar"
+    # van a su pestaña concreta. (Los endpoints públicos ya retornan None más arriba.)
+    if endpoint in {"invitations_view", "api_invitation_events", "api_invitation_event_categories"}:
+        return "invitaciones"
+    if endpoint == "invitation_request_create":
+        return "invitaciones.pedir"
+    if endpoint.startswith("invitation_") or endpoint.startswith("api_invitation_"):
+        return "invitaciones.gestionar"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
         return auto_key
@@ -26952,10 +26961,19 @@ def _enforce_role_permissions_v2():
         return redirect(url_for("admin_login"))
 
     key = _resolve_request_resource_key() or _infer_group_key_from_path(request.path)
+    # Recursos "de acción" (invitaciones): tener la función habilitada (acceso básico) basta para
+    # ejecutar sus acciones —pedir/gestionar SON la función en sí, no un "editar" sobre datos—; el
+    # control fino de gestión lo hacen los propios endpoints (_ensure_can_manage_invitations) y el
+    # flujo de aprobación de solicitudes. Así, quien tiene habilitada la pestaña completa el proceso.
+    action_only = bool(key) and (key == "invitaciones" or key.startswith("invitaciones."))
     if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        if key and not has_access_key(key, edit=True, include_descendants=True):
-            return forbid("Tu usuario no tiene permisos de edición para esta sección.")
-        if not key and not is_master():
+        if action_only:
+            if not has_access_key(key, include_descendants=True):
+                return forbid("Tu usuario no tiene acceso a esta sección.")
+        elif key:
+            if not has_access_key(key, edit=True, include_descendants=True):
+                return forbid("Tu usuario no tiene permisos de edición para esta sección.")
+        elif not is_master():
             return forbid("Tu usuario no tiene permisos para modificar datos en esta sección.")
     else:
         if key and key != "home" and not has_access_key(key, include_descendants=True):
@@ -34862,10 +34880,10 @@ def invitation_request_create():
         quantities = _invitation_quantities_from_form(request.form, categories)
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
-        # Validación de cupo del evento: no comprometer más invitaciones de las configuradas.
-        _inv_available = _invitation_event_counts(session_db, concert)['result']
-        if _invitation_total_qty(quantities) > _inv_available:
-            raise ValueError(f'No hay cupo suficiente: quedan {max(0, _inv_available)} invitaciones disponibles y solicitas {_invitation_total_qty(quantities)}.')
+        # Las solicitudes (peticiones) NO se limitan por el cupo del evento: el concierto puede no
+        # tener invitaciones configuradas todavía, o tenerlas completas y ampliarse después. El
+        # control de cupo se ejerce al ACEPTAR/asignar la solicitud (por eso existe el flujo de
+        # aprobación), no al pedirla.
         state = _current_user_state()
         guest_type = (request.form.get('guest_type') or 'THIRD_PARTY').strip().upper()
         guest_name = (request.form.get('guest_name') or '').strip()
@@ -34962,7 +34980,10 @@ def invitation_request_create():
         session_db.add(row)
         session_db.commit()
         flash('Solicitud de invitaciones guardada como solicitada.', 'success')
-        return redirect(url_for('invitation_event_detail', concert_id=concert.id))
+        # Volvemos a la vista de invitaciones (pestaña "pedir", con "Mis solicitudes"), que el
+        # solicitante siempre puede ver. La ficha del evento exige permiso de gestión, así que
+        # redirigir allí daría 403 a quien solo tiene habilitado "pedir".
+        return redirect(url_for('invitations_view', tab='pedir'))
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo crear la solicitud: {exc}', 'danger')

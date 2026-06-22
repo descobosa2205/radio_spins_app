@@ -5037,3 +5037,42 @@ def ensure_performance_indexes():
     stmts.append('CREATE INDEX IF NOT EXISTS "ix_user_activity_logs_user_created" ON "user_activity_logs" ("user_id", "created_at");')
     _exec_ddl_statements(stmts, "performance_indexes")
 
+
+# =========================================================
+# Integración Chartmetric (métricas) — caché en BD
+# Patrón: NO llamar a la API en cada carga (plan por uso, $0.01/llamada). Resolvemos una vez el
+# Chartmetric ID (CMID) de cada artista y guardamos las métricas como series temporales; la web lee
+# de estas tablas y un proceso en segundo plano las refresca.
+# =========================================================
+class ChartmetricArtist(Base):
+    """Vínculo de un artista nuestro con su ficha en Chartmetric (CMID) + estado del refresco."""
+    __tablename__ = "chartmetric_artist"
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True)
+    chartmetric_id = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING|LINKED|NOT_FOUND|ERROR
+    last_refreshed_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ChartmetricMetricPoint(Base):
+    """Un punto de una serie temporal: (artista, plataforma, métrica, fecha) -> valor."""
+    __tablename__ = "chartmetric_metric_point"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    source = Column(Text, nullable=False)   # spotify, instagram, tiktok, youtube_channel, facebook...
+    field = Column(Text, nullable=False)    # followers, listeners, popularity...
+    date = Column(Date, nullable=False)
+    value = Column(Numeric)
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("artist_id", "source", "field", "date", name="uq_cm_metric_point"),
+        Index("idx_cm_metric_point_lookup", "artist_id", "source", "field", "date"),
+    )
+
+
+def ensure_chartmetric_schema():
+    """Crea las tablas de caché de Chartmetric (idempotente). Inofensivo aunque la API no se use."""
+    Base.metadata.create_all(bind=engine)
+

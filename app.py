@@ -110,6 +110,7 @@ from models import (
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
     ensure_entity_links_schema,
+    ensure_chartmetric_schema,
     ensure_performance_indexes,
     SessionLocal,
     User,
@@ -24349,6 +24350,7 @@ _safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
 _safe_ensure(ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema")
 _safe_ensure(ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema")
 _safe_ensure(ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema")
+_safe_ensure(ensure_chartmetric_schema, "ensure_chartmetric_schema")
 
 # =========================================================
 # Hoja de ruta avanzada + redes sociales + one-sheet

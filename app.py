@@ -36390,10 +36390,10 @@ def _chartmetric_norm_name(s: str) -> str:
     return " ".join(s.lower().split())
 
 
-def _chartmetric_cmid_by_name(name: str):
-    """Respaldo: busca el artista por nombre en Chartmetric. Devuelve el CMID solo si hay coincidencia
-    EXACTA de nombre (normalizada), eligiendo el de mayor score; None si no hay match claro (evita
-    vincular un artista equivocado en nombres ambiguos)."""
+def _chartmetric_search_best(name: str):
+    """Mejor artista en Chartmetric por nombre: coincidencia EXACTA normalizada, el de mayor score.
+    Devuelve el dict {id, name, image_url, sp_monthly_listeners...} o None (así no vinculamos un
+    artista equivocado en nombres ambiguos)."""
     import chartmetric_utils as cm
     if not (name or "").strip():
         return None
@@ -36409,11 +36409,24 @@ def _chartmetric_cmid_by_name(name: str):
     if not matches:
         return None
     matches.sort(key=lambda a: (a.get("cm_artist_score") or 0), reverse=True)
-    return matches[0].get("id")
+    return matches[0]
+
+
+def _chartmetric_fetch_artist_meta(cmid):
+    """Nombre e imagen del artista en Chartmetric por CMID (para validar un ID puesto a mano)."""
+    import chartmetric_utils as cm
+    try:
+        data = cm.get_artist(cmid)
+        a = data.get("obj", data) if isinstance(data, dict) else data
+        if isinstance(a, dict):
+            return (a.get("name"), a.get("image_url") or a.get("cover_url"))
+    except Exception:
+        pass
+    return (None, None)
 
 
 def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
-    """Resuelve y persiste el Chartmetric ID del artista. Devuelve el CMID o None."""
+    """Resuelve y persiste el Chartmetric ID del artista (no toca lo ya vinculado)."""
     import chartmetric_utils as cm
     link = session_db.get(ChartmetricArtist, artist.id)
     if link and link.chartmetric_id:
@@ -36422,17 +36435,25 @@ def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
         link = ChartmetricArtist(artist_id=artist.id)
         session_db.add(link)
     try:
+        cmid = cm_name = cm_img = source = None
         spotify_id = _chartmetric_extract_spotify_artist_id(artist)
-        cmid = None
         if spotify_id:
             data = cm.get_chartmetric_id_from_spotify(spotify_id)
             payload = data.get("obj", data) if isinstance(data, dict) else data
             cmid = _chartmetric_pick_cmid(payload)
+            if cmid:
+                source = "spotify"
+                first = payload[0] if isinstance(payload, list) and payload else (payload if isinstance(payload, dict) else {})
+                cm_name = first.get("artist_name") if isinstance(first, dict) else None
         if not cmid:
-            # Respaldo: búsqueda por nombre (coincidencia exacta, el de mayor score).
-            cmid = _chartmetric_cmid_by_name(artist.name)
+            hit = _chartmetric_search_best(artist.name)
+            if hit:
+                cmid, cm_name, cm_img, source = hit.get("id"), hit.get("name"), hit.get("image_url"), "name"
         if cmid:
             link.chartmetric_id = str(cmid)
+            link.chartmetric_name = cm_name
+            link.chartmetric_image_url = cm_img
+            link.match_source = source
             link.status = "LINKED"
             link.last_error = None
         else:
@@ -36443,6 +36464,35 @@ def _chartmetric_resolve_cmid(session_db, artist) -> str | None:
         link.last_error = str(e)[:500]
     link.updated_at = _now_madrid()
     return link.chartmetric_id
+
+
+def _chartmetric_review_rows(session_db):
+    """Una fila por artista con el ID de Chartmetric elegido (para revisión y corrección manual)."""
+    rows = (
+        session_db.query(Artist, ChartmetricArtist)
+        .outerjoin(ChartmetricArtist, ChartmetricArtist.artist_id == Artist.id)
+        .order_by(Artist.name.asc())
+        .all()
+    )
+    out = []
+    for art, link in rows:
+        out.append({
+            "artist_id": str(art.id),
+            "artist_name": art.name,
+            "artist_photo": art.photo_url,
+            "cmid": (link.chartmetric_id if link else None),
+            "cm_name": (getattr(link, "chartmetric_name", None) if link else None),
+            "cm_image": (getattr(link, "chartmetric_image_url", None) if link else None),
+            "source": (getattr(link, "match_source", None) if link else None),
+            "status": (link.status if link else None),
+        })
+    return out
+
+
+def _chartmetric_clear_artist_cache(session_db, artist_id):
+    """Borra métricas y playlists cacheadas de un artista (al corregir/desvincular su ID)."""
+    session_db.query(ChartmetricMetricPoint).filter_by(artist_id=artist_id).delete()
+    session_db.query(ChartmetricPlaylistEntry).filter_by(artist_id=artist_id).delete()
 
 
 def _chartmetric_upsert_metric_points(session_db, artist_id, source, field, series, keep_days=120):
@@ -36630,15 +36680,93 @@ def integrations_view():
                 flash(f"Error en la prueba de Chartmetric: {e}", "danger")
             finally:
                 s.close()
+        elif action == "resolve_all_chartmetric":
+            s = db()
+            try:
+                linked = nf = 0
+                for a in s.query(Artist).order_by(Artist.name.asc()).all():
+                    existing = s.get(ChartmetricArtist, a.id)
+                    if existing and existing.chartmetric_id:
+                        continue  # ya vinculado (no re-resolver: no gastar ni pisar lo manual)
+                    if _chartmetric_resolve_cmid(s, a):
+                        linked += 1
+                    else:
+                        nf += 1
+                s.commit()
+                flash(f"Vinculación automática: {linked} vinculados, {nf} sin encontrar. Revisa la tabla y corrige a mano lo que haga falta.", "info")
+            except Exception as e:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+                flash(f"Error al vincular: {e}", "danger")
+            finally:
+                s.close()
+        elif action == "link_chartmetric":
+            aid = (request.form.get("artist_id") or "").strip()
+            new_cmid = (request.form.get("chartmetric_id") or "").strip()
+            s = db()
+            try:
+                art = s.get(Artist, to_uuid(aid)) if aid else None
+                if not art:
+                    flash("Artista no encontrado.", "warning")
+                elif not new_cmid.isdigit():
+                    flash("El ID de Chartmetric debe ser numérico.", "warning")
+                else:
+                    name, image = _chartmetric_fetch_artist_meta(new_cmid)
+                    link = s.get(ChartmetricArtist, art.id)
+                    if not link:
+                        link = ChartmetricArtist(artist_id=art.id)
+                        s.add(link)
+                    link.chartmetric_id = new_cmid
+                    link.chartmetric_name = name
+                    link.chartmetric_image_url = image
+                    link.match_source = "manual"
+                    link.status = "LINKED"
+                    link.last_error = None
+                    link.updated_at = _now_madrid()
+                    _chartmetric_clear_artist_cache(s, art.id)  # fuera datos viejos; se recogen al refrescar
+                    s.commit()
+                    flash(f"{art.name} → Chartmetric ID {new_cmid}" + (f" ({name})" if name else "") + ". Datos antiguos limpiados.", "success")
+            except Exception as e:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+                flash(f"Error al vincular: {e}", "danger")
+            finally:
+                s.close()
+        elif action == "unlink_chartmetric":
+            aid = (request.form.get("artist_id") or "").strip()
+            s = db()
+            try:
+                art = s.get(Artist, to_uuid(aid)) if aid else None
+                if art:
+                    link = s.get(ChartmetricArtist, art.id)
+                    if link:
+                        s.delete(link)
+                    _chartmetric_clear_artist_cache(s, art.id)
+                    s.commit()
+                    flash(f"{art.name} desvinculado y datos limpiados.", "info")
+            except Exception as e:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+                flash(f"Error al desvincular: {e}", "danger")
+            finally:
+                s.close()
         return redirect(url_for("integrations_view"))
-    # Resumen de la caché (para comprobar que el motor produce datos tras un refresco).
+    # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
     cm_linked = cm_points = cm_playlists = 0
+    review_rows = []
     if chartmetric_utils.chartmetric_configured():
         s = db()
         try:
             cm_linked = s.query(ChartmetricArtist).filter(ChartmetricArtist.chartmetric_id.isnot(None)).count()
             cm_points = s.query(ChartmetricMetricPoint).count()
             cm_playlists = s.query(ChartmetricPlaylistEntry).filter_by(status="current").count()
+            review_rows = _chartmetric_review_rows(s)
         except Exception:
             pass
         finally:
@@ -36651,6 +36779,7 @@ def integrations_view():
         cm_linked=cm_linked,
         cm_points=cm_points,
         cm_playlists=cm_playlists,
+        review_rows=review_rows,
     )
 
 

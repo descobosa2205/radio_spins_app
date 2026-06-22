@@ -5049,6 +5049,9 @@ class ChartmetricArtist(Base):
     __tablename__ = "chartmetric_artist"
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), primary_key=True)
     chartmetric_id = Column(Text)
+    chartmetric_name = Column(Text)        # nombre del artista en Chartmetric (para revisar el match)
+    chartmetric_image_url = Column(Text)   # foto en Chartmetric (para comparar visualmente)
+    match_source = Column(Text)            # spotify | name | manual
     status = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING|LINKED|NOT_FOUND|ERROR
     last_refreshed_at = Column(DateTime(timezone=True))
     last_error = Column(Text)
@@ -5104,6 +5107,11 @@ class ChartmetricPlaylistEntry(Base):
 
 
 def ensure_chartmetric_schema():
-    """Crea las tablas de caché de Chartmetric (idempotente). Inofensivo aunque la API no se use."""
+    """Crea/actualiza las tablas de caché de Chartmetric (idempotente). Inofensivo si no se usa."""
     Base.metadata.create_all(bind=engine)
+    _exec_ddl_statements([
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_name text;",
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
+    ], "chartmetric")
 

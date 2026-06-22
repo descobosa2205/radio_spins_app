@@ -33433,6 +33433,37 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
     return out
 
 
+def _invitation_availability_breakdown(ticket_payloads: list[dict]) -> dict:
+    """Disponibles de UNA categoría numerada agrupadas por sector y fila, con rangos de butacas
+    seguidas (respetando el paso: pares/impares o correlativo)."""
+    avail = [t for t in (ticket_payloads or []) if (t.get('status') or '') == 'AVAILABLE']
+    by_sector: dict = defaultdict(lambda: defaultdict(list))
+    for t in avail:
+        by_sector[t.get('sector') or 'General'][t.get('row_label') or 'Sin fila'].append(t)
+    sectors = []
+    total = 0
+    for sector in sorted(by_sector.keys(), key=lambda x: str(x).casefold()):
+        rows = []
+        sector_count = 0
+        for row_label in sorted(by_sector[sector].keys(), key=lambda x: str(x).casefold()):
+            seats = by_sector[sector][row_label]
+            sector_count += len(seats)
+            nums = sorted([_safe_int(t.get('seat_number')) for t in seats if str(t.get('seat_number') or '').isdigit()])
+            step = 2 if (len(nums) >= 2 and len({n % 2 for n in nums}) == 1 and (nums[-1] - nums[0]) >= 2) else 1
+            runs = []
+            i = 0
+            while i < len(nums):
+                j = i
+                while j + 1 < len(nums) and nums[j + 1] - nums[j] == step:
+                    j += 1
+                runs.append(str(nums[i]) if nums[i] == nums[j] else f'{nums[i]}-{nums[j]}')
+                i = j + 1
+            rows.append({'row_label': row_label, 'available': len(seats), 'runs': runs})
+        sectors.append({'sector': sector, 'available': sector_count, 'rows': rows})
+        total += sector_count
+    return {'sectors': sectors, 'available_total': total}
+
+
 def _invitation_split_pdf_pages(data: bytes) -> list[bytes]:
     """Divide un PDF en una lista de PDFs de una sola página (bytes), una entrada por página.
 
@@ -34740,6 +34771,10 @@ def invitation_event_detail(concert_id):
             cid: _invitation_ticket_groups(rows)
             for cid, rows in tickets_by_category.items()
         }
+        availability_by_category = {
+            cid: _invitation_availability_breakdown(rows)
+            for cid, rows in tickets_by_category.items()
+        }
         pending_assignments = _invitation_pending_assignment_payloads(session_db, concert, categories)
         current_state = _current_user_state()
         return render_template(
@@ -34761,6 +34796,7 @@ def invitation_event_detail(concert_id):
             tickets_by_category=tickets_by_category,
             uncategorized_tickets=uncategorized_tickets,
             ticket_groups_by_category=ticket_groups_by_category,
+            availability_by_category=availability_by_category,
             pending_assignments=pending_assignments,
             current_user_invitation={
                 'name': current_state.get('nick') or current_state.get('email') or '',

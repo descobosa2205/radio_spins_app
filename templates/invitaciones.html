@@ -252,6 +252,19 @@
               </div>
               <div class="small mt-2">Contrato: <strong>{{ cat.qty_contract }}</strong> · Adicionales: <strong>{{ cat.qty_extra }}</strong></div>
               <div class="small">Subidas: <strong>{{ cat.uploaded }}</strong> · Asignadas: <strong>{{ cat.assigned }}</strong> · Libres: <strong>{{ cat.available_configured }}</strong></div>
+              {% if cat.ticket_kind == 'PDF_NUMBERED' %}
+                {% set br = availability_by_category.get(cat.id) if availability_by_category is defined else None %}
+                {% if br and br.sectors %}
+                  <div class="small mt-2 border-top pt-2">
+                    <div class="text-muted mb-1">Disponibles por sector / fila (butacas seguidas):</div>
+                    {% for s in br.sectors %}
+                      <div><strong>{{ s.sector }}</strong> · {{ s.available }} libres</div>
+                      {% for r in s.rows %}<div class="ms-3 text-muted">Fila {{ r.row_label }}: {% if r.runs %}{{ r.runs|join(', ') }}{% else %}{{ r.available }}{% endif %}</div>{% endfor %}
+                    {% endfor %}
+                  </div>
+                {% endif %}
+                <a class="small d-inline-block mt-2" href="#inv-tab-tickets" data-show-invitation-tab="tickets"><i class="fa fa-map me-1"></i>Ver plano</a>
+              {% endif %}
             </div>
           </div>
         {% endfor %}

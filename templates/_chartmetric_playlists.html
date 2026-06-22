@@ -1,28 +1,39 @@
 {# Renderiza playlists agrupadas por plataforma. Espera `groups` en contexto (lista de
-   {key,label,count,rows}), donde cada row trae playlist_name, track_name, song_id, position,
-   followers, days, is_new, image_url. Reutilizado por la sección Playlisting y las pestañas. #}
+   {key,label,logo,count,rows}); cada row trae playlist_name, track_name, song_id, song_title,
+   song_cover, position, followers, days, is_new, image_url. Reutilizado por la sección
+   Playlisting (vista general), la pestaña de artista y la de canción. Las columnas usan
+   table-layout:fixed para que TODAS las tablas (todos los artistas) queden alineadas igual. #}
 {% if groups %}
   {% for g in groups %}
-  <div class="mb-3">
-    <div class="fw-semibold small text-muted mb-1">{{ g.label }} · {{ g.count }}</div>
+  <div class="mb-3 cm-pl-group" data-platform="{{ g.key }}">
+    <div class="d-flex align-items-center gap-2 mb-1">
+      {% if g.logo %}<img src="{{ url_for('static', filename='img/platforms/' + g.logo) }}" alt="{{ g.label }}" style="height:18px;width:auto;">{% endif %}
+      <span class="fw-semibold small">{{ g.label }}</span>
+      <span class="badge text-bg-light border">{{ g.count }}</span>
+    </div>
     <div class="table-responsive">
-      <table class="table table-sm align-middle mb-0">
-        <colgroup><col style="width:52px"><col><col><col style="width:90px"><col style="width:130px"><col style="width:80px"></colgroup>
+      <table class="table table-sm align-middle mb-0" style="table-layout:fixed;width:100%;">
+        <colgroup><col style="width:52px"><col><col><col style="width:64px"><col style="width:96px"><col style="width:52px"></colgroup>
         <thead><tr class="small text-muted">
-          <th></th><th>Playlist</th><th>Canción</th><th class="text-end">Puesto</th><th class="text-end">Oyentes</th><th class="text-end">Días</th>
+          <th></th><th>Canción</th><th>Playlist</th><th class="text-end">Puesto</th><th class="text-end">Oyentes</th><th class="text-end">Días</th>
         </tr></thead>
         <tbody>
         {% for r in g.rows %}
-          <tr>
-            <td>{% if r.image_url %}<img src="{{ r.image_url }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">{% endif %}</td>
+          {% set song_href = url_for('discografica_song_detail', song_id=r.song_id, tab='playlisting') if r.song_id else none %}
+          <tr data-search="{{ (r.song_title or r.track_name or '')|lower }} {{ (r.playlist_name or '')|lower }}">
             <td>
-              <span class="fw-semibold">{{ r.playlist_name or '—' }}</span>
-              {% if r.is_new %}<span class="badge text-bg-success ms-1">Novedad</span>{% endif %}
+              {% if song_href %}<a href="{{ song_href }}">{% endif %}
+              {% if r.song_cover %}<img src="{{ r.song_cover }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">
+              {% else %}<span class="d-inline-flex align-items-center justify-content-center text-muted" style="width:42px;height:42px;border-radius:8px;background:#f1f3f5;"><i class="fa fa-music"></i></span>{% endif %}
+              {% if song_href %}</a>{% endif %}
             </td>
             <td>
-              {% if r.song_id %}<a href="{{ url_for('discografica_song_detail', song_id=r.song_id) }}">{{ r.track_name or '—' }}</a>
-              {% else %}{{ r.track_name or '—' }}{% endif %}
+              <div class="text-truncate fw-semibold">
+                {% if song_href %}<a href="{{ song_href }}">{{ r.song_title or r.track_name or '—' }}</a>{% else %}{{ r.track_name or '—' }}{% endif %}
+              </div>
+              {% if r.is_new %}<span class="badge text-bg-success">Novedad</span>{% endif %}
             </td>
+            <td><div class="text-truncate" title="{{ r.playlist_name or '' }}">{{ r.playlist_name or '—' }}</div></td>
             <td class="text-end">{% if r.position %}{{ r.position }}{% endif %}</td>
             <td class="text-end">{% if r.followers %}{{ "{:,}".format(r.followers).replace(",", ".") }}{% endif %}</td>
             <td class="text-end">{% if r.days %}{{ r.days }}{% endif %}</td>

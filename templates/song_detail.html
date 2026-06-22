@@ -2461,8 +2461,29 @@
   {% elif tab == 'playlisting' %}
     <div class="ficha-section">
       <h2 class="h6 mb-3">Playlists oficiales (Spotify · Apple Music · Amazon Music)</h2>
+      {% if chartmetric_counts and chartmetric_counts.totals.total %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          {% for p in chartmetric_counts.platforms %}
+            <span class="badge text-bg-light border d-inline-flex align-items-center gap-1">
+              {% if p.logo %}<img src="{{ url_for('static', filename='img/platforms/' + p.logo) }}" alt="{{ p.label }}" style="height:14px;width:auto;">{% endif %}
+              {{ p.label }}: <strong>{{ p.total }}</strong>{% if p.past %} <span class="text-muted">({{ p.current }} ahora · {{ p.past }} antes)</span>{% endif %}
+            </span>
+          {% endfor %}
+          <span class="badge text-bg-secondary">Total: {{ chartmetric_counts.totals.total }}</span>
+        </div>
+      {% endif %}
+
+      <h3 class="h6 text-muted mb-2">Actuales</h3>
       {% set groups = chartmetric_playlists %}
       {% include '_chartmetric_playlists.html' %}
+
+      <h3 class="h6 text-muted mt-4 mb-2">Anteriores</h3>
+      {% if chartmetric_playlists_past %}
+        {% set groups = chartmetric_playlists_past %}
+        {% include '_chartmetric_playlists.html' %}
+      {% else %}
+        <div class="text-muted small py-2">Sin playlists anteriores registradas.</div>
+      {% endif %}
     </div>
   {% else %}
     {% set ns = namespace(lbl='') %}

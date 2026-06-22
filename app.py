@@ -11765,6 +11765,8 @@ def discografica_song_detail(song_id):
         primary_artist=primary_artist,
         tab=tab,
         chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, song_id=s.id) if tab == 'playlisting' else None),
+        chartmetric_playlists_past=(_chartmetric_playlists_grouped(session_db, song_id=s.id, status="past") if tab == 'playlisting' else None),
+        chartmetric_counts=(_chartmetric_playlist_counts(session_db, s.id) if tab == 'playlisting' else None),
         edit=edit,
         status=st,
         interpreters=interpreters,
@@ -36711,8 +36713,8 @@ def _chartmetric_upsert_metric_points(session_db, artist_id, source, field, seri
             ))
 
 
-def _chartmetric_replace_current_playlists(session_db, artist_id, platform, items, track_map=None, song_by_isrc=None, song_by_title=None):
-    """Reemplaza las playlists 'actuales' del artista en esa plataforma con el snapshot recibido.
+def _chartmetric_replace_current_playlists(session_db, artist_id, platform, items, track_map=None, song_by_isrc=None, song_by_title=None, status="current"):
+    """Reemplaza las playlists del artista en esa plataforma y estado (current/past) con el snapshot.
 
     track_map: cm_track -> {name, isrc}. Las playlists de Apple/Amazon NO traen el nombre de la
     canción, así que lo sacamos de aquí; y casamos con nuestra Song por ISRC (normalizado) o, si no
@@ -36722,7 +36724,7 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
     song_by_isrc = song_by_isrc or {}
     song_by_title = song_by_title or {}
     session_db.query(ChartmetricPlaylistEntry).filter_by(
-        artist_id=artist_id, platform=platform, status="current"
+        artist_id=artist_id, platform=platform, status=status
     ).delete()
     seen = set()
     official_owners = {"spotify", "apple music", "apple", "applemusic", "amazon", "amazon music"}
@@ -36758,7 +36760,7 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
         if not song_id and track_name:
             song_id = song_by_title.get(_chartmetric_norm_name(track_name))
         session_db.add(ChartmetricPlaylistEntry(
-            artist_id=artist_id, platform=platform, status="current",
+            artist_id=artist_id, platform=platform, status=status,
             cm_track=cm_track or None, track_name=track_name, song_id=song_id,
             playlist_id=playlist_id, playlist_name=pl.get("name"),
             owner_name=owner, is_official=is_official,
@@ -36812,11 +36814,12 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
     except Exception:
         pass
     for platform in ("spotify", "applemusic", "amazon"):
-        try:
-            items = cm.get_artist_playlists(cmid, platform=platform, status="current")
-            _chartmetric_replace_current_playlists(session_db, artist.id, platform, items, track_map, song_by_isrc, song_by_title)
-        except Exception as e:
-            errors.append(f"pl:{platform}:{str(e)[:80]}")
+        for st in ("current", "past"):
+            try:
+                items = cm.get_artist_playlists(cmid, platform=platform, status=st)
+                _chartmetric_replace_current_playlists(session_db, artist.id, platform, items, track_map, song_by_isrc, song_by_title, status=st)
+            except Exception as e:
+                errors.append(f"pl:{platform}:{st}:{str(e)[:80]}")
     link.last_refreshed_at = _now_madrid()
     link.last_error = "; ".join(errors)[:500] if errors else None
     link.status = "LINKED" if not errors else "ERROR"
@@ -37099,6 +37102,13 @@ def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, so
     if only_official:
         q = q.filter(ChartmetricPlaylistEntry.is_official.is_(True))
     entries = q.all()
+    # Portada principal y título de NUESTRAS canciones enlazadas (en bloque, sin N+1).
+    song_ids = {e.song_id for e in entries if e.song_id}
+    song_map = {}
+    if song_ids:
+        for sg in session_db.query(Song.id, Song.title, Song.cover_url).filter(Song.id.in_(song_ids)).all():
+            song_map[sg.id] = {"title": sg.title, "cover_url": sg.cover_url}
+    platform_logos = {"spotify": "spotify.png", "applemusic": "apple_music.png", "amazon": "amazon_music.png"}
     today = _now_madrid().date()
     groups = []
     for key, label in (("spotify", "Spotify"), ("applemusic", "Apple Music"), ("amazon", "Amazon Music")):
@@ -37106,9 +37116,12 @@ def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, so
         items.sort(key=lambda e: float(e.followers or 0), reverse=True)
         rows = []
         for e in items:
+            sinfo = song_map.get(e.song_id) if e.song_id else None
             rows.append({
                 "track_name": e.track_name,
                 "song_id": (str(e.song_id) if e.song_id else None),
+                "song_title": (sinfo or {}).get("title"),
+                "song_cover": (sinfo or {}).get("cover_url"),
                 "playlist_name": e.playlist_name,
                 "position": e.position,
                 "days": e.days_in_list,
@@ -37119,12 +37132,46 @@ def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, so
                 "owner_name": e.owner_name,
             })
         if rows:
-            groups.append({"key": key, "label": label, "count": len(rows), "rows": rows})
+            groups.append({"key": key, "label": label, "logo": platform_logos.get(key), "count": len(rows), "rows": rows})
     return groups
 
 
+def _chartmetric_playlist_counts(session_db, song_id):
+    """Recuento de playlists oficiales por plataforma (actuales/anteriores/total) de una canción."""
+    rows = (
+        session_db.query(
+            ChartmetricPlaylistEntry.platform,
+            ChartmetricPlaylistEntry.status,
+            func.count().label("n"),
+        )
+        .filter(ChartmetricPlaylistEntry.song_id == song_id)
+        .filter(ChartmetricPlaylistEntry.is_official.is_(True))
+        .group_by(ChartmetricPlaylistEntry.platform, ChartmetricPlaylistEntry.status)
+        .all()
+    )
+    labels = {"spotify": "Spotify", "applemusic": "Apple Music", "amazon": "Amazon Music"}
+    logos = {"spotify": "spotify.png", "applemusic": "apple_music.png", "amazon": "amazon_music.png"}
+    by = {k: {"key": k, "label": v, "logo": logos.get(k), "current": 0, "past": 0, "total": 0} for k, v in labels.items()}
+    for platform, status, n in rows:
+        if platform not in by:
+            continue
+        if status == "past":
+            by[platform]["past"] += int(n)
+        else:
+            by[platform]["current"] += int(n)
+        by[platform]["total"] += int(n)
+    out = [by[k] for k in ("spotify", "applemusic", "amazon") if by[k]["total"] > 0]
+    totals = {
+        "current": sum(x["current"] for x in out),
+        "past": sum(x["past"] for x in out),
+        "total": sum(x["total"] for x in out),
+    }
+    return {"platforms": out, "totals": totals}
+
+
 def _chartmetric_playlisting_overview(session_db):
-    """Sección Playlisting del menú: artistas con playlists oficiales actuales, agrupadas."""
+    """Sección Playlisting: artistas sincronizados con sus playlists oficiales ACTUALES, agrupadas.
+    Marca has_past si el artista tiene además playlists anteriores (para el filtro 'con anteriores')."""
     arts = (
         session_db.query(Artist)
         .join(ChartmetricArtist, ChartmetricArtist.artist_id == Artist.id)
@@ -37132,16 +37179,24 @@ def _chartmetric_playlisting_overview(session_db):
         .order_by(Artist.name.asc())
         .all()
     )
+    past_ids = {
+        r[0] for r in session_db.query(ChartmetricPlaylistEntry.artist_id)
+        .filter(ChartmetricPlaylistEntry.status == "past")
+        .filter(ChartmetricPlaylistEntry.is_official.is_(True))
+        .distinct().all()
+    }
     out = []
     for a in arts:
         groups = _chartmetric_playlists_grouped(session_db, artist_id=a.id)
         total = sum(g["count"] for g in groups)
-        if total:
+        has_past = a.id in past_ids
+        if total or has_past:
             out.append({
                 "artist_id": str(a.id),
                 "artist_name": a.name,
                 "artist_photo": a.photo_url,
                 "total": total,
+                "has_past": has_past,
                 "groups": groups,
             })
     return out

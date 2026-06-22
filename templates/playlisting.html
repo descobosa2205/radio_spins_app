@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-4">
+<div class="d-flex align-items-center justify-content-between mb-3">
   <h1 class="h4 mb-0"><i class="fa fa-headphones me-2"></i>Playlisting</h1>
 </div>
 
@@ -10,18 +10,93 @@
     para traerlos de Chartmetric (luego se actualizan solos a diario).
   </div>
 {% else %}
-  {% for art in overview %}
   <div class="card mb-3">
+    <div class="card-body py-2">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <div class="flex-grow-1" style="min-width:220px;max-width:420px;">
+          <input id="plSearch" type="search" class="form-control" placeholder="Buscar por artista, canción o playlist...">
+        </div>
+        <div class="btn-group btn-group-sm" role="group" aria-label="Plataformas">
+          {% for p in [('spotify','Spotify','spotify.png'),('applemusic','Apple Music','apple_music.png'),('amazon','Amazon Music','amazon_music.png')] %}
+          <button type="button" class="btn btn-outline-secondary pl-platform-btn active" data-platform="{{ p[0] }}">
+            <img src="{{ url_for('static', filename='img/platforms/' + p[2]) }}" alt="" style="height:15px;width:auto;vertical-align:-2px;"> {{ p[1] }}
+          </button>
+          {% endfor %}
+        </div>
+        <div class="form-check form-switch ms-2">
+          <input class="form-check-input" type="checkbox" id="plOnlyPast">
+          <label class="form-check-label small" for="plOnlyPast">Solo con anteriores</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="plList">
+  {% for art in overview %}
+  <div class="card mb-3 pl-artist" data-artist="{{ art.artist_name|lower }}" data-has-past="{{ 1 if art.has_past else 0 }}">
     <div class="card-body">
-      <div class="d-flex align-items-center gap-2 mb-3">
+      <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
         <img src="{{ art.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
         <a href="{{ url_for('artist_detail_view', artist_id=art.artist_id, tab='datos') }}" class="h5 mb-0 text-decoration-none">{{ art.artist_name }}</a>
         <span class="badge text-bg-light border ms-1">{{ art.total }} listas oficiales</span>
+        {% if art.has_past %}<span class="badge text-bg-light border"><i class="fa fa-clock-rotate-left me-1"></i>con anteriores</span>{% endif %}
       </div>
-      {% set groups = art.groups %}
-      {% include '_chartmetric_playlists.html' %}
+      {% if art.groups %}
+        {% set groups = art.groups %}
+        {% include '_chartmetric_playlists.html' %}
+      {% else %}
+        <div class="text-muted small">Sin playlists oficiales actuales (tiene histórico anterior).</div>
+      {% endif %}
     </div>
   </div>
   {% endfor %}
+  </div>
+  <div id="plEmpty" class="alert alert-light border d-none">No hay resultados con esos filtros.</div>
+
+  <script>
+    (function(){
+      var search = document.getElementById('plSearch');
+      if (!search) return;
+      var onlyPast = document.getElementById('plOnlyPast');
+      var platBtns = Array.prototype.slice.call(document.querySelectorAll('.pl-platform-btn'));
+      var cards = Array.prototype.slice.call(document.querySelectorAll('.pl-artist'));
+      var emptyEl = document.getElementById('plEmpty');
+      function activePlatforms(){
+        return platBtns.filter(function(b){ return b.classList.contains('active'); })
+                       .map(function(b){ return b.getAttribute('data-platform'); });
+      }
+      function apply(){
+        var q = (search.value || '').trim().toLowerCase();
+        var plats = activePlatforms();
+        var past = onlyPast.checked;
+        var anyVisible = false;
+        cards.forEach(function(card){
+          if (past && card.getAttribute('data-has-past') !== '1'){ card.style.display = 'none'; return; }
+          var artistMatch = q && (card.getAttribute('data-artist') || '').indexOf(q) !== -1;
+          var cardHasRow = false;
+          Array.prototype.slice.call(card.querySelectorAll('.cm-pl-group')).forEach(function(grp){
+            if (plats.indexOf(grp.getAttribute('data-platform')) === -1){ grp.style.display = 'none'; return; }
+            var grpHasRow = false;
+            Array.prototype.slice.call(grp.querySelectorAll('tbody tr')).forEach(function(tr){
+              var hay = !q || artistMatch || (tr.getAttribute('data-search') || '').indexOf(q) !== -1;
+              tr.style.display = hay ? '' : 'none';
+              if (hay) grpHasRow = true;
+            });
+            grp.style.display = grpHasRow ? '' : 'none';
+            if (grpHasRow) cardHasRow = true;
+          });
+          // Si el artista casa con la búsqueda pero no tiene listas actuales, igualmente se muestra.
+          var show = cardHasRow || (artistMatch && !past);
+          card.style.display = show ? '' : 'none';
+          if (show) anyVisible = true;
+        });
+        if (emptyEl) emptyEl.classList.toggle('d-none', anyVisible);
+      }
+      search.addEventListener('input', apply);
+      onlyPast.addEventListener('change', apply);
+      platBtns.forEach(function(b){ b.addEventListener('click', function(){ b.classList.toggle('active'); apply(); }); });
+      apply();
+    })();
+  </script>
 {% endif %}
 {% endblock %}

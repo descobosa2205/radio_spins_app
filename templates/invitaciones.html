@@ -426,26 +426,19 @@
             </div>
           </div>
         {% endfor %}
-        {% if uncategorized_tickets is defined %}
+        {% if uncategorized_tickets %}
         <div class="col-12">
-          <div class="card invitation-ticket-module">
+          <div class="card invitation-ticket-module border-warning">
             <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <div>
-                  <h5 class="mb-0">Sin categoría</h5>
-                  <div class="small text-muted">Entradas subidas sin clasificar. Muévelas a una categoría desde cada entrada (ábrela → «Mover a categoría»).</div>
-                </div>
-                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-name="Sin categoría"><i class="fa fa-upload me-1"></i>Subir sin clasificar</button>
+              <div class="mb-2">
+                <h5 class="mb-0">Sin clasificar</h5>
+                <div class="small text-muted">Entradas sin categoría. Ábrelas y usa «Mover a categoría» para asignarles una.</div>
               </div>
-              {% if uncategorized_tickets %}
-                <div class="invitation-seat-grid">
-                  {% for t in uncategorized_tickets %}
-                    <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
-                  {% endfor %}
-                </div>
-              {% else %}
-                <div class="text-muted small">No hay entradas sin clasificar.</div>
-              {% endif %}
+              <div class="invitation-seat-grid">
+                {% for t in uncategorized_tickets %}
+                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
+                {% endfor %}
+              </div>
             </div>
           </div>
         </div>
@@ -740,14 +733,12 @@
           <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST_BOX_OFFICE"><i class="fa fa-store"></i><span>Lista en taquilla</span></label>
           <label class="invitation-radio-option"><input type="radio" name="ticket_kind" value="GUEST_LIST_DOOR"><i class="fa fa-door-open"></i><span>Lista acceso directo en puerta</span></label>
         </div>
-        <div class="row g-3 mb-3 d-none" data-numbering-panel>
-          <div class="col-12"><label class="form-label">Numeración de filas</label><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="CONTINUOUS" checked><i class="fa fa-arrow-right-1-9"></i><span>Numeración seguida</span></label><label class="invitation-radio-option"><input type="radio" name="numbering_mode" value="ODD_EVEN"><i class="fa fa-code-branch"></i><span>Pares / impares</span></label></div></div>
-        </div>
+        <div class="alert alert-info py-2 small mb-3 d-none" data-numbering-panel><i class="fa fa-wand-magic-sparkles me-1"></i>El sistema detecta automáticamente si las butacas van pares/impares o correlativas y genera el plano por sectores y filas.</div>
         <input type="hidden" name="guest_list_mode" value="">
         <div data-pdf-upload-panel>
           <label class="form-label">PDFs de invitaciones</label>
           <input type="file" name="tickets[]" accept="application/pdf" multiple class="form-control" data-ticket-files>
-          <div class="small text-muted mt-2" data-file-summary>Selecciona varios PDFs sueltos. Si son numeradas intentaremos detectar sector, fila y asiento desde el texto del PDF o el nombre del archivo.</div>
+          <div class="small text-muted mt-2" data-file-summary>Puedes subir <strong>varios PDFs a la vez</strong> o un <strong>PDF con varias páginas</strong> (se separa en una entrada por página). En numeradas se detecta sector, fila y asiento del texto del PDF.</div>
           <div class="list-group mt-2 small" data-file-list></div>
         </div>
       </div>

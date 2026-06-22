@@ -33487,22 +33487,24 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
                 return (m.group(1) or "").strip(" :-#\t\r\n")
         return ""
 
+    # Valor = un solo token (sin espacios) tras la etiqueta, para no arrastrar el nombre del evento.
     sector = pick([
-        r"(?:sector|zona|bloque|block|section)\s*[:#\-]?\s*([A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9 ._/-]{0,24})",
-        r"\bS(?:EC)?\.?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._/-]{0,12})",
+        r"(?:sector|secci[oó]n|zona|bloque|block|grada|tribuna|platea|anfiteatro|palco|puerta|acceso|gate)\s*[:#\.\-]?\s*([A-Za-z0-9ÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ./-]{0,18})",
     ])
     row_label = pick([
-        r"(?:fila|row)\s*[:#\-]?\s*([A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9._/-]{0,12})",
-        r"\bF\.?\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._/-]{0,12})",
+        r"(?:fila|row|fil\.?)\s*[:#\.\-]?\s*([A-Za-z0-9ÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ./-]{0,10})",
     ])
     seat = pick([
-        r"(?:asiento|seat|butaca)\s*[:#\-]?\s*([0-9]{1,5}[A-Z]?)",
-        r"\bA\.?\s*[:#\-]?\s*([0-9]{1,5}[A-Z]?)",
+        r"(?:asiento|butaca|seat)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
+        r"n[ºo°]?\.?\s*(?:asiento|butaca)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
     ])
-    code = pick([
-        r"(?:c[oó]digo|code|barcode|localizador|locator|entrada)\s*[:#\-]?\s*([A-Z0-9][A-Z0-9._/-]{5,64})",
-        r"\b([A-Z0-9]{10,})\b",
+    # Código fiable = el que viene etiquetado en el PDF. El comodín genérico (cadena larga) NO es
+    # fiable para deduplicar (puede ser un dato común a todas las entradas, p. ej. el ID del evento).
+    labeled_code = pick([
+        r"(?:c[oó]digo(?:\s*de\s*barras)?|c[oó]d\.?|code|barcode|localizador|locator|n[ºo°]?\.?\s*entrada|ticket)\s*[:#\.\-]?\s*([A-Z0-9][A-Z0-9._/-]{4,64})",
     ])
+    code = labeled_code or pick([r"\b([A-Z0-9]{10,})\b"])
+    code_reliable = bool(labeled_code)
     if not code:
         code = (Path(filename or "").stem or hashlib.sha256(data or b"").hexdigest()[:16]).strip()
     return {
@@ -33510,6 +33512,7 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
         "row_label": row_label[:40] or None,
         "seat_number": seat[:20] or None,
         "ticket_code": code[:120] or None,
+        "code_reliable": code_reliable,
         "raw_text": text_value[:4000] if text_value else "",
     }
 
@@ -35475,9 +35478,15 @@ def invitation_tickets_upload(concert_id):
             raise ValueError('No se han seleccionado PDFs.')
         errors = []
         created = 0
-        seen_codes = set()   # evita duplicados dentro del mismo lote (códigos)
-        seen_shas = set()    # evita duplicados dentro del mismo lote (páginas idénticas)
+        seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
+        seen_shas = set()    # páginas idénticas ya vistas en este lote
         folder = f'invitaciones/{concert.id}/{category.id if category else "sin-categoria"}'
+
+        def _code_taken(value):
+            if value in seen_codes:
+                return True
+            return session_db.query(InvitationTicket.id).filter(
+                InvitationTicket.concert_id == concert.id, InvitationTicket.ticket_code == value).first() is not None
         for idx, file in enumerate(files):
             if not file or not getattr(file, 'filename', ''):
                 continue
@@ -35498,26 +35507,30 @@ def invitation_tickets_upload(concert_id):
             for pidx, page_bytes in enumerate(page_blobs):
                 page_sha = hashlib.sha256(page_bytes).hexdigest()
                 page_label = f'{stem} (pág. {pidx + 1})' if multi else stem
+                # Duplicado real = misma página (SHA): se salta e informa; el resto del lote sí se sube.
+                if page_sha in seen_shas or session_db.query(InvitationTicket.id).filter(
+                        InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == page_sha).first():
+                    errors.append(f'{page_label}: entrada duplicada (mismo PDF)')
+                    continue
                 meta = _invitation_extract_ticket_metadata(page_bytes, f'{stem}-p{pidx + 1}.pdf')
+                reliable_code = bool(meta.get('code_reliable'))
                 if not multi and form_code_single:
                     code = form_code_single
+                    reliable_code = True
                 else:
-                    code = (meta.get('ticket_code') or f'{stem}-p{pidx + 1}' or page_sha[:16]).strip()
-                code = code[:120]
-                # Duplicados: por código o por contenido (SHA de la página). Se salta la duplicada
-                # e informa cuál, pero el resto del PDF que no esté duplicado sí se sube.
-                if page_sha in seen_shas:
-                    errors.append(f'{page_label}: entrada duplicada en esta subida')
-                    continue
-                if code in seen_codes:
-                    errors.append(f'{page_label}: código duplicado ({code})')
-                    continue
-                if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.ticket_code == code).first():
-                    errors.append(f'{page_label}: código duplicado ({code})')
-                    continue
-                if session_db.query(InvitationTicket.id).filter(InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == page_sha).first():
-                    errors.append(f'{page_label}: entrada ya subida')
-                    continue
+                    code = (meta.get('ticket_code') or f'{stem}-p{pidx + 1}').strip()
+                code = (code or page_sha[:16])[:120]
+                # Solo se deduplica por CÓDIGO si es fiable (etiquetado en el PDF o escrito a mano);
+                # si no, se garantiza un código único (sufijo) para no perder PDFs distintos.
+                if _code_taken(code):
+                    if reliable_code:
+                        errors.append(f'{page_label}: código duplicado ({code})')
+                        continue
+                    base = code[:110]
+                    suffix = 2
+                    while _code_taken(code) and suffix < 9999:
+                        code = f'{base}-{suffix}'
+                        suffix += 1
                 try:
                     url = upload_pdf_bytes(page_bytes, folder)
                 except Exception as up_exc:

@@ -190,7 +190,7 @@ from models import (
     ConcertTicketerTicketType,
     TicketSaleDetail,
 )
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
@@ -233,6 +233,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_cancel",
     "public_song_master_delivery",
     "public_song_delivery_create_author",
+    "public_song_delivery_create_publisher",
 }
 
 
@@ -549,7 +550,7 @@ def require_login():
         return
 
     # Rutas públicas permitidas
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author"}
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire", "public_song_master_delivery", "public_song_delivery_authors", "public_song_delivery_publishers", "public_song_delivery_create_author", "public_song_delivery_create_publisher"}
     if request.endpoint in allowed:
         return
 
@@ -3918,12 +3919,15 @@ def _convert_audio_content_to_mp3(data: bytes, source_ext: str | None = None) ->
 
 
 def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]) -> dict:
+    # Audios obligatorios para considerar la canción "completa":
+    #  - MASTER: basta con UNO cualquiera de los formatos (48/24/16); los demás son opcionales.
+    #  - INSTRUMENTAL, TV_TRACK y STEMS: obligatorios.
+    # (La portada se controla aparte, en cover_principal.)
     basics = {
-        ("MASTER", "MASTER_48"): False,
-        ("MASTER", "MASTER_24"): False,
-        ("MASTER", "MASTER_16"): False,
-        ("INSTRUMENTAL", "DEFAULT"): False,
-        ("TV_TRACK", "DEFAULT"): False,
+        "MASTER": False,
+        "INSTRUMENTAL": False,
+        "TV_TRACK": False,
+        "STEMS": False,
     }
     any_non_cover = False
     has_pending = False   # algún material recibido por entrega aún sin validar
@@ -3949,8 +3953,15 @@ def _song_material_completion_meta(song: Song, material_rows: list[SongMaterial]
         vstatus = (getattr(row, "validation_status", None) or "VALIDATED").strip().upper()
         if vstatus == "PENDING":
             has_pending = True
-        elif (category, slot) in basics:
-            basics[(category, slot)] = True
+            continue
+        if category == "MASTER" and slot in ("MASTER_48", "MASTER_24", "MASTER_16"):
+            basics["MASTER"] = True
+        elif category == "INSTRUMENTAL" and slot == "DEFAULT":
+            basics["INSTRUMENTAL"] = True
+        elif category == "TV_TRACK" and slot == "DEFAULT":
+            basics["TV_TRACK"] = True
+        elif category == "STEMS":
+            basics["STEMS"] = True
 
     # Legacy: cover_url sin material COVER asociado → se considera portada principal.
     if not any_cover_material and bool(getattr(song, "cover_url", None)):
@@ -12910,20 +12921,60 @@ def discografica_song_material_upload(song_id):
         else:  # STEMS
             bundle_key = uuid.uuid4().hex
             bundle_label = display_name or "Stems"
+            added_any = False
             for file_storage in files:
-                file_url = upload_file(file_storage, "song_materials")
-                session_db.add(
-                    SongMaterial(
-                        song_id=song.id,
-                        category="STEMS",
-                        slot_key="BUNDLE",
-                        bundle_key=bundle_key,
-                        display_name=bundle_label,
-                        file_name=(file_storage.filename or "archivo").replace("\\", "/"),
-                        file_url=file_url,
-                        mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
+                fname = (file_storage.filename or "archivo").replace("\\", "/")
+                if Path(fname).suffix.lower() == ".zip":
+                    # Carpeta comprimida: se descomprime y cada archivo interno entra como un stem del bundle.
+                    try:
+                        _zf = zipfile.ZipFile(BytesIO(file_storage.read()))
+                    except Exception:
+                        flash("No se pudo leer el ZIP de stems «%s»." % Path(fname).name, "warning")
+                        continue
+                    for info in _zf.infolist():
+                        if info.is_dir():
+                            continue
+                        inner_name = Path(info.filename.replace("\\", "/")).name
+                        if not inner_name or inner_name.startswith(".") or "__MACOSX/" in info.filename:
+                            continue
+                        data = _zf.read(info)
+                        if not data:
+                            continue
+                        inner_suffix = Path(inner_name).suffix.lower()
+                        key = f"song_materials/{uuid.uuid4().hex}{inner_suffix}"
+                        content_type = mimetypes.guess_type(inner_name)[0] or "application/octet-stream"
+                        file_url = _upload_bytes(data, key, content_type)
+                        session_db.add(
+                            SongMaterial(
+                                song_id=song.id,
+                                category="STEMS",
+                                slot_key="BUNDLE",
+                                bundle_key=bundle_key,
+                                display_name=bundle_label,
+                                file_name=inner_name,
+                                file_url=file_url,
+                                mime_type=content_type,
+                            )
+                        )
+                        added_any = True
+                else:
+                    file_url = upload_file(file_storage, "song_materials")
+                    session_db.add(
+                        SongMaterial(
+                            song_id=song.id,
+                            category="STEMS",
+                            slot_key="BUNDLE",
+                            bundle_key=bundle_key,
+                            display_name=bundle_label,
+                            file_name=fname,
+                            file_url=file_url,
+                            mime_type=(getattr(file_storage, "mimetype", "") or "").strip() or None,
+                        )
                     )
-                )
+                    added_any = True
+            if not added_any:
+                flash("El ZIP o la carpeta de stems no contenía archivos válidos.", "warning")
+                return redirect(url_for("discografica_song_detail", song_id=song_id, tab="materiales"))
 
         song.updated_at = datetime.now(TZ_MADRID)
         session_db.add(song)
@@ -13258,7 +13309,7 @@ def public_song_delivery_authors(token):
         if not _song_delivery_active_link(session_db, token):
             return jsonify([])
         q = (request.args.get("q") or "").strip()
-        if len(q) < 2:
+        if len(q) < 1:
             return jsonify([])
         rows = (
             session_db.query(Promoter)
@@ -13267,6 +13318,7 @@ def public_song_delivery_authors(token):
                 _sa_contains_text(Promoter.nick, q),
                 _sa_contains_text(Promoter.first_name, q),
                 _sa_contains_text(Promoter.last_name, q),
+                _sa_contains_text(func.concat(Promoter.first_name, ' ', Promoter.last_name), q),
             ))
             .order_by(Promoter.nick.asc()).limit(10).all()
         )
@@ -13292,7 +13344,7 @@ def public_song_delivery_publishers(token):
         if not _song_delivery_active_link(session_db, token):
             return jsonify([])
         q = (request.args.get("q") or "").strip()
-        if len(q) < 2:
+        if len(q) < 1:
             return jsonify([])
         rows = session_db.query(PublishingCompany).filter(_sa_contains_text(PublishingCompany.name, q)).order_by(PublishingCompany.name.asc()).limit(10).all()
         return jsonify([{"id": str(r.id), "name": r.name, "logo_url": (getattr(r, "logo_url", None) or "")} for r in rows])
@@ -13459,13 +13511,40 @@ def public_song_master_delivery(token):
                     validation_status="PENDING", delivery_link_id=link.id,
                 ))
             for fs in stems:
-                file_url = upload_file(fs, "song_materials")
-                session_db.add(SongMaterial(
-                    song_id=song.id, category="STEMS", slot_key="BUNDLE", bundle_key=stems_bundle,
-                    display_name="Stems (entrega)", file_name=(fs.filename or "stem").replace("\\", "/"), file_url=file_url,
-                    mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
-                    validation_status="PENDING", delivery_link_id=link.id,
-                ))
+                _sfn = (fs.filename or "stem").replace("\\", "/")
+                if Path(_sfn).suffix.lower() == ".zip":
+                    # Carpeta comprimida: se descomprime y cada archivo interno entra como un stem del bundle.
+                    try:
+                        _zf = zipfile.ZipFile(BytesIO(fs.read()))
+                    except Exception:
+                        continue
+                    for info in _zf.infolist():
+                        if info.is_dir():
+                            continue
+                        inner_name = Path(info.filename.replace("\\", "/")).name
+                        if not inner_name or inner_name.startswith(".") or "__MACOSX/" in info.filename:
+                            continue
+                        data_bytes = _zf.read(info)
+                        if not data_bytes:
+                            continue
+                        inner_suffix = Path(inner_name).suffix.lower()
+                        key = f"song_materials/{uuid.uuid4().hex}{inner_suffix}"
+                        content_type = mimetypes.guess_type(inner_name)[0] or "application/octet-stream"
+                        file_url = _upload_bytes(data_bytes, key, content_type)
+                        session_db.add(SongMaterial(
+                            song_id=song.id, category="STEMS", slot_key="BUNDLE", bundle_key=stems_bundle,
+                            display_name="Stems (entrega)", file_name=inner_name, file_url=file_url,
+                            mime_type=content_type,
+                            validation_status="PENDING", delivery_link_id=link.id,
+                        ))
+                else:
+                    file_url = upload_file(fs, "song_materials")
+                    session_db.add(SongMaterial(
+                        song_id=song.id, category="STEMS", slot_key="BUNDLE", bundle_key=stems_bundle,
+                        display_name="Stems (entrega)", file_name=_sfn, file_url=file_url,
+                        mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                        validation_status="PENDING", delivery_link_id=link.id,
+                    ))
             link.data = data
             link.status = "SUBMITTED"
             link.submitted_at = datetime.now(TZ_MADRID)
@@ -26873,13 +26952,13 @@ def inject_personnel_globals():
     return {
         "CURRENT_USER": current_user,
         "NAV_MENU": _build_nav_menu() if session.get("user_id") else [],
-        "HOME_QUICK_LINKS": _build_home_quick_links() if request.endpoint == "home" and session.get("user_id") else [],
+        "HOME_QUICK_LINKS": [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
-        "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
+        "HOME_INVITATIONS_TO_MANAGE": [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
-        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"home", "promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
+        "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
         "SECTION_ICONS": SECTION_ICONS,
         "IMPERSONATING": bool(session.get("impersonator_id")),
@@ -33730,6 +33809,9 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "downloaded_count": _safe_int(row.downloaded_count),
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
         "download_url": url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
+        "download_url_abs": url_for("invitation_request_download", token=row.delivery_token, _external=True) if row.delivery_token else "",
+        "created_by_nick": getattr(row, "created_by_nick", None) or "",
+        "registered_by_other": bool(getattr(row, "created_by_user_id", None)) and str(getattr(row, "created_by_user_id", "") or "") != str(getattr(row, "requester_user_id", "") or ""),
     }
 
 
@@ -34938,6 +35020,15 @@ def invitation_request_create():
         # control de cupo se ejerce al ACEPTAR/asignar la solicitud (por eso existe el flujo de
         # aprobación), no al pedirla.
         state = _current_user_state()
+        # Por defecto la petición se atribuye a quien la registra. Si se pide para otra persona de la
+        # oficina (guest_type EMPLOYEE), más abajo se reasigna a esa persona para que figure como suya.
+        requester_info = {
+            'user_id': session.get('user_id'),
+            'nick': state.get('nick') or _email_to_nick(state.get('email') or ''),
+            'email': state.get('email'),
+            'photo_url': state.get('photo_url'),
+            'phone': state.get('phone') or '',
+        }
         guest_type = (request.form.get('guest_type') or 'THIRD_PARTY').strip().upper()
         guest_name = (request.form.get('guest_name') or '').strip()
         guest_email = (request.form.get('guest_email') or '').strip()
@@ -34957,6 +35048,16 @@ def invitation_request_create():
             if user:
                 guest_name = _profile_full_name(profile) or getattr(profile, 'nick', None) or user.email
                 guest_email = user.email
+                # Pedir "para alguien de la empresa" hace que la petición figure como suya: el
+                # solicitante pasa a ser esa persona (aparece en SUS invitaciones solicitadas).
+                _emp_phones = list(getattr(profile, 'mobile_phones', None) or [])
+                requester_info = {
+                    'user_id': str(user.id),
+                    'nick': getattr(profile, 'nick', None) or _profile_full_name(profile) or _email_to_nick(user.email or ''),
+                    'email': user.email,
+                    'photo_url': getattr(profile, 'photo_url', None),
+                    'phone': (_emp_phones[0] if _emp_phones else ''),
+                }
         elif guest_type == 'ARTIST' and guest_artist_id:
             artist = session_db.get(Artist, guest_artist_id)
             if artist:
@@ -34991,16 +35092,16 @@ def invitation_request_create():
                 no_guest_contact = True
                 receiver_mode = 'ME'
                 receiver_payload = {
-                    'name': state.get('nick') or state.get('email') or 'Solicitante',
-                    'email': state.get('email') or '',
-                    'phone': state.get('phone') or '',
+                    'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+                    'email': requester_info.get('email') or '',
+                    'phone': requester_info.get('phone') or '',
                     'fallback_from_guest': True,
                 }
         elif receiver_mode == 'ME':
             receiver_payload = {
-                'name': state.get('nick') or state.get('email') or 'Solicitante',
-                'email': state.get('email') or '',
-                'phone': state.get('phone') or '',
+                'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+                'email': requester_info.get('email') or '',
+                'phone': requester_info.get('phone') or '',
             }
         elif receiver_mode == 'OTHER':
             receiver_promoter_id = _safe_uuid(request.form.get('receiver_promoter_id'))
@@ -35021,10 +35122,12 @@ def invitation_request_create():
             concert_id=concert.id,
             request_source='INTERNAL',
             requester_type='USER',
-            requester_user_id=_safe_uuid(session.get('user_id')),
-            requester_nick=state.get('nick') or _email_to_nick(state.get('email') or ''),
-            requester_email=state.get('email'),
-            requester_photo_url=state.get('photo_url'),
+            requester_user_id=_safe_uuid(requester_info.get('user_id')),
+            requester_nick=requester_info.get('nick'),
+            requester_email=requester_info.get('email'),
+            requester_photo_url=requester_info.get('photo_url'),
+            created_by_user_id=_safe_uuid(session.get('user_id')),
+            created_by_nick=state.get('nick') or _email_to_nick(state.get('email') or ''),
             guest_type=guest_type,
             guest_promoter_id=guest_promoter_id,
             guest_artist_id=guest_artist_id,
@@ -35307,6 +35410,83 @@ def invitation_request_status(request_id):
         session_db.rollback()
         flash(f'No se pudo actualizar la solicitud: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/solicitudes/<request_id>/editar', endpoint='invitation_request_update')
+@admin_required
+def invitation_request_update(request_id):
+    """Edita los datos de una solicitud propia (o gestionable) desde "Mis solicitudes".
+
+    Solo mientras no tenga invitaciones asignadas/enviadas (SOLICITADAS/APROBADAS); después hay que
+    anularla y crear una nueva, porque cambiar invitado/cantidades rompería la asignación."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _state = _current_user_state()
+        _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
+        if not _is_owner:
+            _ensure_can_manage_invitations(session_db, row.concert)
+        # Los datos del invitado y la nota se pueden corregir siempre; las cantidades solo antes de
+        # asignar entradas (después cambiarlas descuadraría la asignación: anula y crea otra).
+        guest_name = (request.form.get('guest_name') or '').strip()
+        if guest_name:
+            row.guest_name = guest_name
+        row.guest_email = (request.form.get('guest_email') or '').strip()
+        row.guest_phone = (request.form.get('guest_phone') or '').strip()
+        guest_title = (request.form.get('guest_title') or '').strip()
+        row.guest_title = guest_title
+        row.guest_company = guest_title or row.guest_company
+        row.note = (request.form.get('note') or '').strip()
+        new_total = _safe_int(request.form.get('qty_total'))
+        if new_total > 0 and (row.status or '') in {'SOLICITADAS', 'APROBADAS'}:
+            quantities = _json_dict(row.quantities_json)
+            positive = {k: _safe_int(v) for k, v in quantities.items() if _safe_int(v) > 0}
+            if len(positive) == 1:
+                quantities[next(iter(positive))] = new_total
+                row.quantities_json = quantities
+            elif not positive:
+                row.quantities_json = {'TOTAL': new_total}
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Solicitud actualizada.', 'success')
+        return redirect(url_for('invitations_view', tab='pedir'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo actualizar la solicitud: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='pedir'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/solicitudes/<request_id>/eliminar', endpoint='invitation_request_delete')
+@admin_required
+def invitation_request_delete(request_id):
+    """Elimina una solicitud propia (o gestionable). Libera las entradas asignadas antes de borrar."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _state = _current_user_state()
+        _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
+        if not _is_owner:
+            _ensure_can_manage_invitations(session_db, row.concert)
+        for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+            t.assigned_request_id = None
+            t.assigned_label = None
+            t.status = 'AVAILABLE'
+        session_db.delete(row)
+        session_db.commit()
+        flash('Solicitud eliminada.', 'success')
+        return redirect(url_for('invitations_view', tab='pedir'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo eliminar la solicitud: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='pedir'))
     finally:
         session_db.close()
 

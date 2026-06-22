@@ -1,139 +1,14 @@
 {% extends "layout.html" %}
 {% block content %}
 <div class="dash-hero mb-4">
-  <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
-    <div class="d-flex align-items-center gap-3 flex-wrap">
-      <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
-      <div>
-        <h2 class="dash-hero__title mb-1">{{ CURRENT_USER.nick if CURRENT_USER else 'Back Office' }}</h2>
-        <div class="text-muted">{{ CURRENT_USER.email if CURRENT_USER else '' }}</div>
-        {% if CURRENT_USER and CURRENT_USER.departments %}
-          <div class="d-flex flex-wrap gap-1 mt-2">
-            {% for dept in CURRENT_USER.departments %}
-              <span class="badge text-bg-light border">{{ dept }}</span>
-            {% endfor %}
-          </div>
-        {% endif %}
-      </div>
-    </div>
-    <div class="d-flex align-items-center gap-2 flex-wrap justify-content-end">
-      {% if CAN_VIEW_ECON %}
-        <span class="badge text-bg-success"><i class="fa fa-euro-sign me-1"></i> Datos económicos visibles</span>
-      {% else %}
-        <span class="badge text-bg-secondary"><i class="fa fa-eye-slash me-1"></i> Vista sin economía</span>
-      {% endif %}
-      <span class="badge text-bg-light border">{{ HOME_SECTIONS|length }} áreas activas</span>
+  <div class="d-flex align-items-center gap-3 flex-wrap">
+    <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
+    <div>
+      <h2 class="dash-hero__title mb-1">{{ CURRENT_USER.nick if CURRENT_USER else 'Back Office' }}</h2>
+      <div class="text-muted">{{ CURRENT_USER.email if CURRENT_USER else '' }}</div>
     </div>
   </div>
 </div>
-
-<div class="row g-4 mb-4">
-  <div class="col-12 col-xl-7">
-    <div class="card h-100">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <div>
-            <h5 class="mb-0">Enlaces rápidos</h5>
-            <div class="small text-muted">Funciones que más has usado en las últimas semanas.</div>
-          </div>
-        </div>
-        {% if HOME_QUICK_LINKS %}
-          <div class="row g-3">
-            {% for item in HOME_QUICK_LINKS %}
-              <div class="col-12 col-md-6">
-                <a href="{{ item.url }}" class="text-decoration-none">
-                  <div class="dash-tile h-100">
-                    <div class="d-flex align-items-center gap-3">
-                      <div class="dash-tile__icon"><i class="fa {{ item.icon }}"></i></div>
-                      <div>
-                        <div class="dash-tile__title">{{ item.label }}</div>
-                        <div class="dash-tile__text">
-                          {% if item.count %}{{ item.count }} accesos recientes{% else %}Acceso directo{% endif %}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </a>
-              </div>
-            {% endfor %}
-          </div>
-        {% else %}
-          <div class="alert alert-light border mb-0">Todavía no hay suficiente uso reciente para destacar accesos rápidos.</div>
-        {% endif %}
-      </div>
-    </div>
-  </div>
-  <div class="col-12 col-xl-5">
-    <div class="card h-100">
-      <div class="card-body">
-        <h5 class="mb-1">Actividad del Back Office</h5>
-        <div class="small text-muted mb-3">Accesos disponibles para tu usuario en esta versión.</div>
-        <div class="row g-3">
-          <div class="col-6">
-            <div class="metric-card">
-              <div class="metric-card__label">Medios</div>
-              <div class="metric-card__value">{{ SECTION_STATS.media or 0 }}</div>
-            </div>
-          </div>
-          <div class="col-6">
-            <div class="metric-card">
-              <div class="metric-card__label">Bolsas activas</div>
-              <div class="metric-card__value">{{ SECTION_STATS.bags_active or 0 }}</div>
-            </div>
-          </div>
-          <div class="col-6">
-            <div class="metric-card">
-              <div class="metric-card__label">Facturas</div>
-              <div class="metric-card__value">{{ SECTION_STATS.invoices or 0 }}</div>
-            </div>
-          </div>
-          <div class="col-6">
-            <div class="metric-card">
-              <div class="metric-card__label">Usuarios</div>
-              <div class="metric-card__value">{{ SECTION_STATS.users or 0 }}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-{% if HOME_INVITATIONS_TO_MANAGE %}
-<div class="card mb-4 border-danger">
-  <div class="card-body">
-    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-      <div>
-        <h5 class="mb-0"><i class="fa fa-envelope-open-text text-danger me-2"></i>Invitaciones pendientes de gestionar</h5>
-        <div class="small text-muted">Actividades futuras que gestionas, con sus solicitudes por resolver.</div>
-      </div>
-      <a href="{{ url_for('invitations_view', tab='gestionar') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
-    </div>
-    <div class="row g-3">
-      {% for row in HOME_INVITATIONS_TO_MANAGE[:8] %}
-        <div class="col-12 col-lg-6">
-          <a href="{{ row.detail_url }}" class="text-decoration-none text-reset">
-            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100 {% if row.managed %}border-success{% endif %}">
-              <div class="flex-grow-1 min-w-0">
-                <div class="d-flex gap-1 flex-wrap mb-1">
-                  {% for a in (row.artists or []) %}{{ artist_chip(a.name, a.photo_url) }}{% endfor %}
-                </div>
-                <div class="fw-semibold text-truncate">{{ row.title }}</div>
-                <div class="small text-muted text-truncate">{{ row.type_label }} · {{ row.date_label }}{% if row.city %} · {{ row.city }}{% endif %}</div>
-              </div>
-              {% if row.managed %}
-                <span class="badge text-bg-success align-self-start"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
-              {% else %}
-                <span class="badge text-bg-danger align-self-start">{{ row.pending_count }} pend.</span>
-              {% endif %}
-            </div>
-          </a>
-        </div>
-      {% endfor %}
-    </div>
-  </div>
-</div>
-{% endif %}
 
 {% if HOME_INVITATIONS %}
 <div class="card mb-4">
@@ -141,7 +16,6 @@
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
       <div>
         <h5 class="mb-0">Mis invitaciones solicitadas</h5>
-        <div class="small text-muted">Agrupadas por concierto o actividad y con su estado actual.</div>
       </div>
       <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
     </div>

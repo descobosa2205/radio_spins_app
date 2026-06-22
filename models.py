@@ -2103,6 +2103,10 @@ class InvitationRequest(Base):
     requester_nick = Column(Text)
     requester_email = Column(Text)
     requester_photo_url = Column(Text)
+    # Auditoría: quién registró la solicitud (puede diferir del solicitante cuando se pide en nombre
+    # de otra persona de la oficina). Snapshot informativo, sin FK.
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
     guest_type = Column(Text, nullable=False, server_default=text("'THIRD_PARTY'"))
     guest_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
     guest_artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
@@ -4742,6 +4746,8 @@ def ensure_entity_links_schema():
         "CREATE INDEX IF NOT EXISTS idx_third_party_links_target ON third_party_links(target_type, target_id, is_active);",
         "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS guest_title text;",
         "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS guest_link_summary jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS created_by_user_id uuid;",
+        "ALTER TABLE IF EXISTS invitation_requests ADD COLUMN IF NOT EXISTS created_by_nick text;",
         """
         CREATE TABLE IF NOT EXISTS invitation_guest_list_links (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -4885,6 +4891,8 @@ def ensure_invitation_schema():
         "CREATE INDEX IF NOT EXISTS idx_invitation_requests_delivery_token ON invitation_requests(delivery_token);",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS guest_title text;",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS guest_link_summary jsonb NOT NULL DEFAULT '{}'::jsonb;",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS created_by_user_id uuid;",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS created_by_nick text;",
         """
         CREATE TABLE IF NOT EXISTS invitation_tickets (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

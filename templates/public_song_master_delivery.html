@@ -150,12 +150,13 @@
             var run = debounce(function(){
               var q = input.value.trim();
               hidden.value = '';
-              if (q.length < 2){ box.style.display = 'none'; return; }
-              fetch(SEARCH_PUB + '?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(list){
+              if (q.length < 1){ box.style.display = 'none'; return; }
+              var render = function(list){
                 var html = (list || []).map(function(it){ return '<div class="ac-item" data-ped=\'' + JSON.stringify(it).replace(/'/g, '&#39;') + '\'>' + (it.logo_url ? '<img class="sq" src="' + it.logo_url + '" onerror="this.style.visibility=\'hidden\'">' : '<span class="ac-noimg"></span>') + '<span>' + esc(it.name) + '</span></div>'; }).join('');
                 html += '<div class="ac-item ac-create" data-pcreate="' + esc(q) + '">+ Crear editorial «' + esc(q) + '»</div>';
                 box.innerHTML = html; box.style.display = 'block';
-              });
+              };
+              fetch(SEARCH_PUB + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } }).then(function(r){ return r.ok ? r.json() : []; }).then(render).catch(function(){ render([]); });
             });
             input.addEventListener('input', run);
             input.addEventListener('blur', function(){ setTimeout(function(){ box.style.display = 'none'; }, 200); });
@@ -172,12 +173,13 @@
             var run = debounce(function(){
               var q = input.value.trim();
               row.querySelector('[name="author_promoter_id"]').value = '';
-              if (q.length < 2){ box.style.display = 'none'; return; }
-              fetch(SEARCH_AUTHORS + '?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(list){
+              if (q.length < 1){ box.style.display = 'none'; return; }
+              var render = function(list){
                 var html = (list || []).map(function(it){ return '<div class="ac-item" data-pick=\'' + JSON.stringify(it).replace(/'/g, '&#39;') + '\'><img src="' + (it.logo_url || '') + '" onerror="this.style.visibility=\'hidden\'"><span>' + esc(it.name) + (it.publishing_company_name ? ' · <span class="text-muted">' + esc(it.publishing_company_name) + '</span>' : '') + '</span></div>'; }).join('');
                 html += '<div class="ac-item ac-create" data-create="1">+ Crear autor nuevo…</div>';
                 box.innerHTML = html; box.style.display = 'block';
-              });
+              };
+              fetch(SEARCH_AUTHORS + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } }).then(function(r){ return r.ok ? r.json() : []; }).then(render).catch(function(){ render([]); });
             });
             input.addEventListener('input', run);
             input.addEventListener('blur', function(){ setTimeout(function(){ box.style.display = 'none'; }, 200); });
@@ -218,13 +220,13 @@
           var caSuggestBox = document.getElementById('caSuggest');
           var caSuggestRun = debounce(function(){
             var q = ((document.getElementById('caFirst').value || '') + ' ' + (document.getElementById('caLast').value || '')).trim();
-            if (q.length < 2){ caSuggestBox.style.display = 'none'; caSuggestBox.innerHTML = ''; return; }
-            fetch(SEARCH_AUTHORS + '?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(list){
+            if (q.length < 1){ caSuggestBox.style.display = 'none'; caSuggestBox.innerHTML = ''; return; }
+            fetch(SEARCH_AUTHORS + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } }).then(function(r){ return r.ok ? r.json() : []; }).then(function(list){
               if (!list || !list.length){ caSuggestBox.style.display = 'none'; caSuggestBox.innerHTML = ''; return; }
               var html = '<div class="small text-muted mb-1">¿Es alguno de estos? Selecciónalo para no duplicar.</div>';
               html += list.map(function(it){ return '<div class="ac-item" data-pick=\'' + JSON.stringify(it).replace(/'/g, '&#39;') + '\'><img src="' + (it.logo_url || '') + '" onerror="this.style.visibility=\'hidden\'"><span>' + esc(it.name) + (it.publishing_company_name ? ' · <span class="text-muted">' + esc(it.publishing_company_name) + '</span>' : '') + '</span></div>'; }).join('');
               caSuggestBox.innerHTML = html; caSuggestBox.style.display = 'block';
-            });
+            }).catch(function(){ caSuggestBox.style.display = 'none'; });
           });
           document.getElementById('caFirst').addEventListener('input', caSuggestRun);
           document.getElementById('caLast').addEventListener('input', caSuggestRun);

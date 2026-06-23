@@ -936,7 +936,7 @@
             <div class="row g-2 mt-3"><div class="col-md-6"><label class="form-label">Título / relación</label><input class="form-control" name="guest_title" placeholder="Ej: amigo de artista, prensa, patrocinador..."></div><div class="col-md-6 d-flex align-items-end"><button type="button" class="btn btn-outline-secondary w-100" data-open-selected-link disabled><i class="fa fa-link me-1"></i> Vincular tercero seleccionado</button></div></div>
           </div>
           <div class="mt-3 d-none" data-personnel-panel><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-user-id="{{ person.id }}" data-email="{{ person.email }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
-          <div class="mt-3 d-none" data-artist-guest-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+          <div class="mt-3 d-none" data-artist-guest-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-guest-artist-id="{{ artist.id }}" data-email="{{ artist.email }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
         </div>
         <div class="invitation-step d-none" data-step="4">
           <h5>4. Entrega</h5>
@@ -1077,7 +1077,7 @@
     goStep(form, Math.max(getStep(form), 3));
   }
   function getStep(form){ return parseInt(form.dataset.step || '1',10); }
-  function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); }
+  function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); if (form.__onStep) form.__onStep(step); }
   document.querySelectorAll('[data-invitation-wizard]').forEach(form => { goStep(form, 1); form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); })); form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); })); form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1))); form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1))); form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY'); form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE'); form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST'); if (btn.dataset.guestType === 'SELF') goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); });
   document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => { const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent); }));
 
@@ -1102,16 +1102,29 @@
     const companyInput = form.querySelector('input[name="guest_company"]');
     if(companyInput && item.link_summary_text) companyInput.value = item.link_summary_text;
   }
+  // ¿El invitado seleccionado tiene ya un correo conocido? (para decidir si pedir uno manual)
+  function guestHasEmail(form){
+    const type = form.querySelector('[data-field="guest_type"]')?.value || '';
+    if (type === 'SELF') return true;  // quien pide siempre tiene correo (su propio login)
+    if (type === 'EMPLOYEE'){ const b = form.querySelector('[data-user-id].is-selected'); return !!(b && (b.dataset.email || '').trim()); }
+    if (type === 'THIRD_PARTY'){ const e = form.querySelector('input[name="guest_email"]'); return !!(e && (e.value || '').trim()); }
+    if (type === 'ARTIST'){ const b = form.querySelector('[data-guest-artist-id].is-selected'); return !!(b && (b.dataset.email || '').trim()); }
+    return false;  // sin correo conocido en el cliente -> permitir añadirlo
+  }
   document.querySelectorAll('[data-invitation-wizard="request"]').forEach(form => {
     const updateReceiver = () => {
       const mode = form.querySelector('[name="receiver_mode"]:checked')?.value || 'GUEST';
       form.querySelector('[data-other-receiver]')?.classList.toggle('d-none', mode !== 'OTHER');
-      form.querySelector('[data-guest-receiver]')?.classList.toggle('d-none', mode !== 'GUEST');
+      // "Correo del invitado" solo si la entrega es AL INVITADO y no le consta correo en su ficha.
+      const showGuestEmail = (mode === 'GUEST') && !guestHasEmail(form);
+      form.querySelector('[data-guest-receiver]')?.classList.toggle('d-none', !showGuestEmail);
+      if (!showGuestEmail){ const f = form.querySelector('input[name="guest_fallback_email"]'); if (f) f.value = ''; }
       const summary = form.querySelector('[data-receiver-summary]');
       if(summary){
         summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Se usarán sus datos de ficha.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.'));
       }
     };
+    form.__onStep = (step) => { if (step === 4) updateReceiver(); };  // recalcular al entrar a "Entrega"
     form.querySelectorAll('[name="receiver_mode"]').forEach(x => { x.addEventListener('change', updateReceiver); x.addEventListener('click', () => { if (x.value !== 'OTHER' && x.value !== 'GUEST') goStep(form, getStep(form)+1); }); });
     updateReceiver();
   });

@@ -35696,7 +35696,8 @@ def _invitation_upsert_category_rows_from_request(session_db, concert: Concert, 
 
 def _invitation_artist_options(session_db) -> list[dict]:
     rows = session_db.query(Artist).order_by(Artist.name.asc()).all()
-    return [_artist_chip_payload(a) for a in rows]
+    # email para el asistente de invitaciones: decide si pedir un correo manual del invitado.
+    return [{**_artist_chip_payload(a), "email": (getattr(a, "email", None) or "")} for a in rows]
 
 
 def _invitation_event_artist_options(session_db) -> list[dict]:

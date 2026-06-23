@@ -33872,24 +33872,38 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
     haystack = "\n".join([filename or "", text_value or ""])
     compact = re.sub(r"[ \t]+", " ", haystack, flags=re.M)
 
-    def pick(patterns):
+    # Acota la detección de sector/fila/asiento a la zona de DATOS de la entrada (desde la primera
+    # etiqueta tipo "Nombre:/Asiento:/Butaca:/Localidad:") para evitar el largo texto legal de
+    # condiciones, que contiene palabras como "Lounge" o "filmar" que ensuciaban la detección.
+    m_data = re.search(r"\b(?:nombre|asiento|butaca|localidad)\s*:", compact, flags=re.I)
+    data_region = compact[m_data.start():] if m_data else compact
+
+    def pick(patterns, text=None):
+        src = compact if text is None else text
         for pattern in patterns:
-            m = re.search(pattern, compact, flags=re.I | re.M)
+            m = re.search(pattern, src, flags=re.I | re.M)
             if m:
                 return (m.group(1) or "").strip(" :-#\t\r\n")
         return ""
 
-    # Valor = un solo token (sin espacios) tras la etiqueta, para no arrastrar el nombre del evento.
     sector = pick([
+        # Zonas con nombre propio ("Platea General", "Tribuna Alta"...): habitual cuando la etiqueta
+        # y el valor quedan descolocados al extraer el texto. Las palabras extra se limitan a la misma
+        # línea para no arrastrar texto contiguo.
+        r"\b((?:platea|tribuna|grada|grader[ií]o|anfiteatro|palco|pista|lounge|patio|preferente)(?:[^\S\n]+(?:general|alta|baja|central|lateral|vip|[A-Z0-9][\wÁÉÍÓÚÜÑ]*)){0,2})\b",
         r"(?:sector|secci[oó]n|zona|bloque|block|grada|tribuna|platea|anfiteatro|palco|puerta|acceso|gate)\s*[:#\.\-]?\s*([A-Za-z0-9ÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ./-]{0,18})",
-    ])
+    ], data_region)
     row_label = pick([
-        r"(?:fila|row|fil\.?)\s*[:#\.\-]?\s*([A-Za-z0-9ÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ./-]{0,10})",
-    ])
+        r"(?:\bfila\b|\brow\b|\bfil\.)\s*[:#\.\-]?\s*([A-Za-z0-9ÁÉÍÓÚÜÑ][\wÁÉÍÓÚÜÑ./-]{0,10})",
+        # Valor ANTES de la etiqueta ("...20:00 14Fila:" -> 14).
+        r"([0-9]{1,3}[A-Za-zÁÉÍÓÚÜÑ]?)\s*Fila\b",
+    ], data_region)
     seat = pick([
         r"(?:asiento|butaca|seat)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
         r"n[ºo°]?\.?\s*(?:asiento|butaca)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
-    ])
+        # Número de asiento aislado en su línea antes de "Apertura de puertas" (valor descolocado).
+        r"\n[ ]*([0-9]{1,4})[ ]*\n[ ]*Apertura",
+    ], data_region)
     # Código de barras numérico (12-20 dígitos): es lo único realmente ÚNICO por entrada/butaca.
     barcode = pick([r"\b(\d{12,20})\b"])
     # "Localizador"/"Código" etiquetado: puede venir COMPARTIDO por todo el pedido (mismo en todas las
@@ -36073,6 +36087,7 @@ def invitation_tickets_upload(concert_id):
         created = 0
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
+        seen_butacas = set() # butacas (sector+fila+asiento) ya vistas en este lote (numeradas)
         folder = f'invitaciones/{concert.id}/{category.id if category else "sin-categoria"}'
 
         def _code_taken(value):
@@ -36146,6 +36161,18 @@ def invitation_tickets_upload(concert_id):
                 # numerar), se separa en un sector propio "Sin numerar" para no mezclarla con las numeradas.
                 if is_numbered and not sector_val and not row_val and not seat_val:
                     sector_val = 'Sin numerar'
+                # Antiduplicados por BUTACA: no subir dos veces la misma localidad (sector+fila+asiento)
+                # en el mismo concierto, aunque el PDF sea distinto (complementa la deduplicación por SHA).
+                if is_numbered and seat_val and sector_val and sector_val != 'Sin numerar':
+                    _bk = (str(sector_val).strip().lower(), str(row_val or '').strip().lower(), str(seat_val).strip().lower())
+                    if _bk in seen_butacas or session_db.query(InvitationTicket.id).filter(
+                            InvitationTicket.concert_id == concert.id,
+                            func.lower(func.coalesce(InvitationTicket.sector, '')) == _bk[0],
+                            func.lower(func.coalesce(InvitationTicket.row_label, '')) == _bk[1],
+                            func.lower(func.coalesce(InvitationTicket.seat_number, '')) == _bk[2]).first():
+                        duplicates.append(f'{page_label} · {sector_val} F{row_val or "-"} A{seat_val}')
+                        continue
+                    seen_butacas.add(_bk)
                 ticket = InvitationTicket(
                     concert_id=concert.id,
                     category_id=(category.id if category else None),

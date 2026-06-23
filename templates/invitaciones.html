@@ -81,11 +81,12 @@
       </div>
       {% if events_by_artist %}
         {% for grp in events_by_artist %}
-        <div class="invitation-artist-group mb-4">
-          <div class="d-flex align-items-center gap-2 mb-2">
-            {{ artist_avatar(grp.artist.photo_url, grp.artist.name) }}
-            <h6 class="mb-0">{{ grp.artist.name }}</h6>
-            <span class="badge text-bg-light border">{{ grp.events|length }}</span>
+        <div class="card mb-3 invitation-artist-card">
+          <div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-3 pb-2 border-bottom">
+            <img src="{{ grp.artist.photo_url or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+            <h4 class="mb-0">{{ grp.artist.name }}</h4>
+            <span class="badge text-bg-light border ms-1">{{ grp.events|length }} {{ 'concierto' if grp.events|length == 1 else 'conciertos' }}</span>
           </div>
           <div class="invitation-manage-list">
             {% for item in grp.events %}
@@ -108,6 +109,7 @@
                 </div>
               </a>
             {% endfor %}
+          </div>
           </div>
         </div>
         {% endfor %}

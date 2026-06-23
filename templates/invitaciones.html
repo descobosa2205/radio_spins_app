@@ -69,6 +69,7 @@
   </div>
 
   {{ inv_menu.edit_modal() }}
+  {{ inv_menu.delete_modal() }}
 {% elif tab == 'gestionar' %}
   <div class="card">
     <div class="card-body">
@@ -310,6 +311,7 @@
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+                        <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
                         <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
@@ -363,7 +365,7 @@
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
                         {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
-                        {% if row.requires_numbered_assignment and row.status in ['SOLICITADAS','APROBADAS'] %}<li><a class="dropdown-item" href="#inv-tab-tickets" data-show-invitation-tab="tickets">Asignar en mapa numerado</a></li>{% endif %}
+                        {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
                           <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="channel" value="email"><button class="dropdown-item">Enviar por email</button></form></li>
@@ -372,7 +374,11 @@
                         {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="REJECT"><button class="dropdown-item text-warning">Rechazar</button></form></li>
-                        <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="CANCEL"><button class="dropdown-item text-danger">Anular / eliminar</button></form></li>
+                        <li><button type="button" class="dropdown-item text-danger" data-delete-request
+                              data-action="{{ url_for('invitation_request_delete', request_id=row.id) }}"
+                              data-name="{{ row.guest_name|e }}"
+                              data-sent="{{ 1 if row.status in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] else 0 }}"
+                              data-downloaded="{{ 1 if (row.downloaded_count or 0) > 0 else 0 }}"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></li>
                       </ul>
                     </div>
                   </div>
@@ -414,7 +420,10 @@
                     <h5 class="mb-0">{{ cat.name }}</h5>
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
                   </div>
-                  <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
+                  <div class="d-flex gap-2 flex-wrap">
+                    {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
+                    <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
+                  </div>
                 </div>
 
                 {% if cat.ticket_kind == 'GUEST_LIST' %}
@@ -439,7 +448,6 @@
                                 {% endif %}
                               {% endfor %}
                             </div>
-                            <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>
                           </div>
                         {% endfor %}
                       </div>
@@ -451,7 +459,6 @@
                   <div class="d-flex align-items-center gap-3 flex-wrap">
                     <div class="invitation-ticket-thumb"><i class="fa fa-ticket-alt"></i></div>
                     <div><strong>Sin numerar</strong><div class="small text-muted">Disponibles sin asignar: {{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</div></div>
-                    <button class="btn btn-sm btn-outline-danger ms-auto" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>
                   </div>
                   {% if cat_tickets %}
                     <div class="invitation-seat-grid mt-3">
@@ -617,6 +624,10 @@
             <div class="row g-3">
               <div class="col-12 col-lg-4">
                 <h6>Compromisos y peticiones aprobadas</h6>
+                <div class="alert alert-info py-2 px-3 small d-none justify-content-between align-items-center gap-2" data-assign-filter-banner>
+                  <span><i class="fa fa-filter me-1"></i>Mostrando solo la selección elegida.</span>
+                  <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-assign-filter-clear>Ver todas</button>
+                </div>
                 <div class="assignment-source-list" data-source-list>
                   {% for src in pending_assignments.get(cat.id, []) %}
                     <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
@@ -730,6 +741,7 @@
 {% endif %}
 
 {% if tab == 'evento' %}
+{{ inv_menu.delete_modal() }}
 <div class="modal fade" id="guestListLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-md modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('invitation_guest_list_link_create', concert_id=event.id) }}">
@@ -1343,6 +1355,52 @@
     form.addEventListener('submit', ev => ev.preventDefault());
     refresh();
   });
+
+  // Abrir el modal de asignación de una categoría FILTRADO a una sola fuente (petición/compromiso)
+  // desde el menú de 3 puntos: [data-assign-source] + data-source-type + data-source-id + data-category-ids.
+  (function(){
+    var pending = null;
+    function srcSel(stype, sid){ return '.assignment-source[data-source-type="' + stype + '"][data-source-id="' + sid + '"]'; }
+    function clearFilter(modal){
+      var list = modal.querySelector('[data-source-list]'); if (list) list.querySelectorAll('.assignment-source').forEach(function(s){ s.style.display = ''; });
+      var b = modal.querySelector('[data-assign-filter-banner]'); if (b){ b.classList.add('d-none'); b.classList.remove('d-flex'); }
+    }
+    function applyFilter(modal, stype, sid){
+      var list = modal.querySelector('[data-source-list]'); if (!list) return false;
+      var any = false;
+      list.querySelectorAll('.assignment-source').forEach(function(s){
+        var m = s.getAttribute('data-source-type') === stype && s.getAttribute('data-source-id') === sid;
+        s.style.display = m ? '' : 'none'; if (m) any = true;
+      });
+      var b = modal.querySelector('[data-assign-filter-banner]'); if (b){ b.classList.toggle('d-none', !any); b.classList.toggle('d-flex', any); }
+      return any;
+    }
+    document.querySelectorAll('[id^="assignModal"]').forEach(function(modal){
+      modal.addEventListener('show.bs.modal', function(){
+        if (pending && pending.modal === modal){
+          applyFilter(modal, pending.stype, pending.sid);
+          var sel = srcSel(pending.stype, pending.sid);
+          modal.addEventListener('shown.bs.modal', function once(){ modal.removeEventListener('shown.bs.modal', once); var s = modal.querySelector(sel); if (s){ s.click(); s.scrollIntoView({ block: 'nearest' }); } });
+          pending = null;
+        } else { clearFilter(modal); }
+      });
+      var cb = modal.querySelector('[data-assign-filter-clear]');
+      if (cb) cb.addEventListener('click', function(){ clearFilter(modal); });
+    });
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-assign-source]'); if (!btn) return;
+      ev.preventDefault();
+      var stype = btn.getAttribute('data-source-type');
+      var sid = btn.getAttribute('data-source-id');
+      var cids = (btn.getAttribute('data-category-ids') || '').split(',').map(function(x){ return x.trim(); }).filter(Boolean);
+      var modal = null, sel = srcSel(stype, sid);
+      for (var i = 0; i < cids.length; i++){ var m = document.getElementById('assignModal' + cids[i]); if (m && m.querySelector(sel)){ modal = m; break; } }
+      if (!modal){ var all = document.querySelectorAll('[id^="assignModal"]'); for (var j = 0; j < all.length; j++){ if (all[j].querySelector(sel)){ modal = all[j]; break; } } }
+      if (!modal){ alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return; }
+      pending = { modal: modal, stype: stype, sid: sid };
+      bootstrap.Modal.getOrCreateInstance(modal).show();
+    });
+  })();
 })();
 </script>
 

@@ -22,7 +22,11 @@
         <li><a class="dropdown-item" href="mailto:?subject={{ ('Invitaciones · ' ~ row.event.artist_names)|urlencode }}&body={{ share_text|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</a></li>
       {% endif %}
       <li><hr class="dropdown-divider"></li>
-      <li><form method="post" action="{{ url_for('invitation_request_delete', request_id=row.id) }}" onsubmit="return confirm('¿Eliminar esta solicitud de invitaciones?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+      <li><button type="button" class="dropdown-item text-danger" data-delete-request
+            data-action="{{ url_for('invitation_request_delete', request_id=row.id) }}"
+            data-name="{{ row.guest_name|e }}"
+            data-sent="{{ 1 if row.status in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] else 0 }}"
+            data-downloaded="{{ 1 if (row.downloaded_count or 0) > 0 else 0 }}"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></li>
     </ul>
   </div>
 {% endmacro %}
@@ -83,6 +87,89 @@
         else { qtyWrap.style.display = ''; qtyInput.disabled = multi; qtyInput.style.display = multi ? 'none' : ''; document.getElementById('emrQtyMulti').style.display = multi ? '' : 'none'; }
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
       });
+    })();
+  </script>
+{% endmacro %}
+
+{# Modal de ELIMINAR una solicitud. Se incluye UNA sola vez por página (al lado de edit_modal()).
+   Lee el estado enviada/descargada de los botones [data-delete-request] y muestra los pasos:
+   no enviada → eliminar directo; enviada-no-descargada → "Cancelar envío y eliminar";
+   enviada-descargada → "Recuperar invitaciones" o "Darlas por perdidas". Envía por fetch (ajax) y
+   recarga; el token CSRF lo añade csrf.js a la cabecera. #}
+{% macro delete_modal() %}
+  <div class="modal fade" id="invDeleteRequestModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-trash me-2 text-danger"></i>Eliminar petición</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert mb-0" id="invDelAlert"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="button" class="btn btn-outline-danger d-none" id="invDelLostBtn">Darlas por perdidas</button>
+          <button type="button" class="btn btn-danger" id="invDelMainBtn">Eliminar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var modalEl = document.getElementById('invDeleteRequestModal');
+      if (!modalEl || modalEl.dataset.bound) return;
+      modalEl.dataset.bound = '1';
+      var alertEl = document.getElementById('invDelAlert');
+      var mainBtn = document.getElementById('invDelMainBtn');
+      var lostBtn = document.getElementById('invDelLostBtn');
+      var st = { action:'', name:'', sent:false, downloaded:false };
+      function esc(s){ return (s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+      function render(){
+        var name = st.name || 'esta persona';
+        lostBtn.classList.add('d-none');
+        mainBtn.disabled = false; lostBtn.disabled = false;
+        if (!st.sent){
+          alertEl.className = 'alert alert-warning mb-0';
+          alertEl.innerHTML = 'Vas a eliminar la petición de <strong>'+esc(name)+'</strong>. Las entradas asignadas (si las hay) volverán a estar disponibles.';
+          mainBtn.textContent = 'Eliminar'; mainBtn.dataset.mode = '';
+        } else if (!st.downloaded){
+          alertEl.className = 'alert alert-warning mb-0';
+          alertEl.innerHTML = '<strong>Estas invitaciones ya fueron enviadas</strong> a '+esc(name)+', pero <strong>aún no se han descargado</strong>. Si eliminas la petición se cancelará el envío y las entradas volverán a estar disponibles.';
+          mainBtn.textContent = 'Cancelar envío y eliminar'; mainBtn.dataset.mode = 'recover';
+        } else {
+          alertEl.className = 'alert alert-danger mb-0';
+          alertEl.innerHTML = '<strong>Estas invitaciones ya fueron enviadas y descargadas</strong> por '+esc(name)+'. Elige qué hacer con las entradas:<ul class="mb-0 mt-2"><li><strong>Recuperar invitaciones</strong>: vuelven a estar disponibles.</li><li><strong>Darlas por perdidas</strong>: no vuelven a estar disponibles.</li></ul>';
+          mainBtn.textContent = 'Recuperar invitaciones'; mainBtn.dataset.mode = 'recover';
+          lostBtn.classList.remove('d-none'); lostBtn.dataset.mode = 'lost';
+        }
+      }
+      function submit(mode){
+        if (!st.action) return;
+        var fd = new FormData(); fd.append('ajax','1'); fd.append('mode', mode || '');
+        mainBtn.disabled = true; lostBtn.disabled = true;
+        fetch(st.action, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+          .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
+          .then(function(d){
+            if (d && d.ok){ location.reload(); return; }
+            if (d && d.needs_confirm){ st.sent = !!d.sent; st.downloaded = !!d.downloaded; render(); return; }
+            alert((d && d.error) || 'No se pudo eliminar la petición.'); mainBtn.disabled = false; lostBtn.disabled = false;
+          })
+          .catch(function(){ alert('No se pudo eliminar la petición.'); mainBtn.disabled = false; lostBtn.disabled = false; });
+      }
+      document.addEventListener('click', function(ev){
+        var btn = ev.target.closest('[data-delete-request]');
+        if (!btn) return;
+        ev.preventDefault();
+        st.action = btn.getAttribute('data-action') || '';
+        st.name = btn.getAttribute('data-name') || '';
+        st.sent = btn.getAttribute('data-sent') === '1';
+        st.downloaded = btn.getAttribute('data-downloaded') === '1';
+        render();
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      });
+      mainBtn.addEventListener('click', function(){ submit(mainBtn.dataset.mode || ''); });
+      lostBtn.addEventListener('click', function(){ submit(lostBtn.dataset.mode || 'lost'); });
     })();
   </script>
 {% endmacro %}

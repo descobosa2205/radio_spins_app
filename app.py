@@ -26516,6 +26516,11 @@ def _resolve_request_resource_key() -> str | None:
         return "invitaciones"
     if endpoint == "invitation_request_create":
         return "invitaciones.pedir"
+    # Acciones sobre una solicitud que puede hacer su DUEÑO (con solo "pedir") o un GESTOR (con
+    # "gestionar"): se enrutan a la sección para que cualquiera de los dos tabs habilite el POST; el
+    # control fino (dueño vs gestor) lo hacen las propias vistas (_is_owner / _ensure_can_manage).
+    if endpoint in {"invitation_request_delete", "invitation_request_update", "invitation_request_status"}:
+        return "invitaciones"
     if endpoint.startswith("invitation_") or endpoint.startswith("api_invitation_"):
         return "invitaciones.gestionar"
     # Repertorio (canciones) vive bajo /canciones, fuera del prefijo /discografica.
@@ -33714,6 +33719,7 @@ def _invitation_ticket_status_label(value: str | None) -> str:
         "SENT": "Enviada",
         "DELIVERED": "Entregada",
         "PICKED_UP": "Recogida",
+        "LOST": "Perdida",
     }
     return labels.get((value or "AVAILABLE").upper(), (value or "AVAILABLE").title())
 
@@ -33726,6 +33732,8 @@ def _invitation_ticket_status_class(value: str | None) -> str:
         return "assigned"
     if key in {"SENT", "DELIVERED", "PICKED_UP"}:
         return "sent"
+    if key == "LOST":
+        return "lost"
     return key.lower()
 
 
@@ -35825,7 +35833,18 @@ def invitation_request_update(request_id):
 @app.post('/invitaciones/solicitudes/<request_id>/eliminar', endpoint='invitation_request_delete')
 @admin_required
 def invitation_request_delete(request_id):
-    """Elimina una solicitud propia (o gestionable). Libera las entradas asignadas antes de borrar."""
+    """Elimina una solicitud propia (o gestionable), gestionando sus entradas asignadas:
+
+    - Sin entradas o con entradas asignadas pero NO enviadas → se liberan (vuelven a disponibles) y
+      se borra la solicitud directamente.
+    - Con entradas YA enviadas → requiere una decisión explícita (`mode`), porque el invitado pudo
+      recibirlas o descargarlas. Sin `mode` válido devolvemos `needs_confirm` para que el front
+      muestre la advertencia con las opciones:
+        · `recover` → recuperar/cancelar envío: las entradas vuelven a estar disponibles (con aviso).
+        · `lost`    → darlas por perdidas: las entradas quedan en estado LOST y NO vuelven al pool.
+    """
+    _ajax = _truthy(request.form.get('ajax'))
+    fallback = request.referrer if (request.referrer or '').startswith(request.host_url) else None
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
@@ -35835,18 +35854,60 @@ def invitation_request_delete(request_id):
         _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
         if not _is_owner:
             _ensure_can_manage_invitations(session_db, row.concert)
-        for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+        sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        was_sent = bool(row.sent_at) or (row.status or '') in sent_statuses or any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP'} for t in tickets)
+        was_downloaded = bool(row.downloaded_at) or _safe_int(row.downloaded_count) > 0
+        mode = (request.form.get('mode') or '').strip().lower()
+
+        # Entradas enviadas sin decisión → no borrar a ciegas: pedir confirmación.
+        if tickets and was_sent and mode not in {'recover', 'lost'}:
+            info = {
+                'ok': False, 'needs_confirm': True, 'sent': True,
+                'downloaded': bool(was_downloaded), 'ticket_count': len(tickets),
+                'guest_name': row.guest_name or '',
+            }
+            if _ajax:
+                return jsonify(info)
+            flash('Estas invitaciones ya fueron enviadas. Usa el menú para recuperarlas o darlas por perdidas antes de eliminar.', 'warning')
+            return redirect(fallback or (url_for('invitation_event_detail', concert_id=row.concert_id) if not _is_owner else url_for('invitations_view', tab='pedir')))
+
+        give_up = bool(tickets) and was_sent and was_downloaded and mode == 'lost'
+        for t in tickets:
+            if give_up:
+                t.previous_assignment_warning = f"Entregada y descargada por {row.guest_name}; dada por perdida."
+                t.status = 'LOST'
+            else:
+                if was_downloaded:
+                    t.previous_assignment_warning = f"Ya había sido enviada y descargada por {row.guest_name}."
+                elif was_sent:
+                    t.previous_assignment_warning = f"Ya había sido enviada a {row.guest_name}."
+                elif t.assigned_label:
+                    t.previous_assignment_warning = f"Ya había sido asignada a {t.assigned_label}."
+                t.status = 'AVAILABLE'
             t.assigned_request_id = None
+            t.assigned_commitment_id = None
             t.assigned_label = None
-            t.status = 'AVAILABLE'
+            t.sent_at = None
+            t.updated_at = _now_madrid()
         session_db.delete(row)
         session_db.commit()
-        flash('Solicitud eliminada.', 'success')
-        return redirect(url_for('invitations_view', tab='pedir'))
+        if give_up:
+            msg = f'Solicitud eliminada. {len(tickets)} entrada(s) dadas por perdidas (no vuelven a estar disponibles).'
+        elif tickets:
+            msg = f'Solicitud eliminada. {len(tickets)} entrada(s) vuelven a estar disponibles.'
+        else:
+            msg = 'Solicitud eliminada.'
+        if _ajax:
+            return jsonify({'ok': True, 'message': msg})
+        flash(msg, 'success')
+        return redirect(fallback or url_for('invitations_view', tab='pedir'))
     except Exception as exc:
         session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudo eliminar la solicitud: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='pedir'))
+        return redirect(fallback or url_for('invitations_view', tab='pedir'))
     finally:
         session_db.close()
 
@@ -36847,6 +36908,37 @@ def _home_invitations_to_manage(limit: int = 24) -> list[dict]:
                 pending_by_concert[key] = pending_by_concert.get(key, 0) + int(cnt or 0)
             elif st in handled_statuses:
                 handled_by_concert[key] = handled_by_concert.get(key, 0) + int(cnt or 0)
+        # Compromisos configurados: el evento también está "pendiente de gestionar" mientras tenga
+        # compromisos sin entregar (o, si son de listado, sin marcar como asignados). Cuenta cada
+        # compromiso como 1 unidad pendiente/gestionada, igual que cada petición.
+        commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id.in_(ids)).all()
+        commit_ids = [c.id for c in commitments]
+        ticket_by_commit: dict[str, tuple[int, int]] = {}
+        if commit_ids:
+            delivered_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+            for ccid, tstatus, cnt in (
+                session_db.query(InvitationTicket.assigned_commitment_id, InvitationTicket.status, func.count(InvitationTicket.id))
+                .filter(InvitationTicket.assigned_commitment_id.in_(commit_ids))
+                .group_by(InvitationTicket.assigned_commitment_id, InvitationTicket.status)
+                .all()
+            ):
+                a, d = ticket_by_commit.get(str(ccid), (0, 0))
+                a += int(cnt or 0)
+                if (tstatus or "").upper() in delivered_set:
+                    d += int(cnt or 0)
+                ticket_by_commit[str(ccid)] = (a, d)
+        for c in commitments:
+            committed_qty = sum(_safe_int(v) for v in _json_dict(c.quantities_json).values())
+            if committed_qty <= 0:
+                continue
+            assigned_count, delivered_count = ticket_by_commit.get(str(c.id), (0, 0))
+            # Gestionado si está todo entregado (PDF) o si es de listado marcado como asignado (sin PDFs).
+            handled = (delivered_count >= committed_qty) or ((c.status or "").upper() == "ASIGNADAS" and assigned_count == 0)
+            key = str(c.concert_id)
+            if handled:
+                handled_by_concert[key] = handled_by_concert.get(key, 0) + 1
+            else:
+                pending_by_concert[key] = pending_by_concert.get(key, 0) + 1
         rows = []
         for c in manageable:
             key = str(c.id)

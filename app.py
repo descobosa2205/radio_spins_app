@@ -18095,7 +18095,7 @@ def simulation_create():
             flash("Debes seleccionar un artista para la simulación.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
         kind = (request.form.get("kind") or "CONCERT").strip().upper()
-        if kind not in ("CONCERT", "TOUR"):
+        if kind not in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL"):
             kind = "CONCERT"
         sim = Simulation(
             artist_id=artist_id,
@@ -18120,10 +18120,19 @@ def simulation_create():
             venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
             venue_unknown=venue_unknown,
         )
+        if kind == "CYCLE":
+            act.artist_id = artist_id  # la primera fecha del ciclo es de este artista
         s.add(act)
 
         # Autocarga de la plantilla de ticketing del recinto (precios en blanco).
         _sim_autoload_venue_ticketing(s, act)
+
+        if kind == "CYCLE":
+            # Contenedor de gastos generales del ciclo (sin ticketing ni artista).
+            s.add(SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales"))
+        if kind == "FESTIVAL":
+            # El artista principal entra en el lineup del festival.
+            s.add(SimulationArtist(simulation_id=sim.id, artist_id=artist_id, sort_order=0))
 
         for idx, pr in enumerate(_simulation_partners_from_form(request.form)):
             s.add(SimulationPartner(
@@ -18175,26 +18184,39 @@ def simulation_detail_view(sid):
         tab = (request.args.get("tab") or "resumen").strip().lower()
         if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado"):
             tab = "resumen"
-        activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
-        is_tour = (sim.kind or "").upper() == "TOUR"
+        all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        kind = (sim.kind or "").upper()
+        is_tour = kind == "TOUR"
+        is_cycle = kind == "CYCLE"
+        is_festival = kind == "FESTIVAL"
+        is_multi = is_tour or is_cycle           # navegación por actividades (fechas/conciertos)
+        shared_activity = next((a for a in all_activities if a.is_shared), None)
+        activities = [a for a in all_activities if not a.is_shared]   # fechas/conciertos (o el evento)
+        lineup = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
         act_param = (request.args.get("act") or "").strip()
-        if is_tour:
+        if is_multi:
             active_activity = next((a for a in activities if str(a.id) == act_param), None)
+            if active_activity is None and shared_activity is not None and act_param == str(shared_activity.id):
+                active_activity = shared_activity   # abrir el contenedor de "Generales"
         else:
             active_activity = activities[0] if activities else None
-        show_general = is_tour and active_activity is None
+        show_general = is_multi and active_activity is None
         tour_rows = []
         tour_totals = None
         tour_points = []
+        general_net = 0.0
         if show_general:
+            if shared_activity is not None:
+                general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity))["at_100"]["gastos"]["total"]
+            general_share = general_net / (len(activities) or 1)
             ti = tg = tr = 0.0
             tsell = 0
             for idx, a in enumerate(activities, start=1):
                 c = sim_calc.compute(_sim_build_calc_data(sim, a))
-                tour_rows.append({"activity": a, "calc": c})
-                ti += c["at_100"]["ingresos"]["total"]
-                tg += c["at_100"]["gastos"]["total"]
-                tr += c["at_100"]["resultado"]
+                ing = c["at_100"]["ingresos"]["total"]
+                gas = c["at_100"]["gastos"]["total"] + (general_share if is_cycle else 0.0)
+                tour_rows.append({"activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas})
+                ti += ing; tg += gas; tr += (ing - gas)
                 tsell += c["ticketing"]["sellable"]
                 v = a.venue
                 if v and (v.municipality or "").strip():
@@ -18202,7 +18224,7 @@ def simulation_detail_view(sid):
                         "n": idx, "name": (v.name or ""),
                         "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
                     })
-            tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell}
+            tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
@@ -18219,12 +18241,19 @@ def simulation_detail_view(sid):
         expenses_payload = _sim_expenses_payload(active_activity)
         bag_categories = [(k, l) for k, l in BAG_EXPENSE_CATEGORIES if k != "PRORRATEOS"]
         bag_labels = dict(BAG_EXPENSE_CATEGORIES)
+        all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
         return render_template(
             "simulacion_detail.html",
             sim=sim,
             activities=activities,
             active_activity=active_activity,
             is_tour=is_tour,
+            is_cycle=is_cycle,
+            is_festival=is_festival,
+            is_multi=is_multi,
+            shared_activity=shared_activity,
+            lineup=lineup,
+            all_artists=all_artists,
             show_general=show_general,
             tour_rows=tour_rows,
             tour_totals=tour_totals,
@@ -18281,7 +18310,7 @@ def simulation_activity_add(sid):
         if not sim:
             flash("Simulación no encontrada.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
-        next_order = max([a.sort_order or 0 for a in (sim.activities or [])] or [-1]) + 1
+        next_order = max([a.sort_order or 0 for a in (sim.activities or []) if not a.is_shared] or [-1]) + 1
         date_unknown = _truthy(request.form.get("date_unknown"))
         venue_unknown = _truthy(request.form.get("venue_unknown"))
         act = SimulationActivity(
@@ -18291,6 +18320,7 @@ def simulation_activity_add(sid):
             date_unknown=date_unknown,
             venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
             venue_unknown=venue_unknown,
+            artist_id=_sim_safe_uuid(request.form.get("cycle_artist_id")),  # ciclo: artista del concierto
         )
         s.add(act)
         s.flush()
@@ -18322,6 +18352,80 @@ def simulation_activity_delete(sid, aid):
     except Exception as e:
         s.rollback()
         flash(f"Error eliminando la fecha: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid))
+
+
+@app.post("/contratacion/simulaciones/<sid>/lineup/crear", endpoint="simulation_lineup_add")
+@admin_required
+def simulation_lineup_add(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        sim = s.query(Simulation).options(selectinload(Simulation.lineup)).filter(Simulation.id == _sim_safe_uuid(sid)).first()
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        aid = _sim_safe_uuid(request.form.get("artist_id"))
+        if aid and s.get(Artist, aid) and not any(str(la.artist_id) == str(aid) for la in (sim.lineup or [])):
+            nxt = max([la.sort_order or 0 for la in (sim.lineup or [])] or [-1]) + 1
+            s.add(SimulationArtist(simulation_id=sim.id, artist_id=aid, sort_order=nxt))
+            s.commit()
+            flash("Artista añadido al festival.", "success")
+        else:
+            flash("Selecciona un artista válido (o ya está en el cartel).", "warning")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error añadiendo el artista: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid))
+
+
+@app.post("/contratacion/simulaciones/<sid>/lineup/<lid>/eliminar", endpoint="simulation_lineup_delete")
+@admin_required
+def simulation_lineup_delete(sid, lid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        la = s.get(SimulationArtist, _sim_safe_uuid(lid))
+        if la and str(la.simulation_id) == str(_sim_safe_uuid(sid)):
+            s.delete(la)
+            s.commit()
+            flash("Artista quitado del festival.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error quitando el artista: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid))
+
+
+@app.post("/contratacion/simulaciones/<sid>/cartel", endpoint="simulation_poster_upload")
+@admin_required
+def simulation_poster_upload(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        sim = s.get(Simulation, _sim_safe_uuid(sid))
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        f = request.files.get("poster")
+        if f and getattr(f, "filename", ""):
+            sim.poster_url = upload_image(f, "simulations")
+            s.commit()
+            flash("Cartel actualizado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error subiendo el cartel: {e}", "danger")
     finally:
         s.close()
     return redirect(url_for("simulation_detail_view", sid=sid))

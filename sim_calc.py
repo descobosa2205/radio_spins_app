@@ -130,6 +130,8 @@ def _prepare(data):
             "includes_iva": bool(c.get("includes_iva")),
             "includes_retention": bool(c.get("includes_retention")),
             "retention_exempt": bool(c.get("retention_exempt")),
+            # Nacionalidad por caché (festival: según el artista del caché); si no, la global.
+            "is_intl": bool(c["is_international"]) if ("is_international" in c) else bool(data.get("is_international")),
             "cfg": c,
         }
         if mode == "VARIABLE":
@@ -193,7 +195,7 @@ def evaluate(prep, tickets_sold):
         else:
             net = c["fixed_net"]
         cache_net_total += net
-        if prep["is_international"] and not c["retention_exempt"]:
+        if c["is_intl"] and not c["retention_exempt"]:
             ret = RETENTION_PCT * net
             retention_total += ret
             if not c["includes_retention"]:

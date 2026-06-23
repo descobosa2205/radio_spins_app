@@ -455,8 +455,14 @@
       <input type="hidden" name="commissions_json" id="commissionsJson">
       <input type="hidden" name="production_json" id="productionJson">
 
+      {% if is_festival %}
+      <div class="alert alert-light border small mb-3"><i class="fa fa-circle-info me-1"></i><strong>Festival:</strong> los <strong>cachés y comisiones</strong> se asignan a cada artista (pulsa los chips; si marcas varios, el gasto se reparte a partes iguales). La <strong>producción</strong> y el <strong>recinto</strong> son gastos <strong>generales</strong> del festival.</div>
+      {% elif active_activity and active_activity.is_shared %}
+      <div class="alert alert-light border small mb-3"><i class="fa fa-layer-group me-1"></i>Estás en los <strong>gastos generales del ciclo</strong>: lo que añadas aquí se reparte entre todos los conciertos (÷ nº de conciertos) en el resultado de cada uno.</div>
+      {% endif %}
+
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés del artista</h6></div>
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés{{ ' por artista' if is_festival else ' del artista' }}</h6></div>
         <div class="ficha-section__body">
           {% if not (sim.artist and sim.artist.is_international) %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>La retención del 24% solo aplica a artistas internacionales.</div>{% endif %}
           <div id="cachesList"></div>
@@ -476,7 +482,7 @@
       </div>
 
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-screwdriver-wrench"></i>Gastos de producción <span class="text-muted small fw-normal">(presupuesto, IVA 21% por defecto)</span></h6></div>
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-screwdriver-wrench"></i>{{ 'Producción (general del festival)' if is_festival else 'Gastos de producción' }} <span class="text-muted small fw-normal">(presupuesto, IVA 21% por defecto)</span></h6></div>
         <div class="ficha-section__body">
           <div id="productionList"></div>
           <button type="button" class="btn btn-sm btn-outline-primary" id="addProd"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
@@ -490,6 +496,7 @@
     </form>
     <script type="application/json" id="expensesData">{{ expenses_payload|tojson }}</script>
     <script type="application/json" id="bagCats">{{ bag_categories|tojson }}</script>
+    <script type="application/json" id="festivalArtists">{{ festival_artists|tojson }}</script>
     {% else %}
       <div class="text-muted">Sin permiso de edición.</div>
     {% endif %}
@@ -743,9 +750,20 @@
   try { data = JSON.parse(document.getElementById('expensesData').textContent||'{}'); } catch(e){}
   var bagCats = [];
   try { bagCats = JSON.parse(document.getElementById('bagCats').textContent||'[]'); } catch(e){}
+  var festArtists = [];
+  try { festArtists = JSON.parse((document.getElementById('festivalArtists')||{}).textContent||'[]'); } catch(e){}
   var $ = window.jQuery; var hasS2 = !!($ && $.fn && $.fn.select2);
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function artistChips(selected){
+    if(!festArtists.length) return '';
+    selected = (selected||[]).map(String);
+    var chips = festArtists.map(function(a){
+      var on = selected.indexOf(String(a.id)) > -1;
+      return '<button type="button" class="btn btn-sm '+(on?'btn-primary':'btn-outline-secondary')+' cost-art-chip" data-aid="'+esc(a.id)+'">'+esc(a.name)+'</button>';
+    }).join(' ');
+    return '<div class="cost-artists mt-2 pt-2 border-top"><div class="small text-muted mb-1"><i class="fa fa-people-group me-1"></i>Artista(s) — si marcas varios, se reparte a partes iguales <span class="cost-art-note fw-semibold"></span></div><div class="d-flex flex-wrap gap-1">'+chips+'</div></div>';
+  }
   function val(v){ return (v!=null && v!=='')? v : ''; }
   function sel(a,b){ return String(a).toUpperCase()===b ? 'selected' : ''; }
   function eur(v){ var n=Number(v)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
@@ -791,6 +809,7 @@
       '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
       '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+'</div>'+
       '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+      artistChips(o.artist_ids)+
     '</div>';
   }
   function commissionCard(o){
@@ -807,6 +826,7 @@
         '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-0">Importe exento de comisiones (€)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cc-exempt-amount" value="'+val(o.exempt_amount)+'"></div></div>'+
       '</div>'+
       '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+      artistChips(o.artist_ids)+
     '</div>';
   }
   function prodRow(o){
@@ -844,6 +864,7 @@
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); return; }
     var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
+    var ch=e.target.closest('.cost-art-chip'); if(ch){ ch.classList.toggle('btn-primary'); ch.classList.toggle('btn-outline-secondary'); var cc=ch.closest('.cost-card'); var nn=cc.querySelectorAll('.cost-art-chip.btn-primary').length; var note=cc.querySelector('.cost-art-note'); if(note) note.textContent = nn>1 ? ('· compartido entre '+nn+' (÷'+nn+')') : ''; return; }
   });
   form.addEventListener('input', function(e){ if(e.target.matches('.pr-net,.pr-iva')) recompute(); });
 
@@ -868,6 +889,7 @@
     };
   }
   function activeMode(c){ var b=c.querySelector('.mode-btn.active'); return b?b.getAttribute('data-mode'):'FIXED'; }
+  function cardArtistIds(c){ return Array.prototype.map.call(c.querySelectorAll('.cost-art-chip.btn-primary'), function(b){ return b.getAttribute('data-aid'); }); }
 
   function collectCaches(){
     var out=[];
@@ -875,6 +897,7 @@
       var mode=activeMode(c); var row={mode:mode, retention_exempt:c.querySelector('.c-exempt').checked};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); }
       else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
     return out;
@@ -886,6 +909,7 @@
       var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:c.querySelector('.c-exempt').checked};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=parseFloat(c.querySelector('.cc-exempt-amount').value||'0')||0; }
       else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
     return out;

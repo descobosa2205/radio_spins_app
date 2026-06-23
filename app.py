@@ -17872,10 +17872,17 @@ def _sim_cost_cfg(o):
     }
 
 
-def _sim_build_calc_data(sim, activity):
-    """Convierte los modelos ORM de una actividad al dict plano que espera sim_calc."""
+def _sim_build_calc_data(sim, activity, artist_intl=None):
+    """Convierte los modelos ORM de una actividad al dict plano que espera sim_calc.
+
+    artist_intl: mapa {artist_id(str): is_international} para resolver la retención por
+    caché (festival: según el artista del caché; ciclo: según el artista del concierto).
+    """
     if activity is None:
         return {}
+    artist_intl = artist_intl or {}
+    base_intl = bool(sim.artist.is_international) if sim.artist else False
+    act_intl = artist_intl.get(str(activity.artist_id), base_intl) if activity.artist_id else base_intl
     cats = []
     for c in (activity.ticket_categories or []):
         cats.append({
@@ -17885,11 +17892,14 @@ def _sim_build_calc_data(sim, activity):
         })
     caches = []
     for c in (activity.caches or []):
+        aids = [str(x) for x in (c.artist_ids or [])]
+        c_intl = any(artist_intl.get(a, False) for a in aids) if aids else act_intl
         d = _sim_cost_cfg(c)
         d.update({
             "mode": c.mode, "amount": float(_sim_d(c.amount)),
             "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
             "retention_exempt": bool(c.retention_exempt),
+            "is_international": c_intl,
         })
         caches.append(d)
     commissions = []
@@ -17911,7 +17921,7 @@ def _sim_build_calc_data(sim, activity):
     subventions = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "SUBVENCION"]
     sponsorships = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "PATROCINIO"]
     return {
-        "is_international": bool(sim.artist.is_international) if sim.artist else False,
+        "is_international": act_intl,
         "allows_bars": bool(activity.venue.allows_bars) if activity.venue else False,
         "categories": cats, "caches": caches, "commissions": commissions,
         "production": production, "subventions": subventions, "sponsorships": sponsorships,
@@ -17936,6 +17946,7 @@ def _sim_expenses_payload(activity):
             "mode": (c.mode or "FIXED"), "label": (c.label or ""), "amount": float(_sim_d(c.amount)),
             "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
             "retention_exempt": bool(c.retention_exempt),
+            "artist_ids": [str(x) for x in (c.artist_ids or [])],
         })
         caches.append(d)
 
@@ -17950,6 +17961,7 @@ def _sim_expenses_payload(activity):
             "amount": float(_sim_d(c.amount)),
             "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
             "retention_exempt": bool(c.retention_exempt), "exempt_amount": float(_sim_d(c.exempt_amount)),
+            "artist_ids": [str(x) for x in (c.artist_ids or [])],
         })
         commissions.append(d)
 
@@ -18193,6 +18205,9 @@ def simulation_detail_view(sid):
         shared_activity = next((a for a in all_activities if a.is_shared), None)
         activities = [a for a in all_activities if not a.is_shared]   # fechas/conciertos (o el evento)
         lineup = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
+        all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
+        artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
+        festival_artists = [{"id": str(la.artist_id), "name": (la.artist.name if la.artist else "")} for la in lineup] if is_festival else []
         act_param = (request.args.get("act") or "").strip()
         if is_multi:
             active_activity = next((a for a in activities if str(a.id) == act_param), None)
@@ -18207,12 +18222,12 @@ def simulation_detail_view(sid):
         general_net = 0.0
         if show_general:
             if shared_activity is not None:
-                general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity))["at_100"]["gastos"]["total"]
+                general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
             general_share = general_net / (len(activities) or 1)
             ti = tg = tr = 0.0
             tsell = 0
             for idx, a in enumerate(activities, start=1):
-                c = sim_calc.compute(_sim_build_calc_data(sim, a))
+                c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))
                 ing = c["at_100"]["ingresos"]["total"]
                 gas = c["at_100"]["gastos"]["total"] + (general_share if is_cycle else 0.0)
                 tour_rows.append({"activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas})
@@ -18227,7 +18242,7 @@ def simulation_detail_view(sid):
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
-        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
+        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map)) if active_activity else None
         venue_tpl = []
         if active_activity and active_activity.venue_id:
             _vtc = (
@@ -18241,7 +18256,6 @@ def simulation_detail_view(sid):
         expenses_payload = _sim_expenses_payload(active_activity)
         bag_categories = [(k, l) for k, l in BAG_EXPENSE_CATEGORIES if k != "PRORRATEOS"]
         bag_labels = dict(BAG_EXPENSE_CATEGORIES)
-        all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
         return render_template(
             "simulacion_detail.html",
             sim=sim,
@@ -18254,6 +18268,7 @@ def simulation_detail_view(sid):
             shared_activity=shared_activity,
             lineup=lineup,
             all_artists=all_artists,
+            festival_artists=festival_artists,
             show_general=show_general,
             tour_rows=tour_rows,
             tour_totals=tour_totals,
@@ -18591,6 +18606,7 @@ def _sim_cost_common(row):
         var_value=_sim_d(row.get("var_value")),
         var_threshold_type=(row.get("var_threshold_type") or None),
         var_threshold_value=_sim_d(row.get("var_threshold_value")),
+        artist_ids=[str(x) for x in (row.get("artist_ids") or []) if x],
     )
 
 

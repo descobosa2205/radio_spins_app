@@ -180,7 +180,7 @@
           <div class="small text-muted">
             Pista: {{ summary.zones.PISTA.sellable }} a la venta de {{ summary.zones.PISTA.qty }} ·
             Grada: {{ summary.zones.GRADA.sellable }} a la venta de {{ summary.zones.GRADA.qty }} ·
-            Precio medio (sin IVA): {{ summary.avg_price_sin_iva|eur }}
+            Precio medio: {{ summary.avg_price_sin_iva|eur }} sin IVA{% if calc %} · {{ calc.avg_price_gross|eur }} con IVA{% endif %}
             {% if summary.extras_gross %} · Complementos (IVA inc.): {{ summary.extras_gross|eur }}{% endif %}
           </div>
         </div>
@@ -441,7 +441,7 @@
   {% else %}
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
-      <div class="sim-stat"><div class="sim-stat__n">{{ calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio sin IVA · {{ calc.avg_price_gross|eur }} con IVA</div></div>
       <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
     </div>
     {% if calc.break_even_tickets is none %}<div class="alert alert-warning py-2"><i class="fa fa-triangle-exclamation me-1"></i>Con estos datos no se alcanza el punto de empate ni al 100% del aforo.</div>{% endif %}

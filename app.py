@@ -37284,6 +37284,16 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
         for st in ("current", "past"):
             try:
                 items = cm.get_artist_playlists(cmid, platform=platform, status=st)
+                # Enriquecer el mapa de nombres con lo que traen los propios items (Spotify SÍ incluye
+                # el nombre de la canción). Como Spotify se procesa primero, así Apple/Amazon pueden
+                # nombrar la canción aunque el endpoint de tracks no la cubra o se quede sin créditos.
+                for it in (items or []):
+                    pl = it.get("playlist", it) if isinstance(it, dict) else None
+                    if isinstance(pl, dict):
+                        cmt = str(pl.get("cm_track") or pl.get("track_id") or "").strip()
+                        nm = pl.get("track")
+                        if cmt and nm and not (track_map.get(cmt) or {}).get("name"):
+                            track_map.setdefault(cmt, {})["name"] = nm
                 _chartmetric_replace_current_playlists(session_db, artist.id, platform, items, track_map, song_by_isrc, song_by_title, status=st)
             except Exception as e:
                 errors.append(f"pl:{platform}:{st}:{str(e)[:80]}")
@@ -37471,6 +37481,8 @@ def integrations_view():
     # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
     cm_linked = cm_points = cm_playlists = 0
     review_rows = []
+    cm_last_refresh = None
+    cm_credit_warning = False
     if chartmetric_utils.chartmetric_configured():
         s = db()
         try:
@@ -37478,6 +37490,16 @@ def integrations_view():
             cm_points = s.query(ChartmetricMetricPoint).count()
             cm_playlists = s.query(ChartmetricPlaylistEntry).filter_by(status="current").count()
             review_rows = _chartmetric_review_rows(s)
+            cm_last_refresh = s.query(func.max(ChartmetricArtist.last_refreshed_at)).scalar()
+            cm_credit_warning = bool(
+                s.query(ChartmetricArtist.artist_id)
+                .filter(
+                    ChartmetricArtist.last_error.ilike("%crédit%")
+                    | ChartmetricArtist.last_error.ilike("%credit%")
+                    | ChartmetricArtist.last_error.ilike("%402%")
+                )
+                .first()
+            )
         except Exception:
             pass
         finally:
@@ -37491,6 +37513,8 @@ def integrations_view():
         cm_points=cm_points,
         cm_playlists=cm_playlists,
         review_rows=review_rows,
+        cm_last_refresh=cm_last_refresh,
+        cm_credit_warning=cm_credit_warning,
     )
 
 

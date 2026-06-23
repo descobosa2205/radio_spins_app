@@ -44,6 +44,13 @@
         </div>
         <p class="text-muted small mb-3">Métricas de audiencia, playlists y charts de vuestros artistas.</p>
         {% if chartmetric_configured %}
+          {% if cm_credit_warning %}
+          <div class="alert alert-warning py-2 px-3 small mb-2">
+            <i class="fa fa-triangle-exclamation me-1"></i><strong>Sin créditos de API en Chartmetric.</strong>
+            Los últimos refrescos no han podido traer datos nuevos (por eso pueden faltar nombres o portadas).
+            Recarga el plan de Chartmetric y vuelve a pulsar «Actualizar todos».
+          </div>
+          {% endif %}
           <form method="post" class="d-inline">
             <button name="action" value="ping_chartmetric" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
           </form>
@@ -60,6 +67,8 @@
             En caché: <strong>{{ cm_linked|default(0) }}</strong> artistas vinculados ·
             <strong>{{ cm_points|default(0) }}</strong> puntos de métrica ·
             <strong>{{ cm_playlists|default(0) }}</strong> playlists actuales.
+            <br><i class="fa fa-clock-rotate-left me-1"></i>Últimos datos:
+            <strong>{% if cm_last_refresh %}{{ cm_last_refresh.strftime('%d/%m/%Y %H:%M') }}{% else %}aún sin actualizar{% endif %}</strong>
           </div>
         {% else %}
           <div class="small text-muted">

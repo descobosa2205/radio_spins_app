@@ -88,6 +88,8 @@ def _get(path: str, params: dict | None = None) -> dict:
             continue  # token caducado: forzar refresco y reintentar una vez
         if resp.status_code == 429:
             raise RuntimeError("Chartmetric: límite de peticiones excedido (429). Reintenta más tarde.")
+        if resp.status_code == 402:
+            raise RuntimeError("Chartmetric: SIN CRÉDITOS de API. Recarga el plan para volver a actualizar.")
         if resp.status_code >= 400:
             raise RuntimeError(f"Chartmetric devolvió un error {resp.status_code}: {resp.text[:300]}")
         try:

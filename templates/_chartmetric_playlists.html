@@ -23,7 +23,8 @@
           <tr data-search="{{ (r.song_title or r.track_name or '')|lower }} {{ (r.playlist_name or '')|lower }}">
             <td>
               {% if song_href %}<a href="{{ song_href }}">{% endif %}
-              {% if r.song_cover %}<img src="{{ r.song_cover }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">
+              {% set _cover = r.song_cover or r.image_url %}
+              {% if _cover %}<img src="{{ _cover }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">
               {% else %}<span class="d-inline-flex align-items-center justify-content-center text-muted" style="width:42px;height:42px;border-radius:8px;background:#f1f3f5;"><i class="fa fa-music"></i></span>{% endif %}
               {% if song_href %}</a>{% endif %}
             </td>

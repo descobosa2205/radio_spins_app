@@ -130,6 +130,18 @@
     {% if is_cycle and general_net %}<tfoot><tr class="tot"><td colspan="6">Gastos generales del ciclo (÷ {{ blocks|length }})</td><td class="text-end" colspan="2">{{ general_net|eur }}</td></tr></tfoot>{% endif %}
   </table>
   {% endif %}
+  {% if is_festival and festival_breakdown %}
+  <div class="sec-title">Gastos por artista</div>
+  <table>
+    <thead><tr><th>Artista</th><th class="text-end">Cachés</th><th class="text-end">Comisiones</th><th class="text-end">Total</th></tr></thead>
+    <tbody>
+      {% for r in festival_breakdown %}
+      <tr><td>{{ r.name }}</td><td class="text-end">{{ r.caches|eur }}</td><td class="text-end">{{ r.commissions|eur }}</td><td class="text-end">{{ r.total|eur }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <div class="muted" style="font-size:.75rem;margin-top:4px;">Los compartidos se reparten a partes iguales; producción y recinto son generales.</div>
+  {% endif %}
 </div>
 
 {# ===== UNA HOJA POR ACTIVIDAD ===== #}

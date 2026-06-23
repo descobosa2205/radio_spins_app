@@ -17928,6 +17928,67 @@ def _sim_build_calc_data(sim, activity, artist_intl=None):
     }
 
 
+def _sim_festival_breakdown(activity, calc, artist_intl_map, lineup):
+    """Reparto por artista de los cachés y comisiones de un festival (al 100%).
+
+    Un coste asignado a N artistas se reparte a partes iguales (1/N) entre ellos.
+    Devuelve filas [{name, photo, caches, commissions, total}] siguiendo el lineup,
+    más una fila «Sin asignar» si hay costes sin artista. La suma coincide con el
+    total de cachés+retenciones+comisiones del motor (la producción es general).
+    """
+    if activity is None or not calc:
+        return []
+    sellable = calc["ticketing"]["sellable"]
+    taquilla = calc["ticketing"]["taquilla_sin_iva"]
+    avg = calc["ticketing"]["avg_price_sin_iva"]
+    rows = {}
+    UN = "__none__"
+
+    def add(aid, key, amt):
+        b = rows.setdefault(aid, {"caches": 0.0, "commissions": 0.0, "total": 0.0})
+        b[key] += amt
+        b["total"] += amt
+
+    for c in (activity.caches or []):
+        cfg = {"var_type": c.var_type, "var_value": float(_sim_d(c.var_value)),
+               "var_threshold_type": c.var_threshold_type, "var_threshold_value": float(_sim_d(c.var_threshold_value))}
+        net = sim_calc.variable_amount(cfg, sellable, taquilla, avg) if (c.mode or "FIXED").upper() == "VARIABLE" else float(_sim_d(c.amount))
+        if c.includes_iva:
+            net = net / 1.21
+        aids = [str(x) for x in (c.artist_ids or [])]
+        intl = any(artist_intl_map.get(a, False) for a in aids) if aids else False
+        ret = 0.24 * net if (intl and not c.retention_exempt and not c.includes_retention) else 0.0
+        cost = net + ret
+        targets = aids or [UN]
+        for a in targets:
+            add(a, "caches", cost / len(targets))
+
+    for c in (activity.commissions or []):
+        cfg = {"var_type": c.var_type, "var_value": float(_sim_d(c.var_value)),
+               "var_threshold_type": c.var_threshold_type, "var_threshold_value": float(_sim_d(c.var_threshold_value))}
+        if (c.mode or "FIXED").upper() == "VARIABLE":
+            base = max(taquilla - float(_sim_d(c.exempt_amount)), 0.0)
+            net = sim_calc.variable_amount(cfg, sellable, base, avg)
+        else:
+            net = float(_sim_d(c.amount))
+        if c.includes_iva:
+            net = net / 1.21
+        aids = [str(x) for x in (c.artist_ids or [])]
+        targets = aids or [UN]
+        for a in targets:
+            add(a, "commissions", net / len(targets))
+
+    out = []
+    for la in (lineup or []):
+        aid = str(la.artist_id)
+        if aid in rows:
+            r = rows.pop(aid)
+            out.append({"name": (la.artist.name if la.artist else "—"), "photo": (la.artist.photo_url if la.artist else None), **r})
+    for aid, r in rows.items():
+        out.append({"name": ("Sin asignar" if aid == UN else "Otro artista"), "photo": None, **r})
+    return out
+
+
 def _sim_expenses_payload(activity):
     """Datos JSON para rehidratar los editores de cachés/comisiones/producción."""
     if activity is None:
@@ -18243,6 +18304,7 @@ def simulation_detail_view(sid):
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map)) if active_activity else None
+        artist_breakdown = _sim_festival_breakdown(active_activity, calc, artist_intl_map, lineup) if is_festival else None
         venue_tpl = []
         if active_activity and active_activity.venue_id:
             _vtc = (
@@ -18269,6 +18331,7 @@ def simulation_detail_view(sid):
             lineup=lineup,
             all_artists=all_artists,
             festival_artists=festival_artists,
+            artist_breakdown=artist_breakdown,
             show_general=show_general,
             tour_rows=tour_rows,
             tour_totals=tour_totals,
@@ -18340,12 +18403,15 @@ def simulation_print(sid):
             totals["resultado"] += (ing - gas)
             totals["sellable"] += b["calc"]["ticketing"]["sellable"]
         kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
+        lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
+        festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
         return render_template(
             "simulacion_print.html",
             sim=sim, kind=kind, kind_label=kind_label,
             is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
             blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
-            lineup=sorted(sim.lineup or [], key=lambda x: x.sort_order or 0),
+            lineup=lineup_sorted,
+            festival_breakdown=festival_breakdown,
             bag_labels=dict(BAG_EXPENSE_CATEGORIES),
             company=sim.managing_company,
         )

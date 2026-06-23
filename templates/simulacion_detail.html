@@ -451,6 +451,31 @@
     {% endif %}
     {% endif %}
 
+    {% if is_festival and artist_breakdown %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-people-group"></i>Gastos por artista (al 100%)</h6></div>
+      <div class="ficha-section__body">
+        <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+          <thead><tr><th>Artista</th><th class="text-end">Cachés</th><th class="text-end">Comisiones</th><th class="text-end">Total</th></tr></thead>
+          <tbody>
+            {% set bd = namespace(c=0, m=0, t=0) %}
+            {% for r in artist_breakdown %}
+              {% set bd.c = bd.c + r.caches %}{% set bd.m = bd.m + r.commissions %}{% set bd.t = bd.t + r.total %}
+              <tr>
+                <td>{% if r.photo %}<img src="{{ r.photo }}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" class="me-1">{% endif %}{{ r.name }}</td>
+                <td class="text-end">{{ r.caches|eur }}</td>
+                <td class="text-end">{{ r.commissions|eur }}</td>
+                <td class="text-end fw-semibold">{{ r.total|eur }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot><tr class="border-top"><th>Total</th><th class="text-end">{{ bd.c|eur }}</th><th class="text-end">{{ bd.m|eur }}</th><th class="text-end">{{ bd.t|eur }}</th></tr></tfoot>
+        </table></div>
+        <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos compartidos se reparten a partes iguales entre los artistas vinculados. Producción y recinto son generales (no se reparten).</div>
+      </div>
+    </div>
+    {% endif %}
+
     {% if CAN_EDIT %}
     <form method="post" action="{{ url_for('simulation_expenses_save', sid=sim.id) }}" id="expensesForm">
       <input type="hidden" name="activity_id" value="{{ active_activity.id }}">

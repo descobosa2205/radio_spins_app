@@ -178,6 +178,7 @@
   <form id="ticketingForm" method="post" action="{{ url_for('simulation_ticketing_save', sid=sim.id) }}">
     <input type="hidden" name="activity_id" value="{{ active_activity.id if active_activity else '' }}">
     <input type="hidden" name="ticketing_json" id="ticketingJson">
+    <input type="hidden" name="apply_to_venue" id="applyToVenue" value="0">
 
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n" id="tkAforo">0</div><div class="sim-stat__l">Aforo total</div></div>
@@ -204,6 +205,21 @@
     </div>
   </form>
   <script type="application/json" id="ticketingData">{{ ticketing_payload|tojson }}</script>
+  <script type="application/json" id="venueTplData">{{ venue_tpl|tojson }}</script>
+  {% if active_activity and active_activity.venue %}
+  <div class="modal fade" id="tkSyncModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">El ticketing difiere del recinto</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="mb-3">Las categorías o aforos no coinciden con la plantilla de <strong>{{ active_activity.venue.name }}</strong>. ¿Cómo quieres aplicarlo?</p>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-primary text-start py-2" id="tkApplyHere"><i class="fa fa-flask me-2"></i><strong>Aplicar solo a esta simulación</strong><div class="small text-muted ms-4 ps-1">No cambia el recinto.</div></button>
+          <button type="button" class="btn btn-outline-secondary text-start py-2" id="tkApplyVenue"><i class="fa fa-building me-2"></i><strong>Actualizar datos del recinto</strong><div class="small text-muted ms-4 ps-1">Se aplicará de aquí en adelante a nuevas simulaciones de este recinto.</div></button>
+        </div>
+      </div>
+    </div></div>
+  </div>
+  {% endif %}
   {% else %}
     {# Solo lectura #}
     {% if active_activity and active_activity.ticket_categories %}
@@ -492,7 +508,25 @@
     });
   }
 
-  form.addEventListener('submit', function(){ document.getElementById('ticketingJson').value = JSON.stringify(collect()); });
+  // Sincronización con el recinto: si la estructura difiere de su plantilla, preguntar.
+  var venueTpl = [];
+  try { venueTpl = JSON.parse(document.getElementById('venueTplData').textContent||'[]'); } catch(e){}
+  var hasVenue = {{ 'true' if (active_activity and active_activity.venue_id) else 'false' }};
+  function sig(cats){
+    return JSON.stringify((cats||[]).map(function(c){ return {z:(c.zone||'').toUpperCase(), n:(c.name||'').trim(), q:c.qty||0, i:c.inv||0}; })
+      .sort(function(a,b){ return (a.z+'|'+a.n).localeCompare(b.z+'|'+b.n); }));
+  }
+  form.addEventListener('submit', function(e){
+    document.getElementById('ticketingJson').value = JSON.stringify(collect());
+    if(!hasVenue) return;
+    var modal = document.getElementById('tkSyncModal');
+    if(modal && window.bootstrap && sig(collect()) !== sig(venueTpl)){
+      e.preventDefault();
+      bootstrap.Modal.getOrCreateInstance(modal).show();
+    }
+  });
+  var bh=document.getElementById('tkApplyHere'); if(bh) bh.addEventListener('click', function(){ document.getElementById('applyToVenue').value='0'; form.submit(); });
+  var bv=document.getElementById('tkApplyVenue'); if(bv) bv.addEventListener('click', function(){ document.getElementById('applyToVenue').value='1'; form.submit(); });
 
   initial.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), c); });
   recompute();

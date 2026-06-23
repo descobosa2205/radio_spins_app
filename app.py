@@ -16995,6 +16995,58 @@ def venue_delete(vid):
     return redirect(url_for("venues_view"))
 
 
+@app.post("/recintos/<vid>/ticketing", endpoint="venue_ticketing_save")
+@admin_required
+def venue_ticketing_save(vid):
+    """Guarda la plantilla de ticketing del recinto (categorías y aforos, sin precio)."""
+    if not can_edit_catalogs():
+        flash("No tienes permisos para editar el recinto.", "warning")
+        return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+        try:
+            data = json.loads(request.form.get("ticketing_json") or "[]")
+        except Exception:
+            data = []
+        if not isinstance(data, list):
+            data = []
+        for c in s.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == venue.id).all():
+            s.delete(c)
+        s.flush()
+        for i, row in enumerate(data):
+            if not isinstance(row, dict):
+                continue
+            zone = str(row.get("zone") or "PISTA").upper()
+            if zone not in ("PISTA", "GRADA"):
+                zone = "PISTA"
+            cat = VenueTicketCategory(
+                venue_id=venue.id, zone=zone,
+                name=str(row.get("name") or "").strip(),
+                quantity=_sim_int(row.get("qty")), invitations=_sim_int(row.get("inv")),
+                sort_order=i,
+            )
+            s.add(cat)
+            s.flush()
+            for j, ex in enumerate(row.get("extras") or []):
+                if not isinstance(ex, dict):
+                    continue
+                nm = str(ex.get("name") or "").strip()
+                if not nm:
+                    continue
+                s.add(VenueTicketExtra(category_id=cat.id, name=nm, amount_gross=_sim_d(ex.get("amount")), sort_order=j))
+        s.commit()
+        flash("Ticketing del recinto guardado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando el ticketing del recinto: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
+
+
 # ----------- TICKETERAS ---------------
 
 
@@ -17913,6 +17965,35 @@ def _sim_expenses_payload(activity):
     return {"caches": caches, "commissions": commissions, "production": production}
 
 
+def _venue_ticketing_payload(cats):
+    """Plantilla de ticketing del recinto (sin precio) para rehidratar el editor."""
+    rows = []
+    for c in sorted(cats or [], key=lambda x: ((x.zone or ""), x.sort_order or 0)):
+        rows.append({
+            "zone": (c.zone or "PISTA").upper(), "name": c.name or "",
+            "qty": int(c.quantity or 0), "inv": int(c.invitations or 0),
+            "extras": [{"name": e.name or "", "amount": float(_sim_d(e.amount_gross))} for e in sorted(c.extras or [], key=lambda x: x.sort_order or 0)],
+        })
+    return rows
+
+
+def _venue_ticketing_summary(cats):
+    """Aforo total / a la venta / invitaciones del recinto (desde su plantilla)."""
+    zones = {"PISTA": {"label": "Pista", "qty": 0, "inv": 0, "sellable": 0},
+             "GRADA": {"label": "Grada", "qty": 0, "inv": 0, "sellable": 0}}
+    tq = ti = ts = 0
+    for c in (cats or []):
+        zone = (c.zone or "PISTA").upper()
+        if zone not in zones:
+            zone = "PISTA"
+        q = max(int(c.quantity or 0), 0)
+        inv = max(int(c.invitations or 0), 0)
+        s = max(q - inv, 0)
+        zones[zone]["qty"] += q; zones[zone]["inv"] += inv; zones[zone]["sellable"] += s
+        tq += q; ti += inv; ts += s
+    return {"zones": zones, "aforo_total": tq, "invitations": ti, "sellable": ts, "has": bool(cats)}
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -18019,6 +18100,24 @@ def simulation_create():
         )
         s.add(act)
 
+        # Autocarga: si el recinto tiene plantilla de ticketing, se copia (precios en blanco).
+        if act.venue_id:
+            vcats = (
+                s.query(VenueTicketCategory)
+                .options(selectinload(VenueTicketCategory.extras))
+                .filter(VenueTicketCategory.venue_id == act.venue_id)
+                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+                .all()
+            )
+            for i, vc in enumerate(vcats):
+                sc = SimulationTicketCategory(
+                    activity=act, zone=vc.zone, name=vc.name, price_net=0,
+                    quantity=vc.quantity, invitations=vc.invitations, sort_order=i,
+                )
+                s.add(sc)
+                for j, ve in enumerate(vc.extras or []):
+                    s.add(SimulationTicketExtra(category=sc, name=ve.name, amount_gross=ve.amount_gross, sort_order=j))
+
         for idx, pr in enumerate(_simulation_partners_from_form(request.form)):
             s.add(SimulationPartner(
                 simulation_id=sim.id,
@@ -18074,6 +18173,16 @@ def simulation_detail_view(sid):
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
+        venue_tpl = []
+        if active_activity and active_activity.venue_id:
+            _vtc = (
+                s.query(VenueTicketCategory)
+                .options(selectinload(VenueTicketCategory.extras))
+                .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
+                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+                .all()
+            )
+            venue_tpl = _venue_ticketing_payload(_vtc)
         expenses_payload = _sim_expenses_payload(active_activity)
         bag_categories = [(k, l) for k, l in BAG_EXPENSE_CATEGORIES if k != "PRORRATEOS"]
         bag_labels = dict(BAG_EXPENSE_CATEGORIES)
@@ -18086,6 +18195,7 @@ def simulation_detail_view(sid):
             summary=summary,
             ticketing_payload=ticketing_payload,
             calc=calc,
+            venue_tpl=venue_tpl,
             expenses_payload=expenses_payload,
             bag_categories=bag_categories,
             bag_labels=bag_labels,
@@ -18177,8 +18287,34 @@ def simulation_ticketing_save(sid):
                     category_id=cat.id, name=nm,
                     amount_gross=_sim_d(ex.get("amount")), sort_order=j,
                 ))
+        # Sincronización opcional con el recinto: actualizar su plantilla (de aquí en adelante).
+        if _truthy(request.form.get("apply_to_venue")) and act.venue_id:
+            for vc in s.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == act.venue_id).all():
+                s.delete(vc)
+            s.flush()
+            for i, row in enumerate(data):
+                if not isinstance(row, dict):
+                    continue
+                zone = str(row.get("zone") or "PISTA").upper()
+                if zone not in ("PISTA", "GRADA"):
+                    zone = "PISTA"
+                vcat = VenueTicketCategory(
+                    venue_id=act.venue_id, zone=zone,
+                    name=str(row.get("name") or "").strip(),
+                    quantity=_sim_int(row.get("qty")), invitations=_sim_int(row.get("inv")),
+                    sort_order=i,
+                )
+                s.add(vcat)
+                s.flush()
+                for j, ex in enumerate(row.get("extras") or []):
+                    if not isinstance(ex, dict):
+                        continue
+                    nm = str(ex.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    s.add(VenueTicketExtra(category_id=vcat.id, name=nm, amount_gross=_sim_d(ex.get("amount")), sort_order=j))
         s.commit()
-        flash("Ticketing guardado.", "success")
+        flash("Ticketing guardado." + (" Plantilla del recinto actualizada." if _truthy(request.form.get("apply_to_venue")) and act.venue_id else ""), "success")
     except Exception as e:
         s.rollback()
         flash(f"Error guardando el ticketing: {e}", "danger")
@@ -33626,6 +33762,13 @@ def venue_detail_view(vid):
         activities = [_production_concert_row(session_db, row) for row in concert_rows]
         activities.extend([_action_display_row(session_db, row) for row in action_rows])
         activities.sort(key=lambda item: (item.get('date') or date.min), reverse=True)
+        venue_cats = (
+            session_db.query(VenueTicketCategory)
+            .options(selectinload(VenueTicketCategory.extras))
+            .filter(VenueTicketCategory.venue_id == venue.id)
+            .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+            .all()
+        )
         return render_template(
             'venue_detail.html',
             venue=venue,
@@ -33633,6 +33776,8 @@ def venue_detail_view(vid):
             edit=_truthy(request.args.get('edit')) and can_edit_catalogs(),
             CAN_EDIT_CATALOGS=can_edit_catalogs(),
             tab=(request.args.get('tab') or 'actividad').strip().lower(),
+            venue_ticketing_payload=_venue_ticketing_payload(venue_cats),
+            venue_tk_summary=_venue_ticketing_summary(venue_cats),
             entity_links=_entity_link_rows(session_db, 'venue', venue.id),
             entity_link_context={'type': 'venue', 'id': str(venue.id), 'label': venue.name or 'recinto'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,

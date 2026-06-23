@@ -71,54 +71,71 @@
   {{ inv_menu.edit_modal() }}
   {{ inv_menu.delete_modal() }}
 {% elif tab == 'gestionar' %}
-  <div class="card">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
-        <h5 class="mb-0">Gestionar invitaciones</h5>
-        <div class="d-flex gap-2 align-items-center flex-wrap">
-          <input class="form-control invitation-search" style="max-width:320px" placeholder="Buscar por artista, evento, ciudad, provincia..." data-filter-target=".invitation-manage-row">
-          <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#manageOthersModal"><i class="fa fa-user-plus me-1"></i>Gestionar otros</button>
+  <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
+    <h5 class="mb-0">Gestionar invitaciones</h5>
+    <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#manageOthersModal"><i class="fa fa-user-plus me-1"></i>Gestionar otros</button>
+  </div>
+
+  {% if events_by_artist %}
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="row g-3 align-items-end">
+          <div class="col-12 col-lg-8">
+            <label class="form-label">Filtrar por artistas</label>
+            <div class="d-flex flex-wrap gap-2" id="manageArtistFilters">
+              <button type="button" class="btn btn-sm btn-dark active" data-manage-artist-filter="all">Todos</button>
+              {% for grp in events_by_artist %}
+                <button type="button" class="btn btn-sm btn-outline-secondary d-inline-flex align-items-center gap-2" data-manage-artist-filter="{{ grp.artist.id or 'sin-artista' }}">
+                  <img src="{{ grp.artist.photo_url or DEFAULT_PHOTO_URL }}" class="artist-mini" alt="">
+                  <span>{{ grp.artist.name }}</span>
+                </button>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="col-12 col-lg-4">
+            <label class="form-label">Buscar</label>
+            <input type="search" class="form-control" id="manageSearchInput" placeholder="Buscar por artista, evento, ciudad, provincia...">
+          </div>
         </div>
       </div>
-      {% if events_by_artist %}
-        {% for grp in events_by_artist %}
-        <div class="card mb-3 invitation-artist-card">
-          <div class="card-body">
-          <div class="d-flex align-items-center gap-3 mb-3 pb-2 border-bottom">
-            <img src="{{ grp.artist.photo_url or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
-            <h4 class="mb-0">{{ grp.artist.name }}</h4>
-            <span class="badge text-bg-light border ms-1">{{ grp.events|length }} {{ 'concierto' if grp.events|length == 1 else 'conciertos' }}</span>
-          </div>
-          <div class="invitation-manage-list">
-            {% for item in grp.events %}
-              <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
-                <div class="d-flex align-items-center gap-3 flex-wrap flex-lg-nowrap">
-                  <div class="flex-grow-1">
-                    <div class="d-flex gap-2 align-items-center flex-wrap">
-                      <span class="badge text-bg-secondary">{{ item.type_label }}</span>
-                      <strong>{{ item.title }}</strong>
-                      <span class="text-muted">{{ item.date_label }}</span>
-                    </div>
-                    <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
-                  </div>
-                  <div class="invitation-counts">
-                    <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
-                    <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
-                    <div><span>{{ item.counts.requested }}</span><small>Solicitadas</small></div>
-                    <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
-                  </div>
-                </div>
-              </a>
-            {% endfor %}
-          </div>
-          </div>
-        </div>
-        {% endfor %}
-      {% else %}
-        <div class="alert alert-light border mb-0">No hay eventos configurados.</div>
-      {% endif %}
     </div>
-  </div>
+
+    {% for grp in events_by_artist %}
+    <div class="card mb-3 invitation-artist-card" data-manage-artist-block="{{ grp.artist.id or 'sin-artista' }}">
+      <div class="card-body">
+      <div class="d-flex align-items-center gap-3 mb-3 pb-2 border-bottom">
+        <img src="{{ grp.artist.photo_url or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:56px;height:56px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+        <h4 class="mb-0">{{ grp.artist.name }}</h4>
+        <span class="badge text-bg-light border ms-1">{{ grp.events|length }} {{ 'concierto' if grp.events|length == 1 else 'conciertos' }}</span>
+      </div>
+      <div class="invitation-manage-list">
+        {% for item in grp.events %}
+          <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}" data-manage-artist="{{ grp.artist.id or 'sin-artista' }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
+            <div class="d-flex align-items-center gap-3 flex-wrap flex-lg-nowrap">
+              <div class="flex-grow-1">
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                  <span class="badge text-bg-secondary">{{ item.type_label }}</span>
+                  <strong>{{ item.title }}</strong>
+                  <span class="text-muted">{{ item.date_label }}</span>
+                </div>
+                <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
+              </div>
+              <div class="invitation-counts">
+                <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
+                <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
+                <div><span>{{ item.counts.requested }}</span><small>Solicitadas</small></div>
+                <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
+              </div>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    <div class="alert alert-light border mb-0">No hay eventos configurados.</div>
+  {% endif %}
 
   <div class="modal fade" id="manageOthersModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -220,6 +237,52 @@
 
     modal.querySelector('[data-manage-others-back]').addEventListener('click', showArtists);
     modal.addEventListener('show.bs.modal', () => { showArtists(); loadArtists(); });
+  })();
+  </script>
+
+  <script>
+  // Filtro por artista (como el de repertorio) + barra de búsqueda. Se combinan: solo se ven las
+  // filas que cumplen artista seleccionado Y búsqueda; las tarjetas de artista sin filas se ocultan.
+  (function(){
+    const wrap = document.getElementById('manageArtistFilters');
+    if (!wrap) return;
+    const searchInput = document.getElementById('manageSearchInput');
+    const norm = (v) => (v || '').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]+/g,' ').toLowerCase();
+    let selected = 'all';
+    function refreshButtons(){
+      wrap.querySelectorAll('[data-manage-artist-filter]').forEach(btn => {
+        const current = btn.getAttribute('data-manage-artist-filter') || 'all';
+        const active = current === selected;
+        btn.classList.toggle('active', active);
+        if (current !== 'all') {
+          btn.classList.toggle('btn-dark', active);
+          btn.classList.toggle('btn-outline-secondary', !active);
+        }
+      });
+    }
+    function apply(){
+      const q = norm(searchInput && searchInput.value);
+      document.querySelectorAll('.invitation-manage-row').forEach(row => {
+        const artistId = row.getAttribute('data-manage-artist') || '';
+        const hay = norm(row.getAttribute('data-search'));
+        const okArtist = selected === 'all' || artistId === selected;
+        const okSearch = !q || hay.includes(q);
+        row.style.display = (okArtist && okSearch) ? '' : 'none';
+      });
+      document.querySelectorAll('[data-manage-artist-block]').forEach(block => {
+        const visible = Array.from(block.querySelectorAll('.invitation-manage-row')).some(r => r.style.display !== 'none');
+        block.style.display = visible ? '' : 'none';
+      });
+    }
+    wrap.querySelectorAll('[data-manage-artist-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        selected = btn.getAttribute('data-manage-artist-filter') || 'all';
+        refreshButtons();
+        apply();
+      });
+    });
+    if (searchInput) searchInput.addEventListener('input', apply);
+    apply();
   })();
   </script>
 {% elif tab == 'evento' %}

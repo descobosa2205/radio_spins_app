@@ -105,7 +105,7 @@
               {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
               {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
               <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="height:34px;max-width:96px;object-fit:contain;">
+                {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
                 <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
                 <span class="fw-semibold">{{ p.pct or 0 }}%</span>
               </div>
@@ -274,7 +274,7 @@
                 {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
                 {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
                 <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                  <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="height:34px;max-width:96px;object-fit:contain;">
+                  {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
                   <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
                   <span class="fw-semibold">{{ p.pct or 0 }}%</span>
                 </div>

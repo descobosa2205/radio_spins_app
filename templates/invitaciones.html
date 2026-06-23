@@ -1160,6 +1160,22 @@
   document.querySelectorAll('[data-show-invitation-tab="tickets"]').forEach(link => link.addEventListener('click', () => { const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }));
   if(window.location.hash === '#inv-tab-tickets'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-tickets"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
   if(window.location.hash === '#inv-tab-listados'){ const tabBtn = document.querySelector('[data-bs-target="#inv-tab-listados"]'); if(tabBtn && window.bootstrap) bootstrap.Tab.getOrCreateInstance(tabBtn).show(); }
+  // Recordar la pestaña activa del evento: tras guardar un cambio (POST + recarga) se vuelve a la
+  // misma pestaña en la que estabas, en vez de saltar siempre a "Invitados".
+  (function(){
+    var pills = document.querySelectorAll('[data-bs-toggle="pill"][data-bs-target^="#inv-tab-"]');
+    if(!pills.length || !window.bootstrap) return;
+    var KEY = 'invEventTab:' + location.pathname;
+    var hash = (location.hash && location.hash.indexOf('#inv-tab-') === 0) ? location.hash : '';
+    var target = hash || sessionStorage.getItem(KEY);
+    if(target){
+      var btn = document.querySelector('[data-bs-toggle="pill"][data-bs-target="' + target + '"]');
+      if(btn) bootstrap.Tab.getOrCreateInstance(btn).show();
+    }
+    pills.forEach(function(b){
+      b.addEventListener('shown.bs.tab', function(){ try { sessionStorage.setItem(KEY, b.getAttribute('data-bs-target')); } catch(e){} });
+    });
+  })();
 
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
     const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';

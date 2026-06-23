@@ -34829,14 +34829,10 @@ def invitations_view():
         for concert in query.all():
             if not _invitation_event_is_active_for_requests(concert, now_value=now_value):
                 continue
-            # Para gestión mostramos todos los que tienen categorías/solicitudes/compromisos o datos de invitación legados.
-            has_any = _invitation_event_has_config(session_db, concert)
-            if not has_any:
-                has_any = session_db.query(InvitationRequest.id).filter(InvitationRequest.concert_id == concert.id).first() is not None
-            if not has_any:
-                has_any = session_db.query(InvitationCommitment.id).filter(InvitationCommitment.concert_id == concert.id).first() is not None
-            if has_any or tab == 'pedir':
-                candidates.append(concert)
+            # Se incluyen TODOS los conciertos activos (tengan o no invitaciones configuradas o
+            # solicitudes); en "Gestionar" el filtrado por perfil (artistas asignados no-grupo /
+            # ticketing con empresa del grupo) lo hace _filter_manageable_concerts más abajo.
+            candidates.append(concert)
         # En "Gestionar" cada usuario solo ve lo que le corresponde (artistas asignados; Ticketing ->
         # empresas del grupo; opt-ins de "Gestionar otros"). Dirección (rol 10) ve todo.
         if tab == 'gestionar':

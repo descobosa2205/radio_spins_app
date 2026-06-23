@@ -41,7 +41,7 @@
         <span><i class="fa fa-route"></i>{{ activities|length }} {{ 'fecha' if activities|length == 1 else 'fechas' }}</span>
       {% elif first_act %}
         <span><i class="fa fa-calendar"></i>{% if first_act.date_unknown or not first_act.event_date %}Fecha por definir{% else %}{{ first_act.event_date.strftime('%d/%m/%Y') }}{% endif %}</span>
-        <span><i class="fa fa-location-dot"></i>{% if first_act.venue_unknown or not first_act.venue %}Recinto por definir{% else %}{{ first_act.venue.name }}{% endif %}</span>
+        <span><i class="fa fa-location-dot"></i>{% if first_act.venue_unknown or not first_act.venue %}Recinto por definir{% else %}<a href="{{ url_for('venue_detail_view', vid=first_act.venue.id) }}" class="text-reset" style="text-decoration:underline;">{{ first_act.venue.name }}</a>{% endif %}</span>
       {% endif %}
       {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total }} · {{ summary.sellable }} a la venta{% if summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</span>{% endif %}
       {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Resultado @100% {{ calc.at_100.resultado|eur }}</span>{% endif %}
@@ -94,7 +94,7 @@
               {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
               {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
               <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
+                <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="height:34px;max-width:96px;object-fit:contain;">
                 <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
                 <span class="fw-semibold">{{ p.pct or 0 }}%</span>
               </div>
@@ -210,7 +210,7 @@
                 {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
                 {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
                 <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                  <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
+                  <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="height:34px;max-width:96px;object-fit:contain;">
                   <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
                   <span class="fw-semibold">{{ p.pct or 0 }}%</span>
                 </div>

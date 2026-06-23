@@ -194,6 +194,7 @@ from models import (
     Simulation,
     SimulationActivity,
     SimulationPartner,
+    SimulationArtist,
     SimulationTicketCategory,
     SimulationTicketExtra,
     SimulationIncomeItem,

@@ -2793,10 +2793,11 @@ class Simulation(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False, index=True)
     managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"), index=True)
-    kind = Column(Text, nullable=False, server_default=text("'CONCERT'"))   # CONCERT | TOUR
+    kind = Column(Text, nullable=False, server_default=text("'CONCERT'"))   # CONCERT | TOUR | CYCLE | FESTIVAL
     title = Column(Text)
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))   # DRAFT | ACTIVE | ARCHIVED
     notes = Column(Text)
+    poster_url = Column(Text)   # cartel/logo del ciclo o festival (subido)
     settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -2812,6 +2813,10 @@ class Simulation(Base):
         "SimulationPartner", back_populates="simulation",
         cascade="all, delete-orphan", order_by="SimulationPartner.sort_order",
     )
+    lineup = relationship(
+        "SimulationArtist", back_populates="simulation",
+        cascade="all, delete-orphan", order_by="SimulationArtist.sort_order",
+    )
 
 
 class SimulationActivity(Base):
@@ -2825,11 +2830,16 @@ class SimulationActivity(Base):
     date_unknown = Column(Boolean, nullable=False, server_default=text("false"))
     venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"), index=True)
     venue_unknown = Column(Boolean, nullable=False, server_default=text("false"))
+    # Ciclo: cada concierto tiene su artista. Festival: el evento no lleva artista (van en el lineup).
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"), index=True)
+    # Contenedor de "gastos generales" (compartidos del ciclo/festival): is_shared=True, sin ticketing.
+    is_shared = Column(Boolean, nullable=False, server_default=text("false"))
     settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     simulation = relationship("Simulation", back_populates="activities")
     venue = relationship("Venue")
+    artist = relationship("Artist", foreign_keys=[artist_id])
     ticket_categories = relationship(
         "SimulationTicketCategory", back_populates="activity",
         cascade="all, delete-orphan", order_by="SimulationTicketCategory.sort_order",
@@ -2866,6 +2876,18 @@ class SimulationPartner(Base):
     simulation = relationship("Simulation", back_populates="partners")
     company = relationship("GroupCompany")
     promoter = relationship("Promoter")
+
+
+class SimulationArtist(Base):
+    """Lineup de artistas de un festival/ciclo (los conciertos del ciclo también usan activity.artist_id)."""
+    __tablename__ = "simulation_artists"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    simulation_id = Column(PGUUID(as_uuid=True), ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False, index=True)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False, index=True)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    simulation = relationship("Simulation", back_populates="lineup")
+    artist = relationship("Artist")
 
 
 class SimulationTicketCategory(Base):
@@ -2929,6 +2951,8 @@ class SimulationCache(Base):
     var_value = Column(Numeric, nullable=False, server_default=text("0"))
     var_threshold_type = Column(Text)    # TICKETS | AMOUNT | NONE
     var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    # Festival: artistas a los que aplica este caché (1 = de ese artista; varios = compartido a 1/N).
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     activity = relationship("SimulationActivity", back_populates="caches")
@@ -2951,6 +2975,8 @@ class SimulationCommission(Base):
     var_threshold_type = Column(Text)
     var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
     exempt_amount = Column(Numeric, nullable=False, server_default=text("0"))  # importe exento de comisiones
+    # Festival: artistas a los que aplica esta comisión (varios = compartido a 1/N).
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     activity = relationship("SimulationActivity", back_populates="commissions")
@@ -3041,6 +3067,13 @@ def ensure_simulations_schema():
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         "ALTER TABLE IF EXISTS artists  ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS venues   ADD COLUMN IF NOT EXISTS allows_bars     boolean NOT NULL DEFAULT false;",
+        # Ciclo / Festival (multi-artista + costes compartidos).
+        "ALTER TABLE IF EXISTS simulations           ADD COLUMN IF NOT EXISTS poster_url text;",
+        "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS simulation_caches      ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "CREATE INDEX IF NOT EXISTS idx_sim_activities_artist ON simulation_activities(artist_id);",
     ]
     _exec_ddl_statements(stmts, "simulations")
 

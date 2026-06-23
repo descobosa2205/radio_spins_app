@@ -7,6 +7,11 @@
   .sim-stat__l{ font-size:.72rem; text-transform:uppercase; letter-spacing:.02em; color:#6c757d; }
   .sim-cat-row{ background:#fff; border:1px solid #e9ecef; }
   .sim-zone-card .card-header{ font-weight:600; }
+  .sim-bar{ background:#f1f3f5; border-radius:6px; height:18px; overflow:hidden; min-width:60px; }
+  .sim-bar__fill{ height:100%; border-radius:6px; min-width:2px; }
+  .sim-bar__fill.pos{ background:linear-gradient(90deg,#34d399,#047857); }
+  .sim-bar__fill.neg{ background:linear-gradient(90deg,#fca5a5,#dc2626); }
+  .sim-result-table td,.sim-result-table th{ vertical-align:middle; }
 </style>
 
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -39,6 +44,7 @@
         <span><i class="fa fa-location-dot"></i>{% if first_act.venue_unknown or not first_act.venue %}Recinto por definir{% else %}{{ first_act.venue.name }}{% endif %}</span>
       {% endif %}
       {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total }} · {{ summary.sellable }} a la venta{% if summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</span>{% endif %}
+      {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Resultado @100% {{ calc.at_100.resultado|eur }}</span>{% endif %}
       {% if sim.artist and sim.artist.is_international %}<span><i class="fa fa-globe"></i>Artista internacional</span>{% endif %}
     </div>
   </div>
@@ -221,15 +227,107 @@
     {% endif %}
   {% endif %}
 
-{# ===================== INGRESOS / GASTOS / RESULTADO (Lote 2 — en curso) ===================== #}
-{% else %}
-  <div class="card" style="border-style:dashed;"><div class="card-body text-center text-muted py-5">
-    <div class="mb-2"><i class="fa fa-gauge-high fa-2x"></i></div>
-    <div class="fw-semibold">
-      {% if tab == 'ingresos' %}Ingresos{% elif tab == 'gastos' %}Gastos{% else %}Resultado{% endif %} — en construcción
+{# ===================== INGRESOS ===================== #}
+{% elif tab == 'ingresos' %}
+  {% if not calc or not active_activity %}
+    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a>.</div>
+  {% else %}
+    {% set ing = calc.at_100.ingresos %}
+    <div class="row g-3">
+      <div class="col-12 col-lg-7">
+        <div class="ficha-section">
+          <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-arrow-trend-up"></i>Ingresos al 100% de aforo a la venta</h6></div>
+          <div class="ficha-section__body">
+            <table class="table table-sm align-middle mb-0">
+              <tbody>
+                <tr><td>Ticketing <span class="text-muted small">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>
+                {% if ing.complementos %}<tr><td>Complementos <span class="text-muted small">(neto sin IVA)</span></td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
+                <tr><td>Rebate <span class="text-muted small">(10% taquilla − 0,5 €/entrada)</span></td><td class="text-end">{{ ing.rebate|eur }}</td></tr>
+                <tr><td>Barras
+                  {% if not active_activity.venue %}<span class="text-muted small">(sin recinto)</span>{% elif not active_activity.venue.allows_bars %}<span class="text-muted small">(el recinto no permite)</span>{% else %}<span class="text-muted small">(6 €/entrada)</span>{% endif %}
+                </td><td class="text-end">{{ ing.barras|eur }}</td></tr>
+                <tr><td>Incentivos fiscales <span class="text-muted small">(14% caché + producción)</span></td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>
+                <tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>
+                <tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>
+              </tbody>
+              <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ ing.total|eur }}</th></tr></tfoot>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="col-12 col-lg-5">
+        {% if CAN_EDIT %}
+        <form method="post" action="{{ url_for('simulation_income_save', sid=sim.id) }}" id="incomeForm">
+          <input type="hidden" name="activity_id" value="{{ active_activity.id }}">
+          {% for gkey, glabel, gicon, gkind in [('subv','Subvenciones','fa-hand-holding-dollar','SUBVENCION'),('patro','Patrocinios','fa-rectangle-ad','PATROCINIO')] %}
+          <div class="ficha-section">
+            <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa {{ gicon }}"></i>{{ glabel }} <span class="text-muted small fw-normal">(sin IVA)</span></h6></div>
+            <div class="ficha-section__body">
+              <div data-income-rows="{{ gkey }}">
+                {% for it in active_activity.income_items if (it.kind or '')|upper == gkind %}
+                  <div class="d-flex gap-2 mb-2 income-row">
+                    <input type="text" class="form-control form-control-sm" name="{{ gkey }}_name[]" value="{{ it.name }}" placeholder="Concepto">
+                    <div class="input-group input-group-sm" style="width:140px;"><input type="number" step="0.01" min="0" class="form-control" name="{{ gkey }}_amount[]" value="{{ it.amount_net }}"><span class="input-group-text">€</span></div>
+                    <button type="button" class="btn btn-sm btn-outline-danger income-del" title="Quitar"><i class="fa fa-xmark"></i></button>
+                  </div>
+                {% endfor %}
+              </div>
+              <button type="button" class="btn btn-sm btn-outline-primary" data-income-add="{{ gkey }}"><i class="fa fa-plus me-1"></i>Añadir</button>
+            </div>
+          </div>
+          {% endfor %}
+          <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar ingresos</button></div>
+        </form>
+        {% else %}
+          <div class="text-muted">Sin permiso de edición.</div>
+        {% endif %}
+      </div>
     </div>
-    <div class="small">El motor de cálculo se está montando. La pestaña <strong>Ticketing</strong> ya guarda y calcula aforos y neto.</div>
+  {% endif %}
+
+{# ===================== GASTOS (próximo) ===================== #}
+{% elif tab == 'gastos' %}
+  <div class="card" style="border-style:dashed;"><div class="card-body text-center text-muted py-5">
+    <div class="mb-2"><i class="fa fa-arrow-trend-down fa-2x"></i></div>
+    <div class="fw-semibold">Gastos — en construcción</div>
+    <div class="small">Cachés (fijo/variable, IVA, retención), comisiones y gastos de producción. Es lo siguiente que monto; el motor de cálculo ya está listo para ellos.</div>
   </div></div>
+
+{# ===================== RESULTADO ===================== #}
+{% elif tab == 'resultado' %}
+  {% if not calc or not calc.ticketing.sellable %}
+    <div class="text-muted">Configura el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a> para ver el resultado.</div>
+  {% else %}
+    <div class="d-flex flex-wrap gap-3 mb-3">
+      <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+    </div>
+    {% if calc.break_even_tickets is none %}<div class="alert alert-warning py-2"><i class="fa fa-triangle-exclamation me-1"></i>Con estos datos no se alcanza el punto de empate ni al 100% del aforo.</div>{% endif %}
+    <div class="table-responsive">
+      <table class="table table-sm align-middle sim-result-table">
+        <thead><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:32%;">&nbsp;</th></tr></thead>
+        <tbody>
+          {% set seen = namespace(be=false) %}
+          {% for row in calc.series %}
+            {% set is_be = (not seen.be and row.resultado >= 0) %}
+            {% if is_be %}{% set seen.be = true %}{% endif %}
+            {% set absval = row.resultado if row.resultado >= 0 else -row.resultado %}
+            {% set w = (absval / calc.series_max_abs * 100) if calc.series_max_abs else 0 %}
+            <tr class="{{ 'table-warning' if is_be else '' }}">
+              <td class="fw-semibold">{{ row.pct }}%{% if is_be %} <span class="badge text-bg-warning text-dark ms-1">empate</span>{% endif %}</td>
+              <td class="text-end">{{ row.tickets }}</td>
+              <td class="text-end">{{ row.ingresos|eur }}</td>
+              <td class="text-end">{{ row.gastos|eur }}</td>
+              <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ row.resultado|eur }}</td>
+              <td><div class="sim-bar"><div class="sim-bar__fill {{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%;"></div></div></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Resultado en neto sin IVA. Configura la pestaña <strong>Gastos</strong> para un resultado realista.</div>
+  {% endif %}
 {% endif %}
 </div>
 {% endblock %}
@@ -338,6 +436,33 @@
 
   initial.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), c); });
   recompute();
+})();
+</script>
+{% endif %}
+{% if tab == 'ingresos' and CAN_EDIT %}
+<script>
+(function(){
+  var form = document.getElementById('incomeForm');
+  if(!form) return;
+  function rowHtml(k){
+    return '<input type="text" class="form-control form-control-sm" name="'+k+'_name[]" placeholder="Concepto">'+
+      '<div class="input-group input-group-sm" style="width:140px;"><input type="number" step="0.01" min="0" class="form-control" name="'+k+'_amount[]" placeholder="Importe"><span class="input-group-text">€</span></div>'+
+      '<button type="button" class="btn btn-sm btn-outline-danger income-del" title="Quitar"><i class="fa fa-xmark"></i></button>';
+  }
+  form.addEventListener('click', function(e){
+    var add = e.target.closest('[data-income-add]');
+    if(add){
+      var k = add.getAttribute('data-income-add');
+      var wrap = form.querySelector('[data-income-rows="'+k+'"]');
+      var d = document.createElement('div');
+      d.className = 'd-flex gap-2 mb-2 income-row';
+      d.innerHTML = rowHtml(k);
+      wrap.appendChild(d);
+      return;
+    }
+    var del = e.target.closest('.income-del');
+    if(del){ del.closest('.income-row').remove(); }
+  });
 })();
 </script>
 {% endif %}

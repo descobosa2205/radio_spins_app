@@ -203,6 +203,7 @@ from models import (
     VenueTicketCategory,
     VenueTicketExtra,
 )
+import sim_calc  # motor de cálculo puro de Simulaciones
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -17810,6 +17811,60 @@ def _sim_ticketing_payload(activity):
     return rows
 
 
+def _sim_cost_cfg(o):
+    """Config de variable (común a caché/comisión) en dict plano para sim_calc."""
+    return {
+        "var_type": o.var_type, "var_value": float(_sim_d(o.var_value)),
+        "var_threshold_type": o.var_threshold_type, "var_threshold_value": float(_sim_d(o.var_threshold_value)),
+    }
+
+
+def _sim_build_calc_data(sim, activity):
+    """Convierte los modelos ORM de una actividad al dict plano que espera sim_calc."""
+    if activity is None:
+        return {}
+    cats = []
+    for c in (activity.ticket_categories or []):
+        cats.append({
+            "zone": c.zone, "price_net": float(_sim_d(c.price_net)),
+            "quantity": int(c.quantity or 0), "invitations": int(c.invitations or 0),
+            "extras": [{"amount_gross": float(_sim_d(e.amount_gross))} for e in (c.extras or [])],
+        })
+    caches = []
+    for c in (activity.caches or []):
+        d = _sim_cost_cfg(c)
+        d.update({
+            "mode": c.mode, "amount": float(_sim_d(c.amount)),
+            "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
+            "retention_exempt": bool(c.retention_exempt),
+        })
+        caches.append(d)
+    commissions = []
+    for c in (activity.commissions or []):
+        d = _sim_cost_cfg(c)
+        d.update({
+            "mode": c.mode, "amount": float(_sim_d(c.amount)),
+            "includes_iva": bool(c.includes_iva), "exempt_amount": float(_sim_d(c.exempt_amount)),
+        })
+        commissions.append(d)
+    production = []
+    for p in (activity.production_items or []):
+        d = _sim_cost_cfg(p)
+        d.update({
+            "category": p.category, "amount_net": float(_sim_d(p.amount_net)),
+            "iva_pct": float(_sim_d(p.iva_pct)), "is_variable": bool(p.is_variable),
+        })
+        production.append(d)
+    subventions = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "SUBVENCION"]
+    sponsorships = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "PATROCINIO"]
+    return {
+        "is_international": bool(sim.artist.is_international) if sim.artist else False,
+        "allows_bars": bool(activity.venue.allows_bars) if activity.venue else False,
+        "categories": cats, "caches": caches, "commissions": commissions,
+        "production": production, "subventions": subventions, "sponsorships": sponsorships,
+    }
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -17950,6 +18005,10 @@ def simulation_detail_view(sid):
                 selectinload(Simulation.activities)
                     .selectinload(SimulationActivity.ticket_categories)
                     .selectinload(SimulationTicketCategory.extras),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.company),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.promoter),
             )
@@ -17966,6 +18025,7 @@ def simulation_detail_view(sid):
         active_activity = activities[0] if activities else None
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
+        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
         return render_template(
             "simulacion_detail.html",
             sim=sim,
@@ -17974,6 +18034,7 @@ def simulation_detail_view(sid):
             tab=tab,
             summary=summary,
             ticketing_payload=ticketing_payload,
+            calc=calc,
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -18070,6 +18131,57 @@ def simulation_ticketing_save(sid):
     finally:
         s.close()
     return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing"))
+
+
+@app.post("/contratacion/simulaciones/<sid>/ingresos", endpoint="simulation_income_save")
+@admin_required
+def simulation_income_save(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos"))
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(selectinload(Simulation.activities).selectinload(SimulationActivity.income_items))
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        acts = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        activity_id = _sim_safe_uuid(request.form.get("activity_id"))
+        act = next((a for a in acts if a.id == activity_id), None) or (acts[0] if acts else None)
+        if act is None:
+            act = SimulationActivity(simulation_id=sim.id, sort_order=0)
+            s.add(act)
+            s.flush()
+        for it in list(act.income_items or []):
+            s.delete(it)
+        s.flush()
+
+        def _add(kind, names, amounts):
+            for i, nm in enumerate(names):
+                nm = (nm or "").strip()
+                amt = _sim_d(amounts[i]) if i < len(amounts) else Decimal("0")
+                if not nm and amt == 0:
+                    continue
+                s.add(SimulationIncomeItem(
+                    activity_id=act.id, kind=kind,
+                    name=nm or ("Subvención" if kind == "SUBVENCION" else "Patrocinio"),
+                    amount_net=amt, sort_order=i,
+                ))
+        _add("SUBVENCION", request.form.getlist("subv_name[]"), request.form.getlist("subv_amount[]"))
+        _add("PATROCINIO", request.form.getlist("patro_name[]"), request.form.getlist("patro_amount[]"))
+        s.commit()
+        flash("Ingresos guardados.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando ingresos: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos"))
 
 
 # ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------

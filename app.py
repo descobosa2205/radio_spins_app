@@ -17721,6 +17721,95 @@ def _sim_parse_date(v):
         return None
 
 
+# --- Constantes de cálculo de simulaciones ---
+SIM_IVA_TICKET = Decimal("0.10")     # IVA de las entradas (10%)
+SIM_SGAE_RATE = Decimal("0.0765")    # SGAE: 7,65% sobre el precio sin IVA
+
+
+def _sim_d(v):
+    """Decimal seguro (acepta Decimal/num/str/None)."""
+    if isinstance(v, Decimal):
+        return v
+    if v is None or v == "":
+        return Decimal("0")
+    try:
+        return Decimal(str(v))
+    except Exception:
+        return Decimal("0")
+
+
+def _sim_int(v):
+    try:
+        return int(_sim_d(v))
+    except Exception:
+        return 0
+
+
+def _sim_ticketing_summary(activity):
+    """Resumen de ticketing de una actividad, al 100% del aforo a la venta.
+
+    Por entrada (vendible = aforo - invitaciones):
+      - precio configurado = sin IVA, INCLUYE SGAE.
+      - SGAE = 7,65% del precio sin IVA · IVA = 10% sobre el precio sin IVA.
+      - neto (sin IVA y sin SGAE) = precio · (1 - 0,0765).
+    """
+    out = {
+        "zones": {
+            "PISTA": {"label": "Pista", "qty": 0, "invitations": 0, "sellable": 0},
+            "GRADA": {"label": "Grada", "qty": 0, "invitations": 0, "sellable": 0},
+        },
+        "aforo_total": 0, "invitations": 0, "sellable": 0,
+        "ticket_sin_iva": Decimal("0"),   # sin IVA (incluye SGAE)
+        "sgae": Decimal("0"), "iva": Decimal("0"),
+        "ticket_net": Decimal("0"),       # neto sin IVA y sin SGAE
+        "ticket_gross": Decimal("0"),     # con IVA (precio público)
+        "extras_gross": Decimal("0"),     # complementos (IVA incl.), informativo en 2a
+        "n_categories": 0,
+    }
+    for c in (activity.ticket_categories or []):
+        zone = (c.zone or "PISTA").upper()
+        if zone not in out["zones"]:
+            zone = "PISTA"
+        q = max(int(c.quantity or 0), 0)
+        inv = max(int(c.invitations or 0), 0)
+        sellable = max(q - inv, 0)
+        price = _sim_d(c.price_net)
+        sin_iva = price * sellable
+        sgae = price * SIM_SGAE_RATE * sellable
+        iva = price * SIM_IVA_TICKET * sellable
+        extra_per = sum((_sim_d(e.amount_gross) for e in (c.extras or [])), Decimal("0"))
+        z = out["zones"][zone]
+        z["qty"] += q; z["invitations"] += inv; z["sellable"] += sellable
+        out["aforo_total"] += q; out["invitations"] += inv; out["sellable"] += sellable
+        out["ticket_sin_iva"] += sin_iva
+        out["sgae"] += sgae
+        out["iva"] += iva
+        out["ticket_net"] += (sin_iva - sgae)
+        out["ticket_gross"] += (sin_iva + iva)
+        out["extras_gross"] += extra_per * sellable
+        out["n_categories"] += 1
+    out["avg_price_sin_iva"] = (out["ticket_sin_iva"] / out["sellable"]) if out["sellable"] else Decimal("0")
+    return out
+
+
+def _sim_ticketing_payload(activity):
+    """Estructura JSON para rehidratar el editor de ticketing (precios como float)."""
+    rows = []
+    for c in sorted(activity.ticket_categories or [], key=lambda x: ((x.zone or ""), x.sort_order or 0)):
+        rows.append({
+            "zone": (c.zone or "PISTA").upper(),
+            "name": c.name or "",
+            "price": float(_sim_d(c.price_net)),
+            "qty": int(c.quantity or 0),
+            "inv": int(c.invitations or 0),
+            "extras": [
+                {"name": e.name or "", "amount": float(_sim_d(e.amount_gross))}
+                for e in sorted(c.extras or [], key=lambda x: x.sort_order or 0)
+            ],
+        })
+    return rows
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -17858,6 +17947,9 @@ def simulation_detail_view(sid):
                 joinedload(Simulation.artist),
                 joinedload(Simulation.managing_company),
                 selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+                selectinload(Simulation.activities)
+                    .selectinload(SimulationActivity.ticket_categories)
+                    .selectinload(SimulationTicketCategory.extras),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.company),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.promoter),
             )
@@ -17867,11 +17959,21 @@ def simulation_detail_view(sid):
         if not sim:
             flash("Simulación no encontrada.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
+        tab = (request.args.get("tab") or "resumen").strip().lower()
+        if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado"):
+            tab = "resumen"
         activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        active_activity = activities[0] if activities else None
+        summary = _sim_ticketing_summary(active_activity) if active_activity else None
+        ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         return render_template(
             "simulacion_detail.html",
             sim=sim,
             activities=activities,
+            active_activity=active_activity,
+            tab=tab,
+            summary=summary,
+            ticketing_payload=ticketing_payload,
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -17897,6 +17999,77 @@ def simulation_delete(sid):
     finally:
         s.close()
     return redirect(url_for("contracting_view", section="simulaciones"))
+
+
+@app.post("/contratacion/simulaciones/<sid>/ticketing", endpoint="simulation_ticketing_save")
+@admin_required
+def simulation_ticketing_save(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing"))
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(selectinload(Simulation.activities).selectinload(SimulationActivity.ticket_categories))
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        acts = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        activity_id = _sim_safe_uuid(request.form.get("activity_id"))
+        act = next((a for a in acts if a.id == activity_id), None) or (acts[0] if acts else None)
+        if act is None:
+            act = SimulationActivity(simulation_id=sim.id, sort_order=0)
+            s.add(act)
+            s.flush()
+        try:
+            data = json.loads(request.form.get("ticketing_json") or "[]")
+        except Exception:
+            data = []
+        if not isinstance(data, list):
+            data = []
+        # Reemplazo total de las categorías de esta actividad (cascade borra extras).
+        for c in list(act.ticket_categories or []):
+            s.delete(c)
+        s.flush()
+        for i, row in enumerate(data):
+            if not isinstance(row, dict):
+                continue
+            zone = str(row.get("zone") or "PISTA").upper()
+            if zone not in ("PISTA", "GRADA"):
+                zone = "PISTA"
+            cat = SimulationTicketCategory(
+                activity_id=act.id,
+                zone=zone,
+                name=(str(row.get("name") or "")).strip(),
+                price_net=_sim_d(row.get("price")),
+                quantity=_sim_int(row.get("qty")),
+                invitations=_sim_int(row.get("inv")),
+                sort_order=i,
+            )
+            s.add(cat)
+            s.flush()
+            for j, ex in enumerate(row.get("extras") or []):
+                if not isinstance(ex, dict):
+                    continue
+                nm = (str(ex.get("name") or "")).strip()
+                if not nm:
+                    continue
+                s.add(SimulationTicketExtra(
+                    category_id=cat.id, name=nm,
+                    amount_gross=_sim_d(ex.get("amount")), sort_order=j,
+                ))
+        s.commit()
+        flash("Ticketing guardado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando el ticketing: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing"))
 
 
 # ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------

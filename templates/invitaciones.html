@@ -110,7 +110,7 @@
       </div>
       <div class="invitation-manage-list">
         {% for item in grp.events %}
-          <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}" data-manage-artist="{{ grp.artist.id or 'sin-artista' }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
+          <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id, **{'from': 'gestionar'}) }}" data-manage-artist="{{ grp.artist.id or 'sin-artista' }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
             <div class="d-flex align-items-center gap-3 flex-wrap flex-lg-nowrap">
               <div class="flex-grow-1">
                 <div class="d-flex gap-2 align-items-center flex-wrap">
@@ -287,7 +287,11 @@
   </script>
 {% elif tab == 'evento' %}
   <div class="mb-3">
-    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
+    {% if back_to_ficha %}
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=event.id) }}"><i class="fa fa-arrow-left me-1"></i>Volver a la actividad</a>
+    {% else %}
+      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
+    {% endif %}
   </div>
   <div class="card mb-3 invitation-event-header">
     <div class="card-body">

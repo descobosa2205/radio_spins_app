@@ -35088,6 +35088,18 @@ def invitation_event_detail(concert_id):
         if not _invitation_event_is_active_for_requests(concert):
             flash('Este concierto o evento ya no aparece en gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.', 'warning')
             return redirect(url_for('invitations_view', tab='gestionar'))
+        # Origen para el botón "Volver": si se entra desde la ficha de la actividad (?from=ficha) se
+        # recuerda en sesión por concierto, así sobrevive a las acciones internas (subir/asignar/enviar
+        # recargan o redirigen aquí sin querystring). Desde la lista/inicio (?from=gestionar) se limpia.
+        _back_origin = (request.args.get('from') or '').strip().lower()
+        _back_map = session.get('inv_event_origin') or {}
+        if _back_origin == 'ficha':
+            _back_map[str(concert.id)] = 'ficha'
+            session['inv_event_origin'] = _back_map
+        elif _back_origin in ('gestionar', 'lista', 'inicio') and str(concert.id) in _back_map:
+            _back_map.pop(str(concert.id), None)
+            session['inv_event_origin'] = _back_map
+        back_to_ficha = (session.get('inv_event_origin') or {}).get(str(concert.id)) == 'ficha'
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         # Releer tras crear defaults para contar bien.
@@ -35189,6 +35201,7 @@ def invitation_event_detail(concert_id):
         return render_template(
             'invitaciones.html',
             tab='evento',
+            back_to_ficha=back_to_ficha,
             event=_invitation_event_payload(session_db, concert, include_counts=True),
             concert=concert,
             categories=cat_payloads,
@@ -36949,7 +36962,7 @@ def _home_invitations_to_manage(limit: int = 24) -> list[dict]:
             payload = _invitation_event_payload(session_db, c)
             payload["pending_count"] = pending
             payload["managed"] = (pending == 0 and handled > 0)
-            payload["detail_url"] = url_for("invitation_event_detail", concert_id=c.id)
+            payload["detail_url"] = url_for("invitation_event_detail", concert_id=c.id, **{"from": "gestionar"})
             rows.append(payload)
             if len(rows) >= limit:
                 break

@@ -763,7 +763,7 @@
           <div class="d-flex gap-2 flex-wrap">
             {% if invitation_can_manage %}
               {% if invitation_open_for_requests %}
-                <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Gestionar invitaciones</a>
+                <a class="btn btn-sm btn-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Gestionar invitaciones</a>
                 <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#concertInvitationCategoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
               {% else %}
                 <span class="badge text-bg-secondary align-self-center">Evento pasado</span>
@@ -813,7 +813,7 @@
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
           <h5 class="mb-0">Compromisos y peticiones</h5>
           {% if invitation_can_manage and invitation_open_for_requests %}
-            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
+            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
           {% endif %}
         </div>
         {% if invitation_ficha_groups %}

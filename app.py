@@ -35603,8 +35603,8 @@ def invitation_commitment_save(concert_id):
         new_quantities = _invitation_quantities_from_form(request.form, categories)
         new_qty = _invitation_total_qty(new_quantities)
         _inv_available = _invitation_event_counts(session_db, concert)['result'] + old_qty
-        if new_qty > _inv_available:
-            raise ValueError(f'No hay cupo suficiente: quedan {max(0, _inv_available)} invitaciones disponibles y comprometes {new_qty}.')
+        # Los compromisos PREVALECEN: se permiten aunque no haya cupo suficiente (incluso sin cupo
+        # configurado); el disponible quedará en negativo (se muestra en rojo). No se bloquea: se avisa.
         if not row:
             row = InvitationCommitment(concert_id=concert.id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
             session_db.add(row)
@@ -35618,7 +35618,10 @@ def invitation_commitment_save(concert_id):
         row.status = 'COMPROMETIDAS'
         row.updated_at = _now_madrid()
         session_db.commit()
-        flash('Compromiso guardado.', 'success')
+        if new_qty > _inv_available:
+            flash(f'Compromiso guardado. Supera el cupo configurado: el disponible queda en negativo ({_inv_available - new_qty}).', 'warning')
+        else:
+            flash('Compromiso guardado.', 'success')
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo guardar el compromiso: {exc}', 'danger')
@@ -35641,6 +35644,58 @@ def invitation_commitment_delete(commitment_id):
         session_db.commit()
         flash('Compromiso eliminado.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/compromisos/<commitment_id>/entregar', endpoint='invitation_commitment_deliver')
+@admin_required
+def invitation_commitment_deliver(commitment_id):
+    """Entrega las entradas ya asignadas a un compromiso: por email (la dirección se pide en el
+    momento) o marcándolas para recogida en taquilla. Si no tiene entradas asignadas, avisa."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        cid = row.concert_id
+        mode = (request.form.get('mode') or 'email').strip().lower()
+        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
+        if not tickets:
+            flash('Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de entregarlas.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        now = _now_madrid()
+        if mode in ('box_office', 'taquilla'):
+            for t in tickets:
+                t.status = 'DISPONIBLES_TAQUILLA'
+                t.updated_at = now
+            session_db.commit()
+            flash(f'{len(tickets)} entrada(s) de «{row.name}» quedan para recogida en taquilla.', 'success')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + [(request.form.get('email') or '')])
+        if not recipients:
+            flash('Indica un email de destino o elige la recogida en taquilla.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        links = ''.join(f'<li><a href="{t.pdf_url}">{(t.ticket_code or t.pdf_name or "Entrada")}</a></li>' for t in tickets if t.pdf_url)
+        html_body = f'<p>Hola,</p><p>Aquí tienes tus invitaciones ({len(tickets)}):</p><ul>{links}</ul>'
+        text_body = 'Tus invitaciones:\n' + '\n'.join((t.pdf_url or '') for t in tickets if t.pdf_url)
+        ok, err = _send_optional_email(recipients, 'Tus invitaciones', html_body, text_body=text_body, reply_to=_current_user_email())
+        if ok:
+            for t in tickets:
+                t.status = 'SENT'
+                t.sent_at = now
+                t.updated_at = now
+            session_db.commit()
+            flash(f'Invitaciones de «{row.name}» enviadas por email.', 'success')
+        else:
+            session_db.rollback()
+            flash(f'No se pudo enviar el email: {err or "SMTP no configurado"}', 'warning')
+        return redirect(url_for('invitation_event_detail', concert_id=cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo entregar: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 

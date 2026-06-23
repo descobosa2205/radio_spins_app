@@ -309,6 +309,7 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
+                        <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
                       </ul>
                     </div>
@@ -1302,6 +1303,46 @@
     refresh();
   });
 })();
+</script>
+
+<div class="modal fade" id="commitmentDeliverModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <form method="post" id="commitmentDeliverForm">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Entregar invitaciones <span id="cdName" class="text-muted"></span></h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <p class="small text-muted">Se entregan las entradas ya asignadas a este compromiso. Indica un email de destino o márcalas para recogida en taquilla.</p>
+          <input type="hidden" name="mode" id="cdMode" value="email">
+          <div class="mb-2"><label class="form-label">Email de destino</label><input type="email" class="form-control" name="email" id="cdEmail" placeholder="correo@ejemplo.com"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-outline-secondary" id="cdBoxOffice"><i class="fa fa-store me-1"></i>Recogida en taquilla</button>
+          <button type="submit" class="btn btn-primary" id="cdSendEmail"><i class="fa fa-paper-plane me-1"></i>Enviar por email</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+<script>
+  (function(){
+    var modalEl = document.getElementById('commitmentDeliverModal');
+    if(!modalEl) return;
+    var form = document.getElementById('commitmentDeliverForm');
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-commitment-deliver]');
+      if(!btn) return;
+      form.action = btn.getAttribute('data-action') || '';
+      document.getElementById('cdName').textContent = btn.getAttribute('data-name') || '';
+      document.getElementById('cdEmail').value = '';
+      document.getElementById('cdMode').value = 'email';
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    });
+    document.getElementById('cdBoxOffice').addEventListener('click', function(){ document.getElementById('cdMode').value = 'box_office'; });
+    document.getElementById('cdSendEmail').addEventListener('click', function(){ document.getElementById('cdMode').value = 'email'; });
+  })();
 </script>
 
 <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>

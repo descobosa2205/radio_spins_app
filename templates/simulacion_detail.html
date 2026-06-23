@@ -285,13 +285,73 @@
     </div>
   {% endif %}
 
-{# ===================== GASTOS (próximo) ===================== #}
+{# ===================== GASTOS ===================== #}
 {% elif tab == 'gastos' %}
-  <div class="card" style="border-style:dashed;"><div class="card-body text-center text-muted py-5">
-    <div class="mb-2"><i class="fa fa-arrow-trend-down fa-2x"></i></div>
-    <div class="fw-semibold">Gastos — en construcción</div>
-    <div class="small">Cachés (fijo/variable, IVA, retención), comisiones y gastos de producción. Es lo siguiente que monto; el motor de cálculo ya está listo para ellos.</div>
-  </div></div>
+  {% if not active_activity %}
+    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a>.</div>
+  {% else %}
+    {% set g = (calc.at_100.gastos if calc else None) %}
+    {% if g %}
+    <div class="d-flex flex-wrap gap-3 mb-3">
+      <div class="sim-stat"><div class="sim-stat__n">{{ g.caches|eur }}</div><div class="sim-stat__l">Cachés (neto)</div></div>
+      {% if sim.artist and sim.artist.is_international %}<div class="sim-stat"><div class="sim-stat__n">{{ g.retenciones|eur }}</div><div class="sim-stat__l">Retenciones (24%)</div></div>{% endif %}
+      <div class="sim-stat"><div class="sim-stat__n">{{ g.comisiones|eur }}</div><div class="sim-stat__l">Comisiones (neto)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ g.produccion|eur }}</div><div class="sim-stat__l">Producción (neto)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n fw-bold">{{ g.total|eur }}</div><div class="sim-stat__l">Total gastos (neto)</div></div>
+    </div>
+    {% if g.produccion_por_categoria %}
+      <div class="small text-muted mb-3">Producción por categoría:
+        {% for k, v in g.produccion_por_categoria.items() %}{{ bag_labels.get(k, k) }}: {{ v|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
+      </div>
+    {% endif %}
+    {% endif %}
+
+    {% if CAN_EDIT %}
+    <form method="post" action="{{ url_for('simulation_expenses_save', sid=sim.id) }}" id="expensesForm">
+      <input type="hidden" name="activity_id" value="{{ active_activity.id }}">
+      <input type="hidden" name="caches_json" id="cachesJson">
+      <input type="hidden" name="commissions_json" id="commissionsJson">
+      <input type="hidden" name="production_json" id="productionJson">
+
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés del artista</h6></div>
+        <div class="ficha-section__body">
+          {% if not (sim.artist and sim.artist.is_international) %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>La retención del 24% solo aplica a artistas internacionales.</div>{% endif %}
+          <div id="cachesList"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="addCache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
+        </div>
+      </div>
+
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tie"></i>Comisiones</h6></div>
+        <div class="ficha-section__body">
+          <div class="row g-2 align-items-end mb-2">
+            <div class="col"><label class="form-label small mb-0">Añadir comisionista (tercero)</label><select id="commissionSearch" class="form-select"></select></div>
+            <div class="col-auto"><button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="commissionSearch" title="Crear tercero"><i class="fa fa-plus"></i></button></div>
+          </div>
+          <div id="commissionsList"></div>
+        </div>
+      </div>
+
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-screwdriver-wrench"></i>Gastos de producción <span class="text-muted small fw-normal">(presupuesto, IVA 21% por defecto)</span></h6></div>
+        <div class="ficha-section__body">
+          <div id="productionList"></div>
+          <button type="button" class="btn btn-sm btn-outline-primary" id="addProd"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
+          <div class="d-flex justify-content-end gap-3 mt-2 small text-muted">
+            <span>Producción (líneas fijas): neto <strong id="prodNet">0,00 €</strong> · con IVA <strong id="prodGross">0,00 €</strong></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar gastos</button></div>
+    </form>
+    <script type="application/json" id="expensesData">{{ expenses_payload|tojson }}</script>
+    <script type="application/json" id="bagCats">{{ bag_categories|tojson }}</script>
+    {% else %}
+      <div class="text-muted">Sin permiso de edición.</div>
+    {% endif %}
+  {% endif %}
 
 {# ===================== RESULTADO ===================== #}
 {% elif tab == 'resultado' %}
@@ -463,6 +523,201 @@
     var del = e.target.closest('.income-del');
     if(del){ del.closest('.income-row').remove(); }
   });
+})();
+</script>
+{% endif %}
+{% if tab == 'gastos' and CAN_EDIT %}
+<script>
+(function(){
+  var form = document.getElementById('expensesForm');
+  if(!form) return;
+  var data = {caches:[],commissions:[],production:[]};
+  try { data = JSON.parse(document.getElementById('expensesData').textContent||'{}'); } catch(e){}
+  var bagCats = [];
+  try { bagCats = JSON.parse(document.getElementById('bagCats').textContent||'[]'); } catch(e){}
+  var $ = window.jQuery; var hasS2 = !!($ && $.fn && $.fn.select2);
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function val(v){ return (v!=null && v!=='')? v : ''; }
+  function sel(a,b){ return String(a).toUpperCase()===b ? 'selected' : ''; }
+  function eur(v){ var n=Number(v)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
+
+  function varFrag(o){
+    o=o||{}; var vt=(o.var_type||'PER_TICKET'); var tt=(o.var_threshold_type||'NONE');
+    return '<div class="row g-2 align-items-end">'+
+      '<div class="col-md-6"><label class="form-label small mb-0">Variable por</label>'+
+        '<select class="form-select form-select-sm cv-type">'+
+          '<option value="PER_TICKET" '+sel(vt,'PER_TICKET')+'>Por entrada (€)</option>'+
+          '<option value="PERCENT" '+sel(vt,'PERCENT')+'>Porcentaje (% taquilla)</option>'+
+        '</select></div>'+
+      '<div class="col-md-6"><label class="form-label small mb-0">Valor</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-value" value="'+val(o.var_value)+'"></div>'+
+      '<div class="col-md-6"><label class="form-label small mb-0">Umbral</label>'+
+        '<select class="form-select form-select-sm cv-tt">'+
+          '<option value="NONE" '+sel(tt,'NONE')+'>Sin umbral</option>'+
+          '<option value="TICKETS" '+sel(tt,'TICKETS')+'>A partir de nº de entradas</option>'+
+          '<option value="AMOUNT" '+sel(tt,'AMOUNT')+'>A partir de importe (€)</option>'+
+        '</select></div>'+
+      '<div class="col-md-6"><label class="form-label small mb-0">Umbral (valor)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-tv" value="'+val(o.var_threshold_value)+'"></div>'+
+    '</div>';
+  }
+  function modeToggle(mode){
+    mode=(mode||'FIXED').toUpperCase();
+    return '<div class="btn-group btn-group-sm cost-mode" role="group">'+
+      '<button type="button" class="btn btn-outline-secondary mode-btn '+(mode!=='VARIABLE'?'active':'')+'" data-mode="FIXED"><i class="fa fa-equals me-1"></i>Fijo</button>'+
+      '<button type="button" class="btn btn-outline-secondary mode-btn '+(mode==='VARIABLE'?'active':'')+'" data-mode="VARIABLE"><i class="fa fa-chart-line me-1"></i>Variable</button>'+
+    '</div>';
+  }
+  function fixedFields(o){
+    return '<div class="row g-2 align-items-end">'+
+      '<div class="col-md-4"><label class="form-label small mb-0">Importe</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control cf-amount" value="'+val(o.amount)+'"><span class="input-group-text">€</span></div></div>'+
+      '<div class="col-md-8 d-flex flex-wrap gap-3 align-items-center pt-3">'+
+        '<div class="form-check"><input type="checkbox" class="form-check-input cf-iva" '+(o.includes_iva?'checked':'')+'><label class="form-check-label small">Incluye IVA</label></div>'+
+        '<div class="form-check"><input type="checkbox" class="form-check-input cf-ret" '+(o.includes_retention?'checked':'')+'><label class="form-check-label small">Incluye retención</label></div>'+
+      '</div></div>';
+  }
+  function cacheCard(o){
+    o=o||{}; var mode=(o.mode||'FIXED').toUpperCase();
+    return '<div class="card card-body p-2 mb-2 cost-card" data-kind="cache">'+
+      '<div class="d-flex justify-content-between align-items-center mb-2">'+modeToggle(mode)+
+        '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
+      '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
+      '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+'</div>'+
+      '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+    '</div>';
+  }
+  function commissionCard(o){
+    o=o||{}; var mode=(o.mode||'FIXED').toUpperCase();
+    var logo=o.logo?('<img src="'+esc(o.logo)+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #eee;">'):'<span class="me-1"><i class="fa fa-user-tie"></i></span>';
+    return '<div class="card card-body p-2 mb-2 cost-card" data-kind="commission" data-promoter-id="'+esc(o.promoter_id||'')+'">'+
+      '<div class="d-flex justify-content-between align-items-center mb-2">'+
+        '<div class="d-flex align-items-center gap-2">'+logo+'<strong>'+esc(o.name||'Comisionista')+'</strong></div>'+
+        '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
+      '<input type="hidden" class="cc-name" value="'+esc(o.name||'')+'">'+
+      '<div class="mb-2">'+modeToggle(mode)+'</div>'+
+      '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
+      '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+
+        '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-0">Importe exento de comisiones (€)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cc-exempt-amount" value="'+val(o.exempt_amount)+'"></div></div>'+
+      '</div>'+
+      '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+    '</div>';
+  }
+  function prodRow(o){
+    o=o||{};
+    var opts = bagCats.map(function(kv){ return '<option value="'+kv[0]+'" '+sel(o.category||'OTROS',kv[0])+'>'+esc(kv[1])+'</option>'; }).join('');
+    var isVar=!!o.is_variable;
+    return '<div class="card card-body p-2 mb-2 prod-row">'+
+      '<div class="row g-2 align-items-end">'+
+        '<div class="col-md-3"><label class="form-label small mb-0">Categoría</label><select class="form-select form-select-sm pr-cat">'+opts+'</select></div>'+
+        '<div class="col-md-4"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
+        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Importe (sin IVA)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
+        '<div class="col-3 col-md-1"><label class="form-label small mb-0">IVA</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-iva" value="'+(o.iva_pct!=null&&o.iva_pct!==''?o.iva_pct:21)+'"><span class="input-group-text">%</span></div></div>'+
+        '<div class="col-3 col-md-2 d-flex gap-1 justify-content-end">'+
+          '<button type="button" class="btn btn-sm '+(isVar?'btn-primary':'btn-outline-secondary')+' pr-var-toggle" title="Importe variable (como cachés)"><i class="fa fa-chart-line"></i></button>'+
+          '<button type="button" class="btn btn-sm btn-outline-danger prod-del" title="Quitar"><i class="fa fa-trash"></i></button>'+
+        '</div>'+
+      '</div>'+
+      '<div class="prod-var mt-2 '+(isVar?'':'d-none')+'">'+varFrag(o)+'</div>'+
+    '</div>';
+  }
+
+  function appendHtml(c, html){ var d=document.createElement('div'); d.innerHTML=html; var el=d.firstElementChild; c.appendChild(el); return el; }
+  var addCacheBtn=document.getElementById('addCache'); if(addCacheBtn) addCacheBtn.addEventListener('click', function(){ appendHtml(document.getElementById('cachesList'), cacheCard(null)); });
+  var addProdBtn=document.getElementById('addProd'); if(addProdBtn) addProdBtn.addEventListener('click', function(){ appendHtml(document.getElementById('productionList'), prodRow(null)); recompute(); });
+
+  form.addEventListener('click', function(e){
+    var mb=e.target.closest('.mode-btn');
+    if(mb){
+      var grp=mb.closest('.cost-mode'); grp.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('active', b===mb); });
+      var card=mb.closest('.cost-card'); var isVar=mb.getAttribute('data-mode')==='VARIABLE';
+      card.querySelector('.cost-fixed').classList.toggle('d-none', isVar);
+      card.querySelector('.cost-var').classList.toggle('d-none', !isVar);
+      return;
+    }
+    var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); return; }
+    var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); return; }
+    var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
+  });
+  form.addEventListener('input', function(e){ if(e.target.matches('.pr-net,.pr-iva')) recompute(); });
+
+  function recompute(){
+    var net=0, gross=0;
+    document.querySelectorAll('#productionList .prod-row').forEach(function(row){
+      if(!row.querySelector('.prod-var').classList.contains('d-none')) return;
+      var n=parseFloat(row.querySelector('.pr-net').value||'0')||0;
+      var iva=parseFloat(row.querySelector('.pr-iva').value||'0')||0;
+      net+=n; gross+=n*(1+iva/100);
+    });
+    var en=document.getElementById('prodNet'); if(en) en.textContent=eur(net);
+    var eg=document.getElementById('prodGross'); if(eg) eg.textContent=eur(gross);
+  }
+
+  function readVar(c){
+    return {
+      var_type: c.querySelector('.cv-type') ? c.querySelector('.cv-type').value : null,
+      var_value: c.querySelector('.cv-value') ? (parseFloat(c.querySelector('.cv-value').value||'0')||0) : 0,
+      var_threshold_type: c.querySelector('.cv-tt') ? c.querySelector('.cv-tt').value : null,
+      var_threshold_value: c.querySelector('.cv-tv') ? (parseFloat(c.querySelector('.cv-tv').value||'0')||0) : 0
+    };
+  }
+  function activeMode(c){ var b=c.querySelector('.mode-btn.active'); return b?b.getAttribute('data-mode'):'FIXED'; }
+
+  function collectCaches(){
+    var out=[];
+    document.querySelectorAll('#cachesList .cost-card').forEach(function(c){
+      var mode=activeMode(c); var row={mode:mode, retention_exempt:c.querySelector('.c-exempt').checked};
+      if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); }
+      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      out.push(row);
+    });
+    return out;
+  }
+  function collectCommissions(){
+    var out=[];
+    document.querySelectorAll('#commissionsList .cost-card').forEach(function(c){
+      var mode=activeMode(c);
+      var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:c.querySelector('.c-exempt').checked};
+      if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=parseFloat(c.querySelector('.cc-exempt-amount').value||'0')||0; }
+      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      out.push(row);
+    });
+    return out;
+  }
+  function collectProduction(){
+    var out=[];
+    document.querySelectorAll('#productionList .prod-row').forEach(function(row){
+      var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
+      var o={ category:row.querySelector('.pr-cat').value, concept:row.querySelector('.pr-concept').value||'', amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0, iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0, is_variable:isVar };
+      if(isVar) Object.assign(o, readVar(row));
+      out.push(o);
+    });
+    return out;
+  }
+  form.addEventListener('submit', function(){
+    document.getElementById('cachesJson').value=JSON.stringify(collectCaches());
+    document.getElementById('commissionsJson').value=JSON.stringify(collectCommissions());
+    document.getElementById('productionJson').value=JSON.stringify(collectProduction());
+  });
+
+  function entityFmt(d){ if(!d.id) return d.text; var p=d.photo||(d.element&&$(d.element).data('photo'))||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-user-tie"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
+  if(hasS2){
+    $('#commissionSearch').select2({
+      width:'100%', placeholder:'Buscar tercero…', allowClear:true, minimumInputLength:1,
+      ajax:{ url:"{{ url_for('api_search_promoters') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
+        processResults:function(d){ return { results:(d||[]).map(function(it){return {id:it.id, text:it.label||it.nick||it.text, photo:it.logo_url||it.photo_url||''};}) }; } },
+      templateResult:entityFmt, templateSelection:entityFmt, escapeMarkup:function(m){return m;}
+    });
+    $('#commissionSearch').on('change', function(){
+      var id=this.value; if(!id) return;
+      var opt=this.options[this.selectedIndex]; var label=opt?opt.text:'Comisionista'; var photo=opt?(opt.getAttribute('data-photo')||''):'';
+      appendHtml(document.getElementById('commissionsList'), commissionCard({promoter_id:id, name:label, logo:photo, mode:'FIXED'}));
+      $(this).val(null).trigger('change');
+    });
+  }
+
+  (data.caches||[]).forEach(function(o){ appendHtml(document.getElementById('cachesList'), cacheCard(o)); });
+  (data.commissions||[]).forEach(function(o){ appendHtml(document.getElementById('commissionsList'), commissionCard(o)); });
+  (data.production||[]).forEach(function(o){ appendHtml(document.getElementById('productionList'), prodRow(o)); });
+  recompute();
 })();
 </script>
 {% endif %}

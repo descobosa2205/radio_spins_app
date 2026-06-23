@@ -17865,6 +17865,54 @@ def _sim_build_calc_data(sim, activity):
     }
 
 
+def _sim_expenses_payload(activity):
+    """Datos JSON para rehidratar los editores de cachés/comisiones/producción."""
+    if activity is None:
+        return {"caches": [], "commissions": [], "production": []}
+
+    def cfg(o):
+        return {
+            "var_type": (o.var_type or ""), "var_value": float(_sim_d(o.var_value)),
+            "var_threshold_type": (o.var_threshold_type or ""), "var_threshold_value": float(_sim_d(o.var_threshold_value)),
+        }
+
+    caches = []
+    for c in sorted(activity.caches or [], key=lambda x: x.sort_order or 0):
+        d = cfg(c)
+        d.update({
+            "mode": (c.mode or "FIXED"), "label": (c.label or ""), "amount": float(_sim_d(c.amount)),
+            "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
+            "retention_exempt": bool(c.retention_exempt),
+        })
+        caches.append(d)
+
+    commissions = []
+    for c in sorted(activity.commissions or [], key=lambda x: x.sort_order or 0):
+        d = cfg(c)
+        d.update({
+            "mode": (c.mode or "FIXED"),
+            "promoter_id": (str(c.promoter_id) if c.promoter_id else ""),
+            "name": (c.name or (c.promoter.nick if c.promoter else "")),
+            "logo": (c.promoter.logo_url if c.promoter else ""),
+            "amount": float(_sim_d(c.amount)),
+            "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
+            "retention_exempt": bool(c.retention_exempt), "exempt_amount": float(_sim_d(c.exempt_amount)),
+        })
+        commissions.append(d)
+
+    production = []
+    for p in sorted(activity.production_items or [], key=lambda x: x.sort_order or 0):
+        d = cfg(p)
+        d.update({
+            "category": (p.category or "OTROS"), "concept": (p.concept or ""),
+            "amount_net": float(_sim_d(p.amount_net)), "iva_pct": float(_sim_d(p.iva_pct)),
+            "is_variable": bool(p.is_variable),
+        })
+        production.append(d)
+
+    return {"caches": caches, "commissions": commissions, "production": production}
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -18006,7 +18054,7 @@ def simulation_detail_view(sid):
                     .selectinload(SimulationActivity.ticket_categories)
                     .selectinload(SimulationTicketCategory.extras),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
-                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions).joinedload(SimulationCommission.promoter),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.company),
@@ -18026,6 +18074,9 @@ def simulation_detail_view(sid):
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
+        expenses_payload = _sim_expenses_payload(active_activity)
+        bag_categories = [(k, l) for k, l in BAG_EXPENSE_CATEGORIES if k != "PRORRATEOS"]
+        bag_labels = dict(BAG_EXPENSE_CATEGORIES)
         return render_template(
             "simulacion_detail.html",
             sim=sim,
@@ -18035,6 +18086,9 @@ def simulation_detail_view(sid):
             summary=summary,
             ticketing_payload=ticketing_payload,
             calc=calc,
+            expenses_payload=expenses_payload,
+            bag_categories=bag_categories,
+            bag_labels=bag_labels,
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -18182,6 +18236,108 @@ def simulation_income_save(sid):
     finally:
         s.close()
     return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos"))
+
+
+def _sim_cost_common(row):
+    """Campos comunes de un coste (caché/comisión) desde el JSON del editor."""
+    return dict(
+        mode=str(row.get("mode") or "FIXED").upper(),
+        amount=_sim_d(row.get("amount")),
+        includes_iva=bool(row.get("includes_iva")),
+        includes_retention=bool(row.get("includes_retention")),
+        retention_exempt=bool(row.get("retention_exempt")),
+        var_type=(row.get("var_type") or None),
+        var_value=_sim_d(row.get("var_value")),
+        var_threshold_type=(row.get("var_threshold_type") or None),
+        var_threshold_value=_sim_d(row.get("var_threshold_value")),
+    )
+
+
+@app.post("/contratacion/simulaciones/<sid>/gastos", endpoint="simulation_expenses_save")
+@admin_required
+def simulation_expenses_save(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos"))
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(
+                selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
+            )
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        acts = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        activity_id = _sim_safe_uuid(request.form.get("activity_id"))
+        act = next((a for a in acts if a.id == activity_id), None) or (acts[0] if acts else None)
+        if act is None:
+            act = SimulationActivity(simulation_id=sim.id, sort_order=0)
+            s.add(act)
+            s.flush()
+
+        def _json(field):
+            try:
+                d = json.loads(request.form.get(field) or "[]")
+                return d if isinstance(d, list) else []
+            except Exception:
+                return []
+
+        for c in list(act.caches or []):
+            s.delete(c)
+        for c in list(act.commissions or []):
+            s.delete(c)
+        for p in list(act.production_items or []):
+            s.delete(p)
+        s.flush()
+
+        for i, row in enumerate(_json("caches_json")):
+            if not isinstance(row, dict):
+                continue
+            s.add(SimulationCache(activity_id=act.id, label=(row.get("label") or None), sort_order=i, **_sim_cost_common(row)))
+
+        for i, row in enumerate(_json("commissions_json")):
+            if not isinstance(row, dict):
+                continue
+            common = _sim_cost_common(row)
+            s.add(SimulationCommission(
+                activity_id=act.id,
+                promoter_id=_sim_safe_uuid(row.get("promoter_id")),
+                name=(row.get("name") or None),
+                exempt_amount=_sim_d(row.get("exempt_amount")),
+                sort_order=i, **common,
+            ))
+
+        for i, row in enumerate(_json("production_json")):
+            if not isinstance(row, dict):
+                continue
+            cat = str(row.get("category") or "OTROS").upper()
+            s.add(SimulationProductionItem(
+                activity_id=act.id, category=cat,
+                concept=str(row.get("concept") or "").strip(),
+                amount_net=_sim_d(row.get("amount_net")),
+                iva_pct=_sim_d(row.get("iva_pct") if row.get("iva_pct") not in (None, "") else 21),
+                is_variable=bool(row.get("is_variable")),
+                var_type=(row.get("var_type") or None),
+                var_value=_sim_d(row.get("var_value")),
+                var_threshold_type=(row.get("var_threshold_type") or None),
+                var_threshold_value=_sim_d(row.get("var_threshold_value")),
+                sort_order=i,
+            ))
+        s.commit()
+        flash("Gastos guardados.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando los gastos: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos"))
 
 
 # ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------

@@ -710,7 +710,7 @@
             </div>
             {% if t.assigned_label %}<div class="alert alert-warning py-2 small mb-3">Asignada a {{ t.assigned_label }}</div>{% endif %}
             {% if t.warning %}<div class="alert alert-warning py-2 small mb-3">{{ t.warning }}</div>{% endif %}
-            <iframe src="{{ t.pdf_url }}" class="invitation-ticket-preview border rounded" title="Vista previa entrada"></iframe>
+            <iframe src="{{ t.pdf_url }}#toolbar=1&navpanes=0&view=FitH" class="invitation-ticket-preview border rounded" title="Vista previa entrada"></iframe>
           </div>
         </div>
       </div>

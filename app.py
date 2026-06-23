@@ -17994,6 +17994,27 @@ def _venue_ticketing_summary(cats):
     return {"zones": zones, "aforo_total": tq, "invitations": ti, "sellable": ts, "has": bool(cats)}
 
 
+def _sim_autoload_venue_ticketing(s, act):
+    """Copia la plantilla de ticketing del recinto en la actividad (precios en blanco)."""
+    if not act.venue_id:
+        return
+    vcats = (
+        s.query(VenueTicketCategory)
+        .options(selectinload(VenueTicketCategory.extras))
+        .filter(VenueTicketCategory.venue_id == act.venue_id)
+        .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+        .all()
+    )
+    for i, vc in enumerate(vcats):
+        sc = SimulationTicketCategory(
+            activity=act, zone=vc.zone, name=vc.name, price_net=0,
+            quantity=vc.quantity, invitations=vc.invitations, sort_order=i,
+        )
+        s.add(sc)
+        for j, ve in enumerate(vc.extras or []):
+            s.add(SimulationTicketExtra(category=sc, name=ve.name, amount_gross=ve.amount_gross, sort_order=j))
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -18100,23 +18121,8 @@ def simulation_create():
         )
         s.add(act)
 
-        # Autocarga: si el recinto tiene plantilla de ticketing, se copia (precios en blanco).
-        if act.venue_id:
-            vcats = (
-                s.query(VenueTicketCategory)
-                .options(selectinload(VenueTicketCategory.extras))
-                .filter(VenueTicketCategory.venue_id == act.venue_id)
-                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-                .all()
-            )
-            for i, vc in enumerate(vcats):
-                sc = SimulationTicketCategory(
-                    activity=act, zone=vc.zone, name=vc.name, price_net=0,
-                    quantity=vc.quantity, invitations=vc.invitations, sort_order=i,
-                )
-                s.add(sc)
-                for j, ve in enumerate(vc.extras or []):
-                    s.add(SimulationTicketExtra(category=sc, name=ve.name, amount_gross=ve.amount_gross, sort_order=j))
+        # Autocarga de la plantilla de ticketing del recinto (precios en blanco).
+        _sim_autoload_venue_ticketing(s, act)
 
         for idx, pr in enumerate(_simulation_partners_from_form(request.form)):
             s.add(SimulationPartner(
@@ -18169,7 +18175,33 @@ def simulation_detail_view(sid):
         if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado"):
             tab = "resumen"
         activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
-        active_activity = activities[0] if activities else None
+        is_tour = (sim.kind or "").upper() == "TOUR"
+        act_param = (request.args.get("act") or "").strip()
+        if is_tour:
+            active_activity = next((a for a in activities if str(a.id) == act_param), None)
+        else:
+            active_activity = activities[0] if activities else None
+        show_general = is_tour and active_activity is None
+        tour_rows = []
+        tour_totals = None
+        tour_points = []
+        if show_general:
+            ti = tg = tr = 0.0
+            tsell = 0
+            for idx, a in enumerate(activities, start=1):
+                c = sim_calc.compute(_sim_build_calc_data(sim, a))
+                tour_rows.append({"activity": a, "calc": c})
+                ti += c["at_100"]["ingresos"]["total"]
+                tg += c["at_100"]["gastos"]["total"]
+                tr += c["at_100"]["resultado"]
+                tsell += c["ticketing"]["sellable"]
+                v = a.venue
+                if v and (v.municipality or "").strip():
+                    tour_points.append({
+                        "n": idx, "name": (v.name or ""),
+                        "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
+                    })
+            tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell}
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity)) if active_activity else None
@@ -18191,6 +18223,11 @@ def simulation_detail_view(sid):
             sim=sim,
             activities=activities,
             active_activity=active_activity,
+            is_tour=is_tour,
+            show_general=show_general,
+            tour_rows=tour_rows,
+            tour_totals=tour_totals,
+            tour_points=tour_points,
             tab=tab,
             summary=summary,
             ticketing_payload=ticketing_payload,
@@ -18226,12 +18263,75 @@ def simulation_delete(sid):
     return redirect(url_for("contracting_view", section="simulaciones"))
 
 
+@app.post("/contratacion/simulaciones/<sid>/fechas/crear", endpoint="simulation_activity_add")
+@admin_required
+def simulation_activity_add(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(selectinload(Simulation.activities))
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        next_order = max([a.sort_order or 0 for a in (sim.activities or [])] or [-1]) + 1
+        date_unknown = _truthy(request.form.get("date_unknown"))
+        venue_unknown = _truthy(request.form.get("venue_unknown"))
+        act = SimulationActivity(
+            simulation_id=sim.id, sort_order=next_order,
+            label=(request.form.get("activity_label") or request.form.get("label") or "").strip() or None,
+            event_date=None if date_unknown else _sim_parse_date(request.form.get("event_date")),
+            date_unknown=date_unknown,
+            venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
+            venue_unknown=venue_unknown,
+        )
+        s.add(act)
+        s.flush()
+        _sim_autoload_venue_ticketing(s, act)
+        s.commit()
+        flash("Fecha añadida.", "success")
+        return redirect(url_for("simulation_detail_view", sid=sid, act=act.id, tab="resumen"))
+    except Exception as e:
+        s.rollback()
+        flash(f"Error añadiendo la fecha: {e}", "danger")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/simulaciones/<sid>/fechas/<aid>/eliminar", endpoint="simulation_activity_delete")
+@admin_required
+def simulation_activity_delete(sid, aid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        act = s.get(SimulationActivity, _sim_safe_uuid(aid))
+        if act and str(act.simulation_id) == str(_sim_safe_uuid(sid)):
+            s.delete(act)
+            s.commit()
+            flash("Fecha eliminada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando la fecha: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid))
+
+
 @app.post("/contratacion/simulaciones/<sid>/ticketing", endpoint="simulation_ticketing_save")
 @admin_required
 def simulation_ticketing_save(sid):
     if not can_edit_simulations():
         flash("No tienes permisos para editar la simulación.", "warning")
-        return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing"))
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing", act=request.form.get("activity_id") or None))
     s = db()
     try:
         sim = (
@@ -18320,7 +18420,7 @@ def simulation_ticketing_save(sid):
         flash(f"Error guardando el ticketing: {e}", "danger")
     finally:
         s.close()
-    return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing"))
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="ticketing", act=request.form.get("activity_id") or None))
 
 
 @app.post("/contratacion/simulaciones/<sid>/ingresos", endpoint="simulation_income_save")
@@ -18328,7 +18428,7 @@ def simulation_ticketing_save(sid):
 def simulation_income_save(sid):
     if not can_edit_simulations():
         flash("No tienes permisos para editar la simulación.", "warning")
-        return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos"))
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos", act=request.form.get("activity_id") or None))
     s = db()
     try:
         sim = (
@@ -18371,7 +18471,7 @@ def simulation_income_save(sid):
         flash(f"Error guardando ingresos: {e}", "danger")
     finally:
         s.close()
-    return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos"))
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="ingresos", act=request.form.get("activity_id") or None))
 
 
 def _sim_cost_common(row):
@@ -18394,7 +18494,7 @@ def _sim_cost_common(row):
 def simulation_expenses_save(sid):
     if not can_edit_simulations():
         flash("No tienes permisos para editar la simulación.", "warning")
-        return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos"))
+        return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos", act=request.form.get("activity_id") or None))
     s = db()
     try:
         sim = (
@@ -18473,7 +18573,7 @@ def simulation_expenses_save(sid):
         flash(f"Error guardando los gastos: {e}", "danger")
     finally:
         s.close()
-    return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos"))
+    return redirect(url_for("simulation_detail_view", sid=sid, tab="gastos", act=request.form.get("activity_id") or None))
 
 
 # ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------

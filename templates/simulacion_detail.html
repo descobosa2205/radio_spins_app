@@ -53,12 +53,96 @@
   </div>
 </div>
 
+{% if is_tour %}
+<ul class="nav nav-pills mb-2 gap-1 flex-wrap">
+  <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id) }}"><i class="fa fa-layer-group me-1"></i>General gira</a></li>
+  {% for a in activities %}
+    <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == a.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=a.id, tab='resumen') }}">{{ a.label or ('Fecha ' ~ loop.index) }}{% if a.event_date and not a.date_unknown %} · {{ a.event_date.strftime('%d/%m') }}{% endif %}</a></li>
+  {% endfor %}
+  {% if CAN_EDIT %}<li class="nav-item"><button type="button" class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#addFechaModal"><i class="fa fa-plus me-1"></i>Añadir fecha</button></li>{% endif %}
+</ul>
+{% endif %}
+
+{% if show_general %}
+{# ===================== GENERAL GIRA ===================== #}
+<div class="d-flex flex-wrap gap-3 mb-3">
+  <div class="sim-stat"><div class="sim-stat__n">{{ activities|length }}</div><div class="sim-stat__l">Fechas</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.sellable }}</div><div class="sim-stat__l">A la venta (total)</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.ingresos|eur }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.gastos|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
+  <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ tour_totals.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+</div>
+<div class="row g-3">
+  <div class="col-12 col-lg-7">
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-map-location-dot"></i>Recorrido de la gira</h6></div>
+      <div class="ficha-section__body">
+        <div id="tourMap" style="height:340px;border-radius:12px;border:1px solid #eee;"></div>
+        <div id="tourMapEmpty" class="text-muted small mt-2 d-none">No hay recintos con municipio para dibujar el mapa.</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-12 col-lg-5">
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios y reparto</h6></div>
+      <div class="ficha-section__body">
+        {% if sim.partners %}
+          {% set ns = namespace(total=0) %}
+          <div class="list-group list-group-flush">
+            {% for p in sim.partners %}
+              {% set ns.total = ns.total + (p.pct or 0) %}
+              {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
+              {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
+              <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                <img src="{{ plogo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
+                <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
+                <span class="fw-semibold">{{ p.pct or 0 }}%</span>
+              </div>
+            {% endfor %}
+          </div>
+          <div class="d-flex justify-content-between border-top pt-2 mt-1"><span class="text-muted small">Total</span><span class="fw-semibold">{{ ns.total }}%</span></div>
+        {% else %}<div class="text-muted">Sin socios.</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+<div class="ficha-section">
+  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-list-ol"></i>Resumen por fecha</h6></div>
+  <div class="ficha-section__body">
+    <div class="table-responsive"><table class="table table-sm align-middle">
+      <thead><tr><th>#</th><th>Fecha</th><th>Recinto</th><th class="text-end">A la venta</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th></th></tr></thead>
+      <tbody>
+        {% for r in tour_rows %}
+        <tr>
+          <td class="fw-semibold">{{ loop.index }}</td>
+          <td>{% if r.activity.date_unknown or not r.activity.event_date %}—{% else %}{{ r.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}</td>
+          <td>{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}{{ r.activity.label or 'Por definir' }}{% endif %}</td>
+          <td class="text-end">{{ r.calc.ticketing.sellable }}</td>
+          <td class="text-end">{{ r.calc.at_100.ingresos.total|eur }}</td>
+          <td class="text-end">{{ r.calc.at_100.gastos.total|eur }}</td>
+          <td class="text-end {{ 'text-success' if r.calc.at_100.resultado >= 0 else 'text-danger' }}">{{ r.calc.at_100.resultado|eur }}</td>
+          <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}">Abrir</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-muted">Aún no hay fechas. Pulsa «Añadir fecha».</td></tr>
+        {% endfor %}
+      </tbody>
+    </table></div>
+  </div>
+</div>
+{% else %}
+{% if is_tour and active_activity %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <div class="fw-semibold"><i class="fa fa-calendar-day me-1 text-muted"></i>{{ active_activity.label or 'Fecha' }}{% if active_activity.event_date and not active_activity.date_unknown %} · {{ active_activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if active_activity.venue %} · {{ active_activity.venue.name }}{% endif %}</div>
+  {% if CAN_EDIT %}<form method="post" action="{{ url_for('simulation_activity_delete', sid=sim.id, aid=active_activity.id) }}" onsubmit="return confirm('¿Eliminar esta fecha de la gira?');"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar fecha</button></form>{% endif %}
+</div>
+{% endif %}
 <ul class="nav nav-tabs ficha-tabs mb-0">
-  <li class="nav-item"><a class="nav-link {% if tab == 'resumen' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resumen') }}">Resumen</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos') }}">Ingresos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos') }}">Gastos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resultado') }}">Resultado</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resumen' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resumen', act=(active_activity.id if is_tour else none)) }}">Resumen</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}">Ticketing</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos', act=(active_activity.id if is_tour else none)) }}">Ingresos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos', act=(active_activity.id if is_tour else none)) }}">Gastos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resultado', act=(active_activity.id if is_tour else none)) }}">Resultado</a></li>
 </ul>
 
 <div class="ficha-tabpane">
@@ -84,7 +168,7 @@
       {% if summary and summary.aforo_total %}
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-ticket"></i>Ticketing (al 100% de aforo a la venta)</h6>
-          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}"><i class="fa fa-pen"></i></a>{% endif %}
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
         </div>
         <div class="ficha-section__body">
           <div class="d-flex flex-wrap gap-3 mb-3">
@@ -105,34 +189,15 @@
       <div class="ficha-section">
         <div class="ficha-section__body text-muted">
           <i class="fa fa-ticket me-1"></i>Aún no hay ticketing configurado.
-          {% if CAN_EDIT %}<a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Configúralo en la pestaña Ticketing.</a>{% endif %}
+          {% if CAN_EDIT %}<a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}">Configúralo en la pestaña Ticketing.</a>{% endif %}
         </div>
       </div>
       {% endif %}
 
-      {% if sim.kind == 'TOUR' %}
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-route"></i>Fechas de la gira</h6></div>
-        <div class="ficha-section__body">
-          <div class="list-group">
-            {% for act in activities %}
-              <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
-                <div>
-                  <div class="fw-semibold">{{ act.label or ('Fecha ' ~ loop.index) }}</div>
-                  <div class="small text-muted">
-                    {% if act.date_unknown or not act.event_date %}Fecha por definir{% else %}{{ act.event_date.strftime('%d/%m/%Y') }}{% endif %}
-                    · {% if act.venue_unknown or not act.venue %}Recinto por definir{% else %}{{ act.venue.name }}{% endif %}
-                  </div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
-          <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>La gestión multi-fecha (pestaña por fecha + mapa) llegará con el módulo de giras.</div>
-        </div>
-      </div>
-      {% endif %}
+      {# Las fechas de la gira se gestionan en la pestaña «General gira». #}
     </div>
 
+    {% if not is_tour %}
     <div class="col-12 col-lg-5">
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios y reparto</h6></div>
@@ -161,6 +226,7 @@
         </div>
       </div>
     </div>
+    {% endif %}
   </div>
 
 {# ===================== TICKETING ===================== #}
@@ -170,7 +236,6 @@
     <div class="small">
       Precio <strong>sin IVA</strong> (incluye SGAE). El IVA de entradas es del <strong>10%</strong> y la SGAE el <strong>7,65%</strong> del precio sin IVA.
       Las <strong>invitaciones</strong> se restan del aforo a la venta (no generan ingresos). Los <strong>complementos</strong> son importes por entrada (IVA incl., sin SGAE), p. ej. «Early Access».
-      {% if sim.kind == 'TOUR' %}<br>En giras, por ahora se configura el ticketing de la primera fecha; el resto llegará con el módulo de giras.{% endif %}
     </div>
   </div>
 
@@ -246,7 +311,7 @@
 {# ===================== INGRESOS ===================== #}
 {% elif tab == 'ingresos' %}
   {% if not calc or not active_activity %}
-    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a>.</div>
+    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}">Ticketing</a>.</div>
   {% else %}
     {% set ing = calc.at_100.ingresos %}
     <div class="row g-3">
@@ -304,7 +369,7 @@
 {# ===================== GASTOS ===================== #}
 {% elif tab == 'gastos' %}
   {% if not active_activity %}
-    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a>.</div>
+    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}">Ticketing</a>.</div>
   {% else %}
     {% set g = (calc.at_100.gastos if calc else None) %}
     {% if g %}
@@ -372,7 +437,7 @@
 {# ===================== RESULTADO ===================== #}
 {% elif tab == 'resultado' %}
   {% if not calc or not calc.ticketing.sellable %}
-    <div class="text-muted">Configura el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing') }}">Ticketing</a> para ver el resultado.</div>
+    <div class="text-muted">Configura el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_tour else none)) }}">Ticketing</a> para ver el resultado.</div>
   {% else %}
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
@@ -406,6 +471,28 @@
   {% endif %}
 {% endif %}
 </div>
+{% endif %}{# /show_general #}
+
+{% if is_tour and CAN_EDIT %}
+<div class="modal fade" id="addFechaModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('simulation_activity_add', sid=sim.id) }}">
+      <div class="modal-header"><h5 class="modal-title">Añadir fecha a la gira</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="activity_label" placeholder="Ej: Madrid, Festival X…"></div>
+        <div class="mb-2"><label class="form-label">Fecha</label><input type="date" class="form-control" name="event_date">
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="date_unknown" value="1" id="afDateUnknown"><label class="form-check-label" for="afDateUnknown">No sé la fecha todavía</label></div>
+        </div>
+        <div class="mb-2"><label class="form-label">Recinto</label>
+          <div class="d-flex gap-2"><select name="venue_id" id="afVenue" class="form-select" style="flex:1;min-width:0;"></select><button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="venue" data-target="afVenue" title="Crear recinto"><i class="fa fa-plus"></i></button></div>
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="venue_unknown" value="1" id="afVenueUnknown"><label class="form-check-label" for="afVenueUnknown">No sé el recinto todavía</label></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Añadir fecha</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -752,6 +839,56 @@
   (data.commissions||[]).forEach(function(o){ appendHtml(document.getElementById('commissionsList'), commissionCard(o)); });
   (data.production||[]).forEach(function(o){ appendHtml(document.getElementById('productionList'), prodRow(o)); });
   recompute();
+})();
+</script>
+{% endif %}
+{% if show_general %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  var el = document.getElementById('tourMap'); if(!el || !window.L) return;
+  var points = {{ tour_points|tojson }};
+  var empty = document.getElementById('tourMapEmpty');
+  if(!points.length){ if(empty) empty.classList.remove('d-none'); el.style.display='none'; return; }
+  var map = L.map('tourMap', {scrollWheelZoom:false}).setView([40.4168,-3.7038], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
+  var coords = [], i = 0;
+  function geocode(p){ return fetch("{{ url_for('api_geocode') }}?city="+encodeURIComponent(p.city)+"&province="+encodeURIComponent(p.province||'')).then(function(r){ return r.json(); }); }
+  function step(){
+    if(i >= points.length){ finish(); return; }
+    var p = points[i++];
+    geocode(p).then(function(d){
+      if(d && d.ok){
+        var ll=[d.lat, d.lng];
+        var icon=L.divIcon({className:'', html:'<div style="background:#E33D48;color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;">'+p.n+'</div>', iconSize:[26,26], iconAnchor:[13,13]});
+        L.marker(ll,{icon:icon}).addTo(map).bindPopup('<strong>'+p.n+'. '+(p.name||'')+'</strong><br>'+p.city);
+        coords.push({n:p.n, ll:ll});
+      }
+    }).catch(function(){}).then(step);
+  }
+  function finish(){
+    if(!coords.length){ if(empty) empty.classList.remove('d-none'); return; }
+    coords.sort(function(a,b){ return a.n-b.n; });
+    if(coords.length>1){ L.polyline(coords.map(function(c){return c.ll;}), {color:'#E33D48', weight:3, opacity:.6}).addTo(map); }
+    try { map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); } catch(e){}
+  }
+  step();
+})();
+</script>
+{% endif %}
+{% if is_tour and CAN_EDIT %}
+<script>
+(function(){
+  var $=window.jQuery; if(!($ && $.fn && $.fn.select2)) return;
+  var modalEl=document.getElementById('addFechaModal'); if(!modalEl) return;
+  function fmt(d){ if(!d.id) return d.text; var p=d.photo||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-location-dot"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
+  $('#afVenue').select2({
+    width:'100%', dropdownParent:$(modalEl), placeholder:'Buscar recinto…', allowClear:true, minimumInputLength:1,
+    ajax:{ url:"{{ url_for('api_search_venues') }}", dataType:'json', delay:200, data:function(p){ return {q:p.term||''}; },
+      processResults:function(data){ return { results:(data||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.photo_url||it.logo_url||''}; }) }; } },
+    templateResult:fmt, templateSelection:fmt, escapeMarkup:function(m){ return m; }
+  });
 })();
 </script>
 {% endif %}

@@ -18287,6 +18287,72 @@ def simulation_detail_view(sid):
         s.close()
 
 
+@app.get("/contratacion/simulaciones/<sid>/imprimir", endpoint="simulation_print")
+@admin_required
+def simulation_print(sid):
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(
+                joinedload(Simulation.artist),
+                joinedload(Simulation.managing_company),
+                selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+                selectinload(Simulation.activities).joinedload(SimulationActivity.artist),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.ticket_categories).selectinload(SimulationTicketCategory.extras),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
+                selectinload(Simulation.partners).joinedload(SimulationPartner.company),
+                selectinload(Simulation.partners).joinedload(SimulationPartner.promoter),
+                selectinload(Simulation.lineup).joinedload(SimulationArtist.artist),
+            )
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        kind = (sim.kind or "").upper()
+        is_cycle = kind == "CYCLE"
+        is_festival = kind == "FESTIVAL"
+        is_multi = kind in ("TOUR", "CYCLE")
+        shared_activity = next((a for a in all_activities if a.is_shared), None)
+        activities = [a for a in all_activities if not a.is_shared]
+        all_artists = s.query(Artist).all() if (is_multi or is_festival) else []
+        artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
+        blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))} for a in activities]
+        general_net = 0.0
+        if is_cycle and shared_activity is not None:
+            general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
+        general_share = general_net / (len(activities) or 1)
+        totals = {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0, "general": general_net}
+        for b in blocks:
+            ing = b["calc"]["at_100"]["ingresos"]["total"]
+            gas = b["calc"]["at_100"]["gastos"]["total"] + (general_share if is_cycle else 0.0)
+            b["ingresos"] = ing
+            b["gastos"] = gas
+            b["resultado"] = ing - gas
+            totals["ingresos"] += ing
+            totals["gastos"] += gas
+            totals["resultado"] += (ing - gas)
+            totals["sellable"] += b["calc"]["ticketing"]["sellable"]
+        kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
+        return render_template(
+            "simulacion_print.html",
+            sim=sim, kind=kind, kind_label=kind_label,
+            is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
+            blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
+            lineup=sorted(sim.lineup or [], key=lambda x: x.sort_order or 0),
+            bag_labels=dict(BAG_EXPENSE_CATEGORIES),
+            company=sim.managing_company,
+        )
+    finally:
+        s.close()
+
+
 @app.post("/contratacion/simulaciones/<sid>/eliminar", endpoint="simulation_delete")
 @admin_required
 def simulation_delete(sid):

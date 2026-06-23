@@ -79,32 +79,38 @@
           <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#manageOthersModal"><i class="fa fa-user-plus me-1"></i>Gestionar otros</button>
         </div>
       </div>
-      {% if events %}
-        <div class="invitation-manage-list">
-          {% for item in events %}
-            <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
-              <div class="d-flex align-items-center gap-3 flex-wrap flex-lg-nowrap">
-                <div class="flex-grow-1">
-                  <div class="d-flex gap-2 align-items-center flex-wrap">
-                    <span class="badge text-bg-secondary">{{ item.type_label }}</span>
-                    <strong>{{ item.title }}</strong>
-                    <span class="text-muted">{{ item.date_label }}</span>
+      {% if events_by_artist %}
+        {% for grp in events_by_artist %}
+        <div class="invitation-artist-group mb-4">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            {{ artist_avatar(grp.artist.photo_url, grp.artist.name) }}
+            <h6 class="mb-0">{{ grp.artist.name }}</h6>
+            <span class="badge text-bg-light border">{{ grp.events|length }}</span>
+          </div>
+          <div class="invitation-manage-list">
+            {% for item in grp.events %}
+              <a class="invitation-manage-row text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=item.id) }}" data-search="{{ item.type_label }} {{ item.title }} {{ item.artist_names }} {{ item.date_label }} {{ item.city }} {{ item.province }}">
+                <div class="d-flex align-items-center gap-3 flex-wrap flex-lg-nowrap">
+                  <div class="flex-grow-1">
+                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                      <span class="badge text-bg-secondary">{{ item.type_label }}</span>
+                      <strong>{{ item.title }}</strong>
+                      <span class="text-muted">{{ item.date_label }}</span>
+                    </div>
+                    <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
                   </div>
-                  <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
-                  <div class="d-flex gap-1 flex-wrap mt-2">
-                    {% for artist in item.artists %}<span class="artist-chip"><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
+                  <div class="invitation-counts">
+                    <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
+                    <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
+                    <div><span>{{ item.counts.requested }}</span><small>Solicitadas</small></div>
+                    <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
                   </div>
                 </div>
-                <div class="invitation-counts">
-                  <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
-                  <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
-                  <div><span>{{ item.counts.requested }}</span><small>Solicitadas</small></div>
-                  <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
-                </div>
-              </div>
-            </a>
-          {% endfor %}
+              </a>
+            {% endfor %}
+          </div>
         </div>
+        {% endfor %}
       {% else %}
         <div class="alert alert-light border mb-0">No hay eventos configurados.</div>
       {% endif %}

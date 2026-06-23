@@ -27100,7 +27100,7 @@ def inject_personnel_globals():
         "HOME_QUICK_LINKS": [],
         "HOME_SECTIONS": _build_home_sections() if request.endpoint == "home" and session.get("user_id") else [],
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
-        "HOME_INVITATIONS_TO_MANAGE": [],
+        "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
@@ -34227,9 +34227,11 @@ def _filter_manageable_concerts(session_db, concerts, state: dict | None = None)
     Criterio de negocio:
       - Rol 10 (dirección): todos.
       - Requiere acceso a 'invitaciones.gestionar'.
-      - Si tiene artistas asignados: solo conciertos de esos artistas.
-      - Si es del departamento de Ticketing: conciertos de empresa del grupo (promotor/socio).
-      - Además, los añadidos manualmente vía 'Gestionar otros' (opt-in).
+      - Producción (artistas asignados): conciertos de esos artistas cuyo promotor NO sea una
+        empresa del grupo (sin group_company_id ni participación del grupo).
+      - Ticketing: solo conciertos cuyo promotor SÍ sea una empresa del grupo (group_company_id
+        o participación vía ConcertCompanyShare).
+      - Además, los añadidos manualmente vía 'Gestionar otros' (opt-in), sin filtrar por grupo.
     """
     concerts = [c for c in (concerts or []) if c is not None]
     if not concerts:
@@ -34252,7 +34254,10 @@ def _filter_manageable_concerts(session_db, concerts, state: dict | None = None)
             .all()
         ):
             opt_in_ids.add(str(cid))
-    if is_ticketing and concert_ids:
+    # Conciertos con participación de una empresa del grupo (socio). Junto con group_company_id
+    # define "el promotor es una empresa del grupo". Se carga SIEMPRE: producción los excluye y
+    # ticketing los incluye.
+    if concert_ids:
         for (cid,) in (
             session_db.query(ConcertCompanyShare.concert_id)
             .filter(ConcertCompanyShare.concert_id.in_(concert_ids))
@@ -34266,10 +34271,13 @@ def _filter_manageable_concerts(session_db, concerts, state: dict | None = None)
         if cid and cid in opt_in_ids:
             out.append(c)
             continue
-        if assigned and (assigned & set(_concert_artist_ids(c))):
+        is_group = bool(getattr(c, "group_company_id", None)) or (cid in group_share_ids)
+        # Producción: conciertos de sus artistas asignados con promotor externo (no del grupo).
+        if assigned and not is_group and (assigned & set(_concert_artist_ids(c))):
             out.append(c)
             continue
-        if is_ticketing and (getattr(c, "group_company_id", None) or (cid in group_share_ids)):
+        # Ticketing: solo conciertos cuyo promotor es una empresa del grupo.
+        if is_ticketing and is_group:
             out.append(c)
             continue
     return out
@@ -34834,6 +34842,22 @@ def invitations_view():
         if tab == 'gestionar':
             candidates = _filter_manageable_concerts(session_db, candidates, state=_current_user_state())
         events = [_invitation_event_payload(session_db, c, include_counts=True) for c in candidates]
+        # Agrupado por artista para la pestaña Gestionar: un grupo por artista, en orden de aparición
+        # (el del evento más próximo primero, porque `events` ya viene cronológico) y eventos
+        # cronológicos dentro de cada grupo.
+        events_by_artist = []
+        if tab == 'gestionar':
+            _agroups = {}
+            for ev in events:
+                arts = ev.get('artists') or [{'id': '', 'name': 'Sin artista', 'photo_url': None}]
+                for a in arts:
+                    akey = str(a.get('id') or a.get('name') or '')
+                    grp = _agroups.get(akey)
+                    if grp is None:
+                        grp = {'artist': a, 'events': []}
+                        _agroups[akey] = grp
+                        events_by_artist.append(grp)
+                    grp['events'].append(ev)
         current_user_id = _safe_uuid(session.get('user_id'))
         my_requests = []
         my_denied_count = 0
@@ -34870,6 +34894,7 @@ def invitations_view():
             event_artists=event_artists,
             personnel=personnel,
             events=events,
+            events_by_artist=events_by_artist,
             my_requests=my_requests,
             my_denied_count=my_denied_count,
             show_denied=show_denied,

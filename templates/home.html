@@ -11,6 +11,39 @@
   </div>
 </div>
 
+{% if HOME_INVITATIONS_TO_MANAGE %}
+<div class="card mb-4 border-danger">
+  <div class="card-body">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+      <h5 class="mb-0"><i class="fa fa-envelope-open-text text-danger me-2"></i>Invitaciones pendientes de gestionar</h5>
+      <a href="{{ url_for('invitations_view', tab='gestionar') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
+    </div>
+    <div class="row g-3">
+      {% for row in HOME_INVITATIONS_TO_MANAGE[:8] %}
+        <div class="col-12 col-lg-6">
+          <a href="{{ row.detail_url }}" class="text-decoration-none text-reset">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100 {% if row.managed %}border-success{% endif %}">
+              <div class="flex-grow-1 min-w-0">
+                <div class="d-flex gap-1 flex-wrap mb-1">
+                  {% for a in (row.artists or []) %}{{ artist_chip(a.name, a.photo_url) }}{% endfor %}
+                </div>
+                <div class="fw-semibold text-truncate">{{ row.title }}</div>
+                <div class="small text-muted text-truncate">{{ row.type_label }} · {{ row.date_label }}{% if row.city %} · {{ row.city }}{% endif %}</div>
+              </div>
+              {% if row.managed %}
+                <span class="badge text-bg-success align-self-start"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
+              {% else %}
+                <span class="badge text-bg-danger align-self-start">{{ row.pending_count }} pend.</span>
+              {% endif %}
+            </div>
+          </a>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {% if HOME_INVITATIONS %}
 <div class="card mb-4">
   <div class="card-body">

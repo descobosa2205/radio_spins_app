@@ -132,6 +132,7 @@
           <span class="acc-sec__ic"><i class="fa {{ SECTION_ICONS.get(section.section_key, 'fa-folder') }}"></i></span>
           <div>
             <div class="acc-sec__name">{{ section.label }}</div>
+            {% if section.access_desc %}<small class="text-muted d-block" style="font-weight:400;line-height:1.25">{{ section.access_desc }}</small>{% endif %}
             <div class="acc-sec__count" data-acc-count="{{ section.key }}"></div>
           </div>
           <div class="acc-sec__masters" onclick="event.stopPropagation()">
@@ -150,7 +151,7 @@
           {% if not has_children %}
             {% set g = grants.get(section.key) %}
             <div class="acc-row" data-acc-name="{{ section.label|lower }}">
-              <div class="acc-rl">Acceso a la sección</div>
+              <div class="acc-rl">Acceso a la sección{% if section.access_desc %}<small class="text-muted d-block" style="font-weight:400;line-height:1.2">{{ section.access_desc }}</small>{% endif %}</div>
               <div class="acc-perms">
                 <div class="acc-perm"><label class="sw view"><input type="checkbox" name="perm__{{ section.key }}__view" value="1" data-perm-key="{{ section.key }}" data-perm-kind="view" data-section="{{ section.key }}" {% if g and g.can_view_basic %}checked{% endif %}><span class="tr"></span></label></div>
                 <div class="acc-perm">{% if section.economic_capable %}<label class="sw econ"><input type="checkbox" name="perm__{{ section.key }}__econ" value="1" data-perm-key="{{ section.key }}" data-perm-kind="econ" data-section="{{ section.key }}" {% if g and g.can_view_econ %}checked{% endif %} {% if not (g and g.can_view_basic) %}disabled{% endif %}><span class="tr"></span></label>{% else %}<span class="acc-na">—</span>{% endif %}</div>
@@ -165,7 +166,7 @@
             {% else %}
               {% set g = grants.get(item.key) %}
               <div class="acc-row sub" data-acc-name="{{ item.label|lower }}">
-                <div class="acc-rl">{{ item.label }}{% if item.economic_capable %}<span class="tagn">€ económico</span>{% endif %}</div>
+                <div class="acc-rl">{{ item.label }}{% if item.economic_capable %}<span class="tagn">€ económico</span>{% endif %}{% if item.access_desc %}<small class="text-muted d-block" style="font-weight:400;line-height:1.2">{{ item.access_desc }}</small>{% endif %}</div>
                 <div class="acc-perms">
                   <div class="acc-perm"><label class="sw view"><input type="checkbox" name="perm__{{ item.key }}__view" value="1" data-perm-key="{{ item.key }}" data-perm-kind="view" data-section="{{ section.key }}" {% if g and g.can_view_basic %}checked{% endif %}><span class="tr"></span></label></div>
                   <div class="acc-perm">{% if item.economic_capable %}<label class="sw econ"><input type="checkbox" name="perm__{{ item.key }}__econ" value="1" data-perm-key="{{ item.key }}" data-perm-kind="econ" data-section="{{ section.key }}" {% if g and g.can_view_econ %}checked{% endif %} {% if not (g and g.can_view_basic) %}disabled{% endif %}><span class="tr"></span></label>{% else %}<span class="acc-na">—</span>{% endif %}</div>

@@ -45,12 +45,33 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 - **Dinero**: usar `Decimal` (`_parse_money_decimal`, `_money_or_zero`), nunca `float`.
 - **Permisos**: catálogo `UserAccessResource` (SECTION→TAB→SUBTAB, `economic_capable`) + grants
   `UserAccessGrant` (`can_view_basic`/`can_view_econ`/`can_edit`). **role 10 = dirección** (acceso
-  total y único que edita permisos). Enforcement: `_enforce_role_permissions_v2` (usa
-  `include_descendants`); las versiones legacy `enforce_role_permissions`/`require_login` quedan
-  **sustituidas** por las `_v2` vía `_replace_before_request` al final del módulo (son código muerto,
-  no editarlas). `_resolve_request_resource_key` mapea endpoint→recurso (respaldo:
-  `_infer_group_key_from_path`); **si da `None` en un POST, solo dirección pasa** → al añadir
-  endpoints nuevos hay que mapearlos. **Invitaciones = recursos «de acción»**: su POST exige solo
+  total y único que edita permisos). **Única fuente de verdad = `CURATED_ACCESS_RESOURCES`** (lista en
+  `app.py`): cada recurso lleva `description` (función + página/pestaña; se muestra en la pantalla de
+  Accesos) y `sort_order`. Los seeds SQL en `models.py` son redundantes (UPSERT) y CURATED manda.
+  Enforcement: `_enforce_role_permissions_v2` (usa `include_descendants`); las versiones legacy
+  `enforce_role_permissions`/`require_login` quedan **sustituidas** por las `_v2` vía
+  `_replace_before_request` (código muerto, no editarlas). `_resolve_request_resource_key` mapea
+  endpoint→recurso (respaldo: `_infer_group_key_from_path`); **si da `None` en un POST, solo dirección
+  pasa** → al añadir endpoints nuevos hay que mapearlos.
+  **Endpoints de APOYO (núcleo del rediseño: «cumplir la función sin errores de permisos»)**:
+  herramientas transversales que NO son una sección, declaradas en `SUPPORT_ACTION_ENDPOINTS`
+  (alta rápida `/api/*/create`, vinculaciones `/vinculaciones/*`, hoja de ruta `/hoja-ruta/*`),
+  `SUPPORT_READ_ENDPOINTS` (búsquedas/lookups para rellenar formularios) y `SUPPORT_ECON_READ_ENDPOINTS`
+  (lecturas con importes, exigen `econ` de su sección). El gate lo hace `_support_endpoint_decision`
+  (prioridad sobre la resolución por sección): las acciones las puede usar cualquier **actor**
+  (`_user_is_actor`: puede editar alguna sección **o** tener acceso a invitaciones), las lecturas
+  cualquier sesión, las económicas con permiso económico. Así, p. ej., quien puede *pedir invitaciones*
+  crea/busca/vincula un tercero sin bloqueos. **Para una función nueva**: declara su recurso en
+  CURATED (con descripción) y mapéala en `_resolve_request_resource_key`; si es una herramienta
+  transversal, métela en `SUPPORT_*`. **Auto-descubrimiento sin duplicados**: `_build_access_resources_from_app`
+  usa `_coarse_endpoint_resource` para saltar lo ya cubierto (esto eliminó los `auto.*` fantasma) y
+  **bucketiza solo las ESCRITURAS sin cubrir** bajo su sección o el cajón **`otros`** («Otras funciones»,
+  desactivado) — nada queda solo-dirección en silencio. `_sync_access_resources` **poda** legado y
+  `auto.*` huérfanos (grants en cascada); legado retirado en `LEGACY_REMOVED_ACCESS_KEYS`
+  (`concerts*`, `quadrantes`, `marketing` — duplicaban `contratacion`/`promocion`; sus rutas siguen vivas
+  mapeadas a la sección real). **Garantía a futuro**: `_audit_access_coverage()` corre en el arranque
+  (best-effort, avisa en log si una escritura queda sin recurso) y desde `tools/check_access_coverage.py`
+  (CI/local, requiere Python 3.10+). **Invitaciones = recursos «de acción»**: su POST exige solo
   **acceso básico** a `invitaciones.pedir`/`invitaciones.gestionar` (tener la pestaña habilitada =
   poder pedir/gestionar; el control fino por artista/concierto lo hace `_ensure_can_manage_invitations`),
   no `can_edit`. Coherencia: `_coherent_grant_values`. Las funcionalidades nuevas se

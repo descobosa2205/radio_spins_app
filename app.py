@@ -25613,99 +25613,118 @@ _ACCESS_BOOTSTRAP_DONE = False
 _ACCESS_RESOURCE_MAP = {}
 _ACCESS_CHILDREN = defaultdict(list)
 
+# ============================================================================================
+# CATÁLOGO DE PERMISOS — única fuente de verdad (SECCIÓN → PESTAÑA → SUBPESTAÑA)
+# --------------------------------------------------------------------------------------------
+# Cada recurso describe SU FUNCIÓN y la página/pestaña que controla (campo "description"), para
+# que la pantalla de Accesos sea autoexplicativa. Concepto único por recurso: ver (visible) /
+# ver datos económicos (€) / editar. `economic_capable` indica si tiene importes (habilita el €).
+# Las SECCIONES contenedoras no se conceden por sí mismas: su acceso se DERIVA de sus pestañas
+# (el enforcement usa include_descendants) y las funciones nuevas entran SIEMPRE desactivadas.
+# Para añadir una función nueva: declara aquí su recurso (con descripción) y mapéala en
+# `_resolve_request_resource_key`; el auto-chequeo de arranque avisa si una escritura queda sin
+# recurso. Las herramientas transversales (alta rápida, vinculaciones, hoja de ruta, búsquedas)
+# NO son recursos: son "endpoints de apoyo" (ver SUPPORT_*_ENDPOINTS).
 CURATED_ACCESS_RESOURCES = [
-    {"key": "home", "label": "Inicio", "section_key": "home", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 10},
-    {"key": "radio", "label": "Radio", "section_key": "radio", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 20},
-    {"key": "radio.reportes", "label": "Reporte de radios", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 21},
-    {"key": "radio.actualizar", "label": "Actualizar tocadas", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 22},
-    {"key": "radio.emisoras", "label": "Emisoras", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 23},
+    {"key": "home", "label": "Inicio", "section_key": "home", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 0, "description": "Pantalla de inicio: accesos directos, tareas pendientes e invitaciones del usuario."},
 
-    {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 30},
-    {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 31},
-    {"key": "ventas.actualizar", "label": "Actualizar ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 32},
+    {"key": "radio", "label": "Radio", "section_key": "radio", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100, "description": "Seguimiento de emisiones en radio (tocadas) y emisoras."},
+    {"key": "radio.reportes", "label": "Reporte de radios", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 101, "description": "Informe de tocadas por emisora/artista. Página «Reporte de radios»."},
+    {"key": "radio.actualizar", "label": "Actualizar tocadas", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 102, "description": "Carga y actualización de tocadas. Página «Actualizar tocadas»."},
+    {"key": "radio.emisoras", "label": "Emisoras", "section_key": "radio", "parent_key": "radio", "level": "TAB", "economic_capable": False, "sort_order": 103, "description": "Alta y edición de emisoras de radio."},
 
-    {"key": "artists", "label": "Artistas", "section_key": "artists", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 40},
-    {"key": "artists.datos", "label": "Datos del artista", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 41},
-    {"key": "artists.contratos", "label": "Contratos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 42},
-    {"key": "artists.conciertos", "label": "Conciertos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 43},
-    {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 44},
-    {"key": "artists.agenda", "label": "Agenda", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 45},
-    {"key": "artists.promocion", "label": "Marketing", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 46},
-    {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 47},
+    {"key": "ventas", "label": "Ventas", "section_key": "ventas", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 110, "description": "Venta de entradas: informes y carga de cifras (con importes)."},
+    {"key": "ventas.reportes", "label": "Reporte de ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 111, "description": "Informe de ventas con importes. Página «Reporte de ventas»."},
+    {"key": "ventas.actualizar", "label": "Actualizar ventas", "section_key": "ventas", "parent_key": "ventas", "level": "TAB", "economic_capable": True, "sort_order": 112, "description": "Carga/actualización de cifras de venta de entradas."},
 
-    {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 50},
-    {"key": "discografica.lanzamientos", "label": "Lanzamientos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 51},
-    {"key": "discografica.canciones", "label": "Repertorio", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 52},
-    {"key": "discografica.royalties", "label": "Royalties", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 53},
-    {"key": "discografica.royalties.liquidaciones", "label": "Liquidaciones", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 54},
-    {"key": "discografica.royalties.resumen", "label": "Resumen", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 55},
-    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 56},
-    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 57},
-    {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 58},
-    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 59},
+    {"key": "artists", "label": "Artistas", "section_key": "artists", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 120, "description": "Ficha de artistas y todas sus pestañas (Artistas)."},
+    {"key": "artists.datos", "label": "Datos del artista", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 121, "description": "Pestaña «Datos» del artista: información general, foto, redes."},
+    {"key": "artists.contratos", "label": "Contratos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 122, "description": "Pestaña «Contratos» del artista."},
+    {"key": "artists.conciertos", "label": "Conciertos", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 123, "description": "Pestaña «Conciertos» del artista (incluye importes)."},
+    {"key": "artists.discografica", "label": "Discográfica", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 124, "description": "Pestaña «Discográfica» del artista: lanzamientos y regalías (importes)."},
+    {"key": "artists.agenda", "label": "Agenda", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 125, "description": "Pestaña «Agenda» del artista."},
+    {"key": "artists.promocion", "label": "Marketing", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 126, "description": "Pestaña «Marketing» del artista: promoción y medios."},
+    {"key": "artists.liquidaciones", "label": "Liquidaciones", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": True, "sort_order": 127, "description": "Pestaña «Liquidaciones» del artista (importes)."},
+    {"key": "artists.onesheet", "label": "One-sheet", "section_key": "artists", "parent_key": "artists", "level": "TAB", "economic_capable": False, "sort_order": 128, "description": "Pestaña «One-sheet» del artista: dossier público."},
 
-    {"key": "registros", "label": "Registros", "section_key": "registros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 57},
-    {"key": "registros.pendiente", "label": "Pendiente", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 58},
-    {"key": "registros.sgae", "label": "SGAE", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 59},
+    {"key": "discografica", "label": "Discográfica", "section_key": "discografica", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 130, "description": "Sello: catálogo, royalties, editorial, registros e ISRC."},
+    {"key": "discografica.lanzamientos", "label": "Lanzamientos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 131, "description": "Pestaña «Lanzamientos»: álbumes, EP y singles."},
+    {"key": "discografica.canciones", "label": "Repertorio", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 132, "description": "Repertorio de canciones: listado, ficha, materiales y edición. Páginas «/canciones» y ficha de canción."},
+    {"key": "discografica.royalties", "label": "Royalties", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 133, "description": "Pestaña «Royalties»: regalías discográficas (importes)."},
+    {"key": "discografica.royalties.liquidaciones", "label": "Liquidaciones", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 134, "description": "Subpestaña «Liquidaciones» de royalties (importes)."},
+    {"key": "discografica.royalties.resumen", "label": "Resumen", "section_key": "discografica", "parent_key": "discografica.royalties", "level": "SUBTAB", "economic_capable": True, "sort_order": 135, "description": "Subpestaña «Resumen» de royalties (importes)."},
+    {"key": "discografica.editorial", "label": "Editorial", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 136, "description": "Pestaña «Editorial»: reparto autoral y editoriales."},
+    {"key": "discografica.registros", "label": "Registros", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 137, "description": "Pestaña «Registros» del sello (declaración de fonogramas/obras del catálogo)."},
+    {"key": "discografica.ingresos", "label": "Ingresos", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": True, "sort_order": 138, "description": "Pestaña «Ingresos»: ingresos del sello por explotación (importes)."},
+    {"key": "discografica.isrc", "label": "ISRC", "section_key": "discografica", "parent_key": "discografica", "level": "TAB", "economic_capable": False, "sort_order": 139, "description": "Pestaña «ISRC»: gestión de códigos ISRC."},
 
-    {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 60},
+    {"key": "registros", "label": "Registros", "section_key": "registros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 150, "description": "Registro de obras/fonogramas ante entidades de gestión (SGAE, etc.)."},
+    {"key": "registros.pendiente", "label": "Pendiente", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 151, "description": "Registros pendientes de declarar/tramitar."},
+    {"key": "registros.sgae", "label": "SGAE", "section_key": "registros", "parent_key": "registros", "level": "TAB", "economic_capable": False, "sort_order": 152, "description": "Registro y enlace de repertorio en SGAE."},
 
-    {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 65},
-    {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 66},
-    {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 67},
-    {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 68},
-    {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 69},
-    {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 70},
-    {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 71},
-    {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 72},
+    {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 160, "description": "Terceros: promotores, contactos y empresas relacionadas; sus fichas y vinculaciones."},
 
-    {"key": "concerts", "label": "Conciertos (legado)", "section_key": "concerts", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 73},
-    {"key": "concerts.vista", "label": "Conciertos", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 71},
-    {"key": "concerts.facturacion", "label": "Facturación", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": True, "sort_order": 72},
-    {"key": "concerts.alta", "label": "Formulario clásico", "section_key": "concerts", "parent_key": "concerts", "level": "TAB", "economic_capable": False, "sort_order": 73},
+    {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 170, "description": "Contratación de actividades en vivo: conciertos, giras, festivales y otras."},
+    {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
+    {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Giras compradas» (importes)."},
+    {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 173, "description": "One-sheet de giras: dossier público de la gira."},
+    {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 174, "description": "Pestaña «Festivales / Ciclos» (importes)."},
+    {"key": "contratacion.otras", "label": "Otras actividades", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 175, "description": "Pestaña «Otras actividades» (importes)."},
+    {"key": "contratacion.cuadrantes", "label": "Cuadrantes", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": False, "sort_order": 176, "description": "Cuadrantes de planificación de la actividad/gira."},
+    {"key": "contratacion.facturacion", "label": "Facturación", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 177, "description": "Facturación de conciertos y actividades (importes)."},
+    {"key": "contratacion.simulaciones", "label": "Simulaciones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 178, "description": "Simulaciones económicas de actividades (importes)."},
 
-    {"key": "quadrantes", "label": "Cuadrantes", "section_key": "quadrantes", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 80},
+    {"key": "playlisting", "label": "Playlisting", "section_key": "playlisting", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 185, "description": "Playlisting: seguimiento de canciones en playlists y pitching (datos de streaming)."},
 
-    {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 90},
-    {"key": "marketing", "label": "Marketing", "section_key": "marketing", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 91},
-    {"key": "acciones", "label": "Acciones", "section_key": "acciones", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 92},
-    {"key": "acciones.inicio", "label": "Inicio", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 93},
-    {"key": "acciones.activas", "label": "Acciones activas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 94},
-    {"key": "acciones.archivadas", "label": "Acciones archivadas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 95},
-    {"key": "acciones.solicitudes", "label": "Solicitudes", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 96},
+    {"key": "acciones", "label": "Acciones", "section_key": "acciones", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 190, "description": "Acciones de empresa (eventos internos, campañas) con coste asociado."},
+    {"key": "acciones.inicio", "label": "Inicio", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 191, "description": "Inicio de Acciones: resumen (importes)."},
+    {"key": "acciones.activas", "label": "Acciones activas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 192, "description": "Acciones activas (importes)."},
+    {"key": "acciones.archivadas", "label": "Acciones archivadas", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 193, "description": "Acciones archivadas (importes)."},
+    {"key": "acciones.solicitudes", "label": "Solicitudes", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 194, "description": "Solicitudes de acción pendientes de aprobar (importes)."},
 
-    {"key": "invitaciones", "label": "Invitaciones", "section_key": "invitaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 97},
-    {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 98},
-    {"key": "invitaciones.gestionar", "label": "Gestionar invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 99},
-    {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 100},
-    {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 110},
-    {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 111},
-    {"key": "administracion.liquidaciones", "label": "Liquidaciones", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 112},
-    {"key": "administracion.pagos", "label": "Pagos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 113},
-    {"key": "administracion.cobros", "label": "Cobros", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 114},
-    {"key": "administracion.embargos", "label": "Embargos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 115},
-    {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 120},
+    {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 200, "description": "Marketing y promoción: medios, prensa y campañas de los lanzamientos/actividades."},
 
-    {"key": "personal", "label": "Personal", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 130},
-    {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 131},
-    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 132},
+    {"key": "invitaciones", "label": "Invitaciones", "section_key": "invitaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 210, "description": "Invitaciones a conciertos: pedir y gestionar. Función de acción (tener la pestaña habilitada = poder usarla)."},
+    {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 211, "description": "Pedir invitaciones para un evento mediante el asistente (acción)."},
+    {"key": "invitaciones.gestionar", "label": "Gestionar invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 212, "description": "Gestionar invitaciones: categorías, entradas, aprobaciones y entrega (acción)."},
 
-    {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 140},
-    {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 141},
-    {"key": "databases.ticketers", "label": "Ticketeras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 142},
-    {"key": "databases.publishing_companies", "label": "Editoriales", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 143},
-    {"key": "databases.group_companies", "label": "Empresas del grupo", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 144},
-    {"key": "databases.media", "label": "Medios", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 145},
-    {"key": "databases.bags", "label": "Bolsas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 146},
-    {"key": "databases.invoices", "label": "Facturas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": True, "sort_order": 147},
+    {"key": "produccion", "label": "Producción", "section_key": "produccion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 220, "description": "Producción técnica de eventos: tareas y logística de producción."},
+
+    {"key": "administracion", "label": "Administración", "section_key": "administracion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 230, "description": "Administración económica: pendientes, liquidaciones, pagos, cobros y embargos."},
+    {"key": "administracion.pendiente", "label": "Pendiente", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 231, "description": "Tareas/movimientos pendientes de administración (importes)."},
+    {"key": "administracion.liquidaciones", "label": "Liquidaciones", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 232, "description": "Liquidaciones a artistas y terceros (importes)."},
+    {"key": "administracion.pagos", "label": "Pagos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 233, "description": "Pagos a proveedores y terceros (importes)."},
+    {"key": "administracion.cobros", "label": "Cobros", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 234, "description": "Cobros pendientes y recibidos (importes)."},
+    {"key": "administracion.embargos", "label": "Embargos", "section_key": "administracion", "parent_key": "administracion", "level": "TAB", "economic_capable": True, "sort_order": 235, "description": "Órdenes de embargo y su seguimiento (importes)."},
+
+    {"key": "contabilidad", "label": "Contabilidad", "section_key": "contabilidad", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 240, "description": "Contabilidad del grupo: gastos e ingresos contables (importes)."},
+
+    {"key": "personal", "label": "Personal", "section_key": "personal", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 250, "description": "Personal y permisos de la aplicación."},
+    {"key": "personal.usuarios", "label": "Usuarios", "section_key": "personal", "parent_key": "personal", "level": "TAB", "economic_capable": False, "sort_order": 251, "description": "Listado y ficha de usuarios del Back Office."},
+    {"key": "personal.usuarios.accesos", "label": "Accesos", "section_key": "personal", "parent_key": "personal.usuarios", "level": "SUBTAB", "economic_capable": False, "sort_order": 252, "description": "Configurar accesos/permisos de cada usuario. Editable solo por dirección."},
+
+    {"key": "integraciones", "label": "Integraciones", "section_key": "integraciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 260, "description": "Integraciones con servicios externos (p. ej. Chartmetric)."},
+
+    {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 270, "description": "Bases de datos maestras del sistema."},
+    {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 271, "description": "Recintos (venues): alta y edición."},
+    {"key": "databases.ticketers", "label": "Ticketeras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 272, "description": "Ticketeras: alta y edición."},
+    {"key": "databases.publishing_companies", "label": "Editoriales", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 273, "description": "Editoriales musicales: alta y edición."},
+    {"key": "databases.group_companies", "label": "Empresas del grupo", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 274, "description": "Empresas del grupo: alta y edición."},
+    {"key": "databases.media", "label": "Medios", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 275, "description": "Medios de comunicación: alta, contactos y edición."},
+    {"key": "databases.bags", "label": "Bolsas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 276, "description": "Bolsas: flujos de gasto/aprobación (workflow bags)."},
+    {"key": "databases.invoices", "label": "Facturas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": True, "sort_order": 277, "description": "Facturas: registro y consulta (importes)."},
+
+    # Cajón para funciones nuevas aún sin clasificar: entran aquí DESACTIVADAS hasta que dirección
+    # las asigne. Garantiza que nada quede accesible solo para dirección de forma silenciosa.
+    {"key": "otros", "label": "Otras funciones", "section_key": "otros", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 900, "description": "Funciones nuevas aún sin clasificar. Entran desactivadas hasta asignarles permisos."},
 ]
 
 AUTO_SEGMENT_PARENT = {
     "artistas": "artists",
     "discografica": "discografica",
     "promotores": "third_parties",
-    "conciertos": "concerts",
-    "cuadrantes": "quadrantes",
+    "conciertos": "contratacion.conciertos",
+    "cuadrantes": "contratacion.cuadrantes",
     "emisoras": "radio",
     "tocadas": "radio",
     "ventas": "ventas",
@@ -25930,39 +25949,124 @@ def _generate_temporary_password(length: int = 12) -> str:
     return "".join(chars)
 
 
+def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
+    """Resuelve un endpoint a su recurso de SECCIÓN/PESTAÑA, sin args y sin el fallback "auto.".
+
+    Solo se usa para decidir COBERTURA en la auto-discovery (¿ya hay un recurso curado que cubra
+    este endpoint?). No interviene en el enforcement, que usa _resolve_request_resource_key().
+    """
+    if not endpoint:
+        return None
+    if endpoint in {"landing", "admin_login", "admin_logout"} | PUBLIC_ENDPOINTS_EXTRA:
+        return None
+    if endpoint == "home":
+        return "home"
+    fixed = {
+        "summary_view": "radio.reportes", "plays_view": "radio.actualizar", "stations_view": "radio.emisoras",
+        "sales_report_view": "ventas.reportes", "sales_update_view": "ventas.actualizar",
+        "discografica_view": "discografica", "discografica_song_detail": "discografica.canciones",
+        "discografica_album_detail": "discografica.canciones", "artist_detail_view": "artists",
+        "contracting_view": "contratacion", "concerts_view": "contratacion.conciertos",
+        "concert_detail_view": "contratacion.conciertos", "quadrantes_view": "contratacion.cuadrantes",
+        "songs_view": "discografica.canciones", "song_update": "discografica.canciones",
+        "song_delete": "discografica.canciones", "playlisting_view": "playlisting",
+        "integrations_view": "integraciones",
+    }
+    if endpoint in fixed:
+        return fixed[endpoint]
+    if endpoint in {"artists_view", "artist_update", "artist_delete", "artist_create"}:
+        return "artists"
+    if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
+        return "registros.pendiente"
+    if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
+        return "third_parties"
+    if endpoint == "venues_view" or endpoint.startswith("venue_"):
+        return "databases.venues"
+    if endpoint == "ticketers_view" or endpoint.startswith("ticketer_"):
+        return "databases.ticketers"
+    if endpoint == "publishing_companies_view" or endpoint.startswith("publishing_company_"):
+        return "databases.publishing_companies"
+    if endpoint == "companies_view" or endpoint.startswith("company_"):
+        return "databases.group_companies"
+    if endpoint in {"promocion_view", "marketing_view"} or endpoint.startswith("promotion_"):
+        return "promocion"
+    if endpoint in {"acciones_view", "action_detail_view"} or endpoint.startswith("action_") or endpoint.startswith("acciones_"):
+        return "acciones"
+    if endpoint == "produccion_view":
+        return "produccion"
+    if endpoint == "administracion_view":
+        return "administracion"
+    if endpoint == "contabilidad_view":
+        return "contabilidad"
+    if endpoint == "personnel_view":
+        return "personal.usuarios"
+    if endpoint in {"personnel_detail_view", "personnel_bulk_access"}:
+        return "personal.usuarios.accesos"
+    if endpoint.startswith("media_"):
+        return "databases.media"
+    if endpoint.startswith("bag_") or endpoint == "bags_view":
+        return "databases.bags"
+    if endpoint.startswith("invoice_") or endpoint == "invoices_view":
+        return "databases.invoices"
+    if endpoint in {"invitations_view", "api_invitation_events", "api_invitation_event_categories"}:
+        return "invitaciones"
+    if endpoint == "invitation_request_create":
+        return "invitaciones.pedir"
+    if endpoint.startswith("invitation_") or endpoint.startswith("api_invitation_"):
+        return "invitaciones.gestionar"
+    return _infer_group_key_from_path(path)
+
+
 def _build_access_resources_from_app() -> list[dict]:
+    """Catálogo efectivo = recursos curados + auto-descubrimiento de funciones nuevas.
+
+    Auto-discovery (futuro-proof, sin duplicados):
+    - Si un endpoint YA está cubierto por un recurso curado, no se duplica (esto elimina los
+      "auto.*" fantasma que antes clonaban las pantallas de sección).
+    - Si un endpoint de ESCRITURA no está cubierto, se registra DESACTIVADO (bajo su sección por
+      segmento, o en «Otras funciones») para que sea visible y asignable —nunca accesible solo
+      para dirección de forma silenciosa—.
+    - Los endpoints de apoyo (alta rápida, vinculaciones, hoja de ruta, búsquedas) NO generan
+      recurso: los autoriza la capa SUPPORT_*.
+    """
     rows = [dict(item) for item in CURATED_ACCESS_RESOURCES]
     known = {row["key"] for row in rows}
-    dynamic_sort = 1000
+    support = SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
+    framework = {"static", "landing", "admin_login", "admin_logout", "personnel_bulk_access",
+                 "impersonate_start", "impersonate_stop"}
+    write_methods = {"POST", "PUT", "PATCH", "DELETE"}
+    dynamic_sort = 901
     for rule in app.url_map.iter_rules():
         endpoint = (rule.endpoint or "").strip()
-        if not endpoint or endpoint in known or endpoint in {"static", "landing", "admin_login", "admin_logout", "personnel_bulk_access"}:
+        if not endpoint or endpoint in framework or endpoint in support:
             continue
-        if endpoint.startswith("public_") or endpoint in PUBLIC_ENDPOINTS_EXTRA:
+        if endpoint.startswith("public_") or "public" in endpoint or endpoint in PUBLIC_ENDPOINTS_EXTRA:
             continue
-        if "GET" not in rule.methods:
-            continue
-        if rule.arguments:
-            continue
-        path = (rule.rule or "").strip("/")
-        if not path:
-            continue
-        segment = path.split("/", 1)[0]
-        parent = AUTO_SEGMENT_PARENT.get(segment)
-        if not parent:
+        path = (rule.rule or "").strip()
+        coarse = _coarse_endpoint_resource(endpoint, path)
+        if coarse and coarse in known:
+            continue  # ya cubierto por un recurso curado -> no duplicar
+        # Solo bucketizamos ESCRITURAS: así una función nueva nunca queda solo-dirección en
+        # silencio. Las GET sin clasificar conservan su comportamiento (no se ocultan de golpe).
+        if not (set(rule.methods or set()) & write_methods):
             continue
         key = f"auto.{endpoint}"
         if key in known:
             continue
         known.add(key)
+        segment = path.strip("/").split("/", 1)[0] if path.strip("/") else ""
+        parent = AUTO_SEGMENT_PARENT.get(segment)
+        if not parent or parent not in known:
+            parent = "otros"
         rows.append({
             "key": key,
-            "label": _resource_label_from_key(segment),
+            "label": _resource_label_from_key(endpoint),
             "section_key": (parent.split(".", 1)[0] if "." in parent else parent),
             "parent_key": parent,
             "level": "TAB",
             "economic_capable": False,
             "sort_order": dynamic_sort,
+            "description": f"Función nueva sin clasificar (endpoint «{endpoint}»). Asígnale permisos o reclasifícala en el catálogo.",
         })
         dynamic_sort += 1
     return rows
@@ -25979,9 +26083,18 @@ def _rebuild_resource_caches(resource_rows: list[dict]):
     _ACCESS_CHILDREN = children
 
 
+# Recursos retirados en el rediseño (duplicados/legado): se podan del catálogo y sus grants
+# caen en cascada. Quitar de aquí solo si se confirma que ya no existen en ninguna BD.
+LEGACY_REMOVED_ACCESS_KEYS = {
+    "concerts", "concerts.vista", "concerts.facturacion", "concerts.alta",
+    "quadrantes", "marketing",
+}
+
+
 def _sync_access_resources(session_db):
     resource_rows = _build_access_resources_from_app()
     _rebuild_resource_caches(resource_rows)
+    desired = {row["key"] for row in resource_rows}
     existing = {r.key: r for r in session_db.query(UserAccessResource).all()}
     for row in resource_rows:
         rec = existing.get(row["key"])
@@ -26003,6 +26116,14 @@ def _sync_access_resources(session_db):
             rec.level = row.get("level") or rec.level
             rec.economic_capable = bool(row.get("economic_capable"))
             rec.sort_order = int(row.get("sort_order") or 0)
+    # Poda segura: elimina recursos retirados (legado) y auto-descubiertos que ya no aplican
+    # (p. ej. los "auto.*" fantasma que clonaban pantallas ya cubiertas). NO toca recursos
+    # curados ni de modelo: solo legado conocido y "auto.*" huérfanos. Los grants caen en cascada.
+    for key, rec in existing.items():
+        if key in desired:
+            continue
+        if key in LEGACY_REMOVED_ACCESS_KEYS or key.startswith("auto."):
+            session_db.delete(rec)
     session_db.flush()
     return resource_rows
 
@@ -26128,6 +26249,19 @@ def _bootstrap_access_and_personnel():
         _ACCESS_BOOTSTRAP_DONE = True
     finally:
         session_db.close()
+    # Auto-chequeo de cobertura de permisos: avisa (sin romper el arranque) si alguna función
+    # de escritura quedó sin recurso -> accesible solo para dirección. Así una funcionalidad
+    # nueva mal cableada se detecta en el log en vez de dar "errores de permisos" silenciosos.
+    try:
+        report = _audit_access_coverage()
+        if report["count"]:
+            app.logger.warning(
+                "[accesos] %d endpoint(s) de escritura sin cobertura de permisos: %s",
+                report["count"],
+                ", ".join(f"{ep} ({why})" for ep, _path, why in report["offenders"]),
+            )
+    except Exception:
+        pass
 
 
 def _resource_ancestors(key: str) -> list[str]:
@@ -26384,6 +26518,13 @@ def _resolve_request_resource_key() -> str | None:
         return "invitaciones.pedir"
     if endpoint.startswith("invitation_") or endpoint.startswith("api_invitation_"):
         return "invitaciones.gestionar"
+    # Repertorio (canciones) vive bajo /canciones, fuera del prefijo /discografica.
+    if endpoint in {"songs_view", "song_update", "song_delete"}:
+        return "discografica.canciones"
+    if endpoint == "playlisting_view":
+        return "playlisting"
+    if endpoint == "integrations_view":
+        return "integraciones"
     auto_key = f"auto.{endpoint}"
     if auto_key in _ACCESS_RESOURCE_MAP:
         return auto_key
@@ -26501,7 +26642,7 @@ def can_edit_radio() -> bool:
 
 
 def can_edit_concerts() -> bool:
-    return has_access_key("concerts", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
+    return has_access_key("contratacion", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
 
 
 def can_edit_catalogs() -> bool:
@@ -26518,7 +26659,7 @@ def can_edit_discografica() -> bool:
 
 
 def can_edit_promocion() -> bool:
-    return (has_access_key("promocion", edit=True, include_descendants=True) or has_access_key("marketing", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10))
+    return (has_access_key("promocion", edit=True, include_descendants=True) or current_role() in (2, 5, 6, 10))
 
 def can_edit_marketing() -> bool:
     return can_edit_promocion()
@@ -26594,13 +26735,8 @@ def _resource_default_url(key: str) -> str:
         "contratacion.cuadrantes": url_for("quadrantes_view"),
         "contratacion.facturacion": url_for("concerts_view", tab="facturacion"),
         "contratacion.simulaciones": url_for("contracting_view", section="simulaciones"),
-        "concerts": url_for("concerts_view"),
-        "concerts.vista": url_for("concerts_view", tab="vista"),
-        "concerts.facturacion": url_for("concerts_view", tab="facturacion"),
-        "concerts.alta": url_for("concerts_view", tab="vista"),
-        "quadrantes": url_for("quadrantes_view"),
+        "playlisting": url_for("playlisting_view"),
         "promocion": url_for("marketing_view"),
-        "marketing": url_for("marketing_view"),
         "acciones": url_for("acciones_view", tab="inicio"),
         "acciones.inicio": url_for("acciones_view", tab="inicio"),
         "acciones.activas": url_for("acciones_view", tab="acciones", subtab="activas"),
@@ -26620,6 +26756,7 @@ def _resource_default_url(key: str) -> str:
         "personal": url_for("personnel_view"),
         "personal.usuarios": url_for("personnel_view"),
         "personal.usuarios.accesos": url_for("personnel_view"),
+        "integraciones": url_for("integrations_view"),
         "databases": url_for("venues_view"),
         "databases.venues": url_for("venues_view"),
         "databases.ticketers": url_for("ticketers_view"),
@@ -26641,9 +26778,7 @@ def _resource_icon(key: str) -> str:
         ("registros", "fa-clipboard-check"),
         ("third_parties", "fa-handshake"),
         ("contratacion", "fa-file-signature"),
-        ("concerts", "fa-music"),
-        ("quadrantes", "fa-table"),
-        ("marketing", "fa-bullhorn"),
+        ("playlisting", "fa-list-ol"),
         ("promocion", "fa-bullhorn"),
         ("acciones", "fa-calendar-check"),
         ("invitaciones", "fa-ticket-alt"),
@@ -26651,10 +26786,12 @@ def _resource_icon(key: str) -> str:
         ("administracion", "fa-briefcase"),
         ("contabilidad", "fa-file-invoice-dollar"),
         ("personal", "fa-users-cog"),
+        ("integraciones", "fa-plug"),
         ("databases.media", "fa-newspaper"),
         ("databases.bags", "fa-folder-open"),
         ("databases.invoices", "fa-file-invoice"),
         ("databases", "fa-database"),
+        ("otros", "fa-shapes"),
     ]:
         if key == prefix or key.startswith(prefix + "."):
             return icon
@@ -26717,17 +26854,17 @@ SECTION_ICONS = {
     "registros": "fa-clipboard-list",
     "third_parties": "fa-handshake",
     "contratacion": "fa-file-signature",
-    "concerts": "fa-microphone",
-    "quadrantes": "fa-table-cells",
+    "playlisting": "fa-list-ol",
     "promocion": "fa-bullhorn",
-    "marketing": "fa-bullhorn",
     "acciones": "fa-rocket",
     "invitaciones": "fa-envelope-open-text",
     "produccion": "fa-screwdriver-wrench",
     "administracion": "fa-file-invoice-dollar",
     "contabilidad": "fa-calculator",
     "personal": "fa-users-gear",
+    "integraciones": "fa-plug",
     "databases": "fa-database",
+    "otros": "fa-shapes",
 }
 
 
@@ -26755,6 +26892,7 @@ def _build_nav_menu() -> list[dict]:
         ]},
         {"type": "link", "key": "artists", "label": "Artistas", "url": _resource_default_url("artists")},
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
+        {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
@@ -26776,6 +26914,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "administracion", "label": "Administración", "url": _resource_default_url("administracion")},
         {"type": "link", "key": "contabilidad", "label": "Contabilidad", "url": _resource_default_url("contabilidad")},
         {"type": "link", "key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
+        {"type": "link", "key": "integraciones", "label": "Integraciones", "url": _resource_default_url("integraciones")},
         {"type": "dropdown", "key": "databases", "label": "Bases de datos", "children": [
             {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
             {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},
@@ -26837,7 +26976,7 @@ def _build_home_quick_links(limit: int = 6) -> list[dict]:
             return links[:limit]
         fallback_keys = [
             "discografica.lanzamientos",
-            "concerts.vista",
+            "contratacion.conciertos",
             "artists",
             "third_parties",
             "databases.media",
@@ -26863,7 +27002,7 @@ def _build_home_quick_links(limit: int = 6) -> list[dict]:
 def _build_home_sections() -> list[dict]:
     sections = [
         ("discografica", "Discográfica", _resource_default_url("discografica"), "fa-compact-disc"),
-        ("concerts", "Conciertos", _resource_default_url("concerts"), "fa-music"),
+        ("contratacion", "Contratación", _resource_default_url("contratacion"), "fa-music"),
         ("promocion", "Marketing", _resource_default_url("promocion"), "fa-bullhorn"),
         ("invitaciones", "Invitaciones", _resource_default_url("invitaciones"), "fa-ticket-alt"),
         ("contabilidad", "Contabilidad", _resource_default_url("contabilidad"), "fa-file-invoice-dollar"),
@@ -26881,6 +27020,10 @@ def _build_personnel_access_rows() -> list[dict]:
     session_db = db()
     try:
         rows = session_db.query(UserAccessResource).order_by(UserAccessResource.sort_order.asc(), UserAccessResource.label.asc()).all()
+        # Adjuntamos la descripción (función + pestaña) desde el catálogo en memoria para que la
+        # pantalla de Accesos sea autoexplicativa. No es columna de BD: atributo transitorio.
+        for row in rows:
+            row.access_desc = (_ACCESS_RESOURCE_MAP.get(row.key) or {}).get("description", "") or ""
         grouped = []
         section_map = {}
         for row in rows:
@@ -27026,13 +27169,132 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
-    if request.endpoint in allowed:
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "roadmap_public_view", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
+    # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
+    if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
         return
     if not request.endpoint:
         return
     nxt = request.full_path if request.query_string else request.path
     return redirect(url_for("admin_login", next=nxt))
+
+
+# ============================================================================================
+# Endpoints de APOYO (herramientas compartidas) — núcleo del rediseño de permisos
+# --------------------------------------------------------------------------------------------
+# Para que NADIE tenga errores de permisos al COMPLETAR una función, las herramientas
+# transversales NO se tratan como una sección propia (lo que antes las dejaba sin recurso ->
+# solo dirección podía ejecutarlas), sino como APOYO de cualquier flujo que las use:
+#   · ACTION  (escritura): alta rápida de entidades, vinculaciones, hoja de ruta. Las puede
+#              usar cualquier "actor" = quien pueda EDITAR alguna sección o ACTUAR en un recurso
+#              de acción (p. ej. tener habilitado «Pedir/Gestionar invitaciones»). Así, quien
+#              está dentro de un flujo que le corresponde crea/busca/vincula sin bloqueos.
+#   · READ    (lectura): búsquedas y lookups para rellenar formularios. Cualquier sesión válida.
+#   · ECON_READ (lectura con importes): exige «ver datos económicos» en su sección dueña.
+# Esta clasificación tiene PRIORIDAD sobre la resolución por sección: un mismo endpoint de
+# búsqueda no debe exigir permiso en la sección de destino (rompería flujos cruzados como
+# «pedir invitaciones» + buscar/crear un tercero).
+SUPPORT_ACTION_ENDPOINTS = {
+    # Alta rápida de entidades (modales superpuestos: quick_create.js)
+    "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
+    "api_create_publishing_company", "api_create_media_outlet",
+    # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
+    "entity_link_create", "entity_link_update", "entity_link_delete",
+    # Hoja de ruta (conciertos / acciones / promociones)
+    "roadmap_item_save", "roadmap_hotel_save", "roadmap_row_toggle", "roadmap_row_delete",
+    "roadmap_email_send", "roadmap_attachment_upload",
+}
+SUPPORT_READ_ENDPOINTS = {
+    "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
+    "api_search_venues", "api_entity_link_search",
+    "api_get_promoter", "api_promoter_detail", "api_promoter_emails",
+    "api_concert_meta", "api_song_meta", "api_album_song_search",
+    "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
+    "api_song_editorial_share_detail", "api_plays_json",
+}
+# Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
+SUPPORT_ECON_READ_ENDPOINTS = {
+    "api_sales_json": "ventas",
+    "api_get_song_royalty_beneficiary": "discografica.royalties",
+    "api_get_album_royalty_beneficiary": "discografica.royalties",
+}
+
+
+def _user_is_actor(state: dict | None = None) -> bool:
+    """¿El usuario puede EDITAR o ACTUAR en alguna función? (autoriza las herramientas de apoyo)."""
+    state = state or _current_user_state()
+    if int(state.get("role") or 0) == 10:
+        return True
+    grants = state.get("grants") or {}
+    for res_key, grant in grants.items():
+        if not grant:
+            continue
+        if grant.get("can_edit"):
+            return True
+        # Recursos "de acción" (invitaciones): tener la pestaña habilitada = poder actuar.
+        if (res_key == "invitaciones" or res_key.startswith("invitaciones.")) and (
+            grant.get("can_view_basic") or grant.get("can_view_econ") or grant.get("can_edit")
+        ):
+            return True
+    return False
+
+
+def _support_endpoint_decision(endpoint: str):
+    """Resuelve un endpoint de apoyo.
+
+    Devuelve (handled, response): si handled es True, el enforcement debe devolver `response`
+    (None = permitir, o un forbid()). Si handled es False, el endpoint no es de apoyo y sigue
+    la resolución normal por sección.
+    """
+    if not endpoint:
+        return (False, None)
+    if endpoint in SUPPORT_READ_ENDPOINTS:
+        return (True, None)  # lookups de solo lectura: cualquier sesión válida
+    if endpoint in SUPPORT_ECON_READ_ENDPOINTS:
+        section = SUPPORT_ECON_READ_ENDPOINTS[endpoint]
+        if is_master() or has_access_key(section, econ=True, include_descendants=True):
+            return (True, None)
+        return (True, forbid("Necesitas permiso para ver datos económicos en esta sección."))
+    if endpoint in SUPPORT_ACTION_ENDPOINTS:
+        if request.method in ("POST", "PUT", "PATCH", "DELETE") and not _user_is_actor():
+            return (True, forbid("Necesitas permiso de edición en alguna sección para usar esta herramienta."))
+        return (True, None)
+    return (False, None)
+
+
+def _audit_access_coverage() -> dict:
+    """Auto-chequeo de cobertura de permisos (garantía "no puede fallar a futuro").
+
+    Recorre TODAS las rutas y comprueba que ningún endpoint de ESCRITURA no público quede:
+      · sin recurso (resolvería a None -> solo dirección podría ejecutarlo), o
+      · mapeado a un recurso inexistente en el catálogo.
+    Los endpoints de apoyo (alta rápida, vinculaciones, hoja de ruta) están cubiertos por su
+    propia capa y se excluyen. Se ejecuta en el arranque (best-effort, solo registra) y desde
+    `tools/check_access_coverage.py` (para CI). Devuelve {"count", "offenders"}.
+    """
+    write_methods = {"POST", "PUT", "PATCH", "DELETE"}
+    public = {"static", "landing", "admin_login", "admin_logout"} | set(PUBLIC_ENDPOINTS_EXTRA)
+    support = SUPPORT_ACTION_ENDPOINTS | SUPPORT_READ_ENDPOINTS | set(SUPPORT_ECON_READ_ENDPOINTS)
+    offenders = []
+    for rule in app.url_map.iter_rules():
+        endpoint = rule.endpoint or ""
+        if not (set(rule.methods or set()) & write_methods):
+            continue
+        if endpoint in public or endpoint.startswith("public_") or endpoint in support:
+            continue
+        sample = re.sub(r"<[^>]+>", "x", rule.rule)
+        try:
+            with app.test_request_context(sample, method="POST"):
+                request.url_rule = rule
+                key = _resolve_request_resource_key() or _infer_group_key_from_path(request.path)
+        except Exception:
+            key = None
+        if not key:
+            offenders.append((endpoint, rule.rule, "sin-recurso"))
+        elif key not in _ACCESS_RESOURCE_MAP:
+            offenders.append((endpoint, rule.rule, f"recurso-inexistente:{key}"))
+    return {"count": len(offenders), "offenders": offenders}
 
 
 def _enforce_role_permissions_v2():
@@ -27052,6 +27314,12 @@ def _enforce_role_permissions_v2():
         session.clear()
         flash("Lo sentimos ya no tienes acceso al Back Office", "danger")
         return redirect(url_for("admin_login"))
+
+    # Herramientas de apoyo (alta rápida, vinculaciones, hoja de ruta, búsquedas, lookups):
+    # tienen prioridad sobre la resolución por sección para no romper flujos cruzados.
+    handled, support_response = _support_endpoint_decision(request.endpoint)
+    if handled:
+        return support_response
 
     key = _resolve_request_resource_key() or _infer_group_key_from_path(request.path)
     # Recursos "de acción" (invitaciones): tener la función habilitada (acceso básico) basta para

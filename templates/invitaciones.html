@@ -710,7 +710,15 @@
             </div>
             {% if t.assigned_label %}<div class="alert alert-warning py-2 small mb-3">Asignada a {{ t.assigned_label }}</div>{% endif %}
             {% if t.warning %}<div class="alert alert-warning py-2 small mb-3">{{ t.warning }}</div>{% endif %}
-            <iframe src="{{ t.pdf_url }}#toolbar=1&navpanes=0&view=FitH" class="invitation-ticket-preview border rounded" title="Vista previa entrada"></iframe>
+            <div class="invitation-ticket-preview border rounded" data-pdf-viewer data-pdf-url="{{ t.pdf_url }}">
+              <div class="invitation-pdf-toolbar">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="out" title="Alejar"><i class="fa fa-magnifying-glass-minus"></i></button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="fit" title="Ajustar al ancho">Ajustar</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="in" title="Acercar"><i class="fa fa-magnifying-glass-plus"></i></button>
+                <a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ t.pdf_url }}" target="_blank" rel="noopener" title="Abrir en pestaña"><i class="fa fa-up-right-from-square"></i></a>
+              </div>
+              <div class="invitation-pdf-scroll"><div class="invitation-pdf-status text-muted small p-3">Cargando vista previa…</div></div>
+            </div>
           </div>
         </div>
       </div>
@@ -1109,6 +1117,13 @@
       tab.classList.toggle('is-selecting', on);
       if(bar) bar.classList.toggle('d-none', !on);
       if(toggleBtn) toggleBtn.classList.toggle('active', on);
+      // En modo selección desactivamos la apertura del modal (vista previa) de cada entrada, para
+      // que al pinchar se SELECCIONE en vez de abrirse el PDF. Se restaura al salir del modo.
+      tab.querySelectorAll('[data-ticket-id]').forEach(b => {
+        if(on){
+          if(b.hasAttribute('data-bs-toggle')){ b.dataset.bsToggleSaved = b.getAttribute('data-bs-toggle'); b.removeAttribute('data-bs-toggle'); }
+        } else if(b.dataset.bsToggleSaved){ b.setAttribute('data-bs-toggle', b.dataset.bsToggleSaved); delete b.dataset.bsToggleSaved; }
+      });
       if(!on){ selected.clear(); tab.querySelectorAll('[data-ticket-id].is-checked').forEach(b => b.classList.remove('is-checked')); update(); }
     };
     if(toggleBtn) toggleBtn.addEventListener('click', () => setMode(!isSelecting()));
@@ -1287,5 +1302,69 @@
     refresh();
   });
 })();
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script>
+  // Vista previa de entradas: render con PDF.js ajustado al ancho del recuadro + zoom. Si PDF.js no
+  // está disponible o el PDF no se puede leer (CORS), cae a un iframe con el visor del navegador.
+  (function(){
+    var PDFJS = window.pdfjsLib;
+    if(PDFJS && PDFJS.GlobalWorkerOptions){ PDFJS.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'; }
+    var states = new WeakMap();
+    function fallback(viewer){
+      var scroll = viewer.querySelector('.invitation-pdf-scroll');
+      var url = viewer.getAttribute('data-pdf-url') || '';
+      if(scroll) scroll.innerHTML = '<iframe src="' + url + '#toolbar=1&navpanes=0&view=FitH" title="Vista previa entrada"></iframe>';
+    }
+    function render(viewer){
+      var st = states.get(viewer);
+      if(!st || !st.page) return;
+      var scroll = viewer.querySelector('.invitation-pdf-scroll');
+      var base = Math.max((scroll.clientWidth || 600) - 24, 120);
+      var vp1 = st.page.getViewport({scale: 1});
+      var scale = (base / vp1.width) * (st.zoom || 1);
+      if(!isFinite(scale) || scale <= 0) scale = 1;
+      var vp = st.page.getViewport({scale: scale});
+      var ratio = window.devicePixelRatio || 1;
+      var canvas = st.canvas;
+      canvas.width = Math.floor(vp.width * ratio);
+      canvas.height = Math.floor(vp.height * ratio);
+      canvas.style.width = Math.floor(vp.width) + 'px';
+      canvas.style.height = Math.floor(vp.height) + 'px';
+      if(st.task && st.task.cancel){ try { st.task.cancel(); } catch(e){} }
+      st.task = st.page.render({ canvasContext: canvas.getContext('2d'), viewport: vp, transform: ratio !== 1 ? [ratio,0,0,ratio,0,0] : null });
+    }
+    function load(viewer){
+      if(states.get(viewer)){ render(viewer); return; }
+      if(!PDFJS){ fallback(viewer); return; }
+      var url = viewer.getAttribute('data-pdf-url');
+      if(!url) return;
+      var scroll = viewer.querySelector('.invitation-pdf-scroll');
+      states.set(viewer, { zoom: 1 });
+      PDFJS.getDocument(url).promise.then(function(pdf){ return pdf.getPage(1); }).then(function(page){
+        var canvas = document.createElement('canvas');
+        if(scroll){ scroll.innerHTML = ''; scroll.appendChild(canvas); }
+        var st = states.get(viewer); st.page = page; st.canvas = canvas; st.zoom = 1;
+        render(viewer);
+      }).catch(function(){ states.delete(viewer); fallback(viewer); });
+    }
+    document.addEventListener('shown.bs.modal', function(ev){
+      var v = ev.target.querySelector('[data-pdf-viewer]');
+      if(v) load(v);
+    });
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-pdf-zoom]');
+      if(!btn) return;
+      var viewer = btn.closest('[data-pdf-viewer]');
+      var st = viewer && states.get(viewer);
+      if(!st || !st.page) return;
+      var act = btn.getAttribute('data-pdf-zoom');
+      if(act === 'in') st.zoom = Math.min((st.zoom || 1) * 1.25, 6);
+      else if(act === 'out') st.zoom = Math.max((st.zoom || 1) / 1.25, 0.2);
+      else st.zoom = 1;
+      render(viewer);
+    });
+  })();
 </script>
 {% endblock %}

@@ -36091,6 +36091,10 @@ def invitation_tickets_upload(concert_id):
                     sector_val = (request.form.get(f'sector_{idx}') or request.form.get('sector') or meta_sector or '').strip() or None
                     row_val = (request.form.get(f'row_{idx}') or request.form.get('row_label') or meta_row or '').strip() or None
                     seat_val = (request.form.get(f'seat_{idx}') or meta_seat or '').strip() or None
+                # Si en una subida NUMERADA una entrada no trae sector/fila/asiento (se coló una sin
+                # numerar), se separa en un sector propio "Sin numerar" para no mezclarla con las numeradas.
+                if is_numbered and not sector_val and not row_val and not seat_val:
+                    sector_val = 'Sin numerar'
                 ticket = InvitationTicket(
                     concert_id=concert.id,
                     category_id=(category.id if category else None),

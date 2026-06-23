@@ -772,7 +772,8 @@ img[data-default-photo="1"]{
 .invitation-seat--assigned { color:#8a6800; background:#fff7d6; }
 .invitation-seat--sent, .invitation-seat--delivered, .invitation-seat--picked_up { color:#b42318; background:#fff1f0; }
 .invitation-seat.is-pending { opacity:.5; pointer-events:none; }
-#inv-tab-tickets.is-selecting .invitation-seat[data-ticket-id] { cursor:pointer; }
+#inv-tab-tickets.is-selecting { -webkit-user-select:none; user-select:none; }
+#inv-tab-tickets.is-selecting .invitation-seat[data-ticket-id] { cursor:pointer; touch-action:none; }
 .invitation-seat.is-checked { outline:3px solid #007CA2; outline-offset:1px; box-shadow:0 0 0 .14rem rgba(0,124,162,.3); }
 .invitation-bulk-bar { position:sticky; top:.5rem; z-index:6; background:#fff; }
 .invitation-option-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:.75rem; }

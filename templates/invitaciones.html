@@ -1132,15 +1132,38 @@
     if(toggleBtn) toggleBtn.addEventListener('click', () => setMode(!isSelecting()));
     const cancelBtn = tab.querySelector('[data-select-cancel]');
     if(cancelBtn) cancelBtn.addEventListener('click', () => setMode(false));
-    tab.addEventListener('click', (ev) => {
+    // Selección por CLIC y por ARRASTRE (pintar) sobre el plano. Pointer events valen para ratón y
+    // táctil: al pulsar una butaca se fija el modo (añadir si no estaba marcada, quitar si lo estaba)
+    // y al arrastrar sobre otras se aplica el mismo modo.
+    let dragging = false, dragMode = null;
+    const applySeat = (seat) => {
+      if(!seat) return;
+      const id = seat.dataset.ticketId;
+      if(dragMode === 'remove'){ if(selected.has(id)){ selected.delete(id); seat.classList.remove('is-checked'); } }
+      else { if(!selected.has(id)){ selected.add(id); seat.classList.add('is-checked'); } }
+      update();
+    };
+    tab.addEventListener('pointerdown', (ev) => {
       if(!isSelecting()) return;
       const seat = ev.target.closest('[data-ticket-id]');
       if(!seat) return;
-      ev.preventDefault(); ev.stopPropagation();
-      const id = seat.dataset.ticketId;
-      if(selected.has(id)){ selected.delete(id); seat.classList.remove('is-checked'); }
-      else { selected.add(id); seat.classList.add('is-checked'); }
-      update();
+      ev.preventDefault();
+      dragging = true;
+      dragMode = selected.has(seat.dataset.ticketId) ? 'remove' : 'add';
+      applySeat(seat);
+    });
+    tab.addEventListener('pointermove', (ev) => {
+      if(!dragging || !isSelecting()) return;
+      if(ev.pointerType === 'mouse' && ev.buttons === 0){ dragging = false; return; }
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      const seat = el && el.closest ? el.closest('[data-ticket-id]') : null;
+      if(seat) applySeat(seat);
+    });
+    document.addEventListener('pointerup', () => { dragging = false; dragMode = null; });
+    document.addEventListener('pointercancel', () => { dragging = false; dragMode = null; });
+    // En modo selección el clic no debe abrir la vista previa ni propagar (el toggle ya lo hizo pointerdown).
+    tab.addEventListener('click', (ev) => {
+      if(isSelecting() && ev.target.closest('[data-ticket-id]')){ ev.preventDefault(); ev.stopPropagation(); }
     }, true);
     if(bar){
       const idsField = bar.querySelector('[data-bulk-ids]');

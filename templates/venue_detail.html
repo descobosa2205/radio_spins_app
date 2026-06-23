@@ -10,6 +10,7 @@
       <div class="text-muted small">
         {{ venue.municipality or 'Sin municipio' }}{% if venue.province %} · {{ venue.province }}{% endif %}
         {% if venue.covered %}<span class="badge text-bg-light border ms-2">Cubierto</span>{% endif %}
+        {% if venue.allows_bars %}<span class="badge text-bg-light border ms-1"><i class="fa fa-beer-mug-empty me-1"></i>Barras</span>{% endif %}
       </div>
     </div>
   </div>
@@ -68,9 +69,15 @@
         <input class="form-control" type="file" name="photo" accept="image/*">
       </div>
       <div class="col-md-3 d-flex align-items-end">
-        <div class="form-check">
-          <input class="form-check-input" type="checkbox" name="covered" id="venueCovered" {% if venue.covered %}checked{% endif %}>
-          <label class="form-check-label" for="venueCovered">Recinto cubierto</label>
+        <div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="covered" id="venueCovered" {% if venue.covered %}checked{% endif %}>
+            <label class="form-check-label" for="venueCovered">Recinto cubierto</label>
+          </div>
+          <div class="form-check">
+            <input class="form-check-input" type="checkbox" name="allows_bars" id="venueBars" {% if venue.allows_bars %}checked{% endif %}>
+            <label class="form-check-label" for="venueBars">Permite barras</label>
+          </div>
         </div>
       </div>
       <div class="col-md-5 d-flex align-items-end justify-content-end gap-2">

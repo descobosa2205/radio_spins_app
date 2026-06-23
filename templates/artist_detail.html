@@ -15,7 +15,7 @@
 <div class="ficha-hero">
   <img class="ficha-hero__media ficha-hero__media--round" src="{{ artist.photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">Artista</div>
+    <div class="ficha-hero__eyebrow">Artista · {% if artist.is_international %}Internacional{% else %}Nacional{% endif %}</div>
     <h1 class="ficha-hero__title">{{ artist.name }}</h1>
     <div class="d-flex align-items-center gap-2 flex-wrap mt-2 artist-social-strip">
       {% for link in social_links_display or [] %}
@@ -179,7 +179,10 @@
           {% if CAN_EDIT_ARTISTS_STATIONS %}<button type="button" class="btn btn-sm btn-outline-secondary" data-edit-toggle title="Editar"><i class="fa fa-pen"></i></button>{% endif %}
         </div>
         <div class="ficha-section__body" data-section-view>
-          {% if artist.email %}<div class="ficha-fields"><div><div class="ficha-field__label">Email principal</div><div class="ficha-field__value">{{ artist.email }}</div></div></div>{% else %}<div class="ficha-empty">Sin email principal. Pulsa <i class="fa fa-pen"></i> para completar.</div>{% endif %}
+          <div class="ficha-fields">
+            <div><div class="ficha-field__label">Origen</div><div class="ficha-field__value">{% if artist.is_international %}<i class="fa fa-globe me-1 text-muted"></i>Internacional{% else %}<i class="fa fa-flag me-1 text-muted"></i>Nacional{% endif %}</div></div>
+            {% if artist.email %}<div><div class="ficha-field__label">Email principal</div><div class="ficha-field__value">{{ artist.email }}</div></div>{% endif %}
+          </div>
         </div>
         {% if CAN_EDIT_ARTISTS_STATIONS %}
         <form class="ficha-section__body d-none" data-section-form method="post" action="{{ url_for('artist_update', artist_id=artist.id) }}" enctype="multipart/form-data" data-inline data-inline-target="#artist-datos-zone">
@@ -188,6 +191,14 @@
             <div class="col-12">
               <label class="form-label">Nombre artístico</label>
               <input name="name" class="form-control" value="{{ artist.name }}" required>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Origen</label>
+              <select name="is_international" class="form-select">
+                <option value="0" {% if not artist.is_international %}selected{% endif %}>Nacional</option>
+                <option value="1" {% if artist.is_international %}selected{% endif %}>Internacional</option>
+              </select>
+              <div class="form-text">Los artistas internacionales aplican retención del 24% sobre el caché en las simulaciones.</div>
             </div>
             <div class="col-12">
               <label class="form-label">Email principal</label>

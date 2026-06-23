@@ -60,6 +60,8 @@ class Artist(Base):
     name = Column(Text, nullable=False, unique=True)
     photo_url = Column(Text)
     email = Column(Text)
+    # Nacional (false) / Internacional (true). Relevante para retenciones en simulaciones.
+    is_international = Column(Boolean, nullable=False, server_default=text("false"))
     social_links = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_public_token = Column(Text)
@@ -702,6 +704,7 @@ class Venue(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     name = Column(Text, nullable=False)
     covered = Column(Boolean, nullable=False, default=False)  # True=cubierto, False=aire libre
+    allows_bars = Column(Boolean, nullable=False, server_default=text("false"))  # ¿permite barras? (ingresos por barra)
     address = Column(Text)
     municipality = Column(Text)
     province = Column(Text)
@@ -2776,6 +2779,236 @@ class EmbargoOrder(Base):
         Index("idx_embargo_orders_created", "created_at"),
     )
 
+
+# ============================================================================
+# SIMULACIONES (Contratación) — viabilidad / potencial de conciertos y giras.
+# Una Simulación tiene N actividades (1 si es concierto, varias si es gira).
+# Cada actividad lleva su ticketing, ingresos, cachés, comisiones y producción.
+# Los socios (% que suman 100) viven a nivel de simulación.
+# ============================================================================
+
+class Simulation(Base):
+    """Simulación económica de un concierto o de una gira."""
+    __tablename__ = "simulations"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False, index=True)
+    managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"), index=True)
+    kind = Column(Text, nullable=False, server_default=text("'CONCERT'"))   # CONCERT | TOUR
+    title = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'DRAFT'"))   # DRAFT | ACTIVE | ARCHIVED
+    notes = Column(Text)
+    settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+    managing_company = relationship("GroupCompany")
+    activities = relationship(
+        "SimulationActivity", back_populates="simulation",
+        cascade="all, delete-orphan", order_by="SimulationActivity.sort_order",
+    )
+    partners = relationship(
+        "SimulationPartner", back_populates="simulation",
+        cascade="all, delete-orphan", order_by="SimulationPartner.sort_order",
+    )
+
+
+class SimulationActivity(Base):
+    """Una fecha / concierto dentro de una simulación (1 en concierto, N en gira)."""
+    __tablename__ = "simulation_activities"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    simulation_id = Column(PGUUID(as_uuid=True), ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False, index=True)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    label = Column(Text)
+    event_date = Column(Date)
+    date_unknown = Column(Boolean, nullable=False, server_default=text("false"))
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"), index=True)
+    venue_unknown = Column(Boolean, nullable=False, server_default=text("false"))
+    settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    simulation = relationship("Simulation", back_populates="activities")
+    venue = relationship("Venue")
+    ticket_categories = relationship(
+        "SimulationTicketCategory", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationTicketCategory.sort_order",
+    )
+    income_items = relationship(
+        "SimulationIncomeItem", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationIncomeItem.sort_order",
+    )
+    caches = relationship(
+        "SimulationCache", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationCache.sort_order",
+    )
+    commissions = relationship(
+        "SimulationCommission", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationCommission.sort_order",
+    )
+    production_items = relationship(
+        "SimulationProductionItem", back_populates="activity",
+        cascade="all, delete-orphan", order_by="SimulationProductionItem.sort_order",
+    )
+
+
+class SimulationPartner(Base):
+    """Socio de la simulación (empresa del grupo o tercero). Los % suman 100."""
+    __tablename__ = "simulation_partners"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    simulation_id = Column(PGUUID(as_uuid=True), ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False, index=True)
+    company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"), index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
+    name = Column(Text)  # etiqueta/snapshot (socio sin ficha o para preservar el nombre)
+    pct = Column(Numeric, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    simulation = relationship("Simulation", back_populates="partners")
+    company = relationship("GroupCompany")
+    promoter = relationship("Promoter")
+
+
+class SimulationTicketCategory(Base):
+    """Categoría de entrada (precio sin IVA, incluye SGAE) en zona Pista/Grada."""
+    __tablename__ = "simulation_ticket_categories"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    zone = Column(Text, nullable=False, server_default=text("'PISTA'"))   # PISTA | GRADA
+    name = Column(Text, nullable=False, server_default=text("''"))
+    price_net = Column(Numeric, nullable=False, server_default=text("0"))     # sin IVA, incluye SGAE
+    quantity = Column(Integer, nullable=False, server_default=text("0"))      # aforo de la categoría
+    invitations = Column(Integer, nullable=False, server_default=text("0"))   # invitaciones (no a la venta)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    activity = relationship("SimulationActivity", back_populates="ticket_categories")
+    extras = relationship(
+        "SimulationTicketExtra", back_populates="category",
+        cascade="all, delete-orphan", order_by="SimulationTicketExtra.sort_order",
+    )
+
+
+class SimulationTicketExtra(Base):
+    """Complemento de una categoría (p. ej. Early Access). IVA incluido, sin SGAE."""
+    __tablename__ = "simulation_ticket_extras"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    category_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_ticket_categories.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(Text, nullable=False, server_default=text("''"))
+    amount_gross = Column(Numeric, nullable=False, server_default=text("0"))  # IVA incluido
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    category = relationship("SimulationTicketCategory", back_populates="extras")
+
+
+class SimulationIncomeItem(Base):
+    """Subvención o patrocinio (importe sin IVA). Varios por actividad."""
+    __tablename__ = "simulation_income_items"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(Text, nullable=False, server_default=text("'SUBVENCION'"))  # SUBVENCION | PATROCINIO
+    name = Column(Text, nullable=False, server_default=text("''"))
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    activity = relationship("SimulationActivity", back_populates="income_items")
+
+
+class SimulationCache(Base):
+    """Caché del artista: fijo o variable. Varios por actividad."""
+    __tablename__ = "simulation_caches"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(Text)
+    mode = Column(Text, nullable=False, server_default=text("'FIXED'"))    # FIXED | VARIABLE
+    # Fijo
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
+    includes_iva = Column(Boolean, nullable=False, server_default=text("false"))
+    includes_retention = Column(Boolean, nullable=False, server_default=text("false"))
+    retention_exempt = Column(Boolean, nullable=False, server_default=text("false"))
+    # Variable
+    var_type = Column(Text)              # PER_TICKET | PERCENT
+    var_value = Column(Numeric, nullable=False, server_default=text("0"))
+    var_threshold_type = Column(Text)    # TICKETS | AMOUNT | NONE
+    var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    activity = relationship("SimulationActivity", back_populates="caches")
+
+
+class SimulationCommission(Base):
+    """Comisión de un comisionista (tercero): fija o variable."""
+    __tablename__ = "simulation_commissions"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
+    name = Column(Text)
+    mode = Column(Text, nullable=False, server_default=text("'FIXED'"))    # FIXED | VARIABLE
+    amount = Column(Numeric, nullable=False, server_default=text("0"))
+    includes_iva = Column(Boolean, nullable=False, server_default=text("false"))
+    includes_retention = Column(Boolean, nullable=False, server_default=text("false"))
+    retention_exempt = Column(Boolean, nullable=False, server_default=text("false"))
+    var_type = Column(Text)
+    var_value = Column(Numeric, nullable=False, server_default=text("0"))
+    var_threshold_type = Column(Text)
+    var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    exempt_amount = Column(Numeric, nullable=False, server_default=text("0"))  # importe exento de comisiones
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    activity = relationship("SimulationActivity", back_populates="commissions")
+    promoter = relationship("Promoter")
+
+
+class SimulationProductionItem(Base):
+    """Línea de gasto de producción (presupuesto). IVA por defecto 21%."""
+    __tablename__ = "simulation_production_items"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))   # claves de BAG_EXPENSE_CATEGORIES
+    concept = Column(Text, nullable=False, server_default=text("''"))
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA
+    iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
+    # Variable (p. ej. alquiler de recinto variable; se configura como los cachés)
+    is_variable = Column(Boolean, nullable=False, server_default=text("false"))
+    var_type = Column(Text)              # PER_TICKET | PERCENT
+    var_value = Column(Numeric, nullable=False, server_default=text("0"))
+    var_threshold_type = Column(Text)
+    var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    activity = relationship("SimulationActivity", back_populates="production_items")
+
+
+# ----- Ticketing vinculado al RECINTO (plantilla que se autocarga en simulaciones) -----
+
+class VenueTicketCategory(Base):
+    """Plantilla de categorías por recinto (sin precio; se rellena en cada simulación)."""
+    __tablename__ = "venue_ticket_categories"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False, index=True)
+    zone = Column(Text, nullable=False, server_default=text("'PISTA'"))
+    name = Column(Text, nullable=False, server_default=text("''"))
+    quantity = Column(Integer, nullable=False, server_default=text("0"))
+    invitations = Column(Integer, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    venue = relationship("Venue")
+    extras = relationship(
+        "VenueTicketExtra", back_populates="category",
+        cascade="all, delete-orphan", order_by="VenueTicketExtra.sort_order",
+    )
+
+
+class VenueTicketExtra(Base):
+    """Complemento de una categoría de la plantilla del recinto."""
+    __tablename__ = "venue_ticket_extras"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    category_id = Column(PGUUID(as_uuid=True), ForeignKey("venue_ticket_categories.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(Text, nullable=False, server_default=text("''"))
+    amount_gross = Column(Numeric, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    category = relationship("VenueTicketCategory", back_populates="extras")
+
+
 def _exec_ddl_statements(stmts, label: str = "schema"):
     """Ejecuta DDL idempotente sentencia a sentencia.
 
@@ -2793,6 +3026,23 @@ def _exec_ddl_statements(stmts, label: str = "schema"):
                 conn.exec_driver_sql(s)
         except Exception as exc:
             print(f"[schema:{label}] Aviso en sentencia {idx}: {exc}")
+
+
+def ensure_simulations_schema():
+    """Esquema de la función *Simulaciones* (Contratación) y banderas de catálogo.
+
+    Idempotente. Por ahora añade banderas transversales:
+      - ``artists.is_international`` (Nacional/Internacional).
+      - ``venues.allows_bars`` (¿el recinto permite barras?).
+    Las tablas de simulaciones y de ticketing del recinto se añaden por fases.
+    """
+
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        "ALTER TABLE IF EXISTS artists  ADD COLUMN IF NOT EXISTS is_international boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS venues   ADD COLUMN IF NOT EXISTS allows_bars     boolean NOT NULL DEFAULT false;",
+    ]
+    _exec_ddl_statements(stmts, "simulations")
 
 
 def ensure_artist_feature_schema():

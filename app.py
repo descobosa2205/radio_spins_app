@@ -110,6 +110,7 @@ from models import (
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
     ensure_entity_links_schema,
+    ensure_simulations_schema,
     ensure_chartmetric_schema,
     ensure_performance_indexes,
     SessionLocal,
@@ -189,6 +190,18 @@ from models import (
     ConcertTicketer,
     ConcertTicketerTicketType,
     TicketSaleDetail,
+    # Simulaciones (Contratación)
+    Simulation,
+    SimulationActivity,
+    SimulationPartner,
+    SimulationTicketCategory,
+    SimulationTicketExtra,
+    SimulationIncomeItem,
+    SimulationCache,
+    SimulationCommission,
+    SimulationProductionItem,
+    VenueTicketCategory,
+    VenueTicketExtra,
 )
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
 from flask_wtf import CSRFProtect
@@ -364,6 +377,7 @@ for _fn, _name in [
     (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
     (ensure_invitation_schema, "ensure_invitation_schema"),
     (ensure_entity_links_schema, "ensure_entity_links_schema"),
+    (ensure_simulations_schema, "ensure_simulations_schema"),
 ]:
     _safe_ensure(_fn, _name)
 
@@ -1209,6 +1223,8 @@ def artist_update(artist_id):
     a.name = request.form.get("name", a.name).strip()
     email = (request.form.get("email") or "").strip() or None
     a.email = email
+    if "is_international" in request.form:
+        a.is_international = _truthy(request.form.get("is_international"))
     photo = request.files.get("photo")
     try:
         if photo and photo.filename:
@@ -16896,13 +16912,14 @@ def venues_view():
     if request.method == "POST":
         name = request.form.get("name","").strip()
         covered = (request.form.get("covered") == "on")
+        allows_bars = (request.form.get("allows_bars") == "on")
         address = request.form.get("address","").strip()
         municipality = request.form.get("municipality","").strip()
         province = request.form.get("province","").strip()
         try:
             photo = request.files.get("photo")
             photo_url = upload_image(photo, "venues") if photo and getattr(photo, "filename", "") else None
-            v = Venue(name=name, covered=covered, address=address,
+            v = Venue(name=name, covered=covered, allows_bars=allows_bars, address=address,
                       municipality=municipality, province=province, photo_url=photo_url)
             session.add(v)
             session.commit()
@@ -16942,6 +16959,7 @@ def venue_update(vid):
         return redirect(url_for("venues_view"))
     v.name = (request.form.get("name") or v.name or "").strip()
     v.covered = (request.form.get("covered") == "on")
+    v.allows_bars = (request.form.get("allows_bars") == "on")
     v.address = (request.form.get("address") or "").strip()
     v.municipality = (request.form.get("municipality") or "").strip()
     v.province = (request.form.get("province") or "").strip()
@@ -17616,6 +17634,8 @@ def contracting_view():
     valid_sections = {"giras-compradas", "festivales-ciclos", "otras-actividades", "simulaciones"}
     if section not in valid_sections:
         section = "giras-compradas"
+    if section == "simulaciones":
+        return _render_simulations_list()
     session_db = db()
     try:
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
@@ -17673,6 +17693,210 @@ def contracting_view():
         )
     finally:
         session_db.close()
+
+
+# ============================ SIMULACIONES (Contratación) ============================
+
+def _sim_safe_uuid(v):
+    """UUID o None (sin lanzar)."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = v.strip()
+        if not v:
+            return None
+    try:
+        return to_uuid(v)
+    except Exception:
+        return None
+
+
+def _sim_parse_date(v):
+    v = (v or "").strip()
+    if not v:
+        return None
+    try:
+        return datetime.strptime(v, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def _render_simulations_list():
+    """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
+    s = db()
+    try:
+        sims = (
+            s.query(Simulation)
+            .options(
+                joinedload(Simulation.artist),
+                joinedload(Simulation.managing_company),
+                selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+            )
+            .order_by(Simulation.created_at.desc())
+            .all()
+        )
+        groups = {}
+        for sim in sims:
+            a = sim.artist
+            key = str(a.id) if a else "__none__"
+            g = groups.get(key)
+            if not g:
+                g = {"artist": a, "sims": []}
+                groups[key] = g
+            g["sims"].append(sim)
+        groups_list = sorted(
+            groups.values(),
+            key=lambda gr: ((gr["artist"].name or "").lower() if gr["artist"] else "zzz"),
+        )
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        return render_template(
+            "simulaciones_list.html",
+            section="simulaciones",
+            groups=groups_list,
+            total_sims=len(sims),
+            artists=artists,
+            companies=companies,
+            CAN_EDIT=can_edit_simulations(),
+        )
+    finally:
+        s.close()
+
+
+def _simulation_partners_from_form(form):
+    """Filas de socios desde el asistente (arrays paralelos kind/ref/label/pct)."""
+    kinds = form.getlist("partner_kind[]")
+    refs = form.getlist("partner_ref[]")
+    labels = form.getlist("partner_label[]")
+    pcts = form.getlist("partner_pct[]")
+    rows = []
+    n = max(len(kinds), len(refs), len(labels), len(pcts)) if (kinds or refs or labels or pcts) else 0
+    for i in range(n):
+        kind = (kinds[i] if i < len(kinds) else "").strip().lower()
+        ref = (refs[i] if i < len(refs) else "").strip()
+        label = (labels[i] if i < len(labels) else "").strip()
+        pct = _money_or_zero(pcts[i] if i < len(pcts) else "0")
+        company_id = promoter_id = None
+        if kind == "company":
+            company_id = _sim_safe_uuid(ref)
+        elif kind == "promoter":
+            promoter_id = _sim_safe_uuid(ref)
+        if not company_id and not promoter_id and not label:
+            continue
+        rows.append({"company_id": company_id, "promoter_id": promoter_id, "name": label or None, "pct": pct})
+    return rows
+
+
+@app.post("/contratacion/simulaciones/crear", endpoint="simulation_create")
+@admin_required
+def simulation_create():
+    if not can_edit_simulations():
+        flash("No tienes permisos para crear simulaciones.", "warning")
+        return redirect(url_for("contracting_view", section="simulaciones"))
+    s = db()
+    try:
+        artist_id = _sim_safe_uuid(request.form.get("artist_id"))
+        if not artist_id or not s.get(Artist, artist_id):
+            flash("Debes seleccionar un artista para la simulación.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        kind = (request.form.get("kind") or "CONCERT").strip().upper()
+        if kind not in ("CONCERT", "TOUR"):
+            kind = "CONCERT"
+        sim = Simulation(
+            artist_id=artist_id,
+            managing_company_id=_sim_safe_uuid(request.form.get("managing_company_id")),
+            kind=kind,
+            status="ACTIVE",
+            title=(request.form.get("title") or "").strip() or None,
+            created_by_user_id=_sim_safe_uuid(session.get("user_id")),
+        )
+        s.add(sim)
+        s.flush()  # asegura sim.id
+
+        # Primera actividad (fecha + recinto). En gira se añaden más desde la ficha.
+        date_unknown = _truthy(request.form.get("date_unknown"))
+        venue_unknown = _truthy(request.form.get("venue_unknown"))
+        act = SimulationActivity(
+            simulation_id=sim.id,
+            sort_order=0,
+            label=(request.form.get("activity_label") or "").strip() or None,
+            event_date=None if date_unknown else _sim_parse_date(request.form.get("event_date")),
+            date_unknown=date_unknown,
+            venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
+            venue_unknown=venue_unknown,
+        )
+        s.add(act)
+
+        for idx, pr in enumerate(_simulation_partners_from_form(request.form)):
+            s.add(SimulationPartner(
+                simulation_id=sim.id,
+                company_id=pr["company_id"],
+                promoter_id=pr["promoter_id"],
+                name=pr["name"],
+                pct=pr["pct"],
+                sort_order=idx,
+            ))
+        s.commit()
+        flash("Simulación creada.", "success")
+        return redirect(url_for("simulation_detail_view", sid=sim.id))
+    except Exception as e:
+        s.rollback()
+        flash(f"Error creando la simulación: {e}", "danger")
+        return redirect(url_for("contracting_view", section="simulaciones"))
+    finally:
+        s.close()
+
+
+@app.get("/contratacion/simulaciones/<sid>", endpoint="simulation_detail_view")
+@admin_required
+def simulation_detail_view(sid):
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(
+                joinedload(Simulation.artist),
+                joinedload(Simulation.managing_company),
+                selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+                selectinload(Simulation.partners).joinedload(SimulationPartner.company),
+                selectinload(Simulation.partners).joinedload(SimulationPartner.promoter),
+            )
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        return render_template(
+            "simulacion_detail.html",
+            sim=sim,
+            activities=activities,
+            CAN_EDIT=can_edit_simulations(),
+        )
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/simulaciones/<sid>/eliminar", endpoint="simulation_delete")
+@admin_required
+def simulation_delete(sid):
+    if not can_edit_simulations():
+        flash("No tienes permisos para eliminar simulaciones.", "warning")
+        return redirect(url_for("contracting_view", section="simulaciones"))
+    s = db()
+    try:
+        sim = s.get(Simulation, _sim_safe_uuid(sid))
+        if sim:
+            s.delete(sim)
+            s.commit()
+            flash("Simulación eliminada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando la simulación: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="simulaciones"))
 
 
 # ---------- LISTAR / CREAR (Contratación: Conciertos + Facturación) ----------
@@ -18657,6 +18881,7 @@ def api_create_venue():
             covered = covered_value
         else:
             covered = str(covered_value or "").strip().lower() in ("1", "true", "yes", "on", "si", "sí")
+        allows_bars = _truthy(payload.get("allows_bars"))
 
         rows = []
         for row in session_db.query(Venue).order_by(Venue.name.asc()).all():
@@ -18679,6 +18904,7 @@ def api_create_venue():
         v = Venue(
             name=name,
             covered=covered,
+            allows_bars=allows_bars,
             address=address,
             municipality=municipality,
             province=province,
@@ -18706,6 +18932,7 @@ def api_create_venue():
             "text": text_label,
             "photo_url": (v.photo_url or ""),
             "logo_url": (v.photo_url or ""),
+            "allows_bars": bool(v.allows_bars),
         })
 
     except Exception as e:
@@ -18919,10 +19146,13 @@ def api_create_artist():
         photo = request.files.get("photo")
         photo_url = upload_png(photo, "artists") if photo and getattr(photo, "filename", "") else None
 
-        a = Artist(name=name, photo_url=photo_url)
+        a = Artist(name=name, photo_url=photo_url, is_international=_truthy(request.form.get("is_international")))
         session.add(a)
         session.commit()
-        return jsonify({"id": str(a.id), "label": a.name, "text": a.name, "name": a.name, "photo_url": a.photo_url})
+        return jsonify({
+            "id": str(a.id), "label": a.name, "text": a.name, "name": a.name,
+            "photo_url": a.photo_url, "is_international": bool(a.is_international),
+        })
 
     except Exception as e:
         session.rollback()
@@ -25549,12 +25779,15 @@ PRODUCTION_REQUEST_STATUS_LABELS = {
     "CONVERTED": "Convertida",
 }
 BAG_EXPENSE_CATEGORIES = [
-    ("SONIDO_LUCES", "Equipo de sonido y luces"),
+    # NOTA: las claves se conservan (datos existentes intactos); solo cambian etiquetas.
+    # "Recinto" es nueva y va primero para alinear con el presupuesto de Simulaciones.
+    ("RECINTO", "Recinto"),
+    ("SONIDO_LUCES", "Producción técnica e infraestructuras"),
     ("MUSICOS", "Músicos"),
     ("PERSONAL", "Personal"),
     ("TRANSPORTE", "Transporte"),
     ("HOTELES", "Hoteles"),
-    ("MARKETING", "Marketing"),
+    ("MARKETING", "Marketing y promoción"),
     ("OTROS", "Otros gastos"),
     ("PRORRATEOS", "Prorrateos"),
 ]
@@ -26482,6 +26715,8 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.conciertos"
     if endpoint == "quadrantes_view":
         return "contratacion.cuadrantes"
+    if endpoint.startswith("simulation_") or endpoint.startswith("api_simulation_"):
+        return "contratacion.simulaciones"
     if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
@@ -26648,6 +26883,11 @@ def can_edit_radio() -> bool:
 
 def can_edit_concerts() -> bool:
     return has_access_key("contratacion", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
+
+
+def can_edit_simulations() -> bool:
+    # El check sobre "contratacion.simulaciones" ya incluye al antecesor "contratacion".
+    return has_access_key("contratacion.simulaciones", edit=True, include_descendants=True) or current_role() in (5, 6, 10)
 
 
 def can_edit_catalogs() -> bool:

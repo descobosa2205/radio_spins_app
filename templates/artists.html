@@ -13,11 +13,18 @@
 <div class="card mb-4">
   <div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-5">
+      <div class="col-md-4">
         <label class="form-label">Nombre del artista</label>
         <input required name="name" class="form-control" />
       </div>
-      <div class="col-md-5">
+      <div class="col-md-3">
+        <label class="form-label">Origen</label>
+        <select name="is_international" class="form-select">
+          <option value="0" selected>Nacional</option>
+          <option value="1">Internacional</option>
+        </select>
+      </div>
+      <div class="col-md-3">
         <label class="form-label">Foto (PNG)</label>
         <input type="file" name="photo" accept="image/png" class="form-control" />
       </div>
@@ -38,7 +45,9 @@
           <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
           <div class="flex-grow-1">
             <div class="fw-semibold">{{ a.name }}</div>
-            <div class="small text-muted">Abrir ficha del artista</div>
+            <div class="small">
+              {% if a.is_international %}<span class="badge text-bg-light border"><i class="fa fa-globe me-1"></i>Internacional</span>{% else %}<span class="badge text-bg-light border"><i class="fa fa-flag me-1"></i>Nacional</span>{% endif %}
+            </div>
           </div>
           <div class="text-muted"><i class="fa fa-chevron-right"></i></div>
         </div>

@@ -81,6 +81,12 @@ body { background: #fafafa; }
    Discográfica / Canciones
    ========================================================= */
 
+/* Tablas de repertorio (canciones / álbumes): cada artista es una tabla independiente, así que con
+   el layout automático las columnas quedaban con distinto ancho en cada bloque. Con table-layout
+   fijo + anchos idénticos en las columnas de datos, todas las tablas alinean igual entre artistas. */
+.repertorio-table{ table-layout: fixed; min-width: 880px; }
+.repertorio-table th, .repertorio-table td{ overflow-wrap: break-word; }
+
 .song-hero{
   border: 1px solid rgba(0,0,0,.06);
   background: #fff;

@@ -44,11 +44,13 @@
       <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
         <div class="me-auto">
           <div class="fw-bold">{{ c.artist.name if c.artist else 'Sin artista' }}</div>
+          {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
           <div class="text-muted small">
             {{ c.date.strftime('%d/%m/%Y') if c.date else '' }}
             {% if c.venue %} · {{ c.venue.name }}{% endif %}
             {% if c.venue and c.venue.municipality %} · {{ c.venue.municipality }}{% endif %}
           </div>
+          {% if c.venue %}{{ linked_mini('venue', c.venue.id) }}{% endif %}
         </div>
 
         <div class="d-flex align-items-center gap-1">
@@ -219,6 +221,7 @@
                           <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
+                          {% if ct.ticketer %}{{ linked_mini('ticketer', ct.ticketer.id) }}{% endif %}
                         </div>
                         <div class="d-flex gap-2 align-items-center">
                           {% if CAN_VIEW_ECON %}

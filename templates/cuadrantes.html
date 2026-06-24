@@ -536,6 +536,7 @@
                        src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
                        alt="">
                   <div class="fw-semibold">{{ a.name }}</div>
+                  {{ linked_mini('artist', a.id) }}
                 </div>
               {% endfor %}
             </div>
@@ -558,6 +559,7 @@
             <div class="d-flex align-items-center gap-2" style="min-width:0;">
               <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
               {{ artist_avatar(g.artist_photo, g.artist_name) }}<div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
+              {{ linked_mini('artist', g.artist_id) }}
             </div>
             <div class="mini-pill">{{ (g.events or [])|length }}</div>
           </div>

@@ -40,7 +40,7 @@
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
                     <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
                     <div class="fw-semibold mt-2">{{ (expense.immediate_payment_amount or expense.amount_gross)|eur }}</div>
                     {% if expense.created_by_nick %}<span class="badge text-bg-light border mt-2">Solicita: {{ expense.created_by_nick }}</span>{% endif %}
@@ -65,7 +65,7 @@
                 <div class="d-flex justify-content-between gap-3 align-items-start flex-wrap">
                   <div>
                     <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
-                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
+                    <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}
                     <div class="small mt-2">{{ expense.no_invoice_reason or 'Sin motivo indicado' }}</div>
                     <span class="badge text-bg-warning mt-2">Sin factura</span>
                   </div>
@@ -86,7 +86,7 @@
       <div class="card-body p-0">
         {% for expense in payable_expenses %}
           <div class="p-3 border-bottom d-flex justify-content-between gap-3 flex-wrap">
-            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
+            <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}{% if expense.attachment_url %}<a href="{{ expense.attachment_url }}" target="_blank" class="small">Ver factura/ticket</a>{% endif %}</div>
             <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" enctype="multipart/form-data" class="d-flex gap-2 align-items-start flex-wrap">
               <input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;">
               <input type="date" name="paid_at" class="form-control form-control-sm" style="max-width:150px;">
@@ -191,6 +191,7 @@
                 <div>
                   <div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div>
                   <div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>
+                  {% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}
                   <div class="small mt-2">{{ expense.immediate_payment_reason or 'Sin motivo indicado' }}</div>
                   <span class="badge text-bg-warning mt-2">{{ payment_status_labels.get(expense.payment_status, expense.payment_status) }}</span>
                 </div>
@@ -211,7 +212,7 @@
         <div class="card-body p-0">
           {% for expense in payable_expenses %}
             <div class="p-3 border-bottom d-flex justify-content-between gap-3" id="admin-payexp-{{ expense.id }}" data-inline-zone>
-              <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}</div>
+              <div><div class="fw-semibold">{{ expense.concept or 'Sin concepto' }}</div><div class="small text-muted">{{ expense.bag.title if expense.bag else 'Sin bolsa' }} · {{ expense.provider.nick if expense.provider else 'Sin proveedor' }}</div>{% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}{% set exp_embargo_alerts = admin_expense_embargo_alerts.get(expense.id|string, []) if admin_expense_embargo_alerts is defined else [] %}{% if exp_embargo_alerts %}<div class="alert alert-warning small py-1 px-2 mt-2 mb-0"><i class="fa fa-triangle-exclamation me-1"></i>Esta persona no puede facturar porque tiene una orden de embargo activa.</div>{% endif %}</div>
               <form method="post" action="{{ url_for('administration_expense_mark_paid', expense_id=expense.id) }}" class="d-flex gap-2 align-items-start" data-inline data-inline-target="#admin-payexp-{{ expense.id }}"><input type="text" name="paid_amount" class="form-control form-control-sm" value="{{ expense.amount_gross }}" style="max-width:120px;"><select name="payment_method" class="form-select form-select-sm" style="max-width:120px;"><option value="">Método</option>{% for method in payment_methods %}<option value="{{ method }}">{{ method }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-success">Pagar</button></form>
             </div>
           {% else %}<div class="p-3 text-muted">No hay gastos consolidados pendientes.</div>{% endfor %}
@@ -300,7 +301,7 @@
                         <div class="small text-muted mb-1">Tercero sugerido</div>
                         <div class="d-flex gap-2 align-items-center">
                           <img src="{{ order.suggested_promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%;">
-                          <div><div class="fw-semibold">{{ order.suggested_promoter.nick }}</div><div class="small text-muted">{{ order.suggested_promoter.contact_email or 'Sin email' }} · {{ order.suggested_promoter.tax_id or 'Sin NIF/CIF' }}</div></div>
+                          <div><div class="fw-semibold">{{ order.suggested_promoter.nick }}</div><div class="small text-muted">{{ order.suggested_promoter.contact_email or 'Sin email' }} · {{ order.suggested_promoter.tax_id or 'Sin NIF/CIF' }}</div>{{ linked_mini('promoter', order.suggested_promoter.id) }}</div>
                         </div>
                         <div class="d-flex gap-2 mt-2 flex-wrap">
                           <form method="post" action="{{ url_for('administration_embargo_link', order_id=order.id) }}">

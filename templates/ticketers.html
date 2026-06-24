@@ -54,7 +54,7 @@
                   <img src="{{ t.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
                 {% endif %}
               </td>
-              <td style="min-width:220px"><input class="form-control" name="name" value="{{ t.name }}"></td>
+              <td style="min-width:220px"><input class="form-control" name="name" value="{{ t.name }}">{% if t %}{{ linked_mini('ticketer', t.id) }}{% endif %}</td>
               <td style="min-width:260px"><input class="form-control" name="link_url" value="{{ t.link_url or '' }}"></td>
               <td class="text-end">
                 <div class="d-flex justify-content-end gap-2 flex-wrap">
@@ -75,7 +75,7 @@
                 <img src="{{ t.logo_url }}" alt="logo" style="width:40px;height:40px;object-fit:contain" />
               {% endif %}
             </td>
-            <td class="fw-semibold"><a href="{{ url_for('ticketer_detail_view', tid=t.id) }}">{{ t.name }}</a></td>
+            <td class="fw-semibold"><a href="{{ url_for('ticketer_detail_view', tid=t.id) }}">{{ t.name }}</a>{% if t %}{{ linked_mini('ticketer', t.id) }}{% endif %}</td>
             <td>
               {% if t.link_url %}
                 <a href="{{ t.link_url }}" target="_blank">{{ t.link_url }}</a>

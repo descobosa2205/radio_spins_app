@@ -13,6 +13,7 @@
       {% if contract_sheet_badge %}<span class="badge {{ contract_sheet_badge.class }}">{{ contract_sheet_badge.label }}</span>{% endif %}
       {% if announcement_badge %}<span class="badge {{ announcement_badge.class }}">{{ announcement_badge.label }}</span>{% endif %}
     </div>
+    {% if concert.artist %}{{ linked_mini('artist', concert.artist.id) }}{% endif %}
     <div class="ficha-hero__facts">
       {% if concert.date %}<span><i class="fa fa-calendar-day"></i>{{ concert.date.strftime('%d/%m/%Y') }}</span>{% endif %}
       {% if location_summary %}<span><i class="fa fa-location-dot"></i>{{ location_summary }}</span>{% endif %}
@@ -161,6 +162,7 @@
               <img src="{{ (concert.venue.photo_url if concert.venue else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:112px;height:84px;border-radius:14px;object-fit:cover;">
               <div>
                 <div class="fw-semibold">{{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Recinto pendiente') }}</div>
+                {% if concert.venue %}{{ linked_mini('venue', concert.venue.id) }}{% endif %}
                 {% if concert.venue %}
                   {% if concert.venue.address %}<div class="small text-muted">{{ concert.venue.address }}</div>{% endif %}
                   <div class="small text-muted">{{ concert.venue.municipality or '' }}{% if concert.venue.province %} · {{ concert.venue.province }}{% endif %}</div>

@@ -126,6 +126,7 @@
           <img src="{{ b.photo_url or default_avatar }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;background:#fff">
           <div>
             <div class="fw-semibold">{{ b.name }}</div>
+            {{ linked_mini('artist' if b.kind == 'ARTIST' else 'promoter', b.id) }}
             <div class="small text-muted">{{ b.kind_label }}</div>
             {% if b.contact_email %}
               <div class="small text-muted">{{ b.contact_email }}</div>
@@ -154,6 +155,7 @@
           <img src="{{ b.photo_url or default_avatar }}" alt="" style="width:56px;height:56px;object-fit:cover;border-radius:10px;border:1px solid #eee;background:#fff">
           <div>
             <div class="fw-semibold">{{ b.name }}</div>
+            {{ linked_mini('artist' if b.kind == 'ARTIST' else 'promoter', b.id) }}
             <div class="small text-muted">{{ b.kind_label }}</div>
             {% if b.contact_email %}<div class="small text-muted">{{ b.contact_email }}</div>{% endif %}
           </div>

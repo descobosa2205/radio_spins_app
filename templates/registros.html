@@ -140,6 +140,7 @@
               <img src="{{ author.photo_url or DEFAULT_PHOTO_URL }}" alt="" class="artist-avatar" style="width:58px;height:58px;object-fit:cover;">
               <div class="min-w-0">
                 <h5 class="m-0 text-truncate">{{ author.name }}</h5>
+                {% if author %}{{ linked_mini('promoter', author.id) }}{% endif %}
                 <div class="text-muted small">{{ author.song_count }} obra{% if author.song_count != 1 %}s{% endif %}</div>
               </div>
             </div>

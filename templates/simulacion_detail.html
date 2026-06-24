@@ -54,6 +54,7 @@
       {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total }} · {{ summary.sellable }} a la venta{% if summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</span>{% endif %}
       {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Resultado @100% {{ calc.at_100.resultado|eur }}</span>{% endif %}
       {% if sim.artist and sim.artist.is_international %}<span><i class="fa fa-globe"></i>Artista internacional</span>{% endif %}
+      {% if sim.artist %}{{ linked_mini('artist', sim.artist.id) }}{% endif %}
     </div>
   </div>
   <div class="ficha-hero__actions">
@@ -106,7 +107,7 @@
               {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
               <div class="list-group-item d-flex align-items-center gap-2 px-0">
                 {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
-                <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
+                <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}{% if p.promoter %}{{ linked_mini('promoter', p.promoter.id) }}{% endif %}</span>
                 <span class="fw-semibold">{{ p.pct or 0 }}%</span>
               </div>
             {% endfor %}
@@ -137,7 +138,7 @@
           {% for r in tour_rows %}{% if r.activity.artist %}
             <span class="d-inline-flex align-items-center gap-2 border rounded-pill ps-1 pe-3 py-1">
               <img src="{{ r.activity.artist.photo_url or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-              <span class="small"><span class="fw-semibold">{{ r.activity.artist.name }}</span>{% if r.activity.event_date and not r.activity.date_unknown %}<br><span class="text-muted">{{ r.activity.event_date.strftime('%d/%m/%Y') }}</span>{% endif %}</span>
+              <span class="small"><span class="fw-semibold">{{ r.activity.artist.name }}</span>{% if r.activity.event_date and not r.activity.date_unknown %}<br><span class="text-muted">{{ r.activity.event_date.strftime('%d/%m/%Y') }}</span>{% endif %}{{ linked_mini('artist', r.activity.artist.id) }}</span>
             </span>
           {% endif %}{% endfor %}
         </div>
@@ -154,7 +155,7 @@
       {% for r in tour_rows %}
       <a href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
         <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
-        {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url) }}{% else %}<span class="fw-semibold">{{ r.activity.label or (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index) }}</span>{% endif %}
+        {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ r.activity.label or (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index) }}</span>{% endif %}
         <span class="text-muted small flex-grow-1">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable }} a la venta</span>
         <span class="text-end"><div class="small text-muted">Resultado</div><div class="fw-semibold {{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</div></span>
       </a>
@@ -253,7 +254,7 @@
               {% for la in lineup %}
                 <div class="d-flex align-items-center gap-2">
                   <img src="{{ (la.artist.photo_url if la.artist else None) or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-                  <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}</span>
+                  <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}{% if la.artist %}{{ linked_mini('artist', la.artist.id) }}{% endif %}</span>
                   {% if CAN_EDIT %}<form method="post" action="{{ url_for('simulation_lineup_delete', sid=sim.id, lid=la.id) }}" onsubmit="return confirm('¿Quitar artista del festival?');"><button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-xmark"></i></button></form>{% endif %}
                 </div>
               {% endfor %}
@@ -275,7 +276,7 @@
                 {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
                 <div class="list-group-item d-flex align-items-center gap-2 px-0">
                   {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
-                  <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}</span>
+                  <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}{% if p.promoter %}{{ linked_mini('promoter', p.promoter.id) }}{% endif %}</span>
                   <span class="fw-semibold">{{ p.pct or 0 }}%</span>
                 </div>
               {% endfor %}

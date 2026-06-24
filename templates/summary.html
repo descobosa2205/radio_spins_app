@@ -28,7 +28,10 @@
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
         <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
-        <h5 class="m-0">{{ a.name }}</h5>
+        <div>
+          <h5 class="m-0">{{ a.name }}</h5>
+          {{ linked_mini('artist', a.id) }}
+        </div>
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
               data-bs-toggle="collapse" data-bs-target="#artist-{{ a.id }}-songs"

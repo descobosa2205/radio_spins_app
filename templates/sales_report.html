@@ -71,6 +71,7 @@
                         <small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small>
                       </span>
                     </div>
+                    {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
 
                     {% if c.festival_name %}
                       <span class="badge badge-festival">{{ c.festival_name }}</span>
@@ -83,6 +84,7 @@
 
                     {% if c.venue %}
                       <span class="badge badge-venue">{{ c.venue.name }}</span>
+                      {{ linked_mini('venue', c.venue.id) }}
                     {% endif %}
 
                     <div class="text-muted">

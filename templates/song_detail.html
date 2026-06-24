@@ -10,7 +10,7 @@
     <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
     <h1 class="ficha-hero__title">{{ song.title }}</h1>
     <div class="ficha-hero__facts">
-      <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name) }}{{ primary_artist.name }}{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
+      <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name) }}{{ primary_artist.name }}{{ linked_mini('artist', primary_artist.id) }}{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
       {% set song_collaborators = song.display_collaborator or song.collaborator %}
       {% if song_collaborators %}<span><i class="fa fa-users"></i>{{ song_collaborators }}</span>{% endif %}
     </div>
@@ -2017,11 +2017,13 @@
                 <div class="list-group-item d-flex justify-content-between align-items-start flex-wrap gap-2">
                   <div>
                     <div class="fw-semibold">{{ sh.full_name }}</div>
+                    {% if sh.promoter_id %}{{ linked_mini('promoter', sh.promoter_id) }}{% endif %}
                     <div class="small text-muted">
                       Editorial: {{ sh.publisher_name or '—' }}
                       {% if sh.contact_email %} · {{ sh.contact_email }}{% endif %}
                       {% if sh.contact_phone %} · {{ sh.contact_phone }}{% endif %}
                     </div>
+                    {% if sh.publisher_id %}{{ linked_mini('publishing', sh.publisher_id) }}{% endif %}
                   </div>
                   <div class="d-flex align-items-center gap-2 flex-wrap">
                     {% if sh.role == 'AUTHOR' %}

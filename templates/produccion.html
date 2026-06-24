@@ -165,6 +165,7 @@
         <div class="card-header bg-white d-flex align-items-center gap-2">
           <img src="{{ group.artist.photo_url or url_for('static', filename='img/logo.png') }}" class="rounded-circle border" style="width:36px;height:36px;object-fit:cover;" alt="{{ group.artist.name }}">
           <strong>{{ group.artist.name }}</strong>
+          {% if group.artist %}{{ linked_mini('artist', group.artist.id) }}{% endif %}
         </div>
         <div class="card-body">
           {% for type_block in group.types %}

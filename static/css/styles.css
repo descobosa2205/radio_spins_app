@@ -743,6 +743,13 @@ img[data-default-photo="1"]{
 .artist-chip img, .tiny-avatar { width:24px; height:24px; object-fit:cover; border-radius:50%; background:#eef0f3; }
 .tiny-avatar { width:18px; height:18px; }
 .artist-avatar-inline{ width:22px; height:22px; object-fit:cover; border-radius:50%; vertical-align:middle; border:1px solid #eee; background:#eef0f3; margin-right:.15rem; }
+/* Mini-ficha de vínculos: logo/foto pequeña de lo vinculado + relación/cargo, bajo el nombre */
+.linked-mini{ display:flex; flex-direction:column; gap:1px; margin-top:2px; min-width:0; }
+.linked-mini-item{ display:inline-flex; align-items:center; gap:.3rem; font-size:.72rem; line-height:1.25; color:#6b7280; min-width:0; max-width:100%; }
+.linked-mini-item img{ width:16px; height:16px; border-radius:50%; object-fit:cover; background:#eef0f3; flex:0 0 auto; border:1px solid #eef0f3; }
+.linked-mini-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.linked-mini-text b{ color:#374151; font-weight:600; }
+.linked-mini-more{ font-size:.68rem; color:#9aa0a6; }
 /* Materiales de canción (rediseño) */
 .mat-module{ border:1px solid #e9ecef; border-radius:.6rem; padding:.6rem .75rem; background:#fff; }
 .mat-module__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; margin-bottom:.4rem; }

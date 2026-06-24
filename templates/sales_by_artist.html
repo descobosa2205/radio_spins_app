@@ -3,7 +3,10 @@
 <div class="d-flex align-items-center justify-content-between mb-3">
   <div class="d-flex align-items-center gap-2">
     <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar">
-    <h6 class="m-0">Conciertos de {{ artist.name }}</h6>
+    <div>
+      <h6 class="m-0">Conciertos de {{ artist.name }}</h6>
+      {{ linked_mini('artist', artist.id) }}
+    </div>
   </div>
   <div class="badge bg-light text-dark px-3 py-2">{{ day.strftime('%d/%m/%Y') }}</div>
 </div>

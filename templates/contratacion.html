@@ -48,6 +48,7 @@
           <img src="{{ concert.artist.photo_url if concert.artist and concert.artist.photo_url else DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:54px;height:54px;object-fit:cover;border-radius:14px;">
           <div class="flex-grow-1" style="min-width:0;">
             <div class="fw-semibold text-truncate">{{ concert.festival_name or concert.artist.name if concert.artist else 'Actividad' }}</div>
+            {% if concert.artist %}{{ linked_mini('artist', concert.artist.id) }}{% endif %}
             <div class="small text-muted text-truncate">
               {{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}
             </div>

@@ -10,7 +10,7 @@
     <div class="ficha-hero__eyebrow">{{ album_kind_label }}</div>
     <h1 class="ficha-hero__title">{{ album.title }}</h1>
     <div class="ficha-hero__facts">
-      {% if artist %}<span>{{ artist_avatar(artist.photo_url, artist.name) }}{{ artist.name }}</span>{% endif %}
+      {% if artist %}<span>{{ artist_avatar(artist.photo_url, artist.name) }}{{ artist.name }}{{ linked_mini('artist', artist.id) }}</span>{% endif %}
       {% if album.release_date %}<span><i class="fa fa-calendar-day"></i>{{ album.release_date.strftime('%d/%m/%Y') }}</span>{% else %}<span><i class="fa fa-calendar-day"></i>Sin fecha</span>{% endif %}
       <span><i class="fa fa-music"></i>{{ track_rows|length }} canciones</span>
     </div>
@@ -982,6 +982,7 @@
                   <img src="{{ royalties_artist.artist_photo or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
                   <div>
                     <div class="fw-semibold">{{ royalties_artist.artist_name }}</div>
+                    {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
                     {% if not royalties_artist.found %}
                       <div class="small text-danger">No se encontró compromiso en contratos para este concepto. Se muestra 0%.</div>
                     {% endif %}
@@ -1036,6 +1037,7 @@
                       <img src="{{ (b.promoter.logo_url if b.promoter else None) or url_for('static', filename='img/default_promoter.png') }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
                       <div>
                         <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
+                        {% if b.promoter %}{{ linked_mini('promoter', b.promoter.id) }}{% endif %}
                         <div class="small text-muted">
                           {% if b.promoter and b.promoter.tax_id %}{{ b.promoter.tax_id }}{% endif %}
                           {% if b.promoter and b.promoter.contact_email %}{% if b.promoter.tax_id %} · {% endif %}{{ b.promoter.contact_email }}{% endif %}

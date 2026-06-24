@@ -253,6 +253,7 @@
         <div class="d-flex align-items-center gap-2">
           <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
           <h5 class="m-0">{{ artist.name }}</h5>
+          {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
         </div>
       </div>
 

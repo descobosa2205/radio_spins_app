@@ -39,7 +39,7 @@
     {% for concert in concerts %}
       <a href="{{ url_for('concert_detail_view', cid=concert.id) }}" class="d-flex align-items-center gap-3 p-3 border-bottom text-decoration-none text-reset">
         <img src="{{ concert.artist.photo_url if concert.artist and concert.artist.photo_url else DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:54px;height:54px;border-radius:14px;object-fit:cover;" alt="">
-        <div class="flex-grow-1" style="min-width:0;"><div class="fw-semibold text-truncate">{{ concert.festival_name or 'Concierto' }}</div><div class="small text-muted text-truncate">{{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}</div></div>
+        <div class="flex-grow-1" style="min-width:0;"><div class="fw-semibold text-truncate">{{ concert.festival_name or 'Concierto' }}</div>{% if concert.artist %}{{ linked_mini('artist', concert.artist.id) }}{% endif %}<div class="small text-muted text-truncate">{{ concert.artist.name if concert.artist else 'Sin artista' }} · {{ concert.date.strftime('%d/%m/%Y') if concert.date else 'Sin fecha' }} · {{ concert.venue.name if concert.venue else (concert.manual_venue_name or 'Sin recinto') }}</div></div>
         <span class="badge text-bg-warning text-dark">{{ concert.status or 'HABLADO' }}</span>
       </a>
     {% else %}<div class="p-4 text-muted">No hay conciertos vinculados todavía.</div>{% endfor %}

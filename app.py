@@ -872,6 +872,7 @@ def inject_globals():
         has_endpoint=has_endpoint,
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
+        linked_mini=linked_mini,
         ROLE=current_role(),
         ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
         CAN_VIEW_ECON=can_view_economics(),
@@ -34661,6 +34662,157 @@ def _promoter_link_summary_text(summary: dict | None) -> str:
     return " · ".join([x for x in parts if x])
 
 
+# --- Mini-ficha de vínculos para pintar BAJO el nombre+foto de CUALQUIER entidad ---------
+# Núcleo del requisito «en toda la app»: cuando se muestra una entidad vinculable (tercero,
+# artista, medio, recinto, ticketera, editorial) que tiene vinculaciones, debajo del nombre se
+# pinta en pequeño el logo/foto de lo vinculado + el cargo/relación. Para que cualquier plantilla
+# pueda hacerlo sin tocar su ruta, exponemos el helper global `linked_mini(tipo, id)` (ver
+# inject_globals), que resuelve los vínculos de forma perezosa con una sesión de SOLO LECTURA
+# cacheada por request y un caché por (tipo, id) para no repetir consultas.
+def _entity_link_mini_session():
+    sess = getattr(g, "_entity_link_session", None)
+    if sess is None:
+        sess = db()
+        g._entity_link_session = sess
+    return sess
+
+
+@app.teardown_request
+def _close_entity_link_session(exc=None):
+    sess = getattr(g, "_entity_link_session", None)
+    if sess is not None:
+        try:
+            sess.close()
+        except Exception:
+            pass
+        try:
+            g._entity_link_session = None
+        except Exception:
+            pass
+    return None
+
+
+def _entity_link_active_keys():
+    """Conjunto de claves (tipo, id) que aparecen en ALGUNA vinculación activa (como origen o
+    destino), precargado UNA vez por request con una sola consulta. Permite que `linked_mini` no
+    consulte por cada entidad sin vínculos (el caso habitual en listados). Devuelve None si la
+    precarga falla (entonces se cae al comportamiento por-entidad)."""
+    if getattr(g, "_entity_link_keys_done", False):
+        return getattr(g, "_entity_link_active_keys_set", None)
+    keys = set()
+    ok = True
+    try:
+        sess = _entity_link_mini_session()
+        for s_type, s_id, t_type, t_id in sess.query(
+            ThirdPartyLink.source_type, ThirdPartyLink.source_id,
+            ThirdPartyLink.target_type, ThirdPartyLink.target_id,
+        ).filter(ThirdPartyLink.is_active.is_(True)).all():
+            keys.add((_entity_link_type(s_type), str(s_id)))
+            keys.add((_entity_link_type(t_type), str(t_id)))
+    except Exception:
+        ok = False
+    try:
+        g._entity_link_keys_done = True
+        g._entity_link_active_keys_set = keys if ok else None
+    except Exception:
+        pass
+    return keys if ok else None
+
+
+def _entity_link_mini_summary(entity_type, entity_id) -> dict | None:
+    """Resumen corto (vínculo principal + hasta 3) de cualquier entidad vinculable, cacheado por
+    (tipo, id) durante la request. Devuelve None si no tiene vínculos activos."""
+    etype = _entity_link_type(entity_type)
+    eid = _safe_uuid(entity_id)
+    if not etype or not eid:
+        return None
+    cache = getattr(g, "_entity_link_mini_cache", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._entity_link_mini_cache = cache
+        except Exception:
+            pass
+    key = (etype, str(eid))
+    if key in cache:
+        return cache[key]
+    # Atajo: si conocemos el índice de claves con vínculos y esta no está, no hay nada que pintar.
+    active = _entity_link_active_keys()
+    if active is not None and key not in active:
+        cache[key] = None
+        return None
+    summary = None
+    try:
+        rows = _entity_link_rows(_entity_link_mini_session(), etype, eid, active_only=True)
+    except Exception:
+        rows = []
+    if rows:
+        first = rows[0].get("linked") or {}
+        summary = {
+            "label": first.get("label", ""),
+            "type_label": first.get("type_label", ""),
+            "relation_title": rows[0].get("relation_title", ""),
+            "icon": first.get("icon", "fa-link"),
+            "logo_url": first.get("logo_url", ""),
+            "items": [{
+                "label": (r.get("linked") or {}).get("label", ""),
+                "type_label": (r.get("linked") or {}).get("type_label", ""),
+                "relation_title": r.get("relation_title", ""),
+                "icon": (r.get("linked") or {}).get("icon", "fa-link"),
+                "logo_url": (r.get("linked") or {}).get("logo_url", ""),
+                "href": (r.get("linked") or {}).get("href", ""),
+            } for r in rows[:3]],
+            "extra": max(0, len(rows) - 3),
+        }
+    try:
+        cache[key] = summary
+    except Exception:
+        pass
+    return summary
+
+
+def linked_mini(entity_type=None, entity_id=None, summary=None, max_items=2):
+    """HTML de la mini-ficha de vínculos para colocar bajo el nombre+foto de una entidad.
+    Uso en plantilla: {{ linked_mini('promoter', p.id) }} (o pasando un `summary` ya calculado).
+    Devuelve '' si la entidad no tiene vínculos."""
+    if summary is None and entity_type is not None and entity_id is not None:
+        summary = _entity_link_mini_summary(entity_type, entity_id)
+    if not summary:
+        return Markup("")
+    items = summary.get("items")
+    if not items:
+        base = {
+            "relation_title": summary.get("relation_title", ""),
+            "type_label": summary.get("type_label", ""),
+            "label": summary.get("label", ""),
+            "logo_url": summary.get("logo_url", ""),
+        }
+        items = [base] if (base["label"] or base["relation_title"]) else []
+    if not items:
+        return Markup("")
+    try:
+        limit = max(1, int(max_items))
+    except Exception:
+        limit = 2
+    shown = items[:limit]
+    hidden = summary.get("extra", 0) + max(0, len(items) - len(shown))
+    chips = []
+    for it in shown:
+        lead = (it.get("relation_title") or "").strip() or (it.get("type_label") or "")
+        label = (it.get("label") or "").strip()
+        if lead and label:
+            inner = Markup('<b>%s</b> · %s') % (lead, label)
+        elif lead:
+            inner = Markup('<b>%s</b>') % lead
+        else:
+            inner = Markup('%s') % label
+        chips.append(Markup('<span class="linked-mini-item"><img src="%s" alt="" loading="lazy"><span class="linked-mini-text">%s</span></span>') % (
+            it.get("logo_url") or _entity_placeholder_url(), inner,
+        ))
+    extra_html = Markup('<span class="linked-mini-more">+%d</span>') % hidden if hidden else Markup("")
+    return Markup('<span class="linked-mini">%s%s</span>') % (Markup("").join(chips), extra_html)
+
+
 def _invitation_token() -> str:
     return _uuid.uuid4().hex + _uuid.uuid4().hex[:8]
 
@@ -34745,13 +34897,16 @@ def _invitation_event_type_label(concert: Concert | None) -> str:
 def _invitation_event_title(concert: Concert | None) -> str:
     if not concert:
         return "Evento"
-    for field in ("festival_name", "manual_venue_name"):
-        value = (getattr(concert, field, None) or "").strip()
-        if value:
-            return value
-    venue = getattr(concert, "venue", None)
-    if venue and getattr(venue, "name", None):
-        return venue.name
+    # Nombre del evento si lo hay (p. ej. festival / ciclo).
+    festival = (getattr(concert, "festival_name", None) or "").strip()
+    if festival:
+        return festival
+    # Si no hay nombre de evento, el título es el MUNICIPIO (no el nombre del recinto;
+    # el recinto y la ciudad ya se muestran en la línea de debajo).
+    city = _invitation_event_city(concert)
+    if city:
+        return city
+    # Último recurso: la etiqueta del tipo de actividad.
     return _invitation_event_type_label(concert)
 
 
@@ -34916,16 +35071,23 @@ def _invitation_ticket_status_class(value: str | None) -> str:
     return key.lower()
 
 
-def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | None = None) -> dict:
+def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | None = None, request_map: dict | None = None) -> dict:
     sector = (getattr(t, "sector", None) or "").strip()
     row_label = (getattr(t, "row_label", None) or "").strip()
     seat = (getattr(t, "seat_number", None) or "").strip()
     location = " ".join([x for x in [sector, row_label, seat] if x]) or ("Numerada" if getattr(t, "is_numbered", False) else "Sin numerar")
+    status = t.status or "AVAILABLE"
+    rid = str(t.assigned_request_id) if getattr(t, "assigned_request_id", None) else ""
+    rinfo = (request_map or {}).get(rid) if rid else None
+    # Enviada/descargada: la entrada por sí misma (status/sent_at) o, si está asignada a una
+    # solicitud, lo que diga la solicitud (la descarga solo se registra a nivel de solicitud).
+    sent = status in {"SENT", "DELIVERED", "PICKED_UP"} or bool(getattr(t, "sent_at", None)) or bool(rinfo and rinfo.get("sent"))
+    downloaded = bool(rinfo and rinfo.get("downloaded"))
     return {
         "id": str(t.id),
         "category_id": str(t.category_id),
         "category_name": (name_map or {}).get(str(t.category_id), "Categoría"),
-        "status": t.status or "AVAILABLE",
+        "status": status,
         "status_label": _invitation_ticket_status_label(t.status),
         "status_class": _invitation_ticket_status_class(t.status),
         "code": t.ticket_code or t.pdf_name or "—",
@@ -34936,9 +35098,13 @@ def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | N
         "seat_number": seat,
         "is_numbered": bool(getattr(t, "is_numbered", False)),
         "location": location,
-        "assigned_label": t.assigned_label or "",
-        "assigned_request_id": str(t.assigned_request_id) if getattr(t, "assigned_request_id", None) else "",
+        "assigned_label": t.assigned_label or (rinfo.get("guest_name") if rinfo else "") or "",
+        "assigned_request_id": rid,
         "assigned_commitment_id": str(t.assigned_commitment_id) if getattr(t, "assigned_commitment_id", None) else "",
+        "assignee_promoter_id": (rinfo.get("promoter_id") if rinfo else "") or "",
+        "assignee_artist_id": (rinfo.get("artist_id") if rinfo else "") or "",
+        "sent": bool(sent),
+        "downloaded": bool(downloaded),
         "warning": t.previous_assignment_warning or "",
     }
 
@@ -36363,7 +36529,22 @@ def invitation_event_detail(concert_id):
             .limit(1000)
             .all()
         )
-        tickets = [_invitation_ticket_payload(t, name_map) for t in ticket_rows]
+        # Estado de envío/descarga (y tercero/artista invitado) de las solicitudes a las que están
+        # asignadas las entradas, para mostrarlo al pinchar una invitación numerada y decidir si se
+        # puede recuperar/desvincular.
+        ticket_request_ids = {t.assigned_request_id for t in ticket_rows if getattr(t, 'assigned_request_id', None)}
+        request_map: dict[str, dict] = {}
+        if ticket_request_ids:
+            _sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+            for r in session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(ticket_request_ids))).all():
+                request_map[str(r.id)] = {
+                    'sent': bool(r.sent_at) or (r.status or '') in _sent_statuses,
+                    'downloaded': bool(r.downloaded_at) or _safe_int(r.downloaded_count) > 0,
+                    'guest_name': r.guest_name or '',
+                    'promoter_id': str(r.guest_promoter_id) if getattr(r, 'guest_promoter_id', None) else '',
+                    'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
+                }
+        tickets = [_invitation_ticket_payload(t, name_map, request_map) for t in ticket_rows]
         tickets_by_category = {str(c.id): [] for c in categories}
         for item in tickets:
             tickets_by_category.setdefault(str(item['category_id']), []).append(item)
@@ -37464,6 +37645,15 @@ def invitation_tickets_upload(concert_id):
 @app.post('/invitaciones/tickets/<ticket_id>/liberar', endpoint='invitation_ticket_release')
 @admin_required
 def invitation_ticket_release(ticket_id):
+    """Recupera/desvincula una invitación numerada concreta, gestionando su estado:
+
+    - NO enviada → al desvincular vuelve directamente a estar disponible (sin avisos).
+    - Enviada (sin descargar) → requiere confirmación; al recuperar vuelve a disponible.
+    - Descargada → confirmación con dos caminos: `recover` (vuelve a disponible) o
+      `lost` (se desvincula pero NO vuelve al pool de disponibles).
+
+    Sin un `mode` válido cuando hace falta, responde `needs_confirm` para que el front avise.
+    """
     _ajax = _truthy(request.form.get('ajax'))
     session_db = db()
     try:
@@ -37472,22 +37662,56 @@ def invitation_ticket_release(ticket_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, ticket.concert)
         cid = ticket.concert_id
-        if ticket.assigned_label:
-            ticket.previous_assignment_warning = f"Ya había sido asignada a {ticket.assigned_label}."
-        ticket.status = 'AVAILABLE'
+        req = session_db.get(InvitationRequest, ticket.assigned_request_id) if getattr(ticket, 'assigned_request_id', None) else None
+        sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        was_sent = (ticket.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP'} or bool(getattr(ticket, 'sent_at', None)) \
+            or (req is not None and (bool(req.sent_at) or (req.status or '') in sent_statuses))
+        was_downloaded = bool(req is not None and (bool(req.downloaded_at) or _safe_int(req.downloaded_count) > 0))
+        who = ticket.assigned_label or (req.guest_name if req else '') or 'el invitado'
+        mode = (request.form.get('mode') or '').strip().lower()
+
+        # Enviada sin decisión explícita → no liberar a ciegas: pedir confirmación.
+        if was_sent and mode not in {'recover', 'lost'}:
+            info = {
+                'ok': False, 'needs_confirm': True, 'sent': True,
+                'downloaded': bool(was_downloaded), 'assigned_label': ticket.assigned_label or (req.guest_name if req else ''),
+            }
+            if _ajax:
+                return jsonify(info)
+            flash('Esta invitación ya fue enviada. Usa el aviso para recuperarla o desvincularla.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+
+        if was_sent and mode == 'lost':
+            ticket.previous_assignment_warning = (
+                f"Enviada y descargada por {who}; desvinculada sin recuperar." if was_downloaded
+                else f"Enviada a {who}; desvinculada sin recuperar."
+            )
+            ticket.status = 'LOST'
+            msg = 'Invitación desvinculada (no vuelve a estar disponible).'
+        else:
+            if was_downloaded:
+                ticket.previous_assignment_warning = f"Ya había sido enviada y descargada por {who}."
+            elif was_sent:
+                ticket.previous_assignment_warning = f"Ya había sido enviada a {who}."
+            elif ticket.assigned_label:
+                ticket.previous_assignment_warning = f"Ya había sido asignada a {ticket.assigned_label}."
+            ticket.status = 'AVAILABLE'
+            msg = 'Invitación recuperada y de nuevo disponible.'
         ticket.assigned_request_id = None
         ticket.assigned_commitment_id = None
         ticket.assigned_label = None
+        ticket.sent_at = None
+        ticket.updated_at = _now_madrid()
         session_db.commit()
         if _ajax:
-            return jsonify({'ok': True, 'ticket_id': str(ticket.id)})
-        flash('Entrada liberada.', 'success')
+            return jsonify({'ok': True, 'ticket_id': str(ticket.id), 'message': msg})
+        flash(msg, 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
     except Exception as exc:
         session_db.rollback()
         if _ajax:
             return jsonify({'ok': False, 'error': str(exc)}), 400
-        flash(f'No se pudo liberar la entrada: {exc}', 'danger')
+        flash(f'No se pudo recuperar la entrada: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()

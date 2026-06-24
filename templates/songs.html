@@ -73,6 +73,7 @@
       <div class="d-flex align-items-center">
         <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
         <h5 class="m-0">{{ artist.name }}</h5>
+        {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
               data-bs-toggle="collapse" data-bs-target="#artist-{{ artist.id }}-songs"
@@ -195,6 +196,7 @@
       <div class="d-flex align-items-center">
         <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
         <h5 class="m-0">{{ artist.name }}</h5>
+        {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
               data-bs-toggle="collapse" data-bs-target="#artist-{{ artist.id }}-songs"

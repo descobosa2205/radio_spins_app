@@ -792,7 +792,34 @@
                 {% endif %}
               </div>
             </div>
-            {% if t.assigned_label %}<div class="alert alert-warning py-2 small mb-3">Asignada a {{ t.assigned_label }}</div>{% endif %}
+            {% if t.assigned_label or t.status_class in ['assigned','sent','lost'] %}
+            <div class="border rounded p-3 mb-3 bg-light" data-ticket-assign="{{ t.id }}">
+              <div class="d-flex flex-wrap align-items-start gap-3">
+                <div class="flex-grow-1" style="min-width:0">
+                  <div class="small text-muted mb-1">Asignada a</div>
+                  <div class="fw-semibold text-truncate">{{ t.assigned_label or '—' }}</div>
+                  {% if t.assignee_promoter_id %}{{ linked_mini('promoter', t.assignee_promoter_id) }}{% elif t.assignee_artist_id %}{{ linked_mini('artist', t.assignee_artist_id) }}{% endif %}
+                  <div class="d-flex flex-wrap gap-2 mt-2">
+                    {% if t.sent %}<span class="badge text-bg-success"><i class="fa fa-paper-plane me-1"></i>Enviada</span>{% else %}<span class="badge text-bg-secondary"><i class="fa fa-clock me-1"></i>Sin enviar</span>{% endif %}
+                    {% if t.sent %}{% if t.downloaded %}<span class="badge text-bg-warning text-dark"><i class="fa fa-download me-1"></i>Descargada</span>{% else %}<span class="badge text-bg-light border text-muted">No descargada</span>{% endif %}{% endif %}
+                    {% if t.status_class == 'lost' %}<span class="badge text-bg-dark">Desvinculada · no disponible</span>{% endif %}
+                  </div>
+                </div>
+                {% if t.status_class != 'lost' %}
+                <div class="text-end flex-shrink-0">
+                  <button type="button" class="btn btn-sm btn-outline-danger"
+                          data-ticket-recover
+                          data-action="{{ url_for('invitation_ticket_release', ticket_id=t.id) }}"
+                          data-sent="{{ '1' if t.sent else '' }}"
+                          data-downloaded="{{ '1' if t.downloaded else '' }}"
+                          data-who="{{ t.assigned_label }}">
+                    <i class="fa fa-rotate-left me-1"></i>Recuperar invitación
+                  </button>
+                </div>
+                {% endif %}
+              </div>
+            </div>
+            {% endif %}
             {% if t.warning %}<div class="alert alert-warning py-2 small mb-3">{{ t.warning }}</div>{% endif %}
             <div class="invitation-ticket-preview border rounded" data-pdf-viewer data-pdf-url="{{ t.pdf_url }}">
               <div class="invitation-pdf-toolbar">
@@ -812,6 +839,73 @@
 
 {% if tab == 'evento' %}
 {{ inv_menu.delete_modal() }}
+
+<div class="modal fade" id="ticketRecoverModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-rotate-left me-2 text-danger"></i>Recuperar invitación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><div class="alert alert-warning mb-0" data-trm-msg></div></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-dark d-none" data-trm-lost><i class="fa fa-link-slash me-1"></i>Desvincular sin recuperar</button>
+        <button type="button" class="btn btn-danger" data-trm-recover><i class="fa fa-rotate-left me-1"></i>Recuperar invitación</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var modalEl = document.getElementById('ticketRecoverModal');
+  if(!modalEl) return;
+  var msgEl = modalEl.querySelector('[data-trm-msg]');
+  var btnRecover = modalEl.querySelector('[data-trm-recover]');
+  var btnLost = modalEl.querySelector('[data-trm-lost]');
+  var current = null;
+  function getModal(){ return (window.bootstrap && bootstrap.Modal) ? bootstrap.Modal.getOrCreateInstance(modalEl) : null; }
+  function busy(on){ btnRecover.disabled = on; btnLost.disabled = on; }
+  function post(action, mode){
+    busy(true);
+    var fd = new FormData();
+    fd.append('ajax','1');
+    if(mode){ fd.append('mode', mode); }
+    fetch(action, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(data){
+        if(data && data.ok){ window.location.reload(); return; }
+        busy(false);
+        if(data && data.needs_confirm){ openFor(action, !!data.sent, !!data.downloaded, (data.assigned_label || (current && current.who) || '')); }
+        else { alert((data && data.error) || 'No se pudo completar la acción.'); }
+      })
+      .catch(function(){ busy(false); alert('No se pudo completar la acción.'); });
+  }
+  function openFor(action, sent, downloaded, who){
+    current = { action: action, sent: sent, downloaded: downloaded, who: who };
+    var nombre = who ? (' a «' + who + '»') : '';
+    if(downloaded){
+      msgEl.innerHTML = 'Esta invitación ya fue <strong>enviada y descargada</strong>' + nombre + '. Puedes <strong>recuperarla</strong> (volverá a estar disponible) o <strong>desvincularla sin recuperar</strong> (deja de estar asignada pero NO vuelve al pool de disponibles).';
+      btnLost.classList.remove('d-none');
+    } else {
+      msgEl.innerHTML = 'Esta invitación ya fue <strong>enviada</strong>' + nombre + '. Si la recuperas, volverá a estar disponible y dejará de estar asignada.';
+      btnLost.classList.add('d-none');
+    }
+    var m = getModal(); if(m){ m.show(); }
+  }
+  document.addEventListener('click', function(e){
+    var btn = e.target.closest ? e.target.closest('[data-ticket-recover]') : null;
+    if(!btn) return;
+    e.preventDefault();
+    var action = btn.getAttribute('data-action');
+    var sent = btn.getAttribute('data-sent') === '1';
+    var downloaded = btn.getAttribute('data-downloaded') === '1';
+    var who = btn.getAttribute('data-who') || '';
+    if(!sent){ post(action, ''); return; }
+    openFor(action, sent, downloaded, who);
+  });
+  btnRecover.addEventListener('click', function(){ if(current){ post(current.action, 'recover'); } });
+  btnLost.addEventListener('click', function(){ if(current){ post(current.action, 'lost'); } });
+})();
+</script>
+
 <div class="modal fade" id="guestListLinkModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-md modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('invitation_guest_list_link_create', concert_id=event.id) }}">

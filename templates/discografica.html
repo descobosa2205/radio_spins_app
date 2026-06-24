@@ -219,6 +219,7 @@
             <div class="d-flex align-items-center gap-2 mb-2">
               <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
               <h5 class="m-0">{{ artist.name }}</h5>
+              {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
 
             {% if not songs or (songs|length) == 0 %}
@@ -420,6 +421,7 @@
             <div class="d-flex align-items-center gap-2 mb-2">
               <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
               <h5 class="m-0">{{ artist.name }}</h5>
+              {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
 
             <div class="table-responsive bg-white border rounded">
@@ -821,6 +823,7 @@
           <div class="d-flex align-items-center gap-2 mb-2">
             <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
             <h5 class="m-0">{{ artist.name }}</h5>
+            {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
           </div>
 
           {% if not rows or (rows|length) == 0 %}

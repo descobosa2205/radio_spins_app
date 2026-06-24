@@ -195,6 +195,7 @@
                 {% if expense.invoice_number %} · Nº {{ expense.invoice_number }}{% endif %}
                 {% if expense.issue_date %} · {{ expense.issue_date.strftime('%d/%m/%Y') }}{% endif %}
               </div>
+              {% if expense.provider %}{{ linked_mini('promoter', expense.provider.id) }}{% endif %}
               {% set embargo_alerts = expense_embargo_alerts.get(exp_id, []) if expense_embargo_alerts is defined else [] %}
               {% if embargo_alerts %}
                 <div class="alert alert-warning py-2 px-3 mt-2 mb-0 small border-warning">

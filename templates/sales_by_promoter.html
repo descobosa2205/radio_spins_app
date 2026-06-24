@@ -4,7 +4,10 @@
   <div class="d-flex align-items-center gap-2">
     {% if promoter %}
       <img src="{{ promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-      <h6 class="m-0">Conciertos por promotor — {{ promoter.nick }}</h6>
+      <div>
+        <h6 class="m-0">Conciertos por promotor — {{ promoter.nick }}</h6>
+        {{ linked_mini('promoter', promoter.id) }}
+      </div>
     {% else %}
       <h6 class="m-0">Conciertos por promotor</h6>
     {% endif %}
@@ -17,7 +20,10 @@
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
         <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2">
-        <h5 class="m-0">{{ artist.name }}</h5>
+        <div>
+          <h5 class="m-0">{{ artist.name }}</h5>
+          {{ linked_mini('artist', artist.id) }}
+        </div>
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
               data-bs-toggle="collapse" data-bs-target="#artist-{{ artist.id }}-concerts">

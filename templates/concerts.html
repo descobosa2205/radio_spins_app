@@ -193,6 +193,7 @@
                     <!-- línea 1: nombre + fecha + evento + provincia/ciudad/recinto -->
                     <div class="d-flex flex-wrap align-items-center gap-2">
                       <div class="fw-semibold">{{ c.artist.name if c.artist else '—' }}</div>
+                      {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
                       {% if c.date %}
                         <span class="text-muted">{{ c.date.strftime('%d/%m/%Y') }}</span>
                       {% endif %}
@@ -308,6 +309,7 @@
                           <img src="{{ c.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
                           <span class="small fw-semibold">{{ c.promoter.nick }}</span>
                         </span>
+                        {{ linked_mini('promoter', c.promoter.id) }}
                       {% endif %}
                     </div>
 
@@ -349,6 +351,7 @@
                               </div>
                               <div>
                                 <div class="small fw-semibold">{{ s.promoter.nick }}</div>
+                                {{ linked_mini('promoter', s.promoter.id) }}
                                 {% if s.pct and s.pct_base %}<div class="small text-muted">{{ 'Neto' if s.pct_base=='NET' else 'Bruto' }}</div>{% endif %}
                               </div>
                             </div>
@@ -375,6 +378,7 @@
                               </div>
                               <div>
                                 <div class="small fw-semibold">{{ z.promoter.nick }}</div>
+                                {{ linked_mini('promoter', z.promoter.id) }}
                                 {% if z.concept %}<div class="small text-muted truncate-2" style="max-width:260px;">{{ z.concept }}</div>{% endif %}
                               </div>
                             </div>
@@ -684,6 +688,7 @@
               <div class="flex-grow-1">
                 <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
                   <a class="fw-semibold text-decoration-none" href="{{ url_for('concert_detail_view', cid=c.id) }}">{{ c.artist.name if c.artist else 'Concierto' }}</a>
+                  {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
                   <span class="badge text-bg-light border">{{ c.sale_type_label or c.sale_type }}</span>
                   {% if c.festival_name %}<span class="badge badge-festival">{{ c.festival_name }}</span>{% endif %}
                 </div>

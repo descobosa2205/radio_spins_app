@@ -23650,7 +23650,7 @@ def promoter_detail_view(pid):
             flash('Tercero no encontrado.', 'warning')
             return redirect(url_for('promoters_view'))
         tab = (request.args.get('tab') or 'general').strip().lower()
-        if tab not in {'general', 'contactos', 'vinculaciones'}:
+        if tab not in {'general', 'contactos', 'vinculaciones', 'invitaciones'}:
             tab = 'general'
         promoter_email_addresses = (
             session.query(PromoterEmail)
@@ -23662,12 +23662,48 @@ def promoter_detail_view(pid):
         for contact in promoter.contacts or []:
             key = (contact.title or 'Sin título').strip() or 'Sin título'
             grouped[key].append(contact)
+        # Invitaciones solicitadas por este tercero (como invitado): en vigor (evento activo) y
+        # anteriores. Se gestionan con los 3 puntos igual que en la gestión del evento.
+        promoter_invitations_count = (
+            session.query(func.count(InvitationRequest.id))
+            .filter(InvitationRequest.guest_promoter_id == promoter.id)
+            .scalar()
+        ) or 0
+        promoter_invitations_active = []
+        promoter_invitations_past = []
+        if tab == 'invitaciones' and promoter_invitations_count:
+            cat_cache: dict[str, list] = {}
+            tmp = []
+            for r in (
+                session.query(InvitationRequest)
+                .filter(InvitationRequest.guest_promoter_id == promoter.id)
+                .order_by(InvitationRequest.created_at.desc())
+                .all()
+            ):
+                concert = r.concert or (session.get(Concert, r.concert_id) if r.concert_id else None)
+                cats = cat_cache.get(str(r.concert_id))
+                if cats is None:
+                    cats = _invitation_get_categories(session, concert, ensure_defaults=False) if concert else []
+                    cat_cache[str(r.concert_id)] = cats
+                item = _invitation_request_payload(r, cats)
+                item.update(_invitation_request_kind_flags(session, r, cats))
+                item['event'] = _invitation_event_payload(session, concert) if concert else {
+                    'id': '', 'title': 'Evento', 'artist_names': '', 'date_label': '', 'date': '',
+                }
+                active = _invitation_event_is_active_for_requests(concert) if concert else False
+                item['_sort_date'] = item['event'].get('date') or ''
+                (promoter_invitations_active if active else promoter_invitations_past).append(item)
+            promoter_invitations_active.sort(key=lambda i: i['_sort_date'] or '9999')  # próximos primero
+            promoter_invitations_past.sort(key=lambda i: i['_sort_date'], reverse=True)  # recientes primero
         return render_template(
             'promoter_detail.html',
             promoter=promoter,
             tab=tab,
             contacts_by_title=sorted(grouped.items(), key=lambda x: _norm_text_key(x[0])),
             promoter_email_addresses=promoter_email_addresses,
+            promoter_invitations_count=promoter_invitations_count,
+            promoter_invitations_active=promoter_invitations_active,
+            promoter_invitations_past=promoter_invitations_past,
             entity_links=_entity_link_rows(session, 'promoter', promoter.id),
             entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
@@ -35424,6 +35460,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     return {
         "id": str(row.id),
         "guest_name": row.guest_name,
+        "guest_promoter_id": str(row.guest_promoter_id) if getattr(row, "guest_promoter_id", None) else "",
         "guest_company": row.guest_company or "",
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": row.guest_email or "",
@@ -37195,11 +37232,13 @@ def invitation_request_update(request_id):
         row.updated_at = _now_madrid()
         session_db.commit()
         flash('Solicitud actualizada.', 'success')
-        return redirect(url_for('invitations_view', tab='pedir'))
+        _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
+        return redirect(_fb or url_for('invitations_view', tab='pedir'))
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo actualizar la solicitud: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='pedir'))
+        _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
+        return redirect(_fb or url_for('invitations_view', tab='pedir'))
     finally:
         session_db.close()
 

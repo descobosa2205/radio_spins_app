@@ -420,12 +420,12 @@
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <strong>{{ row.guest_name }}</strong>
-                        {% if row.link_summary_text %}<span class="invitation-linked-mini"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}
+                        {% if row.guest_promoter_id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
                         {% if row.guest_title %}<span class="text-muted">· {{ row.guest_title }}</span>{% endif %}
                         <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
                         {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
                       </div>
+                      {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
                       <div class="small text-muted mt-1">Solicitado por <img src="{{ row.requester_photo_url }}" class="tiny-avatar" alt=""> {{ row.requester_nick }} · {{ row.created_at_label }}{% if row.registered_by_other %} · <i class="fa fa-user-pen me-1"></i>registrada por {{ row.created_by_nick }}{% endif %}</div>
                       <div class="mt-2">{{ row.quantities_label }}</div>
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}

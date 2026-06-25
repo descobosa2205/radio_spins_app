@@ -35457,10 +35457,27 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             link_summary = _promoter_link_summary(row._sa_instance_state.session, row.guest_promoter) if getattr(row, "guest_promoter", None) else {}
         except Exception:
             link_summary = {}
+    # Foto/logo del invitado (tercero → logo; artista/empleado → foto) para pintarla antes del nombre.
+    guest_photo = ""
+    try:
+        gp = getattr(row, "guest_promoter", None)
+        if gp is not None:
+            guest_photo = gp.logo_url or ""
+        if not guest_photo:
+            ga = getattr(row, "guest_artist", None)
+            if ga is not None:
+                guest_photo = getattr(ga, "photo_url", "") or ""
+        if not guest_photo:
+            gu = getattr(row, "guest_user", None)
+            if gu is not None:
+                guest_photo = getattr(gu, "photo_url", "") or ""
+    except Exception:
+        guest_photo = ""
     return {
         "id": str(row.id),
         "guest_name": row.guest_name,
         "guest_promoter_id": str(row.guest_promoter_id) if getattr(row, "guest_promoter_id", None) else "",
+        "guest_photo_url": guest_photo or url_for("static", filename="img/placeholder_photo.png"),
         "guest_company": row.guest_company or "",
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": row.guest_email or "",
@@ -36288,6 +36305,18 @@ def invitations_view():
                 my_requests.append(item)
                 if len(my_requests) >= 120:
                     break
+        # Agrupadas por actividad (evento), conservando el orden de aparición.
+        my_requests_by_event = []
+        _mr_index = {}
+        for item in my_requests:
+            ev = item.get('event') or {}
+            key = ev.get('id') or 'sin-evento'
+            grp = _mr_index.get(key)
+            if grp is None:
+                grp = {'event': ev, 'requests': []}
+                _mr_index[key] = grp
+                my_requests_by_event.append(grp)
+            grp['requests'].append(item)
         return render_template(
             'invitaciones.html',
             tab=tab,
@@ -36297,6 +36326,7 @@ def invitations_view():
             events=events,
             events_by_artist=events_by_artist,
             my_requests=my_requests,
+            my_requests_by_event=my_requests_by_event,
             my_denied_count=my_denied_count,
             show_denied=show_denied,
             category_types=INVITATION_CATEGORY_TYPES,

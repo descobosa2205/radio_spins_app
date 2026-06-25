@@ -42,26 +42,44 @@
           <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir') }}"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>
         {% endif %}
       </div>
-      {% if my_requests %}
-        <div class="list-group">
-          {% for row in my_requests %}
-            <div class="list-group-item">
-              <div class="d-flex justify-content-between gap-3 flex-wrap">
-                <div>
-                  <strong>{{ row.event.artist_names }} · {{ row.event.date_label }}</strong>
-                  <div class="text-muted small">{{ row.event.type_label }} · {{ row.event.title }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>
-                  <div class="mt-2">{{ row.guest_name }}{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %} · {{ row.quantities_label }}</div>
-                  {% if row.link_summary_text %}<div class="invitation-linked-mini mt-1"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></div>{% endif %}
-                  {% if row.registered_by_other %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
-                </div>
-                <div class="d-flex align-items-center gap-2">
-                  <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
-                  {{ inv_menu.request_kebab(row) }}
-                </div>
-              </div>
+      {% if my_requests_by_event %}
+        {% for g in my_requests_by_event %}
+          <div class="border rounded mb-3">
+            <div class="d-flex align-items-center gap-3 flex-wrap p-2 border-bottom bg-light">
+              {% for a in (g.event.artists or []) %}
+                <span class="d-inline-flex align-items-center gap-2">
+                  <img src="{{ a.photo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+                  <span class="fw-semibold">{{ a.name }}</span>
+                </span>
+              {% else %}
+                <span class="fw-semibold">{{ g.event.artist_names or 'Evento' }}</span>
+              {% endfor %}
+              {% if g.event.date_label %}<span class="text-muted">· {{ g.event.date_label }}</span>{% endif %}
+              <span class="small text-muted ms-auto">{% if g.event.type_label %}<span class="badge text-bg-secondary">{{ g.event.type_label }}</span> {% endif %}{{ g.event.title }}{% if g.event.city %} · {{ g.event.city }}{% endif %}</span>
             </div>
-          {% endfor %}
-        </div>
+            <div class="list-group list-group-flush">
+              {% for row in g.requests %}
+                <div class="list-group-item">
+                  <div class="d-flex justify-content-between gap-3 flex-wrap">
+                    <div class="d-flex align-items-start gap-2">
+                      <img src="{{ row.guest_photo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
+                      <div>
+                        <div><strong>{{ row.guest_name }}</strong>{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %}</div>
+                        <div class="mt-1">{{ row.quantities_label }}</div>
+                        {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
+                        {% if row.registered_by_other %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
+                      </div>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                      <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                      {{ inv_menu.request_kebab(row) }}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endfor %}
       {% else %}
         <div class="alert alert-light border mb-0">Todavía no tienes solicitudes de invitaciones.</div>
       {% endif %}

@@ -71,7 +71,7 @@
                       </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                      <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+                      <span class="badge text-bg-{{ row.requester_status_badge }}">{{ row.requester_status_label }}</span>
                       {{ inv_menu.request_kebab(row) }}
                     </div>
                   </div>
@@ -1540,17 +1540,32 @@
       catch (err) { return false; }
     };
 
-    const assignSeat = async (seatEl) => {
+    // Asigna VARIAS butacas a la vez (clic auto-N, arrastre o "asignar a todos").
+    const commitAssign = async (e, seats) => {
+      seats = (seats || []).filter(s => s && s.dataset.ticketStatus === 'AVAILABLE');
+      if (!seats.length || busy) return;
+      busy = true; seats.forEach(s => { setSeatState(s, 'ASSIGNED'); s.classList.add('is-pending'); });
+      const ok = await postAssign(e, seats.map(s => s.dataset.ticketId), 0);
+      seats.forEach(s => s.classList.remove('is-pending')); busy = false;
+      if (ok) { seats.forEach(s => e.ticket_ids.push(s.dataset.ticketId)); }
+      else { seats.forEach(s => setSeatState(s, 'AVAILABLE')); alert('No se pudieron asignar las invitaciones.'); }
+      refresh();
+    };
+
+    // Clic en una butaca disponible: coge AUTOMÁTICAMENTE las que le falten a esa persona, SEGUIDAS
+    // desde la pinchada (consecutivas en numeradas; las N siguientes en sin numerar).
+    const assignFromSeat = (seatEl) => {
       if (busy) return;
       if (!activeSource) { alert('Selecciona primero a quién asignar (un invitado o compromiso a la izquierda).'); return; }
       const e = entryFor(activeSource);
-      if (e.ticket_ids.length >= e.qty) { alert('Ya has asignado todas las invitaciones de ' + e.label + '.'); return; }
-      const tid = seatEl.dataset.ticketId;
-      busy = true; setSeatState(seatEl, 'ASSIGNED'); seatEl.classList.add('is-pending');
-      const ok = await postAssign(e, [tid], 0);
-      seatEl.classList.remove('is-pending'); busy = false;
-      if (ok) { e.ticket_ids.push(tid); } else { setSeatState(seatEl, 'AVAILABLE'); alert('No se pudo asignar la butaca.'); }
-      refresh();
+      const need = e.qty - e.ticket_ids.length;
+      if (need <= 0) { alert('Ya has asignado todas las invitaciones de ' + e.label + '.'); return; }
+      const all = seatEls();
+      const start = all.indexOf(seatEl);
+      if (start < 0) return;
+      const pick = [];
+      for (let i = start; i < all.length && pick.length < need; i++){ if (all[i].dataset.ticketStatus === 'AVAILABLE') pick.push(all[i]); }
+      commitAssign(e, pick);
     };
 
     const releaseSeat = async (seatEl) => {
@@ -1565,13 +1580,6 @@
       refresh();
     };
 
-    const onSeatClick = (seatEl) => {
-      if (isGuestList) return;
-      const st = (seatEl.dataset.ticketStatus || '');
-      if (st === 'AVAILABLE') assignSeat(seatEl);
-      else if (st === 'ASSIGNED') releaseSeat(seatEl);
-    };
-
     const autoFillActive = async () => {
       if (busy || !activeSource || isGuestList) return;
       const e = entryFor(activeSource);
@@ -1579,12 +1587,7 @@
       if (need <= 0) return;
       const free = seatEls().filter(s => s.dataset.ticketStatus === 'AVAILABLE').slice(0, need);
       if (!free.length) { alert('No quedan invitaciones disponibles.'); return; }
-      busy = true; free.forEach(s => { setSeatState(s, 'ASSIGNED'); s.classList.add('is-pending'); });
-      const ok = await postAssign(e, free.map(s => s.dataset.ticketId), 0);
-      free.forEach(s => s.classList.remove('is-pending')); busy = false;
-      if (ok) { free.forEach(s => e.ticket_ids.push(s.dataset.ticketId)); }
-      else { free.forEach(s => setSeatState(s, 'AVAILABLE')); alert('No se pudieron asignar las invitaciones.'); }
-      refresh();
+      commitAssign(e, free);
     };
 
     const setActive = async (src) => {
@@ -1607,7 +1610,41 @@
     if (zone) {
       zone.addEventListener('dragover', ev => ev.preventDefault());
       zone.addEventListener('drop', ev => { ev.preventDefault(); autoFillActive(); });
-      zone.addEventListener('click', ev => { const seat = ev.target.closest('[data-ticket-id]'); if (seat) onSeatClick(seat); });
+      // Selección por ARRASTRE sobre las butacas (mantener pulsado y arrastrar) hasta el máximo que
+      // le falte a la persona; un CLIC simple coge automáticamente las que falten (seguidas).
+      let drag = null;  // { seats: [], moved: false, start: seatEl }
+      const dragNeed = () => { if (!activeSource) return 0; const e = entryFor(activeSource); return Math.max(e.qty - e.ticket_ids.length, 0); };
+      const addToDrag = (seat) => {
+        if (!drag || !seat || seat.dataset.ticketStatus !== 'AVAILABLE') return;
+        if (drag.seats.indexOf(seat) >= 0 || drag.seats.length >= dragNeed()) return;
+        drag.seats.push(seat); seat.classList.add('is-drag-sel');
+      };
+      zone.addEventListener('mousedown', ev => {
+        if (isGuestList || busy) return;
+        const seat = ev.target.closest('[data-ticket-id]'); if (!seat) return;
+        const st = seat.dataset.ticketStatus || '';
+        if (st === 'ASSIGNED') { ev.preventDefault(); releaseSeat(seat); return; }
+        if (st !== 'AVAILABLE') return;
+        if (!activeSource) { alert('Selecciona primero a quién asignar (un invitado o compromiso a la izquierda).'); return; }
+        ev.preventDefault();
+        drag = { seats: [], moved: false, start: seat };
+        addToDrag(seat);
+      });
+      zone.addEventListener('mouseover', ev => {
+        if (!drag) return;
+        const seat = ev.target.closest('[data-ticket-id]');
+        if (seat && seat !== drag.start) drag.moved = true;
+        addToDrag(seat);
+      });
+      document.addEventListener('mouseup', () => {
+        if (!drag) return;
+        const d = drag; drag = null;
+        d.seats.forEach(s => s.classList.remove('is-drag-sel'));
+        if (!activeSource) return;
+        const e = entryFor(activeSource);
+        if (d.moved && d.seats.length > 1) { commitAssign(e, d.seats); }
+        else { assignFromSeat(d.start); }   // clic simple → coge las que falten, seguidas
+      });
     }
     const autoAll = form.querySelector('[data-auto-all]');
     if (autoAll) autoAll.addEventListener('click', async () => {

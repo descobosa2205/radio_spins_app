@@ -35444,14 +35444,33 @@ def _invitation_quantities_label(quantities: dict | None, name_map: dict[str, st
 
 
 def _invitation_status_badge(status: str | None) -> str:
+    """Color del estado para QUIEN GESTIONA: asignadas en AMARILLO; enviadas / en taquilla /
+    recogidas en VERDE; aprobadas en azul; solicitadas/comprometidas en gris; denegadas en rojo."""
     s = (status or "SOLICITADAS").upper()
-    if s in {"APROBADAS", "ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}:
+    if s in {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}:
         return "success"
-    if s in {"SOLICITADAS", "COMPROMETIDAS"}:
+    if s == "ASIGNADAS":
         return "warning text-dark"
+    if s == "APROBADAS":
+        return "info text-dark"
     if s in {"RECHAZADAS", "ANULADAS"}:
         return "danger"
     return "secondary"
+
+
+def _invitation_requester_status(status: str | None) -> tuple[str, str]:
+    """(etiqueta, color) que ve EL PETICIONARIO: solo solicitada / aprobada / enviada / denegada.
+    No se le muestran los estados internos de gestión (asignadas, taquilla, recogidas...)."""
+    s = (status or "SOLICITADAS").upper()
+    if s in {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}:
+        return ("Enviadas", "success")
+    if s in {"APROBADAS", "ASIGNADAS"}:
+        return ("Aprobadas", "info text-dark")
+    if s == "RECHAZADAS":
+        return ("Rechazadas", "danger")
+    if s == "ANULADAS":
+        return ("Anuladas", "secondary")
+    return ("Solicitadas", "secondary")
 
 
 def _invitation_request_payload(row: InvitationRequest, categories: list[InvitationCategory] | None = None) -> dict:
@@ -35498,6 +35517,8 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status": row.status or "SOLICITADAS",
         "status_label": INVITATION_STATUS_LABELS.get(row.status or "", row.status or "Solicitadas"),
         "status_badge": _invitation_status_badge(row.status),
+        "requester_status_label": _invitation_requester_status(row.status)[0],
+        "requester_status_badge": _invitation_requester_status(row.status)[1],
         "link_summary": link_summary,
         "link_summary_text": _promoter_link_summary_text(link_summary),
         "note": row.note or "",

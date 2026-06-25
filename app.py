@@ -37209,7 +37209,11 @@ def invitation_commitment_deliver(commitment_id):
         _ensure_can_manage_invitations(session_db, row.concert)
         cid = row.concert_id
         mode = (request.form.get('mode') or 'email').strip().lower()
-        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
+        _cat_id = _safe_uuid(request.form.get('category_id'))  # opcional: entregar solo una categoría
+        _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+        if _cat_id:
+            _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
+        tickets = _tq.all()
         if not tickets:
             flash('Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de entregarlas.', 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
@@ -37243,6 +37247,47 @@ def invitation_commitment_deliver(commitment_id):
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo entregar: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/compromisos/<commitment_id>/recuperar', endpoint='invitation_commitment_release')
+@admin_required
+def invitation_commitment_release(commitment_id):
+    """Recupera (libera) las entradas asignadas a un compromiso —opcionalmente solo de una categoría—
+    devolviéndolas a disponibles."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        cid = row.concert_id
+        _cat_id = _safe_uuid(request.form.get('category_id'))
+        tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+        if _cat_id:
+            tq = tq.filter(InvitationTicket.category_id == _cat_id)
+        tickets = tq.all()
+        n = 0
+        for t in tickets:
+            t.previous_assignment_warning = f"Recuperada del compromiso «{row.name}»."
+            t.status = 'AVAILABLE'
+            t.assigned_commitment_id = None
+            t.assigned_request_id = None
+            t.assigned_label = None
+            t.sent_at = None
+            t.updated_at = _now_madrid()
+            n += 1
+        session_db.commit()
+        if n:
+            flash(f'{n} invitación(es) recuperada(s); vuelven a estar disponibles.', 'success')
+        else:
+            flash('No había invitaciones asignadas que recuperar.', 'warning')
+        return redirect(url_for('invitation_event_detail', concert_id=cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudieron recuperar las invitaciones: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()

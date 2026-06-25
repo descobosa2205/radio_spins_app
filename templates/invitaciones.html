@@ -363,7 +363,14 @@
                             <div class="dropdown">
                               <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                               <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-                                <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar / gestionar</button></li>
+                                {% if cs.assigned < cs.qty %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar</button></li>{% endif %}
+                                {% if cs.assigned > 0 %}
+                                <li><button type="button" class="dropdown-item" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }} · {{ cs.name|e }}" data-category-id="{{ cs.id }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar</button></li>
+                                <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
+                                {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                                <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                               </ul>
                             </div>
                           </div>
@@ -374,15 +381,17 @@
                       {% endif %}
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
+                    {% if not row.category_status %}
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
                         <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
-                        <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                        <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
                       </ul>
                     </div>
+                    {% endif %}
                   </div>
                 </div>
               {% endfor %}
@@ -1766,6 +1775,7 @@
         <div class="modal-body">
           <p class="small text-muted">Se entregan las entradas ya asignadas a este compromiso. Indica un email de destino o márcalas para recogida en taquilla.</p>
           <input type="hidden" name="mode" id="cdMode" value="email">
+          <input type="hidden" name="category_id" id="cdCategoryId" value="">
           <div class="mb-2"><label class="form-label">Email de destino</label><input type="email" class="form-control" name="email" id="cdEmail" placeholder="correo@ejemplo.com"></div>
         </div>
         <div class="modal-footer">
@@ -1788,6 +1798,7 @@
       document.getElementById('cdName').textContent = btn.getAttribute('data-name') || '';
       document.getElementById('cdEmail').value = '';
       document.getElementById('cdMode').value = 'email';
+      document.getElementById('cdCategoryId').value = btn.getAttribute('data-category-id') || '';
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
     document.getElementById('cdBoxOffice').addEventListener('click', function(){ document.getElementById('cdMode').value = 'box_office'; });

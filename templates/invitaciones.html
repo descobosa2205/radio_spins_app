@@ -354,6 +354,7 @@
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div>
                       <strong>{{ row.name }}</strong>{% if row.reason %}<span class="text-muted"> · {{ row.reason }}</span>{% endif %}
+                      {% if row.recipient_name %}<div class="small text-muted mt-1">Enviar a {% if row.recipient_photo %}<img src="{{ row.recipient_photo }}" class="tiny-avatar" alt="">{% endif %} <strong>{{ row.recipient_name }}</strong></div>{% endif %}
                       {% if row.category_status %}
                       <div class="mt-2 d-flex flex-column gap-1">
                         {% for cs in row.category_status %}
@@ -369,9 +370,6 @@
                                 <li><button type="button" class="dropdown-item" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }} · {{ cs.name|e }}" data-category-id="{{ cs.id }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar</button></li>
                                 <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
                                 {% endif %}
-                                <li><hr class="dropdown-divider"></li>
-                                <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}'><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                                <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                               </ul>
                             </div>
                           </div>
@@ -382,17 +380,16 @@
                       {% endif %}
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
-                    {% if not row.category_status %}
-                    <div class="dropdown dropdown-menu-end">
-                      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                    <div class="dropdown">
+                      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis me-1"></i>Compromiso</button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-                        <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
-                        <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}'>Editar</button></li>
-                        <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
-                        <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
+                        <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar todo</button></li>
+                        <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar todo el compromiso</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                        <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                       </ul>
                     </div>
-                    {% endif %}
                   </div>
                 </div>
               {% endfor %}
@@ -1071,6 +1068,27 @@
           <div class="col-md-6"><label class="form-label">Nombre / tercero</label><input class="form-control" name="name" placeholder="Recinto, artista, patrocinador..." required></div>
           <div class="col-md-6"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Compromiso del recinto, artista, promo..."></div>
         </div>
+        <div class="mb-3">
+          <label class="form-label">¿A quién se le mandan las invitaciones?</label>
+          <input type="hidden" name="guest_type" value="">
+          <input type="hidden" name="guest_promoter_id">
+          <input type="hidden" name="guest_artist_id">
+          <input type="hidden" name="guest_user_id">
+          <input type="hidden" name="guest_name">
+          <input type="hidden" name="guest_email">
+          <input type="hidden" name="guest_phone">
+          <div class="invitation-icon-grid mb-2" data-cmt-guest-types>
+            <button type="button" class="invitation-icon-option" data-cmt-guest-type="THIRD_PARTY"><i class="fa fa-handshake"></i><span>Tercero</span></button>
+            <button type="button" class="invitation-icon-option" data-cmt-guest-type="ARTIST"><i class="fa fa-microphone"></i><span>Artista</span></button>
+            <button type="button" class="invitation-icon-option" data-cmt-guest-type="EMPLOYEE"><i class="fa fa-users"></i><span>Empresa</span></button>
+          </div>
+          <div class="d-none" data-cmt-panel="THIRD_PARTY">
+            <div class="invitation-search-picker" data-promoter-picker data-hidden-target="guest_promoter_id" data-name-target="guest_name" data-email-target="guest_email" data-phone-target="guest_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div>
+          </div>
+          <div class="d-none" data-cmt-panel="ARTIST"><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-cmt-artist-id="{{ artist.id }}" data-name="{{ artist.name }}" data-email="{{ artist.email }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+          <div class="d-none" data-cmt-panel="EMPLOYEE"><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-cmt-user-id="{{ person.id }}" data-name="{{ person.name }}" data-email="{{ person.email }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
+          <div class="small text-muted mt-2 d-none" data-cmt-current></div>
+        </div>
         {% if categories %}
           {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
             {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
@@ -1093,12 +1111,53 @@
     var form = modalEl.querySelector('form');
     var title = modalEl.querySelector('.modal-title');
     function setVal(name, val){ var i = form.querySelector('[name="' + name + '"]'); if(i) i.value = (val == null ? '' : val); }
+    var GUEST_FIELDS = ['guest_promoter_id','guest_artist_id','guest_user_id','guest_name','guest_email','guest_phone'];
+    function setGuestType(type){
+      setVal('guest_type', type || '');
+      form.querySelectorAll('[data-cmt-guest-type]').forEach(function(b){ b.classList.toggle('is-selected', b.getAttribute('data-cmt-guest-type') === type); });
+      form.querySelectorAll('[data-cmt-panel]').forEach(function(p){ p.classList.toggle('d-none', p.getAttribute('data-cmt-panel') !== type); });
+    }
+    function showCurrent(name, photo){
+      var cur = form.querySelector('[data-cmt-current]'); if(!cur) return;
+      if(!name){ cur.classList.add('d-none'); cur.innerHTML=''; return; }
+      cur.classList.remove('d-none');
+      cur.innerHTML = 'Destinatario actual: ' + (photo ? '<img src="'+photo+'" class="tiny-avatar" alt=""> ' : '') + '<strong></strong>';
+      cur.querySelector('strong').textContent = name;
+    }
+    function clearGuest(){
+      setGuestType('');
+      GUEST_FIELDS.forEach(function(n){ setVal(n, ''); });
+      form.querySelectorAll('[data-cmt-artist-id],[data-cmt-user-id]').forEach(function(b){ b.classList.remove('is-selected'); });
+      var sel = form.querySelector('[data-picker-selected]'); if(sel){ sel.classList.add('d-none'); sel.innerHTML=''; }
+      showCurrent('', '');
+    }
     function resetForm(){
       setVal('commitment_id', '');
       setVal('name', ''); setVal('reason', ''); setVal('note', '');
       form.querySelectorAll('input[name^="qty_"]').forEach(function(i){ i.value = 0; });
+      clearGuest();
       if(title) title.textContent = 'Añadir compromiso';
     }
+    // Tipo de destinatario (tercero/artista/empleado), scoped al modal del compromiso.
+    form.querySelectorAll('[data-cmt-guest-type]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        GUEST_FIELDS.forEach(function(n){ setVal(n, ''); });
+        form.querySelectorAll('[data-cmt-artist-id],[data-cmt-user-id]').forEach(function(b){ b.classList.remove('is-selected'); });
+        var sel = form.querySelector('[data-picker-selected]'); if(sel){ sel.classList.add('d-none'); sel.innerHTML=''; }
+        showCurrent('', '');
+        setGuestType(btn.getAttribute('data-cmt-guest-type'));
+      });
+    });
+    function pickEntity(btn, idField){
+      GUEST_FIELDS.forEach(function(n){ if(n !== 'guest_name' && n !== 'guest_email') setVal(n, ''); });
+      setVal(idField, btn.getAttribute('data-cmt-artist-id') || btn.getAttribute('data-cmt-user-id') || '');
+      setVal('guest_name', btn.getAttribute('data-name') || '');
+      setVal('guest_email', btn.getAttribute('data-email') || '');
+      form.querySelectorAll('[data-cmt-artist-id],[data-cmt-user-id]').forEach(function(b){ b.classList.remove('is-selected'); });
+      btn.classList.add('is-selected');
+    }
+    form.querySelectorAll('[data-cmt-artist-id]').forEach(function(btn){ btn.addEventListener('click', function(){ pickEntity(btn, 'guest_artist_id'); }); });
+    form.querySelectorAll('[data-cmt-user-id]').forEach(function(btn){ btn.addEventListener('click', function(){ pickEntity(btn, 'guest_user_id'); }); });
     document.addEventListener('click', function(ev){
       var edit = ev.target.closest('[data-commitment-edit]');
       if(edit){
@@ -1110,6 +1169,17 @@
         setVal('note', edit.getAttribute('data-note') || '');
         var q = {}; try { q = JSON.parse(edit.getAttribute('data-quantities') || '{}'); } catch(e){}
         Object.keys(q).forEach(function(k){ setVal('qty_' + k, q[k]); });
+        var gt = edit.getAttribute('data-guest-type') || '';
+        if(gt){
+          setVal('guest_promoter_id', edit.getAttribute('data-guest-promoter-id') || '');
+          setVal('guest_artist_id', edit.getAttribute('data-guest-artist-id') || '');
+          setVal('guest_user_id', edit.getAttribute('data-guest-user-id') || '');
+          setVal('guest_name', edit.getAttribute('data-guest-name') || '');
+          setVal('guest_email', edit.getAttribute('data-guest-email') || '');
+          setVal('guest_phone', edit.getAttribute('data-guest-phone') || '');
+          setGuestType(gt);
+          showCurrent(edit.getAttribute('data-guest-name') || '', edit.getAttribute('data-guest-photo') || '');
+        }
         if(title) title.textContent = 'Editar compromiso';
         if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
         return;

@@ -2040,14 +2040,24 @@ class InvitationCommitment(Base):
     quantities_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     status = Column(Text, nullable=False, server_default=text("'COMPROMETIDAS'"))
     note = Column(Text)
+    # Destinatario (a quién se le mandan): igual que en las solicitudes (tercero / artista / empleado).
+    guest_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    guest_artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    guest_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    guest_name = Column(Text)
+    guest_email = Column(Text)
+    guest_phone = Column(Text)
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     concert = relationship("Concert")
-    promoter = relationship("Promoter")
-    created_by = relationship("User")
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+    guest_promoter = relationship("Promoter", foreign_keys=[guest_promoter_id])
+    guest_artist = relationship("Artist", foreign_keys=[guest_artist_id])
+    guest_user = relationship("User", foreign_keys=[guest_user_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
 
     __table_args__ = (
         Index("idx_invitation_commitments_concert", "concert_id", "status"),
@@ -5104,6 +5114,12 @@ def ensure_invitation_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_invitation_commitments_concert ON invitation_commitments(concert_id, status);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_commitments_promoter ON invitation_commitments(promoter_id);",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_artist_id uuid REFERENCES artists(id) ON DELETE SET NULL;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_user_id uuid REFERENCES users(id) ON DELETE SET NULL;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_name text;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_email text;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_phone text;",
         """
         CREATE TABLE IF NOT EXISTS invitation_public_links (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

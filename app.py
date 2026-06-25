@@ -36707,6 +36707,27 @@ def invitation_event_detail(concert_id):
                     "status_label": _lbl,
                     "status_badge": _bdg,
                 })
+            # Destinatario (a quién se mandan): nombre + foto/logo para "Enviar a ...".
+            _rcpt_name = row.guest_name or ""
+            _rcpt_photo = ""
+            _rcpt_email = row.guest_email or ""
+            if row.guest_promoter_id:
+                _gpr = session_db.get(Promoter, row.guest_promoter_id)
+                if _gpr:
+                    _rcpt_name = _rcpt_name or _promoter_display_name(_gpr) or _gpr.nick
+                    _rcpt_photo = _gpr.logo_url or ""
+                    _rcpt_email = _rcpt_email or (_gpr.contact_email or "")
+            elif row.guest_artist_id:
+                _ga = session_db.get(Artist, row.guest_artist_id)
+                if _ga:
+                    _rcpt_name = _rcpt_name or _ga.name
+                    _rcpt_photo = _ga.photo_url or ""
+                    _rcpt_email = _rcpt_email or (_ga.email or "")
+            elif row.guest_user_id:
+                _gp = session_db.get(UserProfile, row.guest_user_id)
+                if _gp:
+                    _rcpt_name = _rcpt_name or _profile_full_name(_gp) or getattr(_gp, 'nick', '') or ""
+                    _rcpt_photo = getattr(_gp, 'photo_url', '') or ""
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
@@ -36717,6 +36738,15 @@ def invitation_event_detail(concert_id):
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
                 "note": row.note or "",
+                "recipient_name": _rcpt_name,
+                "recipient_photo": _rcpt_photo,
+                "recipient_email": _rcpt_email,
+                "guest_type": ('THIRD_PARTY' if row.guest_promoter_id else 'ARTIST' if row.guest_artist_id else 'EMPLOYEE' if row.guest_user_id else ''),
+                "guest_promoter_id": str(row.guest_promoter_id) if row.guest_promoter_id else "",
+                "guest_artist_id": str(row.guest_artist_id) if row.guest_artist_id else "",
+                "guest_user_id": str(row.guest_user_id) if row.guest_user_id else "",
+                "guest_email": row.guest_email or "",
+                "guest_phone": row.guest_phone or "",
             })
         requests = []
         denied_count = 0
@@ -37253,6 +37283,42 @@ def invitation_commitment_save(concert_id):
         row.promoter_id = promoter_id
         row.name = (request.form.get('name') or (promoter.nick if promoter else '') or 'Compromiso').strip()
         row.reason = (request.form.get('reason') or '').strip()
+        # Destinatario (a quién se mandan): tercero / artista / empleado (igual que en solicitudes).
+        g_type = (request.form.get('guest_type') or '').strip().upper()
+        g_promoter_id = _safe_uuid(request.form.get('guest_promoter_id'))
+        g_artist_id = _safe_uuid(request.form.get('guest_artist_id'))
+        g_user_id = _safe_uuid(request.form.get('guest_user_id'))
+        g_name = (request.form.get('guest_name') or '').strip()
+        g_email = (request.form.get('guest_email') or '').strip()
+        g_phone = (request.form.get('guest_phone') or '').strip()
+        if g_type == 'EMPLOYEE' and g_user_id:
+            _gu = session_db.get(User, g_user_id)
+            _gp = session_db.get(UserProfile, g_user_id)
+            if _gu:
+                g_name = _profile_full_name(_gp) or getattr(_gp, 'nick', None) or _gu.email
+                g_email = _gu.email or g_email
+            g_promoter_id = None; g_artist_id = None
+        elif g_type == 'ARTIST' and g_artist_id:
+            _ga = session_db.get(Artist, g_artist_id)
+            if _ga:
+                g_name = _ga.name
+                g_email = _ga.email or g_email
+            g_promoter_id = None; g_user_id = None
+        elif g_promoter_id:
+            _gpr = session_db.get(Promoter, g_promoter_id)
+            if _gpr:
+                g_name = _promoter_display_name(_gpr) or _gpr.nick
+                g_email = _gpr.contact_email or g_email
+                g_phone = _gpr.contact_phone or g_phone
+            g_artist_id = None; g_user_id = None
+        else:
+            g_promoter_id = None; g_artist_id = None; g_user_id = None
+        row.guest_promoter_id = g_promoter_id
+        row.guest_artist_id = g_artist_id
+        row.guest_user_id = g_user_id
+        row.guest_name = g_name or None
+        row.guest_email = g_email or None
+        row.guest_phone = g_phone or None
         row.quantities_json = new_quantities
         row.note = (request.form.get('note') or '').strip()
         row.status = 'COMPROMETIDAS'

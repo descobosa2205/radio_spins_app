@@ -35511,6 +35511,22 @@ def _invitation_requester_status(status: str | None) -> tuple[str, str]:
     return ("Solicitadas", "secondary")
 
 
+def _invitation_commitment_state_from_statuses(statuses) -> tuple[str, str]:
+    """(etiqueta, color) del estado de un compromiso EN UNA CATEGORÍA según el estado de sus entradas.
+    Los compromisos NO tienen 'aprobadas': asignadas (amarillo) → enviadas / en taquilla (verde) →
+    recogidas (verde)."""
+    s = set((x or "").upper() for x in (statuses or []))
+    if not s:
+        return ("Sin asignar", "secondary")
+    if "ASSIGNED" in s:
+        return ("Asignadas", "warning text-dark")
+    if s <= {"RECOGIDAS_TAQUILLA", "PICKED_UP"}:
+        return ("Recogidas", "success")
+    if s <= {"DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "PICKED_UP"}:
+        return ("En taquilla", "success")
+    return ("Enviadas", "success")
+
+
 def _invitation_request_payload(row: InvitationRequest, categories: list[InvitationCategory] | None = None) -> dict:
     name_map = _invitation_category_name_map(categories or [])
     quantities = _json_dict(row.quantities_json)
@@ -36668,8 +36684,10 @@ def invitation_event_detail(concert_id):
         commitments = []
         for row in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
             q = _json_dict(row.quantities_json)
-            # Estado de asignación POR CATEGORÍA solicitada (para mostrar cada una por separado con
-            # su check cuando ya esté asignada).
+            # Entradas de este compromiso por categoría: nº asignadas + ESTADO (asignadas/enviadas/...).
+            _tk_by_cat = defaultdict(list)
+            for _st, _cidt in session_db.query(InvitationTicket.status, InvitationTicket.category_id).filter(InvitationTicket.assigned_commitment_id == row.id).all():
+                _tk_by_cat[str(_cidt)].append(_st)
             cat_status = []
             for _cid, _qv in q.items():
                 if str(_cid) == 'TOTAL':
@@ -36677,13 +36695,17 @@ def invitation_event_detail(concert_id):
                 _qn = _safe_int(_qv)
                 if _qn <= 0:
                     continue
-                _asg = int(_invitation_assigned_qty_for_source(session_db, to_uuid(_cid), 'commitment', row.id))
+                _sts = _tk_by_cat.get(str(_cid), [])
+                _asg = len(_sts)
+                _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
                 cat_status.append({
                     "id": str(_cid),
                     "name": name_map.get(str(_cid), "Categoría"),
                     "qty": _qn,
                     "assigned": _asg,
                     "done": _asg >= _qn,
+                    "status_label": _lbl,
+                    "status_badge": _bdg,
                 })
             commitments.append({
                 "id": str(row.id),

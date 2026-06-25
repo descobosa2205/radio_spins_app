@@ -358,7 +358,8 @@
                       <div class="mt-2 d-flex flex-column gap-1">
                         {% for cs in row.category_status %}
                           <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
-                            <span class="badge {% if cs.done %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}" title="{{ cs.assigned }} de {{ cs.qty }} asignadas">{% if cs.done %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.assigned }}/{{ cs.qty }}</span>
+                            <span class="badge text-bg-{{ cs.status_badge }}" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                            <span class="small text-muted">{{ cs.assigned }}/{{ cs.qty }}</span>
                             <span class="small flex-grow-1">{{ cs.name }}</span>
                             <div class="dropdown">
                               <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>

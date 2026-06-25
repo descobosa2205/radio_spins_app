@@ -27,17 +27,19 @@
   {% for c in cat_rows %}
     <div class="border rounded p-2 mb-2">
       <div class="fw-semibold mb-1">{{ c.name }}</div>
-      {% if c.assigned and can_manage %}
-        <div class="small text-muted mb-1">Marca las que se quedan; <strong>desmarca para recuperarlas</strong> (si ya estaban enviadas/descargadas se darán por perdidas):</div>
-        <div class="d-flex flex-wrap gap-2 mb-2">
-          {% for t in c.assigned %}
-            <label class="border rounded px-2 py-1 small d-inline-flex align-items-center gap-2">
-              <input type="checkbox" name="keep_ticket" value="{{ t.id }}" checked>
-              <span>{{ t.location or t.code }}</span>
-              {% if t.status_class == 'sent' %}<span class="badge text-bg-success">Enviada</span>{% elif t.status_class == 'lost' %}<span class="badge text-bg-dark">Perdida</span>{% endif %}
-            </label>
-          {% endfor %}
-        </div>
+      {% if assign_mode and c.kind != 'GUEST_LIST' %}
+        {% if c.assigned %}
+          <div class="small text-muted mb-1">Marca las que se quedan; <strong>desmarca para recuperarlas</strong> (si ya estaban enviadas/descargadas se darán por perdidas):</div>
+          <div class="d-flex flex-wrap gap-2 mb-2">
+            {% for t in c.assigned %}
+              <label class="border rounded px-2 py-1 small d-inline-flex align-items-center gap-2">
+                <input type="checkbox" name="keep_ticket" value="{{ t.id }}" checked>
+                <span>{{ t.location or t.code }}</span>
+                {% if t.status_class == 'sent' %}<span class="badge text-bg-success">Enviada</span>{% elif t.status_class == 'lost' %}<span class="badge text-bg-dark">Perdida</span>{% endif %}
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
         <label class="form-label small mb-0">Añadir más <span class="text-muted">(disponibles: {{ c.available }})</span></label>
         <input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_{{ c.id }}_add" min="0" max="{{ c.available }}" value="0">
       {% else %}

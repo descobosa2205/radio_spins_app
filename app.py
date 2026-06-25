@@ -37271,6 +37271,7 @@ def invitation_request_edit_form(request_id):
             total_qty=_safe_int(quantities.get('TOTAL')),
             can_manage=can_manage,
             can_edit=can_edit,
+            assign_mode=bool(can_manage and is_assigned),
             action_url=url_for('invitation_request_update', request_id=row.id),
         )
     finally:
@@ -37299,6 +37300,8 @@ def invitation_request_update(request_id):
         all_tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
         sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
         is_assigned = bool(all_tickets) or (row.status or '') in sent_statuses or (row.status or '') == 'ASIGNADAS'
+        # Modo "gestionar asignación": solo quien gestiona y sobre una solicitud ya asignada.
+        assign_mode = bool(can_manage and is_assigned)
         _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
         # El peticionario NO puede editar una solicitud ya asignada (solo quien gestiona).
         if is_assigned and not can_manage:
@@ -37322,6 +37325,7 @@ def invitation_request_update(request_id):
         has_cat_fields = any(k.startswith('cat_') or k == 'keep_ticket' for k in request.form.keys())
         if has_cat_fields:
             keep_ids = {str(x) for x in request.form.getlist('keep_ticket')}
+            prior_quantities = _json_dict(row.quantities_json)
             tickets_by_cat = defaultdict(list)
             for t in all_tickets:
                 tickets_by_cat[str(t.category_id)].append(t)
@@ -37330,7 +37334,7 @@ def invitation_request_update(request_id):
             for cat in categories:
                 cid = str(cat.id)
                 assigned = tickets_by_cat.get(cid, [])
-                if assigned and can_manage:
+                if assign_mode and (cat.ticket_kind or '').upper() != 'GUEST_LIST':
                     kept = [t for t in assigned if str(t.id) in keep_ids]
                     for t in assigned:
                         if str(t.id) in keep_ids:
@@ -37367,7 +37371,9 @@ def invitation_request_update(request_id):
                             t.status = 'ASSIGNED'
                             t.assigned_at = _now_madrid()
                             t.updated_at = _now_madrid()
-                    qty = len(kept) + add_n
+                    # Preserva lo que ya estaba pedido pero sin asignar (no se pierde ni se asigna solo).
+                    pending_kept = max(0, _safe_int(prior_quantities.get(cid)) - len(assigned))
+                    qty = len(kept) + add_n + pending_kept
                 else:
                     qty = _safe_int(request.form.get(f'cat_{cid}_qty'))
                 if qty > 0:

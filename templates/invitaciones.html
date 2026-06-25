@@ -393,13 +393,21 @@
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div>
                       <strong>{{ row.name }}</strong>{% if row.reason %}<span class="text-muted"> · {{ row.reason }}</span>{% endif %}
+                      {% if row.category_status %}
+                      <div class="d-flex flex-wrap gap-2 mt-1">
+                        {% for cs in row.category_status %}
+                          <span class="badge {% if cs.done %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}" title="{{ cs.assigned }} de {{ cs.qty }} asignadas">{% if cs.done %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.name }} · {{ cs.assigned }}/{{ cs.qty }}</span>
+                        {% endfor %}
+                      </div>
+                      {% else %}
                       <div class="small mt-1">{{ row.quantities_label }}</div>
+                      {% endif %}
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-                        <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
+                        <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
                         <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
                         <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
@@ -454,7 +462,7 @@
                         <li><button type="button" class="dropdown-item" data-edit-request-full data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
                         {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
-                        {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
+                        {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-source-name="{{ row.guest_name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
                           <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="channel" value="email"><button class="dropdown-item">Enviar por email</button></form></li>
@@ -510,7 +518,7 @@
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
                   </div>
                   <div class="d-flex gap-2 flex-wrap">
-                    {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignModal{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
+                    {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
                     <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
                   </div>
                 </div>
@@ -701,72 +709,82 @@
     </div>
   </div>
 
-  {% for cat in categories %}
-    {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
-    <div class="modal fade" id="assignModal{{ cat.id }}" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-        <form class="modal-content invitation-assignment-form" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-release-url="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
-          <div class="modal-header"><h5 class="modal-title">Asignar invitaciones · {{ cat.name }}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
-          <div class="modal-body">
-            <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
-            <input type="hidden" name="accept_warnings" value="1">
-            <div class="row g-3">
-              <div class="col-12 col-lg-4">
-                <h6>Compromisos y peticiones aprobadas</h6>
-                <div class="alert alert-info py-2 px-3 small d-none justify-content-between align-items-center gap-2" data-assign-filter-banner>
-                  <span><i class="fa fa-filter me-1"></i>Mostrando solo la selección elegida.</span>
-                  <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-assign-filter-clear>Ver todas</button>
-                </div>
-                <div class="assignment-source-list" data-source-list>
-                  {% for src in pending_assignments.get(cat.id, []) %}
-                    <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
-                      <div class="d-flex align-items-center gap-2"><img src="{{ src.photo_url }}" class="tiny-avatar" alt=""><strong>{{ src.name }}</strong></div>
-                      <div class="small text-muted">{{ src.company }} · {{ src.qty }} pendientes de {{ src.qty_total }}</div>
-                      {% if src.requester %}<div class="small text-muted" title="{{ src.requester }} · {{ src.date_label }}">Solicitado por {{ src.requester }}</div>{% endif %}
-                    </div>
-                  {% else %}
-                    <div class="alert alert-light border">No hay compromisos ni peticiones aprobadas pendientes de asignar en esta categoría.</div>
-                  {% endfor %}
-                </div>
-              </div>
-              <div class="col-12 col-lg-8">
-                <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
-                  <h6 class="mb-0">Disponibles</h6>
-                  <div class="d-flex gap-2 align-items-center">
-                    {% if cat.ticket_kind not in ['PDF_NUMBERED', 'GUEST_LIST'] %}<button type="button" class="btn btn-sm btn-outline-danger" data-auto-all><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar a todos</button>{% endif %}
-                    <span class="badge text-bg-success" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span>
+  <div class="modal fade" id="assignAllModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Asignar invitaciones</h5>
+          <div class="ms-auto d-flex align-items-center gap-2">
+            <span class="badge text-bg-info text-dark d-none" data-assign-all-banner><i class="fa fa-filter me-1"></i>Solo <span data-assign-all-who></span></span>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-assign-all-clear>Ver todas</button>
+            <button class="btn-close" type="button" data-bs-dismiss="modal"></button>
+          </div>
+        </div>
+        <div class="modal-body">
+          {% for cat in categories %}
+            {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
+            <form class="invitation-assignment-form assign-cat-block border rounded p-3 mb-3" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-release-url="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
+              <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
+              <input type="hidden" name="accept_warnings" value="1">
+              <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}</div>
+              <div class="row g-3">
+                <div class="col-12 col-lg-4">
+                  <h6>Compromisos y peticiones aprobadas</h6>
+                  <div class="alert alert-info py-2 px-3 small d-none justify-content-between align-items-center gap-2" data-assign-filter-banner>
+                    <span><i class="fa fa-filter me-1"></i>Mostrando solo la selección elegida.</span>
+                    <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-assign-filter-clear>Ver todas</button>
+                  </div>
+                  <div class="assignment-source-list" data-source-list>
+                    {% for src in pending_assignments.get(cat.id, []) %}
+                      <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
+                        <div class="d-flex align-items-center gap-2"><img src="{{ src.photo_url }}" class="tiny-avatar" alt=""><strong>{{ src.name }}</strong></div>
+                        <div class="small text-muted">{{ src.company }} · {{ src.qty }} pendientes de {{ src.qty_total }}</div>
+                        {% if src.requester %}<div class="small text-muted" title="{{ src.requester }} · {{ src.date_label }}">Solicitado por {{ src.requester }}</div>{% endif %}
+                      </div>
+                    {% else %}
+                      <div class="alert alert-light border">No hay compromisos ni peticiones aprobadas pendientes de asignar en esta categoría.</div>
+                    {% endfor %}
                   </div>
                 </div>
-                <div class="small mb-2 invitation-remaining" data-remaining-indicator>{% if cat.ticket_kind != 'GUEST_LIST' %}<span class="text-muted">Selecciona un invitado a la izquierda y luego pincha las butacas (o arrástralo al mapa).</span>{% endif %}</div>
-                <div class="assignment-drop-zone" data-drop-zone>
-                  {% if cat.ticket_kind == 'PDF_NUMBERED' %}
-                    {% for sector in ticket_groups_by_category.get(cat.id, []) %}
-                      <div class="invitation-sector mb-3"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
-                      {% for row in sector.rows %}
-                        <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered">
-                        {% for cell in row.visual %}
-                          {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
-                        {% endfor %}
-                        </div></div>
-                      {% endfor %}</div>
-                    {% endfor %}
-                  {% else %}
-                    <div class="assignment-unnumbered-pool">
-                      {% for t in cat_tickets %}
-                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
-                      {% endfor %}
+                <div class="col-12 col-lg-8">
+                  <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
+                    <h6 class="mb-0">Disponibles</h6>
+                    <div class="d-flex gap-2 align-items-center">
+                      {% if cat.ticket_kind not in ['PDF_NUMBERED', 'GUEST_LIST'] %}<button type="button" class="btn btn-sm btn-outline-danger" data-auto-all><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar a todos</button>{% endif %}
+                      <span class="badge text-bg-success" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span>
                     </div>
-                  {% endif %}
+                  </div>
+                  <div class="small mb-2 invitation-remaining" data-remaining-indicator>{% if cat.ticket_kind != 'GUEST_LIST' %}<span class="text-muted">Selecciona un invitado a la izquierda y luego pincha las butacas (o arrástralo al mapa).</span>{% endif %}</div>
+                  <div class="assignment-drop-zone" data-drop-zone>
+                    {% if cat.ticket_kind == 'PDF_NUMBERED' %}
+                      {% for sector in ticket_groups_by_category.get(cat.id, []) %}
+                        <div class="invitation-sector mb-3"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                        {% for row in sector.rows %}
+                          <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered">
+                          {% for cell in row.visual %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
+                          {% endfor %}
+                          </div></div>
+                        {% endfor %}</div>
+                      {% endfor %}
+                    {% else %}
+                      <div class="assignment-unnumbered-pool">
+                        {% for t in cat_tickets %}
+                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                        {% endfor %}
+                      </div>
+                    {% endif %}
+                  </div>
+                  <div class="assignment-result-list mt-3" data-assignment-results></div>
                 </div>
-                <div class="assignment-result-list mt-3" data-assignment-results></div>
               </div>
-            </div>
-          </div>
-          <div class="modal-footer"><span class="me-auto small text-muted"><i class="fa fa-circle-check text-success me-1"></i>Los cambios se guardan automáticamente.</span><button class="btn btn-danger" type="button" data-bs-dismiss="modal">Cerrar</button></div>
-        </form>
+            </form>
+          {% endfor %}
+        </div>
+        <div class="modal-footer"><span class="me-auto small text-muted"><i class="fa fa-circle-check text-success me-1"></i>Los cambios se guardan automáticamente.</span><button class="btn btn-danger" type="button" data-bs-dismiss="modal">Cerrar</button></div>
       </div>
     </div>
-  {% endfor %}
+  </div>
 
   {% for t in tickets %}
     <div class="modal fade" id="ticketModal{{ t.id }}" tabindex="-1" aria-hidden="true">
@@ -1659,49 +1677,67 @@
     refresh();
   });
 
-  // Abrir el modal de asignación de una categoría FILTRADO a una sola fuente (petición/compromiso)
-  // desde el menú de 3 puntos: [data-assign-source] + data-source-type + data-source-id + data-category-ids.
+  // Modal ÚNICO de asignación con TODAS las categorías apiladas (#assignAllModal). Desde el menú de
+  // 3 puntos (compromiso/petición) se abre filtrado a esa fuente: muestra solo sus categorías con
+  // pendientes y la activa en cada una (en listados NO la auto-activa para no confirmar el listado
+  // sin querer). Desde el botón "Asignar" de una categoría se abre entero y hace scroll a ella.
   (function(){
-    var pending = null;
+    var modal = document.getElementById('assignAllModal');
+    if (!modal || !window.bootstrap) return;
+    var banner = modal.querySelector('[data-assign-all-banner]');
+    var whoEl = modal.querySelector('[data-assign-all-who]');
+    var clearBtn = modal.querySelector('[data-assign-all-clear]');
+    var pending = null;     // {stype, sid, name}
+    var pendingCat = null;  // category_id al abrir desde el botón de una categoría
+    function blocks(){ return Array.prototype.slice.call(modal.querySelectorAll('.invitation-assignment-form')); }
     function srcSel(stype, sid){ return '.assignment-source[data-source-type="' + stype + '"][data-source-id="' + sid + '"]'; }
-    function clearFilter(modal){
-      var list = modal.querySelector('[data-source-list]'); if (list) list.querySelectorAll('.assignment-source').forEach(function(s){ s.style.display = ''; });
-      var b = modal.querySelector('[data-assign-filter-banner]'); if (b){ b.classList.add('d-none'); b.classList.remove('d-flex'); }
-    }
-    function applyFilter(modal, stype, sid){
-      var list = modal.querySelector('[data-source-list]'); if (!list) return false;
-      var any = false;
-      list.querySelectorAll('.assignment-source').forEach(function(s){
-        var m = s.getAttribute('data-source-type') === stype && s.getAttribute('data-source-id') === sid;
-        s.style.display = m ? '' : 'none'; if (m) any = true;
+    function clearFilter(){
+      blocks().forEach(function(b){
+        b.classList.remove('d-none');
+        b.querySelectorAll('.assignment-source').forEach(function(s){ s.style.display = ''; });
+        var fb = b.querySelector('[data-assign-filter-banner]'); if (fb){ fb.classList.add('d-none'); fb.classList.remove('d-flex'); }
       });
-      var b = modal.querySelector('[data-assign-filter-banner]'); if (b){ b.classList.toggle('d-none', !any); b.classList.toggle('d-flex', any); }
-      return any;
+      if (banner) banner.classList.add('d-none');
+      if (clearBtn) clearBtn.classList.add('d-none');
     }
-    document.querySelectorAll('[id^="assignModal"]').forEach(function(modal){
-      modal.addEventListener('show.bs.modal', function(){
-        if (pending && pending.modal === modal){
-          applyFilter(modal, pending.stype, pending.sid);
-          var sel = srcSel(pending.stype, pending.sid);
-          modal.addEventListener('shown.bs.modal', function once(){ modal.removeEventListener('shown.bs.modal', once); var s = modal.querySelector(sel); if (s){ s.click(); s.scrollIntoView({ block: 'nearest' }); } });
-          pending = null;
-        } else { clearFilter(modal); }
+    function applyFilter(stype, sid, name){
+      var first = null;
+      blocks().forEach(function(b){
+        var list = b.querySelector('[data-source-list]'); var has = false;
+        if (list){ list.querySelectorAll('.assignment-source').forEach(function(s){
+          var m = s.getAttribute('data-source-type') === stype && s.getAttribute('data-source-id') === sid;
+          s.style.display = m ? '' : 'none'; if (m) has = true;
+        }); }
+        b.classList.toggle('d-none', !has);
+        if (has){
+          if (!first) first = b;
+          if ((b.getAttribute('data-ticket-kind') || '') !== 'GUEST_LIST'){ var sEl = b.querySelector(srcSel(stype, sid)); if (sEl) sEl.click(); }
+        }
       });
-      var cb = modal.querySelector('[data-assign-filter-clear]');
-      if (cb) cb.addEventListener('click', function(){ clearFilter(modal); });
+      if (banner){ banner.classList.remove('d-none'); if (whoEl) whoEl.textContent = name || ''; }
+      if (clearBtn) clearBtn.classList.remove('d-none');
+      if (first) first.scrollIntoView({ block: 'start' });
+    }
+    modal.addEventListener('shown.bs.modal', function(){
+      if (pending){ applyFilter(pending.stype, pending.sid, pending.name); pending = null; pendingCat = null; }
+      else if (pendingCat){ var b = modal.querySelector('.invitation-assignment-form[data-category-id="' + pendingCat + '"]'); if (b) b.scrollIntoView({ block: 'start' }); pendingCat = null; }
     });
+    if (clearBtn) clearBtn.addEventListener('click', clearFilter);
+    modal.querySelectorAll('[data-assign-filter-clear]').forEach(function(cb){ cb.addEventListener('click', clearFilter); });
     document.addEventListener('click', function(ev){
-      var btn = ev.target.closest('[data-assign-source]'); if (!btn) return;
-      ev.preventDefault();
-      var stype = btn.getAttribute('data-source-type');
-      var sid = btn.getAttribute('data-source-id');
-      var cids = (btn.getAttribute('data-category-ids') || '').split(',').map(function(x){ return x.trim(); }).filter(Boolean);
-      var modal = null, sel = srcSel(stype, sid);
-      for (var i = 0; i < cids.length; i++){ var m = document.getElementById('assignModal' + cids[i]); if (m && m.querySelector(sel)){ modal = m; break; } }
-      if (!modal){ var all = document.querySelectorAll('[id^="assignModal"]'); for (var j = 0; j < all.length; j++){ if (all[j].querySelector(sel)){ modal = all[j]; break; } } }
-      if (!modal){ alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return; }
-      pending = { modal: modal, stype: stype, sid: sid };
-      bootstrap.Modal.getOrCreateInstance(modal).show();
+      var src = ev.target.closest('[data-assign-source]');
+      if (src){
+        ev.preventDefault();
+        var sel = srcSel(src.getAttribute('data-source-type'), src.getAttribute('data-source-id'));
+        if (!modal.querySelector(sel)){ alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return; }
+        clearFilter();
+        pending = { stype: src.getAttribute('data-source-type'), sid: src.getAttribute('data-source-id'), name: src.getAttribute('data-source-name') || '' };
+        pendingCat = null;
+        bootstrap.Modal.getOrCreateInstance(modal).show();
+        return;
+      }
+      var catBtn = ev.target.closest('[data-assign-cat]');
+      if (catBtn){ pending = null; pendingCat = catBtn.getAttribute('data-assign-cat'); clearFilter(); }
     });
   })();
 })();

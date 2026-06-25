@@ -36563,12 +36563,29 @@ def invitation_event_detail(concert_id):
         commitments = []
         for row in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
             q = _json_dict(row.quantities_json)
+            # Estado de asignación POR CATEGORÍA solicitada (para mostrar cada una por separado con
+            # su check cuando ya esté asignada).
+            cat_status = []
+            for _cid, _qv in q.items():
+                if str(_cid) == 'TOTAL':
+                    continue
+                _qn = _safe_int(_qv)
+                if _qn <= 0:
+                    continue
+                _asg = int(_invitation_assigned_qty_for_source(session_db, to_uuid(_cid), 'commitment', row.id))
+                cat_status.append({
+                    "name": name_map.get(str(_cid), "Categoría"),
+                    "qty": _qn,
+                    "assigned": _asg,
+                    "done": _asg >= _qn,
+                })
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
                 "reason": row.reason or "",
                 "quantities": q,
                 "quantities_label": _invitation_quantities_label(q, name_map),
+                "category_status": cat_status,
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
                 "note": row.note or "",

@@ -66,7 +66,7 @@
                       <div>
                         <div><strong>{{ row.guest_name }}</strong>{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %}</div>
                         <div class="mt-1">{{ row.quantities_label }}</div>
-                        {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
+                        {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
                         {% if row.registered_by_other %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
                       </div>
                     </div>
@@ -443,7 +443,7 @@
                         <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
                         {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
                       </div>
-                      {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
+                      {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
                       <div class="small text-muted mt-1">Solicitado por <img src="{{ row.requester_photo_url }}" class="tiny-avatar" alt=""> {{ row.requester_nick }} · {{ row.created_at_label }}{% if row.registered_by_other %} · <i class="fa fa-user-pen me-1"></i>registrada por {{ row.created_by_nick }}{% endif %}</div>
                       <div class="mt-2">{{ row.quantities_label }}</div>
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
@@ -603,7 +603,7 @@
                   {% for row in list_rows %}
                     <tr>
                       <td><strong>{{ row.guest_name }}</strong></td>
-                      <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}</td>
+                      <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% endif %}</td>
                       <td>{{ row.guest_title }}</td>
                       <td>{{ row.quantities_label }}</td>
                       <td>{% if row.download_url and row.can_download_pdf %}<a class="btn btn-sm btn-outline-danger" href="{{ row.download_url }}" title="Descargar invitaciones"><i class="fa fa-file-pdf"></i></a>{% endif %}</td>
@@ -772,7 +772,15 @@
     <div class="modal fade" id="ticketModal{{ t.id }}" tabindex="-1" aria-hidden="true">
       <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content">
-          <div class="modal-header"><h5 class="modal-title">Entrada {{ t.code }}{% if t.location %} · {{ t.location }}{% endif %}</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+          <div class="modal-header">
+            <div class="btn-group btn-group-sm me-2" role="group">
+              <button class="btn btn-outline-secondary" type="button" data-ticket-nav="prev" data-ticket-id="{{ t.id }}" title="Anterior"><i class="fa fa-chevron-left"></i></button>
+              <button class="btn btn-outline-secondary" type="button" data-ticket-nav="next" data-ticket-id="{{ t.id }}" title="Siguiente"><i class="fa fa-chevron-right"></i></button>
+            </div>
+            <h5 class="modal-title flex-grow-1 text-truncate">Entrada {{ t.code }}{% if t.location %} · {{ t.location }}{% endif %}</h5>
+            <form method="post" action="{{ url_for('invitation_ticket_delete', ticket_id=t.id) }}" class="d-inline me-2" onsubmit="return confirm('¿Eliminar esta entrada?');"><button class="btn btn-sm btn-outline-danger" title="Eliminar entrada"><i class="fa fa-trash"></i></button></form>
+            <button class="btn-close" type="button" data-bs-dismiss="modal"></button>
+          </div>
           <div class="modal-body">
             <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
               <a class="btn btn-sm btn-outline-danger" href="{{ t.pdf_url }}" download target="_blank" rel="noopener"><i class="fa fa-download me-1"></i>Descargar</a>
@@ -859,6 +867,40 @@
 {% if tab == 'evento' %}
 {{ inv_menu.delete_modal() }}
 {{ inv_menu.full_edit_modal() }}
+<script>
+(function(){
+  // Navegación anterior/siguiente entre entradas dentro de la vista previa, sin salir de ella.
+  function ticketOrder(){
+    var scope = document.getElementById('inv-tab-tickets') || document;
+    var ids = Array.prototype.map.call(scope.querySelectorAll('.invitation-seat[data-ticket-id]'), function(b){ return b.getAttribute('data-ticket-id'); }).filter(Boolean);
+    return ids.filter(function(v,i){ return ids.indexOf(v) === i; });  // dedup conservando el orden visual
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest ? ev.target.closest('[data-ticket-nav]') : null;
+    if(!btn) return;
+    ev.preventDefault();
+    var cur = btn.getAttribute('data-ticket-id');
+    var dir = btn.getAttribute('data-ticket-nav');
+    var ord = ticketOrder();
+    var i = ord.indexOf(cur);
+    if(i < 0) return;
+    var j = dir === 'next' ? i + 1 : i - 1;
+    if(j < 0) j = ord.length - 1;     // circular
+    if(j >= ord.length) j = 0;
+    var targetId = ord[j];
+    if(!targetId || targetId === cur || !window.bootstrap) return;
+    var curModal = document.getElementById('ticketModal' + cur);
+    var nextModal = document.getElementById('ticketModal' + targetId);
+    if(!nextModal) return;
+    if(curModal){
+      curModal.addEventListener('hidden.bs.modal', function _h(){ curModal.removeEventListener('hidden.bs.modal', _h); bootstrap.Modal.getOrCreateInstance(nextModal).show(); });
+      bootstrap.Modal.getOrCreateInstance(curModal).hide();
+    } else {
+      bootstrap.Modal.getOrCreateInstance(nextModal).show();
+    }
+  });
+})();
+</script>
 
 <div class="modal fade" id="ticketRecoverModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">
@@ -1199,12 +1241,19 @@
   function renderPickerSelected(picker, item){
     const selected = picker.querySelector('[data-picker-selected]');
     if(!selected) return;
+    picker.__selectedItem = item;
     const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
     selected.classList.remove('d-none');
-    selected.innerHTML = `<div class="d-flex align-items-center gap-2"><img src="${escHtml(item.logo_url || placeholder)}" alt="" style="width:38px;height:38px;border-radius:12px;object-fit:cover;"><div class="min-w-0"><div class="fw-semibold text-truncate">${escHtml(item.label || 'Tercero')}</div>${linkText ? `<div class="invitation-linked-mini"><img src="${escHtml((item.link_summary && item.link_summary.logo_url) || placeholder)}" alt=""><span>${escHtml(linkText)}</span></div>` : '<div class="small text-muted">Sin vinculación guardada</div>'}</div></div>`;
+    selected.innerHTML = `<div class="d-flex align-items-center gap-2"><img src="${escHtml(item.logo_url || placeholder)}" alt="" style="width:38px;height:38px;border-radius:12px;object-fit:cover;"><div class="min-w-0"><div class="fw-semibold text-truncate">${escHtml(item.label || 'Tercero')}</div>${linkText ? `<div class="invitation-linked-mini"><img class="${item.link_summary && ['artist','venue'].indexOf(item.link_summary.type)>=0 ? 'is-photo':'is-logo'}" src="${escHtml((item.link_summary && item.link_summary.logo_url) || placeholder)}" alt=""><span>${escHtml(linkText)}</span></div>` : '<div class="small text-muted">Sin vinculación guardada</div>'}</div></div>`;
     const panel = picker.closest('[data-third-party-panel]');
     const linkBtn = panel ? panel.querySelector('[data-open-selected-link]') : null;
-    if(linkBtn){ linkBtn.disabled = !item.id; linkBtn.dataset.sourceId = item.id || ''; }
+    if(linkBtn){
+      // Si ya tiene vínculo (previo o recién creado) no se ofrece volver a vincular a esa persona.
+      const hasLink = !!(item.link_summary_text || (item.link_summary && item.link_summary.label));
+      linkBtn.disabled = !item.id || hasLink;
+      linkBtn.dataset.sourceId = item.id || '';
+      linkBtn.innerHTML = hasLink ? '<i class="fa fa-check me-1"></i> Vinculado' : '<i class="fa fa-link me-1"></i> Vincular tercero seleccionado';
+    }
   }
   function fillTarget(form, fields, item){
     const hidden = form.querySelector(`[data-field="${fields.hidden}"]`) || form.querySelector(`input[name="${fields.hidden}"]`);
@@ -1262,7 +1311,7 @@
         results.innerHTML = (data || []).map(item => {
           const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
           const linkLogo = (item.link_summary && item.link_summary.logo_url) || placeholder;
-          return `<button type="button" class="invitation-search-result" data-item='${JSON.stringify(item).replace(/'/g,"&#39;")}'><img src="${escHtml(item.logo_url || placeholder)}" alt=""><span><strong>${escHtml(item.label || 'Sin nombre')}</strong><small>${escHtml(item.contact_email || '')} ${escHtml(item.contact_phone || '')}</small>${linkText ? `<small class="invitation-linked-mini"><img src="${escHtml(linkLogo)}" alt=""><span>${escHtml(linkText)}</span></small>` : ''}</span></button>`;
+          return `<button type="button" class="invitation-search-result" data-item='${JSON.stringify(item).replace(/'/g,"&#39;")}'><img src="${escHtml(item.logo_url || placeholder)}" alt=""><span><strong>${escHtml(item.label || 'Sin nombre')}</strong><small>${escHtml(item.contact_email || '')} ${escHtml(item.contact_phone || '')}</small>${linkText ? `<small class="invitation-linked-mini"><img class="${item.link_summary && ['artist','venue'].indexOf(item.link_summary.type)>=0 ? 'is-photo':'is-logo'}" src="${escHtml(linkLogo)}" alt=""><span>${escHtml(linkText)}</span></small>` : ''}</span></button>`;
         }).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>';
         results.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => {
           let item = {};
@@ -1299,9 +1348,29 @@
     const sourceId = btn.dataset.sourceId || '';
     const modal = document.getElementById('invitationQuickLinkModal');
     if(!sourceId || !modal) return;
+    const panel = btn.closest('[data-third-party-panel]');
+    window.__linkSourcePicker = panel ? panel.querySelector('[data-promoter-picker]') : (window.__activePromoterPicker || null);
     modal.querySelector('[name="source_id"]').value = sourceId;
     bootstrap.Modal.getOrCreateInstance(modal).show();
   }));
+
+  // Al guardar una vinculación desde el formulario de pedir: mostrarla al momento en el tercero
+  // seleccionado y dejar de ofrecer vincular a esa persona otra vez.
+  document.addEventListener('entity-link:saved', (ev) => {
+    const lform = ev.detail && ev.detail.form;
+    const picker = window.__linkSourcePicker;
+    if(!lform || !picker || !picker.__selectedItem) return;
+    const ttype = (lform.querySelector('[data-link-target-type]') || {}).value || '';
+    const relation = (lform.querySelector('[name="relation_title"]') || {}).value || '';
+    const card = lform.querySelector('[data-link-selected] .el-selected-card');
+    const linkedLabel = card && card.querySelector('.fw-semibold') ? card.querySelector('.fw-semibold').textContent.trim() : '';
+    const linkedLogo = card && card.querySelector('img') ? card.querySelector('img').getAttribute('src') : '';
+    const typeLabel = lform.__activeTypeLabel || '';
+    const item = picker.__selectedItem;
+    item.link_summary = { type: ttype, type_label: typeLabel, label: linkedLabel, logo_url: linkedLogo, relation_title: relation };
+    item.link_summary_text = [relation || typeLabel, linkedLabel].filter(Boolean).join(' · ');
+    renderPickerSelected(picker, item);
+  });
 
   document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });

@@ -53,7 +53,7 @@
               {% for row in rows %}
                 <tr>
                   <td class="fw-semibold">{{ row.guest_name }}</td>
-                  <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                  <td>{% if row.link_summary_text %}<span class="invitation-linked-mini"><img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt=""><span>{{ row.link_summary_text }}</span></span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
                   <td>{{ row.guest_title or '—' }}</td>
                   <td>{{ row.quantities_label }}</td>
                   <td class="text-center">

@@ -34667,7 +34667,7 @@ def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
     if not rows:
         pub = getattr(promoter, "publishing_company", None)
         if pub:
-            return {"label": pub.name, "type_label": "Editorial", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []}
+            return {"label": pub.name, "type_label": "Editorial", "type": "publishing", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []}
         return {}
     first = rows[0].get("linked") or {}
     label = first.get("label") or ""
@@ -34675,6 +34675,7 @@ def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
     return {
         "label": label,
         "type_label": type_label,
+        "type": first.get("type") or "",
         "relation_title": rows[0].get("relation_title") or "",
         "icon": first.get("icon") or "fa-link",
         "logo_url": first.get("logo_url") or _entity_placeholder_url(),
@@ -34787,12 +34788,14 @@ def _entity_link_mini_summary(entity_type, entity_id) -> dict | None:
         summary = {
             "label": first.get("label", ""),
             "type_label": first.get("type_label", ""),
+            "type": first.get("type", ""),
             "relation_title": rows[0].get("relation_title", ""),
             "icon": first.get("icon", "fa-link"),
             "logo_url": first.get("logo_url", ""),
             "items": [{
                 "label": (r.get("linked") or {}).get("label", ""),
                 "type_label": (r.get("linked") or {}).get("type_label", ""),
+                "type": (r.get("linked") or {}).get("type", ""),
                 "relation_title": r.get("relation_title", ""),
                 "icon": (r.get("linked") or {}).get("icon", "fa-link"),
                 "logo_url": (r.get("linked") or {}).get("logo_url", ""),
@@ -34820,6 +34823,7 @@ def linked_mini(entity_type=None, entity_id=None, summary=None, max_items=2):
         base = {
             "relation_title": summary.get("relation_title", ""),
             "type_label": summary.get("type_label", ""),
+            "type": summary.get("type", ""),
             "label": summary.get("label", ""),
             "logo_url": summary.get("logo_url", ""),
         }
@@ -34842,8 +34846,9 @@ def linked_mini(entity_type=None, entity_id=None, summary=None, max_items=2):
             inner = Markup('<b>%s</b>') % lead
         else:
             inner = Markup('%s') % label
-        chips.append(Markup('<span class="linked-mini-item"><img src="%s" alt="" loading="lazy"><span class="linked-mini-text">%s</span></span>') % (
-            it.get("logo_url") or _entity_placeholder_url(), inner,
+        img_cls = "is-photo" if (it.get("type") or "") in ("artist", "venue") else "is-logo"
+        chips.append(Markup('<span class="linked-mini-item"><img class="%s" src="%s" alt="" loading="lazy"><span class="linked-mini-text">%s</span></span>') % (
+            img_cls, it.get("logo_url") or _entity_placeholder_url(), inner,
         ))
     extra_html = Markup('<span class="linked-mini-more">+%d</span>') % hidden if hidden else Markup("")
     return Markup('<span class="linked-mini">%s%s</span>') % (Markup("").join(chips), extra_html)
@@ -35310,6 +35315,7 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
         "seat_number": seat[:20] or None,
         "ticket_code": code[:120] or None,
         "code_reliable": code_reliable,
+        "has_code": bool(barcode or labeled_code),
         "raw_text": text_value[:4000] if text_value else "",
     }
 
@@ -37726,6 +37732,7 @@ def invitation_tickets_upload(concert_id):
             raise ValueError('No se han seleccionado PDFs.')
         errors = []
         duplicates = []      # entradas que no se suben por estar ya repetidas
+        discarded = []       # páginas SIN código: no son invitaciones (se avisan, no se suben)
         created = 0
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
@@ -37764,6 +37771,12 @@ def invitation_tickets_upload(concert_id):
                     continue
                 meta = _invitation_extract_ticket_metadata(page_bytes, f'{stem}-p{pidx + 1}.pdf')
                 reliable_code = bool(meta.get('code_reliable'))
+                manual_code = bool(form_code_single) and not multi
+                # Una invitación SIEMPRE tiene código (de barras o localizador/código etiquetado). Si la
+                # página no lo trae y no se ha escrito a mano, no es una invitación: se descarta y se avisa.
+                if not meta.get('has_code') and not manual_code:
+                    discarded.append(page_label)
+                    continue
                 if not multi and form_code_single:
                     code = form_code_single
                     reliable_code = True
@@ -37839,6 +37852,9 @@ def invitation_tickets_upload(concert_id):
         if duplicates:
             extra = f' (+{len(duplicates) - 8} más)' if len(duplicates) > 8 else ''
             flash(f'⚠️ {len(duplicates)} invitación(es) duplicada(s): solo se mantiene una de cada. No subidas: ' + ' · '.join(duplicates[:8]) + extra, 'warning')
+        if discarded:
+            extra = f' (+{len(discarded) - 8} más)' if len(discarded) > 8 else ''
+            flash(f'⚠️ {len(discarded)} página(s) descartada(s) por no tener código (no parecen invitaciones): ' + ' · '.join(discarded[:8]) + extra, 'warning')
         if errors:
             flash('Algunas invitaciones no se pudieron subir: ' + ' · '.join(errors[:8]), 'warning')
     except Exception as exc:

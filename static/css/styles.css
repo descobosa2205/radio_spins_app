@@ -746,13 +746,17 @@ img[data-default-photo="1"]{
 /* Mini-ficha de vínculos: logo/foto pequeña de lo vinculado + relación/cargo, bajo el nombre */
 .linked-mini{ display:flex; flex-direction:column; gap:1px; margin-top:2px; min-width:0; }
 .linked-mini-item{ display:inline-flex; align-items:center; gap:.3rem; font-size:.72rem; line-height:1.25; color:#6b7280; min-width:0; max-width:100%; }
-.linked-mini-item img{ width:16px; height:16px; border-radius:50%; object-fit:cover; background:#eef0f3; flex:0 0 auto; border:1px solid #eef0f3; }
+.linked-mini-item img{ height:16px; width:16px; flex:0 0 auto; }
+.linked-mini-item img.is-photo{ border-radius:50%; object-fit:cover; background:#eef0f3; border:1px solid #eef0f3; }
+.linked-mini-item img.is-logo{ width:auto; max-width:40px; object-fit:contain; background:transparent; }
 .linked-mini-text{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 .linked-mini-text b{ color:#374151; font-weight:600; }
 .linked-mini-more{ font-size:.68rem; color:#9aa0a6; }
 /* Vínculo del invitado en listas de invitaciones (logo pequeño + relación, bajo el nombre) */
 .invitation-linked-mini{ display:inline-flex; align-items:center; gap:.3rem; margin-top:2px; font-size:.72rem; line-height:1.25; color:#6b7280; max-width:100%; }
-.invitation-linked-mini img{ width:16px; height:16px; border-radius:50%; object-fit:cover; background:#eef0f3; flex:0 0 auto; border:1px solid #eef0f3; }
+.invitation-linked-mini img{ height:16px; width:16px; flex:0 0 auto; }
+.invitation-linked-mini img.is-photo{ border-radius:50%; object-fit:cover; background:#eef0f3; border:1px solid #eef0f3; }
+.invitation-linked-mini img.is-logo{ width:auto; max-width:40px; object-fit:contain; background:transparent; }
 .invitation-linked-mini span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 /* Materiales de canción (rediseño) */
 .mat-module{ border:1px solid #e9ecef; border-radius:.6rem; padding:.6rem .75rem; background:#fff; }

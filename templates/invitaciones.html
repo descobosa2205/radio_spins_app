@@ -1790,9 +1790,9 @@
     }
     modal.addEventListener('shown.bs.modal', function(){
       if (pending){
-        var _cat = pending.cat;
+        // Al abrir desde un compromiso/petición se muestran TODAS sus categorías apiladas (una debajo
+        // de otra) desde arriba; applyFilter ya hace scroll a la primera. No saltamos a una sola.
         applyFilter(pending.stype, pending.sid, pending.name);
-        if (_cat){ var bc = modal.querySelector('.invitation-assignment-form[data-category-id="' + _cat + '"]'); if (bc && bc.scrollIntoView) bc.scrollIntoView({ block: 'start' }); }
         pending = null; pendingCat = null;
       }
       else if (pendingCat){ var b = modal.querySelector('.invitation-assignment-form[data-category-id="' + pendingCat + '"]'); if (b) b.scrollIntoView({ block: 'start' }); pendingCat = null; }

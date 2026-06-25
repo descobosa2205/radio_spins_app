@@ -1538,18 +1538,22 @@
   // Recordar la pestaña activa del evento: tras guardar un cambio (POST + recarga) se vuelve a la
   // misma pestaña en la que estabas, en vez de saltar siempre a "Invitados".
   (function(){
-    var pills = document.querySelectorAll('[data-bs-toggle="pill"][data-bs-target^="#inv-tab-"]');
-    if(!pills.length || !window.bootstrap) return;
-    var KEY = 'invEventTab:' + location.pathname;
-    var hash = (location.hash && location.hash.indexOf('#inv-tab-') === 0) ? location.hash : '';
-    var target = hash || sessionStorage.getItem(KEY);
-    if(target){
-      var btn = document.querySelector('[data-bs-toggle="pill"][data-bs-target="' + target + '"]');
-      if(btn) bootstrap.Tab.getOrCreateInstance(btn).show();
+    function init(){
+      var pills = document.querySelectorAll('[data-bs-toggle="pill"][data-bs-target^="#inv-tab-"]');
+      if(!pills.length || !window.bootstrap) return;
+      var KEY = 'invEventTab:' + location.pathname;
+      var hash = (location.hash && location.hash.indexOf('#inv-tab-') === 0) ? location.hash : '';
+      var target = hash || sessionStorage.getItem(KEY);
+      if(target){
+        var btn = document.querySelector('[data-bs-toggle="pill"][data-bs-target="' + target + '"]');
+        if(btn) bootstrap.Tab.getOrCreateInstance(btn).show();
+      }
+      pills.forEach(function(b){
+        b.addEventListener('shown.bs.tab', function(){ try { sessionStorage.setItem(KEY, b.getAttribute('data-bs-target')); } catch(e){} });
+      });
     }
-    pills.forEach(function(b){
-      b.addEventListener('shown.bs.tab', function(){ try { sessionStorage.setItem(KEY, b.getAttribute('data-bs-target')); } catch(e){} });
-    });
+    // El script va en el contenido, ANTES de cargar Bootstrap; se difiere a DOMContentLoaded.
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
   })();
 
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
@@ -1749,7 +1753,7 @@
   // sin querer). Desde el botón "Asignar" de una categoría se abre entero y hace scroll a ella.
   (function(){
     var modal = document.getElementById('assignAllModal');
-    if (!modal || !window.bootstrap) return;
+    if (!modal) return;  // Bootstrap puede cargarse DESPUÉS de este script; se usa dentro de los handlers (clic), no aquí.
     var banner = modal.querySelector('[data-assign-all-banner]');
     var whoEl = modal.querySelector('[data-assign-all-who]');
     var clearBtn = modal.querySelector('[data-assign-all-clear]');

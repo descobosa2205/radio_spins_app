@@ -2011,6 +2011,7 @@ class InvitationCategory(Base):
     qty_extra = Column(Integer, nullable=False, server_default=text("0"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
+    requests_blocked = Column(Boolean, nullable=False, server_default=text("false"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5081,6 +5082,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_contract integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_extra integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_blocked boolean NOT NULL DEFAULT false;",
         "CREATE INDEX IF NOT EXISTS idx_invitation_categories_concert ON invitation_categories(concert_id, is_active, sort_order);",
         """
         CREATE TABLE IF NOT EXISTS invitation_commitments (

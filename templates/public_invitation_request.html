@@ -107,8 +107,14 @@
             <div class="row g-3">
               {% for cat in limits.categories %}
                 <div class="col-md-4">
-                  <label class="form-label">{{ cat.name }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
-                  <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
+                  {% if cat.blocked %}
+                    <label class="form-label text-muted">{{ cat.name }} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label>
+                    <input class="form-control" type="number" value="0" disabled>
+                    <div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div>
+                  {% else %}
+                    <label class="form-label">{{ cat.name }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
+                    <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
+                  {% endif %}
                 </div>
               {% endfor %}
             </div>

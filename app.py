@@ -35079,6 +35079,7 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "available_configured": max(total_configured - assigned, 0),
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
+        "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
     }
 
 
@@ -35407,15 +35408,22 @@ def _invitation_request_uses_only_guest_list(session_db, row: InvitationRequest)
 
 def _invitation_quantities_from_form(form, categories: list[InvitationCategory] | None = None, prefix: str = "qty") -> dict:
     quantities: dict[str, int] = {}
-    category_ids = [str(c.id) for c in (categories or [])]
+    cats = categories or []
+    # Categorías con peticiones BLOQUEADAS: se ignoran (no se pueden pedir invitaciones para ellas).
+    blocked = {str(c.id) for c in cats if getattr(c, "requests_blocked", False)}
+    category_ids = [str(c.id) for c in cats]
     if category_ids:
         for cid in category_ids:
+            if cid in blocked:
+                continue
             val = _safe_int(form.get(f"{prefix}_{cid}"))
             if val > 0:
                 quantities[cid] = val
     raw = form.get("quantities_json")
     if raw:
         for k, v in _json_dict(raw).items():
+            if str(k) in blocked:
+                continue
             val = _safe_int(v)
             if val > 0:
                 quantities[str(k)] = val
@@ -35935,6 +35943,7 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
             "limit": limit,
             "used": used_by_category.get(cid, 0),
             "available": None if limit is None else max(limit - used_by_category.get(cid, 0), 0),
+            "blocked": bool(getattr(cat, "requests_blocked", False)),
         })
     total_limit = _safe_int(link.total_limit) if link.limit_mode == "TOTAL" else None
     return {"categories": rows, "total_limit": total_limit, "used_total": used_total, "available_total": None if total_limit is None else max(total_limit - used_total, 0)}
@@ -36752,6 +36761,7 @@ def invitation_category_save(concert_id):
             extra_qtys = request.form.getlist('qty_extra[]')
             kinds = request.form.getlist('ticket_kind[]')
             guest_modes = request.form.getlist('guest_list_mode[]')
+            blocked_ids = set(request.form.getlist('block_requests_cat'))  # categorías con peticiones bloqueadas
             for idx, name_raw in enumerate(row_names):
                 name = (name_raw or '').strip()
                 if not name:
@@ -36772,6 +36782,7 @@ def invitation_category_save(concert_id):
                 row.ticket_kind = ticket_kind
                 row.guest_list_mode = guest_mode
                 row.is_active = True
+                row.requests_blocked = bool(category_id and str(category_id) in blocked_ids)
                 row.sort_order = idx
                 row.updated_at = _now_madrid()
             session_db.commit()

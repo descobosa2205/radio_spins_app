@@ -36131,44 +36131,111 @@ def _build_invitation_request_pdf(session_db, row: InvitationRequest) -> bytes:
     return buffer.getvalue()
 
 
-def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None) -> tuple[str, str, str]:
+def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None) -> tuple[str, str, str]:
     concert = row.concert or session_db.get(Concert, row.concert_id)
     event = _invitation_event_payload(session_db, concert) if concert else {}
-    qty = _invitation_total_qty(_json_dict(row.quantities_json))
-    inv_text = "la invitación" if qty == 1 else f"{qty} invitaciones"
-    event_desc = " · ".join([x for x in [event.get("type_label"), event.get("artist_names"), event.get("date_label"), event.get("city"), event.get("venue")] if x])
-    subject = f"Invitaciones {event_desc}".strip()
-    logo = url_for("static", filename="img/logo.png", _external=True)
-    is_guest_list = _invitation_request_uses_only_guest_list(session_db, row)
-    if is_guest_list:
-        mode = "en taquilla" if (row.receiver_mode or '').upper() == 'BOX_OFFICE' else "en puerta"
-        body_main = f"Se han confirmado {html.escape(inv_text)} para {html.escape(row.guest_name or 'el invitado')}. Podrá recogerlas {mode} o acceder indicando su nombre en lista, según la configuración del evento."
-        html_body = f"""
-        <div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">
-          <div style="text-align:right;margin-bottom:18px"><img src="{logo}" style="max-height:58px;max-width:180px" alt="Logo"></div>
-          <h2 style="text-align:center;margin:0 0 18px">Invitaciones</h2>
-          <p>Buenas{(' ' + html.escape(row.guest_name)) if row.guest_name else ''},</p>
-          <p>{body_main}</p>
-          <p><b>Evento:</b> {html.escape(event_desc)}</p>
-          <p style="font-size:13px;color:#555">Gestionado por: {html.escape(row.requester_nick or row.requester_email or '')}</p>
-        </div>
-        """
-        text_body = f"Buenas {row.guest_name or ''}, se han confirmado {inv_text} para {event_desc}. Podrá recogerlas {mode} o acceder indicando su nombre en lista. Gestionado por: {row.requester_nick or row.requester_email or ''}"
-        return subject, html_body, text_body
+    esc = html.escape
+    artist_name = (event.get("artist_names") or "").strip()
+    event_name = ((getattr(concert, "festival_name", None) or "") if concert else "").strip()
+    city = (event.get("city") or "").strip()
+    venue = (event.get("venue") or "").strip()
+    date_label = (event.get("date_label") or "").strip()
+    show_time = (event.get("show_time") or "").strip()
+    # Asunto: Invitaciones "Artista", "Evento", "Ciudad", "Fecha" (solo lo que haya).
+    subj_parts = [x for x in [artist_name, event_name, city, date_label] if x]
+    subject = ("Invitaciones " + ", ".join(subj_parts)).strip() if subj_parts else "Invitaciones"
 
-    download_url = download_url or _invitation_request_download_url(row)
-    html_body = f"""
-    <div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">
-      <div style="text-align:right;margin-bottom:18px"><img src="{logo}" style="max-height:58px;max-width:180px" alt="Logo"></div>
-      <h2 style="text-align:center;margin:0 0 18px">Invitaciones</h2>
-      <p>Buenas{(' ' + html.escape(row.guest_name)) if row.guest_name else ''},</p>
-      <p>Te adjunto {html.escape(inv_text)} para {html.escape(event.get('type_label') or 'el evento')} de <b>{html.escape(event.get('artist_names') or '')}</b>{(' el ' + html.escape(event.get('date_label') or '')) if event.get('date_label') else ''}{(' a las ' + html.escape(event.get('show_time') or '')) if event.get('show_time') else ''}{(' en ' + html.escape(event.get('venue') or '')) if event.get('venue') else ''}{(' en ' + html.escape(event.get('city') or '')) if event.get('city') else ''}.</p>
-      <p style="text-align:center;margin:26px 0"><a href="{html.escape(download_url)}" style="background:#e83b4b;color:#fff;text-decoration:none;padding:13px 22px;border-radius:12px;font-weight:700;display:inline-block">Descargar invitaciones</a></p>
-      <p style="font-size:13px;color:#555">Gestionado por: {html.escape(row.requester_nick or row.requester_email or '')}</p>
-    </div>
-    """
-    text_body = f"Buenas {row.guest_name or ''}, te adjunto invitaciones para {event_desc}. Descargar invitaciones: {download_url}\nGestionado por: {row.requester_nick or row.requester_email or ''}"
-    return subject, html_body, text_body
+    logo = _invitation_event_logo_url(session_db, concert, external=True)  # logo de la empresa del evento
+    arts = event.get("artists") or []
+    artist_photo = (arts[0].get("photo_url") or "").strip() if arts else ""
+
+    # Texto: el personalizado reemplaza al genérico.
+    if custom_text and custom_text.strip():
+        intro = "".join(f'<p style="margin:0 0 10px;text-align:justify">{esc(p)}</p>' for p in custom_text.strip().split("\n") if p.strip())
+    else:
+        intro = ('<p style="margin:0 0 10px;text-align:justify">Hola, aquí tienes tus invitaciones.</p>'
+                 '<p style="margin:0 0 10px;text-align:justify">Esperamos que disfrutes.</p>'
+                 '<p style="margin:0 0 10px;text-align:justify">Un saludo</p>')
+
+    logo_html = f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:58px;max-width:200px" alt="Logo"></div>'
+    meta_rows = [(k, v) for k, v in [("Evento", event_name), ("Ciudad", city), ("Recinto", venue), ("Fecha", date_label), ("Hora", show_time)] if v]
+    meta_html = "".join(f'<div style="font-size:13px;color:#444"><b>{esc(k)}:</b> {esc(v)}</div>' for k, v in meta_rows)
+    photo_cell = (f'<td style="width:74px;vertical-align:top;padding-right:12px"><img src="{esc(artist_photo)}" width="60" height="60" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:1px solid #eee" alt=""></td>' if artist_photo else '')
+    header_html = (
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;margin:8px 0 18px">'
+        '<tr><td style="padding:14px 16px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
+        f'{photo_cell}'
+        f'<td style="vertical-align:top"><div style="font-size:17px;font-weight:700;color:#111">{esc(artist_name or "Evento")}</div>{meta_html}</td>'
+        '</tr></table></td></tr></table>'
+    )
+
+    def abtn(href, label, primary=True):
+        if primary:
+            return f'<a href="{esc(href)}" style="background:#e83b4b;color:#fff;text-decoration:none;padding:9px 16px;border-radius:10px;font-weight:700;display:inline-block;font-size:13px">{esc(label)}</a>'
+        return f'<a href="{esc(href)}" style="color:#e83b4b;text-decoration:none;font-weight:600;font-size:13px">{esc(label)}</a>'
+
+    if _invitation_request_uses_only_guest_list(session_db, row):
+        mode = "en taquilla" if (row.receiver_mode or '').upper() == 'BOX_OFFICE' else "en puerta"
+        body = (f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">{logo_html}{intro}{header_html}'
+                f'<h2 style="text-align:center;margin:14px 0 6px">Invitaciones</h2>'
+                f'<p style="text-align:center;color:#555">Tus invitaciones estarán {mode} a nombre de <b>{esc(row.guest_name or "el invitado")}</b>.</p></div>')
+        return subject, body, f"Hola, tus invitaciones para {subject} estarán {mode} a nombre de {row.guest_name or 'el invitado'}."
+
+    tickets = (session_db.query(InvitationTicket)
+               .filter(InvitationTicket.assigned_request_id == row.id)
+               .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
+               .all())
+    if not row.delivery_token:
+        row.delivery_token = _invitation_token()
+    zip_all = _external_url_for("invitation_request_download_zip", token=row.delivery_token)
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
+    cat_map = {str(c.id): c for c in categories}
+
+    zone_order = ["PISTA", "GRADA", "PALCO"]
+    zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palcos"}
+    grouped = {z: [] for z in zone_order}
+    bykey: dict = {}
+    for t in tickets:
+        cid = str(t.category_id)
+        cat = cat_map.get(cid)
+        zone = _invitation_category_zone(cat) if cat else "PISTA"
+        k = (zone, cid)
+        if k not in bykey:
+            bykey[k] = []
+            grouped.setdefault(zone, []).append((cid, cat, bykey[k]))
+        bykey[k].append(t)
+
+    sections = []
+    n = 0
+    for zone in zone_order:
+        cats = grouped.get(zone) or []
+        if not cats:
+            continue
+        sections.append(f'<h3 style="margin:18px 0 6px;font-size:15px;color:#111">Invitaciones de {zone_labels[zone]}</h3>')
+        for cid, cat, cat_tickets in cats:
+            cat_name = (getattr(cat, "name", None) or "Categoría").strip()
+            is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
+            sections.append(f'<div style="font-weight:700;margin:8px 0 4px">{esc(cat_name)}</div>')
+            sections.append(f'<div style="margin:0 0 6px">{abtn(zip_all + "?category=" + cid, "Descargar todas (" + cat_name + ")", primary=False)}</div>')
+            items = []
+            for t in cat_tickets:
+                n += 1
+                if is_num:
+                    loc = ", ".join([x for x in [(t.sector or "").strip(),
+                                                 ("Fila " + (t.row_label or "").strip()) if (t.row_label or "").strip() else "",
+                                                 ("Asiento " + (t.seat_number or "").strip()) if (t.seat_number or "").strip() else ""] if x])
+                else:
+                    loc = (t.sector or cat_name).strip()
+                line = f"Invitación {n}" + (f" · {esc(loc)}" if loc else "")
+                dl = abtn(t.pdf_url, "Descargar", primary=False) if (t.pdf_url or "").strip() else ""
+                items.append(f'<li style="margin:4px 0">{line} &nbsp;&nbsp; {dl}</li>')
+            sections.append('<ul style="list-style:none;padding:0;margin:0 0 12px">' + "".join(items) + "</ul>")
+
+    body = (f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">{logo_html}{intro}{header_html}'
+            f'<h2 style="text-align:center;margin:14px 0 6px">Invitaciones</h2>'
+            f'<div style="text-align:right;margin:0 0 12px">{abtn(zip_all, "Descargar todas")}</div>'
+            f'{"".join(sections)}</div>')
+    return subject, body, f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {zip_all}"
 
 
 
@@ -37824,6 +37891,52 @@ def invitation_request_download(token):
         session_db.commit()
         data = _build_invitation_request_pdf(session_db, row)
         return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name=f'invitaciones_{row.guest_name or "invitado"}.pdf')
+    finally:
+        session_db.close()
+
+
+def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> tuple[bytes, str]:
+    """Empaqueta en un ZIP los PDF individuales de una lista de entradas (bajándolos de su pdf_url)."""
+    buf = BytesIO()
+    used: set = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, t in enumerate(tickets or [], start=1):
+            url = (getattr(t, "pdf_url", None) or "").strip()
+            if not url:
+                continue
+            try:
+                content, _ct = _download_remote_content(url)
+            except Exception:
+                continue
+            loc = " ".join([x for x in [(t.sector or "").strip(), (t.row_label or "").strip(), (t.seat_number or "").strip()] if x]).strip()
+            base = (t.ticket_code or t.pdf_name or f"invitacion_{idx}").strip()
+            stem = (base + (" " + loc if loc else "")).strip() or f"invitacion_{idx}"
+            member = _safe_zip_member_name(stem + ".pdf", used, f"invitacion_{idx}.pdf")
+            zf.writestr(member, content)
+    root = (archive_label or "invitaciones").strip().replace("/", "-").replace("\\", "-") or "invitaciones"
+    return buf.getvalue(), f"{root}.zip"
+
+
+@app.get('/invitaciones/solicitudes/descargar-zip/<token>', endpoint='invitation_request_download_zip')
+def invitation_request_download_zip(token):
+    """ZIP con los PDF de una solicitud (todas o solo una categoría con ?category=<id>). Público por token."""
+    session_db = db()
+    try:
+        row = session_db.query(InvitationRequest).filter(InvitationRequest.delivery_token == token).first()
+        if not row or (row.status or '') in {'RECHAZADAS', 'ANULADAS'}:
+            abort(404)
+        cat_id = _safe_uuid(request.args.get('category'))
+        q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
+        if cat_id:
+            q = q.filter(InvitationTicket.category_id == cat_id)
+        tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        if not tickets:
+            abort(404)
+        row.downloaded_at = row.downloaded_at or _now_madrid()
+        row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        session_db.commit()
+        payload, filename = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.guest_name or 'invitado'}")
+        return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
         session_db.close()
 

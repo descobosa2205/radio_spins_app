@@ -35305,8 +35305,12 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
     labeled_code = pick([
         r"(?:c[oó]digo(?:\s*de\s*barras)?|c[oó]d\.?|code|barcode|localizador|locator|n[ºo°]?\.?\s*entrada|ticket)\s*[:#\.\-]?\s*([A-Z0-9][A-Z0-9._/-]{4,64})",
     ])
-    code = barcode or labeled_code or pick([r"\b([A-Z0-9]{10,})\b"])
+    generic_code = pick([r"\b([A-Z0-9]{10,})\b"])
+    code = barcode or labeled_code or generic_code
     code_reliable = bool(barcode)
+    # "Tiene código" = se detectó CUALQUIER código real (de barras, localizador/código etiquetado o
+    # un alfanumérico largo). Solo se descartan como "no invitación" las páginas SIN ningún código.
+    has_code = bool(barcode or labeled_code or generic_code)
     if not code:
         code = (Path(filename or "").stem or hashlib.sha256(data or b"").hexdigest()[:16]).strip()
     return {
@@ -35315,7 +35319,7 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
         "seat_number": seat[:20] or None,
         "ticket_code": code[:120] or None,
         "code_reliable": code_reliable,
-        "has_code": bool(barcode or labeled_code),
+        "has_code": has_code,
         "raw_text": text_value[:4000] if text_value else "",
     }
 

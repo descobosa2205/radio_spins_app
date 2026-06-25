@@ -152,7 +152,7 @@
             <div class="mt-2">{{ row.quantities_label }}</div>
             {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
           </div>
-          {{ inv_menu.request_kebab(row) }}
+          {{ inv_menu.request_kebab(row, can_manage=True) }}
         </div>
       </div>
     {% endmacro %}
@@ -172,7 +172,7 @@
     {% else %}
       <div class="text-muted small">Sin invitaciones anteriores.</div>
     {% endif %}
-    {{ inv_menu.edit_modal() }}
+    {{ inv_menu.full_edit_modal() }}
     {{ inv_menu.delete_modal() }}
   {% else %}
     <div class="d-flex justify-content-between align-items-center mb-3">

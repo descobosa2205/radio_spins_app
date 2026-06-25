@@ -2,19 +2,17 @@
    (invitaciones.html) y el módulo de inicio (home.html) para que ambos tengan SIEMPRE las
    mismas funcionalidades. `row` = payload de _invitation_request_payload (+ row.event). #}
 
-{% macro request_kebab(row) %}
+{% macro request_kebab(row, can_manage=False) %}
   {% set has_tickets = row.download_url and row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
   {% set share_text = 'Invitaciones para ' ~ row.event.artist_names ~ ' (' ~ row.event.date_label ~ '): ' ~ row.download_url_abs %}
   <div class="dropdown dropdown-menu-end">
     <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis"></i></button>
     <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-      <li><button type="button" class="dropdown-item" data-edit-request
-            data-action="{{ url_for('invitation_request_update', request_id=row.id) }}"
-            data-guest-name="{{ row.guest_name|e }}" data-guest-email="{{ row.guest_email|e }}"
-            data-guest-phone="{{ row.guest_phone|e }}" data-guest-title="{{ row.guest_title|e }}"
-            data-note="{{ row.note|e }}" data-qty="{{ row.qty_total }}"
-            data-canqty="{{ 1 if row.can_edit_public else 0 }}"
-            data-multi="{{ 1 if (row.quantities|length) > 1 else 0 }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+      {# El peticionario solo edita mientras NO esté asignada; quien gestiona puede editar siempre. #}
+      {% if can_manage or row.status in ['SOLICITADAS','APROBADAS'] %}
+      <li><button type="button" class="dropdown-item" data-edit-request-full
+            data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+      {% endif %}
       {% if has_tickets %}
         <li><a class="dropdown-item" href="{{ row.download_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
         <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
@@ -170,6 +168,40 @@
       });
       mainBtn.addEventListener('click', function(){ submit(mainBtn.dataset.mode || ''); });
       lostBtn.addEventListener('click', function(){ submit(lostBtn.dataset.mode || 'lost'); });
+    })();
+  </script>
+{% endmacro %}
+
+{# Modal del formulario COMPLETO de edición. Se incluye UNA vez por página. Al pulsar un botón
+   [data-edit-request-full] carga por AJAX el formulario precargado (_invitation_edit_form.html) y
+   lo muestra; el envío es un POST normal (recarga). csrf.js añade el token al form insertado. #}
+{% macro full_edit_modal() %}
+  <div class="modal fade" id="invEditFullModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-pen me-2 text-primary"></i>Editar solicitud</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>
+        <div class="modal-body" data-inv-edit-body><div class="text-muted small">Cargando…</div></div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var modalEl = document.getElementById('invEditFullModal');
+      if (!modalEl || modalEl.dataset.bound) return;
+      modalEl.dataset.bound = '1';
+      var body = modalEl.querySelector('[data-inv-edit-body]');
+      document.addEventListener('click', function(ev){
+        var btn = ev.target.closest('[data-edit-request-full]');
+        if (!btn) return;
+        ev.preventDefault();
+        var url = btn.getAttribute('data-form-url') || '';
+        body.innerHTML = '<div class="text-muted small">Cargando…</div>';
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        fetch(url, { headers:{'X-Requested-With':'XMLHttpRequest'} })
+          .then(function(r){ return r.text(); })
+          .then(function(html){ body.innerHTML = html; })
+          .catch(function(){ body.innerHTML = '<div class="alert alert-danger mb-0">No se pudo cargar el formulario.</div>'; });
+      });
     })();
   </script>
 {% endmacro %}

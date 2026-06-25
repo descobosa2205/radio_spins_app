@@ -37223,13 +37223,67 @@ def invitation_request_status(request_id):
         session_db.close()
 
 
+@app.get('/invitaciones/solicitudes/<request_id>/editar', endpoint='invitation_request_edit_form')
+@admin_required
+def invitation_request_edit_form(request_id):
+    """Devuelve el formulario COMPLETO de edición de una solicitud, precargado con sus datos, para
+    cargarlo dentro del modal. Quien gestiona ve además, por categoría, las entradas asignadas
+    (marcar cuáles se quedan) y cuántas añadir; el peticionario solo edita mientras no esté asignada."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _state = _current_user_state()
+        is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
+        can_manage = _user_can_manage_invitations(row.concert, session_db=session_db) if row.concert else False
+        if not is_owner and not can_manage:
+            abort(403)
+        concert = row.concert or (session_db.get(Concert, row.concert_id) if row.concert_id else None)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
+        all_tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+        tickets_by_cat = defaultdict(list)
+        for t in all_tickets:
+            tickets_by_cat[str(t.category_id)].append(_invitation_ticket_payload(t))
+        is_assigned = bool(all_tickets) or (row.status or '') in {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        can_edit = bool(can_manage or not is_assigned)
+        quantities = _json_dict(row.quantities_json)
+        cat_rows = []
+        for cat in categories:
+            cid = str(cat.id)
+            available = (
+                session_db.query(func.count(InvitationTicket.id))
+                .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
+                .scalar()
+            ) or 0
+            cat_rows.append({
+                'id': cid,
+                'name': cat.name,
+                'kind': cat.ticket_kind or '',
+                'qty': _safe_int(quantities.get(cid)),
+                'assigned': tickets_by_cat.get(cid, []),
+                'available': int(available),
+            })
+        return render_template(
+            '_invitation_edit_form.html',
+            row=_invitation_request_payload(row, categories),
+            cat_rows=cat_rows,
+            total_qty=_safe_int(quantities.get('TOTAL')),
+            can_manage=can_manage,
+            can_edit=can_edit,
+            action_url=url_for('invitation_request_update', request_id=row.id),
+        )
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/solicitudes/<request_id>/editar', endpoint='invitation_request_update')
 @admin_required
 def invitation_request_update(request_id):
-    """Edita los datos de una solicitud propia (o gestionable) desde "Mis solicitudes".
-
-    Solo mientras no tenga invitaciones asignadas/enviadas (SOLICITADAS/APROBADAS); después hay que
-    anularla y crear una nueva, porque cambiar invitado/cantidades rompería la asignación."""
+    """Edita una solicitud con el formulario completo. El peticionario solo puede editar mientras NO
+    esté asignada; quien gestiona puede editar siempre y reconcilia las entradas: las desmarcadas se
+    recuperan (o se BLOQUEAN como LOST si ya se enviaron/descargaron y no se podrán reutilizar) y se
+    asignan tantas nuevas como se pidan. Cambiar de categoría = desmarcar en una y añadir en otra."""
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
@@ -37237,10 +37291,21 @@ def invitation_request_update(request_id):
             abort(404)
         _state = _current_user_state()
         _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
-        if not _is_owner:
-            _ensure_can_manage_invitations(session_db, row.concert)
-        # Los datos del invitado y la nota se pueden corregir siempre; las cantidades solo antes de
-        # asignar entradas (después cambiarlas descuadraría la asignación: anula y crea otra).
+        can_manage = _user_can_manage_invitations(row.concert, session_db=session_db) if row.concert else False
+        if not _is_owner and not can_manage:
+            abort(403)
+        concert = row.concert or (session_db.get(Concert, row.concert_id) if row.concert_id else None)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
+        all_tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+        sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        is_assigned = bool(all_tickets) or (row.status or '') in sent_statuses or (row.status or '') == 'ASIGNADAS'
+        _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
+        # El peticionario NO puede editar una solicitud ya asignada (solo quien gestiona).
+        if is_assigned and not can_manage:
+            flash('Esta solicitud ya está asignada; solo puede editarla quien gestiona las invitaciones.', 'warning')
+            return redirect(_fb or url_for('invitations_view', tab='pedir'))
+
+        # Datos del invitado / entrega / nota.
         guest_name = (request.form.get('guest_name') or '').strip()
         if guest_name:
             row.guest_name = guest_name
@@ -37250,19 +37315,86 @@ def invitation_request_update(request_id):
         row.guest_title = guest_title
         row.guest_company = guest_title or row.guest_company
         row.note = (request.form.get('note') or '').strip()
-        new_total = _safe_int(request.form.get('qty_total'))
-        if new_total > 0 and (row.status or '') in {'SOLICITADAS', 'APROBADAS'}:
-            quantities = _json_dict(row.quantities_json)
-            positive = {k: _safe_int(v) for k, v in quantities.items() if _safe_int(v) > 0}
-            if len(positive) == 1:
-                quantities[next(iter(positive))] = new_total
-                row.quantities_json = quantities
-            elif not positive:
-                row.quantities_json = {'TOTAL': new_total}
+        rmode = (request.form.get('receiver_mode') or '').strip().upper()
+        if rmode in {'GUEST', 'ME', 'BOX_OFFICE', 'OTHER'}:
+            row.receiver_mode = rmode
+
+        has_cat_fields = any(k.startswith('cat_') or k == 'keep_ticket' for k in request.form.keys())
+        if has_cat_fields:
+            keep_ids = {str(x) for x in request.form.getlist('keep_ticket')}
+            tickets_by_cat = defaultdict(list)
+            for t in all_tickets:
+                tickets_by_cat[str(t.category_id)].append(t)
+            req_downloaded = bool(row.downloaded_at) or _safe_int(row.downloaded_count) > 0
+            new_quantities = {}
+            for cat in categories:
+                cid = str(cat.id)
+                assigned = tickets_by_cat.get(cid, [])
+                if assigned and can_manage:
+                    kept = [t for t in assigned if str(t.id) in keep_ids]
+                    for t in assigned:
+                        if str(t.id) in keep_ids:
+                            t.assigned_label = row.guest_name
+                            continue
+                        # Desmarcada → recuperar si se puede reutilizar; si ya se envió/descargó, bloquear.
+                        t_sent = (t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP'} or bool(getattr(t, 'sent_at', None)) or bool(row.sent_at) or (row.status or '') in sent_statuses
+                        if t_sent or req_downloaded:
+                            t.previous_assignment_warning = f"Bloqueada al editar la solicitud de {row.guest_name} (ya enviada/descargada, no reutilizable)."
+                            t.status = 'LOST'
+                        else:
+                            t.previous_assignment_warning = f"Recuperada al editar la solicitud de {row.guest_name}."
+                            t.status = 'AVAILABLE'
+                        t.assigned_request_id = None
+                        t.assigned_commitment_id = None
+                        t.assigned_label = None
+                        t.sent_at = None
+                        t.updated_at = _now_madrid()
+                    add_n = _safe_int(request.form.get(f'cat_{cid}_add'))
+                    if add_n > 0:
+                        available = (
+                            session_db.query(InvitationTicket)
+                            .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
+                            .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
+                            .limit(add_n)
+                            .all()
+                        )
+                        if len(available) < add_n:
+                            raise ValueError(f'No hay suficientes invitaciones disponibles en {cat.name}: faltan {add_n - len(available)}.')
+                        for t in available:
+                            t.assigned_request_id = row.id
+                            t.assigned_commitment_id = None
+                            t.assigned_label = row.guest_name
+                            t.status = 'ASSIGNED'
+                            t.assigned_at = _now_madrid()
+                            t.updated_at = _now_madrid()
+                    qty = len(kept) + add_n
+                else:
+                    qty = _safe_int(request.form.get(f'cat_{cid}_qty'))
+                if qty > 0:
+                    new_quantities[cid] = qty
+            total_input = request.form.get('cat_TOTAL_qty')
+            if total_input is not None and _safe_int(total_input) > 0:
+                new_quantities['TOTAL'] = _safe_int(total_input)
+            row.quantities_json = new_quantities
+            remaining = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).count()
+            if remaining > 0 and (row.status or '') not in sent_statuses:
+                row.status = 'ASIGNADAS'
+            elif remaining == 0 and (row.status or '') == 'ASIGNADAS':
+                row.status = 'APROBADAS'
+        else:
+            new_total = _safe_int(request.form.get('qty_total'))
+            if new_total > 0 and (row.status or '') in {'SOLICITADAS', 'APROBADAS'}:
+                quantities = _json_dict(row.quantities_json)
+                positive = {k: _safe_int(v) for k, v in quantities.items() if _safe_int(v) > 0}
+                if len(positive) == 1:
+                    quantities[next(iter(positive))] = new_total
+                    row.quantities_json = quantities
+                elif not positive:
+                    row.quantities_json = {'TOTAL': new_total}
+
         row.updated_at = _now_madrid()
         session_db.commit()
         flash('Solicitud actualizada.', 'success')
-        _fb = request.referrer if (request.referrer or '').startswith(request.host_url) else None
         return redirect(_fb or url_for('invitations_view', tab='pedir'))
     except Exception as exc:
         session_db.rollback()

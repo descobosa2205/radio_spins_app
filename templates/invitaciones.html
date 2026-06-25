@@ -86,7 +86,7 @@
     </div>
   </div>
 
-  {{ inv_menu.edit_modal() }}
+  {{ inv_menu.full_edit_modal() }}
   {{ inv_menu.delete_modal() }}
 {% elif tab == 'gestionar' %}
   <div class="d-flex justify-content-between align-items-center gap-3 flex-wrap mb-3">
@@ -451,6 +451,7 @@
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+                        <li><button type="button" class="dropdown-item" data-edit-request-full data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
                         {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
                         {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
@@ -857,6 +858,7 @@
 
 {% if tab == 'evento' %}
 {{ inv_menu.delete_modal() }}
+{{ inv_menu.full_edit_modal() }}
 
 <div class="modal fade" id="ticketRecoverModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-dialog-centered">

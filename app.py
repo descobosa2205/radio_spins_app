@@ -26945,7 +26945,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "cron_chartmetric_refresh"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "cron_chartmetric_refresh"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -36147,8 +36147,10 @@ def _build_invitation_request_pdf(session_db, row: InvitationRequest) -> bytes:
     return buffer.getvalue()
 
 
-def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None) -> tuple[str, str, str]:
-    concert = row.concert or session_db.get(Concert, row.concert_id)
+def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_text=None, only_guest_list=False, guest_name=None, receiver_mode=None, category_filter_id=None) -> tuple:
+    """Construye (asunto, html, texto) del correo de invitaciones. Compartido por solicitudes y
+    compromisos: recibe ya las entradas y la URL base del ZIP. Si se pasa category_filter_id, el
+    botón "Descargar todas" de cabecera queda acotado a esa categoría."""
     event = _invitation_event_payload(session_db, concert) if concert else {}
     esc = html.escape
     artist_name = (event.get("artist_names") or "").strip()
@@ -36190,20 +36192,18 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
             return f'<a href="{esc(href)}" style="background:#e83b4b;color:#fff;text-decoration:none;padding:9px 16px;border-radius:10px;font-weight:700;display:inline-block;font-size:13px">{esc(label)}</a>'
         return f'<a href="{esc(href)}" style="color:#e83b4b;text-decoration:none;font-weight:600;font-size:13px">{esc(label)}</a>'
 
-    if _invitation_request_uses_only_guest_list(session_db, row):
-        mode = "en taquilla" if (row.receiver_mode or '').upper() == 'BOX_OFFICE' else "en puerta"
+    def catzip(base, cid):
+        sep = "&" if "?" in (base or "") else "?"
+        return f"{base}{sep}category={cid}"
+
+    if only_guest_list:
+        mode = "en taquilla" if (receiver_mode or '').upper() == 'BOX_OFFICE' else "en puerta"
+        gname = guest_name or "el invitado"
         body = (f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">{logo_html}{intro}{header_html}'
                 f'<h2 style="text-align:center;margin:14px 0 6px">Invitaciones</h2>'
-                f'<p style="text-align:center;color:#555">Tus invitaciones estarán {mode} a nombre de <b>{esc(row.guest_name or "el invitado")}</b>.</p></div>')
-        return subject, body, f"Hola, tus invitaciones para {subject} estarán {mode} a nombre de {row.guest_name or 'el invitado'}."
+                f'<p style="text-align:center;color:#555">Tus invitaciones estarán {mode} a nombre de <b>{esc(gname)}</b>.</p></div>')
+        return subject, body, f"Hola, tus invitaciones para {subject} estarán {mode} a nombre de {gname}."
 
-    tickets = (session_db.query(InvitationTicket)
-               .filter(InvitationTicket.assigned_request_id == row.id)
-               .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-               .all())
-    if not row.delivery_token:
-        row.delivery_token = _invitation_token()
-    zip_all = _external_url_for("invitation_request_download_zip", token=row.delivery_token)
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
     cat_map = {str(c.id): c for c in categories}
 
@@ -36232,7 +36232,7 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
             cat_name = (getattr(cat, "name", None) or "Categoría").strip()
             is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
             sections.append(f'<div style="font-weight:700;margin:8px 0 4px">{esc(cat_name)}</div>')
-            sections.append(f'<div style="margin:0 0 6px">{abtn(zip_all + "?category=" + cid, "Descargar todas (" + cat_name + ")", primary=False)}</div>')
+            sections.append(f'<div style="margin:0 0 6px">{abtn(catzip(zip_all, cid), "Descargar todas (" + cat_name + ")", primary=False)}</div>')
             items = []
             for t in cat_tickets:
                 n += 1
@@ -36247,11 +36247,40 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
                 items.append(f'<li style="margin:4px 0">{line} &nbsp;&nbsp; {dl}</li>')
             sections.append('<ul style="list-style:none;padding:0;margin:0 0 12px">' + "".join(items) + "</ul>")
 
+    top_zip = catzip(zip_all, category_filter_id) if category_filter_id else zip_all
     body = (f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">{logo_html}{intro}{header_html}'
             f'<h2 style="text-align:center;margin:14px 0 6px">Invitaciones</h2>'
-            f'<div style="text-align:right;margin:0 0 12px">{abtn(zip_all, "Descargar todas")}</div>'
+            f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar todas")}</div>'
             f'{"".join(sections)}</div>')
-    return subject, body, f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {zip_all}"
+    return subject, body, f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {top_zip}"
+
+
+def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None) -> tuple:
+    """Correo de una SOLICITUD (wrapper de _invitation_email_compose)."""
+    concert = row.concert or session_db.get(Concert, row.concert_id)
+    only_gl = _invitation_request_uses_only_guest_list(session_db, row)
+    if not row.delivery_token:
+        row.delivery_token = _invitation_token()
+    zip_all = _external_url_for("invitation_request_download_zip", token=row.delivery_token)
+    tickets = [] if only_gl else (session_db.query(InvitationTicket)
+               .filter(InvitationTicket.assigned_request_id == row.id)
+               .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
+               .all())
+    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, only_guest_list=only_gl, guest_name=row.guest_name, receiver_mode=row.receiver_mode)
+
+
+def _invitation_commitment_email_body(session_db, commitment, custom_text: str | None = None, category_id=None) -> tuple:
+    """Correo de un COMPROMISO: mismas piezas que la solicitud, con las entradas asignadas al
+    compromiso (opcionalmente filtradas a una categoría)."""
+    concert = commitment.concert or session_db.get(Concert, commitment.concert_id)
+    if not commitment.delivery_token:
+        commitment.delivery_token = _invitation_token()
+    zip_all = _external_url_for("invitation_commitment_download_zip", token=commitment.delivery_token)
+    q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == commitment.id)
+    if category_id:
+        q = q.filter(InvitationTicket.category_id == category_id)
+    tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, guest_name=commitment.guest_name, category_filter_id=(str(category_id) if category_id else None))
 
 
 
@@ -37383,14 +37412,15 @@ def invitation_commitment_deliver(commitment_id):
             session_db.commit()
             flash(f'{len(tickets)} entrada(s) de «{row.name}» quedan para recogida en taquilla.', 'success')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
-        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + [(request.form.get('email') or '')])
+        recipients = _dedupe_valid_email_addresses(
+            request.form.getlist('recipients') + request.form.getlist('extra_emails')
+            + [(request.form.get('email') or ''), (row.guest_email or '')])
         if not recipients:
             flash('Indica un email de destino o elige la recogida en taquilla.', 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
-        links = ''.join(f'<li><a href="{t.pdf_url}">{(t.ticket_code or t.pdf_name or "Entrada")}</a></li>' for t in tickets if t.pdf_url)
-        html_body = f'<p>Hola,</p><p>Aquí tienes tus invitaciones ({len(tickets)}):</p><ul>{links}</ul>'
-        text_body = 'Tus invitaciones:\n' + '\n'.join((t.pdf_url or '') for t in tickets if t.pdf_url)
-        ok, err = _send_optional_email(recipients, 'Tus invitaciones', html_body, text_body=text_body, reply_to=_current_user_email())
+        custom_text = request.form.get('custom_text') or None
+        subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, custom_text=custom_text, category_id=_cat_id)
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
         if ok:
             for t in tickets:
                 t.status = 'SENT'
@@ -37406,6 +37436,40 @@ def invitation_commitment_deliver(commitment_id):
         session_db.rollback()
         flash(f'No se pudo entregar: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/correo/preview', endpoint='invitation_send_preview')
+@admin_required
+def invitation_send_preview():
+    """Devuelve el HTML del correo de invitaciones (solicitud o compromiso) para la vista previa del
+    modal de envío. No envía nada ni cambia estado (solo fija el token de descarga si faltaba)."""
+    session_db = db()
+    try:
+        kind = (request.form.get('kind') or '').strip().lower()
+        obj_id = _safe_uuid(request.form.get('id'))
+        custom_text = request.form.get('custom_text') or None
+        cat_id = _safe_uuid(request.form.get('category_id'))
+        if not obj_id:
+            abort(404)
+        if kind == 'commitment':
+            row = session_db.get(InvitationCommitment, obj_id)
+            if not row:
+                abort(404)
+            _ensure_can_manage_invitations(session_db, row.concert)
+            _subject, html_body, _txt = _invitation_commitment_email_body(session_db, row, custom_text=custom_text, category_id=cat_id)
+        else:
+            row = session_db.get(InvitationRequest, obj_id)
+            if not row:
+                abort(404)
+            _ensure_can_manage_invitations(session_db, row.concert)
+            _subject, html_body, _txt = _invitation_email_body(session_db, row, None, custom_text=custom_text)
+        session_db.commit()
+        return html_body
+    except Exception:
+        session_db.rollback()
+        return '<div style="font-family:Arial,sans-serif;color:#888;padding:20px">No se pudo generar la vista previa.</div>'
     finally:
         session_db.close()
 
@@ -37857,7 +37921,7 @@ def invitation_request_send(request_id):
         if not flags.get('can_send'):
             raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
         download_url = _invitation_request_download_url(row)
-        subject, html_body, text_body = _invitation_email_body(session_db, row, download_url)
+        subject, html_body, text_body = _invitation_email_body(session_db, row, download_url, custom_text=(request.form.get('custom_text') or None))
         row.delivery_token = row.delivery_token or _invitation_token()
         if channel == 'email':
             recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + request.form.getlist('extra_emails') + _invitation_delivery_recipients(row))
@@ -38024,6 +38088,27 @@ def invitation_request_download_zip(token):
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
         session_db.commit()
         payload, filename = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.guest_name or 'invitado'}")
+        return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/compromisos/descargar-zip/<token>', endpoint='invitation_commitment_download_zip')
+def invitation_commitment_download_zip(token):
+    """ZIP con los PDF de un compromiso (todas o solo una categoría con ?category=<id>). Público por token."""
+    session_db = db()
+    try:
+        row = session_db.query(InvitationCommitment).filter(InvitationCommitment.delivery_token == token).first()
+        if not row:
+            abort(404)
+        cat_id = _safe_uuid(request.args.get('category'))
+        q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+        if cat_id:
+            q = q.filter(InvitationTicket.category_id == cat_id)
+        tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        if not tickets:
+            abort(404)
+        payload, filename = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.name or 'compromiso'}")
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
         session_db.close()

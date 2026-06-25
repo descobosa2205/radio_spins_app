@@ -35970,6 +35970,9 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
             "used": used_by_category.get(cid, 0),
             "available": None if limit is None else max(limit - used_by_category.get(cid, 0), 0),
             "blocked": bool(getattr(cat, "requests_blocked", False)),
+            "zone": _invitation_category_zone(cat),
+            "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
+            "zone_icon": INVITATION_ZONE_ICONS.get(_invitation_category_zone(cat), "fa-people-group"),
         })
     total_limit = _safe_int(link.total_limit) if link.limit_mode == "TOTAL" else None
     return {"categories": rows, "total_limit": total_limit, "used_total": used_total, "available_total": None if total_limit is None else max(total_limit - used_total, 0)}
@@ -37397,6 +37400,7 @@ def invitation_request_edit_form(request_id):
                 'qty': _safe_int(quantities.get(cid)),
                 'assigned': tickets_by_cat.get(cid, []),
                 'available': int(available),
+                'zone': _invitation_category_zone(cat),
             })
         return render_template(
             '_invitation_edit_form.html',

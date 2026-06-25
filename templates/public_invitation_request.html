@@ -105,7 +105,11 @@
           <h6>Cantidades</h6>
           {% if link.categorize_requests and limits.categories %}
             <div class="row g-3">
-              {% for cat in limits.categories %}
+              {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+                {% set zcats = limits.categories|selectattr('zone','equalto',zkey)|list %}
+                {% if zcats %}
+                <div class="col-12 fw-semibold small text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+                {% for cat in zcats %}
                 <div class="col-md-4">
                   {% if cat.blocked %}
                     <label class="form-label text-muted">{{ cat.name }} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label>
@@ -116,6 +120,8 @@
                     <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
                   {% endif %}
                 </div>
+                {% endfor %}
+                {% endif %}
               {% endfor %}
             </div>
           {% else %}

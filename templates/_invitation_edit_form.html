@@ -24,7 +24,11 @@
 
   <hr>
   <h6 class="mb-2">Invitaciones por categoría</h6>
-  {% for c in cat_rows %}
+  {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+    {% set zcats = cat_rows|selectattr('zone','equalto',zkey)|list %}
+    {% if zcats %}
+    <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+    {% for c in zcats %}
     <div class="border rounded p-2 mb-2">
       <div class="fw-semibold mb-1">{{ c.name }}</div>
       {% if assign_mode and c.kind != 'GUEST_LIST' %}
@@ -47,6 +51,8 @@
         <input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_{{ c.id }}_qty" min="0" value="{{ c.qty }}">
       {% endif %}
     </div>
+    {% endfor %}
+    {% endif %}
   {% endfor %}
   {% if total_qty %}
     <div class="border rounded p-2 mb-2"><label class="form-label small mb-0">Total (sin categoría)</label><input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_TOTAL_qty" min="0" value="{{ total_qty }}"></div>

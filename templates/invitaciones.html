@@ -345,7 +345,7 @@
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">Compromisos de invitaciones</h5>
-            <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
+            <button class="btn btn-sm btn-outline-danger" data-commitment-add data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
           </div>
           {% if commitments %}
             <div class="list-group">
@@ -369,7 +369,7 @@
                                 <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
                                 {% endif %}
                                 <li><hr class="dropdown-divider"></li>
-                                <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                                <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}'><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                                 <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                               </ul>
                             </div>
@@ -386,7 +386,7 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>
-                        <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#commitmentModal">Editar</button></li>
+                        <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}'>Editar</button></li>
                         <li><button class="dropdown-item" type="button" data-commitment-deliver data-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-name="{{ row.name|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Entregar entradas</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger">Eliminar</button></form></li>
                       </ul>
@@ -1065,17 +1065,58 @@
     <form class="modal-content" method="post" action="{{ url_for('invitation_commitment_save', concert_id=event.id) }}">
       <div class="modal-header"><h5 class="modal-title">Añadir compromiso</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
+        <input type="hidden" name="commitment_id" value="">
         <div class="row g-3 mb-3">
           <div class="col-md-6"><label class="form-label">Nombre / tercero</label><input class="form-control" name="name" placeholder="Recinto, artista, patrocinador..." required></div>
           <div class="col-md-6"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Compromiso del recinto, artista, promo..."></div>
         </div>
-        {% if categories %}<div class="row g-3">{% for cat in categories %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>{% endif %}
+        {% if categories %}
+          {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+            {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
+            {% if zcats %}
+              <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+              <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
+            {% endif %}
+          {% endfor %}
+        {% endif %}
         <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar compromiso</button></div>
     </form>
   </div>
 </div>
+<script>
+  (function(){
+    var modalEl = document.getElementById('commitmentModal');
+    if(!modalEl) return;
+    var form = modalEl.querySelector('form');
+    var title = modalEl.querySelector('.modal-title');
+    function setVal(name, val){ var i = form.querySelector('[name="' + name + '"]'); if(i) i.value = (val == null ? '' : val); }
+    function resetForm(){
+      setVal('commitment_id', '');
+      setVal('name', ''); setVal('reason', ''); setVal('note', '');
+      form.querySelectorAll('input[name^="qty_"]').forEach(function(i){ i.value = 0; });
+      if(title) title.textContent = 'Añadir compromiso';
+    }
+    document.addEventListener('click', function(ev){
+      var edit = ev.target.closest('[data-commitment-edit]');
+      if(edit){
+        ev.preventDefault();
+        resetForm();
+        setVal('commitment_id', edit.getAttribute('data-commitment-id') || '');
+        setVal('name', edit.getAttribute('data-name') || '');
+        setVal('reason', edit.getAttribute('data-reason') || '');
+        setVal('note', edit.getAttribute('data-note') || '');
+        var q = {}; try { q = JSON.parse(edit.getAttribute('data-quantities') || '{}'); } catch(e){}
+        Object.keys(q).forEach(function(k){ setVal('qty_' + k, q[k]); });
+        if(title) title.textContent = 'Editar compromiso';
+        if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        return;
+      }
+      if(ev.target.closest('[data-commitment-add]')) resetForm();
+    });
+  })();
+</script>
 {% endif %}
 
 {# Modal petición interna #}
@@ -1241,10 +1282,24 @@
     const res = await fetch(`{{ url_for('api_invitation_event_categories', concert_id='__ID__') }}`.replace('__ID__', eventId));
     const data = await res.json(); const cats = data.categories || [];
     const qtyPanel = form.querySelector('[data-category-qty-panel]');
-    if (qtyPanel) qtyPanel.innerHTML = cats.length ? cats.map(c => c.requests_blocked
-      ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label><input class="form-control" type="number" value="0" disabled><div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div></div>`
-      : `<div class="col-md-4"><label class="form-label">${escHtml(c.name)}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`
-      ).join('') : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
+    if (qtyPanel){
+      if (!cats.length){
+        qtyPanel.innerHTML = '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
+      } else {
+        var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
+        var _cell = function(c){ return c.requests_blocked
+          ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label><input class="form-control" type="number" value="0" disabled><div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div></div>`
+          : `<div class="col-md-4"><label class="form-label">${escHtml(c.name)}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`; };
+        var _html = '';
+        _zones.forEach(function(z){
+          var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });
+          if (!_zc.length) return;
+          _html += '<div class="col-12 fw-semibold small text-muted mt-1"><i class="fa ' + z[2] + ' me-1 text-danger"></i>' + z[1] + '</div>';
+          _html += _zc.map(_cell).join('');
+        });
+        qtyPanel.innerHTML = _html;
+      }
+    }
     const linkPanel = form.querySelector('[data-link-category-panel]');
     if (linkPanel) linkPanel.innerHTML = cats.map(c => `<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="link_enabled_${c.id}" value="1" checked> ${c.name}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_${c.id}" placeholder="Máximo"></div></div>`).join('') || '<div class="text-muted small">Sin categorías.</div>';
     goStep(form, Math.max(getStep(form), 3));

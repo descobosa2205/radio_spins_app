@@ -332,45 +332,6 @@
     </div>
   </div>
 
-  <div class="card mb-4 invitation-availability-fixed">
-    <div class="card-body">
-      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-        <div>
-          <h5 class="mb-0">Invitaciones disponibles</h5>
-          <div class="small text-muted">Contrato + adicionales por categoría. Este módulo permanece fijo para todas las pestañas.</div>
-        </div>
-        <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
-      </div>
-      <div class="row g-3">
-        {% for cat in categories %}
-          <div class="col-12 col-md-6 col-xl-4">
-            <div class="invitation-category-card h-100">
-              <div class="d-flex justify-content-between align-items-start gap-2">
-                <div><strong>{{ cat.name }}</strong><div class="small text-muted">{{ cat.ticket_kind|replace('_',' ') }}</div></div>
-                <span class="badge text-bg-light border">{{ cat.configured }}</span>
-              </div>
-              <div class="small mt-2">Contrato: <strong>{{ cat.qty_contract }}</strong> · Adicionales: <strong>{{ cat.qty_extra }}</strong></div>
-              <div class="small">Subidas: <strong>{{ cat.uploaded }}</strong> · Asignadas: <strong>{{ cat.assigned }}</strong> · Libres: <strong>{{ cat.available_configured }}</strong></div>
-              {% if cat.ticket_kind == 'PDF_NUMBERED' %}
-                {% set br = availability_by_category.get(cat.id) if availability_by_category is defined else None %}
-                {% if br and br.sectors %}
-                  <div class="small mt-2 border-top pt-2">
-                    <div class="text-muted mb-1">Disponibles por sector / fila (butacas seguidas):</div>
-                    {% for s in br.sectors %}
-                      <div><strong>{{ s.sector }}</strong> · {{ s.available }} libres</div>
-                      {% for r in s.rows %}<div class="ms-3 text-muted">Fila {{ r.row_label }}: {% if r.runs %}{{ r.runs|join(', ') }}{% else %}{{ r.available }}{% endif %}</div>{% endfor %}
-                    {% endfor %}
-                  </div>
-                {% endif %}
-                <a class="small d-inline-block mt-2" href="#inv-tab-tickets" data-show-invitation-tab="tickets"><i class="fa fa-map me-1"></i>Ver plano</a>
-              {% endif %}
-            </div>
-          </div>
-        {% endfor %}
-      </div>
-    </div>
-  </div>
-
   <ul class="nav nav-pills mb-3" id="invitationEventTabs" role="tablist">
     <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#inv-tab-guests" type="button">Invitados</button></li>
     <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#inv-tab-tickets" type="button">Invitaciones</button></li>
@@ -394,9 +355,18 @@
                     <div>
                       <strong>{{ row.name }}</strong>{% if row.reason %}<span class="text-muted"> · {{ row.reason }}</span>{% endif %}
                       {% if row.category_status %}
-                      <div class="d-flex flex-wrap gap-2 mt-1">
+                      <div class="mt-2 d-flex flex-column gap-1">
                         {% for cs in row.category_status %}
-                          <span class="badge {% if cs.done %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}" title="{{ cs.assigned }} de {{ cs.qty }} asignadas">{% if cs.done %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.name }} · {{ cs.assigned }}/{{ cs.qty }}</span>
+                          <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
+                            <span class="badge {% if cs.done %}text-bg-success{% else %}text-bg-warning text-dark{% endif %}" title="{{ cs.assigned }} de {{ cs.qty }} asignadas">{% if cs.done %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.assigned }}/{{ cs.qty }}</span>
+                            <span class="small flex-grow-1">{{ cs.name }}</span>
+                            <div class="dropdown">
+                              <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                              <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+                                <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar / gestionar</button></li>
+                              </ul>
+                            </div>
+                          </div>
                         {% endfor %}
                       </div>
                       {% else %}
@@ -493,6 +463,7 @@
       <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
         <button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>
         <span class="small text-muted" data-select-hint>Actívalo y pincha las entradas para eliminarlas o moverlas de categoría en bloque.</span>
+        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
       </div>
       <form method="post" action="{{ url_for('invitation_tickets_bulk', concert_id=event.id) }}" class="invitation-bulk-bar d-none align-items-center flex-wrap gap-2 mb-3 p-2 border rounded" data-bulk-bar>
         <input type="hidden" name="action" data-bulk-action value="">
@@ -506,7 +477,11 @@
         <button type="button" class="btn btn-sm btn-link ms-auto" data-select-cancel>Cancelar</button>
       </form>
       <div class="row g-4">
-        {% for cat in categories %}
+        {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+          {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
+          {% if zcats %}
+            <div class="col-12"><h5 class="mb-1 mt-2 pb-2 border-bottom d-flex align-items-center gap-2"><i class="fa {{ zicon }} text-danger"></i>{{ zlabel }} <span class="badge text-bg-light border">{{ zcats|length }}</span></h5></div>
+            {% for cat in zcats %}
           {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
           {% set cat_groups = ticket_groups_by_category.get(cat.id, []) if ticket_groups_by_category is defined else [] %}
           <div class="col-12">
@@ -568,6 +543,8 @@
               </div>
             </div>
           </div>
+            {% endfor %}
+          {% endif %}
         {% endfor %}
         {% if uncategorized_tickets %}
         <div class="col-12">
@@ -1017,7 +994,7 @@
       <div class="modal-body">
         <div class="table-responsive">
           <table class="table align-middle invitation-category-table" data-category-table>
-            <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th class="text-center">Bloquear peticiones</th><th></th></tr></thead>
+            <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th>Zona</th><th class="text-end">Por contrato</th><th class="text-end">Adicionales</th><th class="text-center">Bloquear peticiones</th><th></th></tr></thead>
             <tbody>
               {% for cat in categories %}
                 <tr>
@@ -1031,6 +1008,7 @@
                     </select>
                     <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
                   </td>
+                  <td><select class="form-select" name="zone[]"><option value="PISTA" {% if cat.zone == 'PISTA' %}selected{% endif %}>🎶 Pista</option><option value="GRADA" {% if cat.zone == 'GRADA' %}selected{% endif %}>🪑 Grada</option><option value="PALCO" {% if cat.zone == 'PALCO' %}selected{% endif %}>👑 Palcos</option></select></td>
                   <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
                   <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
                   <td class="text-center">{% if cat.id %}<div class="form-check d-inline-block"><input class="form-check-input" type="checkbox" name="block_requests_cat" value="{{ cat.id }}" {% if cat.requests_blocked %}checked{% endif %} title="Si lo marcas, no se podrán pedir invitaciones para esta categoría (aparecerá desactivada)"></div>{% else %}<span class="text-muted small" title="Guarda primero para poder bloquearla">—</span>{% endif %}</td>
@@ -1402,7 +1380,7 @@
     renderPickerSelected(picker, item);
   });
 
-  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td class="text-center"><span class="text-muted small" title="Guarda primero para poder bloquearla">—</span></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
+  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><select class="form-select" name="zone[]"><option value="PISTA">🎶 Pista</option><option value="GRADA">🪑 Grada</option><option value="PALCO">👑 Palcos</option></select></td><td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td><td class="text-center"><span class="text-muted small" title="Guarda primero para poder bloquearla">—</span></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
   document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; let kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; const mode = (btn?.dataset.guestListMode || '').toUpperCase(); if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
   function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; const isList = kind === 'GUEST_LIST_BOX_OFFICE' || kind === 'GUEST_LIST_DOOR' || kind === 'GUEST_LIST'; const hiddenMode = root.querySelector('[name="guest_list_mode"]'); if(hiddenMode) hiddenMode.value = kind === 'GUEST_LIST_DOOR' ? 'DOOR' : (isList ? 'BOX_OFFICE' : ''); root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', isList); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', !isList); }
@@ -1743,7 +1721,12 @@
       if (first) first.scrollIntoView({ block: 'start' });
     }
     modal.addEventListener('shown.bs.modal', function(){
-      if (pending){ applyFilter(pending.stype, pending.sid, pending.name); pending = null; pendingCat = null; }
+      if (pending){
+        var _cat = pending.cat;
+        applyFilter(pending.stype, pending.sid, pending.name);
+        if (_cat){ var bc = modal.querySelector('.invitation-assignment-form[data-category-id="' + _cat + '"]'); if (bc && bc.scrollIntoView) bc.scrollIntoView({ block: 'start' }); }
+        pending = null; pendingCat = null;
+      }
       else if (pendingCat){ var b = modal.querySelector('.invitation-assignment-form[data-category-id="' + pendingCat + '"]'); if (b) b.scrollIntoView({ block: 'start' }); pendingCat = null; }
     });
     if (clearBtn) clearBtn.addEventListener('click', clearFilter);
@@ -1753,9 +1736,14 @@
       if (src){
         ev.preventDefault();
         var sel = srcSel(src.getAttribute('data-source-type'), src.getAttribute('data-source-id'));
-        if (!modal.querySelector(sel)){ alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return; }
+        var catAttr = src.getAttribute('data-assign-cat') || '';
+        if (!modal.querySelector(sel)){
+          // Sin pendientes (ya asignada): si venimos de una categoría concreta, abrimos ahí para gestionarla.
+          if (catAttr){ pending = null; pendingCat = catAttr; clearFilter(); bootstrap.Modal.getOrCreateInstance(modal).show(); return; }
+          alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return;
+        }
         clearFilter();
-        pending = { stype: src.getAttribute('data-source-type'), sid: src.getAttribute('data-source-id'), name: src.getAttribute('data-source-name') || '' };
+        pending = { stype: src.getAttribute('data-source-type'), sid: src.getAttribute('data-source-id'), name: src.getAttribute('data-source-name') || '', cat: catAttr };
         pendingCat = null;
         bootstrap.Modal.getOrCreateInstance(modal).show();
         return;

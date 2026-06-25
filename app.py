@@ -35060,6 +35060,29 @@ def _invitation_get_categories(session_db, concert: Concert, ensure_defaults: bo
     return created
 
 
+INVITATION_ZONES = [
+    ("PISTA", "Pista", "fa-people-group"),
+    ("GRADA", "Grada", "fa-chair"),
+    ("PALCO", "Palcos", "fa-crown"),
+]
+INVITATION_ZONE_LABELS = {k: lbl for k, lbl, _ic in INVITATION_ZONES}
+INVITATION_ZONE_ICONS = {k: ic for k, _lbl, ic in INVITATION_ZONES}
+
+
+def _invitation_category_zone(cat) -> str:
+    """Zona de la categoría: PISTA / GRADA / PALCO. Si no está fijada, se infiere del nombre
+    (front stage / general → pista; tribuna/anfiteatro → grada; palco → palco)."""
+    z = (getattr(cat, "zone", None) or "").strip().upper()
+    if z in INVITATION_ZONE_LABELS:
+        return z
+    n = (getattr(cat, "name", None) or "").lower()
+    if "palco" in n:
+        return "PALCO"
+    if any(k in n for k in ["grada", "graderio", "graderío", "tribuna", "anfiteatro"]):
+        return "GRADA"
+    return "PISTA"
+
+
 def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = None) -> dict:
     qty_contract = _safe_int(getattr(cat, "qty_contract", 0))
     qty_extra = _safe_int(getattr(cat, "qty_extra", 0))
@@ -35080,6 +35103,9 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
+        "zone": _invitation_category_zone(cat),
+        "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
+        "zone_icon": INVITATION_ZONE_ICONS.get(_invitation_category_zone(cat), "fa-people-group"),
     }
 
 
@@ -36583,6 +36609,7 @@ def invitation_event_detail(concert_id):
                     continue
                 _asg = int(_invitation_assigned_qty_for_source(session_db, to_uuid(_cid), 'commitment', row.id))
                 cat_status.append({
+                    "id": str(_cid),
                     "name": name_map.get(str(_cid), "Categoría"),
                     "qty": _qn,
                     "assigned": _asg,
@@ -36762,6 +36789,7 @@ def invitation_category_save(concert_id):
             kinds = request.form.getlist('ticket_kind[]')
             guest_modes = request.form.getlist('guest_list_mode[]')
             blocked_ids = set(request.form.getlist('block_requests_cat'))  # categorías con peticiones bloqueadas
+            zone_vals = request.form.getlist('zone[]')  # zona (PISTA/GRADA/PALCO) por categoría
             for idx, name_raw in enumerate(row_names):
                 name = (name_raw or '').strip()
                 if not name:
@@ -36783,6 +36811,8 @@ def invitation_category_save(concert_id):
                 row.guest_list_mode = guest_mode
                 row.is_active = True
                 row.requests_blocked = bool(category_id and str(category_id) in blocked_ids)
+                _zone_raw = (zone_vals[idx] if idx < len(zone_vals) else '').strip().upper()
+                row.zone = _zone_raw if _zone_raw in ('PISTA', 'GRADA', 'PALCO') else None
                 row.sort_order = idx
                 row.updated_at = _now_madrid()
             session_db.commit()

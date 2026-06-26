@@ -219,9 +219,14 @@ app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     SESSION_COOKIE_SECURE=(os.getenv("SESSION_COOKIE_SECURE", "0") == "1"),
 )
-# Subidas pesadas: evita rechazos prematuros de Flask/Werkzeug con masters WAV grandes.
-app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH", str(1024 * 1024 * 1024)))
-app.config["MAX_FORM_MEMORY_SIZE"] = int(os.getenv("MAX_FORM_MEMORY_SIZE", str(1024 * 1024 * 1024)))
+# Subidas pesadas (masters WAV muy grandes): SIN límite de tamaño por defecto. Werkzeug interpreta
+# None como "sin tope", así que no se rechaza ninguna subida por tamaño. Se puede fijar un tope por
+# env (MAX_CONTENT_LENGTH en bytes) si alguna vez hiciera falta. Los archivos se vuelcan a disco
+# (temporales), no a memoria, así que esto no afecta al uso de RAM.
+_max_content_length = os.getenv("MAX_CONTENT_LENGTH")
+app.config["MAX_CONTENT_LENGTH"] = int(_max_content_length) if _max_content_length else None
+_max_form_memory = os.getenv("MAX_FORM_MEMORY_SIZE")
+app.config["MAX_FORM_MEMORY_SIZE"] = int(_max_form_memory) if _max_form_memory else None
 
 # Protección CSRF en todas las peticiones que modifican datos (POST/PUT/PATCH/DELETE). El token se
 # inyecta de forma automática en formularios y en peticiones fetch desde static/js/csrf.js (cargado
@@ -581,7 +586,9 @@ def require_login():
 
 @app.errorhandler(RequestEntityTooLarge)
 def _handle_request_entity_too_large(exc):
-    flash("El archivo es demasiado grande para la configuración actual del servidor. Revisa MAX_CONTENT_LENGTH y el timeout del servidor.", "danger")
+    # La app no limita el tamaño de subida (MAX_CONTENT_LENGTH = None). Si aun así llega un 413,
+    # suele venir de un proxy/servidor delante; se informa sin culpar al usuario.
+    flash("La subida no se pudo completar por una limitación del servidor. Si el archivo es muy grande, inténtalo de nuevo; si vuelve a fallar, avísanos.", "danger")
     return redirect(request.referrer or url_for("discografica_view", section="canciones"))
 
 

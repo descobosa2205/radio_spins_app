@@ -34782,10 +34782,11 @@ def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
 
 def _promoter_link_summary_text(summary: dict | None) -> str:
     """Texto corto y legible del vínculo principal, con la relación por delante.
-    Ej.: "director · Radio X" o, si no hay relación, "Medio · Radio X"."""
+    Ej.: "director · Radio X" o, si no hay relación, solo el nombre "Radio X".
+    NO se muestra el tipo de la entidad vinculada (institución, medio, …)."""
     if not summary:
         return ""
-    lead = (summary.get("relation_title") or "").strip() or (summary.get("type_label") or "")
+    lead = (summary.get("relation_title") or "").strip()
     parts = [lead, summary.get("label") or ""]
     return " · ".join([x for x in parts if x])
 
@@ -34929,7 +34930,8 @@ def linked_mini(entity_type=None, entity_id=None, summary=None, max_items=2):
     hidden = summary.get("extra", 0) + max(0, len(items) - len(shown))
     chips = []
     for it in shown:
-        lead = (it.get("relation_title") or "").strip() or (it.get("type_label") or "")
+        # Solo la relación (si la hay) + nombre; nunca el tipo de la entidad (medio, institución…).
+        lead = (it.get("relation_title") or "").strip()
         label = (it.get("label") or "").strip()
         if lead and label:
             inner = Markup('<b>%s</b> · %s') % (lead, label)

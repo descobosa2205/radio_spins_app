@@ -370,6 +370,9 @@
                                 <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar</button></li>
                                 <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
                                 {% endif %}
+                                <li><hr class="dropdown-divider"></li>
+                                <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                                <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
                               </ul>
                             </div>
                           </div>
@@ -1681,14 +1684,14 @@
       fd.append('assignments_json', JSON.stringify([{ source_type: entry.source_type, source_id: entry.source_id, category_id: entry.category_id, qty: qty || 0, ticket_ids: ticketIds || [] }]));
       fd.append('ajax', '1');
       fd.append('accept_warnings', '1');
-      try { const res = await fetch(form.action, { method: 'POST', body: fd }); const d = await res.json().catch(() => null); return !!(res.ok && d && d.ok); }
+      try { const res = await fetch(form.action, { method: 'POST', body: fd }); const d = await res.json().catch(() => null); const ok = !!(res.ok && d && d.ok); if (ok) window.__invAssignChanged = true; return ok; }
       catch (err) { return false; }
     };
 
     const postRelease = async (ticketId) => {
       if (!releaseTpl) return false;
       const fd = new FormData(); fd.append('ajax', '1');
-      try { const res = await fetch(releaseTpl.replace('RELEASE_TICKET_ID', encodeURIComponent(ticketId)), { method: 'POST', body: fd }); const d = await res.json().catch(() => null); return !!(res.ok && d && d.ok); }
+      try { const res = await fetch(releaseTpl.replace('RELEASE_TICKET_ID', encodeURIComponent(ticketId)), { method: 'POST', body: fd }); const d = await res.json().catch(() => null); const ok = !!(res.ok && d && d.ok); if (ok) window.__invAssignChanged = true; return ok; }
       catch (err) { return false; }
     };
 
@@ -1870,6 +1873,11 @@
     });
     if (clearBtn) clearBtn.addEventListener('click', clearFilter);
     modal.querySelectorAll('[data-assign-filter-clear]').forEach(function(cb){ cb.addEventListener('click', clearFilter); });
+    // Al cerrar el modal, si se asignó/desasignó algo, refresca la página para que los estados de
+    // la lista (compromisos/solicitudes) queden al día sin tener que recargar a mano (igual que al enviar).
+    modal.addEventListener('hidden.bs.modal', function(){
+      if (window.__invAssignChanged){ window.__invAssignChanged = false; window.location.reload(); }
+    });
     document.addEventListener('click', function(ev){
       var src = ev.target.closest('[data-assign-source]');
       if (src){

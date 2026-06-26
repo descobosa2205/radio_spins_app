@@ -575,6 +575,10 @@ class Promoter(Base):
     contact_email = Column(Text)
     contact_phone = Column(Text)
 
+    # Clasificación del tercero para vinculaciones/filtros: ''/NULL = persona/tercero genérico,
+    # 'empresa' = empresa, 'institucion' = institución (ayuntamiento, organismo, etc.).
+    kind = Column(Text)
+
     publishing_company_id = Column(
         PGUUID(as_uuid=True),
         ForeignKey("publishing_companies.id", ondelete="SET NULL"),
@@ -4183,6 +4187,9 @@ def ensure_third_party_and_contract_sheet_schema():
 
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+
+        # Clasificación del tercero (empresa / institución) para vinculaciones.
+        'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS kind text;',
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (

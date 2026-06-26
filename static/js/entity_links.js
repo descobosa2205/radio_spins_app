@@ -18,6 +18,8 @@
   // Endpoints de alta rápida por tipo (rutas estables de la app).
   var CREATE_ENDPOINTS = {
     promoter: '/api/promoters/create',
+    empresa: '/api/promoters/create',
+    institucion: '/api/promoters/create',
     artist: '/api/artists/create',
     media: '/api/media/create',
     venue: '/api/venues/create',
@@ -157,6 +159,8 @@
       if (!name) { if (createMsg) { createMsg.className = 'small text-danger'; createMsg.textContent = 'Escribe un nombre.'; } return; }
       var fd = new FormData();
       fd.append('name', name); fd.append('nick', name);
+      // Empresa/Institución se guardan como terceros clasificados (campo kind).
+      if (type === 'empresa' || type === 'institucion') fd.append('kind', type);
       if (type === 'media' && createMediaType) fd.append('media_type', createMediaType.value || 'OTRO');
       if (createLogo && createLogo.files && createLogo.files[0]) { fd.append('logo', createLogo.files[0]); fd.append('photo', createLogo.files[0]); }
       if (force) fd.append('force_new', '1');

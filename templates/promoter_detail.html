@@ -240,6 +240,13 @@
         <input type="hidden" name="next" value="{{ url_for('promoter_detail_view', pid=promoter.id, tab=tab) }}">
         <div class="modal-body row g-3">
           <div class="col-md-6"><label class="form-label">Nick</label><input class="form-control" name="nick" value="{{ promoter.nick }}" required></div>
+          <div class="col-md-3"><label class="form-label">Tipo</label>
+            <select class="form-select" name="kind">
+              <option value="" {% if not promoter.kind %}selected{% endif %}>Tercero</option>
+              <option value="empresa" {% if promoter.kind == 'empresa' %}selected{% endif %}>Empresa</option>
+              <option value="institucion" {% if promoter.kind == 'institucion' %}selected{% endif %}>Institución</option>
+            </select>
+          </div>
           <div class="col-md-3"><label class="form-label">CIF</label><input class="form-control" name="tax_id" value="{{ promoter.tax_id or '' }}"></div>
           <div class="col-md-3"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
           <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>

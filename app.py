@@ -16810,12 +16810,16 @@ def promoters_view():
                 if not contact_email:
                     raise ValueError("El email de contacto es obligatorio.")
                 logo_url = upload_image(logo, "promoters") if (logo and getattr(logo, "filename", "")) else None
+                kind = (request.form.get("kind") or "").strip().lower()
+                if kind not in ("empresa", "institucion"):
+                    kind = None
                 p = Promoter(
                     nick=nick,
                     logo_url=logo_url,
                     tax_id=(request.form.get("tax_id") or "").strip() or None,
                     contact_email=contact_email or None,
                     contact_phone=(request.form.get("contact_phone") or "").strip() or None,
+                    kind=kind,
                 )
                 session.add(p)
                 session.flush()
@@ -16871,6 +16875,9 @@ def promoter_update(pid):
     p.tax_id = (request.form.get("tax_id") or p.tax_id or "").strip() or None
     p.contact_email = (request.form.get("contact_email") or p.contact_email or "").strip() or None
     p.contact_phone = (request.form.get("contact_phone") or p.contact_phone or "").strip() or None
+    if "kind" in request.form:
+        _kind = (request.form.get("kind") or "").strip().lower()
+        p.kind = _kind if _kind in ("empresa", "institucion") else None
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
@@ -19900,12 +19907,17 @@ def api_create_promoter():
         logo = request.files.get("logo") or request.files.get("photo")
         logo_url = upload_image(logo, "promoters") if logo and getattr(logo, "filename", "") else None
 
+        kind = (request.form.get("kind") or "").strip().lower()
+        if kind not in ("empresa", "institucion"):
+            kind = None
+
         p = Promoter(
             nick=nick,
             logo_url=logo_url,
             tax_id=(request.form.get("tax_id") or "").strip() or None,
             contact_email=contact_email or None,
             contact_phone=(request.form.get("contact_phone") or "").strip() or None,
+            kind=kind,
         )
         session.add(p)
         session.flush()
@@ -19921,6 +19933,7 @@ def api_create_promoter():
                 "tax_id": (p.tax_id or ""),
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
+                "kind": (p.kind or ""),
                 "companies": [],
                 "active_embargos_linked": linked_embargos,
             }
@@ -23311,8 +23324,14 @@ def api_entity_link_search():
         if not entity_type:
             return jsonify([])
         rows = []
-        if entity_type == "promoter":
+        if entity_type in ("promoter", "empresa", "institucion"):
             query = session_db.query(Promoter).options(joinedload(Promoter.publishing_company), selectinload(Promoter.companies))
+            # "Tercero" muestra los terceros genéricos (sin clasificar); "Empresa"/"Institución"
+            # muestran solo los terceros de ese tipo.
+            if entity_type == "promoter":
+                query = query.filter(or_(Promoter.kind.is_(None), Promoter.kind.notin_(["empresa", "institucion"])))
+            else:
+                query = query.filter(Promoter.kind == entity_type)
             if q:
                 query = query.filter(
                     _sa_contains_text(Promoter.nick, q)
@@ -23324,7 +23343,7 @@ def api_entity_link_search():
                     | Promoter.id.in_(session_db.query(PromoterCompany.promoter_id).filter(or_(_sa_contains_text(PromoterCompany.legal_name, q), _sa_contains_text(PromoterCompany.tax_id, q))))
                 )
             for item in query.order_by(Promoter.nick.asc()).limit(30).all():
-                payload = _entity_link_payload(session_db, "promoter", item.id)
+                payload = _entity_link_payload(session_db, entity_type, item.id)
                 if payload:
                     payload["link_summary"] = _promoter_link_summary(session_db, item)
                     rows.append(payload)
@@ -23422,7 +23441,22 @@ def entity_link_create():
         if pair_b < pair_a:
             source_type, target_type = target_type, source_type
             source_id, target_id = target_id, source_id
-        row = session_db.query(ThirdPartyLink).filter_by(source_type=source_type, source_id=source_id, target_type=target_type, target_id=target_id).first()
+        # Busca un enlace ya existente para el mismo par físico en cualquier orientación y bajo
+        # tipos equivalentes (tercero/empresa/institución comparten tabla), para no duplicar.
+        s_types = _entity_link_self_types(source_type)
+        t_types = _entity_link_self_types(target_type)
+        row = session_db.query(ThirdPartyLink).filter(
+            or_(
+                and_(ThirdPartyLink.source_type.in_(s_types), ThirdPartyLink.source_id == source_id,
+                     ThirdPartyLink.target_type.in_(t_types), ThirdPartyLink.target_id == target_id),
+                and_(ThirdPartyLink.source_type.in_(t_types), ThirdPartyLink.source_id == target_id,
+                     ThirdPartyLink.target_type.in_(s_types), ThirdPartyLink.target_id == source_id),
+            )
+        ).first()
+        if row:
+            # Mantén el tipo elegido más específico (empresa/institución) si procede.
+            row.source_type, row.source_id = source_type, source_id
+            row.target_type, row.target_id = target_type, target_id
         if not row:
             row = ThirdPartyLink(source_type=source_type, source_id=source_id, target_type=target_type, target_id=target_id, created_by_user_id=_safe_uuid(session.get('user_id')), created_by_nick=_current_user_email())
             session_db.add(row)
@@ -34528,6 +34562,8 @@ def _json_list(value) -> list:
 
 APP33_ENTITY_LINK_TYPES = {
     "promoter": {"label": "Tercero", "icon": "fa-user-tie"},
+    "empresa": {"label": "Empresa", "icon": "fa-building"},
+    "institucion": {"label": "Institución", "icon": "fa-landmark"},
     "artist": {"label": "Artista", "icon": "fa-microphone-lines"},
     "media": {"label": "Medio", "icon": "fa-bullhorn"},
     "venue": {"label": "Recinto", "icon": "fa-location-dot"},
@@ -34536,6 +34572,8 @@ APP33_ENTITY_LINK_TYPES = {
 }
 APP33_ENTITY_LINK_ALIASES = {
     "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
+    "company": "empresa", "empresas": "empresa",
+    "institution": "institucion", "instituciones": "institucion", "institución": "institucion",
     "artista": "artist",
     "medio": "media", "recinto": "venue", "ticketera": "ticketer", "editorial": "publishing",
     "publishing_company": "publishing",
@@ -34568,10 +34606,10 @@ def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict
     subtitle = ""
     logo_url = ""
     href = ""
-    if etype == "promoter":
+    if etype in ("promoter", "empresa", "institucion"):
         row = session_db.get(Promoter, eid)
         if row:
-            label = _promoter_display_name(row) or row.nick or "Tercero"
+            label = _promoter_display_name(row) or row.nick or _entity_link_label(etype)
             subtitle = " · ".join([x for x in [(row.contact_email or "").strip(), (row.contact_phone or "").strip()] if x])
             logo_url = row.logo_url or ""
             href = url_for("promoter_detail_view", pid=row.id)
@@ -34624,15 +34662,25 @@ def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict
     }
 
 
+def _entity_link_self_types(etype: str) -> list[str]:
+    """Tipos equivalentes que apuntan a la misma fila física. Empresa/Institución/Tercero
+    comparten la tabla de terceros, así una vinculación creada como «empresa» también debe
+    aparecer en la ficha del tercero (y viceversa)."""
+    if etype in ("promoter", "empresa", "institucion"):
+        return ["promoter", "empresa", "institucion"]
+    return [etype]
+
+
 def _entity_link_rows(session_db, entity_type: str | None, entity_id, active_only: bool = True) -> list[dict]:
     etype = _entity_link_type(entity_type)
     eid = _safe_uuid(entity_id)
     if not etype or not eid:
         return []
+    self_types = _entity_link_self_types(etype)
     q = session_db.query(ThirdPartyLink).filter(
         or_(
-            and_(ThirdPartyLink.source_type == etype, ThirdPartyLink.source_id == eid),
-            and_(ThirdPartyLink.target_type == etype, ThirdPartyLink.target_id == eid),
+            and_(ThirdPartyLink.source_type.in_(self_types), ThirdPartyLink.source_id == eid),
+            and_(ThirdPartyLink.target_type.in_(self_types), ThirdPartyLink.target_id == eid),
         )
     )
     if active_only:
@@ -34640,7 +34688,7 @@ def _entity_link_rows(session_db, entity_type: str | None, entity_id, active_onl
     rows = q.order_by(ThirdPartyLink.created_at.desc()).all()
     out = []
     for link in rows:
-        if link.source_type == etype and str(link.source_id) == str(eid):
+        if link.source_type in self_types and str(link.source_id) == str(eid):
             other = _entity_link_payload(session_db, link.target_type, link.target_id)
             source = _entity_link_payload(session_db, link.source_type, link.source_id)
         else:
@@ -36192,6 +36240,13 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
             return f'<a href="{esc(href)}" style="background:#e83b4b;color:#fff;text-decoration:none;padding:9px 16px;border-radius:10px;font-weight:700;display:inline-block;font-size:13px">{esc(label)}</a>'
         return f'<a href="{esc(href)}" style="color:#e83b4b;text-decoration:none;font-weight:600;font-size:13px">{esc(label)}</a>'
 
+    def dlicon(href, title=""):
+        # Icono de descarga (enlace) para cada entrada suelta. Usa un glifo unicode para
+        # compatibilidad con clientes de correo (Font Awesome no renderiza en email).
+        return (f'<a href="{esc(href)}" title="{esc(title or "Descargar entrada")}" '
+                'style="color:#e83b4b;text-decoration:none;font-size:16px;line-height:1;'
+                'display:inline-block;vertical-align:middle">&#11015;</a>')
+
     def catzip(base, cid):
         sep = "&" if "?" in (base or "") else "?"
         return f"{base}{sep}category={cid}"
@@ -36231,8 +36286,11 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
         for cid, cat, cat_tickets in cats:
             cat_name = (getattr(cat, "name", None) or "Categoría").strip()
             is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
-            sections.append(f'<div style="font-weight:700;margin:8px 0 4px">{esc(cat_name)}</div>')
-            sections.append(f'<div style="margin:0 0 6px">{abtn(catzip(zip_all, cid), "Descargar todas (" + cat_name + ")", primary=False)}</div>')
+            sections.append(
+                '<div style="margin:8px 0 4px">'
+                f'<span style="font-weight:700">{esc(cat_name)}</span>'
+                f'&nbsp;&nbsp;{abtn(catzip(zip_all, cid), "Descargar todas las de " + cat_name, primary=False)}'
+                '</div>')
             items = []
             for t in cat_tickets:
                 n += 1
@@ -36243,7 +36301,7 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
                 else:
                     loc = (t.sector or cat_name).strip()
                 line = f"Invitación {n}" + (f" · {esc(loc)}" if loc else "")
-                dl = abtn(t.pdf_url, "Descargar", primary=False) if (t.pdf_url or "").strip() else ""
+                dl = dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
                 items.append(f'<li style="margin:4px 0">{line} &nbsp;&nbsp; {dl}</li>')
             sections.append('<ul style="list-style:none;padding:0;margin:0 0 12px">' + "".join(items) + "</ul>")
 

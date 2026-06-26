@@ -145,6 +145,7 @@
             <div class="d-flex align-items-center gap-2 flex-wrap">
               {% if row.event.id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=row.event.id) }}">{{ row.event.title or row.event.artist_names or 'Evento' }}</a>{% else %}<span class="fw-semibold">{{ row.event.title or 'Evento' }}</span>{% endif %}
               {% if row.event.date_label %}<span class="text-muted">· {{ row.event.date_label }}</span>{% endif %}
+              <span class="badge text-bg-light border"><i class="fa fa-hand-holding-heart me-1"></i>Solicitud</span>
               <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
               {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
             </div>
@@ -156,18 +157,40 @@
         </div>
       </div>
     {% endmacro %}
-    <div class="d-flex align-items-center gap-2 mb-3"><h5 class="mb-0">Invitaciones en vigor</h5>{% if promoter_invitations_active %}<span class="badge text-bg-success">{{ promoter_invitations_active|length }}</span>{% endif %}</div>
-    {% if promoter_invitations_active %}
+    {# Compromisos en los que el tercero es destinatario: de LECTURA (se gestionan en la ficha del evento). #}
+    {% macro commit_row(row) %}
+      <div class="list-group-item">
+        <div class="d-flex justify-content-between gap-3 flex-wrap">
+          <div class="flex-grow-1">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              {% if row.event.id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=row.event.id) }}">{{ row.event.title or row.event.artist_names or 'Evento' }}</a>{% else %}<span class="fw-semibold">{{ row.event.title or 'Evento' }}</span>{% endif %}
+              {% if row.event.date_label %}<span class="text-muted">· {{ row.event.date_label }}</span>{% endif %}
+              <span class="badge text-bg-light border"><i class="fa fa-handshake me-1"></i>Compromiso</span>
+              <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
+            </div>
+            {% if row.event.artist_names or row.event.city %}<div class="small text-muted mt-1">{{ row.event.artist_names }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>{% endif %}
+            <div class="mt-1 small text-muted">{{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %}</div>
+            <div class="mt-2">{{ row.quantities_label }}</div>
+            {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
+          </div>
+          {% if row.event.id %}<a class="btn btn-sm btn-outline-secondary align-self-start" href="{{ url_for('invitation_event_detail', concert_id=row.event.id) }}" title="Gestionar en el evento"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
+        </div>
+      </div>
+    {% endmacro %}
+    <div class="d-flex align-items-center gap-2 mb-3"><h5 class="mb-0">Invitaciones en vigor</h5>{% set _na = (promoter_invitations_active|length) + (promoter_commitments_active|length) %}{% if _na %}<span class="badge text-bg-success">{{ _na }}</span>{% endif %}</div>
+    {% if promoter_invitations_active or promoter_commitments_active %}
       <div class="list-group mb-4">
         {% for row in promoter_invitations_active %}{{ inv_row(row) }}{% endfor %}
+        {% for row in promoter_commitments_active %}{{ commit_row(row) }}{% endfor %}
       </div>
     {% else %}
       <div class="alert alert-light border">No tiene invitaciones en vigor ahora mismo.</div>
     {% endif %}
-    <div class="d-flex align-items-center gap-2 mb-3"><h5 class="mb-0">Anteriores</h5>{% if promoter_invitations_past %}<span class="badge text-bg-light border">{{ promoter_invitations_past|length }}</span>{% endif %}</div>
-    {% if promoter_invitations_past %}
+    <div class="d-flex align-items-center gap-2 mb-3"><h5 class="mb-0">Anteriores</h5>{% set _np = (promoter_invitations_past|length) + (promoter_commitments_past|length) %}{% if _np %}<span class="badge text-bg-light border">{{ _np }}</span>{% endif %}</div>
+    {% if promoter_invitations_past or promoter_commitments_past %}
       <div class="list-group">
         {% for row in promoter_invitations_past %}{{ inv_row(row) }}{% endfor %}
+        {% for row in promoter_commitments_past %}{{ commit_row(row) }}{% endfor %}
       </div>
     {% else %}
       <div class="text-muted small">Sin invitaciones anteriores.</div>

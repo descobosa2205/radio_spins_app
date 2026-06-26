@@ -23696,18 +23696,32 @@ def promoter_detail_view(pid):
         for contact in promoter.contacts or []:
             key = (contact.title or 'Sin título').strip() or 'Sin título'
             grouped[key].append(contact)
-        # Invitaciones solicitadas por este tercero (como invitado): en vigor (evento activo) y
-        # anteriores. Se gestionan con los 3 puntos igual que en la gestión del evento.
-        promoter_invitations_count = (
+        # Invitaciones de este tercero (como invitado): solicitudes que pidió y compromisos en los
+        # que figura como destinatario. En vigor (evento activo) y anteriores. Se gestionan con los
+        # 3 puntos igual que en la gestión del evento; los compromisos son de lectura (con enlace).
+        promoter_invitations_count = ((
             session.query(func.count(InvitationRequest.id))
             .filter(InvitationRequest.guest_promoter_id == promoter.id)
             .scalar()
-        ) or 0
+        ) or 0) + ((
+            session.query(func.count(InvitationCommitment.id))
+            .filter(InvitationCommitment.guest_promoter_id == promoter.id)
+            .scalar()
+        ) or 0)
         promoter_invitations_active = []
         promoter_invitations_past = []
+        promoter_commitments_active = []
+        promoter_commitments_past = []
         if tab == 'invitaciones' and promoter_invitations_count:
             cat_cache: dict[str, list] = {}
-            tmp = []
+
+            def _cats_for(concert, concert_id):
+                cats = cat_cache.get(str(concert_id))
+                if cats is None:
+                    cats = _invitation_get_categories(session, concert, ensure_defaults=False) if concert else []
+                    cat_cache[str(concert_id)] = cats
+                return cats
+
             for r in (
                 session.query(InvitationRequest)
                 .filter(InvitationRequest.guest_promoter_id == promoter.id)
@@ -23715,10 +23729,7 @@ def promoter_detail_view(pid):
                 .all()
             ):
                 concert = r.concert or (session.get(Concert, r.concert_id) if r.concert_id else None)
-                cats = cat_cache.get(str(r.concert_id))
-                if cats is None:
-                    cats = _invitation_get_categories(session, concert, ensure_defaults=False) if concert else []
-                    cat_cache[str(r.concert_id)] = cats
+                cats = _cats_for(concert, r.concert_id)
                 item = _invitation_request_payload(r, cats)
                 item.update(_invitation_request_kind_flags(session, r, cats))
                 item['event'] = _invitation_event_payload(session, concert) if concert else {
@@ -23729,6 +23740,36 @@ def promoter_detail_view(pid):
                 (promoter_invitations_active if active else promoter_invitations_past).append(item)
             promoter_invitations_active.sort(key=lambda i: i['_sort_date'] or '9999')  # próximos primero
             promoter_invitations_past.sort(key=lambda i: i['_sort_date'], reverse=True)  # recientes primero
+
+            for c in (
+                session.query(InvitationCommitment)
+                .filter(InvitationCommitment.guest_promoter_id == promoter.id)
+                .order_by(InvitationCommitment.created_at.desc())
+                .all()
+            ):
+                concert = c.concert or (session.get(Concert, c.concert_id) if c.concert_id else None)
+                cats = _cats_for(concert, c.concert_id)
+                name_map = _invitation_category_name_map(cats)
+                q = _json_dict(c.quantities_json)
+                statuses = [st for (st,) in session.query(InvitationTicket.status).filter(InvitationTicket.assigned_commitment_id == c.id).all()]
+                _lbl, _bdg = _invitation_commitment_state_from_statuses(statuses)
+                citem = {
+                    'id': str(c.id),
+                    'name': c.name,
+                    'reason': c.reason or '',
+                    'note': c.note or '',
+                    'quantities_label': _invitation_quantities_label(q, name_map),
+                    'status_label': _lbl,
+                    'status_badge': _bdg,
+                    'event': _invitation_event_payload(session, concert) if concert else {
+                        'id': '', 'title': 'Evento', 'artist_names': '', 'date_label': '', 'date': '',
+                    },
+                }
+                active = _invitation_event_is_active_for_requests(concert) if concert else False
+                citem['_sort_date'] = citem['event'].get('date') or ''
+                (promoter_commitments_active if active else promoter_commitments_past).append(citem)
+            promoter_commitments_active.sort(key=lambda i: i['_sort_date'] or '9999')
+            promoter_commitments_past.sort(key=lambda i: i['_sort_date'], reverse=True)
         return render_template(
             'promoter_detail.html',
             promoter=promoter,
@@ -23738,6 +23779,8 @@ def promoter_detail_view(pid):
             promoter_invitations_count=promoter_invitations_count,
             promoter_invitations_active=promoter_invitations_active,
             promoter_invitations_past=promoter_invitations_past,
+            promoter_commitments_active=promoter_commitments_active,
+            promoter_commitments_past=promoter_commitments_past,
             entity_links=_entity_link_rows(session, 'promoter', promoter.id),
             entity_link_context={'type': 'promoter', 'id': str(promoter.id), 'label': promoter.nick or 'tercero'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,
@@ -36798,12 +36841,14 @@ def invitation_event_detail(concert_id):
             _rcpt_name = row.guest_name or ""
             _rcpt_photo = ""
             _rcpt_email = row.guest_email or ""
+            _rcpt_link_summary = {}
             if row.guest_promoter_id:
                 _gpr = session_db.get(Promoter, row.guest_promoter_id)
                 if _gpr:
                     _rcpt_name = _rcpt_name or _promoter_display_name(_gpr) or _gpr.nick
                     _rcpt_photo = _gpr.logo_url or ""
                     _rcpt_email = _rcpt_email or (_gpr.contact_email or "")
+                    _rcpt_link_summary = _promoter_link_summary(session_db, _gpr)
             elif row.guest_artist_id:
                 _ga = session_db.get(Artist, row.guest_artist_id)
                 if _ga:
@@ -36828,6 +36873,8 @@ def invitation_event_detail(concert_id):
                 "recipient_name": _rcpt_name,
                 "recipient_photo": _rcpt_photo,
                 "recipient_email": _rcpt_email,
+                "recipient_link_summary": _rcpt_link_summary,
+                "recipient_link_summary_text": _promoter_link_summary_text(_rcpt_link_summary),
                 "guest_type": ('THIRD_PARTY' if row.guest_promoter_id else 'ARTIST' if row.guest_artist_id else 'EMPLOYEE' if row.guest_user_id else ''),
                 "guest_promoter_id": str(row.guest_promoter_id) if row.guest_promoter_id else "",
                 "guest_artist_id": str(row.guest_artist_id) if row.guest_artist_id else "",

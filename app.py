@@ -37554,6 +37554,43 @@ def invitation_commitment_deliver(commitment_id):
         session_db.close()
 
 
+@app.post('/invitaciones/compromisos/<commitment_id>/marcar-enviadas', endpoint='invitation_commitment_mark_sent')
+@admin_required
+def invitation_commitment_mark_sent(commitment_id):
+    """Marca como ENVIADAS las entradas ya asignadas a un compromiso SIN enviar correo (cuando se
+    han entregado por otro medio). Mismo cambio de estado que la entrega por email, sin SMTP.
+    Acepta `category_id` opcional para marcar solo una categoría."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        cid = row.concert_id
+        _cat_id = _safe_uuid(request.form.get('category_id'))
+        _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+        if _cat_id:
+            _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
+        tickets = _tq.all()
+        if not tickets:
+            flash('Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de marcarlas como enviadas.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        now = _now_madrid()
+        for t in tickets:
+            t.status = 'SENT'
+            t.sent_at = now
+            t.updated_at = now
+        session_db.commit()
+        flash(f'{len(tickets)} entrada(s) de «{row.name}» marcadas como enviadas.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo marcar como enviadas: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/correo/preview', endpoint='invitation_send_preview')
 @admin_required
 def invitation_send_preview():
@@ -38069,6 +38106,40 @@ def invitation_request_send(request_id):
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo enviar: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/solicitudes/<request_id>/marcar-enviadas', endpoint='invitation_request_mark_sent')
+@admin_required
+def invitation_request_mark_sent(request_id):
+    """Marca una solicitud como ENVIADAS SIN enviar correo (cuando se entregó por otro medio).
+    Mismo cambio de estado que el envío por email/WhatsApp/SMS, sin mandar nada."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
+        flags = _invitation_request_kind_flags(session_db, row, categories)
+        if not flags.get('can_send'):
+            raise ValueError('Solo se pueden marcar como enviadas cuando ya tienen entradas asignadas o cuando son de tipo listado.')
+        now = _now_madrid()
+        row.status = 'ENVIADAS'
+        row.sent_at = now
+        row.delivery_token = row.delivery_token or _invitation_token()
+        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+            ticket.status = 'SENT'
+            ticket.sent_at = now
+            ticket.updated_at = now
+        session_db.commit()
+        flash('Invitaciones marcadas como enviadas.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo marcar como enviadas: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()

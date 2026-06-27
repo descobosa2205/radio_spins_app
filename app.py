@@ -36837,6 +36837,10 @@ def invitation_event_detail(concert_id):
                 _sts = _tk_by_cat.get(str(_cid), [])
                 _asg = len(_sts)
                 _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
+                # Compromiso marcado como enviado de forma directa (sin entradas asignadas): la
+                # categoría sin entradas se muestra como "Enviadas" en vez de "Sin asignar".
+                if not _sts and (getattr(row, "status", "") or "").upper() == "ENVIADAS":
+                    _lbl, _bdg = ("Enviadas", "success")
                 cat_status.append({
                     "id": str(_cid),
                     "name": name_map.get(str(_cid), "Categoría"),
@@ -37557,9 +37561,10 @@ def invitation_commitment_deliver(commitment_id):
 @app.post('/invitaciones/compromisos/<commitment_id>/marcar-enviadas', endpoint='invitation_commitment_mark_sent')
 @admin_required
 def invitation_commitment_mark_sent(commitment_id):
-    """Marca como ENVIADAS las entradas ya asignadas a un compromiso SIN enviar correo (cuando se
-    han entregado por otro medio). Mismo cambio de estado que la entrega por email, sin SMTP.
-    Acepta `category_id` opcional para marcar solo una categoría."""
+    """Marca un compromiso como ENVIADAS SIN enviar correo (cuando se han entregado por otro medio).
+    Funciona de forma DIRECTA aunque no haya entradas asignadas: marca el compromiso como enviado.
+    Si tiene entradas asignadas, también las pasa a SENT. Acepta `category_id` opcional para marcar
+    solo una categoría (en ese caso solo afecta a sus entradas asignadas)."""
     session_db = db()
     try:
         row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
@@ -37572,16 +37577,21 @@ def invitation_commitment_mark_sent(commitment_id):
         if _cat_id:
             _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
         tickets = _tq.all()
-        if not tickets:
-            flash('Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de marcarlas como enviadas.', 'warning')
-            return redirect(url_for('invitation_event_detail', concert_id=cid))
         now = _now_madrid()
         for t in tickets:
             t.status = 'SENT'
             t.sent_at = now
             t.updated_at = now
+        # Marca el compromiso completo como enviado (sirve también sin entradas asignadas). En el
+        # marcado por categoría no se toca el estado global para no afectar a las demás categorías.
+        if not _cat_id:
+            row.status = 'ENVIADAS'
+            row.updated_at = now
         session_db.commit()
-        flash(f'{len(tickets)} entrada(s) de «{row.name}» marcadas como enviadas.', 'success')
+        if tickets:
+            flash(f'{len(tickets)} entrada(s) de «{row.name}» marcadas como enviadas.', 'success')
+        else:
+            flash(f'Compromiso «{row.name}» marcado como enviado.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
     except Exception as exc:
         session_db.rollback()
@@ -38114,18 +38124,17 @@ def invitation_request_send(request_id):
 @app.post('/invitaciones/solicitudes/<request_id>/marcar-enviadas', endpoint='invitation_request_mark_sent')
 @admin_required
 def invitation_request_mark_sent(request_id):
-    """Marca una solicitud como ENVIADAS SIN enviar correo (cuando se entregó por otro medio).
-    Mismo cambio de estado que el envío por email/WhatsApp/SMS, sin mandar nada."""
+    """Marca una solicitud como ENVIADAS SIN enviar correo. Sirve también de forma DIRECTA aunque
+    la solicitud no tenga entradas asignadas (cuando las invitaciones se entregaron por fuera del
+    sistema): solo cambia el estado. Si tiene entradas asignadas, también las pasa a SENT."""
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
         _ensure_can_manage_invitations(session_db, row.concert)
-        categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
-        flags = _invitation_request_kind_flags(session_db, row, categories)
-        if not flags.get('can_send'):
-            raise ValueError('Solo se pueden marcar como enviadas cuando ya tienen entradas asignadas o cuando son de tipo listado.')
+        if (row.status or '').upper() in {'RECHAZADAS', 'ANULADAS'}:
+            raise ValueError('No se puede marcar como enviada una solicitud rechazada o anulada.')
         now = _now_madrid()
         row.status = 'ENVIADAS'
         row.sent_at = now

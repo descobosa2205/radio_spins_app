@@ -1264,6 +1264,14 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-listitem__sub{ font-size:.74rem; color:#6b7280; }
 .agenda-listitem__date{ font-weight:600; color:#444; }
 
+/* Cabecera de navegación (agenda del artista: 4 semanas, flechas por meses) */
+.agenda-cal__nav{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin-bottom:8px; }
+.agenda-cal__range{ font-weight:600; font-size:.9rem; color:#333; }
+.agenda-cal__arrows{ display:flex; gap:.35rem; margin-left:auto; }
+.agenda-nav-btn{ width:32px; height:32px; border:1px solid #d7dbe1; border-radius:.5rem; background:#fff; color:#444; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.agenda-nav-btn:hover:not(:disabled){ background:#f3f4f6; }
+.agenda-nav-btn:disabled{ opacity:.4; cursor:default; }
+
 /* Cuadrícula del calendario (lunes a domingo) */
 .agenda-cal__head{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:6px; }
 .agenda-cal__dow{ text-align:center; font-size:.72rem; font-weight:700; color:#8a909a; text-transform:uppercase; }

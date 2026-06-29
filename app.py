@@ -1182,11 +1182,12 @@ def artist_detail_view(artist_id):
         promoter_email_suggestions = []
         production_panel = {}
 
-        # Agenda: calendario de actividades del artista (mismas próximas 2 semanas que Inicio).
+        # Agenda: calendario del artista. Carga ~6 meses por delante para poder navegar por meses
+        # (vista de 4 semanas) sin recargar; el JS pagina dentro de ese rango.
         agenda_data = None
         if tab == "agenda":
-            _ag_today, _ag_start, _ag_end = _agenda_window()
-            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_start, _ag_end, _ag_today)
+            _ag_today = today_local()
+            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today, _ag_today + timedelta(weeks=26), _ag_today)
 
         return render_template(
             "artist_detail.html",

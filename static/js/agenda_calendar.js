@@ -116,8 +116,27 @@
     container.appendChild(bodyWrap);
 
     // ---------- Calendario ----------
-    var gridStart = mondayOf(today);
-    var gridEnd = sundayOf(end);
+    // Inicio: ventana fija de 2 semanas. Agenda del artista: 4 semanas navegables por meses.
+    var isArtist = (mode === 'artist');
+    var minStart = mondayOf(today);
+    var maxStart = mondayOf(new Date(end.getTime() - 27 * 86400000));
+    if (maxStart < minStart) maxStart = new Date(minStart);
+    var winStart = new Date(minStart);
+
+    function curWin() {
+      if (!isArtist) return [mondayOf(today), sundayOf(end)];
+      var s = new Date(winStart), e = new Date(winStart);
+      e.setDate(e.getDate() + 27);
+      return [s, e];
+    }
+    function addMonths(d, n) { var x = new Date(d); x.setMonth(x.getMonth() + n); return x; }
+    function shift(dir) {
+      var d = mondayOf(addMonths(winStart, dir));
+      if (d < minStart) d = new Date(minStart);
+      if (d > maxStart) d = new Date(maxStart);
+      winStart = d;
+      render();
+    }
 
     function makeChip(a) {
       var chip = el('a', 'agenda-event');
@@ -142,8 +161,28 @@
       return chip;
     }
 
+    function buildNav() {
+      var win = curWin(), s = win[0], e = win[1];
+      var nav = el('div', 'agenda-cal__nav');
+      var label = s.getDate() + ' ' + MONTHS[s.getMonth()] + ' – ' + e.getDate() + ' ' + MONTHS[e.getMonth()] + ' ' + e.getFullYear();
+      nav.appendChild(el('span', 'agenda-cal__range', label));
+      var arrows = el('div', 'agenda-cal__arrows');
+      var prev = el('button', 'agenda-nav-btn', '<i class="fa fa-chevron-left"></i>');
+      var next = el('button', 'agenda-nav-btn', '<i class="fa fa-chevron-right"></i>');
+      prev.type = 'button'; next.type = 'button';
+      prev.setAttribute('aria-label', 'Mes anterior'); next.setAttribute('aria-label', 'Mes siguiente');
+      prev.disabled = (winStart <= minStart); next.disabled = (winStart >= maxStart);
+      prev.addEventListener('click', function () { shift(-1); });
+      next.addEventListener('click', function () { shift(1); });
+      arrows.appendChild(prev); arrows.appendChild(next);
+      nav.appendChild(arrows);
+      return nav;
+    }
+
     function renderCal() {
       calWrap.innerHTML = '';
+      if (isArtist) calWrap.appendChild(buildNav());
+      var win = curWin(), gStart = win[0], gEnd = win[1];
       var head = el('div', 'agenda-cal__head');
       DOW.forEach(function (d) { head.appendChild(el('div', 'agenda-cal__dow', d)); });
       calWrap.appendChild(head);
@@ -152,14 +191,13 @@
       acts.forEach(function (a) { if (passes(a)) { (byDate[a.date] = byDate[a.date] || []).push(a); } });
 
       var grid = el('div', 'agenda-cal__grid');
-      var cur = new Date(gridStart);
-      while (cur <= gridEnd) {
+      var cur = new Date(gStart);
+      while (cur <= gEnd) {
         var key = iso(cur);
         var cell = el('div', 'agenda-cal__day');
-        var inRange = (cur >= start && cur <= end);
-        if (!inRange) cell.classList.add('is-out');
+        if (cur < today || cur > end) cell.classList.add('is-out');
         if (key === data.today) cell.classList.add('is-today');
-        var label = cur.getDate() + (cur.getDate() === 1 || (cur.getTime() === gridStart.getTime()) ? ' ' + MONTHS[cur.getMonth()] : '');
+        var label = cur.getDate() + (cur.getDate() === 1 || (cur.getTime() === gStart.getTime()) ? ' ' + MONTHS[cur.getMonth()] : '');
         cell.appendChild(el('div', 'agenda-cal__num', label));
         var list = el('div', 'agenda-cal__events');
         (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });
@@ -191,10 +229,11 @@
           side.appendChild(b);
         });
       } else {
-        // Listado de eventos del artista (color por tipo)
-        side.appendChild(el('div', 'agenda-side__title', 'Próximas actividades'));
-        var visible = acts.filter(passes).slice();
-        if (!visible.length) { side.appendChild(el('div', 'text-muted small', 'Sin actividades en las próximas dos semanas.')); return; }
+        // Listado de eventos del artista (color por tipo), en sintonía con la ventana visible
+        side.appendChild(el('div', 'agenda-side__title', 'Actividades'));
+        var win = curWin(), ws = iso(win[0]), we = iso(win[1]);
+        var visible = acts.filter(function (a) { return passes(a) && a.date >= ws && a.date <= we; });
+        if (!visible.length) { side.appendChild(el('div', 'text-muted small', 'Sin actividades en este periodo.')); return; }
         visible.forEach(function (a) {
           var row = el('a', 'agenda-listitem');
           row.href = a.url || '#';

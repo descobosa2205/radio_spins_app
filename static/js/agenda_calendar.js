@@ -124,6 +124,10 @@
       chip.href = a.url || '#';
       chip.style.setProperty('--c', colorOf(a));
       var inner = '';
+      // En Inicio (multi-artista) se antepone la foto del artista para identificarlo de un vistazo.
+      if (mode === 'home' && a.artist_photo) {
+        inner += '<img class="agenda-event__avatar" src="' + esc(a.artist_photo) + '" alt="" onerror="this.style.display=\'none\'">';
+      }
       if (a.kind === 'lanzamiento' && a.cover_url) {
         inner += '<img class="agenda-event__cover" src="' + esc(a.cover_url) + '" alt="">';
       } else {

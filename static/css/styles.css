@@ -1277,6 +1277,7 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-event{ display:flex; align-items:center; gap:5px; padding:2px 5px; border-radius:.4rem; background:var(--c); color:#fff; font-size:.72rem; line-height:1.2; text-decoration:none; overflow:hidden; }
 .agenda-event:hover{ filter:brightness(1.07); color:#fff; }
 .agenda-event__icon{ flex:0 0 auto; font-size:.7rem; }
+.agenda-event__avatar{ width:15px;height:15px;border-radius:50%;object-fit:cover;flex:0 0 auto;border:1px solid rgba(255,255,255,.7); }
 .agenda-event__cover{ width:16px;height:16px;border-radius:3px;object-fit:cover;flex:0 0 auto; }
 .agenda-event__title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .agenda-event__dot{ width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-left:auto;border:1px solid rgba(255,255,255,.75); }

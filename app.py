@@ -39197,13 +39197,15 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
         kind = "concierto" if at in ("CONCIERTO", "") else ("festival" if at == "FESTIVAL" else "evento")
         slabel, sclass = _agenda_status_meta(c.status)
         venue = c.venue
+        municipality = (venue.municipality if venue else "") or ""
         sub = ""
         if venue:
             sub = (venue.name or "")
-            if venue.municipality:
-                sub = f"{sub} · {venue.municipality}" if sub else venue.municipality
+            if municipality:
+                sub = f"{sub} · {municipality}" if sub else municipality
         primary = ids[0] if ids else ""
-        title = c.festival_name or (c.artist.name if c.artist else "Concierto")
+        # Sin nombre propio (festival_name): mostrar el municipio; si tampoco hay, el nombre del artista.
+        title = c.festival_name or municipality or (c.artist.name if c.artist else "Concierto")
         seen_artist_ids.update(ids)
         raw.append((ids, {
             "kind": kind, "date": c.date.isoformat() if c.date else "",
@@ -39228,13 +39230,14 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
         if not _match(ids):
             continue
         slabel, sclass = _agenda_status_meta(a.status)
+        a_muni = (a.venue.municipality if a.venue is not None else "") or ""
         sub = ACTION_TYPE_LABELS.get((a.action_type or "").upper(), "")
         if a.venue is not None and getattr(a.venue, "name", None):
             sub = f"{sub} · {a.venue.name}" if sub else a.venue.name
         seen_artist_ids.update(ids)
         raw.append((ids, {
             "kind": "accion", "date": a.start_date.isoformat(),
-            "title": a.title or "Acción", "subtitle": sub,
+            "title": a.title or a_muni or "Acción", "subtitle": sub,
             "artist_id": ids[0] if ids else "",
             "status_label": slabel, "status_class": sclass,
             "cover_url": "",
@@ -39347,6 +39350,7 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
             "artist_ids": ids,
             "icon": it.pop("icon_override", "") or meta.get("icon", "fa-circle"),
             "artist_name": ", ".join(names) if names else (it.get("title") or ""),
+            "artist_photo": artist_map.get(pid, {}).get("photo_url", ""),
             "artist_color": artist_color.get(pid, "#6c757d"),
             "kind_color": meta.get("color", "#6c757d"),
             "kind_label": meta.get("label", ""),

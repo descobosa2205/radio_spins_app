@@ -19325,6 +19325,7 @@ def concert_detail_view(cid):
             invitation_totals=invitation_totals,
             invitation_counts=invitation_counts,
             invitation_categories_summary=invitation_categories_summary,
+            invitation_group_promoted=_concert_is_group_promoted(session, c),
             invitation_open_for_requests=invitation_open_for_requests,
             invitation_can_manage=invitation_can_manage,
             invitation_ficha_groups=invitation_ficha_groups,
@@ -36598,6 +36599,8 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
     uploaded = _safe_int((counts or {}).get("uploaded", 0))
     assigned = _safe_int((counts or {}).get("assigned", 0))
     total_configured = qty_contract + qty_extra
+    # El disponible efectivo nunca es menor que las entradas subidas: al subir, se actualiza.
+    effective_configured = max(total_configured, uploaded)
     return {
         "id": str(cat.id),
         "name": cat.name,
@@ -36608,7 +36611,7 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "configured": total_configured,
         "uploaded": uploaded,
         "assigned": assigned,
-        "available_configured": max(total_configured - assigned, 0),
+        "available_configured": max(effective_configured - assigned, 0),
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
@@ -37361,10 +37364,28 @@ def _invitation_parse_ticket_kind_and_guest_mode(raw_kind: str | None, fallback_
 
 def _invitation_event_counts(session_db, concert: Concert) -> dict:
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
-    category_total = sum(_safe_int(c.qty_contract) + _safe_int(c.qty_extra) for c in categories)
-    if not categories:
-        for row in _invitation_category_legacy_rows(concert):
-            category_total += _safe_int(row.get("qty_contract"))
+    # Invitaciones realmente SUBIDAS por categoría. El nº disponible nunca puede ser menor que las
+    # entradas ya subidas al sistema, así que al subir invitaciones el disponible se actualiza.
+    uploaded_by_cat = {}
+    for cid, count in (
+        session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
+        .filter(InvitationTicket.concert_id == concert.id)
+        .group_by(InvitationTicket.category_id)
+        .all()
+    ):
+        uploaded_by_cat[str(cid)] = int(count or 0)
+    total_uploaded = sum(uploaded_by_cat.values())
+    if categories:
+        known_ids = {str(c.id) for c in categories}
+        category_total = sum(
+            max(_safe_int(c.qty_contract) + _safe_int(c.qty_extra), uploaded_by_cat.get(str(c.id), 0))
+            for c in categories
+        )
+        # Entradas subidas sin categoría conocida (sin asignar / categorías legacy) también suman.
+        category_total += sum(n for k, n in uploaded_by_cat.items() if k not in known_ids)
+    else:
+        legacy_total = sum(_safe_int(row.get("qty_contract")) for row in _invitation_category_legacy_rows(concert))
+        category_total = max(legacy_total, total_uploaded)
     commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).filter(InvitationCommitment.status != "ANULADAS").all()
     requests = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all()
     committed = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in commitments)
@@ -38429,6 +38450,7 @@ def invitation_event_detail(concert_id):
             'invitaciones.html',
             tab='evento',
             back_to_ficha=back_to_ficha,
+            group_promoted=_concert_is_group_promoted(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),
             concert=concert,
             categories=cat_payloads,

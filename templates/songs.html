@@ -1,11 +1,24 @@
 {% extends "layout.html" %}
 {% block content %}
 {% if CAN_EDIT_CATALOGS %}
-<h4 class="mb-3">Canciones</h4>
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+  <h4 class="mb-0">Canciones</h4>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge text-bg-primary">Edición</span>
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newSongModal"><i class="fa fa-plus me-1"></i>Añadir canción</button>
+  </div>
+</div>
 
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
+<div class="modal fade" id="newSongModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva canción</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-2 gx-2 align-items-end">
       <div class="col-md-4">
         <label class="form-label">Nombre de la canción</label>
         <input required name="title" class="form-control" />
@@ -60,10 +73,14 @@
         <label class="form-label">Fecha de lanzamiento</label>
         <input type="date" name="release_date" class="form-control" required />
       </div>
-      <div class="col-12 col-md-2 d-grid">
-        <button class="btn btn-primary">Crear</button>
-      </div>
-    </form>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear canción</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 

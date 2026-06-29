@@ -1,45 +1,66 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h4 class="mb-0">Emisoras</h4>
-  {% if CAN_EDIT_ARTISTS_STATIONS %}
-    <span class="badge text-bg-primary">Edición</span>
-  {% else %}
-    <span class="badge text-bg-secondary">Lectura</span>
-  {% endif %}
+  <div class="d-flex align-items-center gap-2">
+    {% if CAN_EDIT_ARTISTS_STATIONS %}
+      <span class="badge text-bg-primary">Edición</span>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newStationModal"><i class="fa fa-plus me-1"></i>Añadir emisora</button>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <label class="form-label">Buscar emisora</label>
+    <input type="search" class="form-control" id="stationsSearchInput" placeholder="Escribe para filtrar por nombre o país..." autocomplete="off">
+  </div>
 </div>
 
 {% if CAN_EDIT_ARTISTS_STATIONS %}
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label">Nombre de la emisora</label>
-        <input required name="name" class="form-control" />
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">País</label>
-        <select name="country_code" class="form-select select-country">
-          {% for country in country_options %}
-            <option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Logo (PNG)</label>
-        <input type="file" name="logo" accept="image/png" class="form-control" />
-      </div>
-      <div class="col-md-2 d-grid">
-        <button class="btn btn-primary">Crear</button>
-      </div>
-    </form>
+<div class="modal fade" id="newStationModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva emisora</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-3 gx-2">
+            <div class="col-md-6">
+              <label class="form-label">Nombre de la emisora</label>
+              <input required name="name" class="form-control" />
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">País</label>
+              <select name="country_code" class="form-select select-country">
+                {% for country in country_options %}
+                  <option value="{{ country.code }}" data-flag="{{ country.flag }}" {% if country.code == 'ES' %}selected{% endif %}>{{ country.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo (PNG)</label>
+              <input type="file" name="logo" accept="image/png" class="form-control" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear emisora</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 {% endif %}
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
+<div class="row row-cols-1 row-cols-md-2 g-3" id="stationsList">
   {% for s in stations %}
-  <div class="col">
+  <div class="col station-list-item" data-search="{{ ((s.name or '') ~ ' ' ~ (s.country_name or country_name_es(s.country_code) or ''))|lower }}">
     <div class="card h-100">
       <div class="card-body d-flex">
         <span class="logo-country-wrap me-3">
@@ -80,4 +101,24 @@
   </div>
   {% endfor %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const input = document.getElementById('stationsSearchInput');
+  const rows = Array.from(document.querySelectorAll('.station-list-item'));
+  if (!input) return;
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase().trim();
+  const apply = () => {
+    const q = normalize(input.value);
+    rows.forEach((row) => {
+      const hay = normalize(row.dataset.search || '');
+      row.style.display = (!q || hay.indexOf(q) > -1) ? '' : 'none';
+    });
+  };
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>
 {% endblock %}

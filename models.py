@@ -129,6 +129,35 @@ class ArtistAgendaItem(Base):
     )
 
 
+class ArtistCalendarLink(Base):
+    """Enlace público de suscripción al calendario (iCal) de un artista. Un enlace por persona
+    'solo-ver': se genera con una etiqueta (para quién es) y se puede ANULAR (status=CANCELLED)
+    para retirarle el acceso. El feed .ics se sirve en público a partir del token."""
+
+    __tablename__ = "artist_calendar_links"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    label = Column(Text)                     # para quién es el enlace
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))  # ACTIVE | CANCELLED
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    cancelled_at = Column(DateTime(timezone=True))
+
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        Index("idx_artist_calendar_links_artist", "artist_id", "status"),
+    )
+
+
+def ensure_artist_calendar_schema():
+    """Crea la tabla de enlaces de calendario del artista (idempotente)."""
+    Base.metadata.create_all(bind=engine)
+
+
 class ArtistEmail(Base):
     """Correos adicionales asociados a un artista.
 

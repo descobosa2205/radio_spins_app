@@ -122,6 +122,7 @@ from models import (
     ensure_simulations_schema,
     ensure_chartmetric_schema,
     ensure_fotos_schema,
+    ensure_artist_calendar_schema,
     ensure_performance_indexes,
     SessionLocal,
     User,
@@ -132,6 +133,7 @@ from models import (
     Artist,
     ArtistPerson,
     ArtistAgendaItem,
+    ArtistCalendarLink,
     ArtistEmail,
     ArtistContract,
     ArtistContractCommitment,
@@ -406,6 +408,7 @@ for _fn, _name in [
     (ensure_entity_links_schema, "ensure_entity_links_schema"),
     (ensure_simulations_schema, "ensure_simulations_schema"),
     (ensure_fotos_schema, "ensure_fotos_schema"),
+    (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
 ]:
     _safe_ensure(_fn, _name)
 
@@ -1219,9 +1222,16 @@ def artist_detail_view(artist_id):
         # Agenda: calendario del artista. Carga ~6 meses hacia atrás y ~6 hacia delante para poder
         # navegar por meses (vista de 4 semanas), incluido el pasado, sin recargar; el JS pagina.
         agenda_data = None
+        calendar_links = []
         if tab == "agenda":
             _ag_today = today_local()
             agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
+            calendar_links = [
+                {"id": str(l.id), "label": l.label or "Sin nombre",
+                 "url": _artist_calendar_subscribe_url(l.token),
+                 "created_by": l.created_by_nick or ""}
+                for l in _artist_calendar_links(session_db, artist.id, only_active=True)
+            ]
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
@@ -1230,6 +1240,7 @@ def artist_detail_view(artist_id):
             artist=artist,
             tab=tab,
             agenda_data=agenda_data,
+            calendar_links=calendar_links,
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
@@ -28652,6 +28663,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
+    "artist_calendar_link_create", "artist_calendar_link_cancel",
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
@@ -41112,6 +41124,180 @@ def agenda_item_delete(item_id):
         return _agenda_redirect_back()
     finally:
         session_db.close()
+
+
+# ----------------------- Suscripción de calendario (iCal) del artista -----------------------
+
+def _artist_calendar_links(session_db, artist_id, only_active: bool = True):
+    q = session_db.query(ArtistCalendarLink).filter(ArtistCalendarLink.artist_id == artist_id)
+    if only_active:
+        q = q.filter(ArtistCalendarLink.status == "ACTIVE")
+    return q.order_by(ArtistCalendarLink.created_at.desc()).all()
+
+
+def _artist_calendar_subscribe_url(token: str) -> str:
+    """URL pública del feed .ics (https). Para 'suscribirse' se usa el equivalente webcal://."""
+    return _external_url_for("public_artist_calendar_ics", token=token)
+
+
+def _ics_escape(value) -> str:
+    s = str(value or "")
+    s = s.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,")
+    s = s.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+    return s
+
+
+def _ics_fold(line: str) -> str:
+    """Plegado RFC5545: líneas <= 75 octetos, continuación con CRLF + espacio."""
+    if len(line.encode("utf-8")) <= 75:
+        return line
+    out, chunk = [], b""
+    for ch in line:
+        b = ch.encode("utf-8")
+        if len(chunk) + len(b) > 73:
+            out.append(chunk.decode("utf-8"))
+            chunk = b
+        else:
+            chunk += b
+    if chunk:
+        out.append(chunk.decode("utf-8"))
+    return "\r\n ".join(out)
+
+
+def _ics_now_utc() -> str:
+    import time
+    return time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+
+
+def _artist_calendar_ics(agenda_data: dict, artist) -> str:
+    """Genera el calendario iCal (.ics) del artista a partir de _agenda_build. Eventos de día completo.
+    SUMMARY = 'tipo · nombre' (o municipio si no hay nombre); DESCRIPTION = resto de info/notas."""
+    dtstamp = _ics_now_utc()
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//33 Producciones//Agenda//ES",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        f"X-WR-CALNAME:{_ics_escape('Agenda · ' + (getattr(artist, 'name', '') or ''))}",
+        "X-PUBLISHED-TTL:PT1H",
+        "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
+    ]
+    for idx, it in enumerate((agenda_data or {}).get("activities") or []):
+        raw_date = it.get("date") or ""
+        d = raw_date.replace("-", "")
+        if len(d) != 8:
+            continue
+        try:
+            dtend = (date.fromisoformat(raw_date) + timedelta(days=1)).isoformat().replace("-", "")
+        except (ValueError, TypeError):
+            continue
+        kind_label = (it.get("kind_label") or it.get("kind") or "Evento").strip()
+        title = (it.get("title") or "").strip()
+        subtitle = (it.get("subtitle") or "").strip()
+        name = title or subtitle  # nombre del evento o, si no hay, municipio
+        summary = f"{kind_label} · {name}" if name else kind_label
+        desc_parts = []
+        if title and subtitle:
+            desc_parts.append(subtitle)
+        if it.get("status_label"):
+            desc_parts.append(it["status_label"])
+        if it.get("note"):
+            desc_parts.append(str(it["note"]).strip())
+        if it.get("artist_name"):
+            desc_parts.append(it["artist_name"])
+        uid = f"{it.get('kind', 'x')}-{it.get('item_id') or it.get('url') or idx}-{d}@33producciones"
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{_ics_escape(uid)}",
+            f"DTSTAMP:{dtstamp}",
+            f"DTSTART;VALUE=DATE:{d}",
+            f"DTEND;VALUE=DATE:{dtend}",
+            f"SUMMARY:{_ics_escape(summary)}",
+        ]
+        if subtitle:
+            lines.append(f"LOCATION:{_ics_escape(subtitle)}")
+        if desc_parts:
+            lines.append(f"DESCRIPTION:{_ics_escape(' · '.join(p for p in desc_parts if p))}")
+        lines.append("END:VEVENT")
+    lines.append("END:VCALENDAR")
+    return "\r\n".join(_ics_fold(ln) for ln in lines) + "\r\n"
+
+
+@app.get("/calendario-artista/<token>.ics", endpoint="public_artist_calendar_ics")
+def public_artist_calendar_ics(token):
+    """Feed público iCal de la agenda de un artista (solo lectura). Para suscribir desde iPhone/Android."""
+    session_db = db()
+    try:
+        link = (
+            session_db.query(ArtistCalendarLink)
+            .filter(ArtistCalendarLink.token == token, ArtistCalendarLink.status == "ACTIVE")
+            .first()
+        )
+        if not link:
+            abort(404)
+        artist = session_db.get(Artist, link.artist_id)
+        if not artist:
+            abort(404)
+        today = today_local()
+        agenda_data = _agenda_build(session_db, [str(artist.id)], today - timedelta(weeks=13), today + timedelta(weeks=78), today)
+        ics = _artist_calendar_ics(agenda_data, artist)
+    finally:
+        session_db.close()
+    resp = Response(ics, mimetype="text/calendar")
+    resp.headers["Content-Type"] = "text/calendar; charset=utf-8"
+    resp.headers["Content-Disposition"] = f'inline; filename="agenda-{token}.ics"'
+    resp.headers["Cache-Control"] = "no-cache, max-age=0"
+    return resp
+
+
+@app.post("/artistas/<artist_id>/calendario/enlaces", endpoint="artist_calendar_link_create")
+@admin_required
+def artist_calendar_link_create(artist_id):
+    """Genera un enlace de suscripción de calendario para una persona (solo-ver)."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist:
+            abort(404)
+        label = (request.form.get("label") or "").strip()
+        state = _current_user_state()
+        session_db.add(ArtistCalendarLink(
+            artist_id=artist.id,
+            token=_uuid_token(),
+            label=label or "Sin nombre",
+            status="ACTIVE",
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+            created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
+        ))
+        session_db.commit()
+        flash("Enlace de calendario generado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo generar el enlace: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+@app.post("/artistas/<artist_id>/calendario/enlaces/<link_id>/anular", endpoint="artist_calendar_link_cancel")
+@admin_required
+def artist_calendar_link_cancel(artist_id, link_id):
+    """Anula un enlace de calendario: la persona pierde el acceso al feed."""
+    session_db = db()
+    try:
+        link = session_db.get(ArtistCalendarLink, _safe_uuid(link_id))
+        if link and str(link.artist_id) == str(_safe_uuid(artist_id)):
+            link.status = "CANCELLED"
+            link.cancelled_at = _now_madrid()
+            session_db.commit()
+            flash("Enlace anulado.", "success")
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo anular: {exc}", "danger")
+    finally:
+        session_db.close()
+    return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
 
 
 def _home_registros_pending(limit: int = 20) -> list[dict]:

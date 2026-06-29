@@ -38040,6 +38040,13 @@ def invitations_view():
         if tab == 'gestionar':
             candidates = _filter_manageable_concerts(session_db, candidates, state=_current_user_state())
         events = [_invitation_event_payload(session_db, c, include_counts=True) for c in candidates]
+        if tab == 'gestionar':
+            # Estado "pendiente de gestionar" por evento (misma lógica que el inicio) para la etiqueta.
+            _cand_by_id = {str(c.id): c for c in candidates}
+            for ev in events:
+                _c = _cand_by_id.get(ev.get('id'))
+                if _c is not None:
+                    ev['manage_status'] = _invitation_event_pending_to_manage(session_db, _c)
         # Agrupado por artista para la pestaña Gestionar: un grupo por artista, en orden de aparición
         # (el del evento más próximo primero, porque `events` ya viene cronológico) y eventos
         # cronológicos dentro de cada grupo.
@@ -38511,7 +38518,6 @@ def invitation_event_detail(concert_id):
             back_to_ficha=back_to_ficha,
             group_promoted=_concert_is_group_promoted(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),
-            manage_status=_invitation_event_pending_to_manage(session_db, concert),
             concert=concert,
             categories=cat_payloads,
             commitments=commitments,

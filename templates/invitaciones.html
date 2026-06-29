@@ -154,11 +154,22 @@
                 </div>
                 <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
               </div>
-              <div class="invitation-counts">
-                <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
-                <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
-                <div><span>{{ item.counts.requested }}</span><small>Solicitadas</small></div>
-                <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
+              <div class="invitation-counts-block">
+                {% if item.manage_status and (item.manage_status.pending or item.manage_status.handled) %}
+                <div class="text-center mb-2">
+                  {% if item.manage_status.pending %}
+                    <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>{{ item.manage_status.pending }} {{ 'solicitud pendiente' if item.manage_status.pending == 1 else 'solicitudes pendientes' }} de gestionar</span>
+                  {% else %}
+                    <span class="badge text-bg-success invitation-manage-flag"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
+                  {% endif %}
+                </div>
+                {% endif %}
+                <div class="invitation-counts">
+                  <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
+                  <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
+                  <div><span>{{ item.counts.requested_all if item.counts.requested_all is defined else item.counts.requested }}</span><small>Solicitudes</small></div>
+                  <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
+                </div>
               </div>
             </div>
           </a>
@@ -338,22 +349,11 @@
             {% for artist in event.artists %}<span class="artist-chip"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}><img src="{{ artist.photo_url }}" alt="">{{ artist.name }}</span>{% endfor %}
           </div>
         </div>
-        <div class="invitation-counts-block">
-          {% if manage_status and (manage_status.pending or manage_status.handled) %}
-          <div class="text-center mb-2">
-            {% if manage_status.pending %}
-              <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>{{ manage_status.pending }} {{ 'solicitud pendiente' if manage_status.pending == 1 else 'solicitudes pendientes' }} de gestionar</span>
-            {% else %}
-              <span class="badge text-bg-success invitation-manage-flag"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
-            {% endif %}
-          </div>
-          {% endif %}
-          <div class="invitation-counts invitation-counts--large">
-            <div><span>{{ event.counts.configured }}</span><small>Disponibles</small></div>
-            <div><span>{{ event.counts.committed }}</span><small>Comprometidas</small></div>
-            <div><span>{{ event.counts.requested_all if event.counts.requested_all is defined else event.counts.requested }}</span><small>Solicitudes</small></div>
-            <div class="{% if event.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ event.counts.result }}</span><small>Resultado</small></div>
-          </div>
+        <div class="invitation-counts invitation-counts--large">
+          <div><span>{{ event.counts.configured }}</span><small>Disponibles</small></div>
+          <div><span>{{ event.counts.committed }}</span><small>Comprometidas</small></div>
+          <div><span>{{ event.counts.requested_all if event.counts.requested_all is defined else event.counts.requested }}</span><small>Solicitudes</small></div>
+          <div class="{% if event.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ event.counts.result }}</span><small>Resultado</small></div>
         </div>
       </div>
     </div>

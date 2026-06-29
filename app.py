@@ -37395,13 +37395,68 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
     committed = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in commitments)
     requested = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests if (x.status or "") in INVITATION_PENDING_COUNT_STATUSES)
     assigned = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests if (x.status or "") in {"ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"})
+    # Solicitudes "estén o no asignadas": todas las peticiones activas (no rechazadas/anuladas).
+    requested_all = sum(_invitation_total_qty(_json_dict(x.quantities_json)) for x in requests if (x.status or "") in INVITATION_ACTIVE_REQUEST_STATUSES)
     return {
         "configured": category_total,
         "committed": committed,
         "requested": requested,
+        "requested_all": requested_all,
         "assigned": assigned,
         "result": category_total - committed - requested - assigned,
     }
+
+
+def _invitation_event_pending_to_manage(session_db, concert) -> dict:
+    """Solicitudes/compromisos pendientes de GESTIONAR de un evento, con la MISMA lógica que el
+    módulo de inicio 'Invitaciones pendientes de gestionar': peticiones pendientes (solicitadas/
+    aprobadas/asignadas pero sin enviar) + compromisos sin entregar (cada uno cuenta como 1).
+    Devuelve {pending, handled, managed}."""
+    cid = getattr(concert, "id", None)
+    if not cid:
+        return {"pending": 0, "handled": 0, "managed": False}
+    pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
+    handled_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+    pending = 0
+    handled = 0
+    for status, cnt in (
+        session_db.query(InvitationRequest.status, func.count(InvitationRequest.id))
+        .filter(InvitationRequest.concert_id == cid)
+        .group_by(InvitationRequest.status)
+        .all()
+    ):
+        st = (status or "").upper()
+        if st in pending_statuses:
+            pending += int(cnt or 0)
+        elif st in handled_statuses:
+            handled += int(cnt or 0)
+    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == cid).all()
+    commit_ids = [c.id for c in commitments]
+    ticket_by_commit: dict[str, tuple[int, int]] = {}
+    if commit_ids:
+        delivered_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+        for ccid, tstatus, cnt in (
+            session_db.query(InvitationTicket.assigned_commitment_id, InvitationTicket.status, func.count(InvitationTicket.id))
+            .filter(InvitationTicket.assigned_commitment_id.in_(commit_ids))
+            .group_by(InvitationTicket.assigned_commitment_id, InvitationTicket.status)
+            .all()
+        ):
+            a, d = ticket_by_commit.get(str(ccid), (0, 0))
+            a += int(cnt or 0)
+            if (tstatus or "").upper() in delivered_set:
+                d += int(cnt or 0)
+            ticket_by_commit[str(ccid)] = (a, d)
+    for c in commitments:
+        committed_qty = sum(_safe_int(v) for v in _json_dict(c.quantities_json).values())
+        if committed_qty <= 0:
+            continue
+        assigned_count, delivered_count = ticket_by_commit.get(str(c.id), (0, 0))
+        is_handled = (delivered_count >= committed_qty) or ((c.status or "").upper() == "ASIGNADAS" and assigned_count == 0)
+        if is_handled:
+            handled += 1
+        else:
+            pending += 1
+    return {"pending": pending, "handled": handled, "managed": (pending == 0 and handled > 0)}
 
 
 def _invitation_configured_concert_query(session_db):
@@ -38456,6 +38511,7 @@ def invitation_event_detail(concert_id):
             back_to_ficha=back_to_ficha,
             group_promoted=_concert_is_group_promoted(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),
+            manage_status=_invitation_event_pending_to_manage(session_db, concert),
             concert=concert,
             categories=cat_payloads,
             commitments=commitments,

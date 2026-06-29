@@ -874,8 +874,22 @@
 
   {% include "_onesheet_editor.html" %}
 
-{# ===================== TAB: AGENDA / LIQUIDACIONES ===================== #}
-{% elif tab in ['agenda','liquidaciones'] %}
+{# ===================== TAB: AGENDA ===================== #}
+{% elif tab == 'agenda' %}
+
+  {% import '_agenda_calendar.html' as agenda with context %}
+  <div class="card">
+    <div class="card-body">
+      <div class="d-flex align-items-center gap-2 mb-3">
+        <i class="fa fa-calendar-day text-danger"></i>
+        <h5 class="mb-0">Agenda · próximas dos semanas</h5>
+      </div>
+      {{ agenda.agenda_calendar(agenda_data, 'artist') }}
+    </div>
+  </div>
+
+{# ===================== TAB: LIQUIDACIONES ===================== #}
+{% elif tab == 'liquidaciones' %}
 
   <div class="card">
     <div class="card-body">

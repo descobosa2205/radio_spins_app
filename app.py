@@ -1182,10 +1182,17 @@ def artist_detail_view(artist_id):
         promoter_email_suggestions = []
         production_panel = {}
 
+        # Agenda: calendario de actividades del artista (mismas próximas 2 semanas que Inicio).
+        agenda_data = None
+        if tab == "agenda":
+            _ag_today, _ag_start, _ag_end = _agenda_window()
+            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_start, _ag_end, _ag_today)
+
         return render_template(
             "artist_detail.html",
             artist=artist,
             tab=tab,
+            agenda_data=agenda_data,
             disc_tab=disc_tab,
             people=people,
             artist_email_addresses=artist_email_addresses,
@@ -28398,6 +28405,7 @@ def inject_personnel_globals():
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
@@ -39109,6 +39117,271 @@ def public_invitation_request_cancel(token, request_id):
         session_db.commit()
         flash('Petición anulada.', 'success')
         return redirect(url_for('public_invitation_request_link', token=token))
+    finally:
+        session_db.close()
+
+
+# ---------------------------------------------------------------------------
+# AGENDA / CALENDARIO de actividades de artista (Inicio + pestaña "Agenda")
+# ---------------------------------------------------------------------------
+# Recolecta TODAS las actividades con fecha de un conjunto de artistas dentro de una ventana
+# (por defecto las próximas 2 semanas) y las normaliza a un mismo formato para pintarlas en un
+# calendario visual. Tipos: conciertos/festivales/eventos (Concert), acciones (CompanyAction),
+# promoción en medios (MediaPromotionRecord) y lanzamientos (Album/Song). Los conciertos en BORRADOR
+# NO se muestran. En Inicio el color va por ARTISTA; en la ficha del artista, por TIPO de actividad.
+
+AGENDA_PALETTE = [
+    "#E33D48", "#007CA2", "#198754", "#6f42c1", "#fd7e14", "#d63384",
+    "#20c997", "#0d6efd", "#b5179e", "#e07a5f", "#457b9d", "#9c6644",
+]
+
+AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "medios"]
+AGENDA_KIND_META = {
+    "concierto":   {"label": "Conciertos",      "icon": "fa-music",           "color": "#E33D48"},
+    "festival":    {"label": "Festivales",      "icon": "fa-star",            "color": "#6f42c1"},
+    "evento":      {"label": "Eventos / promo", "icon": "fa-bullhorn",        "color": "#fd7e14"},
+    "lanzamiento": {"label": "Lanzamientos",    "icon": "fa-compact-disc",    "color": "#d63384"},
+    "accion":      {"label": "Acciones",        "icon": "fa-clapperboard",    "color": "#007CA2"},
+    "medios":      {"label": "Medios",          "icon": "fa-broadcast-tower", "color": "#20c997"},
+}
+
+
+def _agenda_status_meta(code: str | None) -> tuple[str, str]:
+    """Devuelve (etiqueta, clase css) para el estado de un concierto/acción. Clase reutiliza los
+    `status-*` de la ficha de artista (hablado/reservado/confirmado)."""
+    code = (code or "").upper()
+    table = {
+        "CONFIRMADO": ("Confirmado", "confirmado"),
+        "RESERVADO": ("Reserva", "reservado"),
+        "RESERVA": ("Reserva", "reservado"),
+        "HABLADO": ("Hablado", "hablado"),
+        "CERRADA": ("Cerrada", "confirmado"),
+    }
+    return table.get(code, ("", ""))
+
+
+def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> dict:
+    """Construye los datos del calendario de agenda.
+
+    target_ids: iterable de UUIDs de artista a incluir, o None/vacío = TODOS los artistas.
+    Devuelve dict serializable con `activities`, `artists` (con color), `kinds` presentes y fechas.
+    """
+    target = {str(x) for x in target_ids} if target_ids else None
+
+    def _match(ids):
+        if target is None:
+            return True
+        return any(str(i) in target for i in ids if i)
+
+    raw = []  # (artist_ids[list str], item dict sin colores)
+    seen_artist_ids = set()
+
+    # ---- Conciertos / festivales / eventos (Concert) ----
+    concerts = (
+        session_db.query(Concert)
+        .options(joinedload(Concert.artist), joinedload(Concert.venue))
+        .filter(Concert.date >= start_date, Concert.date <= end_date)
+        .filter(func.upper(func.coalesce(Concert.status, "")) != "BORRADOR")
+        .all()
+    )
+    for c in concerts:
+        ids = []
+        if c.artist_id:
+            ids.append(str(c.artist_id))
+        for x in (c.artist_ids or []):
+            if x and str(x) not in ids:
+                ids.append(str(x))
+        if not _match(ids):
+            continue
+        at = (c.activity_type or "CONCIERTO").upper()
+        kind = "concierto" if at in ("CONCIERTO", "") else ("festival" if at == "FESTIVAL" else "evento")
+        slabel, sclass = _agenda_status_meta(c.status)
+        venue = c.venue
+        sub = ""
+        if venue:
+            sub = (venue.name or "")
+            if venue.municipality:
+                sub = f"{sub} · {venue.municipality}" if sub else venue.municipality
+        primary = ids[0] if ids else ""
+        title = c.festival_name or (c.artist.name if c.artist else "Concierto")
+        seen_artist_ids.update(ids)
+        raw.append((ids, {
+            "kind": kind, "date": c.date.isoformat() if c.date else "",
+            "title": title, "subtitle": sub,
+            "artist_id": primary,
+            "status_label": slabel, "status_class": sclass,
+            "cover_url": "",
+            "url": url_for("concert_detail_view", cid=c.id),
+        }))
+
+    # ---- Acciones de empresa / marketing (CompanyAction) ----
+    actions = (
+        session_db.query(CompanyAction)
+        .options(joinedload(CompanyAction.venue))
+        .filter(CompanyAction.start_date != None)  # noqa: E711
+        .filter(CompanyAction.start_date >= start_date, CompanyAction.start_date <= end_date)
+        .filter(func.upper(func.coalesce(CompanyAction.status, "")).in_(["RESERVA", "CONFIRMADO", "CERRADA"]))
+        .all()
+    )
+    for a in actions:
+        ids = [str(x) for x in (a.artist_ids or []) if x]
+        if not _match(ids):
+            continue
+        slabel, sclass = _agenda_status_meta(a.status)
+        sub = ACTION_TYPE_LABELS.get((a.action_type or "").upper(), "")
+        if a.venue is not None and getattr(a.venue, "name", None):
+            sub = f"{sub} · {a.venue.name}" if sub else a.venue.name
+        seen_artist_ids.update(ids)
+        raw.append((ids, {
+            "kind": "accion", "date": a.start_date.isoformat(),
+            "title": a.title or "Acción", "subtitle": sub,
+            "artist_id": ids[0] if ids else "",
+            "status_label": slabel, "status_class": sclass,
+            "cover_url": "",
+            "icon_override": ACTION_TYPE_ICONS.get((a.action_type or "").upper(), ""),
+            "url": url_for("action_detail_view", action_id=a.id),
+        }))
+
+    # ---- Promoción en medios (MediaPromotionRecord) ----
+    media_rows = (
+        session_db.query(MediaPromotionRecord)
+        .options(joinedload(MediaPromotionRecord.media), joinedload(MediaPromotionRecord.artist))
+        .filter(MediaPromotionRecord.promoted_at >= start_date, MediaPromotionRecord.promoted_at <= end_date)
+        .all()
+    )
+    for m in media_rows:
+        ids = [str(m.artist_id)] if m.artist_id else []
+        if not _match(ids):
+            continue
+        media_name = m.media.name if m.media else ""
+        title = m.promotion_title or m.program_name or media_name or "Promoción en medios"
+        sub_bits = [b for b in [media_name if title != media_name else "", m.program_name if m.program_name and m.program_name != title else ""] if b]
+        if m.promotion_id:
+            url = url_for("promotion_detail_view", promotion_id=m.promotion_id)
+        else:
+            url = url_for("media_outlet_detail_view", media_id=m.media_id)
+        seen_artist_ids.update(ids)
+        raw.append((ids, {
+            "kind": "medios", "date": m.promoted_at.isoformat(),
+            "title": title, "subtitle": " · ".join(sub_bits),
+            "artist_id": ids[0] if ids else "",
+            "status_label": "", "status_class": "",
+            "cover_url": "",
+            "url": url,
+        }))
+
+    # ---- Lanzamientos: Álbumes ----
+    albums = (
+        session_db.query(Album)
+        .options(joinedload(Album.artist))
+        .filter(Album.release_date >= start_date, Album.release_date <= end_date)
+        .all()
+    )
+    for al in albums:
+        ids = [str(al.artist_id)] if al.artist_id else []
+        if not _match(ids):
+            continue
+        seen_artist_ids.update(ids)
+        raw.append((ids, {
+            "kind": "lanzamiento", "date": al.release_date.isoformat(),
+            "title": al.title or "Lanzamiento",
+            "subtitle": ("EP" if (al.album_type or "").upper() == "EP" else "Álbum"),
+            "artist_id": ids[0] if ids else "",
+            "status_label": "", "status_class": "",
+            "cover_url": al.cover_url or "",
+            "url": url_for("discografica_album_detail", album_id=al.id),
+        }))
+
+    # ---- Lanzamientos: Canciones ----
+    songs = (
+        session_db.query(Song)
+        .options(joinedload(Song.artists))
+        .filter(Song.release_date >= start_date, Song.release_date <= end_date)
+        .all()
+    )
+    for sg in songs:
+        ids = [str(a.id) for a in (sg.artists or [])]
+        if not _match(ids):
+            continue
+        seen_artist_ids.update(ids)
+        raw.append((ids, {
+            "kind": "lanzamiento", "date": sg.release_date.isoformat(),
+            "title": sg.title or "Lanzamiento", "subtitle": "Single / canción",
+            "artist_id": ids[0] if ids else "",
+            "status_label": "", "status_class": "",
+            "cover_url": sg.cover_url or "",
+            "url": url_for("discografica_song_detail", song_id=sg.id),
+        }))
+
+    # ---- Mapa de artistas (nombre + foto) para colorear/etiquetar ----
+    artist_map = {}
+    if seen_artist_ids:
+        for a in session_db.query(Artist).filter(Artist.id.in_([to_uuid(x) for x in seen_artist_ids if x])).all():
+            artist_map[str(a.id)] = {"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or ""}
+
+    # Artistas presentes, ordenados por nombre, con color de paleta
+    present = [artist_map[a] for a in seen_artist_ids if a in artist_map]
+    present.sort(key=lambda x: (x["name"] or "").lower())
+    artist_color = {}
+    artists_out = []
+    for i, a in enumerate(present):
+        color = AGENDA_PALETTE[i % len(AGENDA_PALETTE)]
+        artist_color[a["id"]] = color
+        artists_out.append({**a, "color": color})
+
+    # Tipos presentes (en orden canónico)
+    present_kinds = {it["kind"] for _ids, it in raw}
+    kinds_out = [
+        {"key": k, "label": AGENDA_KIND_META[k]["label"], "icon": AGENDA_KIND_META[k]["icon"], "color": AGENDA_KIND_META[k]["color"]}
+        for k in AGENDA_KIND_ORDER if k in present_kinds
+    ]
+
+    # Finaliza actividades con colores y nombre de artista
+    activities = []
+    for ids, it in raw:
+        pid = it.get("artist_id") or ""
+        meta = AGENDA_KIND_META.get(it["kind"], {})
+        names = [artist_map[i]["name"] for i in ids if i in artist_map]
+        activities.append({
+            **it,
+            "artist_ids": ids,
+            "icon": it.pop("icon_override", "") or meta.get("icon", "fa-circle"),
+            "artist_name": ", ".join(names) if names else (it.get("title") or ""),
+            "artist_color": artist_color.get(pid, "#6c757d"),
+            "kind_color": meta.get("color", "#6c757d"),
+            "kind_label": meta.get("label", ""),
+        })
+    activities.sort(key=lambda x: (x["date"], x["kind"]))
+
+    return {
+        "activities": activities,
+        "artists": artists_out,
+        "kinds": kinds_out,
+        "today": today_value.isoformat(),
+        "start": start_date.isoformat(),
+        "end": end_date.isoformat(),
+    }
+
+
+def _agenda_window(days_ahead: int = 13):
+    """Ventana de la agenda: desde hoy hasta hoy + days_ahead (2 semanas ≈ 13). Devuelve (today, start, end)."""
+    today = today_local()
+    return today, today, today + timedelta(days=days_ahead)
+
+
+def _home_agenda() -> dict | None:
+    """Datos del calendario de Inicio para el usuario actual: actividades de SUS artistas asignados
+    (o de todos si no tiene ninguno asignado o es dirección). Color por artista."""
+    state = _current_user_state()
+    role = _safe_int(state.get("role"))
+    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
+    target_ids = None if (role == 10 or not assigned) else assigned
+    session_db = db()
+    try:
+        today, start, end = _agenda_window()
+        return _agenda_build(session_db, target_ids, start, end, today)
+    except Exception:
+        return None
     finally:
         session_db.close()
 

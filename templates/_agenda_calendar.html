@@ -1,0 +1,9 @@
+{# Calendario de agenda reutilizable. `data` = dict de _agenda_build; `mode` = 'home' (color por
+   artista, filtros de tipo a la izquierda) o 'artist' (color por tipo, listado de eventos a la
+   izquierda). El render lo hace static/js/agenda_calendar.js a partir del JSON embebido. #}
+{% macro agenda_calendar(data, mode='home') %}
+<div class="agenda-cal-root" data-agenda-calendar data-mode="{{ mode }}">
+  <div class="agenda-cal-root__loading text-muted small">Cargando agenda…</div>
+  <script type="application/json" data-agenda-json>{{ (data or {})|tojson }}</script>
+</div>
+{% endmacro %}

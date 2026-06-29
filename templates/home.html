@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block content %}
 {% import '_my_invitation_menu.html' as inv_menu with context %}
+{% import '_agenda_calendar.html' as agenda with context %}
 <div class="dash-hero mb-4">
   <div class="d-flex align-items-center gap-3 flex-wrap">
     <img src="{{ CURRENT_USER.photo_url if CURRENT_USER else url_for('static', filename='img/logo.png') }}" alt="Usuario" class="home-user-avatar">
@@ -10,6 +11,18 @@
     </div>
   </div>
 </div>
+
+{% if HOME_AGENDA is not none %}
+<div class="card mb-4">
+  <div class="card-body">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fa fa-calendar-day text-danger"></i>
+      <h5 class="mb-0">Agenda · próximas dos semanas</h5>
+    </div>
+    {{ agenda.agenda_calendar(HOME_AGENDA, 'home') }}
+  </div>
+</div>
+{% endif %}
 
 {% if HOME_INVITATIONS_TO_MANAGE %}
 <div class="card mb-4 border-danger">

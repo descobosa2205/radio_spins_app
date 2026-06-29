@@ -1225,3 +1225,81 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* Badges un poco más redondeados */
 .badge { border-radius: 7px; font-weight: 600; }
 .badge.rounded-pill { border-radius: 999px; }
+
+/* ===================== Agenda / calendario de actividades ===================== */
+/* Usado en Inicio (color por artista) y en la pestaña Agenda del artista (color por tipo).
+   Lo pinta static/js/agenda_calendar.js; --c lleva el color de cada artista/tipo. */
+.agenda-cal-root__loading{ padding:.75rem 0; }
+
+.agenda-top{ display:flex; flex-wrap:wrap; gap:.4rem; margin-bottom:.9rem; }
+.agenda-chip{ display:inline-flex; align-items:center; gap:.4rem; padding:.25rem .65rem .25rem .4rem; border:1px solid #e3e6eb; border-radius:999px; background:#fff; font-size:.82rem; line-height:1; cursor:pointer; color:#333; transition:box-shadow .12s ease, opacity .12s ease; }
+.agenda-chip img{ width:22px;height:22px;border-radius:50%;object-fit:cover;flex:0 0 auto; }
+.agenda-chip i{ color:var(--c); }
+.agenda-chip__dot{ width:10px;height:10px;border-radius:50%;background:var(--c);flex:0 0 auto; }
+.agenda-chip.is-on{ box-shadow:0 0 0 1.5px var(--c) inset; }
+.agenda-chip:not(.is-on){ opacity:.5; filter:grayscale(.55); }
+
+.agenda-body{ display:flex; gap:1rem; align-items:flex-start; }
+.agenda-side{ flex:0 0 230px; max-width:230px; display:flex; flex-direction:column; gap:.35rem; }
+.agenda-side__title{ font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:#8a909a; font-weight:700; margin-bottom:.15rem; }
+.agenda-cal{ flex:1 1 auto; min-width:0; }
+
+/* Filtros por tipo (lateral en Inicio) */
+.agenda-type{ display:flex; align-items:center; gap:.5rem; padding:.42rem .55rem; border:1px solid #e3e6eb; border-radius:.6rem; background:#fff; cursor:pointer; font-size:.84rem; text-align:left; color:#333; }
+.agenda-type i{ color:var(--c); width:1.1em; text-align:center; }
+.agenda-type__dot{ width:10px;height:10px;border-radius:50%;background:var(--c);flex:0 0 auto; }
+.agenda-type.is-on{ border-color:var(--c); }
+.agenda-type:not(.is-on){ opacity:.5; filter:grayscale(.55); }
+.agenda-type--plain i{ color:#6b7280; }
+.agenda-type--plain.is-on{ border-color:#c7ccd4; background:#f8f9fb; }
+
+/* Listado de eventos (lateral en la ficha de artista) */
+.agenda-listitem{ display:flex; align-items:center; gap:.55rem; padding:.45rem .55rem; border:1px solid #eef0f3; border-left:4px solid var(--c); border-radius:.55rem; text-decoration:none; color:inherit; background:#fff; transition:box-shadow .12s ease; }
+.agenda-listitem:hover{ box-shadow:0 4px 14px rgba(20,25,35,.08); color:inherit; }
+.agenda-listitem__icon{ width:30px;height:30px;border-radius:.45rem;display:flex;align-items:center;justify-content:center;background:#f1f3f6;flex:0 0 auto; }
+.agenda-listitem__icon i{ color:var(--c); }
+.agenda-listitem__cover{ width:34px;height:34px;border-radius:.4rem;object-fit:cover;flex:0 0 auto; }
+.agenda-listitem__body{ min-width:0; display:flex; flex-direction:column; }
+.agenda-listitem__title{ font-weight:600; font-size:.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.agenda-listitem__sub{ font-size:.74rem; color:#6b7280; }
+.agenda-listitem__date{ font-weight:600; color:#444; }
+
+/* Cuadrícula del calendario (lunes a domingo) */
+.agenda-cal__head{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; margin-bottom:6px; }
+.agenda-cal__dow{ text-align:center; font-size:.72rem; font-weight:700; color:#8a909a; text-transform:uppercase; }
+.agenda-cal__grid{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; }
+.agenda-cal__day{ min-height:94px; border:1px solid #e9ecf1; border-radius:.5rem; padding:4px; background:#fff; display:flex; flex-direction:column; gap:3px; overflow:hidden; }
+.agenda-cal__day.is-out{ background:#f6f7f9; opacity:.55; }
+.agenda-cal__day.is-today{ border-color:var(--brand-primary); box-shadow:0 0 0 2px rgba(227,61,72,.18); }
+.agenda-cal__num{ font-size:.74rem; font-weight:700; color:#6b7280; }
+.agenda-cal__day.is-today .agenda-cal__num{ color:var(--brand-primary); }
+.agenda-cal__events{ display:flex; flex-direction:column; gap:3px; }
+.agenda-event{ display:flex; align-items:center; gap:5px; padding:2px 5px; border-radius:.4rem; background:var(--c); color:#fff; font-size:.72rem; line-height:1.2; text-decoration:none; overflow:hidden; }
+.agenda-event:hover{ filter:brightness(1.07); color:#fff; }
+.agenda-event__icon{ flex:0 0 auto; font-size:.7rem; }
+.agenda-event__cover{ width:16px;height:16px;border-radius:3px;object-fit:cover;flex:0 0 auto; }
+.agenda-event__title{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.agenda-event__dot{ width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-left:auto;border:1px solid rgba(255,255,255,.75); }
+
+/* Tooltip flotante */
+.agenda-tip{ position:fixed; z-index:3000; max-width:264px; background:#1f2430; color:#fff; padding:.55rem .65rem; border-radius:.5rem; box-shadow:0 8px 24px rgba(0,0,0,.28); font-size:.78rem; pointer-events:none; }
+.agenda-tip__head{ font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; opacity:.8; margin-bottom:.15rem; }
+.agenda-tip__title{ font-weight:700; }
+.agenda-tip__sub{ opacity:.85; }
+.agenda-tip__meta{ margin-top:.25rem; opacity:.92; }
+
+/* Pills de estado (globales; antes solo inline en la ficha de artista) */
+.agenda-status{ display:inline-block; padding:.04rem .4rem; border-radius:999px; font-size:.7rem; font-weight:600; }
+.status-hablado{ background:#ffe8a1; color:#7a5b00; }
+.status-reservado{ background:#cfe2ff; color:#084298; }
+.status-confirmado{ background:#d1e7dd; color:#0f5132; }
+.agenda-event__dot.status-hablado{ background:#ffc107; }
+.agenda-event__dot.status-reservado{ background:#0d6efd; }
+.agenda-event__dot.status-confirmado{ background:#198754; }
+
+@media (max-width:768px){
+  .agenda-body{ flex-direction:column; }
+  .agenda-side{ flex:1 1 auto; max-width:none; width:100%; }
+  .agenda-cal__day{ min-height:70px; }
+  .agenda-event__title{ display:none; }
+}

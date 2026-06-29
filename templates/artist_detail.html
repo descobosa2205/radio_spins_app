@@ -1004,6 +1004,15 @@
           {% else %}
             <div class="text-muted small">Todavía no hay enlaces. Genera el primero arriba.</div>
           {% endif %}
+
+          <hr class="my-3">
+          <h6 class="small text-muted text-uppercase">¿Eres usuario de la app? Añade tu calendario (con permiso de edición)</h6>
+          <p class="text-muted small mb-2">Como usuario, puedes añadir tu calendario como <strong>cuenta CalDAV</strong> en el iPhone (Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Añadir cuenta CalDAV) y verás los calendarios de tus artistas, pudiendo <strong>añadir notas</strong> desde el propio iPhone. En Android, con una app CalDAV (p. ej. DAVx⁵).</p>
+          <ul class="small mb-0">
+            <li><strong>Servidor:</strong> <code>{{ caldav_server }}</code></li>
+            <li><strong>Usuario:</strong> tu correo de la app</li>
+            <li><strong>Contraseña:</strong> tu contraseña de la app</li>
+          </ul>
         </div>
       </div>
     </div>

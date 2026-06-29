@@ -121,6 +121,10 @@ class ArtistAgendaItem(Base):
     created_by_user_id = Column(PGUUID(as_uuid=True))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Identificadores que asigna el cliente CalDAV (iPhone) al crear el evento, para no duplicar al
+    # sincronizar. Nulos en los ítems creados desde la app/web.
+    caldav_uid = Column(Text)
+    caldav_href = Column(Text)
 
     artist = relationship("Artist")
 
@@ -154,8 +158,12 @@ class ArtistCalendarLink(Base):
 
 
 def ensure_artist_calendar_schema():
-    """Crea la tabla de enlaces de calendario del artista (idempotente)."""
+    """Crea la tabla de enlaces de calendario del artista y columnas CalDAV (idempotente)."""
     Base.metadata.create_all(bind=engine)
+    _exec_ddl_statements([
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_uid text;",
+        "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_href text;",
+    ], "artist_calendar")
 
 
 class ArtistEmail(Base):

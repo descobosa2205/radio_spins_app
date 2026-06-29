@@ -276,6 +276,8 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
     "public_photo_approval",
+    "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
+    "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
 }
 
 
@@ -1223,6 +1225,7 @@ def artist_detail_view(artist_id):
         # navegar por meses (vista de 4 semanas), incluido el pasado, sin recargar; el JS pagina.
         agenda_data = None
         calendar_links = []
+        caldav_server = ""
         if tab == "agenda":
             _ag_today = today_local()
             agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
@@ -1232,6 +1235,7 @@ def artist_detail_view(artist_id):
                  "created_by": l.created_by_nick or ""}
                 for l in _artist_calendar_links(session_db, artist.id, only_active=True)
             ]
+            caldav_server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
 
         artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
@@ -1241,6 +1245,7 @@ def artist_detail_view(artist_id):
             tab=tab,
             agenda_data=agenda_data,
             calendar_links=calendar_links,
+            caldav_server=caldav_server,
             artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
@@ -27183,7 +27188,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -41298,6 +41303,421 @@ def artist_calendar_link_cancel(artist_id, link_id):
     finally:
         session_db.close()
     return redirect(url_for("artist_detail_view", artist_id=artist_id, tab="agenda"))
+
+
+# ============================ CalDAV (cuenta de calendario para usuarios) ============================
+# Servidor CalDAV mínimo para que los USUARIOS de la app añadan su agenda como cuenta en el iPhone
+# (Ajustes -> Calendario -> Cuentas -> Otra -> CalDAV) con sus MISMAS credenciales. Ven los calendarios
+# de los artistas a los que tienen acceso (rol 10 = todos). Las actividades reales (conciertos, etc.)
+# son de SOLO LECTURA; las notas/bloqueos (ArtistAgendaItem) son de lectura/escritura: lo que el
+# usuario crea desde el iPhone entra como NOTA (no como actividad).
+
+def _agenda_item_caldav_ref(it):
+    """(basename_sin_ics, uid, writable, item_id) estable por ítem de _agenda_build."""
+    item_id = it.get("item_id") or ""
+    if item_id:
+        return (f"n-{item_id}", f"note-{item_id}@33producciones", True, item_id)
+    h = hashlib.sha1(("|".join([str(it.get("kind")), str(it.get("url")), str(it.get("date"))])).encode("utf-8")).hexdigest()[:16]
+    return (f"a-{h}", f"act-{h}@33producciones", False, "")
+
+
+def _agenda_vevent_block(it, dtstamp, uid):
+    """Líneas BEGIN:VEVENT..END:VEVENT de un ítem de _agenda_build (evento de día completo)."""
+    raw_date = it.get("date") or ""
+    d = raw_date.replace("-", "")
+    if len(d) != 8:
+        return None
+    try:
+        dtend = (date.fromisoformat(raw_date) + timedelta(days=1)).isoformat().replace("-", "")
+    except (ValueError, TypeError):
+        return None
+    kind_label = (it.get("kind_label") or it.get("kind") or "Evento").strip()
+    title = (it.get("title") or "").strip()
+    subtitle = (it.get("subtitle") or "").strip()
+    name = title or subtitle
+    summary = f"{kind_label} · {name}" if name else kind_label
+    dp = []
+    if title and subtitle:
+        dp.append(subtitle)
+    if it.get("status_label"):
+        dp.append(it["status_label"])
+    if it.get("note"):
+        dp.append(str(it["note"]).strip())
+    if it.get("artist_name"):
+        dp.append(it["artist_name"])
+    block = ["BEGIN:VEVENT", f"UID:{_ics_escape(uid)}", f"DTSTAMP:{dtstamp}",
+             f"DTSTART;VALUE=DATE:{d}", f"DTEND;VALUE=DATE:{dtend}", f"SUMMARY:{_ics_escape(summary)}"]
+    if subtitle:
+        block.append(f"LOCATION:{_ics_escape(subtitle)}")
+    if dp:
+        block.append(f"DESCRIPTION:{_ics_escape(' · '.join(p for p in dp if p))}")
+    block.append("END:VEVENT")
+    return block
+
+
+def _caldav_wrap_event(href, uid, block_lines, writable, item_id):
+    ics = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//33 Producciones//Agenda//ES", "CALSCALE:GREGORIAN"] + block_lines + ["END:VCALENDAR"]) + "\r\n"
+    etag = '"' + hashlib.sha1(ics.encode("utf-8")).hexdigest()[:20] + '"'
+    return {"href": href, "uid": uid, "etag": etag, "ics": ics, "writable": writable, "item_id": item_id}
+
+
+def _caldav_item_event(item, dtstamp):
+    """Evento CalDAV (multi-día) de un ArtistAgendaItem (nota/bloqueo): lectura/escritura."""
+    if not item.start_date:
+        return None
+    href = item.caldav_href or f"n-{item.id}.ics"
+    uid = item.caldav_uid or f"note-{item.id}@33producciones"
+    d = item.start_date.isoformat().replace("-", "")
+    end_d = item.end_date or item.start_date
+    dtend = (end_d + timedelta(days=1)).isoformat().replace("-", "")
+    is_block = (item.kind or "").upper() == "BLOCK"
+    title = (item.title or "").strip()
+    summary = (f"Bloqueo · {title}" if title else "Bloqueo") if is_block else (title or "Nota")
+    block = ["BEGIN:VEVENT", f"UID:{_ics_escape(uid)}", f"DTSTAMP:{dtstamp}",
+             f"DTSTART;VALUE=DATE:{d}", f"DTEND;VALUE=DATE:{dtend}", f"SUMMARY:{_ics_escape(summary)}"]
+    if item.note:
+        block.append(f"DESCRIPTION:{_ics_escape(item.note)}")
+    block.append("END:VEVENT")
+    return _caldav_wrap_event(href, uid, block, writable=True, item_id=str(item.id))
+
+
+def _caldav_artist_events(session_db, artist):
+    """Eventos CalDAV del artista: actividades (solo lectura) + notas/bloqueos (lectura/escritura)."""
+    today = today_local()
+    start = today - timedelta(weeks=26)
+    end = today + timedelta(weeks=78)
+    dtstamp = _ics_now_utc()
+    events = []
+    seen = set()
+    agenda_data = _agenda_build(session_db, [str(artist.id)], start, end, today)
+    for it in (agenda_data.get("activities") or []):
+        if (it.get("kind") or "") in ("bloqueo", "otro"):
+            continue  # vienen de ArtistAgendaItem como evento multi-día único (abajo)
+        base, uid, _, _ = _agenda_item_caldav_ref(it)
+        href = base + ".ics"
+        if href in seen:
+            continue
+        block = _agenda_vevent_block(it, dtstamp, uid)
+        if not block:
+            continue
+        seen.add(href)
+        events.append(_caldav_wrap_event(href, uid, block, writable=False, item_id=""))
+    for item in (
+        session_db.query(ArtistAgendaItem)
+        .filter(ArtistAgendaItem.artist_id == artist.id)
+        .filter(ArtistAgendaItem.end_date >= start, ArtistAgendaItem.start_date <= end)
+        .all()
+    ):
+        ev = _caldav_item_event(item, dtstamp)
+        if ev and ev["href"] not in seen:
+            seen.add(ev["href"])
+            events.append(ev)
+    return events
+
+
+def _caldav_ctag(events):
+    return hashlib.sha1("".join(e["uid"] + e["etag"] for e in events).encode("utf-8")).hexdigest()
+
+
+def _caldav_unauthorized():
+    resp = Response("Unauthorized", status=401)
+    resp.headers["WWW-Authenticate"] = 'Basic realm="33 Producciones · Calendario"'
+    return resp
+
+
+def _caldav_auth(session_db):
+    auth = request.authorization
+    if not auth or not auth.username:
+        return None
+    user = session_db.query(User).filter(func.lower(User.email) == (auth.username or "").strip().lower()).first()
+    if not user or not user.password_hash:
+        return None
+    try:
+        if check_password_hash(user.password_hash, auth.password or ""):
+            return user
+    except Exception:
+        return None
+    return None
+
+
+def _caldav_user_artists(session_db, user):
+    if int(getattr(user, "role", 0) or 0) == 10:
+        return session_db.query(Artist).order_by(Artist.name.asc()).all()
+    profile = session_db.get(UserProfile, user.id)
+    ids = [to_uuid(x) for x in (getattr(profile, "assigned_artist_ids", None) or []) if x]
+    ids = [i for i in ids if i]
+    if not ids:
+        return []
+    return session_db.query(Artist).filter(Artist.id.in_(ids)).order_by(Artist.name.asc()).all()
+
+
+def _caldav_can_access(session_db, user, artist):
+    if int(getattr(user, "role", 0) or 0) == 10:
+        return True
+    profile = session_db.get(UserProfile, user.id)
+    ids = {str(x) for x in (getattr(profile, "assigned_artist_ids", None) or [])}
+    return str(artist.id) in ids
+
+
+def _xml_escape(s):
+    return str(s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def _caldav_multistatus(inner):
+    return ('<?xml version="1.0" encoding="utf-8"?>\n'
+            '<D:multistatus xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav" '
+            'xmlns:CS="http://calendarserver.org/ns/" xmlns:ICAL="http://apple.com/ns/ical/">'
+            + inner + '</D:multistatus>')
+
+
+def _caldav_207(inner):
+    r = Response(_caldav_multistatus(inner), status=207)
+    r.headers["Content-Type"] = "application/xml; charset=utf-8"
+    r.headers["DAV"] = "1, 2, 3, calendar-access"
+    return r
+
+
+def _caldav_options_resp():
+    r = Response("", status=200)
+    r.headers["DAV"] = "1, 2, 3, calendar-access"
+    r.headers["Allow"] = "OPTIONS, GET, HEAD, PROPFIND, REPORT, PUT, DELETE"
+    return r
+
+
+def _caldav_calendar_response_xml(artist, ctag=""):
+    href = f"/caldav/calendars/{artist.id}/"
+    name = _xml_escape("Agenda · " + (artist.name or ""))
+    prop = ('<D:resourcetype><D:collection/><C:calendar/></D:resourcetype>'
+            f'<D:displayname>{name}</D:displayname>'
+            '<C:supported-calendar-component-set><C:comp name="VEVENT"/></C:supported-calendar-component-set>'
+            '<ICAL:calendar-color>#E33D48FF</ICAL:calendar-color>'
+            '<D:current-user-principal><D:href>/caldav/principal/</D:href></D:current-user-principal>'
+            f'<CS:getctag>{_xml_escape(ctag or "0")}</CS:getctag>')
+    return (f'<D:response><D:href>{href}</D:href>'
+            f'<D:propstat><D:prop>{prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+
+
+def _ics_unescape(s):
+    s = str(s or "")
+    return s.replace("\\n", "\n").replace("\\N", "\n").replace("\\,", ",").replace("\\;", ";").replace("\\\\", "\\")
+
+
+def _ics_parse_date(value):
+    v = (value or "").strip()
+    if len(v) < 8:
+        return None
+    try:
+        return date(int(v[0:4]), int(v[4:6]), int(v[6:8]))
+    except (ValueError, TypeError):
+        return None
+
+
+def _ics_parse_vevent(text):
+    """Extrae UID/SUMMARY/DESCRIPTION/DTSTART/DTEND del primer VEVENT (texto iCal del cliente)."""
+    unfolded = re.sub(r'\r?\n[ \t]', '', text or "")
+    out = {}
+    for line in unfolded.splitlines():
+        if ":" not in line:
+            continue
+        name, _, value = line.partition(":")
+        key = name.split(";")[0].strip().upper()
+        value = value.strip()
+        if key == "UID":
+            out["uid"] = value
+        elif key == "SUMMARY":
+            out["summary"] = _ics_unescape(value)
+        elif key == "DESCRIPTION":
+            out["description"] = _ics_unescape(value)
+        elif key == "DTSTART":
+            out["start"] = _ics_parse_date(value)
+        elif key == "DTEND":
+            d = _ics_parse_date(value)
+            # DTEND de día completo es exclusiva -> el último día real es el anterior.
+            out["end"] = (d - timedelta(days=1)) if (d and len(value) == 8) else d
+    return out
+
+
+def _caldav_find_item(session_db, artist, resource, uid):
+    q = session_db.query(ArtistAgendaItem).filter(ArtistAgendaItem.artist_id == artist.id)
+    it = q.filter(ArtistAgendaItem.caldav_href == resource).first()
+    if it:
+        return it
+    if uid:
+        it = q.filter(ArtistAgendaItem.caldav_uid == uid).first()
+        if it:
+            return it
+    m = re.match(r'^n-(.+)\.ics$', resource or "")
+    if m:
+        return session_db.get(ArtistAgendaItem, _safe_uuid(m.group(1)))
+    return None
+
+
+def public_caldav_wellknown():
+    if request.method == "OPTIONS":
+        return _caldav_options_resp()
+    return redirect("/caldav/", code=301)
+
+
+def public_caldav_root(*args, **kwargs):
+    if request.method == "OPTIONS":
+        return _caldav_options_resp()
+    session_db = db()
+    try:
+        user = _caldav_auth(session_db)
+        if not user:
+            return _caldav_unauthorized()
+        prop = ('<D:current-user-principal><D:href>/caldav/principal/</D:href></D:current-user-principal>'
+                '<D:principal-URL><D:href>/caldav/principal/</D:href></D:principal-URL>'
+                '<C:calendar-home-set><D:href>/caldav/calendars/</D:href></C:calendar-home-set>'
+                f'<D:displayname>{_xml_escape(user.email)}</D:displayname>'
+                '<D:resourcetype><D:collection/><D:principal/></D:resourcetype>')
+        inner = (f'<D:response><D:href>{_xml_escape(request.path)}</D:href>'
+                 f'<D:propstat><D:prop>{prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+        return _caldav_207(inner)
+    finally:
+        session_db.close()
+
+
+def public_caldav_home(*args, **kwargs):
+    if request.method == "OPTIONS":
+        return _caldav_options_resp()
+    session_db = db()
+    try:
+        user = _caldav_auth(session_db)
+        if not user:
+            return _caldav_unauthorized()
+        home_prop = ('<D:resourcetype><D:collection/></D:resourcetype>'
+                     '<D:displayname>Calendarios</D:displayname>'
+                     '<D:current-user-principal><D:href>/caldav/principal/</D:href></D:current-user-principal>')
+        inner = (f'<D:response><D:href>/caldav/calendars/</D:href>'
+                 f'<D:propstat><D:prop>{home_prop}</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+        if (request.headers.get("Depth", "0") or "0") != "0":
+            for artist in _caldav_user_artists(session_db, user):
+                events = _caldav_artist_events(session_db, artist)
+                inner += _caldav_calendar_response_xml(artist, _caldav_ctag(events))
+        return _caldav_207(inner)
+    finally:
+        session_db.close()
+
+
+def public_caldav_calendar(artist_id):
+    if request.method == "OPTIONS":
+        return _caldav_options_resp()
+    session_db = db()
+    try:
+        user = _caldav_auth(session_db)
+        if not user:
+            return _caldav_unauthorized()
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist or not _caldav_can_access(session_db, user, artist):
+            return Response("Not found", status=404)
+        events = _caldav_artist_events(session_db, artist)
+        if request.method == "PROPFIND":
+            inner = _caldav_calendar_response_xml(artist, _caldav_ctag(events))
+            if (request.headers.get("Depth", "0") or "0") != "0":
+                for e in events:
+                    inner += (f'<D:response><D:href>/caldav/calendars/{artist.id}/{_xml_escape(e["href"])}</D:href>'
+                              f'<D:propstat><D:prop><D:getetag>{_xml_escape(e["etag"])}</D:getetag>'
+                              '<D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+            return _caldav_207(inner)
+        if request.method == "REPORT":
+            body = request.get_data(as_text=True) or ""
+            want = None
+            if "calendar-multiget" in body:
+                hrefs = re.findall(r'<[^>]*href[^>]*>([^<]+)<', body, re.I)
+                want = set((h or "").strip().rstrip('/').split('/')[-1] for h in hrefs)
+            inner = ""
+            for e in events:
+                if want is not None and e["href"] not in want:
+                    continue
+                inner += (f'<D:response><D:href>/caldav/calendars/{artist.id}/{_xml_escape(e["href"])}</D:href>'
+                          f'<D:propstat><D:prop><D:getetag>{_xml_escape(e["etag"])}</D:getetag>'
+                          f'<C:calendar-data>{_xml_escape(e["ics"])}</C:calendar-data>'
+                          '</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+            return _caldav_207(inner)
+        if request.method == "MKCALENDAR":
+            return Response("", status=403)
+        return Response("", status=405)
+    finally:
+        session_db.close()
+
+
+def public_caldav_resource(artist_id, resource):
+    if request.method == "OPTIONS":
+        return _caldav_options_resp()
+    session_db = db()
+    try:
+        user = _caldav_auth(session_db)
+        if not user:
+            return _caldav_unauthorized()
+        artist = session_db.get(Artist, _safe_uuid(artist_id))
+        if not artist or not _caldav_can_access(session_db, user, artist):
+            return Response("Not found", status=404)
+        if request.method in ("GET", "HEAD"):
+            for e in _caldav_artist_events(session_db, artist):
+                if e["href"] == resource:
+                    r = Response(e["ics"], status=200)
+                    r.headers["Content-Type"] = "text/calendar; charset=utf-8"
+                    r.headers["ETag"] = e["etag"]
+                    return r
+            return Response("Not found", status=404)
+        if request.method == "PUT":
+            parsed = _ics_parse_vevent(request.get_data(as_text=True) or "")
+            if not parsed.get("start"):
+                return Response("Invalid event", status=400)
+            item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
+            if item is not None and (item.caldav_href or "").strip() == "" and (item.kind or "").upper() not in ("NOTE", "BLOCK"):
+                return Response("Forbidden", status=403)
+            if item is None:
+                item = ArtistAgendaItem(artist_id=artist.id, kind="NOTE")
+                session_db.add(item)
+            item.title = (parsed.get("summary") or item.title or "Nota").strip() or "Nota"
+            item.note = (parsed.get("description") or "").strip() or None
+            item.start_date = parsed["start"]
+            item.end_date = parsed.get("end") or parsed["start"]
+            if item.end_date < item.start_date:
+                item.end_date = item.start_date
+            item.caldav_uid = parsed.get("uid") or item.caldav_uid
+            item.caldav_href = resource
+            item.created_by_user_id = item.created_by_user_id or user.id
+            item.created_by_nick = item.created_by_nick or _email_to_nick(user.email or "")
+            session_db.commit()
+            ev = _caldav_item_event(item, _ics_now_utc())
+            r = Response("", status=201)
+            if ev:
+                r.headers["ETag"] = ev["etag"]
+            return r
+        if request.method == "DELETE":
+            item = _caldav_find_item(session_db, artist, resource, None)
+            if item is not None:
+                session_db.delete(item)
+                session_db.commit()
+                return Response("", status=204)
+            return Response("Forbidden", status=403)  # actividad (solo lectura) o inexistente
+        return Response("", status=405)
+    finally:
+        session_db.close()
+
+
+for _cd_path, _cd_ep, _cd_methods in [
+    ("/.well-known/caldav", "public_caldav_wellknown", ["GET", "PROPFIND", "OPTIONS"]),
+    ("/caldav/", "public_caldav_root", ["PROPFIND", "OPTIONS"]),
+    ("/caldav", "public_caldav_root_noslash", ["PROPFIND", "OPTIONS"]),
+    ("/caldav/principal/", "public_caldav_principal", ["PROPFIND", "OPTIONS"]),
+    ("/caldav/calendars/", "public_caldav_home", ["PROPFIND", "OPTIONS"]),
+    ("/caldav/calendars/<artist_id>/", "public_caldav_calendar", ["PROPFIND", "REPORT", "OPTIONS", "MKCALENDAR"]),
+    ("/caldav/calendars/<artist_id>/<resource>", "public_caldav_resource", ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]),
+]:
+    _cd_view = {
+        "public_caldav_wellknown": public_caldav_wellknown,
+        "public_caldav_root": public_caldav_root,
+        "public_caldav_root_noslash": public_caldav_root,
+        "public_caldav_principal": public_caldav_root,
+        "public_caldav_home": public_caldav_home,
+        "public_caldav_calendar": public_caldav_calendar,
+        "public_caldav_resource": public_caldav_resource,
+    }[_cd_ep]
+    app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_cd_view, methods=_cd_methods, provide_automatic_options=False)
 
 
 def _home_registros_pending(limit: int = 20) -> list[dict]:

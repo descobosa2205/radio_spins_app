@@ -158,7 +158,7 @@
                 {% set ms = item.manage_status %}
                 <div class="invitation-status-flags">
                   {% if ms and ms.pending %}
-                    <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>Solicitudes pendientes</span>
+                    <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>{{ ms.pending }} {{ 'solicitud pendiente' if ms.pending == 1 else 'solicitudes pendientes' }}</span>
                     {% if ms.box_office %}<span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>{% endif %}
                   {% elif ms and ms.box_office %}
                     <span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>

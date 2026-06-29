@@ -49,7 +49,7 @@
               {% set ms = row.manage_status %}
               <div class="d-flex flex-column gap-1 align-self-start">
                 {% if ms and ms.pending %}
-                  <span class="badge text-bg-danger"><i class="fa fa-envelope-open-text me-1"></i>Pendientes</span>
+                  <span class="badge text-bg-danger"><i class="fa fa-envelope-open-text me-1"></i>{{ ms.pending }} {{ 'solicitud pendiente' if ms.pending == 1 else 'solicitudes pendientes' }}</span>
                   {% if ms.box_office %}<span class="badge text-bg-warning text-dark"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>{% endif %}
                 {% elif ms and ms.box_office %}
                   <span class="badge text-bg-warning text-dark"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>

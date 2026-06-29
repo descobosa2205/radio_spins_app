@@ -73,7 +73,7 @@
   <div class="production-cover-stack">
     {% if row.artists %}
       {% for artist in row.artists[:3] %}
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="{{ artist.name }}" title="{{ artist.name }}">
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="{{ artist.name }}" title="{{ artist.name }}"{% if artist.id %} data-artist-link="{{ artist.id }}"{% endif %}>
       {% endfor %}
     {% else %}
       <img src="{{ url_for('static', filename='img/logo.png') }}" class="production-artist-photo bg-white" alt="Sin artista">

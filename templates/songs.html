@@ -71,8 +71,8 @@
   <div class="mb-3 border rounded bg-white">
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
-        <h5 class="m-0">{{ artist.name }}</h5>
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt=""{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
+        <h5 class="m-0"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>{{ artist.name }}</h5>
         {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"
@@ -194,8 +194,8 @@
   <div class="mb-3 border rounded bg-white">
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt="">
-        <h5 class="m-0">{{ artist.name }}</h5>
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" alt=""{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>
+        <h5 class="m-0"{% if artist %} data-artist-link="{{ artist.id }}"{% endif %}>{{ artist.name }}</h5>
         {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
       </div>
       <button class="btn btn-sm btn-light toggle-artist collapsed" type="button"

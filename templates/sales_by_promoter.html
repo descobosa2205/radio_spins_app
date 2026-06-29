@@ -19,9 +19,9 @@
   <div class="mb-3 border rounded bg-white">
     <div class="p-2 d-flex align-items-center justify-content-between">
       <div class="d-flex align-items-center">
-        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2">
+        <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar me-2" data-artist-link="{{ artist.id }}">
         <div>
-          <h5 class="m-0">{{ artist.name }}</h5>
+          <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
           {{ linked_mini('artist', artist.id) }}
         </div>
       </div>

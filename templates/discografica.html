@@ -217,8 +217,8 @@
         {% for artist, songs in artist_blocks %}
           <div class="mb-4 song-artist-block" data-song-artist-block="{{ artist.id }}">
             <div class="d-flex align-items-center gap-2 mb-2">
-              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-              <h5 class="m-0">{{ artist.name }}</h5>
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+              <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
               {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
 
@@ -419,8 +419,8 @@
         {% for artist, albums in album_blocks %}
           <div class="mb-4 album-artist-block" data-album-artist-block="{{ artist.id }}">
             <div class="d-flex align-items-center gap-2 mb-2">
-              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-              <h5 class="m-0">{{ artist.name }}</h5>
+              <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+              <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
               {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
             </div>
 
@@ -821,8 +821,8 @@
       {% for artist, rows in isrc_artist_blocks %}
         <div class="mb-4 isrc-artist-block" data-isrc-artist-block="{{ artist.id }}">
           <div class="d-flex align-items-center gap-2 mb-2">
-            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
-            <h5 class="m-0">{{ artist.name }}</h5>
+            <img src="{{ artist.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ artist.id }}">
+            <h5 class="m-0" data-artist-link="{{ artist.id }}">{{ artist.name }}</h5>
             {% if artist %}{{ linked_mini('artist', artist.id) }}{% endif %}
           </div>
 
@@ -1055,9 +1055,9 @@
                 {% set st = isrc_artist_settings.get(a.id) %}
                 <div class="col-12 col-lg-6">
                   <form method="post" action="{{ url_for('discografica_isrc_artist_set', artist_id=a.id) }}" class="border rounded p-2 bg-white d-flex gap-2 align-items-center">
-                    <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="">
+                    <img src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" class="artist-avatar" alt="" data-artist-link="{{ a.id }}">
                     <div class="flex-grow-1">
-                      <div class="fw-semibold">{{ a.name }}</div>
+                      <div class="fw-semibold" data-artist-link="{{ a.id }}">{{ a.name }}</div>
                       <div class="small text-muted">Matriz artista (2 dígitos)</div>
                     </div>
                     <input name="artist_matrix" class="form-control" style="max-width:90px" value="{{ st.artist_matrix if st else '' }}" {% if not CAN_EDIT_DISCOGRAFICA %}disabled{% endif %}>

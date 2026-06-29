@@ -30,7 +30,7 @@
             <img src="{{ first_artist.photo_url if first_artist and first_artist.photo_url else DEFAULT_PHOTO_URL }}" alt="" class="tour-card-img" data-default-photo="1">
             <div class="flex-grow-1" style="min-width:0;">
               <h5 class="mb-1 text-truncate">{{ group.title }}</h5>
-              <div class="small text-muted text-truncate">{% for artist in group.artists %}{{ artist_avatar(artist.photo_url, artist.name) }}{{ artist.name }}{% if not loop.last %}, {% endif %}{% else %}Sin artista{% endfor %}</div>
+              <div class="small text-muted text-truncate">{% for artist in group.artists %}{{ artist_avatar(artist.photo_url, artist.name, artist_id=artist.id) }}<span data-artist-link="{{ artist.id }}">{{ artist.name }}</span>{% if not loop.last %}, {% endif %}{% else %}Sin artista{% endfor %}</div>
               <div class="d-flex gap-2 flex-wrap mt-2"><span class="badge text-bg-light border">{{ group.concerts|length }} conciertos</span>{% if group.start %}<span class="badge text-bg-light border">{{ group.start.strftime('%d/%m/%Y') }}{% if group.end and group.end != group.start %} - {{ group.end.strftime('%d/%m/%Y') }}{% endif %}</span>{% endif %}</div>
             </div>
           </div>

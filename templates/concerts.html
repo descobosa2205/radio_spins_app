@@ -186,13 +186,13 @@
                 <!-- IZQ: foto + info principal -->
                 <div class="d-flex gap-3 flex-grow-1">
                   <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
-                       class="artist-avatar rounded-circle" alt="" style="width:50px;height:50px;object-fit:cover;">
+                       class="artist-avatar rounded-circle" alt="" style="width:50px;height:50px;object-fit:cover;"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
 
                   <div class="flex-grow-1">
 
                     <!-- línea 1: nombre + fecha + evento + provincia/ciudad/recinto -->
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                      <div class="fw-semibold">{{ c.artist.name if c.artist else '—' }}</div>
+                      <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>{{ c.artist.name if c.artist else '—' }}</div>
                       {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
                       {% if c.date %}
                         <span class="text-muted">{{ c.date.strftime('%d/%m/%Y') }}</span>

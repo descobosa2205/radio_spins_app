@@ -10,7 +10,7 @@
     <div class="ficha-hero__eyebrow">{{ album_kind_label }}</div>
     <h1 class="ficha-hero__title">{{ album.title }}</h1>
     <div class="ficha-hero__facts">
-      {% if artist %}<span>{{ artist_avatar(artist.photo_url, artist.name) }}{{ artist.name }}{{ linked_mini('artist', artist.id) }}</span>{% endif %}
+      {% if artist %}<span>{{ artist_avatar(artist.photo_url, artist.name, artist_id=artist.id) }}<span data-artist-link="{{ artist.id }}">{{ artist.name }}</span>{{ linked_mini('artist', artist.id) }}</span>{% endif %}
       {% if album.release_date %}<span><i class="fa fa-calendar-day"></i>{{ album.release_date.strftime('%d/%m/%Y') }}</span>{% else %}<span><i class="fa fa-calendar-day"></i>Sin fecha</span>{% endif %}
       <span><i class="fa fa-music"></i>{{ track_rows|length }} canciones</span>
     </div>

@@ -65,7 +65,7 @@
                   </a>
 
                   <div class="d-flex align-items-center flex-wrap gap-2">
-                    <div class="fw-semibold">
+                    <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
                       {{ c.artist.name if c.artist else '—' }}
                       <span class="text-muted ms-2">
                         <small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small>

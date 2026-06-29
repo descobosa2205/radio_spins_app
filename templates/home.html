@@ -38,7 +38,7 @@
             <div class="d-flex align-items-center gap-3 border rounded p-2 h-100 {% if row.managed %}border-success{% endif %}">
               <div class="flex-grow-1 min-w-0">
                 <div class="d-flex gap-1 flex-wrap mb-1">
-                  {% for a in (row.artists or []) %}{{ artist_chip(a.name, a.photo_url) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% endfor %}
+                  {% for a in (row.artists or []) %}{{ artist_chip(a.name, a.photo_url, artist_id=a.id) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% endfor %}
                 </div>
                 <div class="fw-semibold text-truncate">{{ row.title }}</div>
                 <div class="small text-muted text-truncate">{{ row.type_label }} · {{ row.date_label }}{% if row.city %} · {{ row.city }}{% endif %}</div>
@@ -72,7 +72,7 @@
           <div class="invitation-home-card h-100">
             <div class="d-flex justify-content-between gap-3">
               <div>
-                {% for a in (row.event.artists or []) %}{{ artist_chip(a.name, a.photo_url) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% else %}<strong>{{ row.event.artist_names }}</strong>{% endfor %}
+                {% for a in (row.event.artists or []) %}{{ artist_chip(a.name, a.photo_url, artist_id=a.id) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% else %}<strong>{{ row.event.artist_names }}</strong>{% endfor %}
                 <div class="small text-muted mt-1">{% if row.event.type_label %}<span class="badge text-bg-secondary">{{ row.event.type_label }}</span> {% endif %}{{ [row.event.name, row.event.city, row.event.date_label]|select|join(' · ') }}</div>
                 {% set sub = [row.event.venue, row.event.city, row.event.province]|select|list %}
                 {% if sub %}<div class="small text-muted">{{ sub|join(' · ') }}</div>{% endif %}

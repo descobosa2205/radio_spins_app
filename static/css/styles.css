@@ -1226,6 +1226,10 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .badge { border-radius: 7px; font-weight: 600; }
 .badge.rounded-pill { border-radius: 999px; }
 
+/* Nombre/foto de artista clicable (lleva a su ficha). Solo cursor; sin cambiar color ni estilo.
+   El comportamiento lo añade static/js/artist_links.js sobre [data-artist-link]. */
+[data-artist-link]{ cursor:pointer; }
+
 /* ===================== Agenda / calendario de actividades ===================== */
 /* Usado en Inicio (color por artista) y en la pestaña Agenda del artista (color por tipo).
    Lo pinta static/js/agenda_calendar.js; --c lleva el color de cada artista/tipo. */

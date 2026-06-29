@@ -47,7 +47,7 @@
     <div class="card mb-3">
       <div class="card-header bg-white d-flex align-items-center justify-content-between gap-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          {{ artist_chip(g.artist.name if g.artist else 'Sin artista', g.artist.photo_url if g.artist else None) }}
+          {{ artist_chip(g.artist.name if g.artist else 'Sin artista', g.artist.photo_url if g.artist else None, artist_id=(g.artist.id if g.artist else None)) }}
           {% if g.artist %}{{ linked_mini('artist', g.artist.id) }}{% endif %}
           {% if g.artist and g.artist.is_international %}<span class="badge text-bg-light border"><i class="fa fa-globe me-1"></i>Internacional</span>{% endif %}
         </div>

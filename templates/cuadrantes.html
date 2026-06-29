@@ -558,7 +558,7 @@
           <div class="artist-group-head mb-2">
             <div class="d-flex align-items-center gap-2" style="min-width:0;">
               <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
-              {{ artist_avatar(g.artist_photo, g.artist_name) }}<div class="fw-semibold text-truncate">{{ g.artist_name }}</div>
+              {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}<div class="fw-semibold text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
               {{ linked_mini('artist', g.artist_id) }}
             </div>
             <div class="mini-pill">{{ (g.events or [])|length }}</div>

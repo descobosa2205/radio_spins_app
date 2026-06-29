@@ -55,7 +55,7 @@
     </div>
     <div class="row g-3">
       <div class="col-12 col-xl-6">
-        <div class="card h-100"><div class="card-body"><h6>Datos básicos</h6><table class="table table-sm mb-0"><tbody><tr><th>Tipo</th><td>{{ display.type_label }}</td></tr><tr><th>Artistas</th><td>{% for artist in artists %}{{ artist_chip(artist.name, artist.photo_url) }}{% else %}—{% endfor %}</td></tr><tr><th>Fecha</th><td>{{ display.date_label }}</td></tr><tr><th>Lugar</th><td>{{ display.location or '—' }}</td></tr><tr><th>Estado</th><td><span class="badge {{ display.status_badge.class }}">{{ display.status_badge.label }}</span></td></tr></tbody></table></div></div>
+        <div class="card h-100"><div class="card-body"><h6>Datos básicos</h6><table class="table table-sm mb-0"><tbody><tr><th>Tipo</th><td>{{ display.type_label }}</td></tr><tr><th>Artistas</th><td>{% for artist in artists %}{{ artist_chip(artist.name, artist.photo_url, artist_id=artist.id) }}{% else %}—{% endfor %}</td></tr><tr><th>Fecha</th><td>{{ display.date_label }}</td></tr><tr><th>Lugar</th><td>{{ display.location or '—' }}</td></tr><tr><th>Estado</th><td><span class="badge {{ display.status_badge.class }}">{{ display.status_badge.label }}</span></td></tr></tbody></table></div></div>
       </div>
       <div class="col-12 col-xl-6">
         <div class="card h-100"><div class="card-body"><h6>Contenido artístico</h6><p class="mb-2"><strong>Qué hacen:</strong> {{ action.artist_tasks.description if action.artist_tasks else '—' }}</p><p class="mb-2"><strong>Repertorio:</strong> {{ action.repertoire_payload.notes if action.repertoire_payload else '—' }}</p><p class="mb-0"><strong>Formación:</strong> {{ action.formation_payload.notes if action.formation_payload else '—' }}</p></div></div>

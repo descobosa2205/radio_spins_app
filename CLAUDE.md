@@ -98,6 +98,19 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   (cápsula foto+nombre, clase `.artist-chip`) o **`artist_avatar(foto_url, nombre)`** (solo la foto, clase
   `.artist-avatar-inline`). Definidos en `inject_globals` (`app.py`); escapan con `Markup` (seguros XSS) y
   caen al logo por defecto si no hay foto. Muchas pantallas ya la mostraban con su propio markup.
+- **Enlazar a la ficha del artista (global)**: para que el nombre/foto de un artista lleve a su ficha,
+  marca el elemento con **`data-artist-link="<artist_id>"`** (no envolver en `<a>`, así no cambia el
+  aspecto: `static/js/artist_links.js` —global— lo hace clicable, cursor de mano, cmd/ctrl/clic central
+  abre en pestaña nueva; CSS `[data-artist-link]{cursor:pointer}`). Los helpers `artist_chip`/`artist_avatar`
+  aceptan `artist_id=` y lo emiten solos. **No** marcar elementos que ya enlazan a otra cosa (filtros/toggles
+  como los chips de artista del calendario o los `data-*-artist-filter`, filas-enlace a otro destino).
+- **Calendario de agenda (Inicio + pestaña «Agenda» del artista)**: componente reutilizable
+  `_agenda_build` (`app.py`, reúne conciertos/acciones/medios/lanzamientos en un formato común; conciertos
+  en BORRADOR fuera) + `templates/_agenda_calendar.html` + `static/js/agenda_calendar.js` + estilos
+  `agenda-*` en `styles.css`. Modo `home` (color por artista, 2 semanas fijas, etiquetas de artista arriba
+  + tipos a la izquierda) y modo `artist` (color por tipo, 4 semanas navegables por meses con flechas,
+  listado de eventos a la izquierda). En Inicio se inyecta como `HOME_AGENDA` (todos los usuarios; sus
+  artistas asignados o todos si no tiene/role 10).
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`

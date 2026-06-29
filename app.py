@@ -857,19 +857,24 @@ def inject_globals():
     def _artist_photo_src(photo_url=None):
         return photo_url or url_for("static", filename="img/logo.png")
 
-    def artist_avatar(photo_url=None, name="", cls="artist-avatar-inline"):
+    def artist_avatar(photo_url=None, name="", cls="artist-avatar-inline", artist_id=None):
         # Solo la foto del artista en círculo (sin nombre); para ponerla delante de un nombre ya escrito.
-        return Markup('<img class="%s" src="%s" alt="" title="%s" loading="lazy">') % (
-            cls, _artist_photo_src(photo_url), (name or ""),
+        # Si se pasa artist_id, se marca con data-artist-link para que al pincharla lleve a su ficha
+        # (lo enlaza artist_links.js; no cambia el aspecto, solo añade el cursor de mano).
+        link = (Markup(' data-artist-link="%s"') % str(artist_id)) if artist_id else Markup("")
+        return Markup('<img class="%s"%s src="%s" alt="" title="%s" loading="lazy">') % (
+            cls, link, _artist_photo_src(photo_url), (name or ""),
         )
 
-    def artist_chip(name, photo_url=None):
+    def artist_chip(name, photo_url=None, artist_id=None):
         # Foto en círculo + nombre en una cápsula (.artist-chip). Devuelve '' si no hay nombre.
+        # Con artist_id, la cápsula entera enlaza a la ficha del artista (data-artist-link).
         name = (name or "").strip()
         if not name:
             return Markup("")
-        return Markup('<span class="artist-chip"><img src="%s" alt="" loading="lazy">%s</span>') % (
-            _artist_photo_src(photo_url), name,
+        link = (Markup(' data-artist-link="%s"') % str(artist_id)) if artist_id else Markup("")
+        return Markup('<span class="artist-chip"%s><img src="%s" alt="" loading="lazy">%s</span>') % (
+            link, _artist_photo_src(photo_url), name,
         )
 
     return dict(

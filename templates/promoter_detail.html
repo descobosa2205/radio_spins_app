@@ -143,7 +143,7 @@
        `show_artist=False` cuando el listado ya está agrupado por artista. #}
     {% macro inv_event_header(ev, show_artist=True) %}
       <div class="d-flex align-items-center gap-2 flex-wrap">
-        {% if show_artist and ev.artists %}{{ artist_avatar(ev.artists[0].photo_url, ev.artists[0].name) }}{% endif %}
+        {% if show_artist and ev.artists %}{{ artist_avatar(ev.artists[0].photo_url, ev.artists[0].name, artist_id=ev.artists[0].id) }}{% endif %}
         {% if ev.type_label %}<span class="badge text-bg-secondary">{{ ev.type_label }}</span>{% endif %}
         {% set head = [] %}
         {% if ev.name %}{% set _ = head.append(ev.name) %}{% endif %}

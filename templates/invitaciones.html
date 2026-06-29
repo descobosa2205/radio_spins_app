@@ -1392,7 +1392,7 @@
     const selected = picker.querySelector('[data-picker-selected]');
     if(!selected) return;
     picker.__selectedItem = item;
-    const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
+    const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.label, item.link_summary.relation_title].filter(Boolean).join(' - ') : '');
     selected.classList.remove('d-none');
     selected.innerHTML = `<div class="d-flex align-items-center gap-2"><img src="${escHtml(item.logo_url || placeholder)}" alt="" style="width:38px;height:38px;border-radius:12px;object-fit:cover;"><div class="min-w-0"><div class="fw-semibold text-truncate">${escHtml(item.label || 'Tercero')}</div>${linkText ? `<div class="invitation-linked-mini"><img class="${item.link_summary && ['artist','venue'].indexOf(item.link_summary.type)>=0 ? 'is-photo':'is-logo'}" src="${escHtml((item.link_summary && item.link_summary.logo_url) || placeholder)}" alt=""><span>${escHtml(linkText)}</span></div>` : '<div class="small text-muted">Sin vinculación guardada</div>'}</div></div>`;
     const panel = picker.closest('[data-third-party-panel]');
@@ -1459,7 +1459,7 @@
         const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(q)}`);
         const data = await res.json();
         results.innerHTML = (data || []).map(item => {
-          const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.type_label, item.link_summary.label].filter(Boolean).join(' · ') : '');
+          const linkText = item.link_summary_text || (item.link_summary ? [item.link_summary.label, item.link_summary.relation_title].filter(Boolean).join(' - ') : '');
           const linkLogo = (item.link_summary && item.link_summary.logo_url) || placeholder;
           return `<button type="button" class="invitation-search-result" data-item='${JSON.stringify(item).replace(/'/g,"&#39;")}'><img src="${escHtml(item.logo_url || placeholder)}" alt=""><span><strong>${escHtml(item.label || 'Sin nombre')}</strong><small>${escHtml(item.contact_email || '')} ${escHtml(item.contact_phone || '')}</small>${linkText ? `<small class="invitation-linked-mini"><img class="${item.link_summary && ['artist','venue'].indexOf(item.link_summary.type)>=0 ? 'is-photo':'is-logo'}" src="${escHtml(linkLogo)}" alt=""><span>${escHtml(linkText)}</span></small>` : ''}</span></button>`;
         }).join('') || '<div class="text-muted small p-2">Sin coincidencias.</div>';
@@ -1518,7 +1518,7 @@
     const typeLabel = lform.__activeTypeLabel || '';
     const item = picker.__selectedItem;
     item.link_summary = { type: ttype, type_label: typeLabel, label: linkedLabel, logo_url: linkedLogo, relation_title: relation };
-    item.link_summary_text = [relation || typeLabel, linkedLabel].filter(Boolean).join(' · ');
+    item.link_summary_text = [linkedLabel, relation].filter(Boolean).join(' - ');
     renderPickerSelected(picker, item);
   });
 

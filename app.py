@@ -34788,14 +34788,13 @@ def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
 
 
 def _promoter_link_summary_text(summary: dict | None) -> str:
-    """Texto corto y legible del vínculo principal, con la relación por delante.
-    Ej.: "director · Radio X" o, si no hay relación, solo el nombre "Radio X".
+    """Texto corto y legible del vínculo principal: primero el NOMBRE de lo vinculado y, a
+    continuación, la relación. Ej.: "Radio X - director" o, si no hay relación, solo "Radio X".
     NO se muestra el tipo de la entidad vinculada (institución, medio, …)."""
     if not summary:
         return ""
-    lead = (summary.get("relation_title") or "").strip()
-    parts = [lead, summary.get("label") or ""]
-    return " · ".join([x for x in parts if x])
+    parts = [(summary.get("label") or "").strip(), (summary.get("relation_title") or "").strip()]
+    return " - ".join([x for x in parts if x])
 
 
 # --- Mini-ficha de vínculos para pintar BAJO el nombre+foto de CUALQUIER entidad ---------
@@ -34937,15 +34936,16 @@ def linked_mini(entity_type=None, entity_id=None, summary=None, max_items=2):
     hidden = summary.get("extra", 0) + max(0, len(items) - len(shown))
     chips = []
     for it in shown:
-        # Solo la relación (si la hay) + nombre; nunca el tipo de la entidad (medio, institución…).
-        lead = (it.get("relation_title") or "").strip()
+        # Primero el NOMBRE de lo vinculado y, a continuación, la relación (logo + "nombre - relación").
+        # Nunca el tipo de la entidad (medio, institución…).
         label = (it.get("label") or "").strip()
-        if lead and label:
-            inner = Markup('<b>%s</b> · %s') % (lead, label)
-        elif lead:
-            inner = Markup('<b>%s</b>') % lead
+        relation = (it.get("relation_title") or "").strip()
+        if label and relation:
+            inner = Markup('<b>%s</b> - %s') % (label, relation)
+        elif label:
+            inner = Markup('<b>%s</b>') % label
         else:
-            inner = Markup('%s') % label
+            inner = Markup('%s') % relation
         img_cls = "is-photo" if (it.get("type") or "") in ("artist", "venue") else "is-logo"
         chips.append(Markup('<span class="linked-mini-item"><img class="%s" src="%s" alt="" loading="lazy"><span class="linked-mini-text">%s</span></span>') % (
             img_cls, it.get("logo_url") or _entity_placeholder_url(), inner,

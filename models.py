@@ -3052,6 +3052,149 @@ class VenueTicketExtra(Base):
     category = relationship("VenueTicketCategory", back_populates="extras")
 
 
+# ---------------------------------------------------------------------------
+# Fotos / vídeos (galería transversal)
+# ---------------------------------------------------------------------------
+# Una foto/vídeo pertenece a un "owner" polimórfico (concierto o acción) y, de
+# forma denormalizada, guarda el artista para poder agregarla en la ficha del
+# artista. No lleva FK al owner (es polimórfico); sí al artista/fotógrafo/usuario.
+
+class Photo(Base):
+    """Fotografía o vídeo subido a un concierto/acción."""
+
+    __tablename__ = "photos"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)  # CONCERT | ACTION
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+
+    kind = Column(Text, nullable=False, server_default=text("'IMAGE'"))  # IMAGE | VIDEO
+    title = Column(Text)
+    file_name = Column(Text, nullable=False)
+    file_url = Column(Text, nullable=False)
+    mime_type = Column(Text)
+
+    # Fotógrafo: un tercero (Promoter) o desconocido.
+    photographer_promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    photographer_unknown = Column(Boolean, nullable=False, server_default=text("false"))
+
+    taken_date = Column(Date)  # fecha de la foto (no la de subida)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())  # subida al back office
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photos_owner", "owner_type", "owner_id", "sort_order"),
+        Index("idx_photos_artist", "artist_id"),
+    )
+
+
+class PhotoAlbum(Base):
+    """Álbum de fotos dentro de un concierto/acción (una foto puede estar en varios)."""
+
+    __tablename__ = "photo_albums"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)  # CONCERT | ACTION
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+
+    name = Column(Text, nullable=False)
+    cover_photo_id = Column(PGUUID(as_uuid=True), ForeignKey("photos.id", ondelete="SET NULL"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_albums_owner", "owner_type", "owner_id", "sort_order"),
+    )
+
+
+class PhotoAlbumItem(Base):
+    """Pertenencia de una foto a un álbum (N:M con orden propio por álbum)."""
+
+    __tablename__ = "photo_album_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    album_id = Column(PGUUID(as_uuid=True), ForeignKey("photo_albums.id", ondelete="CASCADE"), nullable=False)
+    photo_id = Column(PGUUID(as_uuid=True), ForeignKey("photos.id", ondelete="CASCADE"), nullable=False)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("album_id", "photo_id", name="uq_photo_album_items"),
+        Index("idx_photo_album_items_album", "album_id", "sort_order"),
+        Index("idx_photo_album_items_photo", "photo_id"),
+    )
+
+
+def ensure_fotos_schema():
+    """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
+    Base.metadata.create_all(bind=engine)
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS photos (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            kind text NOT NULL DEFAULT 'IMAGE',
+            title text,
+            file_name text NOT NULL,
+            file_url text NOT NULL,
+            mime_type text,
+            photographer_promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            photographer_unknown boolean NOT NULL DEFAULT false,
+            taken_date date,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_type, owner_id, sort_order);",
+        "CREATE INDEX IF NOT EXISTS idx_photos_artist ON photos(artist_id);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_albums (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            name text NOT NULL,
+            cover_photo_id uuid REFERENCES photos(id) ON DELETE SET NULL,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_albums_owner ON photo_albums(owner_type, owner_id, sort_order);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_album_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            album_id uuid NOT NULL REFERENCES photo_albums(id) ON DELETE CASCADE,
+            photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+            sort_order integer NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_photo_album_items UNIQUE(album_id, photo_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_album_items_album ON photo_album_items(album_id, sort_order);",
+        "CREATE INDEX IF NOT EXISTS idx_photo_album_items_photo ON photo_album_items(photo_id);",
+    ]
+    _exec_ddl_statements(stmts, "fotos_schema")
+
+
 def _exec_ddl_statements(stmts, label: str = "schema"):
     """Ejecuta DDL idempotente sentencia a sentencia.
 
@@ -5374,6 +5517,9 @@ class ChartmetricArtist(Base):
     chartmetric_image_url = Column(Text)   # foto en Chartmetric (para comparar visualmente)
     match_source = Column(Text)            # spotify | name | manual
     status = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING|LINKED|NOT_FOUND|ERROR
+    # URLs de redes/plataformas del artista tal como las da Chartmetric: {platform_key: url}
+    # (instagram, tiktok, youtube, bandsintown, facebook, x, spotify, apple_music, amazon_music).
+    social_urls = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     last_refreshed_at = Column(DateTime(timezone=True))
     last_error = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5442,6 +5588,7 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_name text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
+        "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS social_urls jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
         "INSERT INTO chartmetric_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",
     ], "chartmetric")

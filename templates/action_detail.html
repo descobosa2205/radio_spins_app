@@ -32,6 +32,7 @@
   {% if action.has_fee %}<li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='ingresos') }}">Ingresos</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'bolsa' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='bolsa') }}">Bolsa</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'roadmap' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='roadmap') }}">Hoja de ruta</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='fotos') }}">Fotos</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">
@@ -74,6 +75,8 @@
         <h5>Bolsa de gastos</h5><p class="text-muted">No hay bolsa vinculada todavía. Al abrirla se vinculará a la acción y a sus artistas.</p><form method="post"><input type="hidden" name="form_action" value="open_bag"><button class="btn btn-success">Abrir bolsa</button></form>
       {% endif %}
     </div></div>
+  {% elif tab == 'fotos' %}
+    {% include '_fotos_panel.html' %}
   {% else %}
     {% include "_roadmap_panel.html" %}
   {% endif %}

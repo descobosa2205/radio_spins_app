@@ -17,18 +17,6 @@
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">Artista · {% if artist.is_international %}Internacional{% else %}Nacional{% endif %}</div>
     <h1 class="ficha-hero__title">{{ artist.name }}</h1>
-    <div class="d-flex align-items-center gap-2 flex-wrap mt-2 artist-social-strip">
-      {% for link in social_links_display or [] %}
-        <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener" title="{{ link.label }}">
-          <i class="{{ link.icon }}"></i>
-        </a>
-      {% endfor %}
-      {% if CAN_EDIT_ARTISTS_STATIONS %}
-        <button class="artist-social-icon add-social" type="button" data-bs-toggle="modal" data-bs-target="#artistSocialModal" title="Añadir perfil">
-          <i class="fa fa-plus"></i>
-        </button>
-      {% endif %}
-    </div>
     {% if chartmetric_header %}
     <div class="d-flex align-items-center gap-4 flex-wrap mt-3 artist-metrics-strip">
       {% for m in chartmetric_header %}
@@ -47,31 +35,18 @@
   <div class="ficha-hero__actions">
     {% if CAN_EDIT_ARTISTS_STATIONS %}<span class="badge text-bg-primary align-self-center">Edición</span>{% else %}<span class="badge text-bg-secondary align-self-center">Lectura</span>{% endif %}
   </div>
-</div>
-{% if CAN_EDIT_ARTISTS_STATIONS %}
-<div class="modal fade" id="artistSocialModal" tabindex="-1" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content">
-      <form method="post" action="{{ url_for('artist_social_links_save', artist_id=artist.id) }}">
-        <div class="modal-header"><h5 class="modal-title">Añadir perfil del artista</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
-        <div class="modal-body">
-          <div class="row g-2 mb-3">
-            {% for platform in social_platforms or [] %}
-              <div class="col-6">
-                <input class="btn-check" type="radio" name="platform" value="{{ platform.key }}" id="artist-platform-{{ platform.key }}" {% if loop.first %}checked{% endif %}>
-                <label class="platform-choice w-100" for="artist-platform-{{ platform.key }}"><i class="{{ platform.icon }} {{ platform.class }}"></i><span>{{ platform.label }}</span></label>
-              </div>
-            {% endfor %}
-          </div>
-          <label class="form-label">Enlace del perfil</label>
-          <input class="form-control" name="url" placeholder="https://..." required>
-        </div>
-        <div class="modal-footer"><button class="btn btn-primary">Guardar</button></div>
-      </form>
-    </div>
+  {% if artist_social_icons.social or artist_social_icons.music %}
+  <div class="artist-social-hero">
+    {% for link in artist_social_icons.social %}
+      <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener"><i class="{{ link.icon }}"></i></a>
+    {% endfor %}
+    {% if artist_social_icons.social and artist_social_icons.music %}<span class="artist-social-sep" aria-hidden="true"></span>{% endif %}
+    {% for link in artist_social_icons.music %}
+      <a class="artist-social-icon {{ link.class }}" href="{{ link.url }}" target="_blank" rel="noopener"><i class="{{ link.icon }}"></i></a>
+    {% endfor %}
   </div>
+  {% endif %}
 </div>
-{% endif %}
 
 <ul class="nav nav-tabs ficha-tabs mb-0">
   {% if has_access_key('artists.datos', include_descendants=True) %}
@@ -148,6 +123,12 @@
       Playlisting
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='fotos' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='fotos') }}">
+      Fotos
+    </a>
+  </li>
 </ul>
 
 <div class="ficha-tabpane">
@@ -164,6 +145,38 @@
     {% set groups = chartmetric_playlists %}
     {% include '_chartmetric_playlists.html' %}
   </div>
+{% endif %}
+
+{# ===================== TAB: FOTOS (agregado) ===================== #}
+{% if tab == 'fotos' %}
+  {% if artist_fotos_groups %}
+    <div class="fotos-artist-list">
+      {% for g in artist_fotos_groups %}
+      <a class="fotos-artist-group" href="{{ g.url }}">
+        <div class="fotos-artist-group__cover">
+          {% if g.cover_url %}<img src="{{ g.cover_url }}" alt="">{% else %}<i class="fa fa-images"></i>{% endif %}
+        </div>
+        <div class="fotos-artist-group__body">
+          <div class="d-flex align-items-center gap-2 flex-wrap">
+            <i class="fa {{ 'fa-guitar' if g.owner_type == 'CONCERT' else 'fa-bullhorn' }} text-muted"></i>
+            <span class="fw-semibold">{{ g.title }}</span>
+            <span class="badge text-bg-light border">{{ g.count }} foto{{ '' if g.count == 1 else 's' }}</span>
+          </div>
+          {% if g.date_label %}<div class="small text-muted">{{ g.date_label }}</div>{% endif %}
+          {% if g.albums %}
+          <div class="small text-muted mt-1"><i class="fa fa-layer-group me-1"></i>{% for a in g.albums %}{{ a.name }} ({{ a.count }}){% if not loop.last %} · {% endif %}{% endfor %}</div>
+          {% endif %}
+          <div class="fotos-artist-group__thumbs mt-2">
+            {% for t in g.thumbs %}<span class="fotos-artist-group__thumb"><img src="{{ t }}" alt=""></span>{% endfor %}
+          </div>
+        </div>
+        <i class="fa fa-chevron-right text-muted align-self-center"></i>
+      </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-muted text-center py-5"><i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>Este artista todavía no tiene fotos vinculadas.</div>
+  {% endif %}
 {% endif %}
 
 {# ===================== TAB: DATOS ===================== #}

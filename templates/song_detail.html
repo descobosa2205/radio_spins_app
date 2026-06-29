@@ -2479,12 +2479,20 @@
       {% set groups = chartmetric_playlists %}
       {% include '_chartmetric_playlists.html' %}
 
-      <h3 class="h6 text-muted mt-4 mb-2">Anteriores</h3>
       {% if chartmetric_playlists_past %}
-        {% set groups = chartmetric_playlists_past %}
-        {% include '_chartmetric_playlists.html' %}
+        {% set past_total = chartmetric_counts.totals.past if chartmetric_counts else 0 %}
+        <div class="mt-4">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#songPastPlaylists" aria-expanded="false" aria-controls="songPastPlaylists">
+            <i class="fa fa-clock-rotate-left me-1"></i>Mostrar listas anteriores{% if past_total %} ({{ past_total }}){% endif %}
+          </button>
+          <div class="collapse mt-3" id="songPastPlaylists">
+            <h3 class="h6 text-muted mb-2">Anteriores · histórico total por plataforma</h3>
+            {% set groups = chartmetric_playlists_past %}
+            {% include '_chartmetric_playlists.html' %}
+          </div>
+        </div>
       {% else %}
-        <div class="text-muted small py-2">Sin playlists anteriores registradas.</div>
+        <div class="text-muted small py-2 mt-4">Sin playlists anteriores registradas.</div>
       {% endif %}
     </div>
   {% else %}

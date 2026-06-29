@@ -1,0 +1,143 @@
+{# Panel de Fotos/Vídeos (galería transversal de conciertos y acciones).
+   Requiere `fotos_ctx` en el contexto (lo construye `_build_fotos_context`). #}
+{% if fotos_ctx %}
+<div class="fotos-panel" id="fotosPanel"
+     data-list-url="{{ fotos_ctx.list_url }}"
+     data-upload-url="{{ fotos_ctx.upload_url }}"
+     data-reorder-url="{{ fotos_ctx.reorder_url }}"
+     data-can-edit="{{ '1' if fotos_ctx.can_edit else '0' }}">
+  <script type="application/json" id="fotosData">{{ fotos_ctx | tojson }}</script>
+
+  <div class="fotos-toolbar d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2 flex-wrap">
+      <div class="form-check m-0 d-flex align-items-center gap-1">
+        <input class="form-check-input m-0" type="checkbox" id="fotosSelectAll">
+        <label class="form-check-label small text-muted" for="fotosSelectAll">Todo</label>
+      </div>
+      <div class="btn-group fotos-viewmodes" role="group" aria-label="Modo de vista">
+        <button type="button" data-view-mode="grid2" class="btn btn-outline-secondary btn-sm" title="2 por fila"><i class="fa fa-table-cells-large"></i></button>
+        <button type="button" data-view-mode="grid3" class="btn btn-outline-secondary btn-sm active" title="3 por fila"><i class="fa fa-table-cells"></i></button>
+        <button type="button" data-view-mode="list" class="btn btn-outline-secondary btn-sm" title="Lista"><i class="fa fa-list"></i></button>
+      </div>
+      <button type="button" class="btn btn-outline-secondary btn-sm" id="fotosFilterBtn" title="Filtrar"><i class="fa fa-filter"></i></button>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <div class="fotos-bulkbar d-none align-items-center gap-2" id="fotosBulkBar">
+        <span class="text-muted small" id="fotosSelCount">0 seleccionadas</span>
+        <div class="dropdown">
+          <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-vertical"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" data-bulk="download"><i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>
+            <li><a class="dropdown-item text-danger" href="#" data-bulk="delete"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</a></li>
+          </ul>
+        </div>
+      </div>
+      {% if fotos_ctx.can_edit %}
+      <button type="button" class="btn btn-primary btn-sm" id="fotosAddBtn"><i class="fa fa-plus me-1"></i>Añadir fotos</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div id="fotosGallery" class="fotos-gallery fotos-grid3"></div>
+  <div id="fotosEmpty" class="text-muted text-center py-5 d-none">
+    <i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>
+    Todavía no hay fotos. {% if fotos_ctx.can_edit %}Pulsa «Añadir fotos» para empezar.{% endif %}
+  </div>
+
+  {# select oculto para el alta rápida de tercero (fotógrafo) vía quick_create.js #}
+  <select id="fotosPhotographerSelect" class="d-none" tabindex="-1" aria-hidden="true"></select>
+</div>
+
+{# ---------- Modal: Añadir fotos ---------- #}
+<div class="modal fade" id="fotosUploadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-images me-2"></i>Añadir fotos</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        {# Fotógrafo #}
+        <div class="mb-3">
+          <label class="form-label fw-semibold">Nombre del fotógrafo</label>
+          <div class="fotos-photographer" id="fotosPhotographer">
+            <div class="d-flex gap-2 align-items-center flex-wrap">
+              <div class="position-relative flex-grow-1" style="min-width:220px;">
+                <input type="text" class="form-control" id="fotosPhotographerSearch" placeholder="Buscar tercero (nombre, contacto…)" autocomplete="off">
+                <div class="fotos-typeahead dropdown-menu w-100" id="fotosPhotographerResults"></div>
+              </div>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="fotosPhotographerSelect" title="Añadir un tercero nuevo"><i class="fa fa-plus me-1"></i>Nuevo</button>
+              <div class="form-check m-0">
+                <input class="form-check-input" type="checkbox" id="fotosPhotographerUnknown">
+                <label class="form-check-label" for="fotosPhotographerUnknown">Desconocido</label>
+              </div>
+            </div>
+            <div class="fotos-photographer-chip mt-2 d-none" id="fotosPhotographerChip"></div>
+          </div>
+        </div>
+
+        {# Zona de arrastrar / seleccionar #}
+        <div class="fotos-dropzone" id="fotosDropzone">
+          <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
+          <div>Arrastra aquí las fotos o vídeos, o <span class="text-primary text-decoration-underline">pincha para seleccionar</span></div>
+          <div class="small text-muted mt-1">Puedes añadir todas las que quieras.</div>
+          <input type="file" id="fotosFileInput" class="d-none" multiple accept="image/*,video/*">
+        </div>
+
+        {# Listado de archivos cargados #}
+        <div class="fotos-filelist mt-3" id="fotosFileList"></div>
+
+        {# Barra de estado de subida #}
+        <div class="fotos-progress mt-3 d-none" id="fotosProgress">
+          <div class="d-flex justify-content-between small mb-1"><span id="fotosProgressLabel">Subiendo…</span><span id="fotosProgressPct">0%</span></div>
+          <div class="progress" style="height:8px;"><div class="progress-bar" id="fotosProgressBar" role="progressbar" style="width:0%"></div></div>
+        </div>
+      </div>
+      <div class="modal-footer justify-content-between">
+        <span class="small text-muted" id="fotosUploadHint"></span>
+        <button type="button" class="btn btn-primary" id="fotosUploadBtn" disabled><i class="fa fa-cloud-arrow-up me-1"></i>Subir fotos</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: detalle de foto ---------- #}
+<div class="modal fade" id="fotosDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title text-truncate" id="fotosDetailTitle">Foto</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-lg-8">
+            <div class="fotos-detail-media" id="fotosDetailMedia"></div>
+          </div>
+          <div class="col-lg-4">
+            <div class="fotos-detail-info" id="fotosDetailInfo"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: filtros ---------- #}
+<div class="modal fade" id="fotosFilterModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Filtrar por estado</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="form-check"><input class="form-check-input" type="checkbox" value="APPROVED" id="fltApproved" checked><label class="form-check-label" for="fltApproved">Aprobadas</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" value="REJECTED" id="fltRejected"><label class="form-check-label" for="fltRejected">Rechazadas</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" value="PENDING" id="fltPending"><label class="form-check-label" for="fltPending">Pendientes</label></div>
+        <div class="form-check"><input class="form-check-input" type="checkbox" value="NONE" id="fltNone" checked><label class="form-check-label" for="fltNone">Sin solicitud de aprobación</label></div>
+      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-primary btn-sm" id="fotosFilterApply" data-bs-dismiss="modal">Aplicar</button></div>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/fotos.js') }}"></script>
+{% endif %}

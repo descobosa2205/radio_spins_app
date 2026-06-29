@@ -1,34 +1,55 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h4 class="mb-0">Empresas del grupo</h4>
-  {% if CAN_EDIT_CATALOGS %}
-    <span class="badge text-bg-primary">Edición</span>
-  {% else %}
-    <span class="badge text-bg-secondary">Lectura</span>
-  {% endif %}
+  <div class="d-flex align-items-center gap-2">
+    {% if CAN_EDIT_CATALOGS %}
+      <span class="badge text-bg-primary">Edición</span>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newCompanyModal"><i class="fa fa-plus me-1"></i>Añadir empresa</button>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-body">
+    <label class="form-label">Buscar empresa</label>
+    <input type="search" class="form-control" id="companiesSearchInput" placeholder="Escribe para filtrar por nombre o datos fiscales..." autocomplete="off">
+  </div>
 </div>
 
 {% if CAN_EDIT_CATALOGS %}
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-12 col-md-4">
-        <label class="form-label">Nombre</label>
-        <input required name="name" class="form-control" />
-      </div>
-      <div class="col-12 col-md-5">
-        <label class="form-label">Datos fiscales (opcional)</label>
-        <input name="tax_info" class="form-control" placeholder="CIF / Razón social..." />
-      </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label">Logo (opcional)</label>
-        <input type="file" name="logo" class="form-control" accept="image/*" />
-      </div>
-      <div class="col-12 col-md-1 d-grid">
-        <button class="btn btn-primary">Crear</button>
-      </div>
-    </form>
+<div class="modal fade" id="newCompanyModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nueva empresa del grupo</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-3 gx-2">
+            <div class="col-12">
+              <label class="form-label">Nombre</label>
+              <input required name="name" class="form-control" />
+            </div>
+            <div class="col-12">
+              <label class="form-label">Datos fiscales (opcional)</label>
+              <input name="tax_info" class="form-control" placeholder="CIF / Razón social..." />
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo (opcional)</label>
+              <input type="file" name="logo" class="form-control" accept="image/*" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear empresa</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 {% endif %}
@@ -44,9 +65,9 @@
           {% if CAN_EDIT_CATALOGS %}<th class="text-end" style="width:180px">Acciones</th>{% endif %}
         </tr>
       </thead>
-      <tbody>
+      <tbody id="companiesTableBody">
       {% for c in companies %}
-        <tr>
+        <tr class="entity-row" data-search="{{ ((c.name or '') ~ ' ' ~ (c.tax_info or ''))|lower }}">
           {% if CAN_EDIT_CATALOGS %}
             <form method="post" enctype="multipart/form-data" action="{{ url_for('company_update', cid=c.id) }}">
               <td>
@@ -83,4 +104,24 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const input = document.getElementById('companiesSearchInput');
+  const rows = Array.from(document.querySelectorAll('#companiesTableBody .entity-row'));
+  if (!input) return;
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase().trim();
+  const apply = () => {
+    const q = normalize(input.value);
+    rows.forEach((row) => {
+      const hay = normalize(row.dataset.search || '');
+      row.style.display = (!q || hay.indexOf(q) > -1) ? '' : 'none';
+    });
+  };
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>
 {% endblock %}

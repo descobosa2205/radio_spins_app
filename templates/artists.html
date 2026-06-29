@@ -1,44 +1,27 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="d-flex align-items-center justify-content-between mb-3">
+<div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
   <h4 class="mb-0">Artistas</h4>
-  {% if CAN_EDIT_ARTISTS_STATIONS %}
-    <span class="badge text-bg-primary">Edición</span>
-  {% else %}
-    <span class="badge text-bg-secondary">Lectura</span>
-  {% endif %}
-</div>
-
-{% if CAN_EDIT_ARTISTS_STATIONS %}
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-md-4">
-        <label class="form-label">Nombre del artista</label>
-        <input required name="name" class="form-control" />
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Origen</label>
-        <select name="is_international" class="form-select">
-          <option value="0" selected>Nacional</option>
-          <option value="1">Internacional</option>
-        </select>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Foto (PNG)</label>
-        <input type="file" name="photo" accept="image/png" class="form-control" />
-      </div>
-      <div class="col-12 col-md-2 d-grid">
-        <button class="btn btn-primary">Crear</button>
-      </div>
-    </form>
+  <div class="d-flex align-items-center gap-2">
+    {% if CAN_EDIT_ARTISTS_STATIONS %}
+      <span class="badge text-bg-primary">Edición</span>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newArtistModal"><i class="fa fa-plus me-1"></i>Añadir artista</button>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
   </div>
 </div>
-{% endif %}
 
-<div class="row row-cols-1 row-cols-md-2 g-3">
+<div class="card mb-3">
+  <div class="card-body">
+    <label class="form-label">Buscar artista</label>
+    <input type="search" class="form-control" id="artistsSearchInput" placeholder="Escribe para filtrar por nombre..." autocomplete="off">
+  </div>
+</div>
+
+<div class="row row-cols-1 row-cols-md-2 g-3" id="artistsList">
   {% for a in artists %}
-  <div class="col">
+  <div class="col artist-list-item" data-search="{{ (a.name or '')|lower }}">
     <a href="{{ url_for('artist_detail_view', artist_id=a.id) }}" class="text-decoration-none text-dark">
       <div class="card h-100 hover-card">
         <div class="card-body d-flex align-items-center gap-3">
@@ -54,6 +37,66 @@
       </div>
     </a>
   </div>
+  {% else %}
+    <div class="col-12"><div class="alert alert-light border mb-0">Todavía no hay artistas registrados.</div></div>
   {% endfor %}
 </div>
+
+{% if CAN_EDIT_ARTISTS_STATIONS %}
+<div class="modal fade" id="newArtistModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nuevo artista</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-3 gx-2">
+            <div class="col-md-6">
+              <label class="form-label">Nombre del artista</label>
+              <input required name="name" class="form-control" />
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Origen</label>
+              <select name="is_international" class="form-select">
+                <option value="0" selected>Nacional</option>
+                <option value="1">Internacional</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label">Foto (PNG)</label>
+              <input type="file" name="photo" accept="image/png" class="form-control" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear artista</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const input = document.getElementById('artistsSearchInput');
+  const rows = Array.from(document.querySelectorAll('.artist-list-item'));
+  if (!input) return;
+  const normalize = (v) => window.normalizeSearchText ? window.normalizeSearchText(v) : String(v || '').toLowerCase().trim();
+  const apply = () => {
+    const q = normalize(input.value);
+    rows.forEach((row) => {
+      const hay = normalize(row.dataset.search || '');
+      row.style.display = (!q || hay.indexOf(q) > -1) ? '' : 'none';
+    });
+  };
+  input.addEventListener('input', apply);
+  apply();
+})();
+</script>
 {% endblock %}

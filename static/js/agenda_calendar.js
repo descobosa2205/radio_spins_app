@@ -118,10 +118,13 @@
     // ---------- Calendario ----------
     // Inicio: ventana fija de 2 semanas. Agenda del artista: 4 semanas navegables por meses.
     var isArtist = (mode === 'artist');
-    var minStart = mondayOf(today);
+    // En la agenda del artista se puede navegar también al pasado (hasta el inicio del rango cargado).
+    var minStart = mondayOf(isArtist ? start : today);
     var maxStart = mondayOf(new Date(end.getTime() - 27 * 86400000));
     if (maxStart < minStart) maxStart = new Date(minStart);
-    var winStart = new Date(minStart);
+    var winStart = mondayOf(today);
+    if (winStart < minStart) winStart = new Date(minStart);
+    if (winStart > maxStart) winStart = new Date(maxStart);
 
     function curWin() {
       if (!isArtist) return [mondayOf(today), sundayOf(end)];
@@ -195,7 +198,7 @@
       while (cur <= gEnd) {
         var key = iso(cur);
         var cell = el('div', 'agenda-cal__day');
-        if (cur < today || cur > end) cell.classList.add('is-out');
+        if (cur < (isArtist ? start : today) || cur > end) cell.classList.add('is-out');
         if (key === data.today) cell.classList.add('is-today');
         var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
         cell.appendChild(el('div', 'agenda-cal__num', label));

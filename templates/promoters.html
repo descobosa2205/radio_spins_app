@@ -5,52 +5,15 @@
     <h4 class="mb-0">Terceros</h4>
     <div class="text-muted small">Búsqueda rápida, filtros por etiquetas y acceso directo a la ficha completa de cada tercero.</div>
   </div>
-  {% if CAN_EDIT_SONGS_PROMOTERS %}
-    <span class="badge text-bg-primary">Edición</span>
-  {% else %}
-    <span class="badge text-bg-secondary">Lectura</span>
-  {% endif %}
-</div>
-
-{% if CAN_EDIT_SONGS_PROMOTERS %}
-<div class="card mb-4">
-  <div class="card-body">
-    <form method="post" enctype="multipart/form-data" class="row gy-2 gx-2 align-items-end">
-      <div class="col-12 col-md-4">
-        <label class="form-label">Nick</label>
-        <input required name="nick" class="form-control" />
-      </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label">Tipo</label>
-        <select name="kind" class="form-select">
-          <option value="">Tercero</option>
-          <option value="empresa">Empresa</option>
-          <option value="institucion">Institución</option>
-        </select>
-      </div>
-      <div class="col-12 col-md-4">
-        <label class="form-label">Email de contacto</label>
-        <input required type="email" name="contact_email" class="form-control" />
-      </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label">CIF <span class="text-muted">(opcional)</span></label>
-        <input name="tax_id" class="form-control" />
-      </div>
-      <div class="col-12 col-md-2">
-        <label class="form-label">Teléfono <span class="text-muted">(opcional)</span></label>
-        <input name="contact_phone" class="form-control" />
-      </div>
-      <div class="col-12 col-md-4">
-        <label class="form-label">Logo <span class="text-muted">(opcional)</span></label>
-        <input type="file" name="logo" class="form-control" accept="image/*" />
-      </div>
-      <div class="col-12 col-md-3 d-grid">
-        <button class="btn btn-primary">Crear tercero</button>
-      </div>
-    </form>
+  <div class="d-flex align-items-center gap-2">
+    {% if CAN_EDIT_SONGS_PROMOTERS %}
+      <span class="badge text-bg-primary">Edición</span>
+      <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero</button>
+    {% else %}
+      <span class="badge text-bg-secondary">Lectura</span>
+    {% endif %}
   </div>
 </div>
-{% endif %}
 
 <div class="card mb-3">
   <div class="card-body">
@@ -58,6 +21,57 @@
     <input type="search" class="form-control" id="promotersSearchInput" placeholder="Escribe para filtrar por nick, email, etiquetas o CIF...">
   </div>
 </div>
+
+{% if CAN_EDIT_SONGS_PROMOTERS %}
+<div class="modal fade" id="newPromoterModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <form method="post" enctype="multipart/form-data">
+        <div class="modal-header">
+          <h5 class="modal-title">Nuevo tercero</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <div class="row gy-3 gx-2">
+            <div class="col-12 col-md-6">
+              <label class="form-label">Nick</label>
+              <input required name="nick" class="form-control" />
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Tipo</label>
+              <select name="kind" class="form-select">
+                <option value="">Tercero</option>
+                <option value="empresa">Empresa</option>
+                <option value="institucion">Institución</option>
+              </select>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Email de contacto</label>
+              <input required type="email" name="contact_email" class="form-control" />
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">CIF <span class="text-muted">(opcional)</span></label>
+              <input name="tax_id" class="form-control" />
+            </div>
+            <div class="col-12 col-md-3">
+              <label class="form-label">Teléfono <span class="text-muted">(opcional)</span></label>
+              <input name="contact_phone" class="form-control" />
+            </div>
+            <div class="col-12">
+              <label class="form-label">Logo <span class="text-muted">(opcional)</span></label>
+              <input type="file" name="logo" class="form-control" accept="image/*" />
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-primary">Crear tercero</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 <div class="d-flex flex-wrap gap-2 mb-3" id="promotersTagTabs">
   <button type="button" class="btn btn-dark btn-sm active" data-promoter-tag="all">Todos</button>

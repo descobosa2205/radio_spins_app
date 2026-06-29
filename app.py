@@ -112,6 +112,7 @@ from models import (
     ensure_entity_links_schema,
     ensure_simulations_schema,
     ensure_chartmetric_schema,
+    ensure_fotos_schema,
     ensure_performance_indexes,
     SessionLocal,
     User,
@@ -203,6 +204,9 @@ from models import (
     SimulationProductionItem,
     VenueTicketCategory,
     VenueTicketExtra,
+    Photo,
+    PhotoAlbum,
+    PhotoAlbumItem,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
@@ -385,6 +389,7 @@ for _fn, _name in [
     (ensure_invitation_schema, "ensure_invitation_schema"),
     (ensure_entity_links_schema, "ensure_entity_links_schema"),
     (ensure_simulations_schema, "ensure_simulations_schema"),
+    (ensure_fotos_schema, "ensure_fotos_schema"),
 ]:
     _safe_ensure(_fn, _name)
 
@@ -1065,6 +1070,7 @@ def artist_detail_view(artist_id):
             "liquidaciones",
             "vinculaciones",
             "playlisting",
+            "fotos",
         }
         if tab not in allowed_tabs:
             tab = "datos"
@@ -1177,6 +1183,9 @@ def artist_detail_view(artist_id):
             promotion_entries_display = [_promotion_display_promotion(row) for row in promotion_rows]
 
         social_links_display = _ordered_social_links(getattr(artist, "social_links", None))
+        # Iconos de redes del hero: se toman de las URLs que trae Chartmetric (no manuales).
+        _cm_link = session_db.get(ChartmetricArtist, artist.id)
+        artist_social_icons = _artist_social_icon_groups(getattr(_cm_link, "social_urls", None))
         onesheet = _onesheet_context(session_db, artist=artist, public=False) if tab == "onesheet" else None
         if tab == "onesheet":
             session_db.commit()
@@ -1187,18 +1196,21 @@ def artist_detail_view(artist_id):
         promoter_email_suggestions = []
         production_panel = {}
 
-        # Agenda: calendario del artista. Carga ~6 meses por delante para poder navegar por meses
-        # (vista de 4 semanas) sin recargar; el JS pagina dentro de ese rango.
+        # Agenda: calendario del artista. Carga ~6 meses hacia atrás y ~6 hacia delante para poder
+        # navegar por meses (vista de 4 semanas), incluido el pasado, sin recargar; el JS pagina.
         agenda_data = None
         if tab == "agenda":
             _ag_today = today_local()
-            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today, _ag_today + timedelta(weeks=26), _ag_today)
+            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
+
+        artist_fotos_groups = _build_artist_fotos_groups(session_db, artist.id) if tab == "fotos" else None
 
         return render_template(
             "artist_detail.html",
             artist=artist,
             tab=tab,
             agenda_data=agenda_data,
+            artist_fotos_groups=artist_fotos_groups,
             disc_tab=disc_tab,
             people=people,
             artist_email_addresses=artist_email_addresses,
@@ -1220,6 +1232,7 @@ def artist_detail_view(artist_id):
             promotion_source_snapshot=promotion_source_snapshot,
             social_links_display=social_links_display,
             social_platforms=SOCIAL_PLATFORMS,
+            artist_social_icons=artist_social_icons,
             onesheet=onesheet,
             contracting_general_rows=contracting_general_rows,
             promoter_email_suggestions=promoter_email_suggestions,
@@ -19187,7 +19200,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "promocion", "marketing"}:
+        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "promocion", "marketing", "fotos"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -19246,6 +19259,7 @@ def concert_detail_view(cid):
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c, ensure_token=True)
+        fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
 
         # Listas para la edición inline (solo en la pestaña general).
         edit_artists = edit_venues = edit_promoters = edit_companies = []
@@ -19314,6 +19328,7 @@ def concert_detail_view(cid):
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
+            fotos_ctx=fotos_ctx,
             artists=edit_artists,
             venues=edit_venues,
             companies=edit_companies,
@@ -25792,6 +25807,87 @@ def _ordered_social_links(value) -> list[dict]:
     return rows
 
 
+# Orden de los iconos del hero del artista: redes sociales primero y, separadas, plataformas de música.
+ARTIST_SOCIAL_ICON_ORDER = ["instagram", "tiktok", "youtube", "bandsintown", "facebook", "x"]
+ARTIST_MUSIC_ICON_ORDER = ["spotify", "apple_music", "amazon_music"]
+
+# Dominio que devuelve Chartmetric en /artist/:id/urls -> nuestra clave de plataforma.
+CHARTMETRIC_URL_DOMAIN_MAP = {
+    "instagram": "instagram",
+    "tiktok": "tiktok",
+    "youtube": "youtube",
+    "youtube_channel": "youtube",
+    "bandsintown": "bandsintown",
+    "facebook": "facebook",
+    "twitter": "x",
+    "x": "x",
+    "spotify": "spotify",
+    "itunes": "apple_music",
+    "apple_music": "apple_music",
+    "applemusic": "apple_music",
+    "apple": "apple_music",
+    "amazon": "amazon_music",
+    "amazonmusic": "amazon_music",
+    "amazon_music": "amazon_music",
+}
+
+
+def _chartmetric_extract_social_urls(raw) -> dict:
+    """Normaliza la respuesta de get_artist_urls a {platform_key: url}. Acepta un dict
+    {dominio: url|[urls]} o una lista de {domain/source, url}. Primera URL no vacía por plataforma."""
+    out = {}
+
+    def _first_url(v):
+        if isinstance(v, str):
+            return v.strip()
+        if isinstance(v, (list, tuple)):
+            for x in v:
+                if isinstance(x, str) and x.strip():
+                    return x.strip()
+                if isinstance(x, dict):
+                    u = (x.get("url") or x.get("link") or "").strip()
+                    if u:
+                        return u
+        if isinstance(v, dict):
+            return (v.get("url") or v.get("link") or "").strip()
+        return ""
+
+    def _put(domain, url):
+        key = CHARTMETRIC_URL_DOMAIN_MAP.get(str(domain or "").strip().lower())
+        u = (url or "").strip()
+        if key and u and key not in out:
+            out[key] = u
+
+    if isinstance(raw, dict):
+        for domain, val in raw.items():
+            _put(domain, _first_url(val))
+    elif isinstance(raw, (list, tuple)):
+        for item in raw:
+            if isinstance(item, dict):
+                domain = item.get("domain") or item.get("source") or item.get("platform")
+                _put(domain, _first_url(item.get("url") or item.get("urls") or item.get("link")))
+    return out
+
+
+def _artist_social_icon_groups(social_urls) -> dict:
+    """Construye los iconos del hero a partir de las URLs de Chartmetric, en el orden pedido y en
+    dos grupos: redes sociales y plataformas de música. Solo incluye las que tienen enlace."""
+    meta = {p["key"]: p for p in SOCIAL_PLATFORMS}
+    raw = social_urls if isinstance(social_urls, dict) else {}
+
+    def _build(order):
+        rows = []
+        for key in order:
+            url = (raw.get(key) or "").strip()
+            if url and key in meta:
+                item = dict(meta[key])
+                item["url"] = url
+                rows.append(item)
+        return rows
+
+    return {"social": _build(ARTIST_SOCIAL_ICON_ORDER), "music": _build(ARTIST_MUSIC_ICON_ORDER)}
+
+
 def _clean_public_url(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:
@@ -28514,6 +28610,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Hoja de ruta (conciertos / acciones / promociones)
     "roadmap_item_save", "roadmap_hotel_save", "roadmap_row_toggle", "roadmap_row_delete",
     "roadmap_email_send", "roadmap_attachment_upload",
+    # Fotos / vídeos (galería transversal de conciertos y acciones)
+    "fotos_upload", "fotos_reorder", "foto_update", "foto_delete",
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
@@ -28522,6 +28620,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",
+    "fotos_list_json", "foto_detail_json",
 }
 # Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
 SUPPORT_ECON_READ_ENDPOINTS = {
@@ -34477,8 +34576,417 @@ def action_detail_view(action_id):
         bag = getattr(action, 'bag', None)
         roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
         roadmap_ctx = _roadmap_context(session_db, 'action', action, ensure_token=True)
+        fotos_ctx = _build_fotos_context(session_db, 'ACTION', action.id) if tab == 'fotos' else None
         session_db.commit()
-        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab)
+        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx)
+    finally:
+        session_db.close()
+
+
+# ===========================================================================
+# Fotos / vídeos — galería transversal (conciertos y acciones)
+# ===========================================================================
+PHOTO_OWNER_TYPES = {"CONCERT", "ACTION"}
+PHOTO_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp", ".tif", ".tiff"}
+PHOTO_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv", ".mpeg", ".mpg"}
+
+
+def _photo_owner_type_norm(raw):
+    t = (raw or "").strip().upper()
+    return t if t in PHOTO_OWNER_TYPES else None
+
+
+def _photo_resolve_owner(session_db, owner_type, owner_id):
+    """Devuelve (owner_obj, artist_id, title) o (None, None, '')."""
+    oid = to_uuid(owner_id)
+    if not oid:
+        return (None, None, "")
+    if owner_type == "CONCERT":
+        c = session_db.get(Concert, oid)
+        if not c:
+            return (None, None, "")
+        title = (getattr(c, "festival_name", None) or "").strip()
+        if not title:
+            art = session_db.get(Artist, c.artist_id) if getattr(c, "artist_id", None) else None
+            title = (getattr(art, "name", None) or "Concierto").strip()
+        return (c, getattr(c, "artist_id", None), title)
+    if owner_type == "ACTION":
+        a = session_db.get(CompanyAction, oid)
+        if not a:
+            return (None, None, "")
+        ids = [to_uuid(x) for x in (getattr(a, "artist_ids", None) or []) if to_uuid(x)]
+        artist_id = ids[0] if ids else None
+        return (a, artist_id, (getattr(a, "title", None) or "Acción").strip())
+    return (None, None, "")
+
+
+def _photo_owner_url(owner_type, owner_id):
+    if owner_type == "CONCERT":
+        return url_for("concert_detail_view", cid=owner_id, tab="fotos")
+    return url_for("action_detail_view", action_id=owner_id, tab="fotos")
+
+
+def _photo_promoter_payload(pr):
+    if not pr:
+        return None
+    name = (getattr(pr, "nick", None) or "").strip()
+    if not name:
+        name = " ".join(filter(None, [getattr(pr, "first_name", None), getattr(pr, "last_name", None)])).strip()
+    return {"id": str(pr.id), "name": name or "—", "logo_url": (getattr(pr, "logo_url", None) or "")}
+
+
+def _photo_payload(p, photographer=None):
+    kind = (getattr(p, "kind", None) or "IMAGE").upper()
+    created = getattr(p, "created_at", None)
+    taken = getattr(p, "taken_date", None)
+    return {
+        "id": str(p.id),
+        "title": (p.title or p.file_name or "").strip(),
+        "file_url": p.file_url,
+        "file_name": p.file_name or "",
+        "kind": kind,
+        "is_video": kind == "VIDEO",
+        "mime_type": p.mime_type or "",
+        "taken_date": taken.isoformat() if taken else "",
+        "sort_order": int(p.sort_order or 0),
+        "photographer_unknown": bool(p.photographer_unknown),
+        "photographer": photographer,
+        "created_at": created.isoformat() if created else "",
+        "created_by_nick": p.created_by_nick or "",
+        # Fase 1: el flujo de aprobaciones llega en una fase posterior.
+        "approval_state": "NONE",
+    }
+
+
+def _photo_promoter_map(session_db, photos):
+    ids = {p.photographer_promoter_id for p in photos if p.photographer_promoter_id}
+    out = {}
+    if ids:
+        for pr in session_db.query(Promoter).filter(Promoter.id.in_(ids)).all():
+            out[pr.id] = _photo_promoter_payload(pr)
+    return out
+
+
+def _build_fotos_context(session_db, owner_type, owner_id):
+    """Payload de la galería (álbumes primero, luego fotos sueltas) para la pestaña Fotos."""
+    oid = to_uuid(owner_id)
+    photos = (
+        session_db.query(Photo)
+        .filter(Photo.owner_type == owner_type, Photo.owner_id == oid)
+        .order_by(Photo.sort_order.asc(), Photo.created_at.asc())
+        .all()
+    )
+    promo_map = _photo_promoter_map(session_db, photos)
+    photo_by_id = {p.id: p for p in photos}
+
+    albums = (
+        session_db.query(PhotoAlbum)
+        .filter(PhotoAlbum.owner_type == owner_type, PhotoAlbum.owner_id == oid)
+        .order_by(PhotoAlbum.sort_order.asc(), PhotoAlbum.created_at.asc())
+        .all()
+    )
+    items = []
+    if albums:
+        items = (
+            session_db.query(PhotoAlbumItem)
+            .filter(PhotoAlbumItem.album_id.in_([a.id for a in albums]))
+            .order_by(PhotoAlbumItem.sort_order.asc(), PhotoAlbumItem.created_at.asc())
+            .all()
+        )
+    in_album = set()
+    album_payloads = []
+    for a in albums:
+        member_items = [it for it in items if it.album_id == a.id]
+        member_photos = [photo_by_id[it.photo_id] for it in member_items if it.photo_id in photo_by_id]
+        for it in member_items:
+            in_album.add(it.photo_id)
+        cover = photo_by_id.get(a.cover_photo_id) if a.cover_photo_id else (member_photos[0] if member_photos else None)
+        album_payloads.append({
+            "id": str(a.id),
+            "name": a.name,
+            "count": len(member_photos),
+            "cover_url": (cover.file_url if cover else ""),
+            "photos": [_photo_payload(mp, promo_map.get(mp.photographer_promoter_id)) for mp in member_photos],
+        })
+
+    loose = [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in photos if p.id not in in_album]
+    return {
+        "owner_type": owner_type,
+        "owner_id": str(oid),
+        "list_url": url_for("fotos_list_json", owner_type=owner_type.lower(), owner_id=str(oid)),
+        "upload_url": url_for("fotos_upload", owner_type=owner_type.lower(), owner_id=str(oid)),
+        "reorder_url": url_for("fotos_reorder", owner_type=owner_type.lower(), owner_id=str(oid)),
+        "can_edit": bool(is_master() or _user_is_actor()),
+        "albums": album_payloads,
+        "photos": loose,
+        "total": len(photos),
+    }
+
+
+def _photo_kind_for_filename(filename):
+    ext = os.path.splitext((filename or "").lower())[1]
+    if ext in PHOTO_VIDEO_EXTS:
+        return "VIDEO"
+    return "IMAGE"
+
+
+def _build_artist_fotos_groups(session_db, artist_id):
+    """Agrega las fotos del artista agrupadas por acción/concierto (para la pestaña Fotos del artista)."""
+    aid = to_uuid(artist_id)
+    if not aid:
+        return []
+    photos = (
+        session_db.query(Photo)
+        .filter(Photo.artist_id == aid)
+        .order_by(Photo.created_at.desc())
+        .all()
+    )
+    if not photos:
+        return []
+    groups, order = {}, []
+    for p in photos:
+        key = (p.owner_type, p.owner_id)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(p)
+    out = []
+    for (ot, oid) in order:
+        plist = groups[(ot, oid)]
+        owner, _art, title = _photo_resolve_owner(session_db, ot, oid)
+        if not owner:
+            continue
+        d = getattr(owner, "date", None) if ot == "CONCERT" else getattr(owner, "start_date", None)
+        albums = (
+            session_db.query(PhotoAlbum)
+            .filter(PhotoAlbum.owner_type == ot, PhotoAlbum.owner_id == oid)
+            .order_by(PhotoAlbum.sort_order.asc())
+            .all()
+        )
+        album_summ = []
+        for a in albums:
+            cnt = session_db.query(func.count(PhotoAlbumItem.id)).filter(PhotoAlbumItem.album_id == a.id).scalar() or 0
+            cover = session_db.get(Photo, a.cover_photo_id) if a.cover_photo_id else None
+            album_summ.append({
+                "id": str(a.id), "name": a.name, "count": int(cnt),
+                "cover_url": (cover.file_url if cover else (plist[0].file_url if plist else "")),
+            })
+        out.append({
+            "owner_type": ot,
+            "owner_id": str(oid),
+            "title": title,
+            "date_label": d.strftime("%d/%m/%Y") if d else "",
+            "count": len(plist),
+            "cover_url": plist[0].file_url if plist else "",
+            "url": _photo_owner_url(ot.lower(), str(oid)),
+            "albums": album_summ,
+            "thumbs": [p.file_url for p in plist[:8]],
+        })
+    return out
+
+
+@app.get("/fotos/<owner_type>/<owner_id>/list", endpoint="fotos_list_json")
+@admin_required
+def fotos_list_json(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    session_db = db()
+    try:
+        owner, _artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        return jsonify({"ok": True, **_build_fotos_context(session_db, ot, owner_id)})
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/upload", endpoint="fotos_upload")
+@admin_required
+def fotos_upload(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+
+    files = []
+    for field in ("files", "files[]", "file", "photos[]"):
+        files.extend([f for f in request.files.getlist(field) if f and getattr(f, "filename", "")])
+    if not files:
+        return jsonify({"ok": False, "error": "No se han recibido archivos."}), 400
+
+    photographer_unknown = _truthy(request.form.get("photographer_unknown"))
+    photographer_id = None if photographer_unknown else to_uuid(request.form.get("photographer_promoter_id"))
+
+    state = _current_user_state()
+    session_db = db()
+    try:
+        owner, artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+
+        base_order = (
+            session_db.query(func.coalesce(func.max(Photo.sort_order), -1))
+            .filter(Photo.owner_type == ot, Photo.owner_id == owner.id)
+            .scalar()
+        )
+        next_order = int(base_order) + 1
+
+        created = []
+        errors = []
+        for fs in files:
+            fname = fs.filename or "archivo"
+            kind = _photo_kind_for_filename(fname)
+            ext = os.path.splitext(fname.lower())[1]
+            try:
+                if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}:
+                    # Formatos web estándar: validados por upload_image.
+                    file_url = upload_image(fs, "photos")
+                else:
+                    # Resto (HEIC/HEIF de iPhone, vídeos, etc.): se almacenan tal cual.
+                    file_url = upload_file(fs, "photos", allowed_extensions=(PHOTO_IMAGE_EXTS | PHOTO_VIDEO_EXTS))
+                if not file_url:
+                    errors.append(fname)
+                    continue
+            except Exception:
+                errors.append(fname)
+                continue
+            row = Photo(
+                owner_type=ot,
+                owner_id=owner.id,
+                artist_id=artist_id,
+                kind=kind,
+                title=os.path.splitext(os.path.basename(fname))[0] or fname,
+                file_name=fname,
+                file_url=file_url,
+                mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                photographer_promoter_id=photographer_id,
+                photographer_unknown=bool(photographer_unknown),
+                sort_order=next_order,
+                created_by_user_id=to_uuid(state.get("user_id")),
+                created_by_nick=(state.get("nick") or "").strip() or None,
+            )
+            session_db.add(row)
+            next_order += 1
+            created.append(row)
+
+        session_db.commit()
+        promo_map = _photo_promoter_map(session_db, created)
+        return jsonify({
+            "ok": True,
+            "created": [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in created],
+            "errors": errors,
+        })
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/reorder", endpoint="fotos_reorder")
+@admin_required
+def fotos_reorder(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    order = [to_uuid(x) for x in (payload.get("order") or []) if to_uuid(x)]
+    album_id = to_uuid(payload.get("album_id"))
+    session_db = db()
+    try:
+        owner, _artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        if album_id:
+            # Orden dentro de un álbum (PhotoAlbumItem).
+            rows = {it.photo_id: it for it in session_db.query(PhotoAlbumItem).filter(PhotoAlbumItem.album_id == album_id).all()}
+            for idx, pid in enumerate(order):
+                it = rows.get(pid)
+                if it:
+                    it.sort_order = idx
+        else:
+            # Orden de las fotos sueltas del owner.
+            rows = {
+                p.id: p
+                for p in session_db.query(Photo).filter(Photo.owner_type == ot, Photo.owner_id == owner.id).all()
+            }
+            for idx, pid in enumerate(order):
+                p = rows.get(pid)
+                if p:
+                    p.sort_order = idx
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/fotos/photo/<photo_id>", endpoint="foto_detail_json")
+@admin_required
+def foto_detail_json(photo_id):
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            return jsonify({"ok": False, "error": "No encontrada."}), 404
+        promo = session_db.get(Promoter, p.photographer_promoter_id) if p.photographer_promoter_id else None
+        owner, artist_id, owner_title = _photo_resolve_owner(session_db, p.owner_type, p.owner_id)
+        artist = session_db.get(Artist, artist_id) if artist_id else None
+        data = _photo_payload(p, _photo_promoter_payload(promo))
+        data["owner_type"] = p.owner_type
+        data["owner_id"] = str(p.owner_id)
+        data["owner_title"] = owner_title
+        data["owner_url"] = _photo_owner_url(p.owner_type.lower(), str(p.owner_id))
+        data["artist"] = {"id": str(artist.id), "name": artist.name, "photo_url": (getattr(artist, "photo_url", None) or "")} if artist else None
+        return jsonify({"ok": True, "photo": data})
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/photo/<photo_id>/update", endpoint="foto_update")
+@admin_required
+def foto_update(photo_id):
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            return jsonify({"ok": False, "error": "No encontrada."}), 404
+        form = request.get_json(silent=True) or request.form
+        if "title" in form:
+            p.title = (form.get("title") or "").strip() or p.file_name
+        if "taken_date" in form:
+            p.taken_date = parse_optional_date(form.get("taken_date"))
+        if "photographer_unknown" in form or "photographer_promoter_id" in form:
+            unknown = _truthy(form.get("photographer_unknown"))
+            p.photographer_unknown = bool(unknown)
+            p.photographer_promoter_id = None if unknown else to_uuid(form.get("photographer_promoter_id"))
+        p.updated_at = _now_madrid()
+        session_db.commit()
+        promo = session_db.get(Promoter, p.photographer_promoter_id) if p.photographer_promoter_id else None
+        return jsonify({"ok": True, "photo": _photo_payload(p, _photo_promoter_payload(promo))})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/photo/<photo_id>/delete", endpoint="foto_delete")
+@admin_required
+def foto_delete(photo_id):
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            return jsonify({"ok": False, "error": "No encontrada."}), 404
+        session_db.delete(p)
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
     finally:
         session_db.close()
 
@@ -39783,6 +40291,14 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
         if key in seen:
             continue
         seen.add(key)
+        # El track puede venir referenciado con distintos ids según plataforma; probamos todos
+        # contra el track_map (que indexa por cm_track + ids de cada plataforma + ISRC).
+        cand_keys = []
+        for k in ("cm_track", "track_id", "id", "spotify_track_id", "itunes_track_id",
+                  "apple_track_id", "amazon_track_id", "isrc"):
+            v = str(pl.get(k) or "").strip()
+            if v:
+                cand_keys.append(v)
         owner = pl.get("owner_name") or pl.get("curator_name")
         is_official = bool(pl.get("editorial")) or (str(owner or "").strip().lower() in official_owners)
         added_d = None
@@ -39793,11 +40309,19 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
             except (ValueError, TypeError):
                 added_d = None
         track_name = pl.get("track")
-        info = track_map.get(cm_track) or {}
+        info = {}
+        for ck in cand_keys:
+            hit = track_map.get(ck)
+            if hit:
+                info = hit
+                break
         if not track_name:
             track_name = info.get("name")
         song_id = None
         isrc = info.get("isrc")
+        # El propio item de playlist puede traer ISRC directamente (algunas plataformas).
+        if not isrc:
+            isrc = (pl.get("isrc") or "").strip() or None
         if isrc:
             song_id = song_by_isrc.get(_chartmetric_norm_isrc(isrc))
         if not song_id and track_name:
@@ -39832,15 +40356,46 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
                 _chartmetric_upsert_metric_points(session_db, artist.id, source, field, (payload or {}).get(field))
         except Exception as e:
             errors.append(f"stat:{source}:{str(e)[:80]}")
-    # Mapa de tracks (cm_track -> nombre + ISRC) para nombrar canciones en TODAS las plataformas
-    # (Apple/Amazon no lo traen) y enlazarlas con nuestra ficha por ISRC.
-    track_map = {}
+    # Enlaces a las redes/plataformas del artista (Instagram, TikTok, YouTube, Bandsintown, Facebook,
+    # X, Spotify, Apple Music, Amazon Music). Se cachean para pintarlos en el hero de la ficha; se
+    # refrescan en cada actualización (la automática es diaria/semanal y la manual desde Integraciones).
     try:
-        for t in (cm.get_artist_tracks(cmid) or []):
-            if isinstance(t, dict):
-                cmt = str(t.get("cm_track") or t.get("id") or "").strip()
-                if cmt:
-                    track_map[cmt] = {"name": t.get("name"), "isrc": t.get("isrc")}
+        link.social_urls = _chartmetric_extract_social_urls(cm.get_artist_urls(cmid))
+    except Exception as e:
+        errors.append(f"urls:{str(e)[:80]}")
+    # Mapa de tracks (id_track -> nombre + ISRC) para nombrar canciones en TODAS las plataformas
+    # (Apple/Amazon no traen el nombre) y enlazarlas con nuestra ficha por ISRC. Las playlists de
+    # cada plataforma referencian el track con un id distinto (cm_track universal, pero también el
+    # id propio de Spotify/Apple/Amazon), así que registramos el track bajo TODOS sus identificadores
+    # para casarlo venga como venga. (Antes solo se indexaba por cm_track -> Amazon salía sin nombre.)
+    track_map = {}
+
+    def _track_reg(idval, name, isrc):
+        k = str(idval or "").strip()
+        if not k:
+            return
+        cur = track_map.get(k) or {}
+        if name and not cur.get("name"):
+            cur["name"] = name
+        if isrc and not cur.get("isrc"):
+            cur["isrc"] = isrc
+        track_map[k] = cur
+
+    try:
+        for t in (cm.get_artist_tracks(cmid, limit=500) or []):
+            if not isinstance(t, dict):
+                continue
+            nm = t.get("name")
+            isrc = t.get("isrc")
+            for key in ("cm_track", "id", "isrc", "spotify_track_id", "spotify_id",
+                        "itunes_track_id", "itunes_id", "apple_track_id",
+                        "amazon_track_id", "amazon_id", "deezer_track_id"):
+                _track_reg(t.get(key), nm, isrc)
+            # Cualquier otro identificador de track que traiga el item (claves *track*id*).
+            for k, v in t.items():
+                kl = str(k).lower()
+                if isinstance(v, (str, int)) and "track" in kl and "id" in kl:
+                    _track_reg(v, nm, isrc)
     except Exception as e:
         errors.append(f"tracks:{str(e)[:80]}")
     # Casar las canciones de las playlists con NUESTRAS Song: por ISRC (normalizado) y, de respaldo,
@@ -40276,9 +40831,10 @@ def playlisting_view():
     s = db()
     try:
         overview = _chartmetric_playlisting_overview(s)
+        last_refresh = s.query(func.max(ChartmetricArtist.last_refreshed_at)).scalar()
     finally:
         s.close()
-    return render_template("playlisting.html", title="Playlisting", overview=overview)
+    return render_template("playlisting.html", title="Playlisting", overview=overview, last_refresh=last_refresh)
 
 
 @app.get("/cron/chartmetric/refresh", endpoint="cron_chartmetric_refresh")

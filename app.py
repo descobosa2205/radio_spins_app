@@ -278,6 +278,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_photo_approval",
     "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
     "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource",
+    "public_caldav_rootdiscovery",
 }
 
 
@@ -27188,7 +27189,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -41618,6 +41619,7 @@ def public_caldav_calendar(artist_id):
                 for e in events:
                     inner += (f'<D:response><D:href>/caldav/calendars/{artist.id}/{_xml_escape(e["href"])}</D:href>'
                               f'<D:propstat><D:prop><D:getetag>{_xml_escape(e["etag"])}</D:getetag>'
+                              '<D:getcontenttype>text/calendar; charset=utf-8; component=vevent</D:getcontenttype>'
                               '<D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
             return _caldav_207(inner)
         if request.method == "REPORT":
@@ -41653,6 +41655,15 @@ def public_caldav_resource(artist_id, resource):
         artist = session_db.get(Artist, _safe_uuid(artist_id))
         if not artist or not _caldav_can_access(session_db, user, artist):
             return Response("Not found", status=404)
+        if request.method == "PROPFIND":
+            for e in _caldav_artist_events(session_db, artist):
+                if e["href"] == resource:
+                    inner = (f'<D:response><D:href>/caldav/calendars/{artist.id}/{_xml_escape(resource)}</D:href>'
+                             f'<D:propstat><D:prop><D:getetag>{_xml_escape(e["etag"])}</D:getetag>'
+                             '<D:getcontenttype>text/calendar; charset=utf-8; component=vevent</D:getcontenttype>'
+                             '<D:resourcetype/></D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>')
+                    return _caldav_207(inner)
+            return Response("Not found", status=404)
         if request.method in ("GET", "HEAD"):
             for e in _caldav_artist_events(session_db, artist):
                 if e["href"] == resource:
@@ -41666,8 +41677,7 @@ def public_caldav_resource(artist_id, resource):
             if not parsed.get("start"):
                 return Response("Invalid event", status=400)
             item = _caldav_find_item(session_db, artist, resource, parsed.get("uid"))
-            if item is not None and (item.caldav_href or "").strip() == "" and (item.kind or "").upper() not in ("NOTE", "BLOCK"):
-                return Response("Forbidden", status=403)
+            is_new = item is None
             if item is None:
                 item = ArtistAgendaItem(artist_id=artist.id, kind="NOTE")
                 session_db.add(item)
@@ -41683,7 +41693,7 @@ def public_caldav_resource(artist_id, resource):
             item.created_by_nick = item.created_by_nick or _email_to_nick(user.email or "")
             session_db.commit()
             ev = _caldav_item_event(item, _ics_now_utc())
-            r = Response("", status=201)
+            r = Response("", status=201 if is_new else 204)
             if ev:
                 r.headers["ETag"] = ev["etag"]
             return r
@@ -41699,25 +41709,29 @@ def public_caldav_resource(artist_id, resource):
         session_db.close()
 
 
-for _cd_path, _cd_ep, _cd_methods in [
-    ("/.well-known/caldav", "public_caldav_wellknown", ["GET", "PROPFIND", "OPTIONS"]),
-    ("/caldav/", "public_caldav_root", ["PROPFIND", "OPTIONS"]),
-    ("/caldav", "public_caldav_root_noslash", ["PROPFIND", "OPTIONS"]),
-    ("/caldav/principal/", "public_caldav_principal", ["PROPFIND", "OPTIONS"]),
-    ("/caldav/calendars/", "public_caldav_home", ["PROPFIND", "OPTIONS"]),
-    ("/caldav/calendars/<artist_id>/", "public_caldav_calendar", ["PROPFIND", "REPORT", "OPTIONS", "MKCALENDAR"]),
-    ("/caldav/calendars/<artist_id>/<resource>", "public_caldav_resource", ["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]),
+def _caldav_logged(fn):
+    """Envoltorio que registra cada petición CalDAV (para depurar la conexión desde el iPhone)."""
+    def _w(*a, **k):
+        try:
+            app.logger.info("CALDAV %s %s depth=%s ua=%s", request.method, request.path,
+                            request.headers.get("Depth"), (request.headers.get("User-Agent") or "")[:50])
+        except Exception:
+            pass
+        return fn(*a, **k)
+    return _w
+
+
+for _cd_path, _cd_ep, _cd_view, _cd_methods in [
+    ("/.well-known/caldav", "public_caldav_wellknown", public_caldav_wellknown, ["GET", "PROPFIND", "OPTIONS"]),
+    ("/", "public_caldav_rootdiscovery", public_caldav_root, ["PROPFIND"]),
+    ("/caldav/", "public_caldav_root", public_caldav_root, ["PROPFIND", "OPTIONS"]),
+    ("/caldav", "public_caldav_root_noslash", public_caldav_root, ["PROPFIND", "OPTIONS"]),
+    ("/caldav/principal/", "public_caldav_principal", public_caldav_root, ["PROPFIND", "OPTIONS"]),
+    ("/caldav/calendars/", "public_caldav_home", public_caldav_home, ["PROPFIND", "OPTIONS"]),
+    ("/caldav/calendars/<artist_id>/", "public_caldav_calendar", public_caldav_calendar, ["PROPFIND", "REPORT", "OPTIONS", "MKCALENDAR"]),
+    ("/caldav/calendars/<artist_id>/<resource>", "public_caldav_resource", public_caldav_resource, ["GET", "HEAD", "PROPFIND", "PUT", "DELETE", "OPTIONS"]),
 ]:
-    _cd_view = {
-        "public_caldav_wellknown": public_caldav_wellknown,
-        "public_caldav_root": public_caldav_root,
-        "public_caldav_root_noslash": public_caldav_root,
-        "public_caldav_principal": public_caldav_root,
-        "public_caldav_home": public_caldav_home,
-        "public_caldav_calendar": public_caldav_calendar,
-        "public_caldav_resource": public_caldav_resource,
-    }[_cd_ep]
-    app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_cd_view, methods=_cd_methods, provide_automatic_options=False)
+    app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_caldav_logged(_cd_view), methods=_cd_methods, provide_automatic_options=False)
 
 
 def _home_registros_pending(limit: int = 20) -> list[dict]:

@@ -969,7 +969,7 @@
           <button class="btn-close" data-bs-dismiss="modal" type="button"></button>
         </div>
         <div class="modal-body">
-          <p class="text-muted small">Genera un enlace para que alguien se suscriba al calendario de <strong>{{ artist.name }}</strong> en su iPhone/Android. Verá todas las fechas y se le actualiza solo. Puedes anular un enlace cuando quieras para retirarle el acceso.</p>
+          <p class="text-muted small">Genera un enlace para que alguien se suscriba al calendario de <strong>{{ artist.name }}</strong> en su iPhone/Android. El enlace abre una <strong>página con instrucciones</strong> y el botón para suscribirse; verá todas las fechas y se le actualiza solo. Puedes anular un enlace cuando quieras para retirarle el acceso.</p>
           <form method="post" action="{{ url_for('artist_calendar_link_create', artist_id=artist.id) }}" class="row g-2 align-items-end mb-3">
             <div class="col"><label class="form-label">¿Para quién es?</label><input class="form-control" name="label" placeholder="Nombre de la persona" required></div>
             <div class="col-auto"><button class="btn btn-primary"><i class="fa fa-plus me-1"></i>Generar enlace</button></div>
@@ -978,15 +978,15 @@
           {% if calendar_links %}
             <div class="list-group">
               {% for cl in calendar_links %}
-                {% set webcal = cl.url.replace('https://','webcal://').replace('http://','webcal://') %}
                 <div class="list-group-item">
                   <div class="d-flex align-items-center gap-2 flex-wrap">
                     <div class="flex-grow-1 min-w-0" style="min-width:200px;">
                       <div class="fw-semibold">{{ cl.label }}</div>
-                      <input class="form-control form-control-sm mt-1" readonly value="{{ cl.url }}" onclick="this.select()">
+                      <input class="form-control form-control-sm mt-1" readonly value="{{ cl.page_url }}" onclick="this.select()">
+                      <div class="form-text">Este es el enlace que envías a la persona (lleva a las instrucciones).</div>
                     </div>
-                    <a class="btn btn-sm btn-outline-primary" href="{{ webcal }}" title="Suscribirse"><i class="fa fa-calendar-plus"></i></a>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-copy="{{ cl.url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
+                    <a class="btn btn-sm btn-outline-secondary" href="{{ cl.page_url }}" target="_blank" rel="noopener" title="Ver la página de instrucciones"><i class="fa fa-eye"></i></a>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-copy="{{ cl.page_url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
                     <div class="dropdown">
                       <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end">
@@ -1006,13 +1006,9 @@
           {% endif %}
 
           <hr class="my-3">
-          <h6 class="small text-muted text-uppercase">¿Eres usuario de la app? Añade tu calendario (con permiso de edición)</h6>
-          <p class="text-muted small mb-2">Como usuario, puedes añadir tu calendario como <strong>cuenta CalDAV</strong> en el iPhone (Ajustes → Calendario → Cuentas → Añadir cuenta → Otra → Añadir cuenta CalDAV) y verás los calendarios de tus artistas, pudiendo <strong>añadir notas</strong> desde el propio iPhone. En Android, con una app CalDAV (p. ej. DAVx⁵).</p>
-          <ul class="small mb-0">
-            <li><strong>Servidor:</strong> <code>{{ caldav_server }}</code></li>
-            <li><strong>Usuario:</strong> tu correo de la app</li>
-            <li><strong>Contraseña:</strong> tu contraseña de la app</li>
-          </ul>
+          <h6 class="small text-muted text-uppercase">¿Eres usuario de la app?</h6>
+          <p class="text-muted small mb-2">Puedes añadir tu calendario como <strong>cuenta</strong> en el iPhone con tus credenciales de la app y, además de ver tus artistas, <strong>añadir notas</strong> desde el propio móvil.</p>
+          <a class="btn btn-outline-primary btn-sm" href="{{ url_for('public_caldav_guide') }}" target="_blank" rel="noopener"><i class="fa fa-mobile-screen-button me-1"></i>Ver guía de configuración (con imágenes)</a>
         </div>
       </div>
     </div>

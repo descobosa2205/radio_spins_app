@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Añadir tu calendario · Guía</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.2/css/all.min.css" rel="stylesheet">
+  <style>
+    :root{ --brand:#E33D48; --accent:#007CA2; }
+    body{ background:#f5f6f8; color:#212529; }
+    .wrap{ max-width:760px; }
+    .step{ display:flex; gap:1rem; align-items:flex-start; }
+    .step__n{ flex:0 0 auto; width:30px; height:30px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .path{ background:#eef3f6; border-radius:8px; padding:.5rem .7rem; font-size:.85rem; }
+    .path b{ color:var(--accent); }
+    /* Maqueta iOS de la pantalla "Añadir cuenta CalDAV" */
+    .phone{ width:260px; border-radius:30px; background:#eceef1; border:1px solid #dfe3e8; box-shadow:0 12px 30px rgba(0,0,0,.12); padding:14px 10px 18px; margin:0 auto; }
+    .phone__notch{ width:96px; height:7px; border-radius:7px; background:#cfd4da; margin:2px auto 12px; }
+    .ios-nav{ display:flex; align-items:center; justify-content:space-between; font-size:.74rem; color:#0a84ff; margin-bottom:8px; padding:0 2px; }
+    .ios-nav .title{ color:#000; font-weight:700; }
+    .ios-group{ background:#fff; border-radius:12px; overflow:hidden; border:1px solid #e6e8eb; }
+    .ios-frow{ display:flex; align-items:center; gap:.5rem; padding:.55rem .7rem; border-bottom:1px solid #eef0f2; font-size:.78rem; }
+    .ios-frow:last-child{ border-bottom:0; }
+    .ios-frow .lbl{ color:#3c3c43; width:88px; flex:0 0 auto; }
+    .ios-frow .val{ color:#111; font-weight:600; word-break:break-all; }
+    .ios-frow .val.muted{ color:#9a9fa6; font-weight:500; }
+    .hl{ box-shadow:0 0 0 2px var(--brand) inset; border-radius:8px; }
+    .legend{ font-size:.78rem; }
+    .legend .dot{ display:inline-block; width:10px; height:10px; border-radius:50%; background:var(--brand); margin-right:.4rem; }
+  </style>
+</head>
+<body>
+  <main class="container py-4 py-md-5 wrap">
+    <div class="d-flex justify-content-between align-items-center mb-3 gap-3">
+      <span class="badge text-bg-light border"><i class="fa fa-mobile-screen-button me-1 text-primary"></i>Guía de configuración</span>
+      <span class="d-flex gap-2 align-items-center">
+        <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones" style="height:30px;object-fit:contain;">
+        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="PIES Records" style="height:30px;object-fit:contain;">
+      </span>
+    </div>
+
+    <h1 class="h4 mb-1">Añade tu calendario al móvil</h1>
+    <p class="text-muted">Para <strong>usuarios de la app</strong>: añade una cuenta de calendario con <strong>tus mismas credenciales</strong>. Verás los calendarios de tus artistas y podrás <strong>añadir notas</strong> desde el propio móvil. Se actualiza solo.</p>
+
+    <!-- iPhone -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6"><i class="fa-brands fa-apple me-2"></i>En iPhone / iPad</h2>
+        <div class="row g-4 mt-1 align-items-start">
+          <div class="col-12 col-md-7">
+            <div class="d-flex flex-column gap-3">
+              <div class="step"><div class="step__n">1</div><div>Abre <strong>Ajustes</strong> y entra en <strong>Calendario</strong>.</div></div>
+              <div class="step"><div class="step__n">2</div><div class="path">Pulsa <b>Cuentas</b> → <b>Añadir cuenta</b> → <b>Otra</b> → <b>Añadir cuenta CalDAV</b>.</div></div>
+              <div class="step"><div class="step__n">3</div><div>Rellena los datos (ver la pantalla de la derecha) y pulsa <strong>Siguiente / Guardar</strong>.</div></div>
+              <div class="step"><div class="step__n">4</div><div>Listo: aparecerá un calendario <strong>«Agenda · &lt;artista&gt;»</strong> por cada artista al que tienes acceso.</div></div>
+            </div>
+            <div class="alert alert-light border mt-3 mb-0 small">
+              <i class="fa fa-circle-info text-primary me-1"></i>Para <strong>añadir una nota</strong>: crea un evento en tu app de Calendario dentro de uno de esos calendarios «Agenda · …». Aparecerá en la app como entrada de tipo «otro».
+            </div>
+          </div>
+          <div class="col-12 col-md-5">
+            <div class="phone">
+              <div class="phone__notch"></div>
+              <div class="ios-nav"><span>Cancelar</span><span class="title">CalDAV</span><span>Siguiente</span></div>
+              <div class="ios-group">
+                <div class="ios-frow hl"><span class="lbl">Servidor</span><span class="val">{{ caldav_server }}</span></div>
+                <div class="ios-frow hl"><span class="lbl">Usuario</span><span class="val">tu correo de la app</span></div>
+                <div class="ios-frow hl"><span class="lbl">Contraseña</span><span class="val">••••••••</span></div>
+                <div class="ios-frow"><span class="lbl">Descripción</span><span class="val muted">Agenda 33</span></div>
+              </div>
+              <div class="legend mt-2"><span class="dot"></span>Los 3 campos marcados son los importantes.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Android -->
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6"><i class="fa-brands fa-android me-2"></i>En Android</h2>
+        <div class="d-flex flex-column gap-3">
+          <div class="step"><div class="step__n">1</div><div>Instala una app CalDAV gratuita, p. ej. <strong>DAVx⁵</strong> (Play Store).</div></div>
+          <div class="step"><div class="step__n">2</div><div>Añade una cuenta con <strong>«URL de inicio de sesión y nombre de usuario»</strong>:</div></div>
+          <div class="ps-5">
+            <ul class="small mb-0">
+              <li><strong>URL base:</strong> <code>https://{{ caldav_server }}/caldav/</code></li>
+              <li><strong>Usuario:</strong> tu correo de la app</li>
+              <li><strong>Contraseña:</strong> tu contraseña de la app</li>
+            </ul>
+          </div>
+          <div class="step"><div class="step__n">3</div><div>Activa los calendarios «Agenda · …» y se sincronizarán con tu app de calendario.</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card border-0 shadow-sm mb-4">
+      <div class="card-body">
+        <h2 class="h6">Datos de la cuenta</h2>
+        <ul class="mb-0">
+          <li><strong>Servidor:</strong> <code>{{ caldav_server }}</code></li>
+          <li><strong>Usuario:</strong> tu correo de acceso a la app</li>
+          <li><strong>Contraseña:</strong> tu contraseña de la app</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="text-center text-muted small">Si no conecta a la primera, prueba a escribir el servidor como <code>{{ caldav_server }}/caldav/</code>.</p>
+  </main>
+</body>
+</html>

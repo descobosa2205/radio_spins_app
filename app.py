@@ -1232,7 +1232,8 @@ def artist_detail_view(artist_id):
             agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
             calendar_links = [
                 {"id": str(l.id), "label": l.label or "Sin nombre",
-                 "url": _artist_calendar_subscribe_url(l.token),
+                 "page_url": _external_url_for("public_artist_calendar_view", token=l.token),
+                 "ics_url": _artist_calendar_subscribe_url(l.token),
                  "created_by": l.created_by_nick or ""}
                 for l in _artist_calendar_links(session_db, artist.id, only_active=True)
             ]
@@ -27189,7 +27190,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -41255,6 +41256,38 @@ def public_artist_calendar_ics(token):
     resp.headers["Content-Disposition"] = f'inline; filename="agenda-{token}.ics"'
     resp.headers["Cache-Control"] = "no-cache, max-age=0"
     return resp
+
+
+@app.get("/calendario-artista/<token>", endpoint="public_artist_calendar_view")
+def public_artist_calendar_view(token):
+    """Página pública (la que se comparte) con la guía visual para suscribirse al calendario."""
+    session_db = db()
+    try:
+        link = (
+            session_db.query(ArtistCalendarLink)
+            .filter(ArtistCalendarLink.token == token, ArtistCalendarLink.status == "ACTIVE")
+            .first()
+        )
+        if not link:
+            abort(404)
+        artist = session_db.get(Artist, link.artist_id)
+        if not artist:
+            abort(404)
+        ics_url = _external_url_for("public_artist_calendar_ics", token=token)
+        webcal_url = re.sub(r'^https?://', 'webcal://', ics_url)
+        today = today_local()
+        agenda = _agenda_build(session_db, [str(artist.id)], today, today + timedelta(weeks=26), today)
+        upcoming = sorted((agenda.get("activities") or []), key=lambda x: x.get("date") or "")[:6]
+    finally:
+        session_db.close()
+    return render_template("public_artist_calendar.html", artist=artist, ics_url=ics_url, webcal_url=webcal_url, upcoming=upcoming)
+
+
+@app.get("/caldav/guia", endpoint="public_caldav_guide")
+def public_caldav_guide():
+    """Guía visual para que los usuarios de la app añadan su cuenta de calendario (CalDAV)."""
+    server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
+    return render_template("caldav_guide.html", caldav_server=server)
 
 
 @app.post("/artistas/<artist_id>/calendario/enlaces", endpoint="artist_calendar_link_create")

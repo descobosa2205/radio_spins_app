@@ -65,9 +65,29 @@
               </select>
             </div>
             <div class="col-md-3">
+              <label class="form-label">¿Es un grupo?</label>
+              <select name="is_group" class="form-select" id="newArtistIsGroup">
+                <option value="0" selected>No, artista individual</option>
+                <option value="1">Sí, es un grupo</option>
+              </select>
+            </div>
+            <div class="col-md-3" id="newArtistBirthWrap">
+              <label class="form-label">Fecha de nacimiento</label>
+              <input type="date" name="birth_date" class="form-control" />
+              <div class="form-text">Si es individual; en grupos se pone por miembro en su ficha.</div>
+            </div>
+            <div class="col-md-3">
               <label class="form-label">Foto (PNG)</label>
               <input type="file" name="photo" accept="image/png" class="form-control" />
             </div>
+            <script>
+              (function(){
+                var g=document.getElementById('newArtistIsGroup'), w=document.getElementById('newArtistBirthWrap');
+                if(!g||!w) return;
+                function sync(){ w.style.display = g.value==='1' ? 'none' : ''; }
+                g.addEventListener('change', sync); sync();
+              })();
+            </script>
           </div>
         </div>
         <div class="modal-footer">

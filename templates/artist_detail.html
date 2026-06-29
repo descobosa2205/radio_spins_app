@@ -213,6 +213,19 @@
               </select>
               <div class="form-text">Los artistas internacionales aplican retención del 24% sobre el caché en las simulaciones.</div>
             </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Tipo</label>
+              <select name="is_group" class="form-select">
+                <option value="0" {% if not artist.is_group %}selected{% endif %}>Artista individual</option>
+                <option value="1" {% if artist.is_group %}selected{% endif %}>Grupo</option>
+              </select>
+              <div class="form-text">En grupo, el cumpleaños sale de cada miembro (abajo); en individual, del propio artista.</div>
+            </div>
+            <div class="col-12 col-md-6">
+              <label class="form-label">Fecha de nacimiento (artista individual)</label>
+              <input type="date" name="birth_date" class="form-control" value="{{ artist.birth_date.isoformat() if artist.birth_date else '' }}">
+              <div class="form-text">Se mostrará como cumpleaños en la agenda.</div>
+            </div>
             <div class="col-12">
               <label class="form-label">Email principal</label>
               <input type="email" name="email" class="form-control" value="{{ artist.email or '' }}" placeholder="Para envíos de royalties y notificaciones">
@@ -321,6 +334,7 @@
                   <tr>
                     <th>Nombre</th>
                     <th>Apellidos</th>
+                    <th>Cumpleaños</th>
                     <th class="text-end">Acciones</th>
                   </tr>
                 </thead>
@@ -338,6 +352,9 @@
                       </td>
                       <td>
                         <input form="person-update-{{ p.id }}" name="last_name" class="form-control form-control-sm" value="{{ p.last_name }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
+                      </td>
+                      <td>
+                        <input form="person-update-{{ p.id }}" type="date" name="birth_date" class="form-control form-control-sm" value="{{ p.birth_date.isoformat() if p.birth_date else '' }}" {% if not CAN_EDIT_ARTISTS_STATIONS %}disabled{% endif %}>
                       </td>
                       <td class="text-end">
                         {% if CAN_EDIT_ARTISTS_STATIONS %}
@@ -361,13 +378,17 @@
             <h6 class="mb-2">Añadir persona</h6>
             <form method="post" action="{{ url_for('artist_person_add', artist_id=artist.id) }}" class="row g-2 align-items-end">
               <input type="hidden" name="next" value="{{ url_for('artist_detail_view', artist_id=artist.id, tab='datos') }}">
-              <div class="col-md-5">
+              <div class="col-md-3">
                 <label class="form-label">Nombre</label>
                 <input name="first_name" class="form-control" required>
               </div>
-              <div class="col-md-5">
+              <div class="col-md-4">
                 <label class="form-label">Apellidos</label>
                 <input name="last_name" class="form-control">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">Cumpleaños</label>
+                <input type="date" name="birth_date" class="form-control">
               </div>
               <div class="col-md-2 d-grid">
                 <button class="btn btn-primary"><i class="fa fa-plus"></i> Añadir</button>
@@ -895,11 +916,14 @@
     <div class="card-body">
       <div class="d-flex align-items-center gap-2 mb-3">
         <i class="fa fa-calendar-day text-danger"></i>
-        <h5 class="mb-0">Agenda · próximas dos semanas</h5>
+        <h5 class="mb-0">Agenda</h5>
+        <button type="button" class="btn btn-sm btn-danger ms-auto" data-bs-toggle="modal" data-bs-target="#agendaAddModal" title="Añadir a la agenda"><i class="fa fa-plus"></i></button>
       </div>
       {{ agenda.agenda_calendar(agenda_data, 'artist') }}
     </div>
   </div>
+  {% set agenda_add_artist = {'id': artist.id, 'name': artist.name} %}
+  {% include '_agenda_add_modal.html' %}
 
 {# ===================== TAB: LIQUIDACIONES ===================== #}
 {% elif tab == 'liquidaciones' %}

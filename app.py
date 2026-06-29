@@ -212,6 +212,7 @@ from models import (
     PhotoApprovalRequest,
     PhotoApprover,
     PhotoApproval,
+    PhotoShare,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes

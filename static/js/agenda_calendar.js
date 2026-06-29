@@ -62,7 +62,12 @@
     var activeArtists = {}; artists.forEach(function (a) { activeArtists[a.id] = true; });
     var activeKinds = {}; kinds.forEach(function (k) { activeKinds[k.key] = true; });
 
-    function colorOf(a) { return mode === 'home' ? a.artist_color : a.kind_color; }
+    function colorOf(a) {
+      // Bloqueos y cumpleaños llevan su color de tipo siempre (gris / rosa); el resto por artista
+      // en Inicio y por tipo en la ficha del artista.
+      if (a.kind === 'bloqueo' || a.kind === 'cumple') return a.kind_color;
+      return mode === 'home' ? a.artist_color : a.kind_color;
+    }
     function passes(a) {
       if (!activeKinds[a.kind]) return false;
       if (mode === 'home' && artists.length) {
@@ -142,8 +147,10 @@
     }
 
     function makeChip(a) {
-      var chip = el('a', 'agenda-event');
-      chip.href = a.url || '#';
+      // Bloqueos y notas no navegan: se pintan como <span>; el resto (eventos, cumpleaños) enlazan.
+      var hasUrl = !!a.url;
+      var chip = el(hasUrl ? 'a' : 'span', 'agenda-event' + (a.kind === 'bloqueo' ? ' agenda-event--block' : ''));
+      if (hasUrl) chip.href = a.url; else chip.style.cursor = 'default';
       chip.style.setProperty('--c', colorOf(a));
       var inner = '';
       // En Inicio (multi-artista) se antepone la foto del artista para identificarlo de un vistazo.
@@ -202,8 +209,10 @@
         if (key === data.today) cell.classList.add('is-today');
         var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
         cell.appendChild(el('div', 'agenda-cal__num', label));
+        var dayActs = byDate[key] || [];
+        if (dayActs.some(function (a) { return a.kind === 'bloqueo'; })) cell.classList.add('is-blocked');
         var list = el('div', 'agenda-cal__events');
-        (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });
+        dayActs.forEach(function (a) { list.appendChild(makeChip(a)); });
         cell.appendChild(list);
         grid.appendChild(cell);
         cur.setDate(cur.getDate() + 1);
@@ -236,10 +245,18 @@
         side.appendChild(el('div', 'agenda-side__title', 'Actividades'));
         var win = curWin(), ws = iso(win[0]), we = iso(win[1]);
         var visible = acts.filter(function (a) { return passes(a) && a.date >= ws && a.date <= we; });
+        // Bloqueos/notas multi-día se expanden por día: en el listado se muestran una sola vez.
+        var seenItem = {};
+        visible = visible.filter(function (a) {
+          if (!a.item_id) return true;
+          if (seenItem[a.item_id]) return false;
+          seenItem[a.item_id] = true; return true;
+        });
         if (!visible.length) { side.appendChild(el('div', 'text-muted small', 'Sin actividades en este periodo.')); return; }
         visible.forEach(function (a) {
-          var row = el('a', 'agenda-listitem');
-          row.href = a.url || '#';
+          var hasUrl = !!a.url;
+          var row = el(hasUrl ? 'a' : 'div', 'agenda-listitem');
+          if (hasUrl) row.href = a.url;
           row.style.setProperty('--c', colorOf(a));
           var dt = parseISO(a.date);
           var when = '<span class="agenda-listitem__date">' + dt.getDate() + ' ' + MONTHS[dt.getMonth()] + '</span>';
@@ -247,10 +264,19 @@
             ? '<img class="agenda-listitem__cover" src="' + esc(a.cover_url) + '" alt="">'
             : '<span class="agenda-listitem__icon"><i class="fa ' + esc(a.icon) + '"></i></span>';
           var st = a.status_label ? '<span class="agenda-status status-' + esc(a.status_class) + '">' + esc(a.status_label) + '</span>' : '';
+          var del = a.item_id ? '<button type="button" class="agenda-listitem__del" title="Eliminar" data-del="' + esc(a.item_id) + '"><i class="fa fa-trash"></i></button>' : '';
           row.innerHTML = media + '<span class="agenda-listitem__body"><span class="agenda-listitem__title">' + esc(a.title) + '</span>' +
-            '<span class="agenda-listitem__sub">' + when + (a.subtitle ? ' · ' + esc(a.subtitle) : '') + ' ' + st + '</span></span>';
+            '<span class="agenda-listitem__sub">' + when + (a.subtitle ? ' · ' + esc(a.subtitle) : '') + ' ' + st + '</span></span>' + del;
           row.addEventListener('mouseenter', function (ev) { showTip(a, ev.clientX, ev.clientY); });
           row.addEventListener('mouseleave', hideTip);
+          var delBtn = row.querySelector('[data-del]');
+          if (delBtn) delBtn.addEventListener('click', function (ev) {
+            ev.preventDefault(); ev.stopPropagation();
+            if (!window.confirm('¿Eliminar de la agenda?')) return;
+            var fd = new FormData(); fd.append('next', location.pathname + location.search);
+            fetch('/agenda/' + a.item_id + '/eliminar', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+              .then(function () { location.reload(); });
+          });
           side.appendChild(row);
         });
       }

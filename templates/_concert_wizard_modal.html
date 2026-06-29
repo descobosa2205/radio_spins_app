@@ -847,3 +847,30 @@
     syncPromoterVisibility();
   })();
 </script>
+<script>
+  /* Auto-apertura del asistente con artista preseleccionado (desde el botón + de la agenda:
+     .../conciertos?open_wizard=1&wizard_artist=<id>). */
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('open_wizard') !== '1') return;
+    var artistId = params.get('wizard_artist') || '';
+    function go() {
+      var modalEl = document.getElementById('concertWizardModal');
+      if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
+      if (artistId) {
+        var sel = document.getElementById('wizard_artist_id');
+        if (sel) {
+          if (window.jQuery && jQuery(sel).data('select2')) jQuery(sel).val([artistId]).trigger('change');
+          else { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === artistId) o.selected = true; }); }
+        }
+      }
+      bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      // Limpia los parámetros para que un refresco no reabra el asistente.
+      params.delete('open_wizard'); params.delete('wizard_artist');
+      var qs = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
+    }
+    if (document.readyState !== 'loading') go();
+    else document.addEventListener('DOMContentLoaded', go);
+  })();
+</script>

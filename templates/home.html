@@ -18,10 +18,13 @@
     <div class="d-flex align-items-center gap-2 mb-3">
       <i class="fa fa-calendar-day text-danger"></i>
       <h5 class="mb-0">Agenda · próximas dos semanas</h5>
+      <button type="button" class="btn btn-sm btn-danger ms-auto" data-bs-toggle="modal" data-bs-target="#agendaAddModal" title="Añadir a la agenda"><i class="fa fa-plus"></i></button>
     </div>
     {{ agenda.agenda_calendar(HOME_AGENDA, 'home') }}
   </div>
 </div>
+{% set agenda_add_artists = AGENDA_ARTIST_OPTIONS %}
+{% include '_agenda_add_modal.html' %}
 {% endif %}
 
 {% if HOME_INVITATIONS_TO_MANAGE %}

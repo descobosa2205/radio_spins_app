@@ -3252,6 +3252,27 @@ class PhotoApproval(Base):
     )
 
 
+class PhotoShare(Base):
+    """Enlace público para compartir/descargar un conjunto de fotos (email/WhatsApp/SMS)."""
+
+    __tablename__ = "photo_shares"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    photo_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    brand_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    title = Column(Text)
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_shares_token", "token"),
+    )
+
+
 def ensure_fotos_schema():
     """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
     Base.metadata.create_all(bind=engine)
@@ -3368,6 +3389,21 @@ def ensure_fotos_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_photo_approvals_photo ON photo_approvals(photo_id);",
         "CREATE INDEX IF NOT EXISTS idx_photo_approvals_approver ON photo_approvals(approver_id);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_shares (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            token text NOT NULL UNIQUE,
+            photo_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            brand_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            title text,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_shares_token ON photo_shares(token);",
     ]
     _exec_ddl_statements(stmts, "fotos_schema")
 

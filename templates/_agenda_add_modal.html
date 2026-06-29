@@ -1,0 +1,129 @@
+{# Asistente del botón "+" del calendario de agenda (Inicio y ficha de artista). Pasos visuales:
+   (1) artista -solo si no viene preseleccionado-, (2) tipo (Actividad/Bloqueo/Otro), (3) formulario.
+   "Actividad" reabre el asistente de concierto existente (en /conciertos con el artista preseleccionado).
+   Variables de contexto opcionales: `agenda_add_artist` (dict id/name) y `agenda_add_artists` (lista). #}
+<div class="modal fade" id="agendaAddModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-plus text-danger me-2"></i>Añadir a la agenda</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="agendaAddBody"
+           data-preset-artist-id="{{ agenda_add_artist.id if agenda_add_artist else '' }}"
+           data-preset-artist-name="{{ agenda_add_artist.name if agenda_add_artist else '' }}"
+           data-activity-url="{{ url_for('concerts_view', tab='vista') }}">
+
+        {# Paso 1 · artista (solo sin preseleccionar, p. ej. en Inicio) #}
+        <div data-agenda-step="artist" class="d-none">
+          <p class="text-muted mb-2"><i class="fa fa-user-music me-1"></i>¿Para qué artista?</p>
+          <select class="form-select select-artists" id="agendaArtistSelect" data-no-loader>
+            <option value="">Selecciona un artista…</option>
+            {% for a in (agenda_add_artists or []) %}
+              <option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# Paso 2 · tipo #}
+        <div data-agenda-step="type" class="d-none">
+          <p class="text-muted mb-2">¿Qué quieres añadir<span data-agenda-artist-label class="fw-semibold text-dark"></span>?</p>
+          <div class="agenda-add-choices">
+            <button type="button" class="agenda-add-choice" data-agenda-choice="actividad"><i class="fa fa-music"></i><span>Actividad</span><small>Concierto, festival, evento…</small></button>
+            <button type="button" class="agenda-add-choice" data-agenda-choice="bloqueo"><i class="fa fa-ban"></i><span>Bloqueo</span><small>Días no disponibles</small></button>
+            <button type="button" class="agenda-add-choice" data-agenda-choice="otro"><i class="fa fa-thumbtack"></i><span>Otro</span><small>Nota libre</small></button>
+          </div>
+        </div>
+
+        {# Paso 3a · bloqueo #}
+        <form data-agenda-step="bloqueo" class="d-none" method="post" action="{{ url_for('agenda_block_create') }}">
+          <input type="hidden" name="artist_id" data-agenda-artist-input>
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="mb-3"><label class="form-label"><i class="fa fa-ban text-secondary me-1"></i>Motivo del bloqueo</label><input class="form-control" name="motivo" placeholder="Vacaciones, descanso, ensayos…" required></div>
+          <div class="row g-2">
+            <div class="col"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date" data-agenda-start required></div>
+            <div class="col"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date" data-agenda-end></div>
+          </div>
+          <div class="form-text">Esos días aparecerán marcados como bloqueados.</div>
+          <div class="d-flex justify-content-between mt-3"><button type="button" class="btn btn-link px-0" data-agenda-back><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-primary"><i class="fa fa-ban me-1"></i>Bloquear días</button></div>
+        </form>
+
+        {# Paso 3b · otro #}
+        <form data-agenda-step="otro" class="d-none" method="post" action="{{ url_for('agenda_note_create') }}">
+          <input type="hidden" name="artist_id" data-agenda-artist-input>
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="mb-3"><label class="form-label"><i class="fa fa-thumbtack text-primary me-1"></i>Nombre</label><input class="form-control" name="title" placeholder="Nombre de la actividad" required></div>
+          <div class="mb-3"><label class="form-label">Nota (opcional)</label><textarea class="form-control" name="note" rows="2" placeholder="Descripción…"></textarea></div>
+          <div class="row g-2">
+            <div class="col"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date" data-agenda-start required></div>
+            <div class="col"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date" data-agenda-end></div>
+          </div>
+          <div class="d-flex justify-content-between mt-3"><button type="button" class="btn btn-link px-0" data-agenda-back><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-primary"><i class="fa fa-check me-1"></i>Añadir</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var modalEl = document.getElementById('agendaAddModal');
+  if (!modalEl || modalEl.dataset.bound) return;
+  modalEl.dataset.bound = '1';
+  var body = document.getElementById('agendaAddBody');
+  var steps = {};
+  modalEl.querySelectorAll('[data-agenda-step]').forEach(function (s) { steps[s.getAttribute('data-agenda-step')] = s; });
+  var artistId = '', artistName = '';
+
+  function show(step) {
+    Object.keys(steps).forEach(function (k) { steps[k].classList.toggle('d-none', k !== step); });
+  }
+  function setArtist(id, name) {
+    artistId = id || ''; artistName = name || '';
+    modalEl.querySelectorAll('[data-agenda-artist-input]').forEach(function (i) { i.value = artistId; });
+    modalEl.querySelectorAll('[data-agenda-artist-label]').forEach(function (l) { l.textContent = artistName ? (' para ' + artistName) : ''; });
+  }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+  modalEl.addEventListener('show.bs.modal', function () {
+    var pid = body.getAttribute('data-preset-artist-id') || '';
+    var pname = body.getAttribute('data-preset-artist-name') || '';
+    // Fechas por defecto = hoy
+    modalEl.querySelectorAll('[data-agenda-start],[data-agenda-end]').forEach(function (i) { if (!i.value) i.value = today(); });
+    if (pid) { setArtist(pid, pname); show('type'); }
+    else { setArtist('', ''); show('artist'); }
+  });
+
+  // Selección de artista (paso 1)
+  var sel = document.getElementById('agendaArtistSelect');
+  if (sel) {
+    var onSel = function () {
+      var id = sel.value;
+      if (!id) return;
+      var opt = sel.options[sel.selectedIndex];
+      setArtist(id, opt ? (opt.getAttribute('data-name') || opt.textContent) : '');
+      show('type');
+    };
+    sel.addEventListener('change', onSel);
+    if (window.jQuery) { try { jQuery(sel).on('select2:select', onSel); } catch (e) {} }
+  }
+
+  // Elección de tipo (paso 2)
+  modalEl.querySelectorAll('[data-agenda-choice]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var choice = btn.getAttribute('data-agenda-choice');
+      if (!artistId) { show('artist'); return; }
+      if (choice === 'actividad') {
+        var u = body.getAttribute('data-activity-url') || '';
+        u += (u.indexOf('?') >= 0 ? '&' : '?') + 'open_wizard=1&wizard_artist=' + encodeURIComponent(artistId);
+        window.location.href = u;
+        return;
+      }
+      show(choice);
+    });
+  });
+
+  modalEl.querySelectorAll('[data-agenda-back]').forEach(function (b) {
+    b.addEventListener('click', function () { show('type'); });
+  });
+})();
+</script>

@@ -154,16 +154,18 @@
                 </div>
                 <div class="small text-muted mt-1">{{ item.venue }}{% if item.city %} · {{ item.city }}{% endif %}{% if item.province %}, {{ item.province }}{% endif %}</div>
               </div>
-              <div class="invitation-counts-block">
-                {% if item.manage_status and (item.manage_status.pending or item.manage_status.handled) %}
-                <div class="text-center mb-2">
-                  {% if item.manage_status.pending %}
-                    <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>{{ item.manage_status.pending }} {{ 'solicitud pendiente' if item.manage_status.pending == 1 else 'solicitudes pendientes' }} de gestionar</span>
-                  {% else %}
-                    <span class="badge text-bg-success invitation-manage-flag"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
+              <div class="invitation-status-and-counts">
+                {% set ms = item.manage_status %}
+                <div class="invitation-status-flags">
+                  {% if ms and ms.pending %}
+                    <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>Solicitudes pendientes</span>
+                    {% if ms.box_office %}<span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>{% endif %}
+                  {% elif ms and ms.box_office %}
+                    <span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>
+                  {% elif ms and ms.managed %}
+                    <span class="badge text-bg-success invitation-manage-flag"><i class="fa fa-check me-1"></i>Invitaciones enviadas</span>
                   {% endif %}
                 </div>
-                {% endif %}
                 <div class="invitation-counts">
                   <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
                   <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>

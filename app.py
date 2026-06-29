@@ -37408,55 +37408,64 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
 
 
 def _invitation_event_pending_to_manage(session_db, concert) -> dict:
-    """Solicitudes/compromisos pendientes de GESTIONAR de un evento, con la MISMA lógica que el
-    módulo de inicio 'Invitaciones pendientes de gestionar': peticiones pendientes (solicitadas/
-    aprobadas/asignadas pero sin enviar) + compromisos sin entregar (cada uno cuenta como 1).
-    Devuelve {pending, handled, managed}."""
+    """Estado de gestión de un evento para la etiqueta de la lista de invitaciones. Devuelve:
+      - pending: hay solicitudes/compromisos PENDIENTES DE GESTIONAR (solicitadas/aprobadas/asignadas
+        sin enviar, o compromisos sin entregar). >0 -> etiqueta roja 'Solicitudes pendientes'.
+      - box_office: nº de invitaciones dejadas EN TAQUILLA aún sin recoger (DISPONIBLES_TAQUILLA).
+        >0 -> etiqueta amarilla.
+      - managed: todo enviado/entregado y, si había de taquilla, todas recogidas (nada pendiente ni en
+        taquilla, pero existía algo) -> etiqueta verde 'Invitaciones enviadas'.
+    Sin solicitudes ni compromisos -> todo a 0 (no se muestra etiqueta)."""
     cid = getattr(concert, "id", None)
     if not cid:
-        return {"pending": 0, "handled": 0, "managed": False}
-    pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
-    handled_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+        return {"pending": 0, "box_office": 0, "managed": False}
     pending = 0
-    handled = 0
-    for status, cnt in (
-        session_db.query(InvitationRequest.status, func.count(InvitationRequest.id))
-        .filter(InvitationRequest.concert_id == cid)
-        .group_by(InvitationRequest.status)
-        .all()
-    ):
-        st = (status or "").upper()
+    box_office = 0
+    done = 0
+    pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
+    done_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "RECOGIDAS_TAQUILLA"}
+    for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == cid).all():
+        st = (row.status or "").upper()
         if st in pending_statuses:
-            pending += int(cnt or 0)
-        elif st in handled_statuses:
-            handled += int(cnt or 0)
-    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == cid).all()
+            pending += 1
+        elif st == "DISPONIBLES_TAQUILLA":
+            box_office += _invitation_total_qty(_json_dict(row.quantities_json))
+        elif st in done_statuses:
+            done += 1
+    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == cid).filter(InvitationCommitment.status != "ANULADAS").all()
     commit_ids = [c.id for c in commitments]
-    ticket_by_commit: dict[str, tuple[int, int]] = {}
+    delivered_by_commit: dict[str, int] = {}
+    box_by_commit: dict[str, int] = {}
     if commit_ids:
-        delivered_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+        delivered_set = {"SENT", "DELIVERED", "PICKED_UP", "RECOGIDAS_TAQUILLA"}
         for ccid, tstatus, cnt in (
             session_db.query(InvitationTicket.assigned_commitment_id, InvitationTicket.status, func.count(InvitationTicket.id))
             .filter(InvitationTicket.assigned_commitment_id.in_(commit_ids))
             .group_by(InvitationTicket.assigned_commitment_id, InvitationTicket.status)
             .all()
         ):
-            a, d = ticket_by_commit.get(str(ccid), (0, 0))
-            a += int(cnt or 0)
-            if (tstatus or "").upper() in delivered_set:
-                d += int(cnt or 0)
-            ticket_by_commit[str(ccid)] = (a, d)
+            st = (tstatus or "").upper()
+            if st in delivered_set:
+                delivered_by_commit[str(ccid)] = delivered_by_commit.get(str(ccid), 0) + int(cnt or 0)
+            elif st == "DISPONIBLES_TAQUILLA":
+                box_by_commit[str(ccid)] = box_by_commit.get(str(ccid), 0) + int(cnt or 0)
     for c in commitments:
-        committed_qty = sum(_safe_int(v) for v in _json_dict(c.quantities_json).values())
+        committed_qty = _invitation_total_qty(_json_dict(c.quantities_json))
         if committed_qty <= 0:
             continue
-        assigned_count, delivered_count = ticket_by_commit.get(str(c.id), (0, 0))
-        is_handled = (delivered_count >= committed_qty) or ((c.status or "").upper() == "ASIGNADAS" and assigned_count == 0)
-        if is_handled:
-            handled += 1
+        delivered = delivered_by_commit.get(str(c.id), 0)
+        box = box_by_commit.get(str(c.id), 0)
+        if delivered >= committed_qty:
+            done += 1
+        elif (c.status or "").upper() == "ASIGNADAS" and delivered == 0 and box == 0:
+            # Compromiso de listado marcado como asignado/enviado sin PDFs: se considera gestionado.
+            done += 1
         else:
-            pending += 1
-    return {"pending": pending, "handled": handled, "managed": (pending == 0 and handled > 0)}
+            if box > 0:
+                box_office += box
+            if (delivered + box) < committed_qty:
+                pending += 1
+    return {"pending": pending, "box_office": box_office, "managed": (pending == 0 and box_office == 0 and done > 0)}
 
 
 def _invitation_configured_concert_query(session_db):

@@ -1434,6 +1434,7 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* invitaciones · fuente pendiente de aprobar en el modal de asignación */
 .assignment-source--pending-approval{ border-color:#ffc107; background:#fff9e6; }
 
-/* Invitaciones · etiqueta de "solicitudes pendientes de gestionar" sobre los contadores */
-.invitation-counts-block{ display:flex; flex-direction:column; align-items:center; }
-.invitation-manage-flag{ font-size:.85rem; padding:.4rem .7rem; }
+/* Invitaciones · etiquetas de estado (pendientes / taquilla / enviadas) delante de los contadores */
+.invitation-status-and-counts{ display:flex; align-items:center; gap:.85rem; flex-wrap:wrap; justify-content:flex-end; }
+.invitation-status-flags{ display:flex; flex-direction:column; gap:.3rem; align-items:center; text-align:center; }
+.invitation-manage-flag{ font-size:.8rem; padding:.4rem .65rem; white-space:nowrap; }

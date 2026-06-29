@@ -1436,5 +1436,9 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 
 /* Invitaciones · etiquetas de estado (pendientes / taquilla / enviadas) delante de los contadores */
 .invitation-status-and-counts{ display:flex; align-items:center; gap:.85rem; flex-wrap:wrap; justify-content:flex-end; }
-.invitation-status-flags{ display:flex; flex-direction:column; gap:.3rem; align-items:center; text-align:center; }
-.invitation-manage-flag{ font-size:.8rem; padding:.4rem .65rem; white-space:nowrap; }
+/* Columna de etiquetas de estado: ancho fijo para que todas queden alineadas y los contadores
+   empiecen siempre en el mismo punto. Los badges ocupan todo el ancho (mismo tamaño) y el texto
+   se ajusta en varias líneas en vez de cortarse. */
+.invitation-status-flags{ display:flex; flex-direction:column; gap:.35rem; align-items:stretch; text-align:center; width:148px; flex:0 0 148px; }
+.invitation-manage-flag{ font-size:.78rem; padding:.4rem .5rem; white-space:normal; line-height:1.2; display:block; width:100%; }
+@media (max-width: 768px){ .invitation-status-flags{ width:100%; flex:0 0 100%; } }

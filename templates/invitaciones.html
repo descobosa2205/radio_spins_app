@@ -1099,12 +1099,20 @@
       <div class="modal-header"><h5 class="modal-title">Añadir compromiso</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="commitment_id" value="">
-        <div class="row g-3 mb-3">
-          <div class="col-md-6"><label class="form-label">Nombre / tercero</label><input class="form-control" name="name" placeholder="Recinto, artista, patrocinador..." required></div>
-          <div class="col-md-6"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Compromiso del recinto, artista, promo..."></div>
+        <div class="small text-muted mb-3" data-cmt-indicator>Paso 1 de 3 · Nombre y motivo</div>
+
+        {# ---- Paso 1: nombre y motivo ---- #}
+        <div class="cmt-step" data-cmt-step="1">
+          <h6 class="mb-3">1. Nombre y motivo</h6>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Nombre / tercero</label><input class="form-control" name="name" placeholder="Recinto, artista, patrocinador..." required></div>
+            <div class="col-md-6"><label class="form-label">Motivo</label><input class="form-control" name="reason" placeholder="Compromiso del recinto, artista, promo..."></div>
+          </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label">¿A quién se le mandan las invitaciones?</label>
+
+        {# ---- Paso 2: a quién se le mandan ---- #}
+        <div class="cmt-step d-none" data-cmt-step="2">
+          <h6 class="mb-3">2. ¿A quién se le mandan las invitaciones?</h6>
           <input type="hidden" name="guest_type" value="">
           <input type="hidden" name="guest_promoter_id">
           <input type="hidden" name="guest_artist_id">
@@ -1124,18 +1132,30 @@
           <div class="d-none" data-cmt-panel="EMPLOYEE"><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-cmt-user-id="{{ person.id }}" data-name="{{ person.name }}" data-email="{{ person.email }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
           <div class="small text-muted mt-2 d-none" data-cmt-current></div>
         </div>
-        {% if categories %}
-          {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
-            {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
-            {% if zcats %}
-              <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
-              <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-        <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
+
+        {# ---- Paso 3: selección de invitaciones ---- #}
+        <div class="cmt-step d-none" data-cmt-step="3">
+          <h6 class="mb-3">3. Selección de invitaciones</h6>
+          {% if categories %}
+            {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+              {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
+              {% if zcats %}
+                <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+          <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
+        </div>
       </div>
-      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar compromiso</button></div>
+      <div class="modal-footer">
+        <button class="btn btn-outline-secondary" type="button" data-cmt-back><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <div class="ms-auto d-flex gap-2">
+          <button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button>
+          <button class="btn btn-danger" type="button" data-cmt-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+          <button class="btn btn-danger" type="submit" data-cmt-save>Guardar compromiso</button>
+        </div>
+      </div>
     </form>
   </div>
 </div>
@@ -1146,6 +1166,27 @@
     var form = modalEl.querySelector('form');
     var title = modalEl.querySelector('.modal-title');
     function setVal(name, val){ var i = form.querySelector('[name="' + name + '"]'); if(i) i.value = (val == null ? '' : val); }
+
+    // --- Asistente en 3 pasos (1: nombre/motivo · 2: destinatario · 3: invitaciones) ---
+    var STEP_LABELS = { 1: 'Nombre y motivo', 2: 'Destinatario', 3: 'Selección de invitaciones' };
+    var curStep = 1;
+    function goStep(n){
+      curStep = Math.min(3, Math.max(1, n));
+      form.querySelectorAll('[data-cmt-step]').forEach(function(s){ s.classList.toggle('d-none', s.getAttribute('data-cmt-step') !== String(curStep)); });
+      var back = form.querySelector('[data-cmt-back]'), next = form.querySelector('[data-cmt-next]'), save = form.querySelector('[data-cmt-save]');
+      if(back) back.classList.toggle('d-none', curStep === 1);
+      if(next) next.classList.toggle('d-none', curStep === 3);
+      if(save) save.classList.toggle('d-none', curStep !== 3);
+      var ind = form.querySelector('[data-cmt-indicator]'); if(ind) ind.textContent = 'Paso ' + curStep + ' de 3 · ' + STEP_LABELS[curStep];
+    }
+    function validateStep(n){
+      if(n === 1){ var nm = form.querySelector('[name="name"]'); if(nm && !nm.value.trim()){ nm.focus(); if(nm.reportValidity) nm.reportValidity(); return false; } }
+      return true;
+    }
+    var nextBtn = form.querySelector('[data-cmt-next]'); if(nextBtn) nextBtn.addEventListener('click', function(){ if(validateStep(curStep)) goStep(curStep + 1); });
+    var backBtn = form.querySelector('[data-cmt-back]'); if(backBtn) backBtn.addEventListener('click', function(){ goStep(curStep - 1); });
+    // Enter avanza de paso (no envía) salvo en el último.
+    form.addEventListener('keydown', function(e){ if(e.key === 'Enter' && curStep < 3 && e.target.tagName === 'INPUT'){ e.preventDefault(); if(validateStep(curStep)) goStep(curStep + 1); } });
     var GUEST_FIELDS = ['guest_promoter_id','guest_artist_id','guest_user_id','guest_name','guest_email','guest_phone'];
     function setGuestType(type){
       setVal('guest_type', type || '');
@@ -1172,6 +1213,7 @@
       form.querySelectorAll('input[name^="qty_"]').forEach(function(i){ i.value = 0; });
       clearGuest();
       if(title) title.textContent = 'Añadir compromiso';
+      goStep(1);
     }
     // Tipo de destinatario (tercero/artista/empleado), scoped al modal del compromiso.
     form.querySelectorAll('[data-cmt-guest-type]').forEach(function(btn){
@@ -1221,6 +1263,7 @@
       }
       if(ev.target.closest('[data-commitment-add]')) resetForm();
     });
+    goStep(1);
   })();
 </script>
 {% endif %}

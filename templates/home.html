@@ -38,7 +38,7 @@
       {% for row in HOME_INVITATIONS_TO_MANAGE[:8] %}
         <div class="col-12 col-lg-6">
           <a href="{{ row.detail_url }}" class="text-decoration-none text-reset">
-            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100 {% if row.managed %}border-success{% endif %}">
+            <div class="d-flex align-items-center gap-3 border rounded p-2 h-100 {% if row.manage_status and row.manage_status.managed %}border-success{% endif %}">
               <div class="flex-grow-1 min-w-0">
                 <div class="d-flex gap-1 flex-wrap mb-1">
                   {% for a in (row.artists or []) %}{{ artist_chip(a.name, a.photo_url, artist_id=a.id) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% endfor %}
@@ -46,11 +46,17 @@
                 <div class="fw-semibold text-truncate">{{ row.title }}</div>
                 <div class="small text-muted text-truncate">{{ row.type_label }} · {{ row.date_label }}{% if row.city %} · {{ row.city }}{% endif %}</div>
               </div>
-              {% if row.managed %}
-                <span class="badge text-bg-success align-self-start"><i class="fa fa-check me-1"></i>Ya gestionadas</span>
-              {% else %}
-                <span class="badge text-bg-danger align-self-start">{{ row.pending_count }} pend.</span>
-              {% endif %}
+              {% set ms = row.manage_status %}
+              <div class="d-flex flex-column gap-1 align-self-start">
+                {% if ms and ms.pending %}
+                  <span class="badge text-bg-danger"><i class="fa fa-envelope-open-text me-1"></i>Pendientes</span>
+                  {% if ms.box_office %}<span class="badge text-bg-warning text-dark"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>{% endif %}
+                {% elif ms and ms.box_office %}
+                  <span class="badge text-bg-warning text-dark"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>
+                {% elif ms and ms.managed %}
+                  <span class="badge text-bg-success"><i class="fa fa-check me-1"></i>Enviadas</span>
+                {% endif %}
+              </div>
             </div>
           </a>
         </div>

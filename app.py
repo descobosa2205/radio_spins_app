@@ -37407,32 +37407,38 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
     }
 
 
-def _invitation_event_pending_to_manage(session_db, concert) -> dict:
-    """Estado de gestión de un evento para la etiqueta de la lista de invitaciones. Devuelve:
+def _invitation_manage_status_map(session_db, concerts) -> dict:
+    """Estado de gestión de varios eventos a la vez, en consultas agregadas (1 por tabla, sin N+1).
+    Devuelve {concert_id(str): {pending, box_office, managed}}:
       - pending: hay solicitudes/compromisos PENDIENTES DE GESTIONAR (solicitadas/aprobadas/asignadas
-        sin enviar, o compromisos sin entregar). >0 -> etiqueta roja 'Solicitudes pendientes'.
-      - box_office: nº de invitaciones dejadas EN TAQUILLA aún sin recoger (DISPONIBLES_TAQUILLA).
-        >0 -> etiqueta amarilla.
-      - managed: todo enviado/entregado y, si había de taquilla, todas recogidas (nada pendiente ni en
-        taquilla, pero existía algo) -> etiqueta verde 'Invitaciones enviadas'.
-    Sin solicitudes ni compromisos -> todo a 0 (no se muestra etiqueta)."""
-    cid = getattr(concert, "id", None)
-    if not cid:
-        return {"pending": 0, "box_office": 0, "managed": False}
-    pending = 0
-    box_office = 0
-    done = 0
+        sin enviar, o compromisos sin entregar) -> etiqueta roja.
+      - box_office: nº de invitaciones dejadas EN TAQUILLA aún sin recoger (DISPONIBLES_TAQUILLA)
+        -> etiqueta amarilla.
+      - managed: todo enviado/entregado y, si había de taquilla, todas recogidas (nada pendiente ni
+        en taquilla, pero existía algo) -> etiqueta verde. Sin nada -> los tres a 0/False."""
+    ids = [c.id for c in (concerts or []) if getattr(c, "id", None)]
+    out = {str(cid): {"pending": 0, "box_office": 0, "managed": False} for cid in ids}
+    if not ids:
+        return out
+    acc = {str(cid): {"pending": 0, "box_office": 0, "done": 0} for cid in ids}
     pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
     done_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "RECOGIDAS_TAQUILLA"}
-    for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == cid).all():
-        st = (row.status or "").upper()
+    for concert_id, status, qjson in (
+        session_db.query(InvitationRequest.concert_id, InvitationRequest.status, InvitationRequest.quantities_json)
+        .filter(InvitationRequest.concert_id.in_(ids))
+        .all()
+    ):
+        a = acc.get(str(concert_id))
+        if a is None:
+            continue
+        st = (status or "").upper()
         if st in pending_statuses:
-            pending += 1
+            a["pending"] += 1
         elif st == "DISPONIBLES_TAQUILLA":
-            box_office += _invitation_total_qty(_json_dict(row.quantities_json))
+            a["box_office"] += _invitation_total_qty(_json_dict(qjson))
         elif st in done_statuses:
-            done += 1
-    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == cid).filter(InvitationCommitment.status != "ANULADAS").all()
+            a["done"] += 1
+    commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id.in_(ids)).filter(InvitationCommitment.status != "ANULADAS").all()
     commit_ids = [c.id for c in commitments]
     delivered_by_commit: dict[str, int] = {}
     box_by_commit: dict[str, int] = {}
@@ -37450,22 +37456,40 @@ def _invitation_event_pending_to_manage(session_db, concert) -> dict:
             elif st == "DISPONIBLES_TAQUILLA":
                 box_by_commit[str(ccid)] = box_by_commit.get(str(ccid), 0) + int(cnt or 0)
     for c in commitments:
+        a = acc.get(str(c.concert_id))
+        if a is None:
+            continue
         committed_qty = _invitation_total_qty(_json_dict(c.quantities_json))
         if committed_qty <= 0:
             continue
         delivered = delivered_by_commit.get(str(c.id), 0)
         box = box_by_commit.get(str(c.id), 0)
         if delivered >= committed_qty:
-            done += 1
+            a["done"] += 1
         elif (c.status or "").upper() == "ASIGNADAS" and delivered == 0 and box == 0:
             # Compromiso de listado marcado como asignado/enviado sin PDFs: se considera gestionado.
-            done += 1
+            a["done"] += 1
         else:
             if box > 0:
-                box_office += box
+                a["box_office"] += box
             if (delivered + box) < committed_qty:
-                pending += 1
-    return {"pending": pending, "box_office": box_office, "managed": (pending == 0 and box_office == 0 and done > 0)}
+                a["pending"] += 1
+    for cid, a in acc.items():
+        out[cid] = {
+            "pending": a["pending"],
+            "box_office": a["box_office"],
+            "managed": (a["pending"] == 0 and a["box_office"] == 0 and a["done"] > 0),
+        }
+    return out
+
+
+def _invitation_event_pending_to_manage(session_db, concert) -> dict:
+    """Estado de gestión de un único evento (envoltorio de _invitation_manage_status_map)."""
+    cid = getattr(concert, "id", None)
+    default = {"pending": 0, "box_office": 0, "managed": False}
+    if not cid:
+        return default
+    return _invitation_manage_status_map(session_db, [concert]).get(str(cid), default)
 
 
 def _invitation_configured_concert_query(session_db):
@@ -38050,12 +38074,23 @@ def invitations_view():
             candidates = _filter_manageable_concerts(session_db, candidates, state=_current_user_state())
         events = [_invitation_event_payload(session_db, c, include_counts=True) for c in candidates]
         if tab == 'gestionar':
-            # Estado "pendiente de gestionar" por evento (misma lógica que el inicio) para la etiqueta.
-            _cand_by_id = {str(c.id): c for c in candidates}
+            # Estado por evento (pendiente/taquilla/enviadas) en una sola consulta agregada, y orden
+            # por urgencia: pendientes primero, luego taquilla, luego enviadas (estable -> respeta el
+            # orden cronológico dentro de cada nivel).
+            _status_map = _invitation_manage_status_map(session_db, candidates)
             for ev in events:
-                _c = _cand_by_id.get(ev.get('id'))
-                if _c is not None:
-                    ev['manage_status'] = _invitation_event_pending_to_manage(session_db, _c)
+                ev['manage_status'] = _status_map.get(ev.get('id'), {"pending": 0, "box_office": 0, "managed": False})
+
+            def _manage_urgency(ev):
+                ms = ev.get('manage_status') or {}
+                if ms.get('pending'):
+                    return 0
+                if ms.get('box_office'):
+                    return 1
+                if ms.get('managed'):
+                    return 2
+                return 3
+            events.sort(key=_manage_urgency)
         # Agrupado por artista para la pestaña Gestionar: un grupo por artista, en orden de aparición
         # (el del evento más próximo primero, porque `events` ya viene cronológico) y eventos
         # cronológicos dentro de cada grupo.
@@ -41150,69 +41185,20 @@ def _home_invitations_to_manage(limit: int = 24) -> list[dict]:
         manageable = _filter_manageable_concerts(session_db, active, state=state)
         if not manageable:
             return []
-        ids = [c.id for c in manageable]
-        pending_statuses = {"SOLICITADAS", "APROBADAS", "ASIGNADAS"}
-        handled_statuses = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
-        pending_by_concert: dict[str, int] = {}
-        handled_by_concert: dict[str, int] = {}
-        for cid, status, cnt in (
-            session_db.query(InvitationRequest.concert_id, InvitationRequest.status, func.count(InvitationRequest.id))
-            .filter(InvitationRequest.concert_id.in_(ids))
-            .group_by(InvitationRequest.concert_id, InvitationRequest.status)
-            .all()
-        ):
-            key = str(cid)
-            st = (status or "").upper()
-            if st in pending_statuses:
-                pending_by_concert[key] = pending_by_concert.get(key, 0) + int(cnt or 0)
-            elif st in handled_statuses:
-                handled_by_concert[key] = handled_by_concert.get(key, 0) + int(cnt or 0)
-        # Compromisos configurados: el evento también está "pendiente de gestionar" mientras tenga
-        # compromisos sin entregar (o, si son de listado, sin marcar como asignados). Cuenta cada
-        # compromiso como 1 unidad pendiente/gestionada, igual que cada petición.
-        commitments = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id.in_(ids)).all()
-        commit_ids = [c.id for c in commitments]
-        ticket_by_commit: dict[str, tuple[int, int]] = {}
-        if commit_ids:
-            delivered_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
-            for ccid, tstatus, cnt in (
-                session_db.query(InvitationTicket.assigned_commitment_id, InvitationTicket.status, func.count(InvitationTicket.id))
-                .filter(InvitationTicket.assigned_commitment_id.in_(commit_ids))
-                .group_by(InvitationTicket.assigned_commitment_id, InvitationTicket.status)
-                .all()
-            ):
-                a, d = ticket_by_commit.get(str(ccid), (0, 0))
-                a += int(cnt or 0)
-                if (tstatus or "").upper() in delivered_set:
-                    d += int(cnt or 0)
-                ticket_by_commit[str(ccid)] = (a, d)
-        for c in commitments:
-            committed_qty = sum(_safe_int(v) for v in _json_dict(c.quantities_json).values())
-            if committed_qty <= 0:
-                continue
-            assigned_count, delivered_count = ticket_by_commit.get(str(c.id), (0, 0))
-            # Gestionado si está todo entregado (PDF) o si es de listado marcado como asignado (sin PDFs).
-            handled = (delivered_count >= committed_qty) or ((c.status or "").upper() == "ASIGNADAS" and assigned_count == 0)
-            key = str(c.concert_id)
-            if handled:
-                handled_by_concert[key] = handled_by_concert.get(key, 0) + 1
-            else:
-                pending_by_concert[key] = pending_by_concert.get(key, 0) + 1
+        # Mismo estado (pendiente/taquilla/enviadas) que la lista de gestión, en consultas agregadas.
+        status_map = _invitation_manage_status_map(session_db, manageable)
         rows = []
         for c in manageable:
-            key = str(c.id)
-            pending = pending_by_concert.get(key, 0)
-            handled = handled_by_concert.get(key, 0)
-            if pending == 0 and handled == 0:
-                continue  # sin solicitudes reales que gestionar (ignora rechazadas/anuladas)
+            ms = status_map.get(str(c.id), {"pending": 0, "box_office": 0, "managed": False})
+            if not (ms["pending"] or ms["box_office"] or ms["managed"]):
+                continue  # sin solicitudes/compromisos reales (ignora rechazadas/anuladas)
             payload = _invitation_event_payload(session_db, c)
-            payload["pending_count"] = pending
-            payload["managed"] = (pending == 0 and handled > 0)
+            payload["manage_status"] = ms
             payload["detail_url"] = url_for("invitation_event_detail", concert_id=c.id, **{"from": "gestionar"})
             rows.append(payload)
-            if len(rows) >= limit:
-                break
-        return rows
+        # Orden por urgencia: pendientes -> taquilla -> enviadas (estable, respeta cronología).
+        rows.sort(key=lambda r: 0 if r["manage_status"]["pending"] else 1 if r["manage_status"]["box_office"] else 2)
+        return rows[:limit]
     except Exception:
         return []
     finally:

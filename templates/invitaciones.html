@@ -159,9 +159,9 @@
                 <div class="invitation-status-flags">
                   {% if ms and ms.pending %}
                     <span class="badge text-bg-danger invitation-manage-flag"><i class="fa fa-envelope-open-text me-1"></i>Solicitudes pendientes</span>
-                    {% if ms.box_office %}<span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>{% endif %}
+                    {% if ms.box_office %}<span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>{% endif %}
                   {% elif ms and ms.box_office %}
-                    <span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} en taquilla</span>
+                    <span class="badge text-bg-warning text-dark invitation-manage-flag"><i class="fa fa-store me-1"></i>{{ ms.box_office }} por recoger en taquilla</span>
                   {% elif ms and ms.managed %}
                     <span class="badge text-bg-success invitation-manage-flag"><i class="fa fa-check me-1"></i>Invitaciones enviadas</span>
                   {% endif %}

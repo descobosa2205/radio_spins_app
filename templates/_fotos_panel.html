@@ -258,5 +258,44 @@
   </div>
 </div>
 
+{# ---------- Modal: descargar ---------- #}
+<div class="modal fade" id="fotosDownloadModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-sm modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Descargar</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body d-grid gap-2">
+        <button type="button" class="btn btn-outline-secondary" data-download-fmt="original">Formato original</button>
+        <button type="button" class="btn btn-outline-secondary" data-download-fmt="jpg">JPG</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: compartir ---------- #}
+<div class="modal fade" id="fotosShareModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Compartir</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="d-flex gap-2 mb-3">
+          <button type="button" class="btn btn-outline-primary flex-fill" data-share-channel="email"><i class="fa fa-envelope me-1"></i>Email</button>
+          <button type="button" class="btn btn-outline-success flex-fill" data-share-channel="whatsapp"><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</button>
+          <button type="button" class="btn btn-outline-secondary flex-fill" data-share-channel="sms"><i class="fa fa-comment-sms me-1"></i>SMS</button>
+        </div>
+        <div id="fotosShareEmail" class="d-none">
+          <label class="form-label small text-muted">Destinatarios</label>
+          <div id="fotosShareRecipients" class="mb-2"></div>
+          <input type="text" class="form-control form-control-sm mb-2" id="fotosShareExtra" placeholder="Añadir correos a mano (separados por comas)">
+          <div class="mb-2"><label class="form-label small text-muted">Asunto</label><input type="text" class="form-control form-control-sm" id="fotosShareSubject"></div>
+          <div class="mb-2"><label class="form-label small text-muted">Empresa (logo)</label><select class="form-select form-select-sm" id="fotosShareCompany"></select></div>
+          <div class="mb-2"><label class="form-label small text-muted">Nota</label><textarea class="form-control form-control-sm" id="fotosShareNote" rows="2"></textarea></div>
+          <div class="text-end"><button type="button" class="btn btn-primary btn-sm" id="fotosShareSendEmail"><i class="fa fa-paper-plane me-1"></i>Enviar</button></div>
+          <div class="small mt-2" id="fotosShareHint"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/fotos.js') }}"></script>
 {% endif %}

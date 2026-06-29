@@ -27162,7 +27162,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "cron_chartmetric_refresh"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -28639,7 +28639,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete",
     "foto_note_add", "fotos_bulk_update",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
-    "fotos_approval_create",
+    "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email",
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
 }
@@ -28651,6 +28651,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",
     "fotos_list_json", "foto_detail_json", "fotos_approval_options",
+    "foto_download", "api_fotos_owner_emails",
 }
 # Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
 SUPPORT_ECON_READ_ENDPOINTS = {
@@ -35552,6 +35553,289 @@ def photo_approval_public(token):
             requested_by=(req.requested_by_nick or "El equipo"), requested_by_photo=(req.requested_by_photo_url or ""),
             count_label=_photo_count_label(photos),
         )
+    finally:
+        session_db.close()
+
+
+# ====================================================== descargar / compartir
+def _photo_safe_filename(title, fallback="foto"):
+    base = (title or fallback).strip() or fallback
+    return re.sub(r"[^\w\-. áéíóúñÁÉÍÓÚÑ]", "_", base).strip() or fallback
+
+
+def _photo_download_bytes(p, fmt):
+    """Devuelve (bytes, mimetype, filename) de una foto, opcionalmente convertida a JPG."""
+    content, ctype = _download_remote_content(p.file_url)
+    title = _photo_safe_filename(p.title or p.file_name)
+    is_image = (p.kind or "IMAGE").upper() != "VIDEO"
+    if fmt == "jpg" and is_image:
+        try:
+            img = PILImage.open(BytesIO(content))
+            img = ImageOps.exif_transpose(img)
+            if img.mode not in ("RGB", "L"):
+                img = img.convert("RGB")
+            out = BytesIO()
+            img.save(out, format="JPEG", quality=90)
+            return out.getvalue(), "image/jpeg", title + ".jpg"
+        except Exception:
+            pass
+    ext = os.path.splitext(p.file_name or "")[1] or ".bin"
+    return content, (ctype or "application/octet-stream"), title + ext
+
+
+def _photos_zip_bytes(photos, fmt, label):
+    buf = BytesIO()
+    used = set()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for idx, p in enumerate(photos, start=1):
+            try:
+                data, _ct, fname = _photo_download_bytes(p, fmt)
+            except Exception:
+                continue
+            member = _safe_zip_member_name(fname, used, "foto_%d" % idx)
+            zf.writestr(member, data)
+    root = ("fotografías_" + _photo_safe_filename(label, "galeria")).replace("/", "-")
+    return buf.getvalue(), root + ".zip"
+
+
+@app.get("/fotos/photo/<photo_id>/download", endpoint="foto_download")
+@admin_required
+def foto_download(photo_id):
+    fmt = (request.args.get("fmt") or "original").strip().lower()
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            abort(404)
+        data, mimetype, fname = _photo_download_bytes(p, fmt)
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=fname)
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/zip", endpoint="fotos_zip")
+@admin_required
+def fotos_zip(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    fmt = (payload.get("fmt") or "original").strip().lower()
+    session_db = db()
+    try:
+        owner, _aid, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        photos = session_db.query(Photo).filter(Photo.id.in_(ids)).all() if ids else []
+        if not photos:
+            return jsonify({"ok": False, "error": "Sin fotos."}), 400
+        data, fname = _photos_zip_bytes(photos, fmt, owner_title)
+        return send_file(BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=fname)
+    finally:
+        session_db.close()
+
+
+def _photo_share_urls(token):
+    return {
+        "public_url": _external_url_for("public_photo_share", token=token),
+        "zip_url": _external_url_for("public_photo_share_zip", token=token),
+    }
+
+
+def _create_photo_share(session_db, ot, owner, photo_ids, brand_company_id, title, state):
+    share = PhotoShare(
+        owner_type=ot, owner_id=owner.id, token=uuid.uuid4().hex,
+        photo_ids=[str(x) for x in photo_ids], brand_company_id=brand_company_id, title=title,
+        created_by_user_id=to_uuid(state.get("user_id")),
+        created_by_nick=(state.get("nick") or "").strip() or None,
+    )
+    session_db.add(share)
+    session_db.flush()
+    return share
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/share/create", endpoint="fotos_share_create")
+@admin_required
+def fotos_share_create(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    if not ids:
+        return jsonify({"ok": False, "error": "Sin fotos."}), 400
+    state = _current_user_state()
+    session_db = db()
+    try:
+        owner, artist_id, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        artist = session_db.get(Artist, artist_id) if artist_id else None
+        share = _create_photo_share(session_db, ot, owner, ids, None, owner_title, state)
+        session_db.commit()
+        urls = _photo_share_urls(share.token)
+        # Mensaje para WhatsApp/SMS
+        artist_name = (artist.name if artist else "")
+        msg = "Te comparto estos materiales" + (' de "' + artist_name + '"' if artist_name else "") + (' de "' + owner_title + '"' if owner_title else "") + ": " + urls["public_url"]
+        urls["ok"] = True
+        urls["message"] = msg
+        urls["single"] = (len(ids) == 1)
+        return jsonify(urls)
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.get("/fotos/<owner_type>/<owner_id>/emails", endpoint="api_fotos_owner_emails")
+@admin_required
+def api_fotos_owner_emails(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    session_db = db()
+    try:
+        owner, artist_id, _t = _photo_resolve_owner(session_db, ot, owner_id)
+        out = []
+        seen = set()
+        def _add(email, label):
+            e = (email or "").strip()
+            if e and e.lower() not in seen:
+                seen.add(e.lower()); out.append({"email": e, "label": label})
+        artist = session_db.get(Artist, artist_id) if artist_id else None
+        if artist:
+            _add(getattr(artist, "email", None), artist.name)
+            for ae in session_db.query(ArtistEmail).filter(ArtistEmail.artist_id == artist.id).all():
+                _add(getattr(ae, "email", None), getattr(ae, "label", None) or artist.name)
+        if ot == "CONCERT" and getattr(owner, "promoter_id", None):
+            pr = session_db.get(Promoter, owner.promoter_id)
+            if pr:
+                _add(getattr(pr, "contact_email", None), (pr.nick or "Promotor"))
+        return jsonify({"ok": True, "emails": out})
+    finally:
+        session_db.close()
+
+
+def _photo_share_email_html(session_db, share, photos, owner_title, note):
+    company = session_db.get(GroupCompany, share.brand_company_id) if share.brand_company_id else None
+    logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
+    urls = _photo_share_urls(share.token)
+    rows = ""
+    for p in photos:
+        thumb = p.file_url
+        dl = _external_url_for("public_photo_share_item", token=share.token, photo_id=str(p.id))
+        rows += ('<tr><td style="padding:6px"><img src="%s" style="width:64px;height:64px;object-fit:cover;border-radius:6px"></td>'
+                 '<td style="padding:6px;font-size:14px">%s</td>'
+                 '<td style="padding:6px"><a href="%s">Descargar</a></td></tr>') % (thumb, escape(p.title or p.file_name or ""), dl)
+    return (
+        '<div style="font-family:Arial,sans-serif;max-width:600px;margin:auto">'
+        '<div style="text-align:right"><img src="%s" style="max-height:54px"></div>' % logo
+        + ('<p>%s</p>' % escape(note) if note else '')
+        + '<h2 style="text-align:center">Envío de materiales</h2>'
+        + (('<p style="text-align:center;color:#666">%s</p>' % escape(owner_title)) if owner_title else '')
+        + '<table style="width:100%;border-collapse:collapse">' + rows + '</table>'
+        + '<p style="text-align:center;margin-top:18px"><a href="%s" style="background:#007CA2;color:#fff;padding:11px 20px;border-radius:6px;text-decoration:none">Descargar todas (ZIP)</a></p>' % urls["zip_url"]
+        + '</div>'
+    )
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/share/email", endpoint="fotos_share_email")
+@admin_required
+def fotos_share_email(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    recipients = payload.get("recipients") or []
+    note = (payload.get("note") or "").strip() or None
+    brand_company_id = to_uuid(payload.get("brand_company_id"))
+    if not ids:
+        return jsonify({"ok": False, "error": "Sin fotos."}), 400
+    if not recipients:
+        return jsonify({"ok": False, "error": "Indica al menos un destinatario."}), 400
+    state = _current_user_state()
+    session_db = db()
+    try:
+        owner, _aid, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        photos = session_db.query(Photo).filter(Photo.id.in_(ids)).all()
+        share = _create_photo_share(session_db, ot, owner, ids, brand_company_id, owner_title, state)
+        session_db.commit()
+        subject = (payload.get("subject") or ("Fotografías — " + (owner_title or ""))).strip()
+        html = _photo_share_email_html(session_db, share, photos, owner_title, note)
+        ok, err = _send_optional_email(recipients, subject, html, reply_to=_current_user_email())
+        if not ok:
+            return jsonify({"ok": False, "error": err or "No se pudo enviar."}), 500
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+def _photo_share_load(session_db, token):
+    share = session_db.query(PhotoShare).filter(PhotoShare.token == token).first()
+    if not share:
+        return None, []
+    ids = [to_uuid(x) for x in (share.photo_ids or []) if to_uuid(x)]
+    photos = session_db.query(Photo).filter(Photo.id.in_(ids)).all() if ids else []
+    order = {pid: i for i, pid in enumerate(ids)}
+    photos.sort(key=lambda p: order.get(p.id, 0))
+    return share, photos
+
+
+@app.get("/fotos-compartir/<token>", endpoint="public_photo_share")
+def public_photo_share(token):
+    session_db = db()
+    try:
+        share, photos = _photo_share_load(session_db, token)
+        if not share:
+            abort(404)
+        owner, _aid, owner_title = _photo_resolve_owner(session_db, share.owner_type, share.owner_id)
+        company = session_db.get(GroupCompany, share.brand_company_id) if share.brand_company_id else None
+        logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png"))
+        rows = [{
+            "id": str(p.id), "title": p.title or p.file_name or "", "file_url": p.file_url,
+            "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
+            "download_url": url_for("public_photo_share_item", token=token, photo_id=str(p.id)),
+        } for p in photos]
+        return render_template("public_photo_share.html", logo=logo, owner_title=owner_title, photos=rows,
+                               zip_url=url_for("public_photo_share_zip", token=token), count_label=_photo_count_label(photos))
+    finally:
+        session_db.close()
+
+
+@app.get("/fotos-compartir/<token>/zip", endpoint="public_photo_share_zip")
+def public_photo_share_zip(token):
+    fmt = (request.args.get("fmt") or "original").strip().lower()
+    session_db = db()
+    try:
+        share, photos = _photo_share_load(session_db, token)
+        if not share or not photos:
+            abort(404)
+        _owner, _aid, owner_title = _photo_resolve_owner(session_db, share.owner_type, share.owner_id)
+        data, fname = _photos_zip_bytes(photos, fmt, share.title or owner_title)
+        return send_file(BytesIO(data), mimetype="application/zip", as_attachment=True, download_name=fname)
+    finally:
+        session_db.close()
+
+
+@app.get("/fotos-compartir/<token>/<photo_id>", endpoint="public_photo_share_item")
+def public_photo_share_item(token, photo_id):
+    fmt = (request.args.get("fmt") or "original").strip().lower()
+    session_db = db()
+    try:
+        share, photos = _photo_share_load(session_db, token)
+        if not share:
+            abort(404)
+        p = next((x for x in photos if str(x.id) == str(photo_id)), None)
+        if not p:
+            abort(404)
+        data, mimetype, fname = _photo_download_bytes(p, fmt)
+        return send_file(BytesIO(data), mimetype=mimetype, as_attachment=True, download_name=fname)
     finally:
         session_db.close()
 

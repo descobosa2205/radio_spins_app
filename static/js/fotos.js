@@ -304,10 +304,6 @@
   function refresh() {
     return fetch(listUrl).then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) { state.albums = d.albums || []; state.photos = d.photos || []; render(); } });
   }
-  function downloadIds(ids) {
-    ids.forEach(function (id) { var p = photoById(id); if (!p) return; var a = document.createElement('a'); a.href = p.file_url; a.download = p.title || p.file_name || 'foto'; document.body.appendChild(a); a.click(); a.remove(); });
-  }
-
   // ================================================================== bulk
   document.querySelectorAll('#fotosBulkBar [data-bulk]').forEach(function (a) {
     a.addEventListener('click', function (e) {
@@ -318,7 +314,7 @@
   });
   function doBulk(action, ids) {
     bulkContext = { ids: ids };
-    if (action === 'download') downloadIds(ids);
+    if (action === 'download') openDownload(ids);
     else if (action === 'delete') {
       if (!confirm('¿Eliminar ' + ids.length + ' elemento(s)? No se puede deshacer.')) return;
       Promise.all(ids.map(function (id) { return fetch('/fotos/photo/' + id + '/delete', { method: 'POST' }); })).then(function () { selected = {}; refresh(); });
@@ -382,7 +378,7 @@
     var action = a.getAttribute('data-album-action');
     var album = albumById(albumId); if (!album) return;
     var ids = (album.photos || []).map(function (p) { return p.id; });
-    if (action === 'download') downloadIds(ids);
+    if (action === 'download') openDownload(ids);
     else if (action === 'bulkedit') openBulkEdit(ids);
     else if (action === 'approval') openApproval(ids);
     else if (action === 'share') openShare(ids);
@@ -490,8 +486,91 @@
     });
   });
 
+  // ============================================================== descargar
+  var downloadIdsCtx = [];
+  function openDownload(ids) { downloadIdsCtx = ids; bsModal('fotosDownloadModal').show(); }
+  document.querySelectorAll('#fotosDownloadModal [data-download-fmt]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var fmt = btn.getAttribute('data-download-fmt');
+      bsModal('fotosDownloadModal').hide();
+      var ids = downloadIdsCtx;
+      if (ids.length === 1) {
+        var a = document.createElement('a'); a.href = '/fotos/photo/' + ids[0] + '/download?fmt=' + fmt;
+        document.body.appendChild(a); a.click(); a.remove();
+      } else {
+        // ZIP del servidor (fetch -> blob para conservar el nombre del archivo)
+        fetch(ownerBase + '/zip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_ids: ids, fmt: fmt }) })
+          .then(function (r) { return r.ok ? r.blob() : null; }).then(function (blob) {
+            if (!blob) return; var url = URL.createObjectURL(blob); var a = document.createElement('a');
+            a.href = url; a.download = 'fotografias.zip'; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+          });
+      }
+    });
+  });
+
   // ============================================================== compartir
-  function openShare(ids) { if (window.fotosOpenShare) window.fotosOpenShare(ids); }
+  var shareIds = [];
+  function openShare(ids) {
+    shareIds = ids;
+    document.getElementById('fotosShareEmail').classList.add('d-none');
+    document.getElementById('fotosShareHint').textContent = '';
+    bsModal('fotosShareModal').show();
+  }
+  document.querySelectorAll('#fotosShareModal [data-share-channel]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var ch = btn.getAttribute('data-share-channel');
+      if (ch === 'email') openShareEmail();
+      else shareViaLink(ch);
+    });
+  });
+  function shareViaLink(channel) {
+    postJson(ownerBase + '/share/create', { photo_ids: shareIds }).then(function (d) {
+      if (!d.ok) return;
+      var msg = d.message || d.public_url;
+      var url = (channel === 'whatsapp') ? ('https://wa.me/?text=' + encodeURIComponent(msg)) : ('sms:?&body=' + encodeURIComponent(msg));
+      bsModal('fotosShareModal').hide();
+      window.open(url, '_blank');
+    });
+  }
+  function openShareEmail() {
+    var box = document.getElementById('fotosShareEmail');
+    box.classList.remove('d-none');
+    document.getElementById('fotosShareSubject').value = 'Fotografías';
+    var rec = document.getElementById('fotosShareRecipients');
+    rec.innerHTML = '<span class="text-muted small">Cargando…</span>';
+    fetch(ownerBase + '/emails').then(function (r) { return r.json(); }).then(function (d) {
+      var emails = (d && d.emails) || [];
+      rec.innerHTML = emails.length ? emails.map(function (e) {
+        return '<label class="d-block small"><input type="checkbox" class="form-check-input me-1 fotos-share-rec" value="' + esc(e.email) + '" checked> ' + esc(e.label) + ' <span class="text-muted">(' + esc(e.email) + ')</span></label>';
+      }).join('') : '<span class="text-muted small">Sin correos vinculados; añade abajo.</span>';
+    });
+    var sel = document.getElementById('fotosShareCompany');
+    if (!sel.options.length) {
+      fetch(ownerBase + '/approval-options').then(function (r) { return r.json(); }).then(function (o) {
+        if (!o.ok) return;
+        sel.innerHTML = '<option value="">—</option>' + (o.companies || []).map(function (c) { return '<option value="' + esc(c.id) + '"' + (c.id === o.default_company_id ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('');
+      });
+    }
+  }
+  document.getElementById('fotosShareSendEmail').addEventListener('click', function () {
+    var recips = [];
+    document.querySelectorAll('.fotos-share-rec:checked').forEach(function (cb) { recips.push(cb.value); });
+    var extra = document.getElementById('fotosShareExtra').value.trim();
+    if (extra) extra.split(',').forEach(function (e) { if (e.trim()) recips.push(e.trim()); });
+    if (!recips.length) { document.getElementById('fotosShareHint').textContent = 'Indica al menos un destinatario.'; return; }
+    var body = {
+      photo_ids: shareIds, recipients: recips,
+      subject: document.getElementById('fotosShareSubject').value.trim(),
+      note: document.getElementById('fotosShareNote').value.trim(),
+      brand_company_id: document.getElementById('fotosShareCompany').value || null
+    };
+    var btn = document.getElementById('fotosShareSendEmail'); btn.disabled = true;
+    postJson(ownerBase + '/share/email', body).then(function (d) {
+      btn.disabled = false;
+      if (d.ok) { bsModal('fotosShareModal').hide(); }
+      else document.getElementById('fotosShareHint').textContent = d.error || 'Error al enviar.';
+    });
+  });
 
   // ================================================================== subida
   var addBtn = document.getElementById('fotosAddBtn');

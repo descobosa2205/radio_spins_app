@@ -110,7 +110,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   `agenda-*` en `styles.css`. Modo `home` (color por artista, 2 semanas fijas, etiquetas de artista arriba
   + tipos a la izquierda) y modo `artist` (color por tipo, 4 semanas navegables por meses con flechas,
   listado de eventos a la izquierda). En Inicio se inyecta como `HOME_AGENDA` (todos los usuarios; sus
-  artistas asignados o todos si no tiene/role 10).
+  artistas asignados o todos si no tiene/role 10). La agenda del artista carga ±6 meses y navega también
+  al pasado. El calendario muestra el mes junto a cada día. Además del calendario de actividades reales,
+  `_agenda_build` añade: **bloqueos** y **notas libres** (modelo `ArtistAgendaItem`, kind BLOCK/NOTE,
+  multi-día; los bloqueos marcan los días con rayado) y **cumpleaños** (artista individual →
+  `Artist.birth_date`; grupo `Artist.is_group` → cada `ArtistPerson.birth_date`). **Botón +** arriba a la
+  derecha (Inicio y ficha) → asistente `templates/_agenda_add_modal.html`: elegir artista (en Inicio,
+  vía `AGENDA_ARTIST_OPTIONS`), tipo (Actividad/Bloqueo/Otro) y rango de días. «Actividad» reabre el
+  asistente de concierto (`/conciertos?open_wizard=1&wizard_artist=<id>`, auto-apertura en
+  `_concert_wizard_modal.html`). Endpoints `agenda_block_create`/`agenda_note_create`/`agenda_item_delete`
+  (en `SUPPORT_ACTION_ENDPOINTS`). Al crear artista se pregunta «¿es un grupo?»; la pestaña Datos edita
+  `is_group`, fecha del artista y fecha por miembro.
 - **Alta rápida de entidades (modal superpuesto)**: `templates/_quick_create_modals.html` +
   `static/js/quick_create.js`. Junto a un `<select id="X">` añadir
   `<button type="button" data-quick-create="TIPO" data-target="X"><i class="fa fa-plus"></i></button>`

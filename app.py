@@ -36899,8 +36899,11 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 "category_id": str(cat.id),
                 "category_name": name_map.get(str(cat.id), "Categoría"),
             })
-    approved_statuses = {"APROBADAS", "ASIGNADAS"}
-    for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(approved_statuses)).order_by(InvitationRequest.created_at.asc()).all():
+    # Peticiones aprobadas/asignadas (asignables) y pendientes de aprobar (se muestran para poder
+    # aprobarlas y asignarlas directamente desde aquí: al asignarles entradas pasan a ASIGNADAS).
+    source_statuses = {"APROBADAS", "ASIGNADAS", "SOLICITADAS"}
+    for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(source_statuses)).order_by(InvitationRequest.created_at.asc()).all():
+        is_pending_approval = (row.status or "") == "SOLICITADAS"
         quantities = _json_dict(row.quantities_json)
         for cid, qty in quantities.items():
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
@@ -36914,13 +36917,14 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 "source_type": "request",
                 "source_id": str(row.id),
                 "name": row.guest_name,
-                "company": row.guest_company or "Petición aprobada",
+                "company": row.guest_company or ("Pendiente de aprobar" if is_pending_approval else "Petición aprobada"),
                 "photo_url": row.requester_photo_url or url_for("static", filename="img/placeholder_photo.png"),
                 "requester": row.requester_nick or row.requester_email or "",
                 "date_label": _invitation_display_datetime(row.created_at),
                 "qty": pending,
                 "qty_total": _safe_int(qty),
                 "assigned": assigned,
+                "pending_approval": is_pending_approval,
                 "category_id": str(cat.id),
                 "category_name": name_map.get(str(cat.id), "Categoría"),
             })
@@ -39147,11 +39151,13 @@ def invitation_commitment_release(commitment_id):
 @app.post('/invitaciones/solicitudes/<request_id>/estado', endpoint='invitation_request_status')
 @admin_required
 def invitation_request_status(request_id):
+    cid = None
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
+        cid = str(row.concert_id)
         action = (request.form.get('action') or '').strip().upper()
         _state = _current_user_state()
         _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
@@ -39203,7 +39209,9 @@ def invitation_request_status(request_id):
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo actualizar la solicitud: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='gestionar'))
+        # Redirigir al MISMO evento (no a la lista): así el mensaje se ve y, con el envío inline,
+        # la zona #req-<id> existe en la respuesta y no se pierde el aviso.
+        return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 
@@ -39482,11 +39490,13 @@ def invitation_request_delete(request_id):
 @app.post('/invitaciones/solicitudes/<request_id>/asignar-auto', endpoint='invitation_request_auto_assign')
 @admin_required
 def invitation_request_auto_assign(request_id):
+    cid = None
     session_db = db()
     try:
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
+        cid = str(row.concert_id)
         _ensure_can_manage_invitations(session_db, row.concert)
         concert = row.concert or session_db.get(Concert, row.concert_id)
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
@@ -39524,13 +39534,16 @@ def invitation_request_auto_assign(request_id):
         if assigned_count > 0:
             row.status = 'ASIGNADAS'
             row.assigned_at = _now_madrid()
+        if assigned_count <= 0:
+            raise ValueError('No se pudo asignar ninguna invitación (revisa que haya invitaciones subidas y disponibles en la categoría).')
         session_db.commit()
         flash('Invitaciones asignadas.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudieron asignar automáticamente: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='gestionar'))
+        # Volver al mismo evento para que el aviso se vea (con envío inline la zona existe ahí).
+        return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 

@@ -447,7 +447,6 @@
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         {% if row.guest_promoter_id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
                         {% if row.guest_title %}<span class="text-muted">· {{ row.guest_title }}</span>{% endif %}
-                        <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
                         {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
                       </div>
                       {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
@@ -455,6 +454,12 @@
                       <div class="mt-2">{{ row.quantities_label }}</div>
                       {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
+                    <div class="d-flex align-items-center gap-2">
+                    {% if row.status == 'SOLICITADAS' %}
+                      <form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}" class="m-0"><input type="hidden" name="action" value="APPROVE"><button type="submit" class="btn btn-sm btn-warning" title="Pendiente de aprobar — pulsa para aprobar"><i class="fa fa-clock me-1"></i>{{ row.status_label }} · Aprobar</button></form>
+                    {% else %}
+                      <span class="badge text-bg-{{ row.status_badge }} align-self-center">{{ row.status_label }}</span>
+                    {% endif %}
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
@@ -477,6 +482,7 @@
                               data-sent="{{ 1 if row.status in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] else 0 }}"
                               data-downloaded="{{ 1 if (row.downloaded_count or 0) > 0 else 0 }}"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></li>
                       </ul>
+                    </div>
                     </div>
                   </div>
                 </div>
@@ -733,18 +739,20 @@
             <form class="invitation-assignment-form assign-cat-block border rounded p-3 mb-3" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-release-url="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
               <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
               <input type="hidden" name="accept_warnings" value="1">
-              <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}</div>
+              {% set pend_appr = pending_assignments.get(cat.id, [])|selectattr('pending_approval')|list|length %}
+              <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}{% if pend_appr %}<span class="badge text-bg-warning text-dark ms-2"><i class="fa fa-clock me-1"></i>{{ pend_appr }} pendiente{{ '' if pend_appr == 1 else 's' }} de aprobar</span>{% endif %}</div>
               <div class="row g-3">
                 <div class="col-12 col-lg-4">
-                  <h6>Compromisos y peticiones aprobadas</h6>
+                  <h6>Compromisos y peticiones</h6>
+                  {% if pend_appr %}<div class="small text-muted mb-2">Las marcadas «Pendiente de aprobar» se aprueban y asignan directamente al asignarles invitaciones.</div>{% endif %}
                   <div class="alert alert-info py-2 px-3 small d-none justify-content-between align-items-center gap-2" data-assign-filter-banner>
                     <span><i class="fa fa-filter me-1"></i>Mostrando solo la selección elegida.</span>
                     <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-assign-filter-clear>Ver todas</button>
                   </div>
                   <div class="assignment-source-list" data-source-list>
                     {% for src in pending_assignments.get(cat.id, []) %}
-                      <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
-                        <div class="d-flex align-items-center gap-2"><img src="{{ src.photo_url }}" class="tiny-avatar" alt=""><strong>{{ src.name }}</strong></div>
+                      <div class="assignment-source{% if src.pending_approval %} assignment-source--pending-approval{% endif %}" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}">
+                        <div class="d-flex align-items-center gap-2 flex-wrap"><img src="{{ src.photo_url }}" class="tiny-avatar" alt=""><strong>{{ src.name }}</strong>{% if src.pending_approval %}<span class="badge text-bg-warning text-dark"><i class="fa fa-clock me-1"></i>Pendiente de aprobar</span>{% endif %}</div>
                         <div class="small text-muted">{{ src.company }} · {{ src.qty }} pendientes de {{ src.qty_total }}</div>
                         {% if src.requester %}<div class="small text-muted" title="{{ src.requester }} · {{ src.date_label }}">Solicitado por {{ src.requester }}</div>{% endif %}
                         {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-auto-source><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar automáticamente</button>{% endif %}

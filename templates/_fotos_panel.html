@@ -27,9 +27,11 @@
         <div class="dropdown">
           <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-vertical"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" data-bulk="approval"><i class="fa fa-thumbs-up fa-fw me-2"></i>Pedir aprobación</a></li>
             <li><a class="dropdown-item" href="#" data-bulk="album"><i class="fa fa-layer-group fa-fw me-2"></i>Añadir a álbum</a></li>
             <li><a class="dropdown-item" href="#" data-bulk="edit"><i class="fa fa-pen fa-fw me-2"></i>Editar datos en bloque</a></li>
             <li><a class="dropdown-item" href="#" data-bulk="download"><i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>
+            <li><a class="dropdown-item" href="#" data-bulk="share"><i class="fa fa-share-nodes fa-fw me-2"></i>Compartir</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item text-danger" href="#" data-bulk="delete"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</a></li>
           </ul>
@@ -219,6 +221,38 @@
           <button type="button" class="btn btn-outline-secondary" data-album-delete-mode="keep">Eliminar solo el álbum<br><span class="small text-muted">Las fotos quedan sueltas</span></button>
           <button type="button" class="btn btn-outline-danger" data-album-delete-mode="with_photos">Eliminar álbum y sus fotos</button>
         </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: pedir aprobación ---------- #}
+<div class="modal fade" id="fotosApprovalModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Pedir aprobación</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted">Marca quién tiene que aprobar <span id="fotosApprovalCount">0</span> elemento(s).</p>
+        <div id="fotosApprovalList" class="mb-3"></div>
+
+        <div class="border-top pt-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="fotosApprovalAddOther"><i class="fa fa-plus me-1"></i>Añadir a otra persona</button>
+          <div id="fotosApprovalOthers" class="mt-2"></div>
+        </div>
+
+        <div class="row g-2 mt-2 align-items-end">
+          <div class="col-md-7">
+            <label class="form-label">Logo de empresa del grupo (para el correo)</label>
+            <select class="form-select" id="fotosApprovalCompany"></select>
+          </div>
+          <div class="col-md-5">
+            <div class="form-check mt-4"><input class="form-check-input" type="checkbox" id="fotosApprovalSendEmail" checked><label class="form-check-label" for="fotosApprovalSendEmail">Enviar correo con el enlace</label></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <span class="small text-muted me-auto" id="fotosApprovalHint"></span>
+        <button type="button" class="btn btn-primary" id="fotosApprovalSubmit"><i class="fa fa-paper-plane me-1"></i>Solicitar aprobación</button>
       </div>
     </div>
   </div>

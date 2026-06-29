@@ -209,6 +209,9 @@ from models import (
     PhotoAlbum,
     PhotoAlbumItem,
     PhotoNote,
+    PhotoApprovalRequest,
+    PhotoApprover,
+    PhotoApproval,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
@@ -260,6 +263,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_song_master_delivery",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
+    "public_photo_approval",
 }
 
 
@@ -1033,7 +1037,11 @@ def artists_view():
         photo = request.files.get("photo")
         try:
             photo_url = upload_png(photo, "artists") if photo else None
-            artist = Artist(name=name, photo_url=photo_url)  # id lo genera la BD
+            artist = Artist(
+                name=name, photo_url=photo_url,  # id lo genera la BD
+                is_group=_truthy(request.form.get("is_group")),
+                birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""),
+            )
             session_db.add(artist)
             session_db.commit()
             flash("Artista creado.", "success")
@@ -1263,6 +1271,10 @@ def artist_update(artist_id):
     a.email = email
     if "is_international" in request.form:
         a.is_international = _truthy(request.form.get("is_international"))
+    if "is_group" in request.form:
+        a.is_group = _truthy(request.form.get("is_group"))
+    if "birth_date" in request.form:
+        a.birth_date = parse_date((request.form.get("birth_date") or "").strip() or "")
     photo = request.files.get("photo")
     try:
         if photo and photo.filename:
@@ -1390,7 +1402,8 @@ def artist_person_add(artist_id):
             flash("El nombre es obligatorio.", "warning")
             return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
 
-        p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "")
+        p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "",
+                         birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""))
         session_db.add(p)
         session_db.commit()
         flash("Persona añadida.", "success")
@@ -1421,6 +1434,8 @@ def artist_person_update(person_id):
 
         p.first_name = first_name
         p.last_name = last_name or ""
+        if "birth_date" in request.form:
+            p.birth_date = parse_date((request.form.get("birth_date") or "").strip() or "")
         session_db.commit()
         flash("Persona actualizada.", "success")
         return redirect(safe_next_or(url_for("artist_detail_view", artist_id=p.artist_id, tab="datos")))
@@ -20127,12 +20142,18 @@ def api_create_artist():
         photo = request.files.get("photo")
         photo_url = upload_png(photo, "artists") if photo and getattr(photo, "filename", "") else None
 
-        a = Artist(name=name, photo_url=photo_url, is_international=_truthy(request.form.get("is_international")))
+        a = Artist(
+            name=name, photo_url=photo_url,
+            is_international=_truthy(request.form.get("is_international")),
+            is_group=_truthy(request.form.get("is_group")),
+            birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""),
+        )
         session.add(a)
         session.commit()
         return jsonify({
             "id": str(a.id), "label": a.name, "text": a.name, "name": a.name,
             "photo_url": a.photo_url, "is_international": bool(a.is_international),
+            "is_group": bool(a.is_group),
         })
 
     except Exception as e:
@@ -27140,7 +27161,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "cron_chartmetric_refresh"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "cron_chartmetric_refresh"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -28510,6 +28531,7 @@ def inject_personnel_globals():
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
+        "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
@@ -28616,6 +28638,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete",
     "foto_note_add", "fotos_bulk_update",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
+    "fotos_approval_create",
+    # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
+    "agenda_block_create", "agenda_note_create", "agenda_item_delete",
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
@@ -28624,7 +28649,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",
-    "fotos_list_json", "foto_detail_json",
+    "fotos_list_json", "foto_detail_json", "fotos_approval_options",
 }
 # Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
 SUPPORT_ECON_READ_ENDPOINTS = {
@@ -34639,7 +34664,7 @@ def _photo_promoter_payload(pr):
     return {"id": str(pr.id), "name": name or "—", "logo_url": (getattr(pr, "logo_url", None) or "")}
 
 
-def _photo_payload(p, photographer=None):
+def _photo_payload(p, photographer=None, approval=None):
     kind = (getattr(p, "kind", None) or "IMAGE").upper()
     created = getattr(p, "created_at", None)
     taken = getattr(p, "taken_date", None)
@@ -34657,8 +34682,8 @@ def _photo_payload(p, photographer=None):
         "photographer": photographer,
         "created_at": created.isoformat() if created else "",
         "created_by_nick": p.created_by_nick or "",
-        # Fase 1: el flujo de aprobaciones llega en una fase posterior.
-        "approval_state": "NONE",
+        "approval_state": (approval or {}).get("state", "NONE"),
+        "approvers": (approval or {}).get("approvers", []),
     }
 
 
@@ -34668,6 +34693,53 @@ def _photo_promoter_map(session_db, photos):
     if ids:
         for pr in session_db.query(Promoter).filter(Promoter.id.in_(ids)).all():
             out[pr.id] = _photo_promoter_payload(pr)
+    return out
+
+
+def _photo_approval_map(session_db, photo_ids):
+    """{photo_id(str): {state, approvers:[...]}} para un conjunto de fotos."""
+    out = {}
+    ids = [pid for pid in photo_ids if pid]
+    if not ids:
+        return out
+    rows = (
+        session_db.query(PhotoApproval, PhotoApprover)
+        .join(PhotoApprover, PhotoApproval.approver_id == PhotoApprover.id)
+        .filter(PhotoApproval.photo_id.in_(ids))
+        .all()
+    )
+    by_photo = {}
+    for appr, person in rows:
+        by_photo.setdefault(appr.photo_id, []).append((appr, person))
+    for pid, lst in by_photo.items():
+        approvers = []
+        any_rej = any_pending = False
+        all_app = True
+        for appr, person in lst:
+            dec = (appr.decision or "PENDING").upper()
+            if dec == "REJECTED":
+                any_rej = True
+                all_app = False
+            elif dec == "PENDING":
+                any_pending = True
+                all_app = False
+            approvers.append({
+                "name": person.name,
+                "photo_url": person.photo_url or "",
+                "decision": dec,
+                "decided_at": appr.decided_at.isoformat() if appr.decided_at else "",
+                "sent_at": person.created_at.isoformat() if person.created_at else "",
+                "email": person.email or "",
+            })
+        if any_rej:
+            state = "REJECTED"
+        elif lst and all_app:
+            state = "APPROVED"
+        elif any_pending:
+            state = "PENDING"
+        else:
+            state = "NONE"
+        out[str(pid)] = {"state": state, "approvers": approvers}
     return out
 
 
@@ -34681,6 +34753,7 @@ def _build_fotos_context(session_db, owner_type, owner_id):
         .all()
     )
     promo_map = _photo_promoter_map(session_db, photos)
+    appr_map = _photo_approval_map(session_db, [p.id for p in photos])
     photo_by_id = {p.id: p for p in photos}
 
     albums = (
@@ -34710,10 +34783,10 @@ def _build_fotos_context(session_db, owner_type, owner_id):
             "name": a.name,
             "count": len(member_photos),
             "cover_url": (cover.file_url if cover else ""),
-            "photos": [_photo_payload(mp, promo_map.get(mp.photographer_promoter_id)) for mp in member_photos],
+            "photos": [_photo_payload(mp, promo_map.get(mp.photographer_promoter_id), appr_map.get(str(mp.id))) for mp in member_photos],
         })
 
-    loose = [_photo_payload(p, promo_map.get(p.photographer_promoter_id)) for p in photos if p.id not in in_album]
+    loose = [_photo_payload(p, promo_map.get(p.photographer_promoter_id), appr_map.get(str(p.id))) for p in photos if p.id not in in_album]
     return {
         "owner_type": owner_type,
         "owner_id": str(oid),
@@ -34938,7 +35011,8 @@ def foto_detail_json(photo_id):
         promo = session_db.get(Promoter, p.photographer_promoter_id) if p.photographer_promoter_id else None
         owner, artist_id, owner_title = _photo_resolve_owner(session_db, p.owner_type, p.owner_id)
         artist = session_db.get(Artist, artist_id) if artist_id else None
-        data = _photo_payload(p, _photo_promoter_payload(promo))
+        appr = _photo_approval_map(session_db, [p.id]).get(str(p.id))
+        data = _photo_payload(p, _photo_promoter_payload(promo), appr)
         data["owner_type"] = p.owner_type
         data["owner_id"] = str(p.owner_id)
         data["owner_title"] = owner_title
@@ -35236,6 +35310,247 @@ def photo_album_delete(album_id):
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+# ============================================================ aprobaciones
+def _photo_count_label(photos):
+    n_img = sum(1 for p in photos if (p.kind or "IMAGE").upper() != "VIDEO")
+    n_vid = len(photos) - n_img
+    parts = []
+    if n_img:
+        parts.append("%d fotografía%s" % (n_img, "" if n_img == 1 else "s"))
+    if n_vid:
+        parts.append("%d vídeo%s" % (n_vid, "" if n_vid == 1 else "s"))
+    return " y ".join(parts) if parts else "0 elementos"
+
+
+def _photo_approval_options(session_db, ot, owner):
+    artists = []
+    artist_ids = []
+    primary_id = None
+    if ot == "CONCERT":
+        primary_id = getattr(owner, "artist_id", None)
+        artist_ids = [primary_id] + [to_uuid(x) for x in (getattr(owner, "artist_ids", None) or [])]
+    else:
+        artist_ids = [to_uuid(x) for x in (getattr(owner, "artist_ids", None) or [])]
+        primary_id = artist_ids[0] if artist_ids else None
+    seen = set()
+    for aid in artist_ids:
+        if not aid or aid in seen:
+            continue
+        seen.add(aid)
+        art = session_db.get(Artist, aid)
+        if not art:
+            continue
+        members = [
+            (" ".join(filter(None, [m.first_name, m.last_name])).strip())
+            for m in session_db.query(ArtistPerson).filter(ArtistPerson.artist_id == art.id).all()
+        ]
+        artists.append({
+            "id": str(art.id),
+            "name": art.name,
+            "photo_url": (getattr(art, "photo_url", None) or ""),
+            "email": (getattr(art, "email", None) or ""),
+            "is_primary": (aid == primary_id),
+            "members": [m for m in members if m],
+        })
+    promoter = None
+    if ot == "CONCERT" and getattr(owner, "promoter_id", None):
+        pr = session_db.get(Promoter, owner.promoter_id)
+        if pr:
+            promoter = {
+                "name": (pr.nick or "").strip() or "Promotor",
+                "photo_url": (getattr(pr, "logo_url", None) or ""),
+                "email": (getattr(pr, "contact_email", None) or ""),
+            }
+    companies = [
+        {"id": str(c.id), "name": c.name, "logo_url": (c.logo_url or "")}
+        for c in session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+    ]
+    default_company_id = str(owner.group_company_id) if (ot == "CONCERT" and getattr(owner, "group_company_id", None)) else ""
+    show_responsible = (ot == "CONCERT" and (getattr(owner, "sale_type", "") or "") in ("GIRAS_COMPRADAS", "VENDIDO"))
+    return {
+        "artists": artists,
+        "promoter": promoter,
+        "companies": companies,
+        "default_company_id": default_company_id,
+        "show_responsible": show_responsible,
+    }
+
+
+@app.get("/fotos/<owner_type>/<owner_id>/approval-options", endpoint="fotos_approval_options")
+@admin_required
+def fotos_approval_options(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    session_db = db()
+    try:
+        owner, _artist_id, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        opts = _photo_approval_options(session_db, ot, owner)
+        opts["ok"] = True
+        opts["owner_title"] = owner_title
+        return jsonify(opts)
+    finally:
+        session_db.close()
+
+
+def _photo_approval_email_html(session_db, request_row, approver, photos, owner_title):
+    company = session_db.get(GroupCompany, request_row.brand_company_id) if request_row.brand_company_id else None
+    logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png", _external=True))
+    url_pub = _external_url_for("public_photo_approval", token=approver.token)
+    who = (request_row.requested_by_nick or "El equipo").strip()
+    count = _photo_count_label(photos)
+    return (
+        '<div style="font-family:Arial,sans-serif;max-width:560px;margin:auto">'
+        '<div style="text-align:right"><img src="%s" alt="" style="max-height:54px"></div>' % logo
+        + '<p>%s te ha compartido unos contenidos para aprobación. Por favor revisa uno a uno para dar tu aprobación.</p>' % escape(who)
+        + '<h3 style="margin:18px 0 4px">Contenido pendiente de aprobar:</h3>'
+        + '<p style="font-size:16px"><strong>%s</strong>%s</p>' % (escape(count), (' · ' + escape(owner_title)) if owner_title else '')
+        + '<p style="margin-top:22px"><a href="%s" style="background:#E33D48;color:#fff;padding:11px 20px;border-radius:6px;text-decoration:none">Revisar ahora</a></p>' % url_pub
+        + '<p style="color:#888;font-size:12px;margin-top:18px">Si el botón no funciona, copia este enlace: %s</p>' % url_pub
+        + '</div>'
+    )
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/approval/create", endpoint="fotos_approval_create")
+@admin_required
+def fotos_approval_create(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    photo_ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    approvers_in = payload.get("approvers") or []
+    if not photo_ids:
+        return jsonify({"ok": False, "error": "Sin fotos seleccionadas."}), 400
+    if not approvers_in:
+        return jsonify({"ok": False, "error": "Selecciona al menos a quién pedir aprobación."}), 400
+    send_email = _truthy(payload.get("send_email"))
+    brand_company_id = to_uuid(payload.get("brand_company_id"))
+    message = (payload.get("message") or "").strip() or None
+    state = _current_user_state()
+
+    session_db = db()
+    try:
+        owner, _artist_id, owner_title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        photos = session_db.query(Photo).filter(Photo.id.in_(photo_ids)).all()
+        req = PhotoApprovalRequest(
+            owner_type=ot, owner_id=owner.id, brand_company_id=brand_company_id,
+            photo_ids=[str(x) for x in photo_ids], message=message, status="ACTIVE",
+            requested_by_user_id=to_uuid(state.get("user_id")),
+            requested_by_nick=(state.get("nick") or "").strip() or None,
+            requested_by_photo_url=(state.get("photo_url") or "").strip() or None,
+        )
+        session_db.add(req)
+        session_db.flush()
+
+        emailed = 0
+        for a in approvers_in:
+            name = (a.get("name") or "").strip()
+            if not name:
+                continue
+            approver = PhotoApprover(
+                request_id=req.id, token=uuid.uuid4().hex,
+                kind=(a.get("kind") or "CUSTOM").strip().upper(),
+                name=name, role=(a.get("role") or "").strip() or None,
+                email=(a.get("email") or "").strip() or None,
+                photo_url=(a.get("photo_url") or "").strip() or None,
+                artist_id=to_uuid(a.get("artist_id")),
+            )
+            session_db.add(approver)
+            session_db.flush()
+            for pid in photo_ids:
+                session_db.add(PhotoApproval(approver_id=approver.id, photo_id=pid, decision="PENDING"))
+            if send_email and approver.email:
+                ok, _err = _send_optional_email(
+                    approver.email,
+                    "Aprobación de contenidos — %s" % (owner_title or "Materiales"),
+                    _photo_approval_email_html(session_db, req, approver, photos, owner_title),
+                    reply_to=_current_user_email(),
+                )
+                if ok:
+                    emailed += 1
+        session_db.commit()
+        return jsonify({"ok": True, "emailed": emailed})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.route("/aprobacion-fotos/<token>", methods=["GET", "POST"], endpoint="public_photo_approval")
+def photo_approval_public(token):
+    session_db = db()
+    try:
+        approver = session_db.query(PhotoApprover).filter(PhotoApprover.token == token).first()
+        if not approver:
+            abort(404)
+        req = session_db.get(PhotoApprovalRequest, approver.request_id)
+        if not req:
+            abort(404)
+        approvals = {
+            ap.photo_id: ap
+            for ap in session_db.query(PhotoApproval).filter(PhotoApproval.approver_id == approver.id).all()
+        }
+        photos = (
+            session_db.query(Photo)
+            .filter(Photo.id.in_(list(approvals.keys())))
+            .order_by(Photo.sort_order.asc(), Photo.created_at.asc())
+            .all()
+        ) if approvals else []
+        owner, _artist_id, owner_title = _photo_resolve_owner(session_db, req.owner_type, req.owner_id)
+        company = session_db.get(GroupCompany, req.brand_company_id) if req.brand_company_id else None
+        logo = (company.logo_url if company and company.logo_url else url_for("static", filename="img/logo.png"))
+
+        if request.method == "POST":
+            for p in photos:
+                dec = (request.form.get("decision_" + str(p.id)) or "").strip().upper()
+                note = (request.form.get("note_" + str(p.id)) or "").strip()
+                ap = approvals.get(p.id)
+                if ap and dec in ("APPROVED", "REJECTED"):
+                    ap.decision = dec
+                    ap.decided_at = _now_madrid()
+                if note:
+                    session_db.add(PhotoNote(
+                        photo_id=p.id, body=note, source="APPROVAL",
+                        created_by_nick=approver.name,
+                        created_by_photo_url=approver.photo_url,
+                    ))
+            approver.status = "SUBMITTED"
+            approver.submitted_at = _now_madrid()
+            session_db.commit()
+            approved_photos = [p for p in photos if approvals.get(p.id) and approvals[p.id].decision == "APPROVED"]
+            return render_template(
+                "public_photo_approval.html", done=True, logo=logo,
+                approved_photos=approved_photos, owner_title=owner_title, approver=approver,
+            )
+
+        notes_map = {}
+        for n in session_db.query(PhotoNote).filter(PhotoNote.photo_id.in_(list(approvals.keys()))).order_by(PhotoNote.created_at.asc()).all() if approvals else []:
+            notes_map.setdefault(n.photo_id, []).append(n)
+        photo_rows = []
+        for p in photos:
+            ap = approvals.get(p.id)
+            photo_rows.append({
+                "id": str(p.id), "title": p.title or p.file_name or "", "file_url": p.file_url,
+                "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
+                "decision": (ap.decision if ap else "PENDING"),
+                "notes": [{"body": n.body, "author": n.created_by_nick or "", "photo": n.created_by_photo_url or "", "at": (n.created_at.strftime("%d/%m/%Y") if n.created_at else "")} for n in notes_map.get(p.id, [])],
+            })
+        return render_template(
+            "public_photo_approval.html", done=(approver.status == "SUBMITTED"), logo=logo,
+            photos=photo_rows, owner_title=owner_title, approver=approver, req=req,
+            requested_by=(req.requested_by_nick or "El equipo"), requested_by_photo=(req.requested_by_photo_url or ""),
+            count_label=_photo_count_label(photos),
+        )
     finally:
         session_db.close()
 
@@ -40213,6 +40528,24 @@ def _home_agenda() -> dict | None:
         return _agenda_build(session_db, target_ids, start, end, today)
     except Exception:
         return None
+    finally:
+        session_db.close()
+
+
+def _agenda_artist_options() -> list[dict]:
+    """Artistas para el selector del botón + en Inicio: los asignados al usuario (o todos si no tiene
+    ninguno o es dirección)."""
+    state = _current_user_state()
+    role = _safe_int(state.get("role"))
+    assigned = [str(x) for x in (state.get("assigned_artist_ids") or []) if x]
+    session_db = db()
+    try:
+        q = session_db.query(Artist).order_by(Artist.name.asc())
+        if not (role == 10 or not assigned):
+            q = q.filter(Artist.id.in_([to_uuid(x) for x in assigned]))
+        return [{"id": str(a.id), "name": a.name or "—", "photo_url": a.photo_url or ""} for a in q.all()]
+    except Exception:
+        return []
     finally:
         session_db.close()
 

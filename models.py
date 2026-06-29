@@ -3187,6 +3187,71 @@ class PhotoNote(Base):
     )
 
 
+class PhotoApprovalRequest(Base):
+    """Una petición de aprobación (un lote de fotos enviado a uno o varios aprobadores)."""
+
+    __tablename__ = "photo_approval_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    brand_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    photo_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    message = Column(Text)
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
+    requested_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    requested_by_nick = Column(Text)
+    requested_by_photo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_appr_req_owner", "owner_type", "owner_id"),
+    )
+
+
+class PhotoApprover(Base):
+    """Cada persona a la que se le pide aprobar (con su enlace público propio)."""
+
+    __tablename__ = "photo_approvers"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    request_id = Column(PGUUID(as_uuid=True), ForeignKey("photo_approval_requests.id", ondelete="CASCADE"), nullable=False)
+    token = Column(Text, nullable=False, unique=True)
+    kind = Column(Text, nullable=False, server_default=text("'CUSTOM'"))  # ARTIST|ARTIST_MEMBER|PROMOTER|RESPONSIBLE|COLLABORATOR|CUSTOM
+    name = Column(Text, nullable=False)
+    role = Column(Text)
+    email = Column(Text)
+    photo_url = Column(Text)
+    artist_id = Column(PGUUID(as_uuid=True))
+    status = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING|SUBMITTED
+    submitted_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_approvers_request", "request_id"),
+        Index("idx_photo_approvers_token", "token"),
+    )
+
+
+class PhotoApproval(Base):
+    """Decisión de un aprobador sobre una foto concreta."""
+
+    __tablename__ = "photo_approvals"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    approver_id = Column(PGUUID(as_uuid=True), ForeignKey("photo_approvers.id", ondelete="CASCADE"), nullable=False)
+    photo_id = Column(PGUUID(as_uuid=True), ForeignKey("photos.id", ondelete="CASCADE"), nullable=False)
+    decision = Column(Text, nullable=False, server_default=text("'PENDING'"))  # PENDING|APPROVED|REJECTED
+    decided_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("approver_id", "photo_id", name="uq_photo_approvals"),
+        Index("idx_photo_approvals_photo", "photo_id"),
+        Index("idx_photo_approvals_approver", "approver_id"),
+    )
+
+
 def ensure_fotos_schema():
     """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
     Base.metadata.create_all(bind=engine)
@@ -3256,6 +3321,53 @@ def ensure_fotos_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_photo_notes_photo ON photo_notes(photo_id, created_at);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_approval_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            brand_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            photo_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            message text,
+            status text NOT NULL DEFAULT 'ACTIVE',
+            requested_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            requested_by_nick text,
+            requested_by_photo_url text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_appr_req_owner ON photo_approval_requests(owner_type, owner_id);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_approvers (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            request_id uuid NOT NULL REFERENCES photo_approval_requests(id) ON DELETE CASCADE,
+            token text NOT NULL UNIQUE,
+            kind text NOT NULL DEFAULT 'CUSTOM',
+            name text NOT NULL,
+            role text,
+            email text,
+            photo_url text,
+            artist_id uuid,
+            status text NOT NULL DEFAULT 'PENDING',
+            submitted_at timestamptz,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_approvers_request ON photo_approvers(request_id);",
+        "CREATE INDEX IF NOT EXISTS idx_photo_approvers_token ON photo_approvers(token);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_approvals (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            approver_id uuid NOT NULL REFERENCES photo_approvers(id) ON DELETE CASCADE,
+            photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+            decision text NOT NULL DEFAULT 'PENDING',
+            decided_at timestamptz,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_photo_approvals UNIQUE(approver_id, photo_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_approvals_photo ON photo_approvals(photo_id);",
+        "CREATE INDEX IF NOT EXISTS idx_photo_approvals_approver ON photo_approvals(approver_id);",
     ]
     _exec_ddl_statements(stmts, "fotos_schema")
 

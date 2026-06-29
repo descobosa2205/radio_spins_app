@@ -104,10 +104,22 @@
     if (p.is_video) return '<video src="' + esc(p.file_url) + '" class="' + cls + '" preload="metadata" muted></video><span class="fotos-tile__play"><i class="fa fa-play"></i></span>';
     return '<img src="' + esc(p.file_url) + '" class="' + cls + '" loading="lazy" alt="">';
   }
+  function approvalBadge(p) {
+    var st = p.approval_state || 'NONE';
+    if (st === 'NONE') return '';
+    var map = { APPROVED: ['fa-circle-check', 'bg-success', 'Aprobada'], REJECTED: ['fa-circle-xmark', 'bg-danger', 'Rechazada'], PENDING: ['fa-circle-question', 'bg-warning text-dark', 'Pendiente'] };
+    var m = map[st] || map.PENDING;
+    var summary = (p.approvers || []).map(function (a) {
+      var d = a.decision === 'APPROVED' ? '✓' : (a.decision === 'REJECTED' ? '✗' : '?');
+      return d + ' ' + a.name;
+    }).join('\n');
+    return '<span class="fotos-tile__badge badge ' + m[1] + '" title="' + esc(summary || m[2]) + '"><i class="fa ' + m[0] + '"></i></span>';
+  }
   function tileHtml(p, draggable) {
     var selCls = selected[p.id] ? ' fotos-tile--selected' : '';
     return '<div class="fotos-tile' + selCls + '" data-photo-id="' + esc(p.id) + '"' + (canEdit && draggable ? ' draggable="true"' : '') + '>'
       + '<label class="fotos-tile__check"><input type="checkbox" class="form-check-input fotos-check" data-id="' + esc(p.id) + '"' + (selected[p.id] ? ' checked' : '') + '></label>'
+      + approvalBadge(p)
       + '<div class="fotos-tile__frame">' + mediaHtml(p, 'fotos-tile__media') + '</div>'
       + '<div class="fotos-tile__title" title="' + esc(p.title) + '">' + esc(p.title || '—') + '</div>'
       + '</div>';
@@ -116,9 +128,11 @@
     var items = (a.photos || []).filter(passesFilter).map(function (p) { return tileHtml(p, canEdit); }).join('');
     var menu = canEdit ? ('<div class="dropdown fotos-album__menu"><button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>'
       + '<ul class="dropdown-menu dropdown-menu-end">'
+      + '<li><a class="dropdown-item" href="#" data-album-action="approval" data-album-id="' + esc(a.id) + '"><i class="fa fa-thumbs-up fa-fw me-2"></i>Pedir aprobación</a></li>'
       + '<li><a class="dropdown-item" href="#" data-album-action="edit" data-album-id="' + esc(a.id) + '"><i class="fa fa-pen fa-fw me-2"></i>Editar álbum</a></li>'
       + '<li><a class="dropdown-item" href="#" data-album-action="bulkedit" data-album-id="' + esc(a.id) + '"><i class="fa fa-list-check fa-fw me-2"></i>Editar datos en bloque</a></li>'
       + '<li><a class="dropdown-item" href="#" data-album-action="download" data-album-id="' + esc(a.id) + '"><i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>'
+      + '<li><a class="dropdown-item" href="#" data-album-action="share" data-album-id="' + esc(a.id) + '"><i class="fa fa-share-nodes fa-fw me-2"></i>Compartir</a></li>'
       + '<li><hr class="dropdown-divider"></li>'
       + '<li><a class="dropdown-item text-danger" href="#" data-album-action="delete" data-album-id="' + esc(a.id) + '"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</a></li>'
       + '</ul></div>') : '';
@@ -310,6 +324,8 @@
       Promise.all(ids.map(function (id) { return fetch('/fotos/photo/' + id + '/delete', { method: 'POST' }); })).then(function () { selected = {}; refresh(); });
     } else if (action === 'album') openAddToAlbum(ids);
     else if (action === 'edit') openBulkEdit(ids);
+    else if (action === 'approval') openApproval(ids);
+    else if (action === 'share') openShare(ids);
   }
 
   // -- añadir a álbum
@@ -368,6 +384,8 @@
     var ids = (album.photos || []).map(function (p) { return p.id; });
     if (action === 'download') downloadIds(ids);
     else if (action === 'bulkedit') openBulkEdit(ids);
+    else if (action === 'approval') openApproval(ids);
+    else if (action === 'share') openShare(ids);
     else if (action === 'edit') openEditAlbum(album);
     else if (action === 'delete') { document.getElementById('fotosDeleteAlbumId').value = albumId; bsModal('fotosDeleteAlbumModal').show(); }
   });
@@ -401,6 +419,79 @@
       postJson('/fotos/album/' + id + '/delete', { mode: btn.getAttribute('data-album-delete-mode') }).then(function () { bsModal('fotosDeleteAlbumModal').hide(); refresh(); });
     });
   });
+
+  // ============================================================ aprobación
+  var approvalIds = [];
+  function openApproval(ids) {
+    approvalIds = ids;
+    document.getElementById('fotosApprovalCount').textContent = ids.length;
+    document.getElementById('fotosApprovalOthers').innerHTML = '';
+    document.getElementById('fotosApprovalHint').textContent = '';
+    var list = document.getElementById('fotosApprovalList');
+    list.innerHTML = '<div class="text-muted small"><i class="fa fa-spinner fa-spin"></i> Cargando…</div>';
+    bsModal('fotosApprovalModal').show();
+    fetch(ownerBase + '/approval-options').then(function (r) { return r.json(); }).then(function (o) {
+      if (!o.ok) { list.innerHTML = '<div class="text-danger small">No se pudo cargar.</div>'; return; }
+      var html = '';
+      (o.artists || []).forEach(function (a) {
+        var role = a.is_primary ? 'Artista' : 'Artista colaborador';
+        html += approverRow({ kind: a.is_primary ? 'ARTIST' : 'COLLABORATOR', name: a.name, role: role, email: a.email, photo_url: a.photo_url });
+        (a.members || []).forEach(function (m) {
+          html += approverRow({ kind: 'ARTIST_MEMBER', name: m, role: 'Miembro de ' + a.name, email: '', photo_url: a.photo_url }, true);
+        });
+      });
+      if (o.promoter) html += approverRow({ kind: 'PROMOTER', name: o.promoter.name, role: 'Promotor', email: o.promoter.email, photo_url: o.promoter.photo_url });
+      if (o.show_responsible) html += approverRow({ kind: 'RESPONSIBLE', name: 'Responsable de aprobaciones', role: 'Responsable de aprobaciones', email: '', photo_url: '' });
+      list.innerHTML = html || '<div class="text-muted small">No hay candidatos automáticos; añade personas abajo.</div>';
+      var sel = document.getElementById('fotosApprovalCompany');
+      sel.innerHTML = '<option value="">—</option>' + (o.companies || []).map(function (c) {
+        return '<option value="' + esc(c.id) + '"' + (c.id === o.default_company_id ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+      }).join('');
+    });
+  }
+  function approverRow(a, isMember) {
+    var data = " data-kind='" + esc(a.kind) + "' data-name='" + esc(a.name) + "' data-role='" + esc(a.role || '') + "' data-email='" + esc(a.email || '') + "' data-photo='" + esc(a.photo_url || '') + "'";
+    return '<label class="d-flex align-items-center gap-2 py-1' + (isMember ? ' ms-4' : '') + '">'
+      + '<input type="checkbox" class="form-check-input fotos-approver"' + data + '>'
+      + avatar(a.photo_url) + '<span>' + esc(a.name) + ' <span class="text-muted small">· ' + esc(a.role || '') + '</span></span></label>';
+  }
+  document.getElementById('fotosApprovalAddOther').addEventListener('click', function () {
+    var box = document.getElementById('fotosApprovalOthers');
+    var row = document.createElement('div');
+    row.className = 'row g-1 mb-1 fotos-other-row';
+    row.innerHTML = '<div class="col-4"><input class="form-control form-control-sm fo-name" placeholder="Nombre"></div>'
+      + '<div class="col-3"><input class="form-control form-control-sm fo-role" placeholder="Cargo"></div>'
+      + '<div class="col-4"><input class="form-control form-control-sm fo-email" placeholder="Correo" type="email"></div>'
+      + '<div class="col-1"><button type="button" class="btn btn-sm btn-link text-danger fo-rm"><i class="fa fa-xmark"></i></button></div>';
+    box.appendChild(row);
+    row.querySelector('.fo-rm').addEventListener('click', function () { row.remove(); });
+  });
+  document.getElementById('fotosApprovalSubmit').addEventListener('click', function () {
+    var approvers = [];
+    document.querySelectorAll('.fotos-approver:checked').forEach(function (cb) {
+      approvers.push({ kind: cb.getAttribute('data-kind'), name: cb.getAttribute('data-name'), role: cb.getAttribute('data-role'), email: cb.getAttribute('data-email'), photo_url: cb.getAttribute('data-photo') });
+    });
+    document.querySelectorAll('#fotosApprovalOthers .fotos-other-row').forEach(function (row) {
+      var name = row.querySelector('.fo-name').value.trim();
+      if (name) approvers.push({ kind: 'CUSTOM', name: name, role: row.querySelector('.fo-role').value.trim(), email: row.querySelector('.fo-email').value.trim(), photo_url: '' });
+    });
+    if (!approvers.length) { document.getElementById('fotosApprovalHint').textContent = 'Selecciona o añade al menos a una persona.'; return; }
+    var body = {
+      photo_ids: approvalIds,
+      brand_company_id: document.getElementById('fotosApprovalCompany').value || null,
+      send_email: document.getElementById('fotosApprovalSendEmail').checked,
+      approvers: approvers
+    };
+    var btn = document.getElementById('fotosApprovalSubmit'); btn.disabled = true;
+    postJson(ownerBase + '/approval/create', body).then(function (d) {
+      btn.disabled = false;
+      if (d.ok) { bsModal('fotosApprovalModal').hide(); selected = {}; refresh(); }
+      else document.getElementById('fotosApprovalHint').textContent = d.error || 'Error.';
+    });
+  });
+
+  // ============================================================== compartir
+  function openShare(ids) { if (window.fotosOpenShare) window.fotosOpenShare(ids); }
 
   // ================================================================== subida
   var addBtn = document.getElementById('fotosAddBtn');

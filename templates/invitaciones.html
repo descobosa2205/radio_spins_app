@@ -5,16 +5,22 @@
   <div>
     <h2 class="mb-0"><i class="fa fa-ticket-alt me-2 text-danger"></i>Invitaciones</h2>
   </div>
-  {% if tab == 'pedir' %}
-    <div class="d-flex gap-2 flex-wrap">
+  <div class="d-flex gap-2 flex-wrap">
+    {% if tab == 'pedir' %}
       <button class="btn btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationRequestModal">
         <i class="fa fa-plus me-1"></i> Pedir invitaciones
       </button>
       <button class="btn btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#invitationLinkModal">
         <i class="fa fa-link me-1"></i> Generar enlace
       </button>
-    </div>
-  {% endif %}
+    {% endif %}
+    {# Solo para quien puede gestionar invitaciones; no en el propio tab de gestión. #}
+    {% if tab != 'gestionar' and has_access_key('invitaciones.gestionar', include_descendants=True) %}
+      <a class="btn btn-outline-danger" href="{{ url_for('invitations_view', tab='gestionar') }}">
+        <i class="fa fa-list-check me-1"></i> Gestionar invitaciones
+      </a>
+    {% endif %}
+  </div>
 </div>
 
 {% if request.args.get('generated_link') %}

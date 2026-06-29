@@ -62,6 +62,10 @@ class Artist(Base):
     email = Column(Text)
     # Nacional (false) / Internacional (true). Relevante para retenciones en simulaciones.
     is_international = Column(Boolean, nullable=False, server_default=text("false"))
+    # Grupo (true) vs artista individual (false). Si es grupo, los cumpleaños salen de cada miembro
+    # (ArtistPerson.birth_date); si no, del propio artista (Artist.birth_date).
+    is_group = Column(Boolean, nullable=False, server_default=text("false"))
+    birth_date = Column(Date)
     social_links = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     onesheet_public_token = Column(Text)
@@ -91,10 +95,38 @@ class ArtistPerson(Base):
 
     first_name = Column(Text, nullable=False)
     last_name = Column(Text, nullable=False, server_default=text("''"))
+    birth_date = Column(Date)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist", back_populates="people")
+
+
+class ArtistAgendaItem(Base):
+    """Entradas libres de la agenda de un artista: bloqueos (BLOCK) y notas/'otro' (NOTE).
+
+    Multi-día (start_date..end_date). BLOCK: title = motivo, los días salen marcados como bloqueados.
+    NOTE: title = nombre + note opcional. Las actividades reales (conciertos/acciones/...) NO viven aquí.
+    """
+
+    __tablename__ = "artist_agenda_items"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False, server_default=text("'NOTE'"))  # BLOCK | NOTE
+    title = Column(Text, nullable=False, server_default=text("''"))
+    note = Column(Text)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=False)
+    created_by_user_id = Column(PGUUID(as_uuid=True))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist")
+
+    __table_args__ = (
+        Index("idx_artist_agenda_items_artist_dates", "artist_id", "start_date", "end_date"),
+    )
 
 
 class ArtistEmail(Base):
@@ -3135,6 +3167,26 @@ class PhotoAlbumItem(Base):
     )
 
 
+class PhotoNote(Base):
+    """Nota asociada a una foto (con autor y fecha; patrón BagNote)."""
+
+    __tablename__ = "photo_notes"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    photo_id = Column(PGUUID(as_uuid=True), ForeignKey("photos.id", ondelete="CASCADE"), nullable=False)
+    body = Column(Text, nullable=False)
+    # TEAM (nota interna del equipo) | APPROVAL (dejada por un aprobador en el enlace público)
+    source = Column(Text, nullable=False, server_default=text("'TEAM'"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_by_photo_url = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_photo_notes_photo", "photo_id", "created_at"),
+    )
+
+
 def ensure_fotos_schema():
     """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
     Base.metadata.create_all(bind=engine)
@@ -3191,6 +3243,19 @@ def ensure_fotos_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_photo_album_items_album ON photo_album_items(album_id, sort_order);",
         "CREATE INDEX IF NOT EXISTS idx_photo_album_items_photo ON photo_album_items(photo_id);",
+        """
+        CREATE TABLE IF NOT EXISTS photo_notes (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            photo_id uuid NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+            body text NOT NULL,
+            source text NOT NULL DEFAULT 'TEAM',
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_by_photo_url text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_photo_notes_photo ON photo_notes(photo_id, created_at);",
     ]
     _exec_ddl_statements(stmts, "fotos_schema")
 
@@ -3307,6 +3372,26 @@ def ensure_artist_feature_schema():
         ALTER TABLE IF EXISTS artists
             ADD COLUMN IF NOT EXISTS email text;
         """,
+        # Grupo vs individual + fecha de nacimiento (para cumpleaños en la agenda).
+        "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS is_group boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS artists ADD COLUMN IF NOT EXISTS birth_date date;",
+        "ALTER TABLE IF EXISTS artist_people ADD COLUMN IF NOT EXISTS birth_date date;",
+        # Entradas libres de la agenda del artista (bloqueos / notas).
+        """
+        CREATE TABLE IF NOT EXISTS artist_agenda_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid NOT NULL REFERENCES artists(id) ON DELETE CASCADE,
+            kind text NOT NULL DEFAULT 'NOTE',
+            title text NOT NULL DEFAULT '',
+            note text,
+            start_date date NOT NULL,
+            end_date date NOT NULL,
+            created_by_user_id uuid,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now()
+        );
+        """,
+        'CREATE INDEX IF NOT EXISTS idx_artist_agenda_items_artist_dates ON artist_agenda_items(artist_id, start_date, end_date);',
         """
         CREATE TABLE IF NOT EXISTS artist_emails (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

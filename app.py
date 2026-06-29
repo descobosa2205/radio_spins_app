@@ -122,6 +122,7 @@ from models import (
     ChartmetricMeta,
     Artist,
     ArtistPerson,
+    ArtistAgendaItem,
     ArtistEmail,
     ArtistContract,
     ArtistContractCommitment,
@@ -207,6 +208,7 @@ from models import (
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
+    PhotoNote,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
@@ -28612,6 +28614,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_email_send", "roadmap_attachment_upload",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete",
+    "foto_note_add", "fotos_bulk_update",
+    "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
@@ -34940,6 +34944,7 @@ def foto_detail_json(photo_id):
         data["owner_title"] = owner_title
         data["owner_url"] = _photo_owner_url(p.owner_type.lower(), str(p.owner_id))
         data["artist"] = {"id": str(artist.id), "name": artist.name, "photo_url": (getattr(artist, "photo_url", None) or "")} if artist else None
+        data["notes"] = _photo_notes_payload(session_db, p.id)
         return jsonify({"ok": True, "photo": data})
     finally:
         session_db.close()
@@ -34982,6 +34987,250 @@ def foto_delete(photo_id):
         if not p:
             return jsonify({"ok": False, "error": "No encontrada."}), 404
         session_db.delete(p)
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+# ---------------------------------------------------------------- notas
+def _photo_notes_payload(session_db, photo_id):
+    rows = (
+        session_db.query(PhotoNote)
+        .filter(PhotoNote.photo_id == photo_id)
+        .order_by(PhotoNote.created_at.asc())
+        .all()
+    )
+    out = []
+    for n in rows:
+        out.append({
+            "id": str(n.id),
+            "body": n.body,
+            "source": n.source or "TEAM",
+            "author": (n.created_by_nick or "").strip(),
+            "author_photo": (n.created_by_photo_url or ""),
+            "created_at": n.created_at.isoformat() if n.created_at else "",
+        })
+    return out
+
+
+@app.post("/fotos/photo/<photo_id>/note", endpoint="foto_note_add")
+@admin_required
+def foto_note_add(photo_id):
+    form = request.get_json(silent=True) or request.form
+    body = (form.get("body") or "").strip()
+    if not body:
+        return jsonify({"ok": False, "error": "La nota está vacía."}), 400
+    state = _current_user_state()
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            return jsonify({"ok": False, "error": "No encontrada."}), 404
+        note = PhotoNote(
+            photo_id=p.id,
+            body=body,
+            source="TEAM",
+            created_by_user_id=to_uuid(state.get("user_id")),
+            created_by_nick=(state.get("nick") or "").strip() or None,
+            created_by_photo_url=(state.get("photo_url") or "").strip() or None,
+        )
+        session_db.add(note)
+        session_db.commit()
+        return jsonify({"ok": True, "notes": _photo_notes_payload(session_db, p.id)})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+# --------------------------------------------------------------- bloque
+@app.post("/fotos/<owner_type>/<owner_id>/bulk-update", endpoint="fotos_bulk_update")
+@admin_required
+def fotos_bulk_update(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    if not ids:
+        return jsonify({"ok": False, "error": "Sin fotos seleccionadas."}), 400
+    title_base = (payload.get("title_base") or "").strip()
+    set_photographer = ("photographer_unknown" in payload) or ("photographer_promoter_id" in payload)
+    photographer_unknown = _truthy(payload.get("photographer_unknown"))
+    photographer_id = None if photographer_unknown else to_uuid(payload.get("photographer_promoter_id"))
+    set_date = "taken_date" in payload
+    taken_date = parse_optional_date(payload.get("taken_date")) if set_date else None
+    note_body = (payload.get("note") or "").strip()
+    state = _current_user_state()
+
+    session_db = db()
+    try:
+        owner, _artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        rows = (
+            session_db.query(Photo)
+            .filter(Photo.owner_type == ot, Photo.owner_id == owner.id, Photo.id.in_(ids))
+            .order_by(Photo.sort_order.asc(), Photo.created_at.asc())
+            .all()
+        )
+        seq = 1
+        for p in rows:
+            if title_base:
+                p.title = title_base + " " + str(seq)
+                seq += 1
+            if set_photographer:
+                p.photographer_unknown = bool(photographer_unknown)
+                p.photographer_promoter_id = photographer_id
+            if set_date:
+                p.taken_date = taken_date
+            if note_body:
+                session_db.add(PhotoNote(
+                    photo_id=p.id, body=note_body, source="TEAM",
+                    created_by_user_id=to_uuid(state.get("user_id")),
+                    created_by_nick=(state.get("nick") or "").strip() or None,
+                    created_by_photo_url=(state.get("photo_url") or "").strip() or None,
+                ))
+            p.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True, "count": len(rows)})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+# --------------------------------------------------------------- álbumes
+def _photo_album_next_item_order(session_db, album_id):
+    base = (
+        session_db.query(func.coalesce(func.max(PhotoAlbumItem.sort_order), -1))
+        .filter(PhotoAlbumItem.album_id == album_id)
+        .scalar()
+    )
+    return int(base) + 1
+
+
+@app.post("/fotos/<owner_type>/<owner_id>/albumes/create", endpoint="photo_album_create")
+@admin_required
+def photo_album_create(owner_type, owner_id):
+    ot = _photo_owner_type_norm(owner_type)
+    if not ot:
+        return jsonify({"ok": False, "error": "Tipo no válido."}), 400
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    if not name:
+        return jsonify({"ok": False, "error": "Indica un nombre para el álbum."}), 400
+    photo_ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    cover_id = to_uuid(payload.get("cover_photo_id")) or (photo_ids[0] if photo_ids else None)
+    state = _current_user_state()
+    session_db = db()
+    try:
+        owner, artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
+        if not owner:
+            return jsonify({"ok": False, "error": "No encontrado."}), 404
+        base_order = (
+            session_db.query(func.coalesce(func.max(PhotoAlbum.sort_order), -1))
+            .filter(PhotoAlbum.owner_type == ot, PhotoAlbum.owner_id == owner.id)
+            .scalar()
+        )
+        album = PhotoAlbum(
+            owner_type=ot, owner_id=owner.id, artist_id=artist_id, name=name,
+            cover_photo_id=cover_id, sort_order=int(base_order) + 1,
+            created_by_user_id=to_uuid(state.get("user_id")),
+            created_by_nick=(state.get("nick") or "").strip() or None,
+        )
+        session_db.add(album)
+        session_db.flush()
+        order = 0
+        for pid in photo_ids:
+            session_db.add(PhotoAlbumItem(album_id=album.id, photo_id=pid, sort_order=order))
+            order += 1
+        session_db.commit()
+        return jsonify({"ok": True, "album_id": str(album.id)})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/album/<album_id>/add", endpoint="photo_album_add")
+@admin_required
+def photo_album_add(album_id):
+    payload = request.get_json(silent=True) or {}
+    photo_ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
+    session_db = db()
+    try:
+        album = session_db.get(PhotoAlbum, to_uuid(album_id))
+        if not album:
+            return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        existing = {it.photo_id for it in session_db.query(PhotoAlbumItem).filter(PhotoAlbumItem.album_id == album.id).all()}
+        order = _photo_album_next_item_order(session_db, album.id)
+        for pid in photo_ids:
+            if pid in existing:
+                continue
+            session_db.add(PhotoAlbumItem(album_id=album.id, photo_id=pid, sort_order=order))
+            order += 1
+        if not album.cover_photo_id and photo_ids:
+            album.cover_photo_id = photo_ids[0]
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/album/<album_id>/update", endpoint="photo_album_update")
+@admin_required
+def photo_album_update(album_id):
+    payload = request.get_json(silent=True) or request.form
+    session_db = db()
+    try:
+        album = session_db.get(PhotoAlbum, to_uuid(album_id))
+        if not album:
+            return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        if "name" in payload:
+            new_name = (payload.get("name") or "").strip()
+            if new_name:
+                album.name = new_name
+        if "cover_photo_id" in payload:
+            album.cover_photo_id = to_uuid(payload.get("cover_photo_id"))
+        album.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/album/<album_id>/delete", endpoint="photo_album_delete")
+@admin_required
+def photo_album_delete(album_id):
+    payload = request.get_json(silent=True) or request.form
+    mode = (payload.get("mode") or "keep").strip().lower()  # keep | with_photos
+    session_db = db()
+    try:
+        album = session_db.get(PhotoAlbum, to_uuid(album_id))
+        if not album:
+            return jsonify({"ok": False, "error": "Álbum no encontrado."}), 404
+        if mode == "with_photos":
+            photo_ids = [it.photo_id for it in session_db.query(PhotoAlbumItem).filter(PhotoAlbumItem.album_id == album.id).all()]
+            for pid in photo_ids:
+                ph = session_db.get(Photo, pid)
+                if ph:
+                    session_db.delete(ph)
+        # los items se borran en cascada al eliminar el álbum
+        session_db.delete(album)
         session_db.commit()
         return jsonify({"ok": True})
     except Exception as e:
@@ -39649,7 +39898,7 @@ AGENDA_PALETTE = [
     "#20c997", "#0d6efd", "#b5179e", "#e07a5f", "#457b9d", "#9c6644",
 ]
 
-AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "medios"]
+AGENDA_KIND_ORDER = ["concierto", "festival", "evento", "lanzamiento", "accion", "medios", "cumple", "otro", "bloqueo"]
 AGENDA_KIND_META = {
     "concierto":   {"label": "Conciertos",      "icon": "fa-music",           "color": "#E33D48"},
     "festival":    {"label": "Festivales",      "icon": "fa-star",            "color": "#6f42c1"},
@@ -39657,6 +39906,9 @@ AGENDA_KIND_META = {
     "lanzamiento": {"label": "Lanzamientos",    "icon": "fa-compact-disc",    "color": "#d63384"},
     "accion":      {"label": "Acciones",        "icon": "fa-clapperboard",    "color": "#007CA2"},
     "medios":      {"label": "Medios",          "icon": "fa-broadcast-tower", "color": "#20c997"},
+    "cumple":      {"label": "Cumpleaños",      "icon": "fa-cake-candles",    "color": "#e83e8c"},
+    "otro":        {"label": "Otros",           "icon": "fa-thumbtack",       "color": "#0d6efd"},
+    "bloqueo":     {"label": "Bloqueos",        "icon": "fa-ban",             "color": "#6c757d"},
 }
 
 
@@ -39830,6 +40082,67 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
             "url": url_for("discografica_song_detail", song_id=sg.id),
         }))
 
+    # ---- Bloqueos y notas libres (ArtistAgendaItem), expandidos por día dentro de la ventana ----
+    agenda_q = (
+        session_db.query(ArtistAgendaItem)
+        .filter(ArtistAgendaItem.start_date <= end_date, ArtistAgendaItem.end_date >= start_date)
+    )
+    if target is not None:
+        agenda_q = agenda_q.filter(ArtistAgendaItem.artist_id.in_([to_uuid(x) for x in target if x]))
+    for it in agenda_q.all():
+        aid = str(it.artist_id)
+        kind = "bloqueo" if (it.kind or "").upper() == "BLOCK" else "otro"
+        seen_artist_ids.add(aid)
+        d0 = it.start_date if it.start_date > start_date else start_date
+        d1 = it.end_date if it.end_date < end_date else end_date
+        cur = d0
+        while cur <= d1:
+            raw.append(([aid], {
+                "kind": kind, "date": cur.isoformat(),
+                "title": it.title or ("Bloqueado" if kind == "bloqueo" else "Nota"),
+                "subtitle": (it.note or "") if kind == "otro" else "",
+                "artist_id": aid,
+                "status_label": "", "status_class": "",
+                "cover_url": "", "item_id": str(it.id), "url": "",
+            }))
+            cur += timedelta(days=1)
+
+    # ---- Cumpleaños (artista individual -> Artist.birth_date; grupo -> cada miembro) ----
+    def _birthday_occurrences(bdate):
+        out = []
+        for yr in range(start_date.year, end_date.year + 1):
+            try:
+                d = date(yr, bdate.month, bdate.day)
+            except ValueError:
+                d = date(yr, 2, 28)  # 29-feb en años no bisiestos
+            if start_date <= d <= end_date:
+                out.append(d)
+        return out
+
+    bday_q = session_db.query(Artist).options(joinedload(Artist.people))
+    if target is not None:
+        bday_q = bday_q.filter(Artist.id.in_([to_uuid(x) for x in target if x]))
+    for art in bday_q.all():
+        aid = str(art.id)
+        url_art = url_for("artist_detail_view", artist_id=art.id, tab="agenda")
+        people = []
+        if getattr(art, "is_group", False):
+            for p in (art.people or []):
+                if p.birth_date:
+                    people.append((f"{p.first_name} {p.last_name}".strip(), p.birth_date, art.name))
+        elif getattr(art, "birth_date", None):
+            people.append((art.name, art.birth_date, ""))
+        for pname, bdate, sub in people:
+            for d in _birthday_occurrences(bdate):
+                seen_artist_ids.add(aid)
+                raw.append(([aid], {
+                    "kind": "cumple", "date": d.isoformat(),
+                    "title": pname or "Cumpleaños", "subtitle": sub,
+                    "artist_id": aid,
+                    "status_label": "", "status_class": "",
+                    "cover_url": "", "url": url_art,
+                }))
+
     # ---- Mapa de artistas (nombre + foto) para colorear/etiquetar ----
     artist_map = {}
     if seen_artist_ids:
@@ -39900,6 +40213,110 @@ def _home_agenda() -> dict | None:
         return _agenda_build(session_db, target_ids, start, end, today)
     except Exception:
         return None
+    finally:
+        session_db.close()
+
+
+def _agenda_redirect_back():
+    """Vuelve a donde se pidió el alta (Inicio o la agenda del artista)."""
+    ref = request.form.get("next") or request.referrer or ""
+    if ref.startswith(request.host_url) or ref.startswith("/"):
+        return redirect(ref)
+    return redirect(url_for("home"))
+
+
+@app.post("/agenda/bloqueo", endpoint="agenda_block_create")
+@admin_required
+def agenda_block_create():
+    """Crea un bloqueo (BLOCK) multi-día para un artista: motivo + rango de fechas."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(request.form.get("artist_id")))
+        if not artist:
+            flash("Selecciona un artista para el bloqueo.", "warning")
+            return _agenda_redirect_back()
+        start = parse_date(request.form.get("start_date") or "")
+        end = parse_date(request.form.get("end_date") or "") or start
+        if not start:
+            flash("Indica al menos la fecha de inicio del bloqueo.", "warning")
+            return _agenda_redirect_back()
+        if end < start:
+            start, end = end, start
+        state = _current_user_state()
+        session_db.add(ArtistAgendaItem(
+            artist_id=artist.id, kind="BLOCK",
+            title=(request.form.get("motivo") or request.form.get("title") or "Bloqueado").strip() or "Bloqueado",
+            note=None, start_date=start, end_date=end,
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+            created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
+        ))
+        session_db.commit()
+        flash("Bloqueo añadido a la agenda.", "success")
+        return _agenda_redirect_back()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo añadir el bloqueo: {exc}", "danger")
+        return _agenda_redirect_back()
+    finally:
+        session_db.close()
+
+
+@app.post("/agenda/otro", endpoint="agenda_note_create")
+@admin_required
+def agenda_note_create():
+    """Crea una entrada libre 'otro' (NOTE) multi-día: nombre + nota opcional + rango."""
+    session_db = db()
+    try:
+        artist = session_db.get(Artist, _safe_uuid(request.form.get("artist_id")))
+        if not artist:
+            flash("Selecciona un artista.", "warning")
+            return _agenda_redirect_back()
+        name = (request.form.get("title") or request.form.get("nombre") or "").strip()
+        if not name:
+            flash("Ponle un nombre a la actividad.", "warning")
+            return _agenda_redirect_back()
+        start = parse_date(request.form.get("start_date") or "")
+        end = parse_date(request.form.get("end_date") or "") or start
+        if not start:
+            flash("Indica al menos la fecha de inicio.", "warning")
+            return _agenda_redirect_back()
+        if end < start:
+            start, end = end, start
+        state = _current_user_state()
+        session_db.add(ArtistAgendaItem(
+            artist_id=artist.id, kind="NOTE", title=name,
+            note=(request.form.get("note") or request.form.get("nota") or "").strip() or None,
+            start_date=start, end_date=end,
+            created_by_user_id=_safe_uuid(session.get("user_id")),
+            created_by_nick=state.get("nick") or _email_to_nick(state.get("email") or ""),
+        ))
+        session_db.commit()
+        flash("Añadido a la agenda.", "success")
+        return _agenda_redirect_back()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo añadir: {exc}", "danger")
+        return _agenda_redirect_back()
+    finally:
+        session_db.close()
+
+
+@app.post("/agenda/<item_id>/eliminar", endpoint="agenda_item_delete")
+@admin_required
+def agenda_item_delete(item_id):
+    """Elimina un bloqueo o nota libre de la agenda."""
+    session_db = db()
+    try:
+        it = session_db.get(ArtistAgendaItem, to_uuid(item_id))
+        if it:
+            session_db.delete(it)
+            session_db.commit()
+            flash("Eliminado de la agenda.", "success")
+        return _agenda_redirect_back()
+    except Exception as exc:
+        session_db.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+        return _agenda_redirect_back()
     finally:
         session_db.close()
 

@@ -27,7 +27,10 @@
         <div class="dropdown">
           <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-vertical"></i></button>
           <ul class="dropdown-menu dropdown-menu-end">
+            <li><a class="dropdown-item" href="#" data-bulk="album"><i class="fa fa-layer-group fa-fw me-2"></i>Añadir a álbum</a></li>
+            <li><a class="dropdown-item" href="#" data-bulk="edit"><i class="fa fa-pen fa-fw me-2"></i>Editar datos en bloque</a></li>
             <li><a class="dropdown-item" href="#" data-bulk="download"><i class="fa fa-download fa-fw me-2"></i>Descargar</a></li>
+            <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item text-danger" href="#" data-bulk="delete"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</a></li>
           </ul>
         </div>
@@ -135,6 +138,88 @@
         <div class="form-check"><input class="form-check-input" type="checkbox" value="NONE" id="fltNone" checked><label class="form-check-label" for="fltNone">Sin solicitud de aprobación</label></div>
       </div>
       <div class="modal-footer py-2"><button type="button" class="btn btn-primary btn-sm" id="fotosFilterApply" data-bs-dismiss="modal">Aplicar</button></div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: añadir a álbum ---------- #}
+<div class="modal fade" id="fotosAddToAlbumModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Añadir a álbum</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div id="fotosAlbumChoices" class="mb-3"></div>
+        <div class="border-top pt-3">
+          <label class="form-label small text-muted">…o crear un álbum nuevo</label>
+          <input type="text" class="form-control" id="fotosNewAlbumName" placeholder="Nombre del nuevo álbum">
+          <div class="form-text">La primera foto seleccionada será la portada.</div>
+        </div>
+      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-primary" id="fotosAddToAlbumSave">Añadir</button></div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: editar en bloque ---------- #}
+<div class="modal fade" id="fotosBulkEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Editar datos en bloque</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="small text-muted">Solo se aplican los campos que rellenes. Afecta a <span id="fotosBulkCount">0</span> elemento(s).</p>
+        <div class="mb-3">
+          <label class="form-label">Nombre nuevo (numerado en orden)</label>
+          <input type="text" class="form-control" id="fotosBulkTitle" placeholder="Ej. Concierto Madrid">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Fotógrafo</label>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            <div class="position-relative flex-grow-1" style="min-width:200px;">
+              <input type="text" class="form-control" id="fotosBulkPhSearch" placeholder="Buscar tercero…" autocomplete="off">
+              <div class="fotos-typeahead dropdown-menu w-100" id="fotosBulkPhResults"></div>
+            </div>
+            <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="fotosBulkPhotographerSelect"><i class="fa fa-plus"></i></button>
+            <div class="form-check m-0"><input class="form-check-input" type="checkbox" id="fotosBulkPhUnknown"><label class="form-check-label">Desconocido</label></div>
+          </div>
+          <div class="fotos-photographer-chip mt-2 d-none" id="fotosBulkPhChip"></div>
+          <select id="fotosBulkPhotographerSelect" class="d-none" tabindex="-1" aria-hidden="true"></select>
+        </div>
+        <div class="mb-3"><label class="form-label">Fecha</label><input type="date" class="form-control" id="fotosBulkDate"></div>
+        <div class="mb-0"><label class="form-label">Añadir una nota</label><textarea class="form-control" id="fotosBulkNote" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-primary" id="fotosBulkEditSave">Modificar</button></div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: editar álbum ---------- #}
+<div class="modal fade" id="fotosEditAlbumModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Editar álbum</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fotosEditAlbumId">
+        <div class="mb-3"><label class="form-label">Nombre</label><input type="text" class="form-control" id="fotosEditAlbumName"></div>
+        <div class="mb-0"><label class="form-label">Foto de portada</label><div class="fotos-cover-picker" id="fotosEditAlbumCover"></div></div>
+      </div>
+      <div class="modal-footer py-2"><button type="button" class="btn btn-primary" id="fotosEditAlbumSave">Guardar</button></div>
+    </div>
+  </div>
+</div>
+
+{# ---------- Modal: eliminar álbum ---------- #}
+<div class="modal fade" id="fotosDeleteAlbumModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-sm">
+    <div class="modal-content">
+      <div class="modal-header py-2"><h6 class="modal-title">Eliminar álbum</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <input type="hidden" id="fotosDeleteAlbumId">
+        <p class="mb-3">¿Qué quieres hacer con las fotos del álbum?</p>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-secondary" data-album-delete-mode="keep">Eliminar solo el álbum<br><span class="small text-muted">Las fotos quedan sueltas</span></button>
+          <button type="button" class="btn btn-outline-danger" data-album-delete-mode="with_photos">Eliminar álbum y sus fotos</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>

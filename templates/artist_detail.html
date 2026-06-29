@@ -152,7 +152,7 @@
   {% if artist_fotos_groups %}
     <div class="fotos-artist-list">
       {% for g in artist_fotos_groups %}
-      <a class="fotos-artist-group" href="{{ g.url }}">
+      <a class="fotos-artist-group" href="{{ g.url }}" data-fotos-group data-owner-type="{{ g.owner_type|lower }}" data-owner-id="{{ g.owner_id }}" data-owner-title="{{ g.title }}">
         <div class="fotos-artist-group__cover">
           {% if g.cover_url %}<img src="{{ g.cover_url }}" alt="">{% else %}<i class="fa fa-images"></i>{% endif %}
         </div>
@@ -174,6 +174,39 @@
       </a>
       {% endfor %}
     </div>
+
+    {# Popup in-place con el contenido del grupo (navegación + detalle) #}
+    <div class="modal fade" id="artistFotosModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header py-2">
+            <h6 class="modal-title text-truncate" id="artistFotosTitle">Fotos</h6>
+            <a class="btn btn-sm btn-outline-primary ms-2" id="artistFotosOpen" href="#"><i class="fa fa-up-right-from-square me-1"></i>Abrir en la ficha</a>
+            <button type="button" class="btn-close ms-2" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="d-flex justify-content-end mb-2">
+              <div class="btn-group fotos-viewmodes" role="group">
+                <button type="button" data-amode="grid2" class="btn btn-outline-secondary btn-sm" title="2 por fila"><i class="fa fa-table-cells-large"></i></button>
+                <button type="button" data-amode="grid3" class="btn btn-outline-secondary btn-sm active" title="3 por fila"><i class="fa fa-table-cells"></i></button>
+                <button type="button" data-amode="list" class="btn btn-outline-secondary btn-sm" title="Lista"><i class="fa fa-list"></i></button>
+              </div>
+            </div>
+            <div id="artistFotosGallery" class="fotos-gallery fotos-grid3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    {# Detalle de una foto #}
+    <div class="modal fade" id="artistFotoDetailModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header py-2"><h6 class="modal-title text-truncate" id="artistFotoDetailTitle">Foto</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+          <div class="modal-body"><div class="row g-3"><div class="col-lg-8"><div class="fotos-detail-media" id="artistFotoDetailMedia"></div></div><div class="col-lg-4"><div id="artistFotoDetailInfo"></div></div></div></div>
+        </div>
+      </div>
+    </div>
+    <script src="{{ url_for('static', filename='js/artist_fotos.js') }}"></script>
   {% else %}
     <div class="text-muted text-center py-5"><i class="fa fa-images fa-2x mb-2 d-block opacity-50"></i>Este artista todavía no tiene fotos vinculadas.</div>
   {% endif %}

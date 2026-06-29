@@ -18,6 +18,7 @@ gunicorn==21.2.0
 reportlab>=4.0.0
 pandas==2.2.2
 Pillow>=10.0.0
+pillow-heif>=0.16.0
 pydub>=0.25.1
 pycountry>=24.6.1
 pypdf>=4.2.0

@@ -71,6 +71,15 @@ except Exception:
     PILImage = None
     ImageOps = None
 
+# Lector HEIC/HEIF (fotos de iPhone): si está disponible, lo registramos en Pillow para
+# poder convertirlas a JPEG al subirlas (los navegadores no muestran HEIC).
+try:
+    import pillow_heif  # type: ignore
+    pillow_heif.register_heif_opener()
+    HEIF_AVAILABLE = True
+except Exception:
+    HEIF_AVAILABLE = False
+
 try:
     from pydub import AudioSegment
     PYDUB_AVAILABLE = True
@@ -34916,12 +34925,37 @@ def fotos_upload(owner_type, owner_id):
             fname = fs.filename or "archivo"
             kind = _photo_kind_for_filename(fname)
             ext = os.path.splitext(fname.lower())[1]
+            stored_name = fname
+            stored_mime = (getattr(fs, "mimetype", "") or "").strip() or None
             try:
                 if ext in {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}:
                     # Formatos web estándar: validados por upload_image.
                     file_url = upload_image(fs, "photos")
+                elif kind == "IMAGE":
+                    # Imagen no-web (HEIC/HEIF de iPhone, BMP, TIFF…): convertir a JPEG para que
+                    # se vea en el navegador. Si no se puede, se guarda el original.
+                    file_url = None
+                    if PILLOW_AVAILABLE:
+                        try:
+                            raw = fs.read()
+                            img = ImageOps.exif_transpose(PILImage.open(BytesIO(raw)))
+                            if img.mode not in ("RGB", "L"):
+                                img = img.convert("RGB")
+                            out = BytesIO()
+                            img.save(out, format="JPEG", quality=90)
+                            file_url = _upload_bytes(out.getvalue(), "photos/%s.jpg" % uuid.uuid4().hex, "image/jpeg")
+                            stored_name = (os.path.splitext(fname)[0] or "foto") + ".jpg"
+                            stored_mime = "image/jpeg"
+                        except Exception:
+                            file_url = None
+                    if not file_url:
+                        try:
+                            fs.stream.seek(0)
+                        except Exception:
+                            pass
+                        file_url = upload_file(fs, "photos", allowed_extensions=(PHOTO_IMAGE_EXTS | PHOTO_VIDEO_EXTS))
                 else:
-                    # Resto (HEIC/HEIF de iPhone, vídeos, etc.): se almacenan tal cual.
+                    # Vídeos y demás: se almacenan tal cual.
                     file_url = upload_file(fs, "photos", allowed_extensions=(PHOTO_IMAGE_EXTS | PHOTO_VIDEO_EXTS))
                 if not file_url:
                     errors.append(fname)
@@ -34935,9 +34969,9 @@ def fotos_upload(owner_type, owner_id):
                 artist_id=artist_id,
                 kind=kind,
                 title=os.path.splitext(os.path.basename(fname))[0] or fname,
-                file_name=fname,
+                file_name=stored_name,
                 file_url=file_url,
-                mime_type=(getattr(fs, "mimetype", "") or "").strip() or None,
+                mime_type=stored_mime,
                 photographer_promoter_id=photographer_id,
                 photographer_unknown=bool(photographer_unknown),
                 sort_order=next_order,

@@ -37899,11 +37899,20 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
             sections.append('<ul style="list-style:none;padding:0;margin:0 0 12px">' + "".join(items) + "</ul>")
 
     top_zip = catzip(zip_all, category_filter_id) if category_filter_id else zip_all
+    # Solo ofrecemos el botón "Descargar todas" si REALMENTE hay PDFs que descargar. Si no, el enlace
+    # daría error: en su lugar avisamos. (Las listas de invitados/taquilla ya se gestionan arriba.)
+    if tickets:
+        download_html = f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar todas")}</div>'
+        plain = f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {top_zip}"
+    else:
+        download_html = ('<p style="text-align:center;color:#555;margin:0 0 12px">Tus invitaciones se están '
+                         'preparando. Si en un rato no puedes descargarlas, contacta con la organización.</p>')
+        plain = f"Hola, tus invitaciones para {subject} se están preparando."
     body = (f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:720px;margin:0 auto">{logo_html}{intro}{header_html}'
             f'<h2 style="text-align:center;margin:14px 0 6px">Invitaciones</h2>'
-            f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar todas")}</div>'
+            f'{download_html}'
             f'{"".join(sections)}</div>')
-    return subject, body, f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {top_zip}"
+    return subject, body, plain
 
 
 def _invitation_email_body(session_db, row: InvitationRequest, download_url: str | None = None, custom_text: str | None = None) -> tuple:
@@ -39847,26 +39856,65 @@ def invitation_request_download(token):
         session_db.close()
 
 
-def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> tuple[bytes, str]:
-    """Empaqueta en un ZIP los PDF individuales de una lista de entradas (bajándolos de su pdf_url)."""
+def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> tuple[bytes, str, int]:
+    """Empaqueta en un ZIP los PDF individuales de una lista de entradas (bajándolos de su pdf_url).
+    Devuelve (bytes, nombre_archivo, nº de PDFs añadidos). Reintenta la descarga para evitar que un
+    fallo transitorio deje a alguien sin sus invitaciones."""
     buf = BytesIO()
     used: set = set()
+    added = 0
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for idx, t in enumerate(tickets or [], start=1):
             url = (getattr(t, "pdf_url", None) or "").strip()
             if not url:
                 continue
-            try:
-                content, _ct = _download_remote_content(url)
-            except Exception:
+            content = None
+            for _attempt in range(3):
+                try:
+                    content, _ct = _download_remote_content(url)
+                    break
+                except Exception as exc:
+                    content = None
+                    last_exc = exc
+            if content is None:
+                try:
+                    app.logger.warning("Invitación: no se pudo descargar el PDF de la entrada %s (%s): %s",
+                                       getattr(t, "id", "?"), url, locals().get("last_exc"))
+                except Exception:
+                    pass
                 continue
             loc = " ".join([x for x in [(t.sector or "").strip(), (t.row_label or "").strip(), (t.seat_number or "").strip()] if x]).strip()
             base = (t.ticket_code or t.pdf_name or f"invitacion_{idx}").strip()
             stem = (base + (" " + loc if loc else "")).strip() or f"invitacion_{idx}"
             member = _safe_zip_member_name(stem + ".pdf", used, f"invitacion_{idx}.pdf")
             zf.writestr(member, content)
+            added += 1
     root = (archive_label or "invitaciones").strip().replace("/", "-").replace("\\", "-") or "invitaciones"
-    return buf.getvalue(), f"{root}.zip"
+    return buf.getvalue(), f"{root}.zip", added
+
+
+def _invitation_download_unavailable(reason: str = "empty"):
+    """Página clara (en vez de un 404 crudo o un ZIP vacío) cuando la descarga no se puede preparar."""
+    if reason == "retry":
+        msg = ("No hemos podido preparar tus invitaciones en este momento. "
+               "Vuelve a pulsar el enlace del correo en unos minutos.")
+    else:
+        msg = ("Tus invitaciones no están disponibles para descargar. Puede que estés en la lista de "
+               "invitados (da tu nombre en el acceso o taquilla) o que la organización aún las esté "
+               "preparando. Si crees que es un error, responde al correo o contacta con quien te lo envió.")
+    html = (
+        '<!doctype html><html lang="es"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        '<title>Invitaciones</title>'
+        '<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"></head>'
+        '<body style="background:#f5f6f8"><main class="container py-5" style="max-width:560px">'
+        '<div class="card border-0 shadow-sm"><div class="card-body text-center p-4">'
+        '<div style="font-size:2rem">🎫</div>'
+        '<h1 class="h5 mt-2">Invitaciones</h1>'
+        f'<p class="text-muted">{msg}</p>'
+        '</div></div></main></body></html>'
+    )
+    return Response(html, status=200, mimetype="text/html")
 
 
 @app.get('/invitaciones/solicitudes/descargar-zip/<token>', endpoint='invitation_request_download_zip')
@@ -39875,19 +39923,23 @@ def invitation_request_download_zip(token):
     session_db = db()
     try:
         row = session_db.query(InvitationRequest).filter(InvitationRequest.delivery_token == token).first()
-        if not row or (row.status or '') in {'RECHAZADAS', 'ANULADAS'}:
-            abort(404)
+        if not row:
+            abort(404)  # token inexistente
+        if (row.status or '') in {'RECHAZADAS', 'ANULADAS'}:
+            return _invitation_download_unavailable()
         cat_id = _safe_uuid(request.args.get('category'))
         q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
         if cat_id:
             q = q.filter(InvitationTicket.category_id == cat_id)
         tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
         if not tickets:
-            abort(404)
+            return _invitation_download_unavailable()
+        payload, filename, added = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.guest_name or 'invitado'}")
+        if added == 0:
+            return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
         session_db.commit()
-        payload, filename = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.guest_name or 'invitado'}")
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
         session_db.close()
@@ -39900,15 +39952,17 @@ def invitation_commitment_download_zip(token):
     try:
         row = session_db.query(InvitationCommitment).filter(InvitationCommitment.delivery_token == token).first()
         if not row:
-            abort(404)
+            abort(404)  # token inexistente
         cat_id = _safe_uuid(request.args.get('category'))
         q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
         if cat_id:
             q = q.filter(InvitationTicket.category_id == cat_id)
         tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
         if not tickets:
-            abort(404)
-        payload, filename = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.name or 'compromiso'}")
+            return _invitation_download_unavailable()
+        payload, filename, added = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.name or 'compromiso'}")
+        if added == 0:
+            return _invitation_download_unavailable("retry")
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
         session_db.close()

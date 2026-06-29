@@ -138,18 +138,38 @@
   {% elif tab == 'vinculaciones' %}
     {% include '_entity_links_panel.html' %}
   {% elif tab == 'invitaciones' %}
+    {# Cabecera común de evento para una fila de invitación: foto del artista + etiqueta de tipo +
+       nombre (si lo hay) · municipio · fecha; y debajo, en sub-línea, recinto · municipio · provincia.
+       `show_artist=False` cuando el listado ya está agrupado por artista. #}
+    {% macro inv_event_header(ev, show_artist=True) %}
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        {% if show_artist and ev.artists %}{{ artist_avatar(ev.artists[0].photo_url, ev.artists[0].name) }}{% endif %}
+        {% if ev.type_label %}<span class="badge text-bg-secondary">{{ ev.type_label }}</span>{% endif %}
+        {% set head = [] %}
+        {% if ev.name %}{% set _ = head.append(ev.name) %}{% endif %}
+        {% if ev.city %}{% set _ = head.append(ev.city) %}{% endif %}
+        {% if ev.date_label %}{% set _ = head.append(ev.date_label) %}{% endif %}
+        {% if ev.id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=ev.id) }}">{{ head|join(' · ') or 'Evento' }}</a>{% else %}<span class="fw-semibold">{{ head|join(' · ') or 'Evento' }}</span>{% endif %}
+      </div>
+    {% endmacro %}
+    {% macro inv_event_subline(ev) %}
+      {% set sub = [] %}
+      {% if ev.venue %}{% set _ = sub.append(ev.venue) %}{% endif %}
+      {% if ev.city %}{% set _ = sub.append(ev.city) %}{% endif %}
+      {% if ev.province %}{% set _ = sub.append(ev.province) %}{% endif %}
+      {% if sub %}<div class="small text-muted mt-1">{{ sub|join(' · ') }}</div>{% endif %}
+    {% endmacro %}
     {% macro inv_row(row) %}
       <div class="list-group-item" id="req-{{ row.id }}" data-inline-zone>
         <div class="d-flex justify-content-between gap-3 flex-wrap">
           <div class="flex-grow-1">
             <div class="d-flex align-items-center gap-2 flex-wrap">
-              {% if row.event.id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=row.event.id) }}">{{ row.event.title or row.event.artist_names or 'Evento' }}</a>{% else %}<span class="fw-semibold">{{ row.event.title or 'Evento' }}</span>{% endif %}
-              {% if row.event.date_label %}<span class="text-muted">· {{ row.event.date_label }}</span>{% endif %}
+              {{ inv_event_header(row.event) }}
               <span class="badge text-bg-light border"><i class="fa fa-hand-holding-heart me-1"></i>Solicitud</span>
               <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
               {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
             </div>
-            {% if row.event.artist_names or row.event.city %}<div class="small text-muted mt-1">{{ row.event.artist_names }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>{% endif %}
+            {{ inv_event_subline(row.event) }}
             <div class="mt-2">{{ row.quantities_label }}</div>
             {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
           </div>
@@ -163,12 +183,11 @@
         <div class="d-flex justify-content-between gap-3 flex-wrap">
           <div class="flex-grow-1">
             <div class="d-flex align-items-center gap-2 flex-wrap">
-              {% if row.event.id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('invitation_event_detail', concert_id=row.event.id) }}">{{ row.event.title or row.event.artist_names or 'Evento' }}</a>{% else %}<span class="fw-semibold">{{ row.event.title or 'Evento' }}</span>{% endif %}
-              {% if row.event.date_label %}<span class="text-muted">· {{ row.event.date_label }}</span>{% endif %}
+              {{ inv_event_header(row.event) }}
               <span class="badge text-bg-light border"><i class="fa fa-handshake me-1"></i>Compromiso</span>
               <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
             </div>
-            {% if row.event.artist_names or row.event.city %}<div class="small text-muted mt-1">{{ row.event.artist_names }}{% if row.event.city %} · {{ row.event.city }}{% endif %}</div>{% endif %}
+            {{ inv_event_subline(row.event) }}
             <div class="mt-1 small text-muted">{{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %}</div>
             <div class="mt-2">{{ row.quantities_label }}</div>
             {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}

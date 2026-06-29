@@ -60,7 +60,9 @@
             <div class="d-flex justify-content-between gap-3">
               <div>
                 {% for a in (row.event.artists or []) %}{{ artist_chip(a.name, a.photo_url) }}{% if a.id %}{{ linked_mini('artist', a.id) }}{% endif %}{% else %}<strong>{{ row.event.artist_names }}</strong>{% endfor %}
-                <div class="small text-muted">{{ row.event.type_label }} · {{ row.event.date_label }} · {{ row.event.city }}</div>
+                <div class="small text-muted mt-1">{% if row.event.type_label %}<span class="badge text-bg-secondary">{{ row.event.type_label }}</span> {% endif %}{{ [row.event.name, row.event.city, row.event.date_label]|select|join(' · ') }}</div>
+                {% set sub = [row.event.venue, row.event.city, row.event.province]|select|list %}
+                {% if sub %}<div class="small text-muted">{{ sub|join(' · ') }}</div>{% endif %}
                 <div class="small mt-1">{{ row.guest_name }} · {{ row.quantities_label }}</div>
               </div>
               <div class="d-flex align-items-center gap-2 align-self-start">

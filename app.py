@@ -35074,6 +35074,10 @@ def _invitation_event_payload(session_db, concert: Concert, include_counts: bool
     payload = {
         "id": str(concert.id),
         "type_label": _invitation_event_type_label(concert),
+        # Nombre EXPLÍCITO del evento (festival/ciclo) si lo hay; vacío si no. `title` ya hace el
+        # fallback a municipio/tipo, pero para componer "nombre · municipio · fecha" necesitamos
+        # saber si existe un nombre propio para no duplicar el municipio.
+        "name": (getattr(concert, "festival_name", None) or "").strip(),
         "title": _invitation_event_title(concert),
         "date": concert.date.isoformat() if getattr(concert, "date", None) else "",
         "date_label": _invitation_display_date(getattr(concert, "date", None)),

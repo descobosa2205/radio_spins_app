@@ -36574,7 +36574,12 @@ def invitations_view():
         current_user_id = _safe_uuid(session.get('user_id'))
         my_requests = []
         my_denied_count = 0
+        office_requests = []
         show_denied = _truthy(request.args.get('show_denied'))
+        # "Ver las pedidas para otros de la oficina": al pedir invitaciones "para alguien de la
+        # empresa" la solicitud se reasigna a esa persona (requester != yo), por lo que no aparece en
+        # MI listado. Quien la registró (yo) puede mostrarlas para saber cómo están.
+        show_office = _truthy(request.args.get('show_office'))
         if current_user_id:
             base_q = (
                 session_db.query(InvitationRequest)
@@ -36583,8 +36588,7 @@ def invitations_view():
                 .order_by(InvitationRequest.created_at.desc())
                 .limit(180)
             )
-            rows = base_q.all()
-            for row in rows:
+            for row in base_q.all():
                 if not _invitation_concert_visible_for_user(row.concert):
                     continue
                 is_denied = (row.status or '') in {'RECHAZADAS', 'ANULADAS'}
@@ -36597,13 +36601,44 @@ def invitations_view():
                 item = _invitation_request_payload(row, cats)
                 item['event'] = _invitation_event_payload(session_db, concert) if concert else {}
                 item['is_denied'] = is_denied
+                item['for_office'] = False
                 my_requests.append(item)
                 if len(my_requests) >= 120:
                     break
-        # Agrupadas por actividad (evento), conservando el orden de aparición.
+            # Peticiones que YO registré PARA otra persona de la oficina (requester != yo). Se cargan
+            # siempre para saber si hay que ofrecer el botón; solo se intercalan si show_office. Son de
+            # solo lectura aquí (no soy el peticionario): la plantilla no muestra acciones sobre ellas.
+            office_q = (
+                session_db.query(InvitationRequest)
+                .options(joinedload(InvitationRequest.concert))
+                .filter(InvitationRequest.created_by_user_id == current_user_id)
+                .filter(InvitationRequest.requester_user_id != current_user_id)
+                .order_by(InvitationRequest.created_at.desc())
+                .limit(180)
+            )
+            for row in office_q.all():
+                if not _invitation_concert_visible_for_user(row.concert):
+                    continue
+                is_denied = (row.status or '') in {'RECHAZADAS', 'ANULADAS'}
+                if is_denied and not show_denied:
+                    continue
+                concert = row.concert
+                cats = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
+                item = _invitation_request_payload(row, cats)
+                item['event'] = _invitation_event_payload(session_db, concert) if concert else {}
+                item['is_denied'] = is_denied
+                item['for_office'] = True
+                office_requests.append(item)
+                if len(office_requests) >= 120:
+                    break
+        # Agrupadas por actividad (evento), conservando el orden de aparición. Si el usuario activó
+        # "ver las pedidas para otros", se intercalan en el grupo del mismo evento (detrás de las suyas).
+        grouping_source = list(my_requests)
+        if show_office:
+            grouping_source.extend(office_requests)
         my_requests_by_event = []
         _mr_index = {}
-        for item in my_requests:
+        for item in grouping_source:
             ev = item.get('event') or {}
             key = ev.get('id') or 'sin-evento'
             grp = _mr_index.get(key)
@@ -36623,6 +36658,8 @@ def invitations_view():
             my_requests=my_requests,
             my_requests_by_event=my_requests_by_event,
             my_denied_count=my_denied_count,
+            office_requests=office_requests,
+            show_office=show_office,
             show_denied=show_denied,
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,

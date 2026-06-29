@@ -42,11 +42,20 @@
     <div class="card-body">
       <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
         <h5 class="mb-0">Mis solicitudes</h5>
-        {% if my_denied_count and not show_denied %}
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir', show_denied=1) }}"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>
-        {% elif show_denied %}
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir') }}"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>
-        {% endif %}
+        <div class="d-flex align-items-center flex-wrap gap-2">
+          {% if office_requests %}
+            {% if show_office %}
+              <a class="btn btn-sm btn-info text-white" href="{{ url_for('invitations_view', tab='pedir', show_denied=(1 if show_denied else none)) }}"><i class="fa fa-eye-slash me-1"></i>Ocultar las pedidas para otros</a>
+            {% else %}
+              <a class="btn btn-sm btn-outline-info" href="{{ url_for('invitations_view', tab='pedir', show_office=1, show_denied=(1 if show_denied else none)) }}"><i class="fa fa-user-group me-1"></i>Ver las pedidas para otros de la oficina ({{ office_requests|length }})</a>
+            {% endif %}
+          {% endif %}
+          {% if my_denied_count and not show_denied %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir', show_denied=1, show_office=(1 if show_office else none)) }}"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>
+          {% elif show_denied %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitations_view', tab='pedir', show_office=(1 if show_office else none)) }}"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>
+          {% endif %}
+        </div>
       </div>
       {% if my_requests_by_event %}
         {% for g in my_requests_by_event %}
@@ -65,20 +74,21 @@
             </div>
             <div class="list-group list-group-flush">
               {% for row in g.requests %}
-                <div class="list-group-item">
+                <div class="list-group-item{% if row.for_office %} invitation-office-row{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="d-flex align-items-start gap-2">
                       <img src="{{ row.guest_photo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto;">
                       <div>
                         <div><strong>{{ row.guest_name }}</strong>{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %}</div>
+                        {% if row.for_office %}<div class="small mt-1"><span class="badge text-bg-info"><i class="fa fa-user-group me-1"></i>Para {{ row.requester_nick }} · de la oficina</span></div>{% endif %}
                         <div class="mt-1">{{ row.quantities_label }}</div>
                         {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
-                        {% if row.registered_by_other %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
+                        {% if row.registered_by_other and not row.for_office %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
                       </div>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                       <span class="badge text-bg-{{ row.requester_status_badge }}">{{ row.requester_status_label }}</span>
-                      {{ inv_menu.request_kebab(row) }}
+                      {% if not row.for_office %}{{ inv_menu.request_kebab(row) }}{% endif %}
                     </div>
                   </div>
                 </div>

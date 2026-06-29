@@ -760,6 +760,8 @@ img[data-default-photo="1"]{
 /* Previsualización de selección por arrastre al asignar invitaciones */
 .invitation-seat.is-drag-sel{ outline:2px solid var(--brand-accent); outline-offset:1px; }
 .invitation-linked-mini span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+/* Solicitudes pedidas para OTRA persona de la oficina (vista de solo lectura en "Mis solicitudes") */
+.invitation-office-row{ border-left:3px solid var(--brand-accent); background:rgba(0,124,162,.045); }
 /* Materiales de canción (rediseño) */
 .mat-module{ border:1px solid #e9ecef; border-radius:.6rem; padding:.6rem .75rem; background:#fff; }
 .mat-module__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; flex-wrap:wrap; margin-bottom:.4rem; }

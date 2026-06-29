@@ -197,7 +197,7 @@
         var cell = el('div', 'agenda-cal__day');
         if (cur < today || cur > end) cell.classList.add('is-out');
         if (key === data.today) cell.classList.add('is-today');
-        var label = cur.getDate() + (cur.getDate() === 1 || (cur.getTime() === gStart.getTime()) ? ' ' + MONTHS[cur.getMonth()] : '');
+        var label = cur.getDate() + ' ' + MONTHS[cur.getMonth()];
         cell.appendChild(el('div', 'agenda-cal__num', label));
         var list = el('div', 'agenda-cal__events');
         (byDate[key] || []).forEach(function (a) { list.appendChild(makeChip(a)); });

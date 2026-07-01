@@ -843,6 +843,14 @@ img[data-default-photo="1"]{
 /* Contadores de sin numerar (Pista/Grada): clicables, despliegan el detalle. */
 .inv-unnum-count { cursor: pointer; border: 0; font-size: .82rem; padding: .45rem .7rem; }
 .inv-unnum-count.active { box-shadow: 0 0 0 2px rgba(0,0,0,.18) inset; }
+/* Personas en una fila de invitación (invitado / a quién se envía / quién la pidió): compacto. */
+.invitation-people { font-size: .82rem; row-gap: .25rem; }
+.inv-person { display: inline-flex; align-items: center; gap: .3rem; min-width: 0; }
+.inv-person > a, .inv-person > strong, .inv-person > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inv-person-ava { width: 20px; height: 20px; flex: 0 0 auto; object-fit: cover; background: #eef0f3; border: 1px solid #eef0f3; }
+.inv-person-ava.is-photo { border-radius: 50%; }
+.inv-person-ava.is-logo { width: auto; max-width: 34px; border-radius: 4px; object-fit: contain; background: transparent; border: 0; }
+.inv-person-sep { color: #c4c9d0; }
 /* Butaca con FOTO del invitado dentro: número arriba (pequeño) y foto debajo (no la tapa). */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }
 .invitation-seat--photo .invitation-seat-num { font-size: .66rem; font-weight: 700; line-height: 1; }

@@ -588,7 +588,33 @@
                   {% else %}
                     <div class="text-muted small">No hay PDFs numerados subidos para esta categoría.</div>
                   {% endif %}
+                {% elif zkey != 'PALCO' %}
+                  {# Sin numerar (Pista/Grada): resumen de 3 contadores; al pinchar cada uno se
+                     despliega el detalle de esas entradas. En palcos NO se resume. #}
+                  {% set _avail = cat_tickets|selectattr('status','equalto','AVAILABLE')|list %}
+                  {% set _assigned = cat_tickets|selectattr('status','equalto','ASSIGNED')|list %}
+                  {% set _sent = cat_tickets|selectattr('status','in',['SENT','DELIVERED','PICKED_UP','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','ENTREGADAS_MANO'])|list %}
+                  <div class="d-flex align-items-center gap-3 flex-wrap">
+                    <div class="invitation-ticket-thumb"><i class="fa fa-ticket-alt"></i></div>
+                    <div class="d-flex gap-2 flex-wrap">
+                      <button type="button" class="badge text-bg-success inv-unnum-count" data-unnum-toggle="unnum-avail-{{ cat.id }}"><i class="fa fa-ticket-alt me-1"></i>{{ _avail|length }} disponibles</button>
+                      <button type="button" class="badge text-bg-warning text-dark inv-unnum-count" data-unnum-toggle="unnum-assigned-{{ cat.id }}"><i class="fa fa-user-check me-1"></i>{{ _assigned|length }} asignadas</button>
+                      <button type="button" class="badge text-bg-danger inv-unnum-count" data-unnum-toggle="unnum-sent-{{ cat.id }}"><i class="fa fa-paper-plane me-1"></i>{{ _sent|length }} enviadas</button>
+                    </div>
+                  </div>
+                  {% macro _unnum_grid(items, gid) %}
+                    <div class="invitation-seat-grid mt-3 d-none" id="{{ gid }}">
+                      {% for t in items %}
+                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                      {% endfor %}
+                      {% if not items %}<div class="text-muted small">No hay entradas en este estado.</div>{% endif %}
+                    </div>
+                  {% endmacro %}
+                  {{ _unnum_grid(_avail, 'unnum-avail-' ~ cat.id) }}
+                  {{ _unnum_grid(_assigned, 'unnum-assigned-' ~ cat.id) }}
+                  {{ _unnum_grid(_sent, 'unnum-sent-' ~ cat.id) }}
                 {% else %}
+                  {# Palco sin numerar: se muestra completo (no resumido). #}
                   <div class="d-flex align-items-center gap-3 flex-wrap">
                     <div class="invitation-ticket-thumb"><i class="fa fa-ticket-alt"></i></div>
                     <div><strong>Sin numerar</strong><div class="small text-muted">Disponibles sin asignar: {{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</div></div>
@@ -2308,6 +2334,22 @@
       else if(act === 'out') st.zoom = Math.max((st.zoom || 1) / 1.25, 0.2);
       else st.zoom = 1;
       render(viewer);
+    });
+  })();
+</script>
+
+<script>
+  // Sin numerar (Pista/Grada): los contadores (disponibles/asignadas/enviadas) despliegan el detalle.
+  (function(){
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest ? ev.target.closest('[data-unnum-toggle]') : null;
+      if(!btn) return;
+      ev.preventDefault();
+      var target = document.getElementById(btn.getAttribute('data-unnum-toggle'));
+      if(!target) return;
+      var show = target.classList.contains('d-none');
+      target.classList.toggle('d-none', !show);
+      btn.classList.toggle('active', show);
     });
   })();
 </script>

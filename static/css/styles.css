@@ -840,6 +840,9 @@ img[data-default-photo="1"]{
 .invitation-seat-block-name { width: 0; min-width: 100%; box-sizing: border-box; text-align: center; font-size: .66rem; font-weight: 600; color: var(--asg, #555); line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 .15rem; }
 .invitation-seat-block-line { width: 100%; height: 3px; border-radius: 3px; background: var(--asg, #999); }
 .invitation-seat-block-seats { display: flex; gap: .35rem; flex-wrap: wrap; }
+/* Contadores de sin numerar (Pista/Grada): clicables, despliegan el detalle. */
+.inv-unnum-count { cursor: pointer; border: 0; font-size: .82rem; padding: .45rem .7rem; }
+.inv-unnum-count.active { box-shadow: 0 0 0 2px rgba(0,0,0,.18) inset; }
 /* Butaca con FOTO del invitado dentro: número arriba (pequeño) y foto debajo (no la tapa). */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }
 .invitation-seat--photo .invitation-seat-num { font-size: .66rem; font-weight: 700; line-height: 1; }

@@ -40142,6 +40142,74 @@ def invitation_tickets_upload(concert_id):
     return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
 
 
+@app.post('/invitaciones/evento/<concert_id>/tickets/redetectar', endpoint='invitation_tickets_redetect')
+@admin_required
+def invitation_tickets_redetect(concert_id):
+    """Re-lee los PDF de las entradas NUMERADAS ya subidas y actualiza sector/fila/asiento con la
+    detección actual (útil cuando se mejora el detector: p. ej. asiento etiquetado como "Nº:"). No
+    borra datos: solo rellena/corrige lo que ahora se detecta. Acepta `category_id` opcional."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        _cat_id = _safe_uuid(request.form.get('category_id'))
+        q = session_db.query(InvitationTicket).filter(
+            InvitationTicket.concert_id == concert.id,
+            InvitationTicket.is_numbered.is_(True),
+        )
+        if _cat_id:
+            q = q.filter(InvitationTicket.category_id == _cat_id)
+        tickets = q.all()
+        updated = 0
+        failed = 0
+        for t in tickets:
+            url = (getattr(t, 'pdf_url', None) or '').strip()
+            if not url:
+                continue
+            content = None
+            for _attempt in range(3):
+                try:
+                    content, _ct = _download_remote_content(url)
+                    break
+                except Exception:
+                    content = None
+            if content is None:
+                failed += 1
+                continue
+            meta = _invitation_extract_ticket_metadata(content, getattr(t, 'pdf_name', None))
+            new_sector = (meta.get('sector') or '').strip() or None
+            new_row = (meta.get('row_label') or '').strip() or None
+            new_seat = (meta.get('seat_number') or '').strip() or None
+            changed = False
+            # Solo actualiza cuando ahora se detecta algo (no se borra lo ya guardado si no se detecta).
+            if new_seat and new_seat != (t.seat_number or None):
+                t.seat_number = new_seat
+                changed = True
+            if new_row and new_row != (t.row_label or None):
+                t.row_label = new_row
+                changed = True
+            if new_sector and new_sector != (t.sector or None):
+                t.sector = new_sector
+                changed = True
+            if changed:
+                t.updated_at = _now_madrid()
+                updated += 1
+        session_db.commit()
+        msg = f'Re-detección de butacas: {updated} entrada(s) actualizada(s) de {len(tickets)} numerada(s).'
+        if failed:
+            msg += f' {failed} no se pudieron descargar (reintentar más tarde).'
+        flash(msg, 'success' if updated else 'info')
+        return redirect(url_for('invitation_event_detail', concert_id=concert.id) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo re-detectar las butacas: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/tickets/<ticket_id>/liberar', endpoint='invitation_ticket_release')
 @admin_required
 def invitation_ticket_release(ticket_id):

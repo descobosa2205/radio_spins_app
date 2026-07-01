@@ -544,6 +544,12 @@
                   <div class="d-flex gap-2 flex-wrap">
                     {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
                     <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
+                    {% if cat.ticket_kind == 'PDF_NUMBERED' and cat.uploaded %}
+                    <form method="post" action="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}" onsubmit="return confirm('¿Volver a detectar sector/fila/asiento de las entradas ya subidas de «{{ cat.name|e }}»? Se releen los PDF y se actualizan los datos (no borra nada).');">
+                      <input type="hidden" name="category_id" value="{{ cat.id }}">
+                      <button class="btn btn-sm btn-outline-secondary" type="submit" title="Re-leer los PDF y actualizar butacas"><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>
+                    </form>
+                    {% endif %}
                   </div>
                 </div>
 

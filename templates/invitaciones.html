@@ -543,12 +543,7 @@
                     {% if cat.ticket_kind != 'GUEST_LIST' %}<button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>{% endif %}
                     {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
                     <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
-                    {% if cat.ticket_kind == 'PDF_NUMBERED' and cat.uploaded %}
-                    <form method="post" action="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}" onsubmit="return confirm('¿Volver a detectar sector/fila/asiento de las entradas ya subidas de «{{ cat.name|e }}»? Se releen los PDF y se actualizan los datos (no borra nada).');">
-                      <input type="hidden" name="category_id" value="{{ cat.id }}">
-                      <button class="btn btn-sm btn-outline-secondary" type="submit" title="Re-leer los PDF y actualizar butacas"><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>
-                    </form>
-                    {% endif %}
+                    {% if cat.ticket_kind == 'PDF_NUMBERED' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary d-none" data-redetect-btn data-category-id="{{ cat.id }}" title="Re-leer los PDF y actualizar butacas"><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>{% endif %}
                   </div>
                 </div>
 
@@ -1111,6 +1106,137 @@
   </div>
 </div>
 
+{# Popup de revisión de butacas tras subir numeradas (o al pulsar "Re-detectar" en modo selección):
+   muestra el resultado detectado con OK / Re-detectar butacas. #}
+<div class="modal fade" id="ticketReviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-couch me-2 text-danger"></i>Revisar butacas detectadas</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-body">
+        <div class="alert alert-info py-2 small mb-3" data-review-summary></div>
+        <div data-review-list></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-review-redetect><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>
+        <button type="button" class="btn btn-danger" data-review-ok><i class="fa fa-check me-1"></i>Está bien</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var modalEl = document.getElementById('ticketReviewModal');
+  if(!modalEl) return;
+  var REDETECT_URL = "{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}";
+  var summaryEl = modalEl.querySelector('[data-review-summary]');
+  var listEl = modalEl.querySelector('[data-review-list]');
+  var redetectBtn = modalEl.querySelector('[data-review-redetect]');
+  var okBtn = modalEl.querySelector('[data-review-ok]');
+  var state = { categoryId: '', dirty: false };
+  function esc(v){ return (v==null?'':String(v)).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function seatNum(s){ var m = String(s.seat_number||'').match(/\d+/); return m ? parseInt(m[0],10) : 999999; }
+  function renderList(tickets){
+    tickets = tickets || [];
+    if(!tickets.length){ listEl.innerHTML = '<div class="text-muted small">No hay entradas numeradas para mostrar.</div>'; return; }
+    var withSeat = tickets.filter(function(t){ return String(t.seat_number||'').trim(); }).length;
+    var groups = {};  // sector -> fila -> [asientos]
+    tickets.forEach(function(t){
+      var sec = (t.sector||'').trim() || 'Sin sector';
+      var row = (t.row_label||'').trim() || 'Sin fila';
+      (groups[sec] = groups[sec] || {});
+      (groups[sec][row] = groups[sec][row] || []).push(t);
+    });
+    var html = '';
+    Object.keys(groups).sort().forEach(function(sec){
+      html += '<div class="mb-2"><div class="fw-bold">'+esc(sec)+'</div>';
+      Object.keys(groups[sec]).sort().forEach(function(row){
+        var seats = groups[sec][row].sort(function(a,b){ return seatNum(a)-seatNum(b); });
+        var chips = seats.map(function(t){ var n = String(t.seat_number||'').trim(); return '<span class="badge text-bg-light border me-1 mb-1">'+(n?esc(n):'<span class=\"text-danger\">?</span>')+'</span>'; }).join('');
+        html += '<div class="small mb-1"><span class="text-muted me-2">Fila '+esc(row)+':</span>'+chips+'</div>';
+      });
+      html += '</div>';
+    });
+    var missing = tickets.length - withSeat;
+    if(missing>0){ html += '<div class="small text-danger mt-2"><i class="fa fa-triangle-exclamation me-1"></i>'+missing+' entrada(s) sin asiento detectado (marcadas con «?»). Prueba «Re-detectar butacas».</div>'; }
+    listEl.innerHTML = html;
+  }
+  function open(categoryId, data, opts){
+    opts = opts || {};
+    state.categoryId = categoryId || '';
+    state.dirty = !!opts.dirty;
+    var tickets = (data && data.tickets) || [];
+    var withSeat = tickets.filter(function(t){ return String(t.seat_number||'').trim(); }).length;
+    var msg;
+    if(opts.mode === 'redetect'){
+      msg = '<i class="fa fa-wand-magic-sparkles me-1"></i>Re-detección hecha: <strong>'+(data.updated||0)+'</strong> actualizada(s) de '+(data.total||tickets.length)+'. '+(data.failed?('<span class="text-danger">'+data.failed+' no se pudieron leer.</span> '):'')+'Si sigue mal, vuelve a pulsar «Re-detectar»; si está bien, pulsa «Está bien».';
+    } else {
+      msg = 'Se han subido <strong>'+(data.created||tickets.length)+'</strong> invitación(es) numeradas'+((data.duplicates||0)?(' · '+data.duplicates+' duplicada(s) omitida(s)'):'')+'. Revisa las butacas detectadas: si algo no cuadra pulsa «Re-detectar butacas», si está bien «Está bien».';
+    }
+    summaryEl.innerHTML = msg;
+    renderList(tickets);
+    if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  }
+  window.__invReviewOpen = open;  // lo llama el flujo de subida
+  redetectBtn.addEventListener('click', function(){
+    var fd = new FormData(); fd.append('ajax','1'); if(state.categoryId) fd.append('category_id', state.categoryId);
+    redetectBtn.disabled = true;
+    fetch(REDETECT_URL, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+      .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
+      .then(function(d){
+        redetectBtn.disabled = false;
+        if(!d || !d.ok){ alert((d&&d.error)||'No se pudo re-detectar.'); return; }
+        state.dirty = true;
+        open(state.categoryId, d, { mode:'redetect', dirty:true });
+      })
+      .catch(function(){ redetectBtn.disabled = false; alert('Error de red al re-detectar.'); });
+  });
+  function finish(){ if(state.dirty){ window.location.reload(); } }
+  okBtn.addEventListener('click', function(){ if(window.bootstrap) bootstrap.Modal.getInstance(modalEl)?.hide(); finish(); });
+  // Cerrar por la X o backdrop también refresca si hubo cambios (subida/re-detección).
+  modalEl.addEventListener('hidden.bs.modal', function(){ finish(); });
+
+  // Botón "Re-detectar butacas" del encabezado (solo visible en modo selección): abre el popup.
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest('[data-redetect-btn]');
+    if(!btn) return;
+    ev.preventDefault();
+    var catId = btn.getAttribute('data-category-id') || '';
+    var fd = new FormData(); fd.append('ajax','1'); if(catId) fd.append('category_id', catId);
+    btn.disabled = true;
+    fetch(REDETECT_URL, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+      .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
+      .then(function(d){ btn.disabled = false; if(!d||!d.ok){ alert((d&&d.error)||'No se pudo re-detectar.'); return; } open(catId, d, { mode:'redetect', dirty:true }); })
+      .catch(function(){ btn.disabled = false; alert('Error de red al re-detectar.'); });
+  });
+
+  // Subida de NUMERADAS por AJAX → popup de revisión. Otros tipos: envío normal (recarga).
+  var uploadModal = document.getElementById('ticketUploadModal');
+  var uploadForm = uploadModal ? uploadModal.querySelector('form') : null;
+  if(uploadForm){
+    uploadForm.addEventListener('submit', function(ev){
+      var kind = (uploadForm.querySelector('[name="ticket_kind"]:checked')||{}).value || '';
+      if(kind !== 'PDF_NUMBERED') return;  // sin numerar / listados: flujo normal
+      ev.preventDefault();
+      var catId = (uploadForm.querySelector('[data-upload-category-id]')||{}).value || '';
+      var fd = new FormData(uploadForm); fd.append('ajax','1');
+      var submitBtn = uploadForm.querySelector('button[type="submit"], .btn-danger');
+      if(submitBtn) submitBtn.disabled = true;
+      fetch(uploadForm.getAttribute('action'), { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+        .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
+        .then(function(d){
+          if(submitBtn) submitBtn.disabled = false;
+          if(!d || !d.ok){ alert((d&&d.error)||'No se pudieron subir las invitaciones.'); return; }
+          var showReview = function(){ open(d.category_id || catId, d, { mode:'upload', dirty:true }); };
+          var inst = (uploadModal && window.bootstrap) ? bootstrap.Modal.getInstance(uploadModal) : null;
+          if(inst){ uploadModal.addEventListener('hidden.bs.modal', function _h(){ uploadModal.removeEventListener('hidden.bs.modal', _h); showReview(); }); inst.hide(); }
+          else { showReview(); }
+        })
+        .catch(function(){ if(submitBtn) submitBtn.disabled = false; alert('Error de red al subir.'); });
+    });
+  }
+})();
+</script>
+
 <div class="modal fade" id="commitmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('invitation_commitment_save', concert_id=event.id) }}">
@@ -1637,6 +1763,8 @@
       tab.classList.toggle('is-selecting', on);
       if(bar) bar.classList.toggle('d-none', !on);
       toggleBtns.forEach(b => b.classList.toggle('active', on));
+      // El botón "Re-detectar butacas" solo se ve en modo selección (o en el popup tras subir).
+      tab.querySelectorAll('[data-redetect-btn]').forEach(b => b.classList.toggle('d-none', !on));
       // En modo selección desactivamos la apertura del modal (vista previa) de cada entrada, para
       // que al pinchar se SELECCIONE en vez de abrirse el PDF. Se restaura al salir del modo.
       tab.querySelectorAll('[data-ticket-id]').forEach(b => {

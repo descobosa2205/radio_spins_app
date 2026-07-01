@@ -40072,6 +40072,7 @@ def invitation_tickets_upload(concert_id):
         duplicates = []      # entradas que no se suben por estar ya repetidas
         discarded = []       # páginas SIN código: no son invitaciones (se avisan, no se suben)
         created = 0
+        created_rows = []    # butacas creadas (numeradas) para el popup de revisión tras subir
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
         seen_butacas = set() # butacas (sector+fila+asiento) ya vistas en este lote (numeradas)
@@ -40182,9 +40183,27 @@ def invitation_tickets_upload(concert_id):
                 )
                 session_db.add(ticket)
                 created += 1
+                if is_numbered:
+                    created_rows.append({
+                        "sector": sector_val or "", "row_label": row_val or "",
+                        "seat_number": seat_val or "", "pdf_name": ticket.pdf_name or "",
+                    })
         if category is not None:
             category.updated_at = _now_madrid()
         session_db.commit()
+        _is_ajax = _truthy(request.form.get('ajax')) or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        if _is_ajax:
+            # Subida AJAX (numeradas): devuelve el resultado detectado para el popup de revisión.
+            return jsonify({
+                "ok": True,
+                "category_id": str(category.id) if category else "",
+                "is_numbered": bool(is_numbered),
+                "created": created,
+                "duplicates": len(duplicates),
+                "discarded": len(discarded),
+                "errors": errors[:8],
+                "tickets": created_rows,
+            })
         if created:
             flash(f'{created} invitaciones subidas.', 'success')
         if duplicates:
@@ -40197,6 +40216,8 @@ def invitation_tickets_upload(concert_id):
             flash('Algunas invitaciones no se pudieron subir: ' + ' · '.join(errors[:8]), 'warning')
     except Exception as exc:
         session_db.rollback()
+        if _truthy(request.form.get('ajax')) or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"ok": False, "error": str(exc)}), 400
         flash(f'No se pudieron subir las invitaciones: {exc}', 'danger')
     finally:
         session_db.close()
@@ -40258,6 +40279,13 @@ def invitation_tickets_redetect(concert_id):
                 t.updated_at = _now_madrid()
                 updated += 1
         session_db.commit()
+        _is_ajax = _truthy(request.form.get('ajax')) or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+        if _is_ajax:
+            rows_out = [{
+                "sector": (t.sector or ""), "row_label": (t.row_label or ""),
+                "seat_number": (t.seat_number or ""), "pdf_name": (t.pdf_name or ""),
+            } for t in tickets]
+            return jsonify({"ok": True, "updated": updated, "total": len(tickets), "failed": failed, "tickets": rows_out})
         msg = f'Re-detección de butacas: {updated} entrada(s) actualizada(s) de {len(tickets)} numerada(s).'
         if failed:
             msg += f' {failed} no se pudieron descargar (reintentar más tarde).'
@@ -40265,6 +40293,8 @@ def invitation_tickets_redetect(concert_id):
         return redirect(url_for('invitation_event_detail', concert_id=concert.id) + '#inv-tab-tickets')
     except Exception as exc:
         session_db.rollback()
+        if _truthy(request.form.get('ajax')) or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+            return jsonify({"ok": False, "error": str(exc)}), 400
         flash(f'No se pudo re-detectar las butacas: {exc}', 'danger')
         return redirect(url_for('invitation_event_detail', concert_id=concert_id) + '#inv-tab-tickets')
     finally:

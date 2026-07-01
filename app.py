@@ -36853,6 +36853,11 @@ def _invitation_extract_ticket_metadata(data: bytes, filename: str | None = None
     seat = pick([
         r"(?:asiento|butaca|seat)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
         r"n[ºo°]?\.?\s*(?:asiento|butaca)\s*[:#\.\-]?\s*([0-9]{1,5}[A-Za-z]?)",
+        # Asiento etiquetado solo como "Nº:"/"N°:" (formato ctickets.es: "Fila: 1  Nº: 3"). Se exige el
+        # ":" justo tras "Nº" y `\b` al final para NO confundirlo con "Nº de pedido/entrada" ni capturar
+        # trozos de un número largo (pedido). Límite de 4 dígitos: los asientos no son tan largos.
+        r"\bn[º°]\.?\s*[:#]\s*([0-9]{1,4}[A-Za-z]?)\b",
+        r"\bn[úu]m(?:ero)?\.?\s*[:#]\s*([0-9]{1,4}[A-Za-z]?)\b",
         # Número de asiento aislado en su línea antes de "Apertura de puertas" (valor descolocado).
         r"\n[ ]*([0-9]{1,4})[ ]*\n[ ]*Apertura",
     ], data_region)

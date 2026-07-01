@@ -226,7 +226,7 @@ from models import (
     PhotoShare,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
-from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes
+from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
@@ -13086,6 +13086,9 @@ def discografica_song_material_upload(song_id):
         _refresh_song_material_status(session_db, song, material_rows=material_rows)
         session_db.commit()
         flash("Material guardado.", "success")
+    except StorageObjectTooLargeError as e:
+        session_db.rollback()
+        flash(str(e), "warning")
     except Exception as e:
         session_db.rollback()
         flash(f"Error guardando el material: {e}", "danger")
@@ -16145,6 +16148,9 @@ def discografica_album_material_upload(album_id):
 
         session_db.commit()
         flash("Material subido.", "success")
+    except StorageObjectTooLargeError as e:
+        session_db.rollback()
+        flash(str(e), "warning")
     except Exception as e:
         session_db.rollback()
         flash(f"Error subiendo el material: {e}", "danger")

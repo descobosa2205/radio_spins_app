@@ -20,24 +20,133 @@ def supabase_client() -> Client:
     return _supabase
 
 
+class StorageObjectTooLargeError(RuntimeError):
+    """El archivo supera el tamaño máximo permitido por Supabase Storage.
+
+    Se lanza cuando Supabase responde «Payload too large / The object exceeded the
+    maximum allowed size». Lleva el tamaño (bytes) para poder mostrarlo al usuario.
+    """
+
+    def __init__(self, message: str, size_bytes: int | None = None):
+        super().__init__(message)
+        self.size_bytes = size_bytes
+
+
+def _human_size(num_bytes) -> str | None:
+    """Formatea bytes a un tamaño legible en español (coma decimal)."""
+    try:
+        size = float(num_bytes)
+    except (TypeError, ValueError):
+        return None
+    if size < 0:
+        return None
+    units = ("B", "KB", "MB", "GB", "TB")
+    idx = 0
+    while size >= 1024 and idx < len(units) - 1:
+        size /= 1024.0
+        idx += 1
+    if idx == 0:
+        return f"{int(size)} B"
+    return f"{size:.1f}".replace(".", ",") + " " + units[idx]
+
+
+def _stream_size(file_obj) -> int | None:
+    """Mide el tamaño de un stream sin consumirlo (seek al final y vuelta)."""
+    try:
+        pos = file_obj.tell()
+    except Exception:
+        return None
+    try:
+        file_obj.seek(0, 2)  # SEEK_END
+        size = file_obj.tell()
+        file_obj.seek(pos)  # restaura la posición para no romper la subida
+        return size
+    except Exception:
+        try:
+            file_obj.seek(pos)
+        except Exception:
+            pass
+        return None
+
+
+def _too_large_error(size_bytes: int | None) -> StorageObjectTooLargeError:
+    human = _human_size(size_bytes)
+    prefix = f"El archivo pesa {human} y " if human else "El archivo "
+    return StorageObjectTooLargeError(
+        prefix
+        + "supera el tamaño máximo permitido en el almacenamiento (Supabase Storage). "
+        "Aumenta el límite de subida en Supabase (Storage) o reduce/comprime el archivo.",
+        size_bytes=size_bytes,
+    )
+
+
+def _is_too_large_error(exc) -> bool:
+    """Detecta si un error de Supabase es por exceso de tamaño (varias versiones)."""
+    parts = [str(exc)]
+    for attr in ("message", "error", "code", "reason"):
+        val = getattr(exc, attr, None)
+        if val:
+            parts.append(str(val))
+    text = " ".join(parts).lower()
+    markers = (
+        "maximum allowed size",
+        "object exceeded",
+        "exceeded the maximum",
+        "payload too large",
+        "entitytoolarge",
+    )
+    if any(m in text for m in markers):
+        return True
+    for attr in ("status", "status_code", "statusCode"):
+        try:
+            if int(getattr(exc, attr, None)) == 413:
+                return True
+        except (TypeError, ValueError):
+            pass
+    return False
+
+
+def _raise_storage_error(exc, size_bytes: int | None = None):
+    """Convierte una excepción de Supabase Storage en un error claro y la relanza."""
+    if _is_too_large_error(exc):
+        raise _too_large_error(size_bytes) from exc
+    msg = str(getattr(exc, "message", "") or "") or str(exc) or "Error subiendo el archivo al almacenamiento."
+    raise RuntimeError(msg) from exc
+
+
+def _check_dict_response(resp, size_bytes: int | None) -> None:
+    """Compat: algunas versiones devuelven dict con 'error' en vez de excepción."""
+    if isinstance(resp, dict) and resp.get("error"):
+        err = resp["error"] or {}
+        msg = err.get("message", "Error subiendo a Storage")
+        low = str(msg).lower()
+        if any(m in low for m in ("maximum allowed size", "too large", "exceeded")):
+            raise _too_large_error(size_bytes)
+        raise RuntimeError(msg)
+
+
 def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
     """Sube bytes a Supabase Storage y devuelve URL pública."""
     client = supabase_client()
+    size_bytes = len(data) if data is not None else None
 
-    resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
-        path=key,
-        file=data,
-        file_options={
-            "content-type": content_type,
-            "cache-control": "3600",
-            "upsert": "false",
-        },
-    )
+    try:
+        resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
+            path=key,
+            file=data,
+            file_options={
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false",
+            },
+        )
+    except StorageObjectTooLargeError:
+        raise
+    except Exception as e:
+        _raise_storage_error(e, size_bytes=size_bytes)
 
     # Algunas versiones devuelven dict con 'error'
-    if isinstance(resp, dict) and resp.get("error"):
-        msg = resp["error"].get("message", "Error subiendo a Storage")
-        raise RuntimeError(msg)
+    _check_dict_response(resp, size_bytes)
 
     return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
 
@@ -46,18 +155,22 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
 def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
     """Sube usando el stream del archivo cuando la versión de supabase-py lo permite."""
     client = supabase_client()
-    resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
-        path=key,
-        file=file_obj,
-        file_options={
-            "content-type": content_type,
-            "cache-control": "3600",
-            "upsert": "false",
-        },
-    )
-    if isinstance(resp, dict) and resp.get("error"):
-        msg = resp["error"].get("message", "Error subiendo a Storage")
-        raise RuntimeError(msg)
+    size_bytes = _stream_size(file_obj)
+    try:
+        resp = client.storage.from_(settings.SUPABASE_BUCKET).upload(
+            path=key,
+            file=file_obj,
+            file_options={
+                "content-type": content_type,
+                "cache-control": "3600",
+                "upsert": "false",
+            },
+        )
+    except StorageObjectTooLargeError:
+        raise
+    except Exception as e:
+        _raise_storage_error(e, size_bytes=size_bytes)
+    _check_dict_response(resp, size_bytes)
     return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
 
 
@@ -166,6 +279,10 @@ def upload_file(file_storage, folder: str, allowed_extensions: set[str] | None =
     _rewind_file_storage(file_storage)
     try:
         return _upload_fileobj(file_storage.stream, key, content_type)
+    except StorageObjectTooLargeError:
+        # El archivo es demasiado grande: reintentar leyéndolo en memoria no cambiaría
+        # el resultado, así que propagamos el error claro directamente.
+        raise
     except Exception:
         _rewind_file_storage(file_storage)
         data = file_storage.read()

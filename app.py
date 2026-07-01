@@ -36812,32 +36812,36 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
                 last_num = num
             for seat in non_numbered:
                 visual.append({"type": "seat", "seat": seat})
-            # Color por invitado en cada butaca asignada + grupos de butacas seguidas del mismo invitado
-            # (para pintar bajo la fila un chip con foto/nombre/vínculo por grupo).
-            assign_groups = []
-            cur = None
+            # Color por invitado en cada butaca asignada.
+            _sent_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
             for seat in seats:
                 st = (seat.get("status") or "").upper()
                 key = seat.get("assignee_key") if st in _assigned_states else ""
-                if key:
-                    seat["assignee_color"] = _color_for(key)
+                seat["assignee_color"] = _color_for(key) if key else ""
+            # Layout de la fila: agrupa butacas SEGUIDAS del mismo invitado en un bloque con barra
+            # (nombre + foto) ENCIMA que las abarca; las libres/huecos van sueltos. Así se ve sobre
+            # el plano de quién es cada butaca, sin leyenda aparte.
+            layout = []
+            block = None
+            for cell in visual:
+                if cell.get("type") == "seat":
+                    seat = cell["seat"]
+                    st = (seat.get("status") or "").upper()
+                    key = seat.get("assignee_key") if st in _assigned_states else ""
+                    if key and block and block.get("key") == key:
+                        block["seats"].append(seat)
+                    elif key:
+                        block = {"type": "block", "key": key, "name": seat.get("assignee_name") or "",
+                                 "photo": seat.get("assignee_photo") or "", "link": seat.get("assignee_link") or "",
+                                 "color": seat.get("assignee_color") or "", "sent": st in _sent_set, "seats": [seat]}
+                        layout.append(block)
+                    else:
+                        block = None
+                        layout.append({"type": "seat", "seat": seat})
                 else:
-                    seat["assignee_color"] = ""
-                if key and cur and cur["key"] == key:
-                    cur["seats"].append(seat)
-                elif key:
-                    cur = {"key": key, "name": seat.get("assignee_name") or "", "photo": seat.get("assignee_photo") or "",
-                           "link": seat.get("assignee_link") or "", "color": _color_for(key), "seats": [seat],
-                           "sent": st in {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}}
-                    assign_groups.append(cur)
-                else:
-                    cur = None
-            for g in assign_groups:
-                _seats = g.pop("seats")
-                g["count"] = len(_seats)
-                g["seat_from"] = (_seats[0].get("seat_number") or "").strip()
-                g["seat_to"] = (_seats[-1].get("seat_number") or "").strip()
-            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "step": step, "assign_groups": assign_groups})
+                    block = None
+                    layout.append(cell)
+            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "layout": layout, "step": step})
         out.append({"sector": sector, "rows": rows})
     return out
 

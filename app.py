@@ -39494,15 +39494,16 @@ def invitation_request_update(request_id):
                         t.updated_at = _now_madrid()
                     add_n = _safe_int(request.form.get(f'cat_{cid}_add'))
                     if add_n > 0:
-                        available = (
+                        available_all = (
                             session_db.query(InvitationTicket)
                             .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
                             .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-                            .limit(add_n)
                             .all()
                         )
-                        if len(available) < add_n:
-                            raise ValueError(f'No hay suficientes invitaciones disponibles en {cat.name}: faltan {add_n - len(available)}.')
+                        if len(available_all) < add_n:
+                            raise ValueError(f'No hay suficientes invitaciones disponibles en {cat.name}: faltan {add_n - len(available_all)}.')
+                        # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
+                        available = _invitation_pick_grouped_seats(available_all, add_n)
                         for t in available:
                             t.assigned_request_id = row.id
                             t.assigned_commitment_id = None
@@ -39632,6 +39633,59 @@ def invitation_request_delete(request_id):
         session_db.close()
 
 
+def _invitation_seat_int(ticket) -> int | None:
+    """Número de asiento como entero (para ordenar/medir contigüidad); None si no es numérico."""
+    s = (getattr(ticket, "seat_number", None) or "").strip()
+    m = re.match(r"\d+", s)
+    return int(m.group(0)) if m else None
+
+
+def _invitation_pick_grouped_seats(available: list, qty: int) -> list:
+    """Elige `qty` butacas de `available` (entradas AVAILABLE ya ordenadas por sector/fila/asiento)
+    intentando que el grupo quede JUNTO, sin dividirlo:
+      1) Un tramo CONTIGUO (asientos seguidos, sin huecos) dentro de una misma fila.
+      2) Si no cabe en ninguna fila, se llenan filas CONSECUTIVAS (una detrás de otra) hasta completar.
+    Devuelve la lista elegida (puede ser < qty si no hay suficientes disponibles)."""
+    if qty <= 0 or not available:
+        return []
+    # Agrupa por (sector, fila) preservando el orden de aparición (que ya viene sector→fila→asiento).
+    rows: dict = {}
+    for t in available:
+        key = ((getattr(t, "sector", None) or ""), (getattr(t, "row_label", None) or ""))
+        rows.setdefault(key, []).append(t)
+    # Parte cada fila en TRAMOS contiguos: dos asientos son contiguos si su diferencia == paso de la
+    # fila (el menor salto entre asientos disponibles: 1 si van 1,2,3…; 2 si van 1,3,5…). Un salto
+    # mayor = hay una butaca ocupada en medio → se corta el tramo (para no dejar hueco en el grupo).
+    runs: list = []  # [ [tickets_contiguos], ... ] en orden
+    for seats in rows.values():
+        seats_sorted = sorted(seats, key=lambda t: (_invitation_seat_int(t) if _invitation_seat_int(t) is not None else 10 ** 9))
+        nums = [_invitation_seat_int(t) for t in seats_sorted]
+        diffs = [b - a for a, b in zip(nums, nums[1:]) if a is not None and b is not None and b > a]
+        step = min(diffs) if diffs else 1
+        run = [seats_sorted[0]]
+        for prev, cur in zip(seats_sorted, seats_sorted[1:]):
+            pn, cn = _invitation_seat_int(prev), _invitation_seat_int(cur)
+            if pn is not None and cn is not None and (cn - pn) == step:
+                run.append(cur)
+            else:
+                runs.append(run)
+                run = [cur]
+        runs.append(run)
+    # 1) Primer tramo contiguo que quepa ENTERO (grupo sin partir, mismas butacas seguidas). Se toma
+    # el PRIMERO en orden (sector→fila→asiento): se llena de delante hacia atrás, como es natural.
+    for run in runs:
+        if len(run) >= qty:
+            return run[:qty]
+    # 2) No cabe junto: filas consecutivas, una detrás de otra, hasta completar.
+    chosen: list = []
+    for run in runs:
+        for t in run:
+            chosen.append(t)
+            if len(chosen) >= qty:
+                return chosen[:qty]
+    return chosen[:qty]
+
+
 @app.post('/invitaciones/solicitudes/<request_id>/asignar-auto', endpoint='invitation_request_auto_assign')
 @admin_required
 def invitation_request_auto_assign(request_id):
@@ -39658,16 +39712,17 @@ def invitation_request_auto_assign(request_id):
             if (cat.ticket_kind or '').upper() == 'GUEST_LIST':
                 assigned_count += qty
                 continue
-            available = (
+            available_all = (
                 session_db.query(InvitationTicket)
                 .filter(InvitationTicket.category_id == cat.id)
                 .filter(InvitationTicket.status == 'AVAILABLE')
                 .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-                .limit(qty)
                 .all()
             )
-            if len(available) < qty:
-                raise ValueError(f'No hay invitaciones suficientes en {cat.name}: faltan {qty - len(available)}.')
+            if len(available_all) < qty:
+                raise ValueError(f'No hay invitaciones suficientes en {cat.name}: faltan {qty - len(available_all)}.')
+            # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
+            available = _invitation_pick_grouped_seats(available_all, qty)
             for ticket in available:
                 if ticket.previous_assignment_warning and not _truthy(request.form.get('accept_warnings')):
                     raise ValueError(f'La entrada {ticket.ticket_code or ticket.pdf_name} ya había sido enviada/asignada antes. Acepta la advertencia para reasignarla.')
@@ -40517,16 +40572,16 @@ def invitation_assignment_save(concert_id):
                 changes += 1
                 continue
 
-            # Si no llegan IDs concretos, asigna las primeras disponibles de esa categoría.
+            # Si no llegan IDs concretos, asigna automáticamente butacas CONTIGUAS de esa categoría
+            # (mismo tramo de fila sin huecos; si no cabe, filas consecutivas) para no dividir al grupo.
             if not ticket_ids and qty > 0:
-                available = (
+                available_all = (
                     session_db.query(InvitationTicket)
                     .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
                     .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-                    .limit(qty)
                     .all()
                 )
-                ticket_ids = [x.id for x in available]
+                ticket_ids = [x.id for x in _invitation_pick_grouped_seats(available_all, qty)]
             if qty > 0 and len(ticket_ids) < qty:
                 raise ValueError(f'No hay invitaciones suficientes disponibles en {cat.name}.')
             for tid in ticket_ids[:qty or len(ticket_ids)]:

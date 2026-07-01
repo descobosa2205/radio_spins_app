@@ -1297,7 +1297,7 @@
               {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
               {% if zcats %}
                 <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
-                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
+                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}{% if zkey == 'PALCO' and cat.configured %} <span class="text-muted">({{ cat.configured }})</span>{% endif %}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -1592,9 +1592,10 @@
         qtyPanel.innerHTML = '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
       } else {
         var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
-        var _cell = function(c){ return c.requests_blocked
-          ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label><input class="form-control" type="number" value="0" disabled><div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div></div>`
-          : `<div class="col-md-4"><label class="form-label">${escHtml(c.name)}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`; };
+        var _cell = function(c){ var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured) ? ` <span class="text-muted">(${c.configured})</span>` : '';
+          return c.requests_blocked
+          ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)}${_af} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label><input class="form-control" type="number" value="0" disabled><div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div></div>`
+          : `<div class="col-md-4"><label class="form-label">${escHtml(c.name)}${_af}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`; };
         var _html = '';
         _zones.forEach(function(z){
           var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });

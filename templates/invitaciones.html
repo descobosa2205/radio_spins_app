@@ -651,7 +651,7 @@
                       <td>{{ row.guest_title }}</td>
                       <td>{{ row.quantities_label }}</td>
                       <td>{% if row.download_url and row.can_download_pdf %}<a class="btn btn-sm btn-outline-danger" href="{{ row.download_url }}" title="Descargar invitaciones"><i class="fa fa-file-pdf"></i></a>{% endif %}</td>
-                      <td>{% if row.status != 'APROBADAS' %}<span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>{% endif %}</td>
+                      <td>{% if row.status != 'APROBADAS' %}<span class="badge text-bg-{{ row.status_badge }} inv-status-pill">{{ row.status_label }}</span>{% endif %}</td>
                       <td>{% if row.show_check %}<span class="guest-list-check-box"></span>{% endif %}</td>
                     </tr>
                   {% endfor %}

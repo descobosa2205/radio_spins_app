@@ -833,6 +833,15 @@ img[data-default-photo="1"]{
 .invitation-seat-row { display: grid; grid-template-columns: minmax(70px, 110px) 1fr auto; gap: .75rem; align-items: center; padding: .45rem 0; border-top: 1px dashed #e4e8ee; }
 .invitation-seat-row:first-of-type { border-top: 0; }
 .invitation-row-label { font-weight: 700; color: #49515d; }
+/* Butaca asignada/enviada: borde inferior con el color del invitado + chip debajo de la fila. */
+.invitation-seat--owned { border-bottom: 3px solid var(--asg, #999); }
+.invitation-assign-strip { grid-column: 2; display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .4rem; }
+.invitation-assign-chip { display: inline-flex; align-items: center; gap: .4rem; max-width: 280px; padding: .15rem .55rem .15rem .2rem; border: 1px solid #e4e8ee; border-left: 4px solid var(--asg, #999); border-radius: 999px; background: #fff; font-size: .74rem; line-height: 1.15; }
+.invitation-assign-chip > img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: #eef0f3; border: 1px solid #eef0f3; }
+.invitation-assign-chip > i { width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--asg, #999); color: #fff; font-size: .62rem; flex: 0 0 auto; }
+.invitation-assign-txt { min-width: 0; display: flex; flex-direction: column; }
+.invitation-assign-name { font-weight: 600; color: #111; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.invitation-assign-link { color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .invitation-seat-grid--numbered { gap: .35rem; }
 .invitation-seat { cursor: pointer; }
 .invitation-seat--missing { color: #9aa3af; background: #eef0f3; border-style: dashed; }

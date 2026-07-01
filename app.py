@@ -36676,7 +36676,11 @@ def _invitation_ticket_status_class(value: str | None) -> str:
     return key.lower()
 
 
-def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | None = None, request_map: dict | None = None) -> dict:
+# Paleta para colorear cada invitado en el plano de butacas (borde de la butaca + chip bajo la fila).
+INVITATION_ASSIGNEE_COLORS = ["#e83b4b", "#007ca2", "#f59e0b", "#16a34a", "#7c3aed", "#db2777", "#0891b2", "#65a30d", "#ea580c", "#4f46e5"]
+
+
+def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | None = None, request_map: dict | None = None, commitment_map: dict | None = None) -> dict:
     sector = (getattr(t, "sector", None) or "").strip()
     row_label = (getattr(t, "row_label", None) or "").strip()
     seat = (getattr(t, "seat_number", None) or "").strip()
@@ -36711,6 +36715,56 @@ def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | N
         "sent": bool(sent),
         "downloaded": bool(downloaded),
         "warning": t.previous_assignment_warning or "",
+        # Quién tiene la butaca (para pintarlo sobre el plano): clave estable + nombre/foto/vínculo.
+        **_invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_map),
+    }
+
+
+def _invitation_assignee_visual(session_db, row) -> dict:
+    """Nombre + foto/logo + vínculo del invitado de una solicitud/compromiso, para pintarlo sobre el
+    plano. Tercero → logo + vínculo; artista/empleado → foto."""
+    name = (getattr(row, "guest_name", None) or "").strip()
+    photo = ""
+    link = ""
+    gp = getattr(row, "guest_promoter_id", None)
+    ga = getattr(row, "guest_artist_id", None)
+    gu = getattr(row, "guest_user_id", None)
+    if gp:
+        pr = session_db.get(Promoter, gp)
+        if pr:
+            name = name or _promoter_display_name(pr) or pr.nick
+            photo = pr.logo_url or ""
+            link = _promoter_link_summary_text(_promoter_link_summary(session_db, pr))
+    elif ga:
+        ar = session_db.get(Artist, ga)
+        if ar:
+            name = name or ar.name
+            photo = getattr(ar, "photo_url", "") or ""
+    elif gu:
+        up = session_db.get(UserProfile, gu)
+        if up:
+            name = name or _profile_full_name(up) or getattr(up, "nick", "") or ""
+            photo = getattr(up, "photo_url", "") or ""
+    return {"name": name or "", "photo": photo or "", "link": link or ""}
+
+
+def _invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_map) -> dict:
+    """Datos del invitado (clave, nombre, foto, vínculo) de una butaca asignada, para pintarlo."""
+    cidk = str(t.assigned_commitment_id) if getattr(t, "assigned_commitment_id", None) else ""
+    info = None
+    key = ""
+    if rid and rinfo:
+        key = f"R:{rid}"
+        info = rinfo
+    elif cidk:
+        key = f"C:{cidk}"
+        info = (commitment_map or {}).get(cidk)
+    name = (t.assigned_label or "") or (info.get("guest_name") if info else "") or ""
+    return {
+        "assignee_key": key,
+        "assignee_name": name,
+        "assignee_photo": (info.get("photo") if info else "") or "",
+        "assignee_link": (info.get("link") if info else "") or "",
     }
 
 
@@ -36718,6 +36772,17 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
     grouped: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for item in ticket_payloads:
         grouped[item.get("sector") or "General"][item.get("row_label") or "Sin fila"].append(item)
+    # Color estable por invitado dentro de la categoría (para pintar butaca + chip del mismo tono).
+    color_by_key: dict[str, str] = {}
+
+    def _color_for(key: str) -> str:
+        if not key:
+            return ""
+        if key not in color_by_key:
+            color_by_key[key] = INVITATION_ASSIGNEE_COLORS[len(color_by_key) % len(INVITATION_ASSIGNEE_COLORS)]
+        return color_by_key[key]
+
+    _assigned_states = {"ASSIGNED", "SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
     out = []
     for sector in sorted(grouped.keys(), key=lambda x: str(x).casefold()):
         rows = []
@@ -36747,7 +36812,32 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
                 last_num = num
             for seat in non_numbered:
                 visual.append({"type": "seat", "seat": seat})
-            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "step": step})
+            # Color por invitado en cada butaca asignada + grupos de butacas seguidas del mismo invitado
+            # (para pintar bajo la fila un chip con foto/nombre/vínculo por grupo).
+            assign_groups = []
+            cur = None
+            for seat in seats:
+                st = (seat.get("status") or "").upper()
+                key = seat.get("assignee_key") if st in _assigned_states else ""
+                if key:
+                    seat["assignee_color"] = _color_for(key)
+                else:
+                    seat["assignee_color"] = ""
+                if key and cur and cur["key"] == key:
+                    cur["seats"].append(seat)
+                elif key:
+                    cur = {"key": key, "name": seat.get("assignee_name") or "", "photo": seat.get("assignee_photo") or "",
+                           "link": seat.get("assignee_link") or "", "color": _color_for(key), "seats": [seat],
+                           "sent": st in {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}}
+                    assign_groups.append(cur)
+                else:
+                    cur = None
+            for g in assign_groups:
+                _seats = g.pop("seats")
+                g["count"] = len(_seats)
+                g["seat_from"] = (_seats[0].get("seat_number") or "").strip()
+                g["seat_to"] = (_seats[-1].get("seat_number") or "").strip()
+            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "step": step, "assign_groups": assign_groups})
         out.append({"sector": sector, "rows": rows})
     return out
 
@@ -38569,18 +38659,31 @@ def invitation_event_detail(concert_id):
         # asignadas las entradas, para mostrarlo al pinchar una invitación numerada y decidir si se
         # puede recuperar/desvincular.
         ticket_request_ids = {t.assigned_request_id for t in ticket_rows if getattr(t, 'assigned_request_id', None)}
+        ticket_commitment_ids = {t.assigned_commitment_id for t in ticket_rows if getattr(t, 'assigned_commitment_id', None)}
         request_map: dict[str, dict] = {}
         if ticket_request_ids:
             _sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
             for r in session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(ticket_request_ids))).all():
+                _ai = _invitation_assignee_visual(session_db, r)
                 request_map[str(r.id)] = {
                     'sent': bool(r.sent_at) or (r.status or '') in _sent_statuses,
                     'downloaded': bool(r.downloaded_at) or _safe_int(r.downloaded_count) > 0,
-                    'guest_name': r.guest_name or '',
+                    'guest_name': _ai['name'] or (r.guest_name or ''),
                     'promoter_id': str(r.guest_promoter_id) if getattr(r, 'guest_promoter_id', None) else '',
                     'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
+                    'photo': _ai['photo'],
+                    'link': _ai['link'],
                 }
-        tickets = [_invitation_ticket_payload(t, name_map, request_map) for t in ticket_rows]
+        commitment_map: dict[str, dict] = {}
+        if ticket_commitment_ids:
+            for c in session_db.query(InvitationCommitment).filter(InvitationCommitment.id.in_(list(ticket_commitment_ids))).all():
+                _ai = _invitation_assignee_visual(session_db, c)
+                commitment_map[str(c.id)] = {
+                    'guest_name': _ai['name'] or (c.guest_name or c.name or ''),
+                    'photo': _ai['photo'],
+                    'link': _ai['link'],
+                }
+        tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
         tickets_by_category = {str(c.id): [] for c in categories}
         for item in tickets:
             tickets_by_category.setdefault(str(item['category_id']), []).append(item)

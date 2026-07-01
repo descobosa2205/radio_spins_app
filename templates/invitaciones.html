@@ -389,7 +389,7 @@
                       <div class="mt-2 d-flex flex-column gap-1">
                         {% for cs in row.category_status %}
                           <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
-                            <span class="badge text-bg-{{ cs.status_badge }}" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                            <span class="badge text-bg-{{ cs.status_badge }} inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
                             <span class="small text-muted">{{ cs.assigned }}/{{ cs.qty }}</span>
                             <span class="small flex-grow-1">{{ cs.name }}</span>
                             <div class="dropdown">
@@ -469,9 +469,9 @@
                     </div>
                     <div class="d-flex align-items-center gap-2">
                     {% if row.status == 'SOLICITADAS' %}
-                      <form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}" class="m-0"><input type="hidden" name="action" value="APPROVE"><button type="submit" class="btn btn-sm btn-warning" title="Pendiente de aprobar — pulsa para aprobar"><i class="fa fa-clock me-1"></i>{{ row.status_label }} · Aprobar</button></form>
+                      <form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}" class="m-0"><input type="hidden" name="action" value="APPROVE"><button type="submit" class="btn btn-sm btn-info text-dark inv-status-pill" title="Pendiente de aprobar — pulsa para aprobar"><i class="fa fa-clock me-1"></i>{{ row.status_label }} · Aprobar</button></form>
                     {% else %}
-                      <span class="badge text-bg-{{ row.status_badge }} align-self-center">{{ row.status_label }}</span>
+                      <span class="badge text-bg-{{ row.status_badge }} align-self-center inv-status-pill">{{ row.status_label }}</span>
                     {% endif %}
                     <div class="dropdown dropdown-menu-end">
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>

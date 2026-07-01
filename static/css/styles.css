@@ -1451,3 +1451,5 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .invitation-status-flags{ display:flex; flex-direction:column; gap:.35rem; align-items:stretch; text-align:center; width:148px; flex:0 0 148px; }
 .invitation-manage-flag{ font-size:.78rem; padding:.4rem .5rem; white-space:normal; line-height:1.2; display:block; width:100%; }
 @media (max-width: 768px){ .invitation-status-flags{ width:100%; flex:0 0 100%; } }
+/* Etiquetas de estado por petición/categoría (gestión): mismo tamaño para que queden alineadas. */
+.inv-status-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:116px; text-align:center; }

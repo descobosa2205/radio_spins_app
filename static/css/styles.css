@@ -1511,3 +1511,6 @@ img[style*="width:"] { height: auto; }
 
 /* Al imprimir, el envoltorio responsive no debe recortar la tabla. */
 @media print { .table-responsive { overflow: visible !important; } }
+
+/* Utilidad usada en varias plantillas para permitir encoger/truncar dentro de flex. */
+.min-w-0 { min-width: 0 !important; }

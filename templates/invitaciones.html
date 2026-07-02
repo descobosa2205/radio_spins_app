@@ -381,7 +381,7 @@
               {% for row in commitments %}
                 <div class="list-group-item">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
-                    <div>
+                    <div class="flex-grow-1 min-w-0">
                       <div class="d-flex align-items-center gap-2 flex-wrap invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
                         {# Compromiso: foto/logo del destinatario delante + nombre. #}
                         <span class="inv-person">

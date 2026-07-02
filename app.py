@@ -38614,6 +38614,11 @@ def invitations_view():
                         _agroups[akey] = grp
                         events_by_artist.append(grp)
                     grp['events'].append(ev)
+            # Dentro de cada artista, los conciertos SIEMPRE en orden cronológico (del más próximo al
+            # más lejano). Los sin fecha van al final. (El orden por urgencia solo ordena los artistas.)
+            _date_by_id = {str(c.id): getattr(c, 'date', None) for c in candidates}
+            for grp in events_by_artist:
+                grp['events'].sort(key=lambda ev: (_date_by_id.get(ev.get('id')) is None, _date_by_id.get(ev.get('id')) or date.max))
         current_user_id = _safe_uuid(session.get('user_id'))
         my_requests = []
         my_denied_count = 0
@@ -39008,6 +39013,8 @@ def invitation_event_detail(concert_id):
             item.update(_invitation_request_kind_flags(session_db, row, categories))
             item['is_denied'] = is_denied
             requests.append(item)
+        # Peticiones ordenadas alfabéticamente por el nombre del invitado (sin distinguir acentos).
+        requests.sort(key=lambda x: _invitation_normalize_search(x.get('guest_name') or ''))
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
         guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
         guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')

@@ -37253,6 +37253,23 @@ def _invitation_commitment_state_from_statuses(statuses) -> tuple[str, str]:
 def _invitation_request_payload(row: InvitationRequest, categories: list[InvitationCategory] | None = None) -> dict:
     name_map = _invitation_category_name_map(categories or [])
     quantities = _json_dict(row.quantities_json)
+    # Zonas solicitadas: agrega las cantidades por zona (Pista/Grada/Palco) según la categoría de
+    # cada cantidad. Las cantidades sin categoría (clave TOTAL) no tienen zona asociada.
+    _cat_by_id = {str(c.id): c for c in (categories or [])}
+    _zone_counts: dict[str, int] = {}
+    for _cid, _qv in quantities.items():
+        _qn = _safe_int(_qv)
+        if _qn <= 0:
+            continue
+        _cat = _cat_by_id.get(str(_cid))
+        if _cat is None:
+            continue
+        _zkey = _invitation_category_zone(_cat)
+        _zone_counts[_zkey] = _zone_counts.get(_zkey, 0) + _qn
+    _zone_order = [z for z, _l, _i in INVITATION_ZONES]
+    _ordered_zones = [z for z in _zone_order if z in _zone_counts] + [z for z in _zone_counts if z not in _zone_order]
+    zones_label = " · ".join(f"{INVITATION_ZONE_LABELS.get(z, z.title())}: {_zone_counts[z]}" for z in _ordered_zones)
+    zones_names = ", ".join(INVITATION_ZONE_LABELS.get(z, z.title()) for z in _ordered_zones)
     link_summary = _json_dict(getattr(row, "guest_link_summary", None))
     if not link_summary:
         try:
@@ -37298,6 +37315,9 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "quantities": quantities,
         "qty_total": _invitation_total_qty(quantities),
         "quantities_label": _invitation_quantities_label(quantities, name_map),
+        "zone_counts": _zone_counts,
+        "zones_label": zones_label,
+        "zones_names": zones_names,
         "status": row.status or "SOLICITADAS",
         "status_label": INVITATION_STATUS_LABELS.get(row.status or "", row.status or "Solicitadas"),
         "status_badge": _invitation_status_badge(row.status),

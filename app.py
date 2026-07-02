@@ -36807,6 +36807,15 @@ def _invitation_assignee_visual(session_db, row) -> dict:
         if up:
             name = name or _profile_full_name(up) or getattr(up, "nick", "") or ""
             photo = getattr(up, "photo_url", "") or ""
+    # Si es PARA EL ARTISTA (destinatario artista) y no hay foto propia, usa la foto del artista del evento.
+    if ga and not photo:
+        try:
+            _concert = getattr(row, "concert", None) or (session_db.get(Concert, row.concert_id) if getattr(row, "concert_id", None) else None)
+            _arows = _concert_artist_rows(session_db, _concert) if _concert else []
+            if _arows:
+                photo = getattr(_arows[0], "photo_url", "") or photo
+        except Exception:
+            pass
     return {"name": name or "", "photo": photo or "", "link": link or ""}
 
 
@@ -37252,6 +37261,12 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             gu = getattr(row, "guest_user", None)
             if gu is not None:
                 guest_photo = getattr(gu, "photo_url", "") or ""
+        # Para el artista sin foto propia → foto del artista del evento.
+        if not guest_photo and getattr(row, "guest_artist_id", None):
+            _c = getattr(row, "concert", None)
+            _ar = _concert_artist_rows(row._sa_instance_state.session, _c) if _c else []
+            if _ar:
+                guest_photo = getattr(_ar[0], "photo_url", "") or ""
         # Sin foto propia pero con vínculo → usar el logo/foto de lo vinculado.
         if not guest_photo and link_summary:
             guest_photo = link_summary.get("logo_url") or ""
@@ -38646,6 +38661,11 @@ def invitation_event_detail(concert_id):
                     _rcpt_name = _rcpt_name or _ga.name
                     _rcpt_photo = _ga.photo_url or ""
                     _rcpt_email = _rcpt_email or (_ga.email or "")
+                    # Sin foto propia → foto del artista del evento.
+                    if not _rcpt_photo:
+                        _ar = _concert_artist_rows(session_db, concert) if concert else []
+                        if _ar:
+                            _rcpt_photo = getattr(_ar[0], "photo_url", "") or ""
             elif row.guest_user_id:
                 _gp = session_db.get(UserProfile, row.guest_user_id)
                 if _gp:

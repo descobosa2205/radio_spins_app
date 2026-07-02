@@ -479,7 +479,7 @@
                           {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
                           <span class="inv-person text-muted small"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}A mí{% elif row.guest_email %}{{ row.guest_email }}{% else %}al invitado{% endif %}</span>
                           <span class="badge text-bg-danger" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
-                          {% if row.zones_label %}<span class="badge text-bg-light border" title="Zonas solicitadas"><i class="fa fa-location-dot me-1"></i>{{ row.zones_label }}</span>{% endif %}
+                          {% if row.categories_label %}<span class="badge text-bg-light border" title="Categorías solicitadas"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
                           {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): vínculo (logo+nombre) | Pedidas por (foto+nombre). #}

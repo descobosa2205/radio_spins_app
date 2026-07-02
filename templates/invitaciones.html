@@ -613,17 +613,38 @@
                       <button type="button" class="badge text-bg-danger inv-unnum-count" data-unnum-toggle="unnum-sent-{{ cat.id }}"><i class="fa fa-paper-plane me-1"></i>{{ _sent|length }} enviadas</button>
                     </div>
                   </div>
-                  {% macro _unnum_grid(items, gid) %}
-                    <div class="invitation-seat-grid mt-3 d-none" id="{{ gid }}">
-                      {% for t in items %}
-                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
-                      {% endfor %}
-                      {% if not items %}<div class="text-muted small">No hay entradas en este estado.</div>{% endif %}
+                  {% macro _unnum_grid(items, gid, owned=False) %}
+                    <div class="mt-3 d-none" id="{{ gid }}">
+                      {% if not items %}
+                        <div class="text-muted small">No hay entradas en este estado.</div>
+                      {% elif owned %}
+                        {# Asignadas/Enviadas: agrupadas por invitado con foto+nombre, como las numeradas. #}
+                        <div class="d-flex flex-wrap gap-3">
+                          {% for key, group in items|groupby('assignee_key') %}
+                            {% set g0 = group|first %}
+                            <div class="invitation-seat-block" style="--asg:{{ g0.assignee_color or '#999' }}">
+                              <div class="invitation-seat-block-name" title="{{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}">{{ g0.assignee_name or 'Asignada' }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}</div>
+                              <div class="invitation-seat-block-line"></div>
+                              <div class="invitation-seat-block-seats">
+                                {% for t in group %}
+                                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><span class="invitation-seat-num">{{ loop.index }}</span>{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}</button>
+                                {% endfor %}
+                              </div>
+                            </div>
+                          {% endfor %}
+                        </div>
+                      {% else %}
+                        <div class="invitation-seat-grid">
+                          {% for t in items %}
+                            <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                          {% endfor %}
+                        </div>
+                      {% endif %}
                     </div>
                   {% endmacro %}
                   {{ _unnum_grid(_avail, 'unnum-avail-' ~ cat.id) }}
-                  {{ _unnum_grid(_assigned, 'unnum-assigned-' ~ cat.id) }}
-                  {{ _unnum_grid(_sent, 'unnum-sent-' ~ cat.id) }}
+                  {{ _unnum_grid(_assigned, 'unnum-assigned-' ~ cat.id, owned=True) }}
+                  {{ _unnum_grid(_sent, 'unnum-sent-' ~ cat.id, owned=True) }}
                 {% else %}
                   {# Palco sin numerar: se muestra completo (no resumido). #}
                   <div class="d-flex align-items-center gap-3 flex-wrap">

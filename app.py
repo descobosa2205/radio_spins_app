@@ -36792,7 +36792,11 @@ def _invitation_assignee_visual(session_db, row) -> dict:
         if pr:
             name = name or _promoter_display_name(pr) or pr.nick
             photo = pr.logo_url or ""
-            link = _promoter_link_summary_text(_promoter_link_summary(session_db, pr))
+            _ls = _promoter_link_summary(session_db, pr)
+            link = _promoter_link_summary_text(_ls)
+            # Si el tercero no tiene foto/logo pero está vinculado, usa el logo/foto de lo vinculado.
+            if not photo and _ls:
+                photo = _ls.get("logo_url") or ""
     elif ga:
         ar = session_db.get(Artist, ga)
         if ar:
@@ -37248,6 +37252,9 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             gu = getattr(row, "guest_user", None)
             if gu is not None:
                 guest_photo = getattr(gu, "photo_url", "") or ""
+        # Sin foto propia pero con vínculo → usar el logo/foto de lo vinculado.
+        if not guest_photo and link_summary:
+            guest_photo = link_summary.get("logo_url") or ""
     except Exception:
         guest_photo = ""
     return {
@@ -38630,6 +38637,9 @@ def invitation_event_detail(concert_id):
                     _rcpt_photo = _gpr.logo_url or ""
                     _rcpt_email = _rcpt_email or (_gpr.contact_email or "")
                     _rcpt_link_summary = _promoter_link_summary(session_db, _gpr)
+                    # Sin logo propio pero con vínculo → usa el logo/foto de lo vinculado.
+                    if not _rcpt_photo and _rcpt_link_summary:
+                        _rcpt_photo = _rcpt_link_summary.get("logo_url") or ""
             elif row.guest_artist_id:
                 _ga = session_db.get(Artist, row.guest_artist_id)
                 if _ga:

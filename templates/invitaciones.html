@@ -469,7 +469,7 @@
                       <div class="d-flex align-items-center gap-2 flex-wrap invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
                         {# Invitado (= a quién se envía): foto/logo delante + nombre. #}
                         <span class="inv-person">
-                          <img class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+                          {% if row.guest_photo %}<img class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}
                           {% if row.guest_promoter_id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
                         </span>
                         {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}

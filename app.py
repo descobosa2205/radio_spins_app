@@ -37261,15 +37261,12 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             gu = getattr(row, "guest_user", None)
             if gu is not None:
                 guest_photo = getattr(gu, "photo_url", "") or ""
-        # Para el artista sin foto propia → foto del artista del evento.
+        # Para el artista sin foto propia → foto del artista del evento (es su foto, no un vínculo).
         if not guest_photo and getattr(row, "guest_artist_id", None):
             _c = getattr(row, "concert", None)
             _ar = _concert_artist_rows(row._sa_instance_state.session, _c) if _c else []
             if _ar:
                 guest_photo = getattr(_ar[0], "photo_url", "") or ""
-        # Sin foto propia pero con vínculo → usar el logo/foto de lo vinculado.
-        if not guest_photo and link_summary:
-            guest_photo = link_summary.get("logo_url") or ""
     except Exception:
         guest_photo = ""
     return {
@@ -37277,6 +37274,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "guest_name": row.guest_name,
         "guest_promoter_id": str(row.guest_promoter_id) if getattr(row, "guest_promoter_id", None) else "",
         "guest_photo_url": guest_photo or url_for("static", filename="img/placeholder_photo.png"),
+        "guest_photo": guest_photo,  # foto/logo PROPIO (vacío si no tiene): la lista solo pinta avatar si hay
         "guest_company": row.guest_company or "",
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": row.guest_email or "",
@@ -38652,9 +38650,6 @@ def invitation_event_detail(concert_id):
                     _rcpt_photo = _gpr.logo_url or ""
                     _rcpt_email = _rcpt_email or (_gpr.contact_email or "")
                     _rcpt_link_summary = _promoter_link_summary(session_db, _gpr)
-                    # Sin logo propio pero con vínculo → usa el logo/foto de lo vinculado.
-                    if not _rcpt_photo and _rcpt_link_summary:
-                        _rcpt_photo = _rcpt_link_summary.get("logo_url") or ""
             elif row.guest_artist_id:
                 _ga = session_db.get(Artist, row.guest_artist_id)
                 if _ga:

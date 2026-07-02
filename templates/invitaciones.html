@@ -81,7 +81,7 @@
                       <div>
                         <div><strong>{{ row.guest_name }}</strong>{% if row.guest_title %}<span class="text-muted"> · {{ row.guest_title }}</span>{% endif %}</div>
                         {% if row.for_office %}<div class="small mt-1"><span class="badge text-bg-info"><i class="fa fa-user-group me-1"></i>Para {{ row.requester_nick }} · de la oficina</span></div>{% endif %}
-                        <div class="mt-1">{{ row.quantities_label }}</div>
+                        <div class="mt-1">{{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down inv-dl-done" title="Descargadas · {{ row.downloaded_at_label }}"></i>{% endif %}</div>
                         {% if row.link_summary_text %}<div class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></div>{% endif %}
                         {% if row.registered_by_other and not row.for_office %}<div class="small text-muted mt-1"><i class="fa fa-user-pen me-1"></i>Registrada por {{ row.created_by_nick }}</div>{% endif %}
                       </div>
@@ -387,7 +387,6 @@
                         <div class="d-flex align-items-center gap-2 flex-wrap">
                           <strong>{{ row.name }}</strong>
                           {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
-                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
                           {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): enviar a (foto/logo + nombre) + vínculo (logos/fotos). #}
@@ -420,7 +419,7 @@
                     {% for cs in row.category_status %}
                       <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
                         <span class="small text-muted inv-cmt-count">{{ cs.assigned }}/{{ cs.qty }}</span>
-                        <span class="small flex-grow-1">{{ cs.name }}</span>
+                        <span class="small flex-grow-1">{{ cs.name }}{% if cs.downloaded %} <i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}</span>
                         <span class="badge text-bg-{{ cs.status_badge }} inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
                         <div class="dropdown">
                           <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>

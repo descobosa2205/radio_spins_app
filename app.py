@@ -38934,6 +38934,7 @@ def invitation_event_detail(concert_id):
             _tk_by_cat = defaultdict(list)
             for _st, _cidt in session_db.query(InvitationTicket.status, InvitationTicket.category_id).filter(InvitationTicket.assigned_commitment_id == row.id).all():
                 _tk_by_cat[str(_cidt)].append(_st)
+            _dl_cats = _json_dict(getattr(row, "downloaded_categories_json", None))
             cat_status = []
             for _cid, _qv in q.items():
                 if str(_cid) == 'TOTAL':
@@ -38956,6 +38957,7 @@ def invitation_event_detail(concert_id):
                     "done": _asg >= _qn,
                     "status_label": _lbl,
                     "status_badge": _bdg,
+                    "downloaded": str(_cid) in _dl_cats,
                 })
             # Destinatario (a quién se mandan): nombre + foto/logo para "Enviar a ...".
             # Identidad ACTUAL del destinatario (en vivo desde su ficha) — nombre, foto, email y vínculo.
@@ -40531,10 +40533,25 @@ def invitation_commitment_download(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        _invitation_commitment_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.name or "compromiso"}.pdf')
     finally:
         session_db.close()
+
+
+def _invitation_commitment_mark_downloaded(row, cat_id, tickets) -> None:
+    """Marca en el compromiso qué categorías se han descargado (para el listado): la categoría pedida
+    con ?category, o TODAS las presentes en la descarga (PDF/ZIP completo). Guarda {category_id: iso}."""
+    dc = _json_dict(getattr(row, "downloaded_categories_json", None))
+    now_iso = _now_madrid().isoformat()
+    if cat_id:
+        dc[str(cat_id)] = now_iso
+    else:
+        for t in (tickets or []):
+            if getattr(t, "category_id", None):
+                dc[str(t.category_id)] = now_iso
+    row.downloaded_categories_json = dc
 
 
 def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> tuple[bytes, str, int]:
@@ -40646,6 +40663,7 @@ def invitation_commitment_download_zip(token):
             return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        _invitation_commitment_mark_downloaded(row, cat_id, tickets)
         session_db.commit()
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:

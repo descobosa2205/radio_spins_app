@@ -85,7 +85,7 @@
                 <div class="small text-muted mt-1">{% if row.event.type_label %}<span class="badge text-bg-secondary">{{ row.event.type_label }}</span> {% endif %}{{ [row.event.name, row.event.city, row.event.date_label]|select|join(' · ') }}</div>
                 {% set sub = [row.event.venue, row.event.city, row.event.province]|select|list %}
                 {% if sub %}<div class="small text-muted">{{ sub|join(' · ') }}</div>{% endif %}
-                <div class="small mt-1">{{ row.guest_name }} · {{ row.quantities_label }}</div>
+                <div class="small mt-1">{{ row.guest_name }} · {{ row.quantities_label }}{% if row.downloaded_at_label %} <i class="fa fa-circle-down inv-dl-done" title="Descargadas · {{ row.downloaded_at_label }}"></i>{% endif %}</div>
               </div>
               <div class="d-flex align-items-center gap-2 align-self-start">
                 <span class="badge text-bg-{{ row.requester_status_badge }}">{{ row.requester_status_label }}</span>

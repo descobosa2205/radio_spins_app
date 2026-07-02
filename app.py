@@ -23348,6 +23348,86 @@ def api_search_venues():
 
 
 
+_PROMOTER_LINK_TYPES = ("promoter", "empresa", "institucion")
+
+
+def _promoter_ids_linked_to_token(session_db, token: str) -> set:
+    """IDs de terceros que tienen una VINCULACIÓN cuyo otro extremo (o la relación) coincide con el
+    token. Permite buscar un tercero por aquello a lo que está vinculado (p. ej. «Beatriz» sale al
+    buscar «Cádiz» si está vinculada al «Ayuntamiento de Cádiz»)."""
+    token = (token or "").strip()
+    if len(token) < 2:
+        return set()
+    result: set = set()
+
+    def _ids(model, *cols):
+        cond = None
+        for c in cols:
+            cond = _sa_contains_text(c, token) if cond is None else (cond | _sa_contains_text(c, token))
+        return [r[0] for r in session_db.query(model.id).filter(cond).all()] if cond is not None else []
+
+    # Entidades (por tipo) cuyo nombre coincide con el token.
+    by_type = {
+        _PROMOTER_LINK_TYPES: _ids(Promoter, Promoter.nick, Promoter.first_name, Promoter.last_name, Promoter.tax_id),
+        ("artist",): _ids(Artist, Artist.name),
+        ("media",): _ids(MediaOutlet, MediaOutlet.name),
+        ("venue",): _ids(Venue, Venue.name),
+        ("ticketer",): _ids(Ticketer, Ticketer.name),
+        ("publishing",): _ids(PublishingCompany, PublishingCompany.name),
+    }
+    for other_types, other_ids in by_type.items():
+        if not other_ids:
+            continue
+        # Vínculos donde ese otro extremo está en un lado y el tercero en el otro.
+        for (sid,) in session_db.query(ThirdPartyLink.source_id).filter(
+                ThirdPartyLink.is_active.is_(True),
+                ThirdPartyLink.target_type.in_(other_types), ThirdPartyLink.target_id.in_(other_ids),
+                ThirdPartyLink.source_type.in_(_PROMOTER_LINK_TYPES)).all():
+            result.add(sid)
+        for (tid,) in session_db.query(ThirdPartyLink.target_id).filter(
+                ThirdPartyLink.is_active.is_(True),
+                ThirdPartyLink.source_type.in_(other_types), ThirdPartyLink.source_id.in_(other_ids),
+                ThirdPartyLink.target_type.in_(_PROMOTER_LINK_TYPES)).all():
+            result.add(tid)
+    # La propia relación (texto) coincide con el token → el tercero de ese vínculo.
+    for st, sidv, tt, tidv in session_db.query(
+            ThirdPartyLink.source_type, ThirdPartyLink.source_id, ThirdPartyLink.target_type, ThirdPartyLink.target_id
+    ).filter(ThirdPartyLink.is_active.is_(True), _sa_contains_text(ThirdPartyLink.relation_title, token)).all():
+        if st in _PROMOTER_LINK_TYPES:
+            result.add(sidv)
+        if tt in _PROMOTER_LINK_TYPES:
+            result.add(tidv)
+    return result
+
+
+def _promoter_search_clause(session_db, q: str):
+    """Cláusula de búsqueda de terceros por PALABRAS: cada palabra debe aparecer en los datos del
+    tercero (nick, nombre, email, tel, CIF, sociedades) O en alguna de sus vinculaciones. Así
+    «Bea Cádiz» encuentra a Beatriz vinculada al Ayuntamiento de Cádiz. Devuelve None si q está vacío."""
+    tokens = [t for t in re.split(r"\s+", (q or "").strip()) if t][:6]
+    if not tokens:
+        return None
+    per_token = []
+    for tok in tokens:
+        self_c = (
+            _sa_contains_text(Promoter.nick, tok)
+            | _sa_contains_text(Promoter.first_name, tok)
+            | _sa_contains_text(Promoter.last_name, tok)
+            | _sa_contains_text(Promoter.contact_email, tok)
+            | _sa_contains_text(Promoter.contact_phone, tok)
+            | _sa_contains_text(Promoter.tax_id, tok)
+            | Promoter.id.in_(session_db.query(PromoterCompany.promoter_id).filter(
+                or_(_sa_contains_text(PromoterCompany.legal_name, tok),
+                    _sa_contains_text(PromoterCompany.tax_id, tok),
+                    _sa_contains_text(PromoterCompany.fiscal_address, tok))))
+        )
+        linked = _promoter_ids_linked_to_token(session_db, tok)
+        if linked:
+            self_c = self_c | Promoter.id.in_(list(linked))
+        per_token.append(self_c)
+    return and_(*per_token)
+
+
 @app.get("/api/search/promoters", endpoint="api_search_promoters")
 def api_search_promoters():
     q = (request.args.get("q") or request.args.get("term") or "").strip()
@@ -23357,24 +23437,9 @@ def api_search_promoters():
             joinedload(Promoter.publishing_company),
             selectinload(Promoter.companies),
         )
-        if q:
-            like = f"%{q}%"
-            query = query.filter(
-                (_sa_contains_text(Promoter.nick, q))
-                | (_sa_contains_text(Promoter.first_name, q))
-                | (_sa_contains_text(Promoter.last_name, q))
-                | (_sa_contains_text(Promoter.contact_email, q))
-                | (_sa_contains_text(Promoter.contact_phone, q))
-                | Promoter.id.in_(
-                    session.query(PromoterCompany.promoter_id).filter(
-                        or_(
-                            _sa_contains_text(PromoterCompany.legal_name, q),
-                            _sa_contains_text(PromoterCompany.tax_id, q),
-                            _sa_contains_text(PromoterCompany.fiscal_address, q),
-                        )
-                    )
-                )
-            )
+        clause = _promoter_search_clause(session, q)
+        if clause is not None:
+            query = query.filter(clause)
         promoters = query.order_by(Promoter.nick.asc()).limit(20).all()
 
         out = []
@@ -23425,16 +23490,9 @@ def api_entity_link_search():
                 query = query.filter(or_(Promoter.kind.is_(None), Promoter.kind.notin_(["empresa", "institucion"])))
             else:
                 query = query.filter(Promoter.kind == entity_type)
-            if q:
-                query = query.filter(
-                    _sa_contains_text(Promoter.nick, q)
-                    | _sa_contains_text(Promoter.first_name, q)
-                    | _sa_contains_text(Promoter.last_name, q)
-                    | _sa_contains_text(Promoter.contact_email, q)
-                    | _sa_contains_text(Promoter.contact_phone, q)
-                    | _sa_contains_text(Promoter.tax_id, q)
-                    | Promoter.id.in_(session_db.query(PromoterCompany.promoter_id).filter(or_(_sa_contains_text(PromoterCompany.legal_name, q), _sa_contains_text(PromoterCompany.tax_id, q))))
-                )
+            _clause = _promoter_search_clause(session_db, q)
+            if _clause is not None:
+                query = query.filter(_clause)
             for item in query.order_by(Promoter.nick.asc()).limit(30).all():
                 payload = _entity_link_payload(session_db, entity_type, item.id)
                 if payload:

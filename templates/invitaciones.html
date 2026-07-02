@@ -557,8 +557,8 @@
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
                   </div>
                   <div class="d-flex gap-2 flex-wrap">
-                    {% if cat.ticket_kind != 'GUEST_LIST' %}<button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>{% endif %}
-                    {% if cat.ticket_kind != 'GUEST_LIST' %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
+                    {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>{% endif %}
+                    {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
                     <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary d-none" data-redetect-btn data-category-id="{{ cat.id }}" title="Re-leer los PDF y actualizar butacas"><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>{% endif %}
                   </div>
@@ -644,15 +644,21 @@
                   {% set _sent = cat_tickets|selectattr('status','in',['SENT','DELIVERED','PICKED_UP','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','ENTREGADAS_MANO'])|list %}
                   <div class="d-flex align-items-center gap-3 flex-wrap">
                     <div class="invitation-ticket-thumb"><i class="fa fa-ticket-alt"></i></div>
+                    {% if cat.uploaded %}
                     <div class="d-flex gap-2 flex-wrap">
                       <button type="button" class="badge text-bg-success inv-unnum-count" data-unnum-toggle="unnum-avail-{{ cat.id }}"><i class="fa fa-ticket-alt me-1"></i>{{ _avail|length }} disponibles</button>
                       <button type="button" class="badge text-bg-warning text-dark inv-unnum-count" data-unnum-toggle="unnum-assigned-{{ cat.id }}"><i class="fa fa-user-check me-1"></i>{{ _assigned|length }} asignadas</button>
                       <button type="button" class="badge text-bg-danger inv-unnum-count" data-unnum-toggle="unnum-sent-{{ cat.id }}"><i class="fa fa-paper-plane me-1"></i>{{ _sent|length }} enviadas</button>
                     </div>
+                    {% else %}
+                    <span class="badge text-bg-secondary"><i class="fa fa-ticket-alt me-1"></i>No hay invitaciones subidas</span>
+                    {% endif %}
                   </div>
+                  {% if cat.uploaded %}
                   {{ _unnum_grid(_avail, 'unnum-avail-' ~ cat.id) }}
                   {{ _unnum_grid(_assigned, 'unnum-assigned-' ~ cat.id, owned=True) }}
                   {{ _unnum_grid(_sent, 'unnum-sent-' ~ cat.id, owned=True) }}
+                  {% endif %}
                 {% else %}
                   {# Palco sin numerar: se muestra completo (no resumido). Asignadas/enviadas con
                      barra (nombre + vínculo con logo) + foto/logo en la butaca, como las numeradas. #}

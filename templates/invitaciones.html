@@ -387,6 +387,7 @@
                         <div class="d-flex align-items-center gap-2 flex-wrap">
                           <strong>{{ row.name }}</strong>
                           {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
+                          {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
                           {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): enviar a (foto/logo + nombre) + vínculo (logos/fotos). #}

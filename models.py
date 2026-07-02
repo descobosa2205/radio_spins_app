@@ -2121,6 +2121,8 @@ class InvitationCommitment(Base):
     guest_email = Column(Text)
     guest_phone = Column(Text)
     delivery_token = Column(Text)  # token para el ZIP público de descarga (igual que en solicitudes)
+    downloaded_at = Column(DateTime(timezone=True))
+    downloaded_count = Column(Integer, nullable=False, server_default=text("0"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5542,6 +5544,8 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_email text;",
         "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS guest_phone text;",
         "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS delivery_token text;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS downloaded_at timestamptz;",
+        "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS downloaded_count integer NOT NULL DEFAULT 0;",
         "CREATE INDEX IF NOT EXISTS idx_invitation_commitments_token ON invitation_commitments(delivery_token);",
         """
         CREATE TABLE IF NOT EXISTS invitation_public_links (

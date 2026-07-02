@@ -1307,6 +1307,8 @@ def artist_update(artist_id):
     try:
         if photo and photo.filename:
             a.photo_url = upload_png(photo, "artists")
+        # Propaga el nuevo email a sus invitaciones aún no enviadas (envío al último dato).
+        _invitation_sync_contact_for_entity(session_db, artist_id=a.id, email=a.email)
         session_db.commit()
         flash("Artista actualizado.", "success")
     except Exception as e:
@@ -16967,6 +16969,8 @@ def promoter_update(pid):
         if logo and logo.filename:
             p.logo_url = upload_image(logo, "promoters")
         linked_embargos = _auto_link_embargo_orders_for_promoter(session, p) if "_auto_link_embargo_orders_for_promoter" in globals() else 0
+        # Propaga el nuevo email/teléfono a sus invitaciones aún no enviadas (envío al último dato).
+        _invitation_sync_contact_for_entity(session, promoter_id=p.id, email=p.contact_email, phone=p.contact_phone)
         session.commit()
         flash("Tercero actualizado.", "success")
         if linked_embargos:
@@ -31894,6 +31898,8 @@ def personnel_detail_view(user_id):
                 profile.assigned_artist_ids_sello = _sello_ids
                 profile.assigned_artist_ids = _union_ids
                 user.email = (request.form.get("email") or user.email or "").strip().lower() or user.email
+                # Propaga el nuevo email/móvil a sus invitaciones aún no enviadas (envío al último dato).
+                _invitation_sync_contact_for_entity(session_db, user_id=user.id, email=user.email, phone=_first_profile_mobile(profile))
                 session_db.commit()
                 flash("Usuario actualizado.", "success")
                 return redirect(url_for("personnel_detail_view", user_id=user.id, tab="datos"))
@@ -37753,10 +37759,9 @@ def _invitation_event_has_config(session_db, concert: Concert) -> bool:
     return False
 
 
-def _invitation_guest_current_email(session_db, row) -> str:
-    """Correo ACTUAL del invitado resuelto EN VIVO desde la entidad vinculada (tercero/artista/
-    empleado). Si la entidad tiene correo, ese manda (último dato). Si no, cae al snapshot guardado.
-    Devuelve un único correo (el principal). Sirve para solicitudes y compromisos."""
+def _invitation_entity_email(session_db, row) -> str:
+    """Correo del invitado tomado directamente de la ENTIDAD vinculada (tercero/artista/empleado),
+    sin mirar el snapshot. Devuelve '' si no hay entidad o no tiene correo."""
     gp = getattr(row, "guest_promoter_id", None)
     ga = getattr(row, "guest_artist_id", None)
     gu = getattr(row, "guest_user_id", None)
@@ -37779,26 +37784,78 @@ def _invitation_guest_current_email(session_db, row) -> str:
         u = session_db.get(User, gu)
         if u and (u.email or "").strip():
             return u.email.strip()
-    return (getattr(row, "guest_email", None) or "").strip()
+    return ""
+
+
+def _invitation_entity_phone(session_db, row) -> str:
+    """Teléfono del invitado tomado directamente de la ENTIDAD vinculada (tercero → contact_phone;
+    empleado → primer móvil del perfil). El artista no tiene teléfono propio."""
+    gp = getattr(row, "guest_promoter_id", None)
+    gu = getattr(row, "guest_user_id", None)
+    if gp:
+        pr = session_db.get(Promoter, gp)
+        if pr and (pr.contact_phone or "").strip():
+            return pr.contact_phone.strip()
+    if gu:
+        prof = session_db.get(UserProfile, gu)
+        mob = _first_profile_mobile(prof) if prof else ""
+        if mob:
+            return mob
+    return ""
+
+
+def _invitation_guest_current_email(session_db, row) -> str:
+    """Correo del invitado para mostrar/editar/enviar: manda el guardado en la propia solicitud/
+    compromiso (`guest_email`) —así se respetan las ediciones puntuales y lo propagado desde la ficha—;
+    si está vacío, cae al de la entidad vinculada."""
+    snap = (getattr(row, "guest_email", None) or "").strip()
+    if snap:
+        return snap
+    return _invitation_entity_email(session_db, row)
+
+
+def _invitation_guest_live_phone(session_db, row) -> str:
+    """Teléfono del invitado: manda el guardado en la solicitud/compromiso; si está vacío, el de la
+    entidad vinculada."""
+    snap = (getattr(row, "guest_phone", None) or "").strip()
+    if snap:
+        return snap
+    return _invitation_entity_phone(session_db, row)
 
 
 def _invitation_guest_live_emails(session_db, row) -> list[str]:
-    """Correo(s) del invitado para el envío: el actual (en vivo) como principal."""
+    """Correo(s) del invitado para el envío: el vigente de la solicitud/compromiso."""
     e = _invitation_guest_current_email(session_db, row)
     return [e] if e else []
 
 
-def _invitation_refresh_contact_snapshot(session_db, row) -> None:
-    """Actualiza el snapshot guardado (guest_email/guest_phone) al último dato de la entidad vinculada,
-    para que la lista, el modal y los próximos envíos reflejen SIEMPRE el dato actualizado. Solo escribe
-    cuando la entidad aporta un valor (no borra un dato escrito a mano si la entidad no tiene)."""
+def _invitation_sync_contact_for_entity(session_db, *, promoter_id=None, artist_id=None, user_id=None,
+                                        email: str | None = None, phone: str | None = None) -> None:
+    """Propaga el email/teléfono ACTUALIZADO de una persona (ficha del tercero/artista/empleado) a sus
+    invitaciones AÚN NO enviadas (solicitudes y compromisos), para que los próximos envíos usen el
+    último dato. No toca las ya enviadas/entregadas ni pisa con un valor vacío."""
+    email = (email or "").strip()
+    phone = (phone or "").strip()
+    if not email and not phone:
+        return
+    sent = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA', 'RECHAZADAS', 'ANULADAS'}
     try:
-        email = _invitation_guest_current_email(session_db, row)
-        phone = _invitation_guest_live_phone(session_db, row)
-        if email and email != (getattr(row, "guest_email", None) or "").strip():
-            row.guest_email = email
-        if phone and phone != (getattr(row, "guest_phone", None) or "").strip():
-            row.guest_phone = phone
+        specs = []
+        if promoter_id:
+            specs.append(('guest_promoter_id', promoter_id))
+        if artist_id:
+            specs.append(('guest_artist_id', artist_id))
+        if user_id:
+            specs.append(('guest_user_id', user_id))
+        for Model in (InvitationRequest, InvitationCommitment):
+            for attr, val in specs:
+                for inv in session_db.query(Model).filter(getattr(Model, attr) == val).all():
+                    if (getattr(inv, 'status', None) or '') in sent:
+                        continue
+                    if email:
+                        inv.guest_email = email
+                    if phone:
+                        inv.guest_phone = phone
     except Exception:
         pass
 
@@ -38922,6 +38979,7 @@ def invitation_event_detail(concert_id):
                 "category_status": cat_status,
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
+                "downloaded_at_label": _invitation_display_datetime(getattr(row, 'downloaded_at', None)),
                 "note": row.note or "",
                 "created_by_nick": _cb_nick,
                 "created_by_photo": _cb_photo,
@@ -39588,7 +39646,6 @@ def invitation_commitment_deliver(commitment_id):
                 return jsonify({'ok': False, 'error': msg}), 400
             flash(msg, 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
-        _invitation_refresh_contact_snapshot(session_db, row)  # usar el último email/teléfono
         now = _now_madrid()
         row.delivery_token = row.delivery_token or _invitation_token()
         if channel in ('whatsapp', 'sms'):
@@ -39863,14 +39920,20 @@ def invitation_request_edit_form(request_id):
         is_assigned = bool(all_tickets) or (row.status or '') in {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
         can_edit = bool(can_manage or not is_assigned)
         quantities = _json_dict(row.quantities_json)
+        # Disponibles por categoría en UNA sola consulta (antes: una por categoría → modal lento).
+        avail_by_cat = {}
+        if categories:
+            for _cid, _n in (
+                session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
+                .filter(InvitationTicket.category_id.in_([c.id for c in categories]), InvitationTicket.status == 'AVAILABLE')
+                .group_by(InvitationTicket.category_id)
+                .all()
+            ):
+                avail_by_cat[str(_cid)] = int(_n or 0)
         cat_rows = []
         for cat in categories:
             cid = str(cat.id)
-            available = (
-                session_db.query(func.count(InvitationTicket.id))
-                .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
-                .scalar()
-            ) or 0
+            available = avail_by_cat.get(cid, 0)
             cat_rows.append({
                 'id': cid,
                 'name': cat.name,
@@ -40240,7 +40303,6 @@ def invitation_request_send(request_id):
         flags = _invitation_request_kind_flags(session_db, row, categories)
         if not flags.get('can_send'):
             raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
-        _invitation_refresh_contact_snapshot(session_db, row)  # usar el último email/teléfono
         row.delivery_token = row.delivery_token or _invitation_token()
         if channel in ('whatsapp', 'sms'):
             # WhatsApp/SMS NO adjuntan archivos: el mensaje lleva el enlace que descarga las
@@ -40454,6 +40516,8 @@ def invitation_commitment_download(token):
         data, added = _invitation_tickets_to_merged_pdf(tickets)
         if not data or added == 0:
             return _invitation_download_unavailable("retry")
+        row.downloaded_at = row.downloaded_at or _now_madrid()
+        row.downloaded_count = _safe_int(row.downloaded_count) + 1
         session_db.commit()
         return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.name or "compromiso"}.pdf')
     finally:
@@ -40567,6 +40631,9 @@ def invitation_commitment_download_zip(token):
         payload, filename, added = _invitation_tickets_to_zip(tickets, archive_label=f"invitaciones_{row.name or 'compromiso'}")
         if added == 0:
             return _invitation_download_unavailable("retry")
+        row.downloaded_at = row.downloaded_at or _now_madrid()
+        row.downloaded_count = _safe_int(row.downloaded_count) + 1
+        session_db.commit()
         return send_file(BytesIO(payload), mimetype='application/zip', as_attachment=True, download_name=filename)
     finally:
         session_db.close()

@@ -37180,18 +37180,18 @@ def _invitation_quantities_label(quantities: dict | None, name_map: dict[str, st
 
 
 def _invitation_status_badge(status: str | None) -> str:
-    """Color del estado para QUIEN GESTIONA: solicitadas/aprobadas en AZUL; asignadas en AMARILLO;
-    enviadas / en taquilla / recogidas en VERDE; denegadas en rojo; comprometidas en gris."""
+    """Color del estado para QUIEN GESTIONA: solicitadas/comprometidas en GRIS; aprobadas en AZUL;
+    asignadas en AMARILLO; enviadas / en taquilla / recogidas en VERDE; denegadas en rojo."""
     s = (status or "SOLICITADAS").upper()
     if s in {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}:
         return "success"
     if s == "ASIGNADAS":
         return "warning text-dark"
-    if s in {"SOLICITADAS", "APROBADAS"}:
+    if s == "APROBADAS":
         return "info text-dark"
     if s in {"RECHAZADAS", "ANULADAS"}:
         return "danger"
-    return "secondary"
+    return "secondary"  # SOLICITADAS / COMPROMETIDAS → gris
 
 
 def _invitation_requester_status(status: str | None) -> tuple[str, str]:

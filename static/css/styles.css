@@ -1473,3 +1473,5 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 @media (max-width: 768px){ .invitation-status-flags{ width:100%; flex:0 0 100%; } }
 /* Etiquetas de estado por petición/categoría (gestión): mismo tamaño para que queden alineadas. */
 .inv-status-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:116px; text-align:center; }
+/* Contador de cada categoría comprometida: ancho fijo para que las filas queden alineadas. */
+.inv-cmt-count{ min-width:52px; text-align:center; flex:0 0 auto; }

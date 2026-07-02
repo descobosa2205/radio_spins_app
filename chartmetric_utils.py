@@ -145,6 +145,21 @@ def get_artist_tracks(cmid: int | str, limit: int = 200) -> list:
     return data.get("obj", data) if isinstance(data, dict) else data
 
 
+def get_track(cm_track: int | str) -> dict:
+    """Metadata de un track por su Chartmetric ID (cm_track): name, isrc, image_url/portada, album…
+    Sirve de PUENTE fiable cuando una playlist (p. ej. de Amazon/Apple) trae el track sin nombre ni
+    ISRC: con el cm_track se piden aquí sus datos y así se puede nombrar y casar la canción.
+    Endpoint: GET /api/track/:id  → {obj: {...}}. Devuelve {} ante cualquier problema (no lanza)."""
+    if not str(cm_track or "").strip():
+        return {}
+    try:
+        data = _get(f"/api/track/{cm_track}")
+    except RuntimeError:
+        return {}
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    return obj if isinstance(obj, dict) else {}
+
+
 def search_artists(query: str, limit: int = 10) -> list:
     """Busca artistas por nombre. Devuelve lista de dicts {id (CMID), name, image_url,
     sp_monthly_listeners, cm_artist_score, verified...}. [] si no hay query o resultados."""

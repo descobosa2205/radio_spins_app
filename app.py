@@ -42766,6 +42766,24 @@ def _chartmetric_norm_isrc(s) -> str:
     return "".join(ch for ch in (s or "") if ch.isalnum()).upper()
 
 
+def _chartmetric_track_image(d) -> str:
+    """Portada (album art) de un track a partir de un dict de Chartmetric (track o item de playlist),
+    probando las claves habituales. '' si no hay."""
+    if not isinstance(d, dict):
+        return ""
+    for k in ("image_url", "album_image_url", "cover_url", "track_image_url", "artwork_url", "image"):
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    alb = d.get("album")
+    if isinstance(alb, dict):
+        for k in ("image_url", "cover_url", "image"):
+            v = alb.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return ""
+
+
 def _chartmetric_search_best(name: str):
     """Mejor artista en Chartmetric por nombre: coincidencia EXACTA normalizada, el de mayor score.
     Devuelve el dict {id, name, image_url, sp_monthly_listeners...} o None (así no vinculamos un
@@ -42949,6 +42967,8 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
                 break
         if not track_name:
             track_name = info.get("name")
+        # Portada de la CANCIÓN (del mapa de tracks; NO la de la playlist).
+        track_img = info.get("image") or None
         song_id = None
         isrc = info.get("isrc")
         # El propio item de playlist puede traer ISRC directamente (algunas plataformas).
@@ -42966,7 +42986,39 @@ def _chartmetric_replace_current_playlists(session_db, artist_id, platform, item
             position=pl.get("position"), peak_position=pl.get("peak_position"),
             days_in_list=pl.get("period"), added_at=added_d,
             followers=pl.get("followers"), image_url=pl.get("image_url") or pl.get("playlist_image_url"),
+            track_image_url=track_img,
         ))
+
+
+def _chartmetric_crossfill_entries(session_db, artist_id) -> None:
+    """Rellena, entre las playlists de un artista, el nombre/canción/portada que falten en una entrada
+    copiándolos de otra entrada del MISMO track (mismo cm_track) que sí los tenga. Así, si una canción
+    está bien resuelta en Spotify pero llega sin datos en Amazon, la de Amazon hereda nombre, ficha y
+    portada. Solo lee/escribe en BD (sin API)."""
+    rows = session_db.query(ChartmetricPlaylistEntry).filter(
+        ChartmetricPlaylistEntry.artist_id == artist_id
+    ).all()
+    best = {}
+    for e in rows:
+        if not e.cm_track:
+            continue
+        b = best.setdefault(e.cm_track, {"name": None, "song_id": None, "image": None})
+        if e.track_name and not b["name"]:
+            b["name"] = e.track_name
+        if e.song_id and not b["song_id"]:
+            b["song_id"] = e.song_id
+        if getattr(e, "track_image_url", None) and not b["image"]:
+            b["image"] = e.track_image_url
+    for e in rows:
+        if not e.cm_track:
+            continue
+        b = best.get(e.cm_track) or {}
+        if not e.track_name and b.get("name"):
+            e.track_name = b["name"]
+        if not e.song_id and b.get("song_id"):
+            e.song_id = b["song_id"]
+        if not getattr(e, "track_image_url", None) and b.get("image"):
+            e.track_image_url = b["image"]
 
 
 def _chartmetric_refresh_artist(session_db, artist) -> dict:
@@ -43002,15 +43054,21 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
     # para casarlo venga como venga. (Antes solo se indexaba por cm_track -> Amazon salía sin nombre.)
     track_map = {}
 
-    def _track_reg(idval, name, isrc):
+    def _track_reg(idval, name, isrc, image=None):
         k = str(idval or "").strip()
         if not k:
             return
+        if isinstance(isrc, (list, tuple)):   # algunos endpoints devuelven varios ISRC
+            isrc = next((x for x in isrc if x), None)
+        if isinstance(name, (list, tuple)):
+            name = next((x for x in name if x), None)
         cur = track_map.get(k) or {}
         if name and not cur.get("name"):
             cur["name"] = name
         if isrc and not cur.get("isrc"):
             cur["isrc"] = isrc
+        if image and not cur.get("image"):
+            cur["image"] = image
         track_map[k] = cur
 
     try:
@@ -43019,15 +43077,16 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
                 continue
             nm = t.get("name")
             isrc = t.get("isrc")
+            img = _chartmetric_track_image(t)
             for key in ("cm_track", "id", "isrc", "spotify_track_id", "spotify_id",
                         "itunes_track_id", "itunes_id", "apple_track_id",
                         "amazon_track_id", "amazon_id", "deezer_track_id"):
-                _track_reg(t.get(key), nm, isrc)
-            # Cualquier otro identificador de track que traiga el item (claves *track*id*).
+                _track_reg(t.get(key), nm, isrc, img)
+            # Cualquier otro identificador de track que traiga el item (claves *track*id* / ids de tienda).
             for k, v in t.items():
                 kl = str(k).lower()
-                if isinstance(v, (str, int)) and "track" in kl and "id" in kl:
-                    _track_reg(v, nm, isrc)
+                if isinstance(v, (str, int)) and (("track" in kl and "id" in kl) or kl in ("asin", "amazon", "isrc")):
+                    _track_reg(v, nm, isrc, img)
     except Exception as e:
         errors.append(f"tracks:{str(e)[:80]}")
     # Casar las canciones de las playlists con NUESTRAS Song: por ISRC (normalizado) y, de respaldo,
@@ -43043,23 +43102,60 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
                 song_by_title[_chartmetric_norm_name(sg.title)] = sg.id
     except Exception:
         pass
+    # --- Fase 1: descargar TODAS las playlists y recopilar los cm_track vistos, enriqueciendo el mapa
+    # de nombres con lo que traigan los propios items (Spotify SÍ incluye el nombre de la canción). ---
+    fetched = {}
+    seen_cmts = set()
     for platform in ("spotify", "applemusic", "amazon"):
         for st in ("current", "past"):
             try:
-                items = cm.get_artist_playlists(cmid, platform=platform, status=st)
-                # Enriquecer el mapa de nombres con lo que traen los propios items (Spotify SÍ incluye
-                # el nombre de la canción). Como Spotify se procesa primero, así Apple/Amazon pueden
-                # nombrar la canción aunque el endpoint de tracks no la cubra o se quede sin créditos.
-                for it in (items or []):
-                    pl = it.get("playlist", it) if isinstance(it, dict) else None
-                    if isinstance(pl, dict):
-                        cmt = str(pl.get("cm_track") or pl.get("track_id") or "").strip()
-                        nm = pl.get("track")
-                        if cmt and nm and not (track_map.get(cmt) or {}).get("name"):
-                            track_map.setdefault(cmt, {})["name"] = nm
-                _chartmetric_replace_current_playlists(session_db, artist.id, platform, items, track_map, song_by_isrc, song_by_title, status=st)
+                items = cm.get_artist_playlists(cmid, platform=platform, status=st) or []
             except Exception as e:
                 errors.append(f"pl:{platform}:{st}:{str(e)[:80]}")
+                items = []
+            fetched[(platform, st)] = items
+            for it in items:
+                pl = it.get("playlist", it) if isinstance(it, dict) else None
+                if not isinstance(pl, dict):
+                    continue
+                cmt = str(pl.get("cm_track") or pl.get("track_id") or "").strip()
+                if cmt:
+                    seen_cmts.add(cmt)
+                nm = pl.get("track")
+                if cmt and nm and not (track_map.get(cmt) or {}).get("name"):
+                    track_map.setdefault(cmt, {})["name"] = nm
+    # --- Fase 2: para los tracks que AÚN no tienen nombre o ISRC (típico de Amazon/Apple, cuyas
+    # playlists no traen el nombre y cuyo id no siempre está en el endpoint de tracks), pedir su
+    # metadata por cm_track: así conseguimos nombre + ISRC + portada y podemos casar la canción. ---
+    _lookups = 0
+    for cmt in seen_cmts:
+        info = track_map.get(cmt) or {}
+        if info.get("name") and info.get("isrc"):
+            continue
+        if _lookups >= 150:  # tope de seguridad para no gastar créditos de golpe
+            errors.append("track:tope-de-consultas")
+            break
+        _lookups += 1
+        try:
+            td = cm.get_track(cmt)
+        except Exception as e:
+            errors.append(f"track:{cmt}:{str(e)[:60]}")
+            continue
+        if isinstance(td, dict) and td:
+            _track_reg(cmt, td.get("name"), td.get("isrc"), _chartmetric_track_image(td))
+    # --- Fase 3: guardar las playlists ya enriquecidas. ---
+    for platform in ("spotify", "applemusic", "amazon"):
+        for st in ("current", "past"):
+            try:
+                _chartmetric_replace_current_playlists(session_db, artist.id, platform, fetched.get((platform, st)) or [], track_map, song_by_isrc, song_by_title, status=st)
+            except Exception as e:
+                errors.append(f"save:{platform}:{st}:{str(e)[:80]}")
+    # --- Fase 4 (red de seguridad): rellenar nombre/canción/portada que falten copiándolos de otra
+    # entrada del MISMO track (mismo cm_track) en otra plataforma que sí los tenga. ---
+    try:
+        _chartmetric_crossfill_entries(session_db, artist.id)
+    except Exception as e:
+        errors.append(f"crossfill:{str(e)[:60]}")
     link.last_refreshed_at = _now_madrid()
     link.last_error = "; ".join(errors)[:500] if errors else None
     link.status = "LINKED" if not errors else "ERROR"
@@ -43375,7 +43471,8 @@ def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, so
                 "track_name": e.track_name,
                 "song_id": (str(e.song_id) if e.song_id else None),
                 "song_title": (sinfo or {}).get("title"),
-                "song_cover": (sinfo or {}).get("cover_url"),
+                # Portada: la de NUESTRA canción enlazada; si no hay, la de Chartmetric (portada del track).
+                "song_cover": (sinfo or {}).get("cover_url") or getattr(e, "track_image_url", None),
                 "playlist_name": e.playlist_name,
                 "position": e.position,
                 "days": e.days_in_list,

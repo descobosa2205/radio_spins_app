@@ -22,15 +22,16 @@
           {% set song_href = url_for('discografica_song_detail', song_id=r.song_id, tab='playlisting') if r.song_id else none %}
           <tr data-search="{{ (r.song_title or r.track_name or '')|lower }} {{ (r.playlist_name or '')|lower }}">
             <td>
-              {% if song_href %}<a href="{{ song_href }}">{% endif %}
-              {% set _cover = r.song_cover or r.image_url %}
+              {% if song_href %}<a href="{{ song_href }}" class="text-reset text-decoration-none">{% endif %}
+              {% set _cover = r.song_cover %}
               {% if _cover %}<img src="{{ _cover }}" alt="" style="width:42px;height:42px;border-radius:8px;object-fit:cover;">
               {% else %}<span class="d-inline-flex align-items-center justify-content-center text-muted" style="width:42px;height:42px;border-radius:8px;background:#f1f3f5;"><i class="fa fa-music"></i></span>{% endif %}
               {% if song_href %}</a>{% endif %}
             </td>
             <td>
               <div class="text-truncate fw-semibold">
-                {% if song_href %}<a href="{{ song_href }}">{{ r.song_title or r.track_name or '—' }}</a>{% else %}{{ r.track_name or '—' }}{% endif %}
+                {# Título clicable pero con el MISMO aspecto que el texto (ni azul ni subrayado). #}
+                {% if song_href %}<a href="{{ song_href }}" class="text-reset text-decoration-none">{{ r.song_title or r.track_name or '—' }}</a>{% else %}{{ r.track_name or '—' }}{% endif %}
               </div>
               {% if r.is_new %}<span class="badge text-bg-success">Novedad</span>{% endif %}
             </td>

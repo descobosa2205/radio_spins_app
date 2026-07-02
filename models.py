@@ -5839,7 +5839,8 @@ class ChartmetricPlaylistEntry(Base):
     days_in_list = Column(Integer)             # 'period' de Chartmetric
     added_at = Column(Date)
     followers = Column(Numeric)                # oyentes/seguidores de la lista (puede faltar en editoriales)
-    image_url = Column(Text)
+    image_url = Column(Text)                    # portada de la PLAYLIST
+    track_image_url = Column(Text)             # portada de la CANCIÓN (respaldo de Chartmetric si no hay Song enlazada)
     fetched_at = Column(DateTime(timezone=True), server_default=func.now())
     __table_args__ = (
         UniqueConstraint("artist_id", "platform", "status", "playlist_id", "cm_track", name="uq_cm_playlist_entry"),
@@ -5864,6 +5865,7 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS match_source text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS social_urls jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
+        "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS track_image_url text;",
         "INSERT INTO chartmetric_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",
     ], "chartmetric")
 

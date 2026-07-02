@@ -1839,3 +1839,29 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
   // Tablas insertadas dinámicamente (p. ej. dentro de modales cargados por AJAX).
   document.addEventListener('shown.bs.modal', function (e) { wrapTables(e.target); });
 })();
+
+/* Volver "inteligente": cualquier botón de volver (los que empiezan por "Volver" con la flecha, o
+   [data-smart-back]) regresa a la posición EXACTA anterior con history.back() cuando venimos de la
+   propia app; si no hay historial, sigue su href (página padre) como respaldo. Global. */
+(function () {
+  'use strict';
+  function sameOriginReferrer() {
+    try { return !!document.referrer && new URL(document.referrer).origin === window.location.origin; }
+    catch (e) { return false; }
+  }
+  function isBackLink(a) {
+    if (!a) return false;
+    if (a.hasAttribute('data-smart-back')) return true;
+    var txt = (a.textContent || '').trim().toLowerCase();
+    return !!a.querySelector('.fa-arrow-left') && txt.indexOf('volver') === 0;
+  }
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest ? e.target.closest('a') : null;
+    if (!isBackLink(a)) return;
+    if (sameOriginReferrer() && window.history.length > 1) {
+      e.preventDefault();
+      window.history.back();  // el navegador restaura la posición de scroll
+    }
+    // Si no hay historial de la app, se sigue el href (fallback a la página padre).
+  });
+})();

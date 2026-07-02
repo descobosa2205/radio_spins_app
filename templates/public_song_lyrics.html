@@ -22,7 +22,7 @@
 </head>
 <body>
   <main class="page">
-    <div class="actions"><a class="btn" href="{{ pdf_url }}" target="_blank" rel="noopener" download>Descargar en PDF</a></div>
+    <div class="actions" style="justify-content:space-between"><a class="btn" href="{{ request.referrer or '#' }}" onclick="if(window.history.length>1){history.back();return false;}" style="background:#6b7280">← Volver</a><a class="btn" href="{{ pdf_url }}" target="_blank" rel="noopener" download>Descargar en PDF</a></div>
     <article class="sheet">
       {% if brand and brand.logo_url %}<img class="brand" src="{{ brand.logo_url }}" alt="{{ brand.company_name or 'PIES' }}">{% endif %}
       <h1>Letra: {{ song.title }}</h1>

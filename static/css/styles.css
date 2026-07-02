@@ -1484,6 +1484,12 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 @media (max-width: 768px){ .invitation-status-flags{ width:100%; flex:0 0 100%; } }
 /* Etiquetas de estado por petición/categoría (gestión): mismo tamaño para que queden alineadas. */
 .inv-status-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:116px; text-align:center; }
+/* Inicio · "Invitaciones pendientes de gestionar": todas las etiquetas al mismo ancho (rellenan la
+   columna de estado, que tiene ancho fijo) para que las tarjetas queden alineadas (singular/plural y
+   nº de dígitos ya no descuadran). */
+.home-inv-badges{ width:186px; flex:0 0 186px; }
+.home-inv-badge{ display:inline-flex; align-items:center; justify-content:center; width:100%; text-align:center; white-space:normal; }
+@media (max-width: 575.98px){ .home-inv-badges{ width:140px; flex-basis:140px; } }
 /* Contador de cada categoría comprometida: ancho fijo para que las filas queden alineadas. */
 .inv-cmt-count{ min-width:52px; text-align:center; flex:0 0 auto; }
 

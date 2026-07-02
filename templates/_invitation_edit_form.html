@@ -7,10 +7,12 @@
   <div class="alert alert-warning mb-0">Esta solicitud ya está asignada. Solo puede editarla quien gestiona las invitaciones.</div>
 {% else %}
 <form method="post" action="{{ action_url }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if guest_is_linked %}<div class="alert alert-light border small py-2 mb-3"><i class="fa fa-circle-info me-1 text-primary"></i>El nombre y los datos de contacto se toman siempre de la <strong>ficha</strong> del invitado (tercero/artista/persona), para trabajar sobre lo más actualizado. Edítalos en su ficha.</div>{% endif %}
   <div class="row g-3">
-    <div class="col-12"><label class="form-label">Invitado</label><input class="form-control" name="guest_name" value="{{ row.guest_name }}" required></div>
-    <div class="col-md-6"><label class="form-label">Email</label><input type="email" class="form-control" name="guest_email" value="{{ row.guest_email }}"></div>
-    <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="guest_phone" value="{{ row.guest_phone }}"></div>
+    <div class="col-12"><label class="form-label">Invitado</label><input class="form-control" name="guest_name" value="{{ row.guest_name }}" required {% if guest_is_linked %}readonly{% endif %}></div>
+    <div class="col-md-6"><label class="form-label">Email</label><input type="email" class="form-control" name="guest_email" value="{{ row.guest_email }}" {% if guest_is_linked %}readonly{% endif %}></div>
+    <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="guest_phone" value="{{ row.guest_phone }}" {% if guest_is_linked %}readonly{% endif %}></div>
     <div class="col-md-6"><label class="form-label">Cargo / empresa</label><input class="form-control" name="guest_title" value="{{ row.guest_title }}"></div>
     <div class="col-md-6"><label class="form-label">Entrega</label>
       <select class="form-select" name="receiver_mode">

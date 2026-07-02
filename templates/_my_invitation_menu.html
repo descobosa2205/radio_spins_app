@@ -190,13 +190,49 @@
       if (!modalEl || modalEl.dataset.bound) return;
       modalEl.dataset.bound = '1';
       var body = modalEl.querySelector('[data-inv-edit-body]');
+      var cache = {};    // url -> html (precargado)
+      var loading = {};  // url -> true mientras se está pidiendo
+
+      // Precarga el formulario con XHR (NO usa fetch, así no dispara el loader global) en cuanto el
+      // usuario apunta al botón "Editar" o abre su menú: al pulsar, el formulario aparece al instante
+      // y se puede escribir de inmediato. El GET no cambia estado, así que precargar es seguro.
+      function prefetch(url){
+        if (!url || cache[url] || loading[url]) return;
+        loading[url] = true;
+        try {
+          var xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+          xhr.onreadystatechange = function(){
+            if (xhr.readyState !== 4) return;
+            loading[url] = false;
+            if (xhr.status >= 200 && xhr.status < 300) cache[url] = xhr.responseText;
+          };
+          xhr.send();
+        } catch(e){ loading[url] = false; }
+      }
+      ['pointerover','focusin'].forEach(function(evt){
+        document.addEventListener(evt, function(ev){
+          var t = ev.target; if (!t || !t.closest) return;
+          var btn = t.closest('[data-edit-request-full]');
+          if (btn) prefetch(btn.getAttribute('data-form-url') || '');
+        }, true);
+      });
+
       document.addEventListener('click', function(ev){
         var btn = ev.target.closest('[data-edit-request-full]');
         if (!btn) return;
         ev.preventDefault();
         var url = btn.getAttribute('data-form-url') || '';
+        var inst = bootstrap.Modal.getOrCreateInstance(modalEl);
+        if (cache[url]) {                        // ya precargado -> instantáneo
+          body.innerHTML = cache[url];
+          delete cache[url];                     // consumir: la próxima vez se recarga fresco
+          inst.show();
+          return;
+        }
         body.innerHTML = '<div class="text-muted small">Cargando…</div>';
-        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        inst.show();
         fetch(url, { headers:{'X-Requested-With':'XMLHttpRequest'} })
           .then(function(r){ return r.text(); })
           .then(function(html){ body.innerHTML = html; })

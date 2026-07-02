@@ -37278,45 +37278,35 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     # Categorías solicitadas: nombres reales (Palco de Honor, Palco Super VIP, Pista General…) SIN
     # cantidades, porque el total ya se muestra en su propio badge.
     categories_label = _invitation_categories_label(quantities, name_map)
-    link_summary = _json_dict(getattr(row, "guest_link_summary", None))
-    if not link_summary:
-        try:
-            link_summary = _promoter_link_summary(row._sa_instance_state.session, row.guest_promoter) if getattr(row, "guest_promoter", None) else {}
-        except Exception:
-            link_summary = {}
-    # Foto/logo del invitado (tercero → logo; artista/empleado → foto) para pintarla antes del nombre.
-    guest_photo = ""
+    # Identidad ACTUAL del invitado (nombre, foto, email, teléfono, vínculo) resuelta EN VIVO desde la
+    # entidad vinculada, para que TODA la gestión de invitaciones trabaje siempre sobre lo más
+    # actualizado, sin importar dónde se cambiaran los datos de la ficha.
     try:
-        gp = getattr(row, "guest_promoter", None)
-        if gp is not None:
-            guest_photo = gp.logo_url or ""
-        if not guest_photo:
-            ga = getattr(row, "guest_artist", None)
-            if ga is not None:
-                guest_photo = getattr(ga, "photo_url", "") or ""
-        if not guest_photo:
-            gu = getattr(row, "guest_user", None)
-            if gu is not None:
-                guest_photo = getattr(gu, "photo_url", "") or ""
-        # Para el artista sin foto propia → foto del artista del evento (es su foto, no un vínculo).
-        if not guest_photo and getattr(row, "guest_artist_id", None):
+        _sess = row._sa_instance_state.session
+    except Exception:
+        _sess = None
+    if _sess is not None:
+        _idn = _invitation_guest_identity(_sess, row)
+    else:
+        _idn = {"name": row.guest_name, "photo": "", "email": row.guest_email or "", "phone": row.guest_phone or "", "link_summary": {}}
+    guest_name = _idn.get("name") or row.guest_name
+    guest_photo = _idn.get("photo") or ""
+    # Artista sin foto propia → foto del artista del evento (es su foto, no un vínculo).
+    if not guest_photo and getattr(row, "guest_artist_id", None) and _sess is not None:
+        try:
             _c = getattr(row, "concert", None)
-            _ar = _concert_artist_rows(row._sa_instance_state.session, _c) if _c else []
+            _ar = _concert_artist_rows(_sess, _c) if _c else []
             if _ar:
                 guest_photo = getattr(_ar[0], "photo_url", "") or ""
-    except Exception:
-        guest_photo = ""
-    # Correo/teléfono ACTUALES (en vivo desde la entidad vinculada) para que el modal/lista y el envío
-    # usen siempre el último dato aunque se haya cambiado tras pedir las invitaciones.
-    try:
-        _cur_email = _invitation_guest_current_email(row._sa_instance_state.session, row)
-        _cur_phone = _invitation_guest_live_phone(row._sa_instance_state.session, row)
-    except Exception:
-        _cur_email = row.guest_email or ""
-        _cur_phone = row.guest_phone or ""
+        except Exception:
+            pass
+    # Vínculo: en vivo si hay entidad; si no, lo guardado en la solicitud.
+    link_summary = _idn.get("link_summary") or _json_dict(getattr(row, "guest_link_summary", None))
+    _cur_email = _idn.get("email") or ""
+    _cur_phone = _idn.get("phone") or ""
     return {
         "id": str(row.id),
-        "guest_name": row.guest_name,
+        "guest_name": guest_name,
         "guest_promoter_id": str(row.guest_promoter_id) if getattr(row, "guest_promoter_id", None) else "",
         "guest_photo_url": guest_photo or url_for("static", filename="img/placeholder_photo.png"),
         "guest_photo": guest_photo,  # foto/logo PROPIO (vacío si no tiene): la lista solo pinta avatar si hay
@@ -37805,22 +37795,52 @@ def _invitation_entity_phone(session_db, row) -> str:
 
 
 def _invitation_guest_current_email(session_db, row) -> str:
-    """Correo del invitado para mostrar/editar/enviar: manda el guardado en la propia solicitud/
-    compromiso (`guest_email`) —así se respetan las ediciones puntuales y lo propagado desde la ficha—;
-    si está vacío, cae al de la entidad vinculada."""
-    snap = (getattr(row, "guest_email", None) or "").strip()
-    if snap:
-        return snap
-    return _invitation_entity_email(session_db, row)
+    """Correo del invitado para mostrar/editar/enviar. Si está vinculado a una entidad
+    (tercero/artista/empleado) manda SIEMPRE el de su ficha (lo más actualizado); si no hay entidad
+    (invitado escrito a mano), el guardado en la propia solicitud/compromiso."""
+    return _invitation_entity_email(session_db, row) or (getattr(row, "guest_email", None) or "").strip()
 
 
 def _invitation_guest_live_phone(session_db, row) -> str:
-    """Teléfono del invitado: manda el guardado en la solicitud/compromiso; si está vacío, el de la
-    entidad vinculada."""
-    snap = (getattr(row, "guest_phone", None) or "").strip()
-    if snap:
-        return snap
-    return _invitation_entity_phone(session_db, row)
+    """Teléfono del invitado: el de la ficha de la entidad vinculada (lo más actualizado); si no hay
+    entidad, el guardado en la solicitud/compromiso. El artista no tiene teléfono propio."""
+    return _invitation_entity_phone(session_db, row) or (getattr(row, "guest_phone", None) or "").strip()
+
+
+def _invitation_guest_identity(session_db, row) -> dict:
+    """Identidad ACTUAL del invitado (nombre, foto/logo, email, teléfono y vínculo) resuelta EN VIVO
+    desde la entidad vinculada (tercero/artista/empleado), para que TODA la gestión de invitaciones
+    trabaje siempre sobre lo más actualizado, sin importar dónde se haya editado la ficha. Para
+    invitados escritos a mano (sin entidad) usa lo guardado en la solicitud/compromiso."""
+    name = (getattr(row, "guest_name", None) or "").strip()
+    photo = ""
+    link_summary = {}
+    gp = getattr(row, "guest_promoter_id", None)
+    ga = getattr(row, "guest_artist_id", None)
+    gu = getattr(row, "guest_user_id", None)
+    if gp:
+        pr = session_db.get(Promoter, gp)
+        if pr:
+            name = _promoter_display_name(pr) or pr.nick or name
+            photo = pr.logo_url or ""
+            link_summary = _promoter_link_summary(session_db, pr)
+    elif ga:
+        ar = session_db.get(Artist, ga)
+        if ar:
+            name = ar.name or name
+            photo = ar.photo_url or ""
+    elif gu:
+        prof = session_db.get(UserProfile, gu)
+        if prof:
+            name = _profile_full_name(prof) or getattr(prof, "nick", "") or name
+            photo = getattr(prof, "photo_url", "") or ""
+    return {
+        "name": name,
+        "photo": photo,
+        "email": _invitation_guest_current_email(session_db, row),
+        "phone": _invitation_guest_live_phone(session_db, row),
+        "link_summary": link_summary,
+    }
 
 
 def _invitation_guest_live_emails(session_db, row) -> list[str]:
@@ -37884,23 +37904,6 @@ def _first_profile_mobile(profile) -> str:
         if val:
             return val
     return ""
-
-
-def _invitation_guest_live_phone(session_db, row) -> str:
-    """Teléfono del invitado resuelto EN VIVO (tercero → contact_phone; empleado → móvil del perfil),
-    con el snapshot como respaldo. El artista no tiene teléfono propio."""
-    gp = getattr(row, "guest_promoter_id", None)
-    gu = getattr(row, "guest_user_id", None)
-    if gp:
-        pr = session_db.get(Promoter, gp)
-        if pr and (pr.contact_phone or "").strip():
-            return pr.contact_phone.strip()
-    if gu:
-        prof = session_db.get(UserProfile, gu)
-        mob = _first_profile_mobile(prof) if prof else ""
-        if mob:
-            return mob
-    return (getattr(row, "guest_phone", None) or "").strip()
 
 
 def _invitation_request_reply_to(session_db, row) -> str:
@@ -38940,33 +38943,17 @@ def invitation_event_detail(concert_id):
                     "status_badge": _bdg,
                 })
             # Destinatario (a quién se mandan): nombre + foto/logo para "Enviar a ...".
-            _rcpt_name = row.guest_name or ""
-            _rcpt_photo = ""
-            _rcpt_email = _invitation_guest_current_email(session_db, row)  # correo actual (en vivo)
-            _rcpt_link_summary = {}
-            if row.guest_promoter_id:
-                _gpr = session_db.get(Promoter, row.guest_promoter_id)
-                if _gpr:
-                    _rcpt_name = _rcpt_name or _promoter_display_name(_gpr) or _gpr.nick
-                    _rcpt_photo = _gpr.logo_url or ""
-                    _rcpt_email = _rcpt_email or (_gpr.contact_email or "")
-                    _rcpt_link_summary = _promoter_link_summary(session_db, _gpr)
-            elif row.guest_artist_id:
-                _ga = session_db.get(Artist, row.guest_artist_id)
-                if _ga:
-                    _rcpt_name = _rcpt_name or _ga.name
-                    _rcpt_photo = _ga.photo_url or ""
-                    _rcpt_email = _rcpt_email or (_ga.email or "")
-                    # Sin foto propia → foto del artista del evento.
-                    if not _rcpt_photo:
-                        _ar = _concert_artist_rows(session_db, concert) if concert else []
-                        if _ar:
-                            _rcpt_photo = getattr(_ar[0], "photo_url", "") or ""
-            elif row.guest_user_id:
-                _gp = session_db.get(UserProfile, row.guest_user_id)
-                if _gp:
-                    _rcpt_name = _rcpt_name or _profile_full_name(_gp) or getattr(_gp, 'nick', '') or ""
-                    _rcpt_photo = getattr(_gp, 'photo_url', '') or ""
+            # Identidad ACTUAL del destinatario (en vivo desde su ficha) — nombre, foto, email y vínculo.
+            _idn = _invitation_guest_identity(session_db, row)
+            _rcpt_name = _idn.get("name") or row.guest_name or ""
+            _rcpt_photo = _idn.get("photo") or ""
+            _rcpt_email = _idn.get("email") or ""
+            _rcpt_link_summary = _idn.get("link_summary") or {}
+            # Artista sin foto propia → foto del artista del evento.
+            if not _rcpt_photo and row.guest_artist_id:
+                _ar = _concert_artist_rows(session_db, concert) if concert else []
+                if _ar:
+                    _rcpt_photo = getattr(_ar[0], "photo_url", "") or ""
             # Quién añadió el compromiso (foto + nombre).
             _cb_nick = (row.created_by_nick or "").strip()
             _cb_photo = ""
@@ -39958,6 +39945,7 @@ def invitation_request_edit_form(request_id):
             can_manage=can_manage,
             can_edit=can_edit,
             assign_mode=bool(can_manage and is_assigned),
+            guest_is_linked=bool(row.guest_promoter_id or row.guest_artist_id or row.guest_user_id),
             action_url=url_for('invitation_request_update', request_id=row.id),
         )
     finally:

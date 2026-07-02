@@ -855,6 +855,13 @@ img[data-default-photo="1"]{
 .inv-person-ava.is-photo { border-radius: 50%; }
 .inv-person-ava.is-logo { width: auto; max-width: 34px; border-radius: 4px; object-fit: contain; background: transparent; border: 0; }
 .inv-person-sep { color: #c4c9d0; }
+/* Listado de peticiones (pestaña Invitados): tarjetas separadas y más legibles. */
+.inv-request-list { display: flex; flex-direction: column; gap: .6rem; }
+.inv-request-list .list-group-item { border: 1px solid #e6e8ec; border-radius: 12px; margin-top: 0; box-shadow: 0 1px 2px rgba(16,24,40,.04); }
+.inv-name-line { row-gap: .3rem; }
+.inv-name-line .invitation-linked-mini { margin-top: 0; }
+.inv-qty-badge { background: #495057; color: #fff; }         /* nº de entradas en gris oscuro (no rojo) */
+.inv-dl-done { color: #1c9d5b; font-size: 1rem; }            /* icono de descarga (verde) al descargarse */
 /* Butaca con FOTO del invitado dentro: número arriba (pequeño) y foto debajo (no la tapa). */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }
 .invitation-seat--photo .invitation-seat-num { font-size: .66rem; font-weight: 700; line-height: 1; }

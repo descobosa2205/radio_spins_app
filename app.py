@@ -37304,6 +37304,21 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     link_summary = _idn.get("link_summary") or _json_dict(getattr(row, "guest_link_summary", None))
     _cur_email = _idn.get("email") or ""
     _cur_phone = _idn.get("phone") or ""
+    # Peticionario y registrador EN VIVO (nombre + foto) desde su perfil, para reflejar cambios de
+    # nombre del personal de la oficina (antes se quedaba el snapshot: "digital" en vez del nombre real).
+    _req_nick = (row.requester_nick or "").strip()
+    _req_photo = (row.requester_photo_url or "").strip()
+    _cb_nick = (getattr(row, "created_by_nick", None) or "").strip()
+    if _sess is not None:
+        if getattr(row, "requester_user_id", None):
+            _rp = _sess.get(UserProfile, row.requester_user_id)
+            if _rp:
+                _req_nick = _profile_full_name(_rp) or getattr(_rp, "nick", "") or _req_nick
+                _req_photo = getattr(_rp, "photo_url", "") or _req_photo
+        if getattr(row, "created_by_user_id", None):
+            _cbp = _sess.get(UserProfile, row.created_by_user_id)
+            if _cbp:
+                _cb_nick = _profile_full_name(_cbp) or getattr(_cbp, "nick", "") or _cb_nick
     return {
         "id": str(row.id),
         "guest_name": guest_name,
@@ -37314,8 +37329,8 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
         "guest_email": _cur_email or "",
         "guest_phone": _cur_phone or "",
-        "requester_nick": row.requester_nick or row.requester_email or "—",
-        "requester_photo_url": row.requester_photo_url or url_for("static", filename="img/placeholder_photo.png"),
+        "requester_nick": _req_nick or row.requester_email or "—",
+        "requester_photo_url": _req_photo or url_for("static", filename="img/placeholder_photo.png"),
         "receiver_mode": row.receiver_mode or "GUEST",
         "receiver_payload": _json_dict(row.receiver_payload),
         "quantities": quantities,
@@ -37336,7 +37351,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
         "download_url": url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
         "download_url_abs": url_for("invitation_request_download", token=row.delivery_token, _external=True) if row.delivery_token else "",
-        "created_by_nick": getattr(row, "created_by_nick", None) or "",
+        "created_by_nick": _cb_nick,
         "registered_by_other": bool(getattr(row, "created_by_user_id", None)) and str(getattr(row, "created_by_user_id", "") or "") != str(getattr(row, "requester_user_id", "") or ""),
     }
 
@@ -39988,9 +40003,12 @@ def invitation_request_update(request_id):
             row.guest_name = guest_name
         row.guest_email = (request.form.get('guest_email') or '').strip()
         row.guest_phone = (request.form.get('guest_phone') or '').strip()
+        # "Cargo / empresa" es un único campo (name=guest_title) que se refleja en guest_title y
+        # guest_company. Debe poder VACIARSE (p. ej. para no duplicar con la vinculación): si llega
+        # vacío, se borran ambos (antes se conservaba el guest_company anterior y "reaparecía").
         guest_title = (request.form.get('guest_title') or '').strip()
-        row.guest_title = guest_title
-        row.guest_company = guest_title or row.guest_company
+        row.guest_title = guest_title or None
+        row.guest_company = guest_title or None
         row.note = (request.form.get('note') or '').strip()
         rmode = (request.form.get('receiver_mode') or '').strip().upper()
         if rmode in {'GUEST', 'ME', 'BOX_OFFICE', 'OTHER'}:

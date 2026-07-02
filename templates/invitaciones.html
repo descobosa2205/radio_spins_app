@@ -382,17 +382,20 @@
                 <div class="list-group-item">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1 min-w-0">
-                      <div class="d-flex align-items-center gap-2 flex-wrap invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
-                        {# Compromiso: foto/logo del destinatario delante + nombre. #}
-                        <span class="inv-person">
-                          {% if row.recipient_photo %}<img class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}
+                      <div class="invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
+                        {# Línea 1: nombre del compromiso (destacado) · motivo | Añadido por (foto+nombre). #}
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
                           <strong>{{ row.name }}</strong>
-                        </span>
-                        {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
-                        {# A quién se envía (solo si difiere del nombre del compromiso, para no repetir). #}
-                        {% if row.recipient_name and row.recipient_name != row.name %}<span class="inv-person-sep">·</span><span class="inv-person text-muted small"><i class="fa fa-paper-plane"></i>{% if row.recipient_photo %}<img class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}{{ row.recipient_name }}</span>{% endif %}
-                        {# Vinculación con logo. #}
-                        {% if row.recipient_link_summary_text %}<span class="invitation-linked-mini">{% if row.recipient_link_summary.logo_url %}<img class="{{ 'is-photo' if row.recipient_link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.recipient_link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.recipient_link_summary_text }}</span></span>{% endif %}
+                          {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
+                          {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
+                        </div>
+                        {# Línea 2 (pequeña): enviar a (foto/logo + nombre) + vínculo (logos/fotos). #}
+                        {% if row.recipient_name %}
+                        <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>Enviar a: {% if row.recipient_photo %}<img class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}{{ row.recipient_name }}</span>
+                          {% if row.recipient_link_summary_text %}<span class="invitation-linked-mini">{% if row.recipient_link_summary.logo_url %}<img class="{{ 'is-photo' if row.recipient_link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.recipient_link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.recipient_link_summary_text }}</span></span>{% endif %}
+                        </div>
+                        {% endif %}
                       </div>
                       {% if row.category_status %}
                       <div class="mt-2 d-flex flex-column gap-1">
@@ -466,21 +469,24 @@
                 <div class="list-group-item" id="req-{{ row.id }}" data-inline-zone>
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
-                      <div class="d-flex align-items-center gap-2 flex-wrap invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
-                        {# Invitado (= a quién se envía): foto/logo delante + nombre. #}
-                        <span class="inv-person">
-                          {% if row.guest_photo %}<img class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}
-                          {% if row.guest_promoter_id %}<a class="fw-semibold text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
-                        </span>
-                        {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
-                        {# Vinculación (con logo). #}
-                        {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
-                        {# Quién la pidió (si es distinto del invitado no se repite: el requester es interno). #}
-                        <span class="inv-person-sep">·</span>
-                        <span class="inv-person text-muted small" title="Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}"><i class="fa fa-paper-plane"></i><img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
-                        {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
+                      <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
+                        {# Línea 1: invitado (foto + nombre) + símbolo de envío + a quién se envían. #}
+                        <div class="d-flex align-items-center gap-2 flex-wrap">
+                          <span class="inv-person">
+                            {% if row.guest_photo %}<img class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}
+                            {% if row.guest_promoter_id %}<a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
+                          </span>
+                          {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
+                          <span class="inv-person text-muted small"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}A mí{% elif row.guest_email %}{{ row.guest_email }}{% else %}al invitado{% endif %}</span>
+                          {% if row.downloaded_at_label %}<span class="badge text-bg-light border" title="{{ row.downloaded_at_label }}"><i class="fa fa-download me-1"></i>Descargada</span>{% endif %}
+                        </div>
+                        {# Línea 2 (pequeña): vínculo (logo+nombre) | Pedidas por (foto+nombre). #}
+                        <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
+                          {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span><span class="inv-person-sep">|</span>{% endif %}
+                          <span class="inv-person">Pedidas por: <img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
+                        </div>
+                        {% if row.note %}<div class="small mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                       </div>
-                      {% if row.note %}<div class="small text-muted mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                     </div>
                     <div class="d-flex align-items-center gap-2">
                       <span class="badge text-bg-{{ row.status_badge }} align-self-center inv-status-pill">{{ row.status_label }}</span>

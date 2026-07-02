@@ -38666,6 +38666,14 @@ def invitation_event_detail(concert_id):
                 if _gp:
                     _rcpt_name = _rcpt_name or _profile_full_name(_gp) or getattr(_gp, 'nick', '') or ""
                     _rcpt_photo = getattr(_gp, 'photo_url', '') or ""
+            # Quién añadió el compromiso (foto + nombre).
+            _cb_nick = (row.created_by_nick or "").strip()
+            _cb_photo = ""
+            if row.created_by_user_id:
+                _cbp = session_db.get(UserProfile, row.created_by_user_id)
+                if _cbp:
+                    _cb_nick = _cb_nick or _profile_full_name(_cbp) or getattr(_cbp, 'nick', '') or ""
+                    _cb_photo = getattr(_cbp, 'photo_url', '') or ""
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
@@ -38676,6 +38684,8 @@ def invitation_event_detail(concert_id):
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
                 "note": row.note or "",
+                "created_by_nick": _cb_nick,
+                "created_by_photo": _cb_photo,
                 "recipient_name": _rcpt_name,
                 "recipient_photo": _rcpt_photo,
                 "recipient_email": _rcpt_email,

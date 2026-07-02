@@ -36784,6 +36784,8 @@ def _invitation_assignee_visual(session_db, row) -> dict:
     name = (getattr(row, "guest_name", None) or "").strip()
     photo = ""
     link = ""
+    link_logo = ""
+    link_type = ""
     gp = getattr(row, "guest_promoter_id", None)
     ga = getattr(row, "guest_artist_id", None)
     gu = getattr(row, "guest_user_id", None)
@@ -36794,6 +36796,8 @@ def _invitation_assignee_visual(session_db, row) -> dict:
             photo = pr.logo_url or ""
             _ls = _promoter_link_summary(session_db, pr)
             link = _promoter_link_summary_text(_ls)
+            link_logo = (_ls or {}).get("logo_url") or ""
+            link_type = (_ls or {}).get("type") or ""
             # Si el tercero no tiene foto/logo pero está vinculado, usa el logo/foto de lo vinculado.
             if not photo and _ls:
                 photo = _ls.get("logo_url") or ""
@@ -36816,7 +36820,7 @@ def _invitation_assignee_visual(session_db, row) -> dict:
                 photo = getattr(_arows[0], "photo_url", "") or photo
         except Exception:
             pass
-    return {"name": name or "", "photo": photo or "", "link": link or ""}
+    return {"name": name or "", "photo": photo or "", "link": link or "", "link_logo": link_logo or "", "link_type": link_type or ""}
 
 
 def _invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_map) -> dict:
@@ -36827,15 +36831,22 @@ def _invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_ma
     if rid and rinfo:
         key = f"R:{rid}"
         info = rinfo
+        # Solicitud: el nombre es el del invitado.
+        name = (t.assigned_label or "") or (info.get("guest_name") or "")
     elif cidk:
         key = f"C:{cidk}"
         info = (commitment_map or {}).get(cidk)
-    name = (t.assigned_label or "") or (info.get("guest_name") if info else "") or ""
+        # Compromiso: el nombre es el del COMPROMISO (no a quién se envía).
+        name = (info.get("guest_name") if info else "") or (t.assigned_label or "")
+    else:
+        name = t.assigned_label or ""
     return {
         "assignee_key": key,
         "assignee_name": name,
         "assignee_photo": (info.get("photo") if info else "") or "",
         "assignee_link": (info.get("link") if info else "") or "",
+        "assignee_link_logo": (info.get("link_logo") if info else "") or "",
+        "assignee_link_type": (info.get("link_type") if info else "") or "",
     }
 
 
@@ -36904,6 +36915,7 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
                     elif key:
                         block = {"type": "block", "key": key, "name": seat.get("assignee_name") or "",
                                  "photo": seat.get("assignee_photo") or "", "link": seat.get("assignee_link") or "",
+                                 "link_logo": seat.get("assignee_link_logo") or "", "link_type": seat.get("assignee_link_type") or "",
                                  "color": seat.get("assignee_color") or "", "sent": st in _sent_set, "seats": [seat]}
                         layout.append(block)
                     else:
@@ -38770,15 +38782,20 @@ def invitation_event_detail(concert_id):
                     'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
                     'photo': _ai['photo'],
                     'link': _ai['link'],
+                    'link_logo': _ai['link_logo'],
+                    'link_type': _ai['link_type'],
                 }
         commitment_map: dict[str, dict] = {}
         if ticket_commitment_ids:
             for c in session_db.query(InvitationCommitment).filter(InvitationCommitment.id.in_(list(ticket_commitment_ids))).all():
                 _ai = _invitation_assignee_visual(session_db, c)
                 commitment_map[str(c.id)] = {
-                    'guest_name': _ai['name'] or (c.guest_name or c.name or ''),
+                    # Nombre = del COMPROMISO (no del destinatario); vínculo/foto del destinatario.
+                    'guest_name': (c.name or _ai['name'] or ''),
                     'photo': _ai['photo'],
                     'link': _ai['link'],
+                    'link_logo': _ai['link_logo'],
+                    'link_type': _ai['link_type'],
                 }
         tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
         tickets_by_category = {str(c.id): [] for c in categories}

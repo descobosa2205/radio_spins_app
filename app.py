@@ -27254,7 +27254,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -37300,6 +37300,14 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
                 guest_photo = getattr(_ar[0], "photo_url", "") or ""
     except Exception:
         guest_photo = ""
+    # Correo/teléfono ACTUALES (en vivo desde la entidad vinculada) para que el modal/lista y el envío
+    # usen siempre el último dato aunque se haya cambiado tras pedir las invitaciones.
+    try:
+        _cur_email = _invitation_guest_current_email(row._sa_instance_state.session, row)
+        _cur_phone = _invitation_guest_live_phone(row._sa_instance_state.session, row)
+    except Exception:
+        _cur_email = row.guest_email or ""
+        _cur_phone = row.guest_phone or ""
     return {
         "id": str(row.id),
         "guest_name": row.guest_name,
@@ -37308,8 +37316,8 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "guest_photo": guest_photo,  # foto/logo PROPIO (vacío si no tiene): la lista solo pinta avatar si hay
         "guest_company": row.guest_company or "",
         "guest_title": getattr(row, "guest_title", None) or row.guest_company or "",
-        "guest_email": row.guest_email or "",
-        "guest_phone": row.guest_phone or "",
+        "guest_email": _cur_email or "",
+        "guest_phone": _cur_phone or "",
         "requester_nick": row.requester_nick or row.requester_email or "—",
         "requester_photo_url": row.requester_photo_url or url_for("static", filename="img/placeholder_photo.png"),
         "receiver_mode": row.receiver_mode or "GUEST",
@@ -37745,18 +37753,214 @@ def _invitation_event_has_config(session_db, concert: Concert) -> bool:
     return False
 
 
-def _invitation_delivery_recipients(row: InvitationRequest) -> list[str]:
+def _invitation_guest_current_email(session_db, row) -> str:
+    """Correo ACTUAL del invitado resuelto EN VIVO desde la entidad vinculada (tercero/artista/
+    empleado). Si la entidad tiene correo, ese manda (último dato). Si no, cae al snapshot guardado.
+    Devuelve un único correo (el principal). Sirve para solicitudes y compromisos."""
+    gp = getattr(row, "guest_promoter_id", None)
+    ga = getattr(row, "guest_artist_id", None)
+    gu = getattr(row, "guest_user_id", None)
+    if gp:
+        pr = session_db.get(Promoter, gp)
+        if pr:
+            if (pr.contact_email or "").strip():
+                return pr.contact_email.strip()
+            try:
+                pe = session_db.query(PromoterEmail).filter(PromoterEmail.promoter_id == gp).order_by(PromoterEmail.created_at.asc()).first()
+                if pe and (pe.email or "").strip():
+                    return pe.email.strip()
+            except Exception:
+                pass
+    elif ga:
+        ar = session_db.get(Artist, ga)
+        if ar and (ar.email or "").strip():
+            return ar.email.strip()
+    elif gu:
+        u = session_db.get(User, gu)
+        if u and (u.email or "").strip():
+            return u.email.strip()
+    return (getattr(row, "guest_email", None) or "").strip()
+
+
+def _invitation_guest_live_emails(session_db, row) -> list[str]:
+    """Correo(s) del invitado para el envío: el actual (en vivo) como principal."""
+    e = _invitation_guest_current_email(session_db, row)
+    return [e] if e else []
+
+
+def _invitation_refresh_contact_snapshot(session_db, row) -> None:
+    """Actualiza el snapshot guardado (guest_email/guest_phone) al último dato de la entidad vinculada,
+    para que la lista, el modal y los próximos envíos reflejen SIEMPRE el dato actualizado. Solo escribe
+    cuando la entidad aporta un valor (no borra un dato escrito a mano si la entidad no tiene)."""
+    try:
+        email = _invitation_guest_current_email(session_db, row)
+        phone = _invitation_guest_live_phone(session_db, row)
+        if email and email != (getattr(row, "guest_email", None) or "").strip():
+            row.guest_email = email
+        if phone and phone != (getattr(row, "guest_phone", None) or "").strip():
+            row.guest_phone = phone
+    except Exception:
+        pass
+
+
+def _invitation_requester_live_emails(session_db, row) -> list[str]:
+    """Correo del peticionario (persona de la oficina) resuelto en vivo desde su usuario."""
+    values = []
+    uid = getattr(row, "requester_user_id", None)
+    if uid:
+        u = session_db.get(User, uid)
+        if u and (u.email or "").strip():
+            values.append(u.email.strip())
+    if (getattr(row, "requester_email", None) or "").strip():
+        values.append(row.requester_email.strip())
+    return values
+
+
+def _first_profile_mobile(profile) -> str:
+    """Primer móvil de un UserProfile (mobile_phones es una lista JSON)."""
+    try:
+        phones = _json_list(getattr(profile, "mobile_phones", None))
+    except Exception:
+        phones = []
+    for p in phones:
+        val = (str(p) if not isinstance(p, dict) else (p.get("number") or p.get("phone") or "")).strip()
+        if val:
+            return val
+    return ""
+
+
+def _invitation_guest_live_phone(session_db, row) -> str:
+    """Teléfono del invitado resuelto EN VIVO (tercero → contact_phone; empleado → móvil del perfil),
+    con el snapshot como respaldo. El artista no tiene teléfono propio."""
+    gp = getattr(row, "guest_promoter_id", None)
+    gu = getattr(row, "guest_user_id", None)
+    if gp:
+        pr = session_db.get(Promoter, gp)
+        if pr and (pr.contact_phone or "").strip():
+            return pr.contact_phone.strip()
+    if gu:
+        prof = session_db.get(UserProfile, gu)
+        mob = _first_profile_mobile(prof) if prof else ""
+        if mob:
+            return mob
+    return (getattr(row, "guest_phone", None) or "").strip()
+
+
+def _invitation_request_reply_to(session_db, row) -> str:
+    """Reply-To de una SOLICITUD: la persona de la oficina que hizo la petición (el peticionario),
+    NO quien gestiona/envía. Si se pidió en nombre de otra persona de la oficina, el peticionario ya
+    es esa otra persona (requester_user_id/requester_email)."""
+    for e in _invitation_requester_live_emails(session_db, row):
+        if e:
+            return e
+    return ""
+
+
+def _invitation_commitment_reply_to(session_db, row) -> str:
+    """Reply-To de un COMPROMISO: la persona de la oficina que lo registró (created_by)."""
+    uid = getattr(row, "created_by_user_id", None)
+    if uid:
+        u = session_db.get(User, uid)
+        if u and (u.email or "").strip():
+            return u.email.strip()
+    return ""
+
+
+def _normalize_phone_intl(raw: str | None, default_cc: str = "34") -> str:
+    """Normaliza un teléfono a solo dígitos en formato internacional (sin '+') para wa.me/sms.
+    Un número nacional español de 9 dígitos se antepone el prefijo del país."""
+    digits = re.sub(r"\D", "", raw or "")
+    if not digits:
+        return ""
+    if digits.startswith("00"):
+        digits = digits[2:]
+    if len(digits) == 9:  # nacional (móvil/fijo español)
+        digits = default_cc + digits
+    return digits
+
+
+def _invitation_share_text(session_db, concert, guest_name: str | None, link: str | None) -> str:
+    """Texto para compartir por WhatsApp/SMS: «Hola <nombre>, aquí tienes tus invitaciones para el
+    concierto de <datos>. Descárgalas: <enlace>». El enlace descarga las invitaciones en un único PDF
+    (directo, sin descomprimir)."""
+    ev = _invitation_event_payload(session_db, concert) if concert else {}
+    artist = (ev.get("artist_names") or "").strip()
+    date_label = (ev.get("date_label") or "").strip()
+    venue = (ev.get("venue") or ev.get("city") or "").strip()
+    parts = [artist] if artist else []
+    if date_label:
+        parts.append(f"({date_label})")
+    if venue:
+        parts.append(f"en {venue}")
+    evento = " ".join([p for p in parts if p]).strip() or "el concierto"
+    name = (guest_name or "").strip()
+    saludo = f"Hola {name}," if name else "Hola,"
+    if link:
+        return f"{saludo} aquí tienes tus invitaciones para el concierto de {evento}. Descárgalas: {link}"
+    return (f"{saludo} tus invitaciones para el concierto de {evento} estarán a tu nombre en el "
+            "acceso/taquilla.")
+
+
+def _invitation_tickets_to_merged_pdf(tickets) -> tuple[bytes | None, int]:
+    """Une los PDF de las entradas en UN SOLO PDF (todas sus páginas) para poder abrirlo y usarlo
+    directamente sin descomprimir un ZIP. Devuelve (bytes|None, nº de entradas incluidas). Si solo hay
+    una entrada o pypdf no está disponible, devuelve ese PDF tal cual."""
+    blobs = []
+    for t in tickets or []:
+        url = (getattr(t, "pdf_url", None) or "").strip()
+        if not url:
+            continue
+        content = None
+        for _attempt in range(3):
+            try:
+                content, _ct = _download_remote_content(url)
+                break
+            except Exception:
+                content = None
+        if content is None:
+            try:
+                app.logger.warning("Invitación PDF único: no se pudo bajar %s (%s)", getattr(t, "id", "?"), url)
+            except Exception:
+                pass
+            continue
+        blobs.append(content)
+    if not blobs:
+        return None, 0
+    if len(blobs) == 1 or not PYPDF_AVAILABLE or PdfWriter is None or PdfReader is None:
+        return blobs[0], len(blobs)
+    try:
+        writer = PdfWriter()
+        merged = 0
+        for b in blobs:
+            try:
+                reader = PdfReader(BytesIO(b))
+                for page in reader.pages:
+                    writer.add_page(page)
+                merged += 1
+            except Exception:
+                continue
+        if merged == 0:
+            return blobs[0], len(blobs)
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue(), len(blobs)
+    except Exception:
+        return blobs[0], len(blobs)
+
+
+def _invitation_delivery_recipients(session_db, row: InvitationRequest) -> list[str]:
     payload = _json_dict(row.receiver_payload)
     values = []
     mode = (row.receiver_mode or "GUEST").upper()
     if mode == "GUEST":
-        values.extend([row.guest_email])
+        values.extend(_invitation_guest_live_emails(session_db, row))
     elif mode == "ME":
-        values.extend([row.requester_email])
+        values.extend(_invitation_requester_live_emails(session_db, row))
     elif mode == "OTHER":
-        values.extend([payload.get("email")])
+        values.extend([payload.get("email"), row.guest_email])
     elif mode in {"BOX_OFFICE", "DOOR"}:
-        values.extend([row.guest_email, row.requester_email])
+        values.extend(_invitation_guest_live_emails(session_db, row))
+        values.extend(_invitation_requester_live_emails(session_db, row))
     return _dedupe_valid_email_addresses(values)
 
 
@@ -38023,18 +38227,21 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
     arts = event.get("artists") or []
     artist_photo = (arts[0].get("photo_url") or "").strip() if arts else ""
 
+    # Saludo: SOLO el nombre del invitado tras "Hola" (sin vínculos ni foto).
+    _gname = (guest_name or "").strip()
+    _hola = f"Hola {esc(_gname)}," if _gname else "Hola,"
     # Texto: el personalizado reemplaza al genérico.
     if custom_text and custom_text.strip():
         intro = "".join(f'<p style="margin:0 0 10px;text-align:justify">{esc(p)}</p>' for p in custom_text.strip().split("\n") if p.strip())
     else:
-        intro = ('<p style="margin:0 0 10px;text-align:justify">Hola, aquí tienes tus invitaciones.</p>'
+        intro = (f'<p style="margin:0 0 10px;text-align:justify">{_hola} aquí tienes tus invitaciones.</p>'
                  '<p style="margin:0 0 10px;text-align:justify">Esperamos que disfrutes.</p>'
                  '<p style="margin:0 0 10px;text-align:justify">Un saludo</p>')
 
     logo_html = f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:58px;max-width:200px" alt="Logo"></div>'
     meta_rows = [(k, v) for k, v in [("Evento", event_name), ("Ciudad", city), ("Recinto", venue), ("Fecha", date_label), ("Hora", show_time)] if v]
     meta_html = "".join(f'<div style="font-size:13px;color:#444"><b>{esc(k)}:</b> {esc(v)}</div>' for k, v in meta_rows)
-    photo_cell = (f'<td style="width:74px;vertical-align:top;padding-right:12px"><img src="{esc(artist_photo)}" width="60" height="60" style="width:60px;height:60px;border-radius:50%;object-fit:cover;border:1px solid #eee" alt=""></td>' if artist_photo else '')
+    photo_cell = ''  # Sin foto en el correo (solo saludo con el nombre + datos del evento).
     header_html = (
         '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;margin:8px 0 18px">'
         '<tr><td style="padding:14px 16px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'
@@ -38117,8 +38324,8 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
     # Solo ofrecemos el botón "Descargar todas" si REALMENTE hay PDFs que descargar. Si no, el enlace
     # daría error: en su lugar avisamos. (Las listas de invitados/taquilla ya se gestionan arriba.)
     if tickets:
-        download_html = f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar todas")}</div>'
-        plain = f"Hola, aquí tienes tus invitaciones para {subject}. Descargar todas: {top_zip}"
+        download_html = f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar invitaciones")}</div>'
+        plain = f"{_hola} aquí tienes tus invitaciones para {subject}. Descárgalas: {top_zip}"
     else:
         download_html = ('<p style="text-align:center;color:#555;margin:0 0 12px">Tus invitaciones se están '
                          'preparando. Si en un rato no puedes descargarlas, contacta con la organización.</p>')
@@ -38136,7 +38343,7 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
     only_gl = _invitation_request_uses_only_guest_list(session_db, row)
     if not row.delivery_token:
         row.delivery_token = _invitation_token()
-    zip_all = _external_url_for("invitation_request_download_zip", token=row.delivery_token)
+    zip_all = _external_url_for("invitation_request_download", token=row.delivery_token)  # PDF único (directo)
     tickets = [] if only_gl else (session_db.query(InvitationTicket)
                .filter(InvitationTicket.assigned_request_id == row.id)
                .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
@@ -38150,12 +38357,12 @@ def _invitation_commitment_email_body(session_db, commitment, custom_text: str |
     concert = commitment.concert or session_db.get(Concert, commitment.concert_id)
     if not commitment.delivery_token:
         commitment.delivery_token = _invitation_token()
-    zip_all = _external_url_for("invitation_commitment_download_zip", token=commitment.delivery_token)
+    zip_all = _external_url_for("invitation_commitment_download", token=commitment.delivery_token)  # PDF único (directo)
     q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == commitment.id)
     if category_id:
         q = q.filter(InvitationTicket.category_id == category_id)
     tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
-    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, guest_name=commitment.guest_name, category_filter_id=(str(category_id) if category_id else None))
+    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, guest_name=(commitment.guest_name or commitment.name), category_filter_id=(str(category_id) if category_id else None))
 
 
 
@@ -38673,7 +38880,7 @@ def invitation_event_detail(concert_id):
             # Destinatario (a quién se mandan): nombre + foto/logo para "Enviar a ...".
             _rcpt_name = row.guest_name or ""
             _rcpt_photo = ""
-            _rcpt_email = row.guest_email or ""
+            _rcpt_email = _invitation_guest_current_email(session_db, row)  # correo actual (en vivo)
             _rcpt_link_summary = {}
             if row.guest_promoter_id:
                 _gpr = session_db.get(Promoter, row.guest_promoter_id)
@@ -39367,16 +39574,45 @@ def invitation_commitment_deliver(commitment_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, row.concert)
         cid = row.concert_id
+        channel = (request.form.get('channel') or '').strip().lower()
         mode = (request.form.get('mode') or 'email').strip().lower()
+        wants_json = (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
         _cat_id = _safe_uuid(request.form.get('category_id'))  # opcional: entregar solo una categoría
         _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
         if _cat_id:
             _tq = _tq.filter(InvitationTicket.category_id == _cat_id)
         tickets = _tq.all()
         if not tickets:
-            flash('Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de entregarlas.', 'warning')
+            msg = 'Este compromiso aún no tiene entradas asignadas. Asígnaselas antes de entregarlas.'
+            if wants_json:
+                return jsonify({'ok': False, 'error': msg}), 400
+            flash(msg, 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
+        _invitation_refresh_contact_snapshot(session_db, row)  # usar el último email/teléfono
         now = _now_madrid()
+        row.delivery_token = row.delivery_token or _invitation_token()
+        if channel in ('whatsapp', 'sms'):
+            # WhatsApp/SMS: mensaje con enlace que descarga las invitaciones en un único PDF.
+            link = _external_url_for('invitation_commitment_download', token=row.delivery_token)
+            if _cat_id:
+                link = link + ('&' if '?' in link else '?') + 'category=' + str(_cat_id)
+            share = _invitation_share_text(session_db, row.concert or session_db.get(Concert, cid), (row.guest_name or row.name), link)
+            phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
+            if channel == 'whatsapp':
+                url = ('https://wa.me/' + phone + '?text=' + quote_plus(share)) if phone else ('https://wa.me/?text=' + quote_plus(share))
+            else:
+                url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(share))
+            for t in tickets:
+                t.status = 'SENT'
+                t.sent_at = now
+                t.updated_at = now
+            if not _cat_id:
+                row.status = 'ENVIADAS'
+                row.updated_at = now
+            session_db.commit()
+            if wants_json:
+                return jsonify({'ok': True, 'url': url, 'channel': channel})
+            return redirect(url)
         if mode in ('box_office', 'taquilla'):
             for t in tickets:
                 t.status = 'DISPONIBLES_TAQUILLA'
@@ -39386,26 +39622,30 @@ def invitation_commitment_deliver(commitment_id):
             return redirect(url_for('invitation_event_detail', concert_id=cid))
         recipients = _dedupe_valid_email_addresses(
             request.form.getlist('recipients') + request.form.getlist('extra_emails')
-            + [(request.form.get('email') or ''), (row.guest_email or '')])
+            + [(request.form.get('email') or '')] + _invitation_guest_live_emails(session_db, row))
         if not recipients:
             flash('Indica un email de destino o elige la recogida en taquilla.', 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
         custom_text = request.form.get('custom_text') or None
         subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, custom_text=custom_text, category_id=_cat_id)
-        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
+        reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
         if ok:
+            # Solo se marca como enviado cuando el correo se ha enviado de verdad.
             for t in tickets:
                 t.status = 'SENT'
                 t.sent_at = now
                 t.updated_at = now
             session_db.commit()
-            flash(f'Invitaciones de «{row.name}» enviadas por email.', 'success')
+            flash(f'Invitaciones de «{row.name}» enviadas por email a: ' + (', '.join(recipients) if recipients else '—') + '.', 'success')
         else:
             session_db.rollback()
-            flash(f'No se pudo enviar el email: {err or "SMTP no configurado"}', 'warning')
+            flash(f'No se pudo enviar el email (no se marca como enviada): {err or "SMTP no configurado"}', 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
     except Exception as exc:
         session_db.rollback()
+        if (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest'):
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudo entregar: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
@@ -39995,27 +40235,25 @@ def invitation_request_send(request_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, row.concert)
         channel = (request.form.get('channel') or 'email').strip().lower()
+        wants_json = (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
         categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
         flags = _invitation_request_kind_flags(session_db, row, categories)
         if not flags.get('can_send'):
             raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
-        download_url = _invitation_request_download_url(row)
-        subject, html_body, text_body = _invitation_email_body(session_db, row, download_url, custom_text=(request.form.get('custom_text') or None))
+        _invitation_refresh_contact_snapshot(session_db, row)  # usar el último email/teléfono
         row.delivery_token = row.delivery_token or _invitation_token()
-        if channel == 'email':
-            recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + request.form.getlist('extra_emails') + _invitation_delivery_recipients(row))
-            ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
-            if ok:
-                row.status = 'ENVIADAS'
-                row.sent_at = _now_madrid()
-                for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                    ticket.status = 'SENT'
-                    ticket.sent_at = row.sent_at
-                    ticket.updated_at = row.sent_at
-                flash('Invitaciones enviadas por email.', 'success')
+        if channel in ('whatsapp', 'sms'):
+            # WhatsApp/SMS NO adjuntan archivos: el mensaje lleva el enlace que descarga las
+            # invitaciones en un único PDF (directo, sin descomprimir). Se abre en el cliente.
+            has_pdfs = not flags.get('uses_guest_list')
+            link = _external_url_for('invitation_request_download', token=row.delivery_token) if has_pdfs else ''
+            msg = _invitation_share_text(session_db, row.concert or session_db.get(Concert, row.concert_id), row.guest_name, link)
+            phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
+            if channel == 'whatsapp':
+                url = ('https://wa.me/' + phone + '?text=' + quote_plus(msg)) if phone else ('https://wa.me/?text=' + quote_plus(msg))
             else:
-                flash(f'No se pudo enviar el email: {err or "SMTP no configurado"}', 'warning')
-        else:
+                url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(msg))
+            # Marcar como enviadas (no hay confirmación de entrega posible en WhatsApp/SMS).
             row.status = 'ENVIADAS'
             row.sent_at = _now_madrid()
             for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
@@ -40023,16 +40261,33 @@ def invitation_request_send(request_id):
                 ticket.sent_at = row.sent_at
                 ticket.updated_at = row.sent_at
             session_db.commit()
-            msg = text_body.replace('\n', ' ')
-            if channel == 'whatsapp':
-                return redirect('https://wa.me/?text=' + quote_plus(msg))
-            if channel == 'sms':
-                return redirect('sms:?&body=' + quote_plus(msg))
-            flash('Enlace listo para copiar.', 'success')
-        session_db.commit()
+            if wants_json:
+                return jsonify({'ok': True, 'url': url, 'channel': channel})
+            return redirect(url)
+        # Email
+        subject, html_body, text_body = _invitation_email_body(session_db, row, None, custom_text=(request.form.get('custom_text') or None))
+        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + request.form.getlist('extra_emails') + _invitation_delivery_recipients(session_db, row))
+        # Reply-To: el peticionario de la oficina (no quien gestiona el envío).
+        reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+        if ok:
+            # Solo se marca como ENVIADA cuando el correo se ha enviado de verdad.
+            row.status = 'ENVIADAS'
+            row.sent_at = _now_madrid()
+            for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+                ticket.status = 'SENT'
+                ticket.sent_at = row.sent_at
+                ticket.updated_at = row.sent_at
+            session_db.commit()
+            flash('Invitaciones enviadas por email a: ' + (', '.join(recipients) if recipients else '—') + '.', 'success')
+        else:
+            session_db.rollback()
+            flash(f'No se pudo enviar el email (no se marca como enviada): {err or "SMTP no configurado"}', 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
     except Exception as exc:
         session_db.rollback()
+        if (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest'):
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudo enviar: {exc}', 'danger')
         return redirect(url_for('invitations_view', tab='gestionar'))
     finally:
@@ -40101,13 +40356,16 @@ def invitation_event_send_all(concert_id):
             if not flags.get('can_send'):
                 continue
             row.delivery_token = row.delivery_token or _invitation_token()
-            download_url = _invitation_request_download_url(row)
-            subject, html_body, text_body = _invitation_email_body(session_db, row, download_url)
-            recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(row))
+            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
+            recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
             if not recipients:
                 no_email += 1
                 continue
-            ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
+            reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+            try:
+                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+            except Exception:
+                ok = False
             if ok:
                 row.status = 'ENVIADAS'
                 row.sent_at = _now_madrid()
@@ -40115,8 +40373,15 @@ def invitation_event_send_all(concert_id):
                     ticket.status = 'SENT'
                     ticket.sent_at = row.sent_at
                     ticket.updated_at = row.sent_at
-                sent += 1
+                # Commit por fila: un fallo posterior no revierte las que ya se enviaron de verdad.
+                try:
+                    session_db.commit()
+                    sent += 1
+                except Exception:
+                    session_db.rollback()
+                    failed += 1
             else:
+                session_db.rollback()
                 failed += 1
         session_db.commit()
         parts = []
@@ -40145,16 +40410,52 @@ def invitation_event_send_all(concert_id):
 
 @app.get('/invitaciones/descarga/<token>.pdf', endpoint='invitation_request_download')
 def invitation_request_download(token):
+    """Descarga las invitaciones REALES de una solicitud en un ÚNICO PDF (todas las entradas, cada una
+    con sus páginas), listo para usarse directamente sin descomprimir. Público por token."""
     session_db = db()
     try:
         row = session_db.query(InvitationRequest).filter(InvitationRequest.delivery_token == token).first()
         if not row or (row.status or '') in {'RECHAZADAS', 'ANULADAS'}:
-            abort(404)
+            return _invitation_download_unavailable()
+        cat_id = _safe_uuid(request.args.get('category'))
+        q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
+        if cat_id:
+            q = q.filter(InvitationTicket.category_id == cat_id)
+        tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        if not tickets:
+            return _invitation_download_unavailable()
+        data, added = _invitation_tickets_to_merged_pdf(tickets)
+        if not data or added == 0:
+            return _invitation_download_unavailable("retry")
         row.downloaded_at = row.downloaded_at or _now_madrid()
         row.downloaded_count = _safe_int(row.downloaded_count) + 1
         session_db.commit()
-        data = _build_invitation_request_pdf(session_db, row)
-        return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name=f'invitaciones_{row.guest_name or "invitado"}.pdf')
+        return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.guest_name or "invitado"}.pdf')
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/compromisos/descarga/<token>.pdf', endpoint='invitation_commitment_download')
+def invitation_commitment_download(token):
+    """Descarga las invitaciones REALES de un compromiso en un ÚNICO PDF (opcionalmente solo una
+    categoría con ?category=<id>). Público por token."""
+    session_db = db()
+    try:
+        row = session_db.query(InvitationCommitment).filter(InvitationCommitment.delivery_token == token).first()
+        if not row:
+            return _invitation_download_unavailable()
+        cat_id = _safe_uuid(request.args.get('category'))
+        q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+        if cat_id:
+            q = q.filter(InvitationTicket.category_id == cat_id)
+        tickets = q.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        if not tickets:
+            return _invitation_download_unavailable()
+        data, added = _invitation_tickets_to_merged_pdf(tickets)
+        if not data or added == 0:
+            return _invitation_download_unavailable("retry")
+        session_db.commit()
+        return send_file(BytesIO(data), mimetype='application/pdf', as_attachment=True, download_name=f'invitaciones_{row.name or "compromiso"}.pdf')
     finally:
         session_db.close()
 

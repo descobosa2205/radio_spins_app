@@ -409,7 +409,9 @@
                               <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                                 {% if cs.assigned < cs.qty %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar</button></li>{% endif %}
                                 {% if cs.assigned > 0 %}
-                                <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar</button></li>
+                                <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar por email</button></li>
+                                <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp" data-inv-share-category="{{ cs.id }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+                                <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms" data-inv-share-category="{{ cs.id }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                                 <li><form method="post" action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>
                                 <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
                                 {% endif %}
@@ -430,7 +432,9 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis me-1"></i>Compromiso</button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar todo</button></li>
-                        <li><button class="dropdown-item" type="button" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar todo el compromiso</button></li>
+                        <li><button class="dropdown-item" type="button" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar todo por email</button></li>
+                        <li><button class="dropdown-item" type="button" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar todo por WhatsApp</button></li>
+                        <li><button class="dropdown-item" type="button" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar todo por SMS</button></li>
                         <li><form method="post" action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar todo como enviadas</button></form></li>
                         <li><hr class="dropdown-divider"></li>
                         <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
@@ -502,8 +506,8 @@
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
                           <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}">Enviar por email</button></li>
-                          <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="channel" value="whatsapp"><button class="dropdown-item">Enviar por WhatsApp</button></form></li>
-                          <li><form method="post" action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="channel" value="sms"><button class="dropdown-item">Enviar por SMS</button></form></li>
+                          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+                          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                         {% endif %}
                         {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
                         <li><hr class="dropdown-divider"></li>
@@ -2316,6 +2320,35 @@
     custom.addEventListener('input', function(){ if(pvTimer) clearTimeout(pvTimer); pvTimer = setTimeout(loadPreview, 600); });
     document.getElementById('invSendBoxOffice').addEventListener('click', function(){ document.getElementById('invSendMode').value = 'box_office'; });
     document.getElementById('invSendEmail').addEventListener('click', function(){ document.getElementById('invSendMode').value = 'email'; });
+  })();
+
+  // Envío por WhatsApp / SMS: el servidor prepara el enlace (con el teléfono actualizado del
+  // destinatario y el enlace de descarga en un único PDF), marca como enviado y devuelve la URL;
+  // aquí se abre la app de WhatsApp/SMS. No se pueden adjuntar archivos por WhatsApp/SMS: va el enlace.
+  (function(){
+    document.addEventListener('click', function(ev){
+      var btn = ev.target.closest('[data-inv-share]');
+      if(!btn) return;
+      ev.preventDefault();
+      var action = btn.getAttribute('data-inv-share-action') || '';
+      var channel = btn.getAttribute('data-inv-share-channel') || 'whatsapp';
+      var category = btn.getAttribute('data-inv-share-category') || '';
+      if(!action || btn.hasAttribute('disabled')) return;
+      btn.setAttribute('disabled', 'disabled');
+      var body = new FormData();
+      body.append('channel', channel);
+      body.append('as_json', '1');
+      if(category) body.append('category_id', category);
+      fetch(action, { method:'POST', body: body, headers: { 'X-Requested-With':'XMLHttpRequest' } })
+        .then(function(r){ return r.json().catch(function(){ return { ok:false, error:'Respuesta no válida del servidor.' }; }); })
+        .then(function(data){
+          btn.removeAttribute('disabled');
+          if(!data || !data.ok || !data.url){ alert((data && data.error) || 'No se pudo preparar el envío.'); return; }
+          if(channel === 'whatsapp'){ window.open(data.url, '_blank'); setTimeout(function(){ location.reload(); }, 1500); }
+          else { window.location.href = data.url; }
+        })
+        .catch(function(){ btn.removeAttribute('disabled'); alert('No se pudo preparar el envío.'); });
+    });
   })();
 </script>
 

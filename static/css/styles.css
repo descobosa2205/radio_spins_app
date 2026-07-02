@@ -1475,3 +1475,39 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .inv-status-pill{ display:inline-flex; align-items:center; justify-content:center; min-width:116px; text-align:center; }
 /* Contador de cada categoría comprometida: ancho fijo para que las filas queden alineadas. */
 .inv-cmt-count{ min-width:52px; text-align:center; flex:0 0 auto; }
+
+/* ==========================================================================
+   Red de seguridad RESPONSIVE (móvil): que el contenido no se salga de sus
+   recuadros ni se corte. Muchos usuarios usan la app desde el móvil.
+   ========================================================================== */
+img, svg, video, canvas { max-width: 100%; }
+img[style*="width:"] { height: auto; }
+
+@media (max-width: 767.98px) {
+  /* Márgenes del contenido más ajustados para ganar ancho útil. */
+  main.container, main.container-fluid { padding-left: .8rem; padding-right: .8rem; }
+  .card-body { padding: .85rem; }
+  .modal-body { padding: .9rem; }
+
+  /* Cortar palabras/URLs/tokens largos para que no empujen el ancho de su caja.
+     (No se aplica a celdas de tabla: ahí preferimos el scroll horizontal.) */
+  .card-body, .list-group-item, .modal-body, .alert, p, dd, .small, .text-muted,
+  .badge, .dropdown-item, .form-text { overflow-wrap: anywhere; }
+
+  /* Botones y grupos que no quepan que bajen de línea en vez de desbordar. */
+  .btn-group, .d-flex.flex-nowrap { flex-wrap: wrap !important; }
+
+  /* Píldoras de estado: reducir el ancho mínimo en pantallas estrechas. */
+  .inv-status-pill { min-width: 96px; }
+
+  /* Imágenes con ancho fijo en línea: que no superen su contenedor. */
+  img[style*="width:"] { max-width: 100%; }
+}
+
+@media (max-width: 420px) {
+  .inv-status-pill { min-width: 78px; font-size: .72rem; }
+  .inv-cmt-count { min-width: 42px; }
+}
+
+/* Al imprimir, el envoltorio responsive no debe recortar la tabla. */
+@media print { .table-responsive { overflow: visible !important; } }

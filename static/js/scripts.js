@@ -1812,3 +1812,30 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     }
   });
 })();
+
+/* Responsive · envuelve automáticamente cualquier <table> que no tenga ya un contenedor con scroll
+   horizontal, para que en móvil las tablas anchas hagan scroll dentro de su caja en vez de
+   desbordar la pantalla. Global (scripts.js se carga en todas las páginas). */
+(function () {
+  'use strict';
+  function wrapTables(root) {
+    var tables = (root || document).querySelectorAll('table');
+    for (var i = 0; i < tables.length; i++) {
+      var t = tables[i];
+      // Ya está en un contenedor con scroll o marcada para no envolver.
+      if (t.closest('.table-responsive') || t.closest('[data-no-table-wrap]') || t.__wrapped) continue;
+      t.__wrapped = true;
+      var w = document.createElement('div');
+      w.className = 'table-responsive';
+      t.parentNode.insertBefore(w, t);
+      w.appendChild(t);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { wrapTables(document); });
+  } else {
+    wrapTables(document);
+  }
+  // Tablas insertadas dinámicamente (p. ej. dentro de modales cargados por AJAX).
+  document.addEventListener('shown.bs.modal', function (e) { wrapTables(e.target); });
+})();

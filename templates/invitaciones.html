@@ -494,7 +494,7 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-edit-request-full data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                        {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item">Aprobar</button></form></li>{% endif %}
+                        {% if row.status == 'SOLICITADAS' %}<li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Aprobar</button></form></li>{% endif %}
                         {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
                         {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-source-name="{{ row.guest_name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
@@ -505,7 +505,7 @@
                         {% endif %}
                         {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
                         <li><hr class="dropdown-divider"></li>
-                        <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="action" value="REJECT"><button class="dropdown-item text-warning">Rechazar</button></form></li>
+                        <li><form method="post" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="REJECT"><button class="dropdown-item text-warning"><i class="fa fa-ban fa-fw me-1"></i>Rechazar</button></form></li>
                         <li><button type="button" class="dropdown-item text-danger" data-delete-request
                               data-action="{{ url_for('invitation_request_delete', request_id=row.id) }}"
                               data-name="{{ row.guest_name|e }}"

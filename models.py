@@ -2086,6 +2086,7 @@ class InvitationCategory(Base):
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     requests_blocked = Column(Boolean, nullable=False, server_default=text("false"))
     zone = Column(Text)  # PISTA / GRADA / PALCO (si vacío se infiere del nombre)
+    stairs_spec = Column(Text)  # Escaleras del plano (opcional): butacas entre las que hay escalera, p. ej. "17-19, 27-29"
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5521,6 +5522,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_blocked boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS zone text;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS stairs_spec text;",
         "CREATE INDEX IF NOT EXISTS idx_invitation_categories_concert ON invitation_categories(concert_id, is_active, sort_order);",
         """
         CREATE TABLE IF NOT EXISTS invitation_commitments (

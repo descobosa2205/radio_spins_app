@@ -877,6 +877,9 @@ img[data-default-photo="1"]{
 .invitation-seat { cursor: pointer; }
 .invitation-seat--missing { color: #9aa3af; background: #eef0f3; border-style: dashed; }
 .invitation-seat-gap { display: inline-flex; align-items: center; justify-content: center; min-width: 74px; padding: .35rem .55rem; border-radius: .65rem; color: #9aa3af; font-size: .78rem; background: transparent; }
+/* Separador de «escalera» en el plano de butacas (p. ej. Cádiz Music Stadium, entre la 17 y la 19). */
+.invitation-stair { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; align-self: stretch; gap: 2px; margin: 0 .2rem; padding: .15rem .45rem; line-height: 1; color: #55606b; font-size: .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border-left: 2px dashed var(--brand-accent); border-right: 2px dashed var(--brand-accent); background: rgba(0,124,162,.06); border-radius: .35rem; }
+.invitation-stair i { font-size: 1rem; color: var(--brand-accent); }
 .invitation-seat.is-selected { outline: 3px solid rgba(232,59,75,.22); transform: translateY(-1px); }
 .assignment-source-list { display: flex; flex-direction: column; gap: .6rem; max-height: 60vh; overflow: auto; }
 .assignment-source { border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }

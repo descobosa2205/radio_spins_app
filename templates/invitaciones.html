@@ -633,6 +633,8 @@
                                   <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
                                 {% elif cell.type == 'missing' %}
                                   <span class="invitation-seat invitation-seat--missing"><span><s>{{ cell.seat }}</s></span></span>
+                                {% elif cell.type == 'stair' %}
+                                  <span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
                                 {% else %}
                                   <span class="invitation-seat-gap">{{ cell.count }} huecos</span>
                                 {% endif %}
@@ -881,7 +883,7 @@
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
                           {% endfor %}
                           </div></div>
                         {% endfor %}</div>

@@ -36856,7 +36856,22 @@ def _invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_ma
     }
 
 
-def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
+def _invitation_stair_after_for_category(concert, category_name: str | None) -> int | None:
+    """Nº de butaca TRAS la cual pintar el separador de «escalera» en el plano, solo para el recinto
+    Cádiz Music Stadium: en «Palco de Honor» entre la 17 y la 19; en «Grada de Invitados» entre la
+    27 y la 29. Devuelve None (sin separador) para el resto de recintos/categorías."""
+    nv = _invitation_normalize_search(_concert_venue_name(concert))
+    if not ("cadiz" in nv and "stadium" in nv):
+        return None
+    nc = _invitation_normalize_search(category_name)
+    if "palco" in nc and "honor" in nc:
+        return 17
+    if "grada" in nc and "invitados" in nc:
+        return 27
+    return None
+
+
+def _invitation_ticket_groups(ticket_payloads: list[dict], stair_after: int | None = None) -> list[dict]:
     grouped: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for item in ticket_payloads:
         grouped[item.get("sector") or "General"][item.get("row_label") or "Sin fila"].append(item)
@@ -36885,6 +36900,7 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
             step = 2 if (len(numbered) >= 2 and len({n % 2 for n, _ in numbered}) == 1 and (numbered[-1][0] - numbered[0][0]) >= 2) else 1
             visual = []
             last_num = None
+            stair_inserted = False
             for num, seat in numbered:
                 if last_num is not None:
                     diff = num - last_num
@@ -36896,6 +36912,11 @@ def _invitation_ticket_groups(ticket_payloads: list[dict]) -> list[dict]:
                         while m < num:
                             visual.append({"type": "missing", "seat": m})
                             m += step
+                # Separador de «escalera»: al cruzar de una butaca <= stair_after a la siguiente
+                # > stair_after (p. ej. entre la 17 y la 19). Rompe el bloque de invitado (si lo hay).
+                if stair_after is not None and not stair_inserted and last_num is not None and last_num <= stair_after < num:
+                    visual.append({"type": "stair", "label": "Escalera"})
+                    stair_inserted = True
                 visual.append({"type": "seat", "seat": seat})
                 last_num = num
             for seat in non_numbered:
@@ -39098,8 +39119,9 @@ def invitation_event_detail(concert_id):
         for item in tickets:
             tickets_by_category.setdefault(str(item['category_id']), []).append(item)
         uncategorized_tickets = tickets_by_category.get('None', [])
+        _cat_name_by_id = {str(c.id): (c.name or "") for c in categories}
         ticket_groups_by_category = {
-            cid: _invitation_ticket_groups(rows)
+            cid: _invitation_ticket_groups(rows, stair_after=_invitation_stair_after_for_category(concert, _cat_name_by_id.get(cid)))
             for cid, rows in tickets_by_category.items()
         }
         availability_by_category = {

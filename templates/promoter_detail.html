@@ -196,6 +196,9 @@
         </div>
       </div>
     {% endmacro %}
+    <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+      <a class="btn btn-danger btn-sm" href="{{ url_for('invitations_view', tab='pedir', for_promoter=promoter.id) }}"><i class="fa fa-plus me-1"></i>Pedir invitaciones para este tercero</a>
+    </div>
     <div class="d-flex align-items-center gap-2 mb-3"><h5 class="mb-0">Invitaciones en vigor</h5>{% set _na = (promoter_invitations_active|length) + (promoter_commitments_active|length) %}{% if _na %}<span class="badge text-bg-success">{{ _na }}</span>{% endif %}</div>
     {% if promoter_invitations_active or promoter_commitments_active %}
       <div class="list-group mb-4">

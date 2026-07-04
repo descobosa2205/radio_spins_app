@@ -38617,6 +38617,24 @@ def invitations_view():
         artists = _invitation_artist_options(session_db)
         event_artists = _invitation_event_artist_options(session_db)
         personnel = _invitation_personnel_options(session_db)
+        # Prefill del asistente "Pedir invitaciones" al llegar desde la ficha de un tercero
+        # (?for_promoter=<id>): preselecciona a ese tercero como invitado (THIRD_PARTY). El JS de
+        # la plantilla abre el asistente y rellena el buscador de terceros con estos datos.
+        prefill_guest = None
+        for_promoter_id = _safe_uuid(request.args.get('for_promoter'))
+        if for_promoter_id:
+            _pr = session_db.get(Promoter, for_promoter_id)
+            if _pr:
+                _ls = _promoter_link_summary(session_db, _pr)
+                prefill_guest = {
+                    'id': str(_pr.id),
+                    'label': _promoter_display_name(_pr) or _pr.nick or 'Tercero',
+                    'contact_email': (_pr.contact_email or '').strip(),
+                    'contact_phone': (_pr.contact_phone or '').strip(),
+                    'logo_url': _pr.logo_url or '',
+                    'link_summary': _ls,
+                    'link_summary_text': _promoter_link_summary_text(_ls),
+                }
         query_start = _invitation_event_query_start_date()
         query = (
             session_db.query(Concert)
@@ -38771,6 +38789,8 @@ def invitations_view():
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             status_labels=INVITATION_STATUS_LABELS,
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
+            prefill_guest=prefill_guest,
         )
     finally:
         session_db.close()
@@ -39185,6 +39205,7 @@ def invitation_event_detail(concert_id):
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             status_labels=INVITATION_STATUS_LABELS,
+            entity_link_types=APP33_ENTITY_LINK_TYPES,
         )
     finally:
         session_db.close()

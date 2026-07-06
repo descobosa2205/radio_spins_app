@@ -301,6 +301,27 @@ def _handle_csrf_error(e):
     return redirect(url_for("home"))
 
 
+@app.errorhandler(Exception)
+def _handle_unexpected_error(e):
+    """Herramienta interna: si un usuario logueado topa con un error no controlado, mostramos el
+    traceback en pantalla para poder diagnosticar sin acceso a los logs de Render. Los errores HTTP
+    normales (404, 403, CSRF…) se dejan pasar tal cual."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    import traceback as _tb
+    detail = _tb.format_exc()
+    try:
+        app.logger.error("Unhandled exception:\n%s", detail)
+    except Exception:
+        pass
+    if session.get("user_id"):
+        return ("<h3>Error interno</h3><p>Detalle visible por estar identificado (temporal):</p>"
+                "<pre style='white-space:pre-wrap;font-size:12px;background:#f6f8fa;padding:1rem;border-radius:8px'>"
+                + str(escape(detail[-6000:])) + "</pre>"), 500
+    return "Error interno del servidor.", 500
+
+
 # Países en español para emisoras/medios. Usa la traducción ISO incluida en pycountry
 # si está disponible y conserva un fallback estable para despliegues sin locales.
 _COUNTRY_OPTIONS_CACHE = None
@@ -40346,36 +40367,44 @@ def invitation_event_detail(concert_id):
             'cancelled': ('Anulado', 'danger'),
         }
         for link in session_db.query(InvitationPublicLink).filter(InvitationPublicLink.concert_id == concert.id).order_by(InvitationPublicLink.created_at.desc()).all():
-            state, msg = _invitation_link_state(link)
-            limits = _invitation_public_limits(link, categories, [])
-            url = _invitation_public_link_url(link)
-            target_promoter = link.target_promoter
-            target_link_summary = _promoter_link_summary(session_db, target_promoter) if target_promoter else {}
-            share_msg = f"Solicita tus invitaciones aquí:\n{url}"
-            state_label, state_badge = _state_meta.get(state, ('—', 'secondary'))
-            links.append({
-                "id": str(link.id),
-                "token": link.token,
-                "url": url,
-                "target_name": link.target_name or (target_promoter.nick if target_promoter else '') or '—',
-                "target_email": link.target_email or '',
-                "target_photo_url": (getattr(target_promoter, 'logo_url', None) or '') if target_promoter else '',
-                "target_promoter_id": str(link.target_promoter_id) if link.target_promoter_id else '',
-                "target_link_summary": target_link_summary,
-                "target_link_summary_text": _promoter_link_summary_text(target_link_summary) if target_link_summary else '',
-                "requested_by": link.requested_by_nick or link.requested_by_email or '—',
-                "requested_by_photo_url": link.requested_by_photo_url or url_for('static', filename='img/placeholder_photo.png'),
-                "deadline_label": _invitation_display_datetime(link.deadline_at),
-                "locked": bool(getattr(link, 'locked', False)),
-                "state": state,
-                "state_label": state_label,
-                "state_badge": state_badge,
-                "limit_summary": _invitation_limits_summary(link, categories),
-                "whatsapp_url": 'https://wa.me/?text=' + quote_plus(share_msg),
-                "sms_url": 'sms:?&body=' + quote_plus(share_msg),
-                "message": msg,
-                "limits": limits,
-            })
+            # Blindaje por enlace: un enlace con datos inesperados no debe tumbar toda la ficha.
+            try:
+                state, msg = _invitation_link_state(link)
+                limits = _invitation_public_limits(link, categories, [])
+                url = _invitation_public_link_url(link)
+                target_promoter = link.target_promoter
+                target_link_summary = _promoter_link_summary(session_db, target_promoter) if target_promoter else {}
+                share_msg = f"Solicita tus invitaciones aquí:\n{url}"
+                state_label, state_badge = _state_meta.get(state, ('—', 'secondary'))
+                links.append({
+                    "id": str(link.id),
+                    "token": link.token,
+                    "url": url,
+                    "target_name": link.target_name or (target_promoter.nick if target_promoter else '') or '—',
+                    "target_email": link.target_email or '',
+                    "target_photo_url": (getattr(target_promoter, 'logo_url', None) or '') if target_promoter else '',
+                    "target_promoter_id": str(link.target_promoter_id) if link.target_promoter_id else '',
+                    "target_link_summary": target_link_summary,
+                    "target_link_summary_text": _promoter_link_summary_text(target_link_summary) if target_link_summary else '',
+                    "requested_by": link.requested_by_nick or link.requested_by_email or '—',
+                    "requested_by_photo_url": link.requested_by_photo_url or url_for('static', filename='img/placeholder_photo.png'),
+                    "deadline_label": _invitation_display_datetime(link.deadline_at),
+                    "locked": bool(getattr(link, 'locked', False)),
+                    "state": state,
+                    "state_label": state_label,
+                    "state_badge": state_badge,
+                    "limit_summary": _invitation_limits_summary(link, categories),
+                    "whatsapp_url": 'https://wa.me/?text=' + quote_plus(share_msg),
+                    "sms_url": 'sms:?&body=' + quote_plus(share_msg),
+                    "message": msg,
+                    "limits": limits,
+                })
+            except Exception as _linkexc:
+                try:
+                    app.logger.exception('invitation link card build failed')
+                except Exception:
+                    pass
+                flash('No se pudo cargar un enlace generado (' + type(_linkexc).__name__ + ': ' + str(_linkexc)[:180] + ').', 'warning')
         ticket_rows = (
             session_db.query(InvitationTicket)
             .filter(InvitationTicket.concert_id == concert.id)

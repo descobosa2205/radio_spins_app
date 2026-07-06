@@ -39401,6 +39401,32 @@ def _invitation_promoter_payload(promoter: Promoter | None) -> dict:
     }
 
 
+_INV_LINK_COLS_READY = False
+
+
+def _ensure_invitation_link_columns(session_db) -> None:
+    """Auto-repara las columnas del enlace público (locked/show_only_available/limit_to_available)
+    si la migración de arranque no se aplicó en este proceso. Evita 500 por 'column does not exist'.
+    El ALTER es idempotente y persiste, así que basta con que lo ejecute la primera petición."""
+    global _INV_LINK_COLS_READY
+    if _INV_LINK_COLS_READY:
+        return
+    try:
+        session_db.execute(text(
+            "ALTER TABLE IF EXISTS invitation_public_links "
+            "ADD COLUMN IF NOT EXISTS locked boolean NOT NULL DEFAULT false, "
+            "ADD COLUMN IF NOT EXISTS show_only_available boolean NOT NULL DEFAULT false, "
+            "ADD COLUMN IF NOT EXISTS limit_to_available boolean NOT NULL DEFAULT false"
+        ))
+        session_db.commit()
+        _INV_LINK_COLS_READY = True
+    except Exception:
+        try:
+            session_db.rollback()
+        except Exception:
+            pass
+
+
 def _invitation_public_link_url(link: InvitationPublicLink) -> str:
     return _external_url_for("public_invitation_request_link", token=link.token)
 
@@ -40172,6 +40198,7 @@ def invitation_event_detail(concert_id):
         if not concert:
             abort(404)
         _ensure_can_manage_invitations(session_db, concert)
+        _ensure_invitation_link_columns(session_db)
         if not _invitation_event_is_active_for_requests(concert):
             flash('Este concierto o evento ya no aparece en gestión de invitaciones porque han pasado más de 5 horas desde el día del evento.', 'warning')
             return redirect(url_for('invitations_view', tab='gestionar'))
@@ -40770,6 +40797,7 @@ def invitation_public_link_create():
         if not concert:
             abort(404)
         _ensure_can_manage_invitations(session_db, concert)
+        _ensure_invitation_link_columns(session_db)
         if not _invitation_event_is_active_for_requests(concert):
             raise ValueError('Este concierto o evento ya no admite enlaces de peticiones de invitaciones.')
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
@@ -42824,6 +42852,7 @@ def public_invitation_guest_list_status(token, request_id):
 def public_invitation_request_link(token):
     session_db = db()
     try:
+        _ensure_invitation_link_columns(session_db)
         link = session_db.query(InvitationPublicLink).filter(InvitationPublicLink.token == token).first()
         if not link:
             abort(404)

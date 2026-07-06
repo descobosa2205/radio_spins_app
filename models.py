@@ -299,6 +299,8 @@ class Song(Base):
     work_declaration_uploaded_at = Column(DateTime(timezone=True))
     lyrics_text = Column(Text)
     lyrics_updated_at = Column(DateTime(timezone=True))
+    # Contenido explícito (se marca al subir la letra); muestra etiqueta "Explícita".
+    is_explicit = Column(Boolean, nullable=False, server_default=text("false"))
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -3928,6 +3930,8 @@ def ensure_isrc_and_song_detail_schema():
             END IF;
         END$$;
         """,
+        # Contenido explícito de la canción (se marca al subir la letra).
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_explicit boolean NOT NULL DEFAULT false;",
 
         # Materiales de canción
         """

@@ -8,7 +8,7 @@
   <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
-    <h1 class="ficha-hero__title">{{ song.title }}</h1>
+    <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_explicit %} <span class="badge text-bg-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Contenido explícito">EXPLÍCITA</span>{% endif %}</h1>
     <div class="ficha-hero__facts">
       <span>{% if primary_artist %}{{ artist_avatar(primary_artist.photo_url, primary_artist.name, artist_id=primary_artist.id) }}<span data-artist-link="{{ primary_artist.id }}">{{ primary_artist.name }}</span>{{ linked_mini('artist', primary_artist.id) }}{% else %}<i class="fa fa-user"></i>—{% endif %}</span>
       {% set song_collaborators = song.display_collaborator or song.collaborator %}
@@ -2256,6 +2256,10 @@
             <div class="modal-body">
               <label class="form-label">Letra</label>
               <textarea class="form-control" name="lyrics_text" rows="14" placeholder="Pega aquí la letra de la canción...">{{ song.lyrics_text or '' }}</textarea>
+              <div class="form-check mt-3">
+                <input class="form-check-input" type="checkbox" value="1" id="songExplicitChk" name="is_explicit" {% if song.is_explicit %}checked{% endif %}>
+                <label class="form-check-label" for="songExplicitChk"><span class="badge text-bg-dark me-1">E</span>Contenido explícito</label>
+              </div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>

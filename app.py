@@ -14242,6 +14242,7 @@ def discografica_song_lyrics_save(song_id):
 
         song.lyrics_text = lyrics_text
         song.lyrics_updated_at = datetime.now(TZ_MADRID)
+        song.is_explicit = bool(request.form.get("is_explicit"))
         session_db.add(song)
         _mark_song_sgae_pending_from_editorial_change(session_db, song.id)
         session_db.commit()

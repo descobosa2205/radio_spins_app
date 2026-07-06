@@ -39,7 +39,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
   <li class="nav-item"><a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='marketing') }}">Marketing</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha promotor</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='fotos') }}">Fotos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='fotos') }}">Fotos / Vídeos</a></li>
 </ul>
 
 <div class="ficha-tabpane">

@@ -32,7 +32,7 @@
   {% if action.has_fee %}<li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='ingresos') }}">Ingresos</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'bolsa' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='bolsa') }}">Bolsa</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'roadmap' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='roadmap') }}">Hoja de ruta</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='fotos') }}">Fotos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='fotos') }}">Fotos / Vídeos</a></li>
 </ul>
 
 <div class="bg-white border border-top-0 rounded-bottom p-3">

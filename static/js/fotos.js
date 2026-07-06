@@ -159,6 +159,20 @@
       });
     }
     updateBulk();
+    updateCounts();
+  }
+
+  // Etiquetas "N fotos" / "M vídeos" (sobre TODAS las fotos, no las filtradas).
+  function updateCounts() {
+    var all = [];
+    (state.albums || []).forEach(function (a) { (a.photos || []).forEach(function (p) { all.push(p); }); });
+    (state.photos || []).forEach(function (p) { all.push(p); });
+    var vids = all.filter(function (p) { return p.is_video; }).length;
+    var imgs = all.length - vids;
+    var pc = document.getElementById('fotosPhotoCount');
+    var vc = document.getElementById('fotosVideoCount');
+    if (pc) { pc.innerHTML = '<i class="fa fa-image me-1"></i>' + imgs + ' foto' + (imgs === 1 ? '' : 's'); pc.classList.toggle('d-none', imgs === 0); }
+    if (vc) { vc.innerHTML = '<i class="fa fa-video me-1"></i>' + vids + ' vídeo' + (vids === 1 ? '' : 's'); vc.classList.toggle('d-none', vids === 0); }
   }
 
   // ============================================================ selección

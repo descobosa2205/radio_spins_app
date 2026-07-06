@@ -34768,7 +34768,9 @@ def _photo_resolve_owner(session_db, owner_type, owner_id):
 
 
 def _photo_owner_url(owner_type, owner_id):
-    if owner_type == "CONCERT":
+    # owner_type puede llegar en minúsculas (los llamadores pasan .lower()); normalizar para no
+    # tratar los CONCIERTOS como ACCIONES (bug de "Abrir en la ficha").
+    if (owner_type or "").upper() == "CONCERT":
         return url_for("concert_detail_view", cid=owner_id, tab="fotos")
     return url_for("action_detail_view", action_id=owner_id, tab="fotos")
 
@@ -34915,6 +34917,8 @@ def _build_fotos_context(session_db, owner_type, owner_id):
         "albums": album_payloads,
         "photos": loose,
         "total": len(photos),
+        "video_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"),
+        "photo_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() != "VIDEO"),
     }
 
 
@@ -35000,6 +35004,8 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "province": province,
             "date_label": d.strftime("%d/%m/%Y") if d else "",
             "count": len(plist),
+            "video_count": sum(1 for p in plist if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"),
+            "photo_count": sum(1 for p in plist if (getattr(p, "kind", None) or "IMAGE").upper() != "VIDEO"),
             "cover_url": plist[0].file_url if plist else "",
             "url": _photo_owner_url(ot.lower(), str(oid)),
             "albums": album_summ,

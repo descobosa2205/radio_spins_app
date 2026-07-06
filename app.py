@@ -19258,6 +19258,15 @@ def concerts_page():
             q = q.filter(Concert.date >= today)
 
         concerts = q.order_by(Concert.date.asc()).all()
+        # Quien tiene artistas asignados solo ve los conciertos de SUS artistas (como principal o
+        # como co-artista del JSONB); el resto de usuarios —y dirección— ven todos.
+        _assigned_set = {str(x) for x in (_current_user_state().get("assigned_artist_ids") or []) if x}
+        if _assigned_set and not is_master():
+            concerts = [
+                c for c in concerts
+                if str(getattr(c, "artist_id", "") or "") in _assigned_set
+                or any(str(x) in _assigned_set for x in (getattr(c, "artist_ids", None) or []))
+            ]
         if f_concert_tags:
             concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
         if f_announcements:
@@ -28529,6 +28538,7 @@ SECTION_ICONS = {
     "registros": "fa-clipboard-list",
     "third_parties": "fa-handshake",
     "contratacion": "fa-file-signature",
+    "contratacion.conciertos": "fa-guitar",
     "playlisting": "fa-list-ol",
     "promocion": "fa-bullhorn",
     "acciones": "fa-rocket",
@@ -28570,8 +28580,8 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
+        {"type": "link", "key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
-            {"key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
             {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
             {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
             {"key": "contratacion.otras", "label": "Otras actividades", "url": _resource_default_url("contratacion.otras")},

@@ -1,163 +1,18 @@
-{% set rm = roadmap_ctx or roadmap %}
-{% set payload = rm.payload %}
-{% set selected_day = rm.selected_day %}
-{% set day_ns = namespace(label=selected_day) %}
-{% for d in rm.days %}{% if d.date == selected_day %}{% set day_ns.label = d.label %}{% endif %}{% endfor %}
-{% set selected_label = day_ns.label %}
-<div class="roadmap-panel" data-roadmap-panel>
-  <div class="d-flex justify-content-between align-items-start gap-3 flex-wrap mb-3">
-    <div>
-      <h5 class="mb-1">Hoja de ruta</h5>
-      <div class="text-muted small">{{ rm.title }}{% if rm.subtitle %} · {{ rm.subtitle }}{% endif %}</div>
-    </div>
-    <div class="d-flex gap-2 align-items-center flex-wrap">
-      <div class="btn-group btn-group-sm" role="group" aria-label="Vista hoja de ruta">
-        <button type="button" class="btn btn-outline-secondary active" data-roadmap-view="list"><i class="fa fa-list"></i> Lista</button>
-        <button type="button" class="btn btn-outline-secondary" data-roadmap-view="agenda"><i class="fa fa-timeline"></i> Agenda</button>
-      </div>
-      <div class="dropdown app-action-menu">
-        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" type="button"><i class="fa fa-ellipsis-vertical"></i></button>
-        <ul class="dropdown-menu dropdown-menu-end">
-          <li><a class="dropdown-item" href="{{ rm.pdf_url }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-2"></i>Descargar en PDF</a></li>
-          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ rm.public_url }}"><i class="fa fa-link me-2"></i>Copiar enlace</button></li>
-          <li><a class="dropdown-item" href="{{ rm.whatsapp_url }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp me-2"></i>Enviar por WhatsApp</a></li>
-          <li><a class="dropdown-item" href="{{ rm.sms_url }}"><i class="fa fa-comment-sms me-2"></i>Enviar por SMS</a></li>
-          <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#roadmapEmailModal"><i class="fa fa-envelope me-2"></i>Enviar por email</button></li>
-        </ul>
-      </div>
-    </div>
+{# Hoja de ruta v2 — panel embebido (Agenda / Logística / Hoteles / Personal).
+   Datos en #roadmapData; render e interacción en static/js/roadmap.js.
+   Requiere `roadmap_ctx` en el contexto (concert/action/promotion detail). #}
+{% set rm = roadmap_ctx %}
+{% if rm and rm.entity_id %}
+<div class="rm-panel" id="roadmapPanel"
+     data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}">
+  <script type="application/json" id="roadmapData">{{ rm | tojson }}</script>
+  <div class="rm-nav" role="tablist">
+    <button type="button" class="active" data-rm-tab="agenda"><i class="fa fa-calendar-day"></i> Agenda</button>
+    <button type="button" data-rm-tab="logistica"><i class="fa fa-route"></i> Logística</button>
+    <button type="button" data-rm-tab="hoteles"><i class="fa fa-hotel"></i> Hoteles</button>
+    <button type="button" data-rm-tab="personal"><i class="fa fa-users"></i> Personal</button>
   </div>
-
-  <div class="roadmap-day-strip mb-3">
-    {% for day in rm.days %}
-      <a class="roadmap-day-card {% if day.date == selected_day %}active{% endif %}" href="{{ request.path }}?tab={{ request.args.get('tab') or 'produccion' }}&day={{ day.date }}">
-        <span>{{ day.weekday }}</span><strong>{{ day.short }}</strong>
-      </a>
-    {% endfor %}
-  </div>
-
-  <div class="row g-3">
-    <div class="col-12 col-xl-4">
-      <div class="card h-100 roadmap-card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div><h6 class="mb-0"><i class="fa fa-hotel me-2"></i>Alojamiento</h6><div class="small text-muted">{{ selected_label }}</div></div>
-            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#roadmapHotelModal"><i class="fa fa-plus"></i></button>
-          </div>
-          <div class="roadmap-hotel-list">
-            {% set ns = namespace(count=0) %}
-            {% for hotel in payload.hotels or [] %}
-              {% if (not hotel.days) or selected_day in hotel.days %}
-                {% set ns.count = ns.count + 1 %}
-                <div class="roadmap-hotel-row">
-                  <div class="d-flex gap-2 align-items-start">
-                    <i class="fa fa-hotel roadmap-row-icon"></i>
-                    <div class="flex-grow-1">
-                      <div class="fw-semibold">{{ hotel.name or 'Hotel pendiente' }}</div>
-                      {% if hotel.address %}<a class="small text-muted d-block" target="_blank" rel="noopener" href="{{ hotel.map_url or ('https://www.google.com/maps/search/?api=1&query=' ~ hotel.address|urlencode) }}">{{ hotel.address }}</a>{% endif %}
-                      <div class="d-flex gap-2 flex-wrap mt-1 small">
-                        <span class="badge text-bg-light border">{{ 'Todos' if hotel.for_all else (hotel.people_text or 'Sin asignar') }}</span>
-                        <span class="badge text-bg-{{ 'success' if hotel.breakfast else 'secondary' }}" title="{{ 'Incluye desayuno' if hotel.breakfast else 'Sin desayuno' }}"><i class="fa fa-mug-saucer {% if not hotel.breakfast %}text-decoration-line-through{% endif %}"></i></span>
-                        {% if hotel.free_cancel %}<span class="badge text-bg-info" title="Cancelación gratuita hasta {{ hotel.cancel_until or 'fecha pendiente' }}"><i class="fa fa-ban"></i></span>{% endif %}
-                        {% if hotel.voucher_url %}<a class="badge text-bg-primary text-decoration-none" href="{{ hotel.voucher_url }}" target="_blank" rel="noopener" title="Ver bono"><i class="fa fa-paperclip"></i></a>{% endif %}
-                      </div>
-                      {% if hotel.note %}<div class="small mt-1">{{ hotel.note }}</div>{% endif %}
-                    </div>
-                    <div class="dropdown app-action-menu">
-                      <button class="btn btn-sm btn-link text-muted" data-bs-toggle="dropdown" type="button"><i class="fa fa-ellipsis-vertical"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end">
-                        <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#roadmapHotelEdit{{ hotel.id }}">Editar</button></li>
-                        <li>
-                          <form method="post" action="{{ url_for('roadmap_attachment_upload', entity_type=rm.entity_type, entity_id=rm.entity_id) }}" enctype="multipart/form-data" class="px-3 py-2">
-                            <input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_type" value="hotel"><input type="hidden" name="row_id" value="{{ hotel.id }}">
-                            <label class="small text-muted">Subir bono</label><input class="form-control form-control-sm" type="file" name="file" onchange="this.form.submit()">
-                          </form>
-                        </li>
-                        {% if hotel.voucher_url %}<li><a class="dropdown-item" href="{{ hotel.voucher_url }}" target="_blank" rel="noopener">Ver / descargar bono</a></li>{% endif %}
-                        <li><hr class="dropdown-divider"></li>
-                        <li><form method="post" action="{{ url_for('roadmap_row_delete', entity_type=rm.entity_type, entity_id=rm.entity_id) }}" onsubmit="return confirm('¿Eliminar este alojamiento?');"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_type" value="hotel"><input type="hidden" name="row_id" value="{{ hotel.id }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-                <div class="modal fade" id="roadmapHotelEdit{{ hotel.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content"><form method="post" action="{{ url_for('roadmap_hotel_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="hotel_id" value="{{ hotel.id }}">{% include '_roadmap_hotel_form_fields.html' %}</form></div></div></div>
-              {% endif %}
-            {% endfor %}
-            {% if ns.count == 0 %}<div class="text-muted small py-3">No hay alojamiento para este día.</div>{% endif %}
-          </div>
-        </div>
-      </div>
-    </div>
-    <div class="col-12 col-xl-8">
-      <div class="card roadmap-card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
-            <div><h6 class="mb-0"><i class="fa fa-calendar-days me-2"></i>Agenda</h6><div class="small text-muted">Lista consolidada de traslados, entrevistas, actuaciones, comidas y actividades.</div></div>
-            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#roadmapItemModal"><i class="fa fa-plus"></i> Añadir</button>
-          </div>
-          <div class="roadmap-list-view" data-roadmap-view-pane="list">
-            {% set ns2 = namespace(count=0) %}
-            {% for item in payload.items or [] %}
-              {% if item.day == selected_day %}
-                {% set ns2.count = ns2.count + 1 %}
-                <div class="roadmap-timeline-row {% if item.is_tbc %}is-tbc{% endif %}">
-                  <div class="roadmap-timeline-icon"><i class="fa {{ item.icon }}"></i></div>
-                  <div class="roadmap-timeline-body">
-                    <div class="d-flex justify-content-between align-items-start gap-2">
-                      <div>
-                        <div class="small text-muted">{% if not item.hide_time %}{{ item.start_time or 'TBC' }}{% if item.end_time %} - {{ item.end_time }}{% endif %}{% else %}<span class="badge text-bg-light border">Hora oculta</span>{% endif %}{% if item.is_tbc %} <span class="badge text-bg-warning text-dark">TBC</span>{% endif %}</div>
-                        <h6 class="mb-1">{{ item.display_title }}</h6>
-                        <div class="small text-muted">{{ item.origin }}{% if item.origin and item.destination %} → {% endif %}{{ item.destination }}{% if item.location %} · {{ item.location }}{% endif %}</div>
-                      </div>
-                      <div class="dropdown app-action-menu">
-                        <button class="btn btn-sm btn-link text-muted" data-bs-toggle="dropdown" type="button"><i class="fa fa-ellipsis-vertical"></i></button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                          <li><button class="dropdown-item" data-bs-toggle="modal" data-bs-target="#roadmapItemEdit{{ item.id }}">Editar</button></li>
-                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ item.display_title }}{% if item.start_time %} · {{ item.start_time }}{% endif %}\n{{ item.origin }}{% if item.destination %} → {{ item.destination }}{% endif %}\n{{ item.note or item.description }}">Copiar</button></li>
-                          <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ (item.display_title ~ '\n' ~ (rm.public_url or ''))|urlencode }}">Compartir por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="sms:?&body={{ (item.display_title ~ '\n' ~ (rm.public_url or ''))|urlencode }}">Compartir por SMS</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ item.display_title|urlencode }}&body={{ (item.display_title ~ '\n' ~ (rm.public_url or ''))|urlencode }}">Compartir por email</a></li>
-                          <li><form method="post" action="{{ url_for('roadmap_row_toggle', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_id" value="{{ item.id }}"><input type="hidden" name="field" value="hide_time"><button class="dropdown-item">{{ 'Mostrar hora' if item.hide_time else 'Ocultar hora' }}</button></form></li>
-                          <li><form method="post" action="{{ url_for('roadmap_row_toggle', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_id" value="{{ item.id }}"><input type="hidden" name="field" value="is_tbc"><button class="dropdown-item">{{ 'Confirmar' if item.is_tbc else 'Marcar como TBC' }}</button></form></li>
-                          <li>
-                            <form method="post" action="{{ url_for('roadmap_attachment_upload', entity_type=rm.entity_type, entity_id=rm.entity_id) }}" enctype="multipart/form-data" class="px-3 py-2">
-                              <input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_type" value="item"><input type="hidden" name="row_id" value="{{ item.id }}">
-                              <label class="small text-muted">Adjuntar documento</label><input class="form-control form-control-sm" type="file" name="file" onchange="this.form.submit()">
-                            </form>
-                          </li>
-                          <li><hr class="dropdown-divider"></li>
-                          <li><form method="post" action="{{ url_for('roadmap_row_delete', entity_type=rm.entity_type, entity_id=rm.entity_id) }}" onsubmit="return confirm('¿Eliminar este apunte?');"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="row_type" value="item"><input type="hidden" name="row_id" value="{{ item.id }}"><button class="dropdown-item text-danger">Eliminar</button></form></li>
-                        </ul>
-                      </div>
-                    </div>
-                    {% if item.description or item.note %}<div class="mt-2">{{ item.description or item.note }}</div>{% endif %}
-                    {% if item.participants_text %}<div class="roadmap-people mt-2"><span class="badge text-bg-light border"><i class="fa fa-users me-1"></i>{{ item.participants_text }}</span></div>{% endif %}
-                    {% if item.repertoire %}
-                      <ol class="roadmap-repertoire mt-2 mb-0">
-                        {% for song in item.repertoire|sort(attribute='order') %}<li><span>{{ song.title }}</span> <span class="badge text-bg-light border">{{ song.mode }}</span>{% if song.note %}<div class="small text-muted">{{ song.note }}</div>{% endif %}</li>{% endfor %}
-                      </ol>
-                    {% endif %}
-                    {% if item.attachments %}
-                      <div class="d-flex gap-2 flex-wrap mt-2">
-                        {% for att in item.attachments %}<a class="badge text-bg-primary text-decoration-none" href="{{ att.url }}" target="_blank" rel="noopener"><i class="fa fa-paperclip me-1"></i>{{ att.name or 'Documento' }}</a>{% endfor %}
-                      </div>
-                    {% endif %}
-                  </div>
-                </div>
-                <div class="modal fade" id="roadmapItemEdit{{ item.id }}" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl"><div class="modal-content"><form method="post" action="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="item_id" value="{{ item.id }}">{% include '_roadmap_item_form_fields.html' %}</form></div></div></div>
-              {% endif %}
-            {% endfor %}
-            {% if ns2.count == 0 %}<div class="text-muted small py-3">No hay agenda para este día.</div>{% endif %}
-          </div>
-          <div class="roadmap-agenda-view d-none" data-roadmap-view-pane="agenda">
-            {% for item in payload.items or [] %}{% if item.day == selected_day %}<div class="roadmap-agenda-block {% if item.is_tbc %}is-tbc{% endif %}" style="--duration: 1;"><span>{{ item.start_time or 'TBC' }}</span><strong>{{ item.display_title }}</strong><small>{{ item.participants_text }}</small></div>{% endif %}{% endfor %}
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
+  <div id="rmView" class="rm-view"></div>
 </div>
-
-<div class="modal fade" id="roadmapHotelModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-lg"><div class="modal-content"><form method="post" action="{{ url_for('roadmap_hotel_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}">{% include '_roadmap_hotel_form_fields.html' %}</form></div></div></div>
-<div class="modal fade" id="roadmapItemModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-xl"><div class="modal-content"><form method="post" action="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}">{% include '_roadmap_item_form_fields.html' %}</form></div></div></div>
-<div class="modal fade" id="roadmapEmailModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog"><div class="modal-content"><form method="post" action="{{ url_for('roadmap_email_send', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><div class="modal-header"><h5 class="modal-title">Enviar hoja de ruta</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p class="text-muted small">Se enviará el cuerpo visual de la hoja de ruta con el enlace actualizado.</p><label class="form-label">Destinatarios</label><textarea class="form-control" name="extra_emails" rows="3" placeholder="email1@dominio.com; email2@dominio.com"></textarea></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Enviar</button></div></form></div></div></div>
+<script src="{{ url_for('static', filename='js/roadmap.js') }}"></script>
+{% endif %}

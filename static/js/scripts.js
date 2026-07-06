@@ -1317,30 +1317,6 @@ function initCopyLinkButtons(){
   });
 }
 
-function initRoadmapUI(){
-  document.querySelectorAll('[data-roadmap-panel]').forEach((panel) => {
-    if (panel.dataset.roadmapBound === '1') return;
-    panel.dataset.roadmapBound = '1';
-    const setView = (view) => {
-      panel.querySelectorAll('[data-roadmap-view]').forEach((btn) => btn.classList.toggle('active', btn.dataset.roadmapView === view));
-      panel.querySelectorAll('[data-roadmap-view-pane]').forEach((pane) => pane.classList.toggle('d-none', pane.dataset.roadmapViewPane !== view));
-    };
-    panel.querySelectorAll('[data-roadmap-view]').forEach((btn) => btn.addEventListener('click', () => setView(btn.dataset.roadmapView || 'list')));
-  });
-  document.querySelectorAll('[data-roadmap-add-song]').forEach((btn) => {
-    if (btn.dataset.bound === '1') return;
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', () => {
-      const wrap = btn.closest('.modal-body')?.querySelector('[data-roadmap-repertoire-list]');
-      if (!wrap) return;
-      const row = document.createElement('div');
-      row.className = 'row g-2 mb-2';
-      row.innerHTML = '<div class="col-md-5"><input class="form-control" name="repertoire_title[]" placeholder="Canción"></div><div class="col-md-3"><select class="form-select" name="repertoire_mode[]"><option value="DIRECTO">Directo</option><option value="HALF_PLAYBACK">Half playback</option><option value="FULL_PLAYBACK">Full playback</option></select></div><div class="col-md-4"><input class="form-control" name="repertoire_note[]" placeholder="Nota"></div>';
-      wrap.appendChild(row);
-    });
-  });
-}
-
 // IMPORTANTE:
 // Si cualquier inicializador lanza excepción, se cortaba el resto y algunas
 // interacciones (p.ej. abrir ficha de canción al clickar una fila) dejaban de funcionar.
@@ -1352,7 +1328,6 @@ $(function(){
   try { initVisualChoiceCards(); } catch (e) { console.error('initVisualChoiceCards', e); }
   try { initUsageOrderedOverflowNav(); } catch (e) { console.error('initUsageOrderedOverflowNav', e); }
   try { initCopyLinkButtons(); } catch (e) { console.error('initCopyLinkButtons', e); }
-  try { initRoadmapUI(); } catch (e) { console.error('initRoadmapUI', e); }
   try { initIncomeModals(); } catch (e) { console.error('initIncomeModals', e); }
   try { initArtistContractControls(); } catch (e) { console.error('initArtistContractControls', e); }
   try { initClickableRows(); } catch (e) { console.error('initClickableRows', e); }

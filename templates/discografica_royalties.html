@@ -219,6 +219,7 @@
 <div class="d-flex gap-2 flex-wrap mb-3">
   <a class="btn {% if royalty_tab == 'liquidaciones' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='liquidaciones') }}">Liquidaciones</a>
   <a class="btn {% if royalty_tab == 'resumen' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='resumen') }}">Resumen</a>
+  <a class="btn {% if royalty_tab == 'afavor' %}btn-dark{% else %}btn-outline-secondary{% endif %}" href="{{ url_for('discografica_view', section='royalties', s=royalty_semester_key, artist=royalty_selected_artist_id or None, roy_tab='afavor') }}"><i class="fa fa-hand-holding-dollar me-1"></i>A favor</a>
 </div>
 
 <div class="card mb-3">
@@ -296,6 +297,51 @@
   </div>
 </div>
 
+{% if royalty_tab == 'afavor' %}
+  <div class="alert alert-light border small mb-3"><i class="fa fa-hand-holding-dollar me-1"></i>Colaboraciones externas: lo que <strong>cobramos</strong> nosotros según el % que nos corresponde. Introduce el ingreso del semestre de cada canción y se calcula automáticamente lo que nos toca.</div>
+  {% if not afavor_groups %}
+    <div class="text-muted">No hay colaboraciones externas{% if royalty_selected_artist_id %} para el artista filtrado{% endif %}.</div>
+  {% else %}
+    {% for g in afavor_groups %}
+      <div class="royalty-section-block mb-4">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <img src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="" style="width:34px;height:34px;border-radius:50%;object-fit:cover;">
+          <span class="fw-semibold">{{ g.artist_name }}</span>
+          <span class="badge text-bg-success ms-auto">A cobrar: {{ g.total | eur }}</span>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr><th>Canción</th><th>Compañía</th><th class="text-end">Ingreso del semestre</th><th class="text-center">Nos corresponde</th><th class="text-end">A cobrar</th></tr></thead>
+            <tbody>
+              {% for it in g.items %}
+              <tr>
+                <td>{{ it.title }}</td>
+                <td class="small text-muted">{{ it.company or '—' }}</td>
+                <td class="text-end">
+                  <form method="post" action="{{ url_for('discografica_income_entry_save') }}" class="d-flex gap-1 justify-content-end align-items-center flex-wrap">
+                    <input type="hidden" name="song_id" value="{{ it.song_id }}">
+                    <input type="hidden" name="entry_id" value="{{ it.entry_id }}">
+                    <input type="hidden" name="period_type" value="SEMESTER">
+                    <input type="hidden" name="period_start" value="{{ royalty_semester_start_iso }}">
+                    <input type="hidden" name="is_base" value="1">
+                    <input type="hidden" name="next" value="{{ request.full_path }}">
+                    <span class="input-group input-group-sm" style="width:130px;"><span class="input-group-text">Bruto</span><input class="form-control text-end" name="gross" type="number" step="0.01" value="{{ it.gross }}"></span>
+                    <span class="input-group input-group-sm" style="width:130px;"><span class="input-group-text">Neto</span><input class="form-control text-end" name="net" type="number" step="0.01" value="{{ it.net }}"></span>
+                    <button class="btn btn-sm btn-outline-primary" title="Guardar ingreso"><i class="fa fa-save"></i></button>
+                  </form>
+                </td>
+                <td class="text-center small">{{ it.our_pct }}% <span class="text-muted">({{ it.base_label }})</span></td>
+                <td class="text-end fw-semibold">{{ it.our_amount | eur }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    {% endfor %}
+    <div class="d-flex justify-content-end"><span class="badge text-bg-success fs-6">Total a cobrar ({{ royalty_period_label }}): {{ afavor_total | eur }}</span></div>
+  {% endif %}
+{% else %}
 {% set total_beneficiaries = (royalty_beneficiaries_artists|length) + (royalty_beneficiaries_others|length) %}
 {% if total_beneficiaries == 0 %}
   <div class="text-muted">No hay datos de ingresos en este semestre{% if royalty_selected_artist_id %} para el artista filtrado{% endif %} o no hay beneficiarios configurados.</div>
@@ -345,6 +391,7 @@
       {{ render_summary_modal(b, url_for('static', filename='img/default_promoter.png')) }}
     {% endfor %}
   {% endif %}
+{% endif %}
 {% endif %}
 
 <div class="modal fade" id="royaltyLiquidationPreviewModal" tabindex="-1" aria-hidden="true">

@@ -6984,6 +6984,76 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
     }
 
 
+def _build_afavor_groups(session_db, sem_start: date, selected_artist_id=None) -> dict:
+    """Royalties «A favor»: lo que cobramos por colaboraciones externas. Agrupa por artista todas
+    las canciones marcadas como colaboración externa, con el ingreso del semestre y el % que nos
+    corresponde (sobre bruto o neto según cada colaboración)."""
+    songs = (
+        session_db.query(Song)
+        .options(selectinload(Song.artists))
+        .filter(Song.is_external_collab.is_(True))
+        .order_by(Song.release_date.desc())
+        .all()
+    )
+    if not songs:
+        return {"groups": [], "total": Decimal("0")}
+    rev = {}
+    for sid, gross, net, eid in (
+        session_db.query(SongRevenueEntry.song_id, SongRevenueEntry.gross, SongRevenueEntry.net, SongRevenueEntry.id)
+        .filter(SongRevenueEntry.song_id.in_([s.id for s in songs]))
+        .filter(func.upper(SongRevenueEntry.period_type) == "SEMESTER")
+        .filter(SongRevenueEntry.period_start == sem_start)
+        .filter(SongRevenueEntry.is_base.is_(True))
+        .all()
+    ):
+        rev[sid] = {"gross": gross or Decimal("0"), "net": net or Decimal("0"), "entry_id": str(eid)}
+    comp_ids = {s.external_company_id for s in songs if s.external_company_id}
+    comp_map = {}
+    if comp_ids:
+        for pr in session_db.query(Promoter).filter(Promoter.id.in_(comp_ids)).all():
+            comp_map[pr.id] = _promoter_display_name(pr) or pr.nick or ""
+    groups = {}
+    order = []
+    grand = Decimal("0")
+    sel = str(selected_artist_id) if selected_artist_id else None
+    for s in songs:
+        art = s.artists[0] if getattr(s, "artists", None) else None
+        aid = str(art.id) if art else "sin"
+        if sel and aid != sel:
+            continue
+        info = rev.get(s.id) or {"gross": Decimal("0"), "net": Decimal("0"), "entry_id": ""}
+        base = (getattr(s, "our_pct_base", None) or "GROSS").upper()
+        amount_base = info["net"] if base == "NET" else info["gross"]
+        our_pct = Decimal(str(getattr(s, "our_pct", 0) or 0))
+        our_amount = (amount_base * our_pct / Decimal("100"))
+        grand += our_amount
+        g = groups.get(aid)
+        if g is None:
+            g = {
+                "artist_id": aid if art else "",
+                "artist_name": (art.name if art else "Sin artista"),
+                "artist_photo": ((getattr(art, "photo_url", "") or "") if art else ""),
+                "items": [],
+                "total": Decimal("0"),
+            }
+            groups[aid] = g
+            order.append(aid)
+        g["items"].append({
+            "song_id": str(s.id),
+            "title": s.title,
+            "company": comp_map.get(s.external_company_id, ""),
+            "our_pct": our_pct,
+            "base": base,
+            "base_label": ("Neto" if base == "NET" else "Bruto"),
+            "gross": info["gross"],
+            "net": info["net"],
+            "entry_id": info["entry_id"],
+            "our_amount": our_amount,
+        })
+        g["total"] += our_amount
+    return {"groups": [groups[a] for a in order], "total": grand}
+
+
 def _get_royalty_liquidation_beneficiary_data(session_db, kind: str, beneficiary_id, sem_year: int, sem_half: int) -> tuple[dict, date, date, UUID]:
     kind = (kind or "").strip().upper()
     if kind not in ("ARTIST", "PROMOTER"):
@@ -8603,6 +8673,9 @@ def discografica_view():
     royalty_selected_artist_id = ""
     royalty_selected_statuses: list[str] = []
     royalty_tab = "liquidaciones"
+    afavor_groups: list[dict] = []
+    afavor_total = Decimal("0")
+    royalty_semester_start_iso = ""
 
     # Para redirecciones tras POST
     income_next_url = _update_url_query(request.full_path.rstrip("?"), {"upload_report": None, "import_review": None})
@@ -8905,7 +8978,7 @@ def discografica_view():
             sem_year, sem_half = parsed_sem
 
         royalty_tab = (request.args.get("roy_tab") or "liquidaciones").strip().lower()
-        if royalty_tab not in ("liquidaciones", "resumen"):
+        if royalty_tab not in ("liquidaciones", "resumen", "afavor"):
             royalty_tab = "liquidaciones"
 
         royalty_semester_key = _semester_key(sem_year, sem_half)
@@ -8956,6 +9029,12 @@ def discografica_view():
 
         royalty_beneficiaries_artists = [bucket for bucket in royalty_beneficiaries_artists if _match_royalty_status(bucket)]
         royalty_beneficiaries_others = [bucket for bucket in royalty_beneficiaries_others if _match_royalty_status(bucket)]
+
+        # Pestaña «A favor»: lo que cobramos nosotros por colaboraciones externas.
+        _afavor = _build_afavor_groups(session_db, sem_start, selected_artist_uuid) if royalty_tab == "afavor" else {"groups": [], "total": Decimal("0")}
+        afavor_groups = _afavor["groups"]
+        afavor_total = _afavor["total"]
+        royalty_semester_start_iso = sem_start.isoformat()
 
     if section == "ingresos":
 
@@ -9924,6 +10003,9 @@ def discografica_view():
         royalty_selected_artist_id=royalty_selected_artist_id,
         royalty_selected_statuses=royalty_selected_statuses,
         royalty_tab=royalty_tab,
+        afavor_groups=afavor_groups,
+        afavor_total=afavor_total,
+        royalty_semester_start_iso=royalty_semester_start_iso,
         # Registros
         registros_tab=registros_tab,
         registros_upcoming_releases=registros_upcoming_releases,

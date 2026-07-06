@@ -26935,6 +26935,9 @@ def _roadmap_next_day(day: str) -> str | None:
 
 def _roadmap_days(row, payload: dict) -> list[dict]:
     day_set = set(_roadmap_base_days(row))
+    for d in (payload.get("extra_days") or []):
+        if d:
+            day_set.add(str(d)[:10])
     for hotel in payload.get("hotels", []) or []:
         for d in (hotel.get("days") or []):
             if d:
@@ -27009,6 +27012,8 @@ def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
         "artist_label": _artist_label_from_rows(artists),
         "payload": payload,
         "days": _roadmap_days(row, payload),
+        # Días "base" (del propio evento): no se pueden quitar desde el configurador de días.
+        "base_days": _roadmap_base_days(row),
         "artist_songs": _roadmap_artist_songs(session_db, row),
         "kinds": _roadmap_kind_catalog(),
         "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
@@ -27809,6 +27814,117 @@ def roadmap_attachment_delete(entity_type, entity_id):
         session_db.close()
 
 
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/dias', endpoint='roadmap_days_save')
+@admin_required
+def roadmap_days_save(entity_type, entity_id):
+    """Guarda los días AÑADIDOS manualmente a la hoja de ruta (configurador de días).
+    Recibe {days: [ISO,...]} = el conjunto deseado de días extra. Los días base del evento
+    no se guardan aquí (se derivan siempre). Los días con actividades/hoteles siguen
+    apareciendo aunque no estén en la lista (se derivan en _roadmap_days)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        base = set(_roadmap_base_days(row))
+        clean = []
+        for d in (data.get("days") or []):
+            try:
+                cd = datetime.strptime(str(d)[:10], "%Y-%m-%d").date().isoformat()
+            except Exception:
+                continue
+            if cd not in base:
+                clean.append(cd)
+        payload = _roadmap_load(row)
+        payload["extra_days"] = sorted(set(clean))
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _ensure_roadmap_token(session_db, row) -> str:
+    """Devuelve el token público de la hoja de ruta, creándolo si no existe."""
+    token = (getattr(row, "roadmap_public_token", None) or "").strip()
+    if not token:
+        token = _uuid_token()
+        row.roadmap_public_token = token
+        session_db.flush()
+    return token
+
+
+def _roadmap_by_token(session_db, token: str):
+    """Busca la entidad (concert/action/promotion) por su token público de hoja de ruta."""
+    token = (token or "").strip()
+    if not token:
+        return None, None
+    row = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.roadmap_public_token == token).first()
+    if row:
+        return row, "concert"
+    row = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue)).filter(CompanyAction.roadmap_public_token == token).first()
+    if row:
+        return row, "action"
+    row = session_db.query(Promotion).options(joinedload(Promotion.company)).filter(Promotion.roadmap_public_token == token).first()
+    if row:
+        return row, "promotion"
+    return None, None
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/enlace', endpoint='roadmap_public_link')
+@admin_required
+def roadmap_public_link(entity_type, entity_id):
+    """Gestiona el enlace público (solo lectura) de la hoja de ruta.
+    action: 'ensure' (por defecto, crea si falta) · 'regenerate' (nuevo token, el anterior deja
+    de funcionar) · 'revoke' (anula el enlace)."""
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        action = (data.get("action") or "ensure").strip().lower()
+        if action == "revoke":
+            row.roadmap_public_token = None
+            session_db.commit()
+            return jsonify({"ok": True, "url": "", "token": ""})
+        if action == "regenerate":
+            row.roadmap_public_token = _uuid_token()
+        token = _ensure_roadmap_token(session_db, row)
+        session_db.commit()
+        return jsonify({"ok": True, "url": _external_url_for("public_roadmap_view", token=token), "token": token})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get('/hoja-ruta/ver/<token>', endpoint='public_roadmap_view')
+def public_roadmap_view(token):
+    """Vista pública de solo lectura de la hoja de ruta (sin login). Permite ver toda la
+    información y descargar los adjuntos, sin poder editar nada."""
+    session_db = db()
+    try:
+        row, entity_type = _roadmap_by_token(session_db, token)
+        if not row:
+            abort(404)
+        ctx = _roadmap_context(session_db, entity_type, row)
+        ctx["readonly"] = True
+        artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
+        return render_template(
+            'public_roadmap_view.html',
+            rm=ctx,
+            title=ctx.get("title") or "Hoja de ruta",
+            artist_label=ctx.get("artist_label") or "",
+            artist_photo=(getattr(artists[0], "photo_url", "") if artists else ""),
+        )
+    finally:
+        session_db.close()
+
+
 def _tour_concerts_by_slug(session_db, slug: str) -> list[Concert]:
     rows = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(or_(func.upper(func.coalesce(Concert.sale_type, '')) == 'GIRAS_COMPRADAS', func.upper(func.coalesce(Concert.activity_type, '')) == 'GIRA')).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc()).all()
     return [row for row in rows if _tour_group_key(row)[0] == slug]
@@ -28150,7 +28266,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -29627,6 +29743,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_hotel_save", "roadmap_hotel_delete",
     "roadmap_personnel_save", "roadmap_personnel_delete",
     "roadmap_attachment_upload", "roadmap_attachment_delete",
+    "roadmap_days_save", "roadmap_public_link",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "foto_note_add", "fotos_bulk_update",

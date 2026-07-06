@@ -4,7 +4,7 @@
 {% set rm = roadmap_ctx %}
 {% if rm and rm.entity_id %}
 <div class="rm-panel" id="roadmapPanel"
-     data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}">
+     {% if rm.readonly %}data-readonly="1" data-base=""{% else %}data-base="{{ url_for('roadmap_item_save', entity_type=rm.entity_type, entity_id=rm.entity_id) }}"{% endif %}>
   <script type="application/json" id="roadmapData">{{ rm | tojson }}</script>
   <div class="rm-nav" role="tablist">
     <button type="button" class="active" data-rm-tab="agenda"><i class="fa fa-calendar-day"></i> Agenda</button>

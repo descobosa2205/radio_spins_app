@@ -769,6 +769,15 @@ img[data-default-photo="1"]{
 .rm-song img{width:30px;height:30px;border-radius:6px;object-fit:cover;background:#e9ecef;flex:0 0 auto;}
 .rm-song .h{color:#ced4da;cursor:grab;}
 .rm-pass{display:grid;grid-template-columns:1fr auto;gap:.5rem;align-items:center;border:1px solid rgba(0,0,0,.08);border-radius:10px;padding:.4rem .55rem;margin-bottom:.4rem;}
+/* Configurador de días (rueda ⚙): mini-calendario multi-selección */
+.rm-calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:.25rem;}
+.rm-calwd{text-align:center;font-size:.72rem;font-weight:700;color:#98a2b3;padding-bottom:.2rem;}
+.rm-calcell{aspect-ratio:1/1;display:flex;align-items:center;justify-content:center;gap:.2rem;border:1px solid rgba(0,0,0,.08);border-radius:8px;cursor:pointer;font-size:.85rem;user-select:none;transition:background .12s,border-color .12s;}
+.rm-calcell:hover{border-color:var(--brand-primary,#e33d48);}
+.rm-calcell.on{background:var(--brand-primary,#e33d48);border-color:var(--brand-primary,#e33d48);color:#fff;font-weight:600;}
+.rm-calcell.locked{cursor:not-allowed;}
+.rm-calcell.locked.on{background:#8a95a5;border-color:#8a95a5;}
+.rm-calcell.locked .fa-lock{font-size:.62rem;opacity:.85;}
 @media print{.rm-nav,.rm-add,.rm-item .rm-menu,.rm-hotel .rm-menu{display:none!important}}
 
 /* Hotfix 2026-05-29: dropdowns portaled to body so 3-dot menus are never clipped by cards/list rows. */

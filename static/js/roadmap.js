@@ -22,6 +22,8 @@
     var IVTYPES = CTX.interview_types || [];
     var SONGS = CTX.artist_songs || [];
     var isConcert = !!CTX.is_concert;
+    var RO = (root.getAttribute('data-readonly') === '1');   // modo solo lectura (enlace público)
+    var BASE_DAYS = CTX.base_days || [];                      // días del evento (no se pueden quitar)
     var view = document.getElementById('rmView');
     var tab = 'agenda';
     var dragId = null;
@@ -128,15 +130,20 @@
     }
     function renderAgenda() {
       var map = agendaByDay();
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Agenda de la actividad</div><button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button></div><div class="rm-agenda">';
+      var tools = RO ? '' : '<div class="ms-auto d-flex gap-1"><button class="btn btn-sm btn-outline-secondary" data-share title="Compartir (solo lectura)"><i class="fa fa-share-nodes"></i></button><button class="btn btn-sm btn-outline-secondary" data-cfg title="Configurar días"><i class="fa fa-gear"></i></button></div>';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Agenda de la actividad</div>' + tools + '</div><div class="rm-agenda">';
       DAYS.forEach(function (d) { html += dayBlock(d, map[d.date] || []); });
       html += '</div>';
       view.innerHTML = html;
-      view.querySelector('[data-add]').addEventListener('click', function () { openTypePicker(DAYS[0] ? DAYS[0].date : ''); });
+      if (!RO) {
+        var shareBtn = view.querySelector('[data-share]'); if (shareBtn) shareBtn.addEventListener('click', openShareModal);
+        var cfgBtn = view.querySelector('[data-cfg]'); if (cfgBtn) cfgBtn.addEventListener('click', openDaysConfig);
+      }
       bindAgenda();
     }
     function dayBlock(d, items) {
-      var head = '<div class="rm-dayhead"><div class="rm-cal"><span class="wd">' + esc(d.weekday) + '</span><span class="num">' + esc(d.day) + '</span><span class="mo">' + esc(d.month) + '</span></div><div class="lbl">' + esc(d.label) + '</div><button class="rm-add sm ms-auto" data-addday="' + esc(d.date) + '"><i class="fa fa-plus"></i></button></div>';
+      var addBtn = RO ? '' : '<button class="rm-add sm ms-auto" data-addday="' + esc(d.date) + '"><i class="fa fa-plus"></i> Actividad</button>';
+      var head = '<div class="rm-dayhead"><div class="rm-cal"><span class="wd">' + esc(d.weekday) + '</span><span class="num">' + esc(d.day) + '</span><span class="mo">' + esc(d.month) + '</span></div><div class="lbl">' + esc(d.label) + '</div>' + addBtn + '</div>';
       var body = '<div class="rm-dayitems" data-day="' + esc(d.date) + '">';
       if (!items.length) body += '<div class="text-muted small px-2 py-1">Sin actividades</div>';
       items.forEach(function (it) { body += itemRow(it); });
@@ -166,7 +173,7 @@
       var meta = '';
       if ((it.attachments || []).length) meta += '<span title="Adjuntos"><i class="fa fa-paperclip"></i> ' + it.attachments.length + '</span>';
       if (it.note) meta += '<span title="Nota"><i class="fa fa-note-sticky"></i></span>';
-      return '<div class="' + cls + '" draggable="true" data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
+      return '<div class="' + cls + '"' + (RO ? '' : ' draggable="true"') + ' data-item="' + esc(it.id) + '" style="--rm-line:' + esc(ki.color) + '">'
         + '<div class="rm-ico" style="background:' + esc(ki.color) + '"><i class="fa ' + esc(ki.icon) + '"></i></div>'
         + '<div><div class="rm-time">' + timeLabel(it) + '</div><div class="rm-title">' + esc(it.title || ki.label) + '</div>'
         + (it.location ? '<div class="rm-sub">' + esc(it.location) + '</div>' : '') + (sub ? '<div class="rm-sub">' + sub + '</div>' : '') + transLine
@@ -176,9 +183,11 @@
     function bindAgenda() {
       view.querySelectorAll('[data-item]').forEach(function (node) {
         node.addEventListener('click', function () { if (node.classList.contains('dragging')) return; var it = agendaItem(node.getAttribute('data-item')); if (it) openDetail(it); });
+        if (RO) return;
         node.addEventListener('dragstart', function (e) { dragId = node.getAttribute('data-item'); node.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragId); } catch (_) {} });
         node.addEventListener('dragend', function () { node.classList.remove('dragging'); dragId = null; view.querySelectorAll('.rm-dragover').forEach(function (x) { x.classList.remove('rm-dragover'); }); });
       });
+      if (RO) return;
       view.querySelectorAll('[data-addday]').forEach(function (b) { b.addEventListener('click', function () { openTypePicker(b.getAttribute('data-addday')); }); });
       view.querySelectorAll('.rm-dayitems').forEach(function (zone) {
         zone.addEventListener('dragover', function (e) { e.preventDefault(); zone.parentElement.classList.add('rm-dragover'); });
@@ -480,7 +489,7 @@
       if (it.note) h += '<div class="alert alert-warning mt-2 mb-0 py-2"><i class="fa fa-note-sticky"></i> ' + esc(it.note) + '</div>';
       if ((it.attachments || []).length) { h += '<div class="mt-2">'; it.attachments.forEach(function (a) { h += '<a class="rm-att" href="' + esc(a.url) + '" target="_blank"><i class="fa fa-download"></i> ' + esc(a.name) + '</a>'; }); h += '</div>'; }
 
-      var foot = [
+      var foot = RO ? [btn('Cerrar', 'btn-outline-secondary', function () { var i = bs('rmDetailModal'); if (i) i.hide(); })] : [
         btn('Editar', 'btn-outline-primary', function () { var i = bs('rmDetailModal'); if (i) i.hide(); openItemEditor(JSON.parse(JSON.stringify(it))); }),
         btn(it.confirmed ? 'Marcar provisional' : 'Confirmar', 'btn-outline-secondary', function () { postJson(ep('/item/toggle'), { id: it.id, field: 'confirmed', value: !it.confirmed }).then(function (r) { apply(r); var i = bs('rmDetailModal'); if (i) i.hide(); }); }),
         btn(it.cancelled ? 'Reactivar' : 'Cancelar', 'btn-outline-warning', function () { postJson(ep('/item/toggle'), { id: it.id, field: 'cancelled', value: !it.cancelled }).then(function (r) { apply(r); var i = bs('rmDetailModal'); if (i) i.hide(); }); }),
@@ -495,24 +504,26 @@
       items.sort(function (a, b) { if (a.day !== b.day) return a.day < b.day ? -1 : 1; return (a.start_time || '99') < (b.start_time || '99') ? -1 : 1; });
       var grid = '<div class="rm-choice-grid mb-2">' + TRANS.map(function (t) { return '<div class="rm-choice" data-mode="' + esc(t.key) + '"><i class="fa ' + esc(t.icon) + '" style="color:#007ca2"></i><span>' + esc(t.label) + '</span></div>'; }).join('') + '</div>';
       var html = '<div class="rm-toolbar"><div class="text-muted small">Traslados</div></div>';
-      html += '<div class="card mb-3"><div class="card-body py-2"><div class="small text-muted mb-1">Añadir traslado</div>' + grid + '</div></div>';
+      if (!RO) html += '<div class="card mb-3"><div class="card-body py-2"><div class="small text-muted mb-1">Añadir traslado</div>' + grid + '</div></div>';
       html += '<div class="d-flex flex-column gap-2">';
       if (!items.length) html += '<div class="rm-empty">Sin traslados todavía.</div>';
       items.forEach(function (it) { html += '<div data-item="' + esc(it.id) + '">' + itemRow(it) + '</div>'; });
       html += '</div>';
       view.innerHTML = html;
-      view.querySelectorAll('[data-mode]').forEach(function (c) { c.addEventListener('click', function () { openItemEditor(newDraft(c.getAttribute('data-mode'), DAYS[0] ? DAYS[0].date : '')); }); });
+      if (!RO) view.querySelectorAll('[data-mode]').forEach(function (c) { c.addEventListener('click', function () { openItemEditor(newDraft(c.getAttribute('data-mode'), DAYS[0] ? DAYS[0].date : '')); }); });
       view.querySelectorAll('.rm-item').forEach(function (node) { node.addEventListener('click', function () { var host = node.closest('[data-item]'); var it = agendaItem(host.getAttribute('data-item')); if (it) openDetail(it); }); });
     }
 
     // ================================================================ HOTELES
     function renderHoteles() {
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div><button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button></div>';
+      var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir hotel</button>';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Alojamientos</div>' + addBtn + '</div>';
       html += '<div class="d-flex flex-column gap-2">';
       if (!P.hotels.length) html += '<div class="rm-empty">Sin hoteles todavía.</div>';
       P.hotels.forEach(function (ho) { html += hotelCard(ho); });
       html += '</div>';
       view.innerHTML = html;
+      if (RO) return;
       view.querySelector('[data-add]').addEventListener('click', function () { openHotelEditor(newHotel()); });
       view.querySelectorAll('[data-hedit]').forEach(function (b) { b.addEventListener('click', function () { openHotelEditor(JSON.parse(JSON.stringify(hotelById(b.getAttribute('data-hedit'))))); }); });
       view.querySelectorAll('[data-hdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar este hotel?')) return; postJson(ep('/hotel/delete'), { id: b.getAttribute('data-hdel') }).then(apply); }); });
@@ -533,7 +544,7 @@
         + (ho.note ? '<div class="rm-sub"><i class="fa fa-note-sticky"></i> ' + esc(ho.note) + '</div>' : '')
         + (atts ? '<div class="mt-1">' + atts + '</div>' : '')
         + '</div>'
-        + '<div class="dropdown rm-menu"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-hedit="' + esc(ho.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '">Eliminar</button></li></ul></div>'
+        + (RO ? '' : '<div class="dropdown rm-menu"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-hedit="' + esc(ho.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-hdel="' + esc(ho.id) + '">Eliminar</button></li></ul></div>')
         + '</div>';
     }
     function openHotelEditor(ho) {
@@ -586,16 +597,19 @@
     function renderPersonal() {
       var groups = {};
       P.personnel.forEach(function (p) { var g = (p.role || 'Sin función').trim() || 'Sin función'; (groups[g] = groups[g] || []).push(p); });
-      var html = '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div><button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button></div>';
+      var addBtn = RO ? '' : '<button class="rm-add" data-add><i class="fa fa-plus"></i> Añadir</button>';
+      var html = '<div class="rm-toolbar"><div class="text-muted small">Personal de la actividad</div>' + addBtn + '</div>';
       if (!P.personnel.length) html += '<div class="rm-empty">Sin personal todavía.</div>';
       Object.keys(groups).sort().forEach(function (g) {
         html += '<div class="rm-group-title">' + esc(g) + '</div><div class="d-flex flex-column gap-2">';
         groups[g].forEach(function (p) {
-          html += '<div class="rm-person"><span class="av">' + avatar(p.photo_url) + '</span><div class="flex-grow-1"><div class="nm">' + esc(p.name) + '</div><div class="rl">' + esc(p.role || '') + '</div></div><div class="ct text-end">' + (p.phone ? '<div>' + esc(p.phone) + '</div>' : '') + (p.email ? '<div>' + esc(p.email) + '</div>' : '') + '</div><div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-pedit="' + esc(p.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-pdel="' + esc(p.id) + '">Eliminar</button></li></ul></div></div>';
+          var menu = RO ? '' : '<div class="dropdown ms-2"><button class="btn btn-sm btn-light" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button><ul class="dropdown-menu dropdown-menu-end"><li><button class="dropdown-item" data-pedit="' + esc(p.id) + '">Editar</button></li><li><button class="dropdown-item text-danger" data-pdel="' + esc(p.id) + '">Eliminar</button></li></ul></div>';
+          html += '<div class="rm-person"><span class="av">' + avatar(p.photo_url) + '</span><div class="flex-grow-1"><div class="nm">' + esc(p.name) + '</div><div class="rl">' + esc(p.role || '') + '</div></div><div class="ct text-end">' + (p.phone ? '<div>' + esc(p.phone) + '</div>' : '') + (p.email ? '<div>' + esc(p.email) + '</div>' : '') + '</div>' + menu + '</div>';
         });
         html += '</div>';
       });
       view.innerHTML = html;
+      if (RO) return;
       view.querySelector('[data-add]').addEventListener('click', function () { openPersonEditor({ id: '', kind: 'MANUAL', ref_id: '', name: '', role: '', phone: '', email: '', photo_url: '' }); });
       view.querySelectorAll('[data-pedit]').forEach(function (b) { b.addEventListener('click', function () { openPersonEditor(JSON.parse(JSON.stringify(personById(b.getAttribute('data-pedit'))))); }); });
       view.querySelectorAll('[data-pdel]').forEach(function (b) { b.addEventListener('click', function () { if (!confirm('¿Eliminar del personal?')) return; postJson(ep('/personal/delete'), { id: b.getAttribute('data-pdel') }).then(apply); }); });
@@ -623,6 +637,74 @@
       if (!p.name) { alert('Falta el nombre.'); return; }
       var i = bs('rmPersonModal'); if (i) i.hide();
       postJson(ep('/personal'), p).then(apply);
+    }
+
+    // ================================================================ COMPARTIR
+    function openShareModal() {
+      var m = openModal('rmShareModal', 'modal-md', 'Compartir hoja de ruta', '<div class="text-muted small mb-2">Enlace de <strong>solo lectura</strong>: se ve todo (agenda, logística, hoteles y personal) y se pueden descargar los adjuntos, sin poder editar nada.</div><div data-share-body class="small">Cargando…</div>', []);
+      var body = m.querySelector('[data-share-body]');
+      function render(resp) {
+        if (!resp || !resp.ok) { body.innerHTML = '<div class="text-danger">No se pudo generar el enlace.</div>'; return; }
+        if (!resp.url) {
+          body.innerHTML = '<div class="mb-2 text-muted">No hay ningún enlace activo.</div>';
+          body.appendChild(btn('Generar enlace', 'btn-primary btn-sm', function () { act('ensure'); }));
+          return;
+        }
+        body.innerHTML = '<div class="input-group mb-2"><input class="form-control" readonly value="' + esc(resp.url) + '"><button class="btn btn-outline-secondary" type="button" data-copy><i class="fa fa-copy"></i></button></div>'
+          + '<div class="d-flex gap-2 flex-wrap"><a class="btn btn-sm btn-outline-primary" href="' + esc(resp.url) + '" target="_blank"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir</a>'
+          + '<button class="btn btn-sm btn-outline-secondary" type="button" data-regen><i class="fa fa-rotate me-1"></i>Regenerar</button>'
+          + '<button class="btn btn-sm btn-outline-danger" type="button" data-revoke><i class="fa fa-ban me-1"></i>Anular</button></div>';
+        body.querySelector('[data-copy]').addEventListener('click', function () { var inp = body.querySelector('input'); inp.select(); try { if (navigator.clipboard) navigator.clipboard.writeText(resp.url); else document.execCommand('copy'); } catch (_) {} this.innerHTML = '<i class="fa fa-check"></i>'; });
+        body.querySelector('[data-regen]').addEventListener('click', function () { if (!confirm('¿Regenerar el enlace? El anterior dejará de funcionar.')) return; act('regenerate'); });
+        body.querySelector('[data-revoke]').addEventListener('click', function () { if (!confirm('¿Anular el enlace? Dejará de funcionar.')) return; act('revoke'); });
+      }
+      function act(action) { body.innerHTML = '<div class="text-muted small">Un momento…</div>'; postJson(ep('/enlace'), { action: action }).then(render); }
+      act('ensure');
+    }
+
+    // ================================================================ CONFIGURAR DÍAS
+    function openDaysConfig() {
+      function pad(n) { return (n < 10 ? '0' : '') + n; }
+      function ymd(dt) { return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()); }
+      function parseYmd(s) { var p = String(s).split('-'); return new Date(+p[0], (+p[1]) - 1, +p[2]); }
+      var base = {}; BASE_DAYS.forEach(function (d) { base[String(d).slice(0, 10)] = 1; });
+      var content = {};
+      (P.agenda || []).forEach(function (it) { if (it.day) content[String(it.day).slice(0, 10)] = 1; var t = it.transport || {}; if (it.day && t.ends_next_day) { var nd = parseYmd(String(it.day).slice(0, 10)); nd.setDate(nd.getDate() + 1); content[ymd(nd)] = 1; } });
+      (P.hotels || []).forEach(function (h) { (h.days || []).forEach(function (d) { if (d) content[String(d).slice(0, 10)] = 1; }); });
+      function locked(d) { return !!(base[d] || content[d]); }
+      var sel = {}; DAYS.forEach(function (d) { sel[d.date] = 1; });
+      var firstDay = DAYS.length ? parseYmd(DAYS[0].date) : new Date();
+      var cursor = new Date(firstDay.getFullYear(), firstDay.getMonth(), 1);
+      var MON = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+      var WD = ['L', 'M', 'X', 'J', 'V', 'S', 'D'];
+      var m = openModal('rmDaysModal', 'modal-md', 'Configurar días', '<div data-cal></div><div class="text-muted small mt-2">Marca días para añadirlos. Los días del evento y los que ya tienen actividades u hoteles no se pueden quitar.</div>', [btn('Cancelar', 'btn-outline-secondary', function () { var i = bs('rmDaysModal'); if (i) i.hide(); }), btn('Guardar', 'btn-primary', save)]);
+      var calBox = m.querySelector('[data-cal]');
+      function draw() {
+        var y = cursor.getFullYear(), mo = cursor.getMonth();
+        var startDow = (new Date(y, mo, 1).getDay() + 6) % 7;
+        var dim = new Date(y, mo + 1, 0).getDate();
+        var h = '<div class="d-flex align-items-center justify-content-between mb-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-prev><i class="fa fa-chevron-left"></i></button><div class="fw-semibold text-capitalize">' + esc(MON[mo]) + ' ' + y + '</div><button type="button" class="btn btn-sm btn-outline-secondary" data-next><i class="fa fa-chevron-right"></i></button></div>';
+        h += '<div class="rm-calgrid">';
+        WD.forEach(function (w) { h += '<div class="rm-calwd">' + w + '</div>'; });
+        var i;
+        for (i = 0; i < startDow; i++) h += '<div></div>';
+        for (var dn = 1; dn <= dim; dn++) {
+          var key = ymd(new Date(y, mo, dn));
+          var on = !!sel[key], lk = locked(key);
+          h += '<div class="rm-calcell' + (on ? ' on' : '') + (lk ? ' locked' : '') + '" data-d="' + key + '"' + (lk ? ' title="No se puede quitar"' : '') + '>' + dn + (lk && on ? ' <i class="fa fa-lock"></i>' : '') + '</div>';
+        }
+        h += '</div>';
+        calBox.innerHTML = h;
+        calBox.querySelector('[data-prev]').addEventListener('click', function () { cursor = new Date(y, mo - 1, 1); draw(); });
+        calBox.querySelector('[data-next]').addEventListener('click', function () { cursor = new Date(y, mo + 1, 1); draw(); });
+        calBox.querySelectorAll('[data-d]').forEach(function (c) { c.addEventListener('click', function () { var k = c.getAttribute('data-d'); if (locked(k)) return; if (sel[k]) delete sel[k]; else sel[k] = 1; draw(); }); });
+      }
+      draw();
+      function save() {
+        var extra = Object.keys(sel).filter(function (d) { return sel[d] && !base[d]; });
+        var i = bs('rmDaysModal'); if (i) i.hide();
+        postJson(ep('/dias'), { days: extra }).then(apply);
+      }
     }
 
     // ---------------------------------------------------------------- init

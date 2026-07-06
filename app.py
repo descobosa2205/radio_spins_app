@@ -20206,6 +20206,35 @@ def concert_artwork_asset_download(cid, asset_id):
         session.close()
 
 
+@app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/primary', endpoint='concert_artwork_asset_primary')
+@admin_required
+def concert_artwork_asset_primary(cid, asset_id):
+    if not (is_master() or can_edit_concerts()):
+        return forbid('Tu usuario no tiene permisos para editar la cartelería.')
+    session = db()
+    try:
+        asset = (
+            session.query(ConcertArtworkAsset)
+            .join(ConcertArtworkRequest, ConcertArtworkRequest.id == ConcertArtworkAsset.artwork_request_id)
+            .filter(ConcertArtworkRequest.concert_id == to_uuid(cid), ConcertArtworkAsset.id == to_uuid(asset_id))
+            .first()
+        )
+        if not asset:
+            flash('Formato no encontrado.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+        request_row = session.get(ConcertArtworkRequest, asset.artwork_request_id)
+        for other in list(getattr(request_row, 'assets', None) or []):
+            other.is_primary = (other.id == asset.id)
+        session.commit()
+        flash('Cartel principal actualizado.', 'success')
+    except Exception as exc:
+        session.rollback()
+        flash(f'Error al marcar el cartel principal: {exc}', 'danger')
+    finally:
+        session.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='carteleria'))
+
+
 @app.post('/conciertos/<cid>/carteleria/assets/<asset_id>/delete', endpoint='concert_artwork_asset_delete')
 @admin_required
 def concert_artwork_asset_delete(cid, asset_id):
@@ -36340,18 +36369,13 @@ def _concert_poster_url(concert) -> str:
     images = [a for a in assets if _is_image(a) and (getattr(a, "file_url", None) or "").strip()]
     if not images:
         return ""
-
-    def _score(a):
-        lbl = (getattr(a, "format_label", None) or "").lower()
-        if "principal" in lbl:
-            return 0
-        if "cartel" in lbl:
-            return 1
-        if "vertical" in lbl:
-            return 2
-        return 3
+    # 1) El marcado como principal manualmente. 2) Si solo hay uno, ese. 3) Fallback: el más reciente.
+    for a in images:
+        if bool(getattr(a, "is_primary", False)):
+            return (getattr(a, "file_url", "") or "").strip()
+    if len(images) == 1:
+        return (getattr(images[0], "file_url", "") or "").strip()
     images.sort(key=lambda a: getattr(a, "created_at", None) or datetime.min, reverse=True)
-    images.sort(key=_score)
     return (getattr(images[0], "file_url", "") or "").strip()
 
 

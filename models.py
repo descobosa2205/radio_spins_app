@@ -1737,6 +1737,8 @@ class ConcertArtworkAsset(Base):
     file_url = Column(Text, nullable=False)
     original_name = Column(Text)
     mime_type = Column(Text)
+    # Cartel principal (el que se muestra en cabeceras). Si solo hay uno, ese es el principal.
+    is_primary = Column(Boolean, nullable=False, server_default=text("false"))
     is_archived = Column(Boolean, nullable=False, server_default=text("false"))
     archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -4879,7 +4881,8 @@ def ensure_concert_artwork_schema():
         """
         ALTER TABLE IF EXISTS concert_artwork_assets
             ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false,
-            ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+            ADD COLUMN IF NOT EXISTS archived_at timestamptz,
+            ADD COLUMN IF NOT EXISTS is_primary boolean NOT NULL DEFAULT false;
         """,
         'CREATE INDEX IF NOT EXISTS idx_concert_artwork_assets_is_archived ON concert_artwork_assets(is_archived);',
     ]

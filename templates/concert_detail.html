@@ -584,7 +584,7 @@
                   <div class="border rounded p-3 h-100">
                     <div class="d-flex justify-content-between align-items-start gap-2">
                       <div>
-                        <div class="fw-semibold">{{ asset.format_label }}</div>
+                        <div class="fw-semibold">{{ asset.format_label }}{% if (current_artwork_assets|length == 1) or asset.is_primary %}<span class="badge text-bg-warning text-dark ms-2" title="Se muestra en las cabeceras (invitaciones, enlaces)"><i class="fa fa-star me-1"></i>Cartel principal</span>{% endif %}</div>
                         <div class="text-muted small text-break">{{ asset.original_name or asset.format_label }}</div>
                         <div class="small text-muted mt-1">{{ asset.created_at.strftime('%d/%m/%Y %H:%M') if asset.created_at else '—' }}</div>
                       </div>
@@ -595,6 +595,13 @@
                           <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
                           <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
                           <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
+                          {% if CAN_EDIT_CONCERTS and (current_artwork_assets|length > 1) and not asset.is_primary %}
+                            <li>
+                              <form method="post" action="{{ url_for('concert_artwork_asset_primary', cid=concert.id, asset_id=asset.id) }}">
+                                <button type="submit" class="dropdown-item"><i class="fa fa-star me-2"></i>Marcar como cartel principal</button>
+                              </form>
+                            </li>
+                          {% endif %}
                           {% if CAN_EDIT_CONCERTS %}
                             <li><hr class="dropdown-divider"></li>
                             <li>

@@ -60,7 +60,11 @@
       <h5 class="mb-3">Peticiones</h5>
       {% if grouped_requests %}
         <div class="inv-request-list mb-4"{% if open_for_changes %} data-inv-dnd data-recat-base="{{ url_for('public_invitation_request_recategorize', token=link.token, request_id='__REQ__') }}"{% endif %}>
-          {% for g in grouped_requests %}
+          {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown'),('','Sin categoría','fa-circle-question')] %}
+          {% set zgroups = grouped_requests|selectattr('zone','equalto',zkey)|list %}
+          {% if zgroups %}
+          <h6 class="mb-2 mt-2 d-flex align-items-center gap-2"><i class="fa {{ zicon }} text-danger"></i>{{ zlabel }}</h6>
+          {% for g in zgroups %}
           <div class="inv-cat-group" data-cat-drop="{{ g.cat_id }}">
             <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span></div>
             <div class="list-group inv-cat-dropzone">
@@ -109,6 +113,8 @@
             {% endfor %}
             </div>
           </div>
+          {% endfor %}
+          {% endif %}
           {% endfor %}
         </div>
       {% else %}

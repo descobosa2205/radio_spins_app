@@ -39350,10 +39350,13 @@ def _invitation_group_requests(requests: list[dict], categories) -> None:
     requests.sort(key=lambda x: (x.get('group_order', 10000), _invitation_normalize_search(x.get('guest_name') or '')))
 
 
-def _invitation_grouped(requests: list[dict], categories) -> list:
+def _invitation_grouped(requests: list[dict], categories, allowed_ids=None) -> list:
     """Agrupa para pintar ZONAS DE DROP: un grupo por categoría (aunque esté vacía, para poder soltar
     ahí) en su orden, y al final 'Sin categoría' SOLO si hay solicitudes sin categoría. Requiere que
-    `requests` ya venga con group_key (via _invitation_group_requests)."""
+    `requests` ya venga con group_key (via _invitation_group_requests).
+    Si `allowed_ids` no es None, solo se pintan las categorías permitidas (las disponibles para pedir
+    en el enlace); las que no lo estén se conservan solo si ya tienen peticiones (para no ocultarlas)."""
+    allowed = set(str(x) for x in allowed_ids) if allowed_ids is not None else None
     colors = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
     by_key = {}
     for r in requests:
@@ -39362,12 +39365,18 @@ def _invitation_grouped(requests: list[dict], categories) -> list:
     for c in categories:
         cid = str(c.id)
         rows = by_key.get(cid, [])
+        if allowed is not None and cid not in allowed and not rows:
+            continue
+        zone = _invitation_category_zone(c)
         groups.append({
             "cat_id": cid,
             "name": c.name,
             "color": colors.get(cid, '#9ca3af'),
             "total": sum(_safe_int(r.get('qty_total')) for r in rows),
             "rows": rows,
+            "zone": zone,
+            "zone_label": INVITATION_ZONE_LABELS.get(zone, "Pista"),
+            "zone_icon": INVITATION_ZONE_ICONS.get(zone, "fa-people-group"),
         })
     uncat = by_key.get('', [])
     if uncat:
@@ -39377,6 +39386,9 @@ def _invitation_grouped(requests: list[dict], categories) -> list:
             "color": "#9ca3af",
             "total": sum(_safe_int(r.get('qty_total')) for r in uncat),
             "rows": uncat,
+            "zone": "",
+            "zone_label": "Sin categoría",
+            "zone_icon": "fa-circle-question",
         })
     return groups
 
@@ -43074,7 +43086,7 @@ def public_invitation_request_link(token):
             categories=categories,
             limits=limits,
             requests=req_payloads,
-            grouped_requests=_invitation_grouped(req_payloads, categories),
+            grouped_requests=_invitation_grouped(req_payloads, categories, allowed_ids=[c['id'] for c in limits['categories']]),
             status_labels=INVITATION_STATUS_LABELS,
             og=og,
         )

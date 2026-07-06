@@ -27,6 +27,7 @@ from flask import (
     redirect,
     url_for,
     flash,
+    get_flashed_messages,
     abort,
     jsonify,
     session,
@@ -1091,6 +1092,65 @@ def home():
     return render_template("home.html")
 
 # ---------- ARTISTAS ----------
+def _active_artist_ids(session_db) -> set:
+    """IDs (str) de artistas «en activo»: con canción o álbum de los últimos 6 meses, o con
+    conciertos / acciones / promociones activos o próximos. Se usa para filtrar el listado de
+    artistas (por defecto solo activos, con opción de ver inactivos)."""
+    today = today_local()
+    cutoff = today - timedelta(days=183)
+    ids = set()
+    try:
+        for (aid,) in (
+            session_db.query(SongArtist.artist_id)
+            .join(Song, Song.id == SongArtist.song_id)
+            .filter(or_(Song.release_date >= cutoff, Song.created_at >= cutoff))
+            .distinct().all()
+        ):
+            if aid:
+                ids.add(str(aid))
+        for (aid,) in (
+            session_db.query(Album.artist_id)
+            .filter(or_(Album.release_date >= cutoff, Album.created_at >= cutoff))
+            .distinct().all()
+        ):
+            if aid:
+                ids.add(str(aid))
+        # Conciertos próximos o en curso (artista principal + co-artistas del JSONB).
+        for aid, aids in session_db.query(Concert.artist_id, Concert.artist_ids).filter(Concert.date >= today).all():
+            if aid:
+                ids.add(str(aid))
+            for x in (aids or []):
+                if x:
+                    ids.add(str(x))
+        # Acciones no archivadas, en curso/próximas (o aún sin fecha).
+        for (aids,) in (
+            session_db.query(CompanyAction.artist_ids)
+            .filter(
+                CompanyAction.archived_at.is_(None),
+                or_(CompanyAction.end_date >= today, CompanyAction.start_date >= today, CompanyAction.start_date.is_(None)),
+            ).all()
+        ):
+            for x in (aids or []):
+                if x:
+                    ids.add(str(x))
+        # Promociones/marketing activas.
+        for (aids,) in (
+            session_db.query(Promotion.artist_ids)
+            .filter(
+                Promotion.archived_at.is_(None),
+                func.upper(func.coalesce(Promotion.status, "")) == "ACTIVE",
+                or_(Promotion.ends_on >= today, Promotion.ends_on.is_(None)),
+            ).all()
+        ):
+            for x in (aids or []):
+                if x:
+                    ids.add(str(x))
+    except Exception:
+        # Nunca romper el listado por un fallo al calcular actividad.
+        pass
+    return ids
+
+
 @app.route("/artistas", methods=["GET", "POST"])
 @admin_required
 def artists_view():
@@ -1128,9 +1188,21 @@ def artists_view():
         finally:
             session_db.close()
         return redirect(url_for("artists_view"))
-    artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    show_inactive = _truthy(request.args.get("show_inactive"))
+    all_artists = session_db.query(Artist).order_by(Artist.name.asc()).all()
+    active_ids = _active_artist_ids(session_db)
+    active_count = sum(1 for a in all_artists if str(a.id) in active_ids)
+    inactive_count = len(all_artists) - active_count
+    artists = all_artists if show_inactive else [a for a in all_artists if str(a.id) in active_ids]
     session_db.close()
-    return render_template("artists.html", artists=artists)
+    return render_template(
+        "artists.html",
+        artists=artists,
+        show_inactive=show_inactive,
+        active_ids=active_ids,
+        active_count=active_count,
+        inactive_count=inactive_count,
+    )
 
 
 @app.get("/artistas/<artist_id>", endpoint="artist_detail_view")

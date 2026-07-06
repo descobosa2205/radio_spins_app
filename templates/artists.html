@@ -16,6 +16,15 @@
   <div class="card-body">
     <label class="form-label">Buscar artista</label>
     <input type="search" class="form-control" id="artistsSearchInput" placeholder="Escribe para filtrar por nombre..." autocomplete="off">
+    <div class="d-flex align-items-center gap-2 flex-wrap mt-3">
+      {% if show_inactive %}
+        <a href="{{ url_for('artists_view') }}" class="btn btn-sm btn-primary"><i class="fa fa-bolt me-1"></i>Ver solo activos</a>
+        <span class="small text-muted">Mostrando <strong>todos</strong> ({{ active_count }} activos · {{ inactive_count }} inactivos)</span>
+      {% else %}
+        <a href="{{ url_for('artists_view', show_inactive=1) }}" class="btn btn-sm btn-outline-secondary"><i class="fa fa-eye me-1"></i>Ver también inactivos{% if inactive_count %} ({{ inactive_count }}){% endif %}</a>
+        <span class="small text-muted">Mostrando solo <strong>activos</strong> ({{ active_count }}) · con actividad reciente o próxima</span>
+      {% endif %}
+    </div>
   </div>
 </div>
 
@@ -30,6 +39,7 @@
             <div class="fw-semibold">{{ a.name }}</div>
             <div class="small">
               {% if a.is_international %}<span class="badge text-bg-light border"><i class="fa fa-globe me-1"></i>Internacional</span>{% else %}<span class="badge text-bg-light border"><i class="fa fa-flag me-1"></i>Nacional</span>{% endif %}
+              {% if show_inactive and (a.id|string not in active_ids) %}<span class="badge text-bg-secondary"><i class="fa fa-moon me-1"></i>Inactivo</span>{% endif %}
             </div>
           </div>
           <div class="text-muted"><i class="fa fa-chevron-right"></i></div>

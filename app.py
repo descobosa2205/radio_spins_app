@@ -276,6 +276,8 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_guest_list_status",
     "public_invitation_request_submit",
     "public_invitation_request_cancel",
+    "public_invitation_request_update",
+    "public_invitation_request_resend",
     "public_song_master_delivery",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -24208,6 +24210,20 @@ def api_entity_link_search():
                 payload = _entity_link_payload(session_db, "publishing", item.id)
                 if payload:
                     rows.append(payload)
+        elif entity_type == "personal":
+            # Personal de la oficina (User + UserProfile).
+            query = session_db.query(User, UserProfile).outerjoin(UserProfile, UserProfile.user_id == User.id)
+            if q:
+                query = query.filter(or_(
+                    _sa_contains_text(User.email, q),
+                    _sa_contains_text(UserProfile.nick, q),
+                    _sa_contains_text(UserProfile.first_name, q),
+                    _sa_contains_text(UserProfile.last_name, q),
+                ))
+            for user, _profile in query.order_by(User.email.asc()).limit(30).all():
+                payload = _entity_link_payload(session_db, "personal", user.id)
+                if payload:
+                    rows.append(payload)
         return jsonify(rows)
     finally:
         session_db.close()
@@ -28118,7 +28134,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_delivery", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -37122,6 +37138,7 @@ APP33_ENTITY_LINK_TYPES = {
     "venue": {"label": "Recinto", "icon": "fa-location-dot"},
     "ticketer": {"label": "Ticketera", "icon": "fa-ticket"},
     "publishing": {"label": "Editorial", "icon": "fa-pen-nib"},
+    "personal": {"label": "Personal", "icon": "fa-user"},
 }
 APP33_ENTITY_LINK_ALIASES = {
     "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
@@ -37130,6 +37147,7 @@ APP33_ENTITY_LINK_ALIASES = {
     "artista": "artist",
     "medio": "media", "recinto": "venue", "ticketera": "ticketer", "editorial": "publishing",
     "publishing_company": "publishing",
+    "user": "personal", "usuario": "personal", "oficina": "personal", "empleado": "personal", "staff": "personal",
 }
 
 def _entity_link_type(raw: str | None) -> str:
@@ -37201,6 +37219,16 @@ def _entity_link_payload(session_db, entity_type: str | None, entity_id) -> dict
             subtitle = "Editorial"
             logo_url = row.logo_url or ""
             href = url_for("publishing_company_detail_view", pcid=row.id)
+    elif etype == "personal":
+        # Persona de la oficina (User + UserProfile; comparten id user_id).
+        user = session_db.get(User, eid)
+        profile = session_db.get(UserProfile, eid)
+        if user:
+            row = user
+            label = (_profile_full_name(profile) if profile else "") or (getattr(profile, "nick", None) if profile else None) or (user.email or "Personal")
+            subtitle = ", ".join(getattr(profile, "departments", None) or []) if profile else (user.email or "")
+            logo_url = (getattr(profile, "photo_url", None) or "") if profile else ""
+            href = url_for("personnel_detail_view", user_id=user.id)
     if not row:
         return None
     return {
@@ -39122,9 +39150,39 @@ def _invitation_parse_deadline(value: str | None):
             return None
 
 
+def _concert_start_datetime(concert) -> datetime | None:
+    """Fecha+hora de comienzo del evento (para el auto-bloqueo del enlace).
+    Usa show_time o doors_time; si no hay hora, cae al final del día del evento."""
+    d = getattr(concert, "date", None)
+    if not d:
+        return None
+    raw = (getattr(concert, "show_time", None) or getattr(concert, "doors_time", None) or "").strip()
+    hh, mm = 23, 59
+    m = re.match(r"^(\d{1,2}):(\d{2})", raw)
+    if m:
+        try:
+            hh, mm = int(m.group(1)), int(m.group(2))
+        except Exception:
+            hh, mm = 23, 59
+    try:
+        return datetime(d.year, d.month, d.day, hh, mm, tzinfo=TZ_MADRID)
+    except Exception:
+        return None
+
+
 def _invitation_link_state(link: InvitationPublicLink) -> tuple[str, str]:
     if (link.status or "").upper() == "CANCELLED":
         return "cancelled", "Este enlace ha sido anulado y ya no está disponible. Por favor contacte con quien se lo ha enviado."
+    # Bloqueo manual: congela nuevas peticiones y cambios sin anular el enlace.
+    if bool(getattr(link, "locked", False)):
+        return "locked", "El enlace está bloqueado temporalmente: no admite nuevas peticiones ni cambios por ahora."
+    # Auto-bloqueo a la hora de comienzo del evento.
+    try:
+        start_dt = _concert_start_datetime(getattr(link, "concert", None))
+        if start_dt is not None and start_dt <= _now_madrid():
+            return "locked", "El evento ya ha comenzado: el enlace no admite nuevas peticiones ni cambios."
+    except Exception:
+        pass
     try:
         concert = getattr(link, "concert", None)
         if concert is not None and not _invitation_event_is_active_for_requests(concert):
@@ -39143,9 +39201,41 @@ def _invitation_link_state(link: InvitationPublicLink) -> tuple[str, str]:
     return "active", ""
 
 
-def _invitation_public_limits(link: InvitationPublicLink, categories: list[InvitationCategory], requests: list[InvitationRequest] | None = None) -> dict:
+def _invitation_event_available_by_category(session_db, concert: Concert, categories: list[InvitationCategory]) -> dict:
+    """Aforo disponible del EVENTO por categoría (capacidad - comprometidas - solicitadas activas).
+    Se usa para las opciones 'solo con aforo' y 'limitar a aforo' del enlace público."""
+    uploaded = {}
+    for cid, count in (
+        session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
+        .filter(InvitationTicket.concert_id == concert.id)
+        .group_by(InvitationTicket.category_id)
+        .all()
+    ):
+        uploaded[str(cid)] = int(count or 0)
+    used = defaultdict(int)
+    for x in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).filter(InvitationCommitment.status != "ANULADAS").all():
+        for cid, q in _json_dict(x.quantities_json).items():
+            if str(cid).upper() != "TOTAL":
+                used[str(cid)] += _safe_int(q)
+    for x in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).all():
+        if (x.status or "") not in INVITATION_ACTIVE_REQUEST_STATUSES:
+            continue
+        for cid, q in _json_dict(x.quantities_json).items():
+            if str(cid).upper() != "TOTAL":
+                used[str(cid)] += _safe_int(q)
+    out = {}
+    for c in categories:
+        cid = str(c.id)
+        cap = max(_safe_int(c.qty_contract) + _safe_int(c.qty_extra), uploaded.get(cid, 0))
+        out[cid] = max(cap - used.get(cid, 0), 0)
+    return out
+
+
+def _invitation_public_limits(link: InvitationPublicLink, categories: list[InvitationCategory], requests: list[InvitationRequest] | None = None, event_available_by_cat: dict | None = None, event_available_total: int | None = None) -> dict:
     category_limits = _json_dict(link.category_limits_json)
     enabled = set(str(x) for x in _json_list(link.categories_enabled_json))
+    only_available = bool(getattr(link, "show_only_available", False))
+    cap_available = bool(getattr(link, "limit_to_available", False))
     used_total = 0
     used_by_category = defaultdict(int)
     for row in requests or []:
@@ -39165,19 +39255,76 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
         limit = _safe_int(category_limits.get(cid), None) if link.limit_mode == "CATEGORIES" else None
         if limit is not None and limit <= 0:
             continue
+        available = None if limit is None else max(limit - used_by_category.get(cid, 0), 0)
+        event_avail = None
+        if event_available_by_cat is not None and cid in event_available_by_cat:
+            event_avail = event_available_by_cat.get(cid)
+            if cap_available:
+                # Limitar lo solicitable al aforo real disponible del evento.
+                available = event_avail if available is None else min(available, event_avail)
+                if limit is None:
+                    limit = event_avail
+        if only_available and event_avail is not None and event_avail <= 0:
+            continue  # Solo mostrar categorías con aforo disponible.
         rows.append({
             "id": cid,
             "name": cat.name,
             "limit": limit,
             "used": used_by_category.get(cid, 0),
-            "available": None if limit is None else max(limit - used_by_category.get(cid, 0), 0),
+            "available": available,
+            "event_available": event_avail,
             "blocked": bool(getattr(cat, "requests_blocked", False)),
             "zone": _invitation_category_zone(cat),
             "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
             "zone_icon": INVITATION_ZONE_ICONS.get(_invitation_category_zone(cat), "fa-people-group"),
         })
     total_limit = _safe_int(link.total_limit) if link.limit_mode == "TOTAL" else None
-    return {"categories": rows, "total_limit": total_limit, "used_total": used_total, "available_total": None if total_limit is None else max(total_limit - used_total, 0)}
+    available_total = None if total_limit is None else max(total_limit - used_total, 0)
+    if cap_available and event_available_total is not None:
+        available_total = event_available_total if available_total is None else min(available_total, event_available_total)
+    return {"categories": rows, "total_limit": total_limit, "used_total": used_total, "available_total": available_total}
+
+
+def _invitation_group_requests(requests: list[dict], categories) -> None:
+    """Agrupa payloads de solicitud por categoría 'principal' (la de más entradas), añade
+    group_key/name/color/order/total y ordena por grupo + alfabético (muta la lista). Reutilizado
+    por la gestión interna de invitados y por la página pública del enlace."""
+    _cat_order = {str(c.id): i for i, c in enumerate(categories)}
+    _cat_color = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+    _cat_name = {str(c.id): c.name for c in categories}
+
+    def _primary(item):
+        q = item.get('quantities') or {}
+        best, best_qty = '', -1
+        for k, v in q.items():
+            if str(k).upper() == 'TOTAL' or str(k) not in _cat_name:
+                continue
+            try:
+                iv = int(v or 0)
+            except Exception:
+                iv = 0
+            if iv > best_qty:
+                best, best_qty = str(k), iv
+        return best
+
+    totals = {}
+    for item in requests:
+        pk = _primary(item)
+        item['group_key'] = pk
+        item['group_name'] = _cat_name.get(pk, 'General')
+        item['group_color'] = _cat_color.get(pk, '#9ca3af')
+        item['group_order'] = _cat_order.get(pk, 9999)
+        q = item.get('quantities') or {}
+        try:
+            _n = int(q.get(pk) or 0) if pk else 0
+        except Exception:
+            _n = 0
+        if _n <= 0:
+            _n = _safe_int(item.get('qty_total'))
+        totals[pk] = totals.get(pk, 0) + max(_n, 0)
+    for item in requests:
+        item['group_total'] = totals.get(item.get('group_key'), 0)
+    requests.sort(key=lambda x: (x.get('group_order', 9999), _invitation_normalize_search(x.get('guest_name') or '')))
 
 
 def _invitation_upsert_category_rows_from_request(session_db, concert: Concert, form) -> list[InvitationCategory]:
@@ -40146,48 +40293,9 @@ def invitation_event_detail(concert_id):
             item.update(_invitation_request_kind_flags(session_db, row, categories))
             item['is_denied'] = is_denied
             requests.append(item)
-        # Agrupación del listado por TIPO de invitación (categoría) con una franja de color estable
-        # a la izquierda + orden alfabético dentro de cada grupo. La categoría "principal" de una
-        # solicitud es la que más entradas tiene; las de solo total (sin categoría) van a "General".
-        _cat_order = {str(c.id): i for i, c in enumerate(categories)}
-        _cat_color = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
-        _cat_name = {str(c.id): c.name for c in categories}
-
-        def _request_primary_category(item):
-            q = item.get('quantities') or {}
-            best, best_qty = '', -1
-            for k, v in q.items():
-                if str(k).upper() == 'TOTAL' or str(k) not in _cat_name:
-                    continue
-                try:
-                    iv = int(v or 0)
-                except Exception:
-                    iv = 0
-                if iv > best_qty:
-                    best, best_qty = str(k), iv
-            return best
-
-        _group_totals = {}
-        for item in requests:
-            pk = _request_primary_category(item)
-            item['group_key'] = pk
-            item['group_name'] = _cat_name.get(pk, 'General')
-            item['group_color'] = _cat_color.get(pk, '#9ca3af')
-            item['group_order'] = _cat_order.get(pk, 9999)
-            # Total de invitaciones solicitadas de ese tipo (cantidad de la categoría del grupo; si
-            # la solicitud es solo total, su total).
-            q = item.get('quantities') or {}
-            try:
-                _n = int(q.get(pk) or 0) if pk else 0
-            except Exception:
-                _n = 0
-            if _n <= 0:
-                _n = _safe_int(item.get('qty_total'))
-            _group_totals[pk] = _group_totals.get(pk, 0) + max(_n, 0)
-        for item in requests:
-            item['group_total'] = _group_totals.get(item.get('group_key'), 0)
-        # Orden: por grupo (orden de configuración de categorías) y, dentro, alfabético por invitado.
-        requests.sort(key=lambda x: (x.get('group_order', 9999), _invitation_normalize_search(x.get('guest_name') or '')))
+        # Agrupación del listado por TIPO de invitación (categoría) con franja de color + orden
+        # alfabético (helper reutilizado también por la página pública del enlace).
+        _invitation_group_requests(requests, categories)
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
         guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
         guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')
@@ -40204,21 +40312,40 @@ def invitation_event_detail(concert_id):
                 'created_by': glink.created_by_nick or '',
             })
         links = []
+        _state_meta = {
+            'active': ('Activo', 'success'),
+            'locked': ('Bloqueado', 'warning'),
+            'expired': ('Vencido', 'secondary'),
+            'cancelled': ('Anulado', 'danger'),
+        }
         for link in session_db.query(InvitationPublicLink).filter(InvitationPublicLink.concert_id == concert.id).order_by(InvitationPublicLink.created_at.desc()).all():
             state, msg = _invitation_link_state(link)
             limits = _invitation_public_limits(link, categories, [])
+            url = _invitation_public_link_url(link)
+            target_promoter = link.target_promoter
+            target_link_summary = _promoter_link_summary(session_db, target_promoter) if target_promoter else {}
+            share_msg = f"Solicita tus invitaciones aquí:\n{url}"
+            state_label, state_badge = _state_meta.get(state, ('—', 'secondary'))
             links.append({
                 "id": str(link.id),
                 "token": link.token,
-                "url": _invitation_public_link_url(link),
-                "target_name": link.target_name or (link.target_promoter.nick if link.target_promoter else '') or '—',
+                "url": url,
+                "target_name": link.target_name or (target_promoter.nick if target_promoter else '') or '—',
                 "target_email": link.target_email or '',
+                "target_photo_url": (getattr(target_promoter, 'logo_url', None) or '') if target_promoter else '',
+                "target_promoter_id": str(link.target_promoter_id) if link.target_promoter_id else '',
+                "target_link_summary": target_link_summary,
+                "target_link_summary_text": _promoter_link_summary_text(target_link_summary) if target_link_summary else '',
                 "requested_by": link.requested_by_nick or link.requested_by_email or '—',
+                "requested_by_photo_url": link.requested_by_photo_url or url_for('static', filename='img/placeholder_photo.png'),
                 "deadline_label": _invitation_display_datetime(link.deadline_at),
+                "locked": bool(getattr(link, 'locked', False)),
                 "state": state,
-                "state_label": "Activo" if state == 'active' else ("Vencido" if state == 'expired' else "Anulado"),
-                "state_badge": "success" if state == 'active' else "danger",
+                "state_label": state_label,
+                "state_badge": state_badge,
                 "limit_summary": _invitation_limits_summary(link, categories),
+                "whatsapp_url": 'https://wa.me/?text=' + quote_plus(share_msg),
+                "sms_url": 'sms:?&body=' + quote_plus(share_msg),
                 "message": msg,
                 "limits": limits,
             })
@@ -40415,6 +40542,52 @@ def invitation_category_save(concert_id):
     finally:
         session_db.close()
     return redirect(next_url or fallback_url)
+
+
+@app.get('/api/invitaciones/duplicados', endpoint='api_invitation_request_duplicates')
+def api_invitation_request_duplicates():
+    """Comprueba si el invitado (o alguien con nombre similar) ya tiene solicitudes en el evento.
+    Sirve para el aviso previo al crear una solicitud (app y enlace público)."""
+    guest_name = (request.args.get('guest_name') or '').strip()
+    guest_promoter_id = _safe_uuid(request.args.get('guest_promoter_id'))
+    token = (request.args.get('token') or '').strip()
+    session_db = db()
+    try:
+        concert = None
+        if token:
+            link = session_db.query(InvitationPublicLink).filter(InvitationPublicLink.token == token).first()
+            if link:
+                concert = link.concert or session_db.get(Concert, link.concert_id)
+        else:
+            if not session.get('user_id'):
+                return jsonify({'ok': False, 'matches': []}), 403
+            concert = session_db.get(Concert, _safe_uuid(request.args.get('concert_id')))
+        if not concert or (not guest_name and not guest_promoter_id):
+            return jsonify({'ok': True, 'matches': []})
+        rows = (
+            session_db.query(InvitationRequest)
+            .filter(InvitationRequest.concert_id == concert.id)
+            .filter(~InvitationRequest.status.in_(['RECHAZADAS', 'ANULADAS']))
+            .order_by(InvitationRequest.created_at.desc())
+            .all()
+        )
+        matches = []
+        for r in rows:
+            same_promoter = bool(guest_promoter_id and getattr(r, 'guest_promoter_id', None) and r.guest_promoter_id == guest_promoter_id)
+            sim = _similarity_score(guest_name, r.guest_name or '') if guest_name else 0.0
+            if not (same_promoter or sim >= 0.72):
+                continue
+            p = _invitation_request_payload(r, None)
+            matches.append({
+                'guest_name': p.get('guest_name') or r.guest_name or '',
+                'qty_total': p.get('qty_total') or 0,
+                'requester_nick': p.get('requester_nick') or '',
+                'requester_photo': p.get('requester_photo_url') or '',
+                'created_at_label': p.get('created_at_label') or '',
+            })
+        return jsonify({'ok': True, 'matches': matches})
+    finally:
+        session_db.close()
 
 
 @app.post('/invitaciones/solicitudes', endpoint='invitation_request_create')
@@ -40634,6 +40807,8 @@ def invitation_public_link_create():
             category_limits_json=category_limits,
             categories_enabled_json=categories_enabled,
             categorize_requests=_truthy(request.form.get('categorize_requests')) if request.form.get('categorize_requests') is not None else True,
+            show_only_available=_truthy(request.form.get('show_only_available')),
+            limit_to_available=_truthy(request.form.get('limit_to_available')),
             deadline_at=_invitation_parse_deadline(request.form.get('deadline_at')),
             status='ACTIVE',
         )
@@ -40679,6 +40854,8 @@ def invitation_public_link_update(link_id):
         link.category_limits_json = category_limits
         link.categories_enabled_json = categories_enabled
         link.categorize_requests = _truthy(request.form.get('categorize_requests')) if request.form.get('categorize_requests') is not None else True
+        link.show_only_available = _truthy(request.form.get('show_only_available'))
+        link.limit_to_available = _truthy(request.form.get('limit_to_available'))
         link.deadline_at = _invitation_parse_deadline(request.form.get('deadline_at'))
         link.updated_at = _now_madrid()
         session_db.commit()
@@ -40706,6 +40883,64 @@ def invitation_public_link_cancel(link_id):
         link.cancelled_by_user_id = _safe_uuid(session.get('user_id'))
         session_db.commit()
         flash('Enlace anulado.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=link.concert_id))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/enlaces/<link_id>/bloquear', endpoint='invitation_public_link_lock')
+@admin_required
+def invitation_public_link_lock(link_id):
+    session_db = db()
+    try:
+        link = session_db.get(InvitationPublicLink, to_uuid(link_id))
+        if not link:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, link.concert)
+        link.locked = not bool(getattr(link, 'locked', False))
+        link.updated_at = _now_madrid()
+        session_db.commit()
+        flash('Enlace bloqueado: no admite nuevas peticiones ni cambios.' if link.locked else 'Enlace reabierto.', 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=link.concert_id))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/enlaces/<link_id>/compartir-email', endpoint='invitation_public_link_share_email')
+@admin_required
+def invitation_public_link_share_email(link_id):
+    session_db = db()
+    try:
+        link = session_db.get(InvitationPublicLink, to_uuid(link_id))
+        if not link:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, link.concert)
+        concert = link.concert or session_db.get(Concert, link.concert_id)
+        recipients = _dedupe_valid_email_addresses(
+            (request.form.getlist('recipients') or [])
+            + re.split(r'[;,\s]+', request.form.get('extra_emails') or '')
+            + ([link.target_email] if link.target_email else [])
+        )
+        if not recipients:
+            flash('Añade al menos un destinatario (o guarda un email en el destinatario del enlace).', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=link.concert_id))
+        url = _invitation_public_link_url(link)
+        event = _invitation_event_payload(session_db, concert)
+        title = event.get('artist_names') or event.get('title') or 'el evento'
+        subject = f"Solicitud de invitaciones · {title}"
+        note = (request.form.get('note') or '').strip()
+        greeting = Markup.escape(link.target_name or 'Hola')
+        safe_title = Markup.escape(title)
+        safe_url = Markup.escape(url)
+        html = (
+            f"<p>Hola {greeting},</p>"
+            f"<p>Puedes solicitar tus invitaciones para <strong>{safe_title}</strong> desde este enlace:</p>"
+            f'<p><a href="{safe_url}">{safe_url}</a></p>'
+        )
+        if note:
+            html += f"<p>{Markup.escape(note)}</p>"
+        ok, err = _send_optional_email(recipients, subject, html)
+        flash('Enlace enviado por email.' if ok else f'No se pudo enviar: {err}', 'success' if ok else 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=link.concert_id))
     finally:
         session_db.close()
@@ -42599,17 +42834,51 @@ def public_invitation_request_link(token):
         session_db.commit()
         requests = session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).order_by(InvitationRequest.created_at.desc()).all()
         state, state_message = _invitation_link_state(link)
-        limits = _invitation_public_limits(link, categories, requests)
+        open_for_changes = (state == 'active')
+        event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+        event_avail_total = _invitation_event_counts(session_db, concert)['result']
+        limits = _invitation_public_limits(link, categories, requests, event_avail_by_cat, event_avail_total)
+        editable_statuses = {'SOLICITADAS', 'APROBADAS', 'ASIGNADAS'}
+        manage_statuses = {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        req_payloads = []
+        for r in requests:
+            rp = _invitation_request_payload(r, categories)
+            st = rp['status']
+            rp['can_edit'] = open_for_changes and st in editable_statuses
+            rp['can_cancel'] = open_for_changes and st not in {'ANULADAS', 'RECHAZADAS'}
+            rp['can_manage'] = st in manage_statuses and bool(r.delivery_token)
+            rp['delivery_url'] = _external_url_for('public_invitation_delivery', kind='r', token=r.delivery_token) if r.delivery_token else ''
+            rp['share_text'] = _invitation_share_text(session_db, concert, rp['guest_name'], rp['delivery_url']) if rp['can_manage'] else ''
+            req_payloads.append(rp)
+        _invitation_group_requests(req_payloads, categories)
+        # Open Graph para previsualización WhatsApp/SMS.
+        try:
+            card = _public_share_card(session_db, 'CONCERT', concert)
+        except Exception:
+            card = {}
+        event_payload = _invitation_event_payload(session_db, concert)
+        og_title = f"Solicitud de invitaciones · {event_payload.get('artist_names') or event_payload.get('title') or ''}".strip(' ·')
+        og_desc_parts = [x for x in [card.get('activity_label'), card.get('event_name') or card.get('city'), card.get('date_label')] if x]
+        if link.target_name:
+            og_desc_parts.append(f"para {link.target_name}")
+        og = {
+            'title': og_title,
+            'description': ' · '.join(og_desc_parts),
+            'image': card.get('artist_photo') or event_payload.get('poster_url') or '',
+        }
         return render_template(
             'public_invitation_request.html',
             link=link,
             link_state=state,
+            open_for_changes=open_for_changes,
             state_message=state_message,
-            event=_invitation_event_payload(session_db, concert),
+            event=event_payload,
+            event_logo=_invitation_event_logo_url(session_db, concert, external=True),
             categories=categories,
             limits=limits,
-            requests=[_invitation_request_payload(r, categories) for r in requests],
+            requests=req_payloads,
             status_labels=INVITATION_STATUS_LABELS,
+            og=og,
         )
     finally:
         session_db.close()
@@ -42641,7 +42910,8 @@ def public_invitation_request_submit(token):
         _inv_available = _invitation_event_counts(session_db, concert)['result']
         if _invitation_total_qty(quantities) > _inv_available:
             raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
-        limits = _invitation_public_limits(link, categories, existing)
+        _event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+        limits = _invitation_public_limits(link, categories, existing, _event_avail_by_cat, _inv_available)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')
         available_by_cat = {str(x['id']): x.get('available') for x in limits.get('categories') or []}
@@ -42710,6 +42980,129 @@ def public_invitation_request_cancel(token, request_id):
             t.status = 'AVAILABLE'
         session_db.commit()
         flash('Petición anulada.', 'success')
+        return redirect(url_for('public_invitation_request_link', token=token))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/p/<token>/solicitudes/<request_id>/editar', endpoint='public_invitation_request_update')
+def public_invitation_request_update(token, request_id):
+    session_db = db()
+    try:
+        link = session_db.query(InvitationPublicLink).filter(InvitationPublicLink.token == token).first()
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not link or not row or row.public_link_id != link.id:
+            abort(404)
+        state, msg = _invitation_link_state(link)
+        if state != 'active':
+            flash(msg or 'El enlace no admite cambios.', 'warning')
+            return redirect(url_for('public_invitation_request_link', token=token))
+        if (row.status or '') not in {'SOLICITADAS', 'APROBADAS', 'ASIGNADAS'}:
+            flash('Esta petición ya no se puede modificar (ya está enviada o cerrada).', 'warning')
+            return redirect(url_for('public_invitation_request_link', token=token))
+        concert = link.concert or session_db.get(Concert, link.concert_id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
+        quantities = _invitation_quantities_from_form(request.form, categories)
+        if not link.categorize_requests:
+            total = _safe_int(request.form.get('qty_total')) or _invitation_total_qty(quantities)
+            quantities = {'TOTAL': total}
+        if _invitation_total_qty(quantities) <= 0:
+            raise ValueError('Indica al menos una invitación.')
+        # Disponibilidad devolviendo lo que ESTA misma petición ya ocupaba (permite mantener/reducir).
+        current = _json_dict(row.quantities_json)
+        event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+        for cid, q in current.items():
+            if str(cid).upper() != 'TOTAL':
+                event_avail_by_cat[str(cid)] = event_avail_by_cat.get(str(cid), 0) + _safe_int(q)
+        event_avail_total = _invitation_event_counts(session_db, concert)['result'] + _invitation_total_qty(current)
+        if _invitation_total_qty(quantities) > event_avail_total:
+            raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
+        existing = [x for x in session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).all() if x.id != row.id]
+        limits = _invitation_public_limits(link, categories, existing, event_avail_by_cat, event_avail_total)
+        if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
+            raise ValueError('La petición supera el límite disponible del enlace.')
+        available_by_cat = {str(x['id']): x.get('available') for x in limits.get('categories') or []}
+        allowed_cids = set(available_by_cat.keys())
+        for cid, qty in quantities.items():
+            if str(cid) != 'TOTAL' and allowed_cids and str(cid) not in allowed_cids:
+                raise ValueError('La categoría seleccionada no está habilitada para este enlace.')
+            if available_by_cat.get(str(cid)) is not None and _safe_int(qty) > _safe_int(available_by_cat.get(str(cid))):
+                raise ValueError('La petición supera el límite disponible por categoría.')
+        # Si estaba asignada y cambian las cantidades, liberar entradas y volver a SOLICITADAS.
+        if (row.status or '') == 'ASIGNADAS' and quantities != current:
+            for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+                t.previous_assignment_warning = f"Reeditada por el invitado; estaba asignada a {row.guest_name}."
+                t.assigned_request_id = None
+                t.assigned_label = None
+                t.status = 'AVAILABLE'
+            row.status = 'SOLICITADAS'
+            row.assigned_at = None
+        row.guest_name = (request.form.get('guest_name') or '').strip() or row.guest_name
+        row.guest_company = (request.form.get('guest_company') or '').strip()
+        row.guest_title = (request.form.get('guest_title') or request.form.get('guest_company') or '').strip()
+        row.guest_email = (request.form.get('guest_email') or '').strip()
+        row.receiver_mode = (request.form.get('receiver_mode') or row.receiver_mode or 'GUEST').strip().upper()
+        row.quantities_json = quantities
+        row.note = (request.form.get('note') or '').strip()
+        session_db.commit()
+        flash('Petición actualizada.', 'success')
+        return redirect(url_for('public_invitation_request_link', token=token))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo actualizar la petición: {exc}', 'danger')
+        return redirect(url_for('public_invitation_request_link', token=token))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/p/<token>/solicitudes/<request_id>/reenviar', endpoint='public_invitation_request_resend')
+def public_invitation_request_resend(token, request_id):
+    session_db = db()
+    try:
+        link = session_db.query(InvitationPublicLink).filter(InvitationPublicLink.token == token).first()
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not link or not row or row.public_link_id != link.id:
+            abort(404)
+        if (row.status or '') not in {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}:
+            flash('Esta petición todavía no tiene invitaciones asignadas.', 'warning')
+            return redirect(url_for('public_invitation_request_link', token=token))
+        concert = row.concert or session_db.get(Concert, row.concert_id)
+        channel = (request.form.get('channel') or 'email').strip().lower()
+        row.delivery_token = row.delivery_token or _invitation_token()
+
+        def _mark_sent():
+            if (row.status or '') == 'ASIGNADAS':
+                row.status = 'ENVIADAS'
+                row.sent_at = _now_madrid()
+                for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+                    t.status = 'SENT'
+                    t.sent_at = row.sent_at
+                    t.updated_at = row.sent_at
+
+        if channel in ('whatsapp', 'sms'):
+            link_url = _external_url_for('public_invitation_delivery', kind='r', token=row.delivery_token)
+            msg = _invitation_share_text(session_db, concert, row.guest_name, link_url)
+            phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
+            if channel == 'whatsapp':
+                url = ('https://wa.me/' + phone + '?text=' + quote_plus(msg)) if phone else ('https://wa.me/?text=' + quote_plus(msg))
+            else:
+                url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(msg))
+            _mark_sent()
+            session_db.commit()
+            return redirect(url)
+        subject, html_body, text_body = _invitation_email_body(session_db, row, None)
+        recipients = _dedupe_valid_email_addresses(re.split(r'[;,\s]+', request.form.get('extra_emails') or '') + _invitation_delivery_recipients(session_db, row))
+        if not recipients:
+            flash('No hay ningún email al que reenviar. Añade uno.', 'warning')
+            return redirect(url_for('public_invitation_request_link', token=token))
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_invitation_request_reply_to(session_db, row) or None)
+        if ok:
+            _mark_sent()
+            session_db.commit()
+            flash('Invitaciones reenviadas por email.', 'success')
+        else:
+            session_db.rollback()
+            flash(f'No se pudo enviar el email: {err or "SMTP no configurado"}', 'warning')
         return redirect(url_for('public_invitation_request_link', token=token))
     finally:
         session_db.close()

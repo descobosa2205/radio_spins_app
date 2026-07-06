@@ -3,73 +3,103 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Solicitud de invitaciones</title>
+  <title>{{ og.title or 'Solicitud de invitaciones' }}</title>
+  {% if og %}
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="{{ og.title }}">
+  <meta property="og:description" content="{{ og.description }}">
+  {% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta name="twitter:image" content="{{ og.image }}">{% endif %}
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="{{ og.title }}">
+  <meta name="twitter:description" content="{{ og.description }}">
+  {% endif %}
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
 </head>
 <body class="public-invitation-page">
   <main class="container py-4 py-md-5">
     <div class="public-invitation-shell">
-      <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
+      <div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
         <div>
           <span class="badge text-bg-secondary mb-2">{{ event.type_label }}</span>
-          {% set hdr_img = event.poster_url or (event.artists[0].photo_url if event.artists else '') %}
+          {% set hdr_img = event.artists[0].photo_url if event.artists else event.poster_url %}
           <div class="d-flex align-items-center gap-2 mb-1">
-            {% if hdr_img %}<img src="{{ hdr_img }}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
+            {% if hdr_img %}<img src="{{ hdr_img }}" alt="" style="width:48px;height:48px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
             <h1 class="h3 mb-0">{{ event.artist_names }}</h1>
           </div>
           <div class="text-muted">{{ event.title }} · {{ event.date_label }}{% if event.venue %} · {{ event.venue }}{% endif %}{% if event.city %} · {{ event.city }}{% endif %}{% if event.province %}, {{ event.province }}{% endif %}</div>
         </div>
-        <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="public-invitation-logo">
+        <img src="{{ event_logo }}" alt="Logo" class="public-invitation-logo" onerror="this.style.display='none'">
       </div>
 
-      <h2 class="text-center h4 mb-4">Solicitud de invitaciones</h2>
+      <h2 class="text-center h4 mb-3">Solicitud de invitaciones</h2>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-          {% for category, message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}
-        {% endif %}
+        {% if messages %}{% for category, message in messages %}<div class="alert alert-{{ category }}">{{ message }}</div>{% endfor %}{% endif %}
       {% endwith %}
 
-      {% if link_state == 'cancelled' %}
-        <div class="alert alert-danger">{{ state_message }}</div>
-      {% elif link_state == 'expired' %}
-        <div class="alert alert-warning">{{ state_message }}{% if requests %} Puedes seguir viendo el estado de las peticiones ya realizadas.{% endif %}</div>
+      {% if link_state == 'cancelled' %}<div class="alert alert-danger">{{ state_message }}</div>
+      {% elif link_state == 'locked' %}<div class="alert alert-warning">{{ state_message }}{% if requests %} Puedes seguir viendo el estado de tus peticiones.{% endif %}</div>
+      {% elif link_state == 'expired' %}<div class="alert alert-warning">{{ state_message }}{% if requests %} Puedes seguir viendo el estado de tus peticiones.{% endif %}</div>
       {% endif %}
 
-      {% set has_public_limits = limits.total_limit is not none or (link.categorize_requests and limits.categories) %}
-      {% if link.deadline_at or has_public_limits %}
-        <div class="row g-3 mb-4">
-          {% if link.deadline_at %}
-            <div class="col-md-6"><div class="invitation-public-info"><strong>Fecha límite</strong><span>{{ link.deadline_at.strftime('%d/%m/%Y %H:%M') }}</span></div></div>
-          {% endif %}
-          {% if has_public_limits %}
-            <div class="col-md-6"><div class="invitation-public-info"><strong>Límite</strong><span>{% if limits.total_limit is not none %}{{ limits.available_total }} disponibles de {{ limits.total_limit }}{% elif limits.categories %}{% for c in limits.categories %}{{ c.name }}{% if c.limit is not none %}: {{ c.available }}/{{ c.limit }}{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}{% endif %}</span></div></div>
-          {% endif %}
+      {% set has_qty_limit = limits.total_limit is not none or (link.categorize_requests and limits.categories) or (link.limit_to_available and limits.available_total is not none) %}
+      {% if link.deadline_at or has_qty_limit %}
+        <div class="d-flex justify-content-center gap-2 flex-wrap mb-3">
+          {% if link.deadline_at %}<span class="badge text-bg-light border py-2"><i class="fa fa-clock me-1 text-danger"></i>Hasta {{ link.deadline_at.strftime('%d/%m/%Y %H:%M') }}</span>{% endif %}
+          {% if limits.total_limit is not none %}<span class="badge text-bg-light border py-2"><i class="fa fa-ticket me-1 text-danger"></i>{{ limits.available_total }} disponibles de {{ limits.total_limit }}</span>
+          {% elif link.limit_to_available and limits.available_total is not none %}<span class="badge text-bg-light border py-2"><i class="fa fa-ticket me-1 text-danger"></i>{{ limits.available_total }} disponibles</span>{% endif %}
         </div>
       {% endif %}
 
-      {% if link_state == 'active' %}
-        <div class="text-end mb-3"><button class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#publicRequestModal"><i class="fa fa-plus me-1"></i> Añadir petición</button></div>
+      {% if open_for_changes %}
+        <div class="text-end mb-3"><button class="btn btn-danger" data-open-request><i class="fa fa-plus me-1"></i> Solicitud</button></div>
       {% endif %}
 
-      <h5 class="mb-3">Peticiones realizadas</h5>
+      <h5 class="mb-3">Peticiones</h5>
       {% if requests %}
-        <div class="list-group mb-4">
+        {% set ns = namespace(cur='__init__') %}
+        <div class="list-group mb-4 inv-request-list">
           {% for row in requests %}
-            <div class="list-group-item">
+            {% if row.group_key != ns.cur %}
+              {% set ns.cur = row.group_key %}
+              <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ row.group_color }}"></span>{{ row.group_name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ row.group_total }}</span></div>
+            {% endif %}
+            <div class="list-group-item inv-cat-row" style="border-left:5px solid {{ row.group_color }};">
               <div class="d-flex justify-content-between gap-3 flex-wrap">
-                <div>
-                  <strong>{{ row.guest_name }}</strong>{% if row.guest_company %}<span class="text-muted"> · {{ row.guest_company }}</span>{% endif %}
-                  <div class="small text-muted">{{ row.quantities_label }} · {{ row.created_at_label }}</div>
-                  <div class="small">Entrega: {{ row.receiver_mode }}</div>
+                <div class="flex-grow-1">
+                  <div class="d-flex align-items-center gap-2 flex-wrap">
+                    {% if row.guest_photo %}<img class="inv-person-ava is-photo" src="{{ row.guest_photo }}" alt="">{% endif %}
+                    <strong>{{ row.guest_name }}</strong>
+                    {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
+                    {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
+                    <span class="badge inv-qty-badge"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }}</span>
+                    {% if row.categories_label %}<span class="badge text-bg-light border"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
+                  </div>
+                  <div class="small text-muted mt-1">
+                    <i class="fa fa-paper-plane"></i>
+                    {% if row.receiver_mode == 'BOX_OFFICE' %}Recoger en taquilla{% elif row.receiver_mode == 'ME' %}Al titular del enlace{% elif row.guest_email %}{{ row.guest_email }}{% else %}Al invitado{% endif %}
+                    · {{ row.created_at_label }}
+                  </div>
+                  {% if row.note %}<div class="small mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                 </div>
-                <div class="text-end">
-                  <span class="badge text-bg-{{ row.status_badge }}">{{ row.status_label }}</span>
-                  {% if row.status not in ['ANULADAS','RECHAZADAS'] %}
-                    <form method="post" action="{{ url_for('public_invitation_request_cancel', token=link.token, request_id=row.id) }}" class="mt-2">
-                      <button class="btn btn-sm btn-outline-danger">Anular petición</button>
-                    </form>
+                <div class="d-flex align-items-start gap-2">
+                  <span class="badge text-bg-{{ row.status_badge }} align-self-center">{{ row.status_label }}</span>
+                  {% if row.can_edit or row.can_cancel or row.can_manage %}
+                  <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      {% if row.can_manage %}
+                        {% if row.download_url %}<li><a class="dropdown-item" href="{{ row.download_url }}" target="_blank"><i class="fa fa-download me-2"></i>Descargar PDF</a></li>{% endif %}
+                        <li><form method="post" action="{{ url_for('public_invitation_request_resend', token=link.token, request_id=row.id) }}"><input type="hidden" name="channel" value="email"><button class="dropdown-item"><i class="fa fa-envelope me-2"></i>Reenviar por email</button></form></li>
+                        <li><form method="post" action="{{ url_for('public_invitation_request_resend', token=link.token, request_id=row.id) }}" target="_blank"><input type="hidden" name="channel" value="whatsapp"><button class="dropdown-item"><i class="fa-brands fa-whatsapp me-2"></i>Reenviar por WhatsApp</button></form></li>
+                        <li><form method="post" action="{{ url_for('public_invitation_request_resend', token=link.token, request_id=row.id) }}"><input type="hidden" name="channel" value="sms"><button class="dropdown-item"><i class="fa fa-comment-sms me-2"></i>Reenviar por SMS</button></form></li>
+                      {% endif %}
+                      {% if row.can_edit %}<li><button type="button" class="dropdown-item" data-edit-request data-id="{{ row.id }}" data-name="{{ row.guest_name }}" data-company="{{ row.guest_title }}" data-email="{{ row.guest_email }}" data-mode="{{ row.receiver_mode }}" data-qty="{{ row.quantities|tojson|forceescape }}"><i class="fa fa-pen me-2"></i>Editar</button></li>{% endif %}
+                      {% if row.can_cancel %}<li><form method="post" action="{{ url_for('public_invitation_request_cancel', token=link.token, request_id=row.id) }}" onsubmit="return confirm('¿Anular esta petición?');"><button class="dropdown-item text-danger"><i class="fa fa-ban me-2"></i>Anular petición</button></form></li>{% endif %}
+                    </ul>
+                  </div>
                   {% endif %}
                 </div>
               </div>
@@ -82,72 +112,164 @@
     </div>
   </main>
 
+  {% if open_for_changes %}
   <div class="modal fade" id="publicRequestModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-      <form class="modal-content" method="post" action="{{ url_for('public_invitation_request_submit', token=link.token) }}">
-        <div class="modal-header"><h5 class="modal-title">Añadir petición</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <form class="modal-content invitation-wizard" method="post" action="{{ url_for('public_invitation_request_submit', token=link.token) }}" data-create-action="{{ url_for('public_invitation_request_submit', token=link.token) }}" data-edit-action="{{ url_for('public_invitation_request_update', token=link.token, request_id='REQ') }}">
+        <div class="modal-header"><h5 class="modal-title" data-wizard-title>Nueva solicitud</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
         <div class="modal-body">
-          <div class="row g-3">
-            <div class="col-md-6"><label class="form-label">Nombre</label><input class="form-control" name="guest_name" required></div>
-            <div class="col-md-6"><label class="form-label">Cargo / anotación / empresa</label><input class="form-control" name="guest_company"></div>
-            <div class="col-md-6"><label class="form-label">Email del invitado</label><input class="form-control" name="guest_email" type="email"></div>
-            <div class="col-md-6"><label class="form-label">Teléfono del invitado</label><input class="form-control" name="guest_phone"></div>
-          </div>
-          <hr>
-          <h6>Entrega</h6>
-          <div class="invitation-icon-grid mb-3">
-            <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Enviar al invitado</span></label>
-            <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="ME"><i class="fa fa-inbox"></i><span>Enviar a mí</span></label>
-            <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>Enviar a tercero</span></label>
-            <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Recoger en taquilla</span></label>
-          </div>
-          <div class="row g-2 mb-3" data-public-receiver-fields>
-            <div class="col-md-4"><input class="form-control" name="receiver_name" placeholder="Nombre receptor"></div>
-            <div class="col-md-4"><input class="form-control" name="receiver_email" placeholder="Email receptor"></div>
-            <div class="col-md-4"><input class="form-control" name="receiver_phone" placeholder="Teléfono receptor"></div>
-          </div>
-          <h6>Cantidades</h6>
-          {% if link.categorize_requests and limits.categories %}
+          <div class="invitation-step" data-step="1">
+            <h5>1. ¿Para quién es?</h5>
             <div class="row g-3">
-              {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
-                {% set zcats = limits.categories|selectattr('zone','equalto',zkey)|list %}
-                {% if zcats %}
-                <div class="col-12 fw-semibold small text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
-                {% for cat in zcats %}
-                <div class="col-md-4">
-                  {% if cat.blocked %}
-                    <label class="form-label text-muted">{{ cat.name }} <i class="fa fa-lock text-danger" title="Categoría bloqueada: no se pueden pedir invitaciones para esta categoría"></i></label>
-                    <input class="form-control" type="number" value="0" disabled>
-                    <div class="small text-danger"><i class="fa fa-ban me-1"></i>Bloqueada · no se pueden pedir</div>
-                  {% else %}
-                    <label class="form-label">{{ cat.name }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
-                    <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
-                  {% endif %}
-                </div>
-                {% endfor %}
-                {% endif %}
-              {% endfor %}
+              <div class="col-md-6"><label class="form-label">Nombre</label><input class="form-control" name="guest_name" required></div>
+              <div class="col-md-6"><label class="form-label">Cargo / título / vinculación</label><input class="form-control" name="guest_company" placeholder="p. ej. director de la radio"></div>
             </div>
-          {% else %}
-            <div class="col-md-4"><label class="form-label">Total{% if limits.available_total is not none %} <small class="text-muted">disp. {{ limits.available_total }}</small>{% endif %}</label><input class="form-control" type="number" min="1" max="{{ limits.available_total if limits.available_total is not none else '' }}" name="qty_total" value="1"></div>
-          {% endif %}
-          <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
+          </div>
+          <div class="invitation-step d-none" data-step="2">
+            <h5>2. Entrega</h5>
+            <div class="invitation-icon-grid mb-3">
+              <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Al invitado</span></label>
+              <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Recoger en taquilla</span></label>
+              <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="ME"><i class="fa fa-inbox"></i><span>A mí</span></label>
+            </div>
+            <div data-guest-email-wrap><label class="form-label">Email del invitado</label><input class="form-control" name="guest_email" type="email" placeholder="correo@ejemplo.com"><div class="form-text">Necesario para poder enviarle sus invitaciones.</div></div>
+          </div>
+          <div class="invitation-step d-none" data-step="3">
+            <h5>3. Invitaciones</h5>
+            {% if link.categorize_requests and limits.categories %}
+              <div class="row g-3">
+                {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
+                  {% set zcats = limits.categories|selectattr('zone','equalto',zkey)|list %}
+                  {% if zcats %}
+                    <div class="col-12 fw-semibold small text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+                    {% for cat in zcats %}
+                      <div class="col-md-4">
+                        {% if cat.blocked %}
+                          <label class="form-label text-muted">{{ cat.name }} <i class="fa fa-lock text-danger" title="No admite peticiones"></i></label>
+                          <input class="form-control" type="number" value="0" disabled>
+                          <div class="small text-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</div>
+                        {% else %}
+                          <label class="form-label">{{ cat.name }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
+                          <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
+                        {% endif %}
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% else %}
+              <div class="col-md-4"><label class="form-label">Total{% if limits.available_total is not none %} <small class="text-muted">disp. {{ limits.available_total }}</small>{% endif %}</label><input class="form-control" type="number" min="1" max="{{ limits.available_total if limits.available_total is not none else '' }}" name="qty_total" value="1"></div>
+            {% endif %}
+            <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
+          </div>
         </div>
-        <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Añadir</button></div>
+        <div class="modal-footer">
+          <button class="btn btn-outline-secondary" type="button" data-inv-prev disabled>Atrás</button>
+          <button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button>
+          <button class="btn btn-danger d-none" type="submit" data-inv-submit>Guardar solicitud</button>
+        </div>
       </form>
     </div>
   </div>
 
+  {# Aviso: ya hay peticiones para esa persona (o nombre similar) en este evento. #}
+  <div class="modal fade" id="pubDupModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-triangle-exclamation text-warning me-2"></i>Ya hay invitaciones para esta persona</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+        <div class="modal-body"><div id="pubDupList"></div><div class="small text-muted mt-2">¿Quieres crear igualmente otra solicitud?</div></div>
+        <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No crear nueva solicitud</button><button type="button" class="btn btn-danger" id="pubDupConfirm">Sí, es otra solicitud</button></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script>
   (function(){
-    function updateReceiver(){
-      const mode = document.querySelector('#publicRequestModal [name="receiver_mode"]:checked')?.value || 'GUEST';
-      const row = document.querySelector('#publicRequestModal [data-public-receiver-fields]');
-      if(row) row.classList.toggle('d-none', mode === 'BOX_OFFICE' || mode === 'ME');
+    var modalEl = document.getElementById('publicRequestModal');
+    if (modalEl) {
+      var form = modalEl.querySelector('form');
+      var maxStep = 3;
+      function step(){ return parseInt(form.getAttribute('data-step')||'1',10); }
+      function go(n){
+        n = Math.max(1, Math.min(maxStep, n));
+        form.setAttribute('data-step', n);
+        form.querySelectorAll('[data-step]').forEach(function(s){ s.classList.toggle('d-none', parseInt(s.getAttribute('data-step'),10)!==n); });
+        form.querySelector('[data-inv-prev]').disabled = (n===1);
+        form.querySelector('[data-inv-next]').classList.toggle('d-none', n===maxStep);
+        form.querySelector('[data-inv-submit]').classList.toggle('d-none', n!==maxStep);
+      }
+      function updateEmail(){
+        var mode = form.querySelector('[name="receiver_mode"]:checked');
+        var wrap = form.querySelector('[data-guest-email-wrap]');
+        if (wrap) wrap.classList.toggle('d-none', !(mode && mode.value==='GUEST'));
+      }
+      form.querySelector('[data-inv-next]').addEventListener('click', function(){
+        if (step()===1 && !form.querySelector('[name="guest_name"]').value.trim()) { form.querySelector('[name="guest_name"]').reportValidity(); return; }
+        go(step()+1);
+      });
+      form.querySelector('[data-inv-prev]').addEventListener('click', function(){ go(step()-1); });
+      form.querySelectorAll('[name="receiver_mode"]').forEach(function(x){ x.addEventListener('change', updateEmail); });
+
+      function resetCreate(){
+        form.setAttribute('action', form.getAttribute('data-create-action'));
+        form.querySelector('[data-wizard-title]').textContent = 'Nueva solicitud';
+        form.reset();
+        form.querySelectorAll('input[name^="qty_"]').forEach(function(i){ if(!i.disabled) i.value = (i.name==='qty_total'?'1':'0'); });
+        updateEmail(); go(1);
+      }
+      // Aviso de duplicado al CREAR (no al editar): si el nombre ya tiene peticiones, confirmar.
+      var esc = function(v){ var d=document.createElement('div'); d.textContent=(v==null?'':String(v)); return d.innerHTML; };
+      form.addEventListener('submit', function(e){
+        if (form.__dupOk) return;
+        if (form.getAttribute('action') !== form.getAttribute('data-create-action')) return; // solo al crear
+        var gname = (form.querySelector('[name="guest_name"]').value||'').trim();
+        if (!gname) return;
+        e.preventDefault();
+        var send = function(){ form.__dupOk = true; if (form.requestSubmit) form.requestSubmit(); else form.submit(); };
+        fetch('{{ url_for("api_invitation_request_duplicates") }}?token={{ link.token }}&guest_name=' + encodeURIComponent(gname), { headers: { 'X-Requested-With':'XMLHttpRequest' } })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (d && d.ok && d.matches && d.matches.length){
+              document.getElementById('pubDupList').innerHTML = d.matches.map(function(m){
+                return '<div class="border rounded p-2 mb-2"><div class="fw-semibold">'+esc(m.guest_name)+' · <span class="badge inv-qty-badge"><i class="fa fa-ticket me-1"></i>'+(m.qty_total||0)+'</span></div>'
+                  + '<div class="small text-muted d-flex align-items-center gap-1">Pedidas por '+ (m.requester_photo ? '<img src="'+esc(m.requester_photo)+'" style="width:18px;height:18px;border-radius:50%;object-fit:cover">' : '') +' '+esc(m.requester_nick)+(m.created_at_label?' · '+esc(m.created_at_label):'')+'</div></div>';
+              }).join('');
+              bootstrap.Modal.getOrCreateInstance(document.getElementById('pubDupModal')).show();
+            } else { send(); }
+          }).catch(send);
+      });
+      var pubDupConfirm = document.getElementById('pubDupConfirm');
+      if (pubDupConfirm) pubDupConfirm.addEventListener('click', function(){
+        bootstrap.Modal.getInstance(document.getElementById('pubDupModal'))?.hide();
+        form.__dupOk = true; if (form.requestSubmit) form.requestSubmit(); else form.submit();
+      });
+      document.querySelectorAll('[data-open-request]').forEach(function(b){ b.addEventListener('click', function(){ form.__dupOk = false; resetCreate(); bootstrap.Modal.getOrCreateInstance(modalEl).show(); }); });
+      document.querySelectorAll('[data-edit-request]').forEach(function(b){
+        b.addEventListener('click', function(){
+          resetCreate();
+          form.setAttribute('action', form.getAttribute('data-edit-action').replace('REQ', b.getAttribute('data-id')));
+          form.querySelector('[data-wizard-title]').textContent = 'Editar petición';
+          form.querySelector('[name="guest_name"]').value = b.getAttribute('data-name')||'';
+          form.querySelector('[name="guest_company"]').value = b.getAttribute('data-company')||'';
+          var em = form.querySelector('[name="guest_email"]'); if(em) em.value = b.getAttribute('data-email')||'';
+          var mode = b.getAttribute('data-mode')||'GUEST';
+          var r = form.querySelector('[name="receiver_mode"][value="'+mode+'"]'); if(r) r.checked = true;
+          try {
+            var q = JSON.parse(b.getAttribute('data-qty')||'{}');
+            Object.keys(q).forEach(function(k){
+              var name = (k==='TOTAL') ? 'qty_total' : ('qty_'+k);
+              var inp = form.querySelector('[name="'+name+'"]');
+              if (inp && !inp.disabled) inp.value = q[k];
+            });
+          } catch(e) {}
+          updateEmail(); go(1);
+          bootstrap.Modal.getOrCreateInstance(modalEl).show();
+        });
+      });
+      updateEmail(); go(1);
     }
-    document.querySelectorAll('#publicRequestModal [name="receiver_mode"]').forEach(x => x.addEventListener('change', updateReceiver));
-    updateReceiver();
   })();
   </script>
 </body>

@@ -2205,6 +2205,12 @@ class InvitationPublicLink(Base):
     category_limits_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     categories_enabled_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     categorize_requests = Column(Boolean, nullable=False, server_default=text("true"))
+    # Congelación manual: bloquea nuevas peticiones y cambios sin anular el enlace.
+    locked = Column(Boolean, nullable=False, server_default=text("false"))
+    # Solo mostrar categorías con aforo disponible (mostrando el disponible).
+    show_only_available = Column(Boolean, nullable=False, server_default=text("false"))
+    # Limitar lo solicitable al aforo real disponible del evento.
+    limit_to_available = Column(Boolean, nullable=False, server_default=text("false"))
     deadline_at = Column(DateTime(timezone=True))
     status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -5661,6 +5667,12 @@ def ensure_invitation_schema():
         """,
         "CREATE INDEX IF NOT EXISTS idx_invitation_public_links_concert ON invitation_public_links(concert_id, status, deadline_at);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_public_links_target ON invitation_public_links(target_promoter_id);",
+        """
+        ALTER TABLE IF EXISTS invitation_public_links
+            ADD COLUMN IF NOT EXISTS locked boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS show_only_available boolean NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS limit_to_available boolean NOT NULL DEFAULT false;
+        """,
         """
         CREATE TABLE IF NOT EXISTS invitation_requests (
             id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),

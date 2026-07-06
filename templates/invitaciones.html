@@ -777,21 +777,52 @@
           {% if links %}
             <div class="list-group">
               {% for link in links %}
-                <div class="list-group-item">
-                  <div class="d-flex justify-content-between gap-3 flex-wrap">
-                    <div>
-                      <div class="d-flex gap-2 align-items-center flex-wrap"><strong>{{ link.target_name }}</strong><span class="badge text-bg-{{ link.state_badge }}">{{ link.state_label }}</span></div>
-                      <div class="small text-muted mt-1">Solicitado por {{ link.requested_by }}{% if link.limit_summary %} · {{ link.limit_summary }}{% endif %}{% if link.deadline_label %} · hasta {{ link.deadline_label }}{% endif %}</div>
-                      <a class="small" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
-                    </div>
-                    <div class="dropdown dropdown-menu-end">
-                      <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-                        <li><button class="dropdown-item" type="button" data-copy-text="{{ link.url }}">Copiar enlace</button></li>
-                        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editLinkModal{{ link.id }}">Editar enlace</button></li>
-                        {% if link.state != 'cancelled' %}<li><form method="post" action="{{ url_for('invitation_public_link_cancel', link_id=link.id) }}"><button class="dropdown-item text-danger">Anular enlace</button></form></li>{% endif %}
-                      </ul>
-                    </div>
+                <div class="list-group-item text-center">
+                  <div class="d-flex justify-content-center align-items-center gap-2 flex-wrap">
+                    {% if link.target_photo_url %}<img src="{{ link.target_photo_url }}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
+                    <strong>{{ link.target_name }}</strong>
+                    {% if link.target_link_summary_text %}<span class="invitation-linked-mini">{% if link.target_link_summary.logo_url %}<img src="{{ link.target_link_summary.logo_url }}" alt="">{% endif %}<span>{{ link.target_link_summary_text }}</span></span>{% endif %}
+                    <span class="badge text-bg-{{ link.state_badge }}">{{ link.state_label }}</span>
+                  </div>
+                  <div class="small text-muted mt-1 d-flex justify-content-center align-items-center gap-1 flex-wrap">Generado por <img src="{{ link.requested_by_photo_url }}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;"> {{ link.requested_by }}</div>
+                  <div class="d-flex justify-content-center align-items-center gap-2 mt-2 flex-wrap">
+                    <a class="small text-truncate" style="max-width:min(88vw,420px);" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
+                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-text="{{ link.url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
+                  </div>
+                  {% if link.limit_summary or link.deadline_label %}
+                  <div class="mt-2 d-flex justify-content-center gap-2 flex-wrap">
+                    {% if link.limit_summary %}<span class="badge text-bg-light border"><i class="fa fa-ticket me-1"></i>{{ link.limit_summary }}</span>{% endif %}
+                    {% if link.deadline_label %}<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Hasta {{ link.deadline_label }}</span>{% endif %}
+                  </div>
+                  {% endif %}
+                  <div class="dropdown mt-2">
+                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-app33">
+                      <li><button class="dropdown-item" type="button" data-copy-text="{{ link.url }}"><i class="fa fa-copy me-2"></i>Copiar enlace</button></li>
+                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#shareLinkModal{{ link.id }}"><i class="fa fa-envelope me-2"></i>Enviar por email</button></li>
+                      <li><a class="dropdown-item" href="{{ link.whatsapp_url }}" target="_blank"><i class="fa-brands fa-whatsapp me-2"></i>Enviar por WhatsApp</a></li>
+                      <li><a class="dropdown-item" href="{{ link.sms_url }}"><i class="fa fa-comment-sms me-2"></i>Enviar por SMS</a></li>
+                      <li><hr class="dropdown-divider"></li>
+                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editLinkModal{{ link.id }}"><i class="fa fa-pen me-2"></i>Editar enlace</button></li>
+                      {% if link.state != 'cancelled' %}
+                        <li><form method="post" action="{{ url_for('invitation_public_link_lock', link_id=link.id) }}"><button class="dropdown-item"><i class="fa fa-{{ 'lock-open' if link.locked else 'lock' }} me-2"></i>{{ 'Reabrir enlace' if link.locked else 'Bloquear peticiones/cambios' }}</button></form></li>
+                        <li><form method="post" action="{{ url_for('invitation_public_link_cancel', link_id=link.id) }}"><button class="dropdown-item text-danger"><i class="fa fa-ban me-2"></i>Anular enlace</button></form></li>
+                      {% endif %}
+                    </ul>
+                  </div>
+                </div>
+                <div class="modal fade" id="shareLinkModal{{ link.id }}" tabindex="-1" aria-hidden="true">
+                  <div class="modal-dialog modal-dialog-centered">
+                    <form class="modal-content" method="post" action="{{ url_for('invitation_public_link_share_email', link_id=link.id) }}">
+                      <div class="modal-header"><h5 class="modal-title">Enviar enlace por email</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
+                      <div class="modal-body">
+                        <label class="form-label">Destinatarios</label>
+                        <textarea class="form-control" name="extra_emails" rows="2" placeholder="email1@dominio.com; email2@dominio.com">{{ link.target_email }}</textarea>
+                        <label class="form-label mt-2">Nota (opcional)</label>
+                        <textarea class="form-control" name="note" rows="2"></textarea>
+                      </div>
+                      <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-danger">Enviar</button></div>
+                    </form>
                   </div>
                 </div>
                 <div class="modal fade" id="editLinkModal{{ link.id }}" tabindex="-1" aria-hidden="true">
@@ -810,8 +841,14 @@
                           <label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label>
                         </div>
                         <div class="row g-3 mb-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Límite total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div>
-                        <label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label>
-                        <div class="row g-3 d-none" data-limit-category-panel>{% for cat in categories %}<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" checked> {{ cat.name }}</label><input class="form-control form-control-sm mt-2" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo"></div></div>{% endfor %}</div>
+                        <label class="form-check mb-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" {% if link.categorize_requests %}checked{% endif %}> Categorizar peticiones</label>
+                        <div class="invitation-icon-grid mb-3">
+                          <label class="invitation-radio-option"><input type="checkbox" name="show_only_available" value="1" {% if link.show_only_available %}checked{% endif %}><i class="fa fa-eye"></i><span>Solo categorías con aforo</span></label>
+                          <label class="invitation-radio-option"><input type="checkbox" name="limit_to_available" value="1" {% if link.limit_to_available %}checked{% endif %}><i class="fa fa-gauge-high"></i><span>Limitar al aforo disponible</span></label>
+                        </div>
+                        <div class="small text-muted mb-1"><i class="fa fa-layer-group me-1"></i>Categorías ofrecidas (desactiva las que no quieras permitir):</div>
+                        <div class="row g-2 mb-3">{% for cat in categories %}<div class="col-md-4"><label class="form-check border rounded-3 p-2 w-100"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" {% if not link.categories_enabled_json or (cat.id|string) in (link.categories_enabled_json|map('string')|list) %}checked{% endif %}> {{ cat.name }}</label></div>{% endfor %}</div>
+                        <div class="row g-3 d-none" data-limit-category-panel><div class="col-12 small text-muted">Máximo por categoría:</div>{% for cat in categories %}<div class="col-md-4"><label class="form-label small">{{ cat.name }}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo" value="{{ link.category_limits_json.get(cat.id|string) or '' }}"></div>{% endfor %}</div>
                         <div class="row g-3 mb-3 mt-1" data-deadline-group>
                           <div class="col-12"><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div></div>
                           <div class="col-md-5 d-none" data-deadline-panel><label class="form-label">Fecha límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div>
@@ -1523,6 +1560,20 @@
 {% endif %}
 
 {# Modal petición interna #}
+{# Aviso: el invitado (o nombre similar) ya tiene solicitudes en el evento. #}
+<div class="modal fade" id="invDupModal" tabindex="-1" aria-hidden="true" data-dup-url="{{ url_for('api_invitation_request_duplicates') }}">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-triangle-exclamation text-warning me-2"></i>Ya hay invitaciones para esta persona</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-body">
+        <div id="invDupList"></div>
+        <div class="small text-muted mt-2">¿Quieres crear igualmente otra solicitud?</div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No crear nueva solicitud</button><button type="button" class="btn btn-danger" id="invDupConfirm">Sí, es otra solicitud</button></div>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="invitationRequestModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content invitation-wizard" method="post" action="{{ url_for('invitation_request_create') }}" data-invitation-wizard="request">
@@ -1595,7 +1646,7 @@
         <div class="invitation-step" data-step="1"><h5>1. Selecciona artista</h5><div class="invitation-option-grid" data-artist-options>{% for artist in event_artists %}<button type="button" class="invitation-option" data-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
         <div class="invitation-step d-none" data-step="2"><div class="d-flex justify-content-between align-items-center mb-2"><h5>2. Selecciona actividad</h5><button type="button" class="btn btn-sm btn-outline-secondary" data-load-all-events>No encuentro el evento</button></div><div class="invitation-event-picker" data-event-options></div></div>
         <div class="invitation-step d-none" data-step="3"><h5>3. ¿Para quién es el enlace?</h5><div class="invitation-search-picker" data-promoter-picker data-hidden-target="target_promoter_id" data-name-target="target_name" data-email-target="target_email" data-phone-target="target_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div><input type="hidden" name="target_name" required><input type="hidden" name="target_email"><input type="hidden" name="target_phone"></div>
-        <div class="invitation-step d-none" data-step="4"><h5>4. Límites</h5><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="row g-3 mt-1 d-none" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
+        <div class="invitation-step d-none" data-step="4"><h5>4. Límites</h5><div class="invitation-icon-grid mb-3" data-limit-mode-group><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="NONE" checked><i class="fa fa-infinity"></i><span>Ilimitado</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="TOTAL"><i class="fa fa-hashtag"></i><span>Límite total</span></label><label class="invitation-radio-option"><input type="radio" name="limit_mode" value="CATEGORIES"><i class="fa fa-layer-group"></i><span>Por categorías</span></label></div><div class="row g-3 d-none" data-limit-total-panel><div class="col-md-4"><label class="form-label">Número total</label><input class="form-control" name="total_limit" type="number" min="0"></div></div><label class="form-check mt-3"><input class="form-check-input" type="checkbox" name="categorize_requests" value="1" checked> Categorizar peticiones</label><div class="invitation-icon-grid my-3"><label class="invitation-radio-option"><input type="checkbox" name="show_only_available" value="1"><i class="fa fa-eye"></i><span>Solo categorías con aforo</span></label><label class="invitation-radio-option"><input type="checkbox" name="limit_to_available" value="1"><i class="fa fa-gauge-high"></i><span>Limitar al aforo disponible</span></label></div><div class="small text-muted mb-1"><i class="fa fa-layer-group me-1"></i>Categorías ofrecidas (desactiva las que no quieras permitir):</div><div class="row g-2" data-link-category-panel><div class="text-muted small">Selecciona primero el evento para cargar categorías.</div></div></div>
         <div class="invitation-step d-none" data-step="5"><h5>5. Límite temporal</h5><div class="invitation-icon-grid mb-3" data-deadline-group><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div><div class="row g-3 d-none" data-deadline-panel><div class="col-md-5"><label class="form-label">Fecha y hora límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div></div><div class="alert alert-light border mt-3 mb-0">Al guardar se genera un enlace único para esta persona.</div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" type="button" data-inv-prev>Atrás</button><button class="btn btn-outline-danger" type="button" data-inv-next>Siguiente</button><button class="btn btn-danger d-none" data-inv-submit>Generar enlace</button></div>
@@ -1618,13 +1669,10 @@
       <div class="modal-header"><h5 class="modal-title">Vincular tercero seleccionado</h5><button class="btn-close" type="button" data-bs-dismiss="modal"></button></div>
       <div class="modal-body">
         <div class="form-label">1. ¿Qué quieres vincular?</div>
-        {# Mismas opciones que al vincular desde la ficha del tercero: se generan desde
-           entity_link_types (APP33_ENTITY_LINK_TYPES) excluyendo el propio tipo (promoter). #}
+        {# Todas las opciones de vinculación (incluye Tercero y Personal de oficina). #}
         <div class="entity-link-type-row mb-3" data-link-type-row>
           {% for key, meta in (entity_link_types or {}).items() %}
-            {% if key != 'promoter' %}
-              <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}"><i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span></button>
-            {% endif %}
+            <button type="button" class="entity-link-type-btn" data-link-type="{{ key }}"><i class="fa {{ meta.icon }}"></i><span>{{ meta.label }}</span></button>
           {% endfor %}
         </div>
         <div class="form-label">2. Busca y selecciona</div>
@@ -1663,7 +1711,7 @@
     const update = () => {
       const mode = root.querySelector('[name="limit_mode"]:checked')?.value || 'NONE';
       root.querySelectorAll('[data-limit-total-panel]').forEach(x=>x.classList.toggle('d-none', mode !== 'TOTAL'));
-      root.querySelectorAll('[data-limit-category-panel], [data-link-category-panel]').forEach(x=>x.classList.toggle('d-none', mode !== 'CATEGORIES'));
+      root.querySelectorAll('[data-limit-category-panel]').forEach(x=>x.classList.toggle('d-none', mode !== 'CATEGORIES'));
       root.querySelectorAll('[name="total_limit"]').forEach(x=>{ if(mode !== 'TOTAL') x.value = ''; });
     };
     root.querySelectorAll('[name="limit_mode"]').forEach(x=>x.addEventListener('change', update)); update();
@@ -2504,5 +2552,46 @@
       btn.classList.toggle('active', show);
     });
   })();
+</script>
+
+<script>
+// Aviso de solicitud duplicada al pedir invitaciones desde la app: si el invitado (o nombre
+// similar) ya tiene peticiones en el evento, se confirma antes de crear.
+(function(){
+  var dupModalEl = document.getElementById('invDupModal');
+  if (!dupModalEl) return;
+  var dupUrl = dupModalEl.getAttribute('data-dup-url') || '';
+  var pendingForm = null;
+  function esc(v){ var d=document.createElement('div'); d.textContent=(v==null?'':String(v)); return d.innerHTML; }
+  function send(form){ form.__dupConfirmed = true; if (form.requestSubmit) form.requestSubmit(); else form.submit(); }
+  document.querySelectorAll('form[data-invitation-wizard="request"]').forEach(function(form){
+    form.addEventListener('submit', function(e){
+      if (form.__dupConfirmed || !dupUrl) return;
+      var cid = (form.querySelector('[data-field="concert_id"]')||{}).value || '';
+      var gname = (form.querySelector('input[name="guest_name"]')||{}).value || '';
+      var gpid = (form.querySelector('input[name="guest_promoter_id"]')||{}).value || '';
+      if (!cid || (!gname.trim() && !gpid)) return;
+      e.preventDefault();
+      fetch(dupUrl + '?concert_id=' + encodeURIComponent(cid) + '&guest_name=' + encodeURIComponent(gname) + '&guest_promoter_id=' + encodeURIComponent(gpid), { headers: { 'X-Requested-With':'XMLHttpRequest' } })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (d && d.ok && d.matches && d.matches.length){
+            document.getElementById('invDupList').innerHTML = d.matches.map(function(m){
+              return '<div class="border rounded p-2 mb-2"><div class="fw-semibold">'+esc(m.guest_name)+' · <span class="badge inv-qty-badge"><i class="fa fa-ticket me-1"></i>'+(m.qty_total||0)+'</span></div>'
+                + '<div class="small text-muted d-flex align-items-center gap-1">Pedidas por '+ (m.requester_photo ? '<img src="'+esc(m.requester_photo)+'" style="width:18px;height:18px;border-radius:50%;object-fit:cover">' : '') +' '+esc(m.requester_nick)+(m.created_at_label?' · '+esc(m.created_at_label):'')+'</div></div>';
+            }).join('');
+            pendingForm = form;
+            if (window.bootstrap) bootstrap.Modal.getOrCreateInstance(dupModalEl).show();
+          } else { send(form); }
+        })
+        .catch(function(){ send(form); });
+    });
+  });
+  var confirmBtn = document.getElementById('invDupConfirm');
+  if (confirmBtn) confirmBtn.addEventListener('click', function(){
+    if (window.bootstrap) bootstrap.Modal.getInstance(dupModalEl)?.hide();
+    if (pendingForm) send(pendingForm);
+  });
+})();
 </script>
 {% endblock %}

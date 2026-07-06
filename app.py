@@ -43061,8 +43061,9 @@ def public_invitation_request_link(token):
             req_payloads.append(rp)
         _invitation_group_requests(req_payloads, categories)
         # Open Graph para previsualización WhatsApp/SMS.
+        # Se pasa el artista para que la imagen sea el CARTEL principal y, si no lo hay, la foto del artista.
         try:
-            card = _public_share_card(session_db, 'CONCERT', concert)
+            card = _public_share_card(session_db, 'CONCERT', concert, artist_id=getattr(concert, 'artist_id', None))
         except Exception:
             card = {}
         event_payload = _invitation_event_payload(session_db, concert)
@@ -43073,7 +43074,8 @@ def public_invitation_request_link(token):
         og = {
             'title': og_title,
             'description': ' · '.join(og_desc_parts),
-            'image': card.get('artist_photo') or event_payload.get('poster_url') or '',
+            # Cartel principal primero; si no hay, foto del artista (card.artist_photo ya cae al artista).
+            'image': event_payload.get('poster_url') or card.get('artist_photo') or ((event_payload.get('artists') or [{}])[0].get('photo_url') if event_payload.get('artists') else '') or '',
         }
         return render_template(
             'public_invitation_request.html',

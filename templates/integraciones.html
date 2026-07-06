@@ -4,17 +4,33 @@
   <h1 class="h4 mb-0"><i class="fa fa-plug me-2"></i>Integraciones</h1>
 </div>
 
-<div class="row g-3">
-  <div class="col-12 col-lg-6">
-    <div class="card h-100">
+{# Catálogo de integraciones: una PESTAÑA por integración. Para añadir una nueva basta con
+   sumarla a esta lista y crear su panel `#tab-<key>` más abajo. #}
+{% set integrations = [
+  {'key': 'pleo', 'name': 'Pleo', 'subtitle': 'Gastos', 'icon': 'fa-receipt', 'configured': pleo_configured},
+  {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
+] %}
+
+<ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
+  {% for ig in integrations %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {% if loop.first %}active{% endif %}" id="tab-{{ ig.key }}-tab" data-bs-toggle="tab" data-bs-target="#tab-{{ ig.key }}" type="button" role="tab" aria-controls="tab-{{ ig.key }}" aria-selected="{{ 'true' if loop.first else 'false' }}">
+      <i class="fa {{ ig.icon }} me-1"></i>{{ ig.name }}
+      {% if ig.configured %}<span class="badge text-bg-success ms-1">Configurada</span>{% else %}<span class="badge text-bg-secondary ms-1">Desactivada</span>{% endif %}
+    </button>
+  </li>
+  {% endfor %}
+</ul>
+
+<div class="tab-content">
+
+  {# ============================ PLEO ============================ #}
+  <div class="tab-pane fade show active" id="tab-pleo" role="tabpanel" aria-labelledby="tab-pleo-tab">
+    <div class="card">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Pleo <span class="text-muted small fw-normal">· Gastos</span></h2>
-          {% if pleo_configured %}
-            <span class="badge text-bg-success">Configurada</span>
-          {% else %}
-            <span class="badge text-bg-secondary">Desactivada</span>
-          {% endif %}
+          {% if pleo_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
         </div>
         <p class="text-muted small mb-3">Importar gastos y recibos de Pleo para cruzarlos con las bolsas.</p>
         {% if pleo_configured %}
@@ -31,16 +47,13 @@
     </div>
   </div>
 
-  <div class="col-12 col-lg-6">
-    <div class="card h-100">
+  {# ========================= CHARTMETRIC ========================= #}
+  <div class="tab-pane fade" id="tab-chartmetric" role="tabpanel" aria-labelledby="tab-chartmetric-tab">
+    <div class="card">
       <div class="card-body">
         <div class="d-flex align-items-center justify-content-between mb-2">
           <h2 class="h5 mb-0">Chartmetric <span class="text-muted small fw-normal">· Métricas</span></h2>
-          {% if chartmetric_configured %}
-            <span class="badge text-bg-success">Configurada</span>
-          {% else %}
-            <span class="badge text-bg-secondary">Desactivada</span>
-          {% endif %}
+          {% if chartmetric_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
         </div>
         <p class="text-muted small mb-3">Métricas de audiencia, playlists, charts y enlaces a las redes de vuestros artistas (los iconos del hero de cada ficha). Se actualiza solo a diario; «Actualizar todos» lo fuerza manualmente.</p>
         {% if chartmetric_configured %}
@@ -78,69 +91,70 @@
         {% endif %}
       </div>
     </div>
-  </div>
-</div>
 
-{% if chartmetric_configured and review_rows %}
-<div class="card mt-4">
-  <div class="card-body">
-    <h2 class="h5 mb-1">Revisión de artistas · Chartmetric</h2>
-    <p class="text-muted small mb-3">Comprueba que cada artista esté vinculado al ID correcto (compara con el nombre y la foto que ha encontrado Chartmetric). Si está mal, escribe el ID correcto y guarda; o desvincula.</p>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle">
-        <thead><tr>
-          <th>Artista (nuestro)</th><th>Estado</th><th>ID Chartmetric</th><th>Encontrado en Chartmetric</th><th></th>
-        </tr></thead>
-        <tbody>
-        {% for r in review_rows %}
-          <tr>
-            <td>
-              <div class="d-flex align-items-center gap-2">
-                <img src="{{ r.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
-                <span>{{ r.artist_name }}</span>
-              </div>
-            </td>
-            <td>
-              {% if r.status == 'LINKED' %}<span class="badge text-bg-success">Vinculado</span>
-              {% elif r.status == 'NOT_FOUND' %}<span class="badge text-bg-warning">No encontrado</span>
-              {% elif r.status == 'ERROR' %}<span class="badge text-bg-danger">Error</span>
-              {% else %}<span class="badge text-bg-secondary">Sin vincular</span>{% endif %}
-              {% if r.source %}<div class="small text-muted">por {{ r.source }}</div>{% endif %}
-            </td>
-            <td>
-              <form method="post" class="d-flex align-items-center gap-1 mb-0">
-                <input type="hidden" name="action" value="link_chartmetric">
-                <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
-                <input type="text" name="chartmetric_id" value="{{ r.cmid or '' }}" class="form-control form-control-sm" style="width:110px" placeholder="ID" inputmode="numeric">
-                <button class="btn btn-sm btn-outline-primary" title="Guardar ID"><i class="fa fa-floppy-disk"></i></button>
-                {% if r.cmid %}<a class="btn btn-sm btn-outline-secondary" href="https://app.chartmetric.com/artist/{{ r.cmid }}" target="_blank" rel="noopener" title="Abrir en Chartmetric"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
-              </form>
-            </td>
-            <td>
-              {% if r.cm_name %}
-                <div class="d-flex align-items-center gap-2">
-                  {% if r.cm_image %}<img src="{{ r.cm_image }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">{% endif %}
-                  <span>{{ r.cm_name }}</span>
-                </div>
-              {% else %}<span class="text-muted small">—</span>{% endif %}
-            </td>
-            <td class="text-end">
-              {% if r.cmid %}
-              <form method="post" class="mb-0" onsubmit="return confirm('¿Desvincular este artista y borrar sus datos cacheados?');">
-                <input type="hidden" name="action" value="unlink_chartmetric">
-                <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
-                <button class="btn btn-sm btn-outline-danger" title="Desvincular"><i class="fa fa-link-slash"></i></button>
-              </form>
-              {% endif %}
-            </td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
+    {% if chartmetric_configured and review_rows %}
+    <div class="card mt-3">
+      <div class="card-body">
+        <h2 class="h5 mb-1">Revisión de artistas · Chartmetric</h2>
+        <p class="text-muted small mb-3">Comprueba que cada artista esté vinculado al ID correcto (compara con el nombre y la foto que ha encontrado Chartmetric). Si está mal, escribe el ID correcto y guarda; o desvincula.</p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle">
+            <thead><tr>
+              <th>Artista (nuestro)</th><th>Estado</th><th>ID Chartmetric</th><th>Encontrado en Chartmetric</th><th></th>
+            </tr></thead>
+            <tbody>
+            {% for r in review_rows %}
+              <tr>
+                <td>
+                  <div class="d-flex align-items-center gap-2">
+                    <img src="{{ r.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
+                    <span>{{ r.artist_name }}</span>
+                  </div>
+                </td>
+                <td>
+                  {% if r.status == 'LINKED' %}<span class="badge text-bg-success">Vinculado</span>
+                  {% elif r.status == 'NOT_FOUND' %}<span class="badge text-bg-warning">No encontrado</span>
+                  {% elif r.status == 'ERROR' %}<span class="badge text-bg-danger">Error</span>
+                  {% else %}<span class="badge text-bg-secondary">Sin vincular</span>{% endif %}
+                  {% if r.source %}<div class="small text-muted">por {{ r.source }}</div>{% endif %}
+                </td>
+                <td>
+                  <form method="post" class="d-flex align-items-center gap-1 mb-0">
+                    <input type="hidden" name="action" value="link_chartmetric">
+                    <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
+                    <input type="text" name="chartmetric_id" value="{{ r.cmid or '' }}" class="form-control form-control-sm" style="width:110px" placeholder="ID" inputmode="numeric">
+                    <button class="btn btn-sm btn-outline-primary" title="Guardar ID"><i class="fa fa-floppy-disk"></i></button>
+                    {% if r.cmid %}<a class="btn btn-sm btn-outline-secondary" href="https://app.chartmetric.com/artist/{{ r.cmid }}" target="_blank" rel="noopener" title="Abrir en Chartmetric"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
+                  </form>
+                </td>
+                <td>
+                  {% if r.cm_name %}
+                    <div class="d-flex align-items-center gap-2">
+                      {% if r.cm_image %}<img src="{{ r.cm_image }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">{% endif %}
+                      <span>{{ r.cm_name }}</span>
+                    </div>
+                  {% else %}<span class="text-muted small">—</span>{% endif %}
+                </td>
+                <td class="text-end">
+                  {% if r.cmid %}
+                  <form method="post" class="mb-0" onsubmit="return confirm('¿Desvincular este artista y borrar sus datos cacheados?');">
+                    <input type="hidden" name="action" value="unlink_chartmetric">
+                    <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
+                    <button class="btn btn-sm btn-outline-danger" title="Desvincular"><i class="fa fa-link-slash"></i></button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
+    {% endif %}
   </div>
+
 </div>
-{% endif %}
 
 <div class="alert alert-light border mt-4 small mb-0">
   <i class="fa fa-shield-halved me-1"></i>

@@ -6526,6 +6526,9 @@ def _build_royalty_beneficiaries(session_db, sem_start: date, sem_end: date, sel
             session_db.query(Song)
             .options(selectinload(Song.artists))
             .filter(Song.id.in_(song_ids))
+            # Las colaboraciones externas NO generan royalties a artistas/productores; su reparto se
+            # gestiona en la pestaña «A favor» (lo que cobramos nosotros).
+            .filter(Song.is_external_collab.is_(False))
             .order_by(Song.release_date.desc())
             .all()
         )

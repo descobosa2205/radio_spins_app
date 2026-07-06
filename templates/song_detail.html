@@ -594,7 +594,8 @@
                     <tr><th>Estudio</th><td>{{ song.studio }}</td></tr>
                   {% endif %}
 
-                  {% if song_producer_rows and (song_producer_rows|length) > 0 %}
+                  {# Colaboración externa: no hay contrato de productor (solo el de colaboración). #}
+                  {% if song_producer_rows and (song_producer_rows|length) > 0 and not song.is_external_collab %}
                     <tr>
                       <th>Productores</th>
                       <td>

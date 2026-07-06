@@ -13,7 +13,10 @@
       <div class="d-flex justify-content-between align-items-start gap-3 mb-4 flex-wrap">
         <div>
           <span class="badge text-bg-secondary mb-2">{{ event.type_label }}</span>
-          <h1 class="h3 mb-1">{{ event.artist_names }}</h1>
+          <div class="d-flex align-items-center gap-2 mb-1">
+            {% if event.artists and event.artists[0].photo_url %}<img src="{{ event.artists[0].photo_url }}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
+            <h1 class="h3 mb-0">{{ event.artist_names }}</h1>
+          </div>
           <div class="text-muted">{{ event.title }} · {{ event.date_label }}{% if event.venue %} · {{ event.venue }}{% endif %}{% if event.city %} · {{ event.city }}{% endif %}{% if event.province %}, {{ event.province }}{% endif %}</div>
         </div>
         <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Logo" class="public-invitation-logo">

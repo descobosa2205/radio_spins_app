@@ -24211,6 +24211,64 @@ def api_create_media_outlet():
         session_db.close()
 
 
+def _media_contact_row(c) -> dict:
+    name = " ".join([x for x in [(c.first_name or "").strip(), (c.last_name or "").strip()] if x]).strip()
+    return {
+        "id": str(c.id),
+        "name": name or (c.program or "Contacto"),
+        "role": (c.role or c.program or "").strip(),
+        "phone": (c.phone or "").strip(),
+        "email": (c.email or "").strip(),
+    }
+
+
+@app.get("/api/media/<media_id>/contacts", endpoint="api_media_contacts")
+@admin_required
+def api_media_contacts(media_id):
+    session_db = db()
+    try:
+        rows = (
+            session_db.query(MediaContact)
+            .filter(MediaContact.media_id == to_uuid(media_id))
+            .order_by(MediaContact.first_name.asc().nullslast(), MediaContact.last_name.asc().nullslast())
+            .all()
+        )
+        return jsonify([_media_contact_row(c) for c in rows])
+    finally:
+        session_db.close()
+
+
+@app.post("/api/media/<media_id>/contacts/create", endpoint="api_media_contact_create")
+@admin_required
+def api_media_contact_create(media_id):
+    session_db = db()
+    try:
+        media = session_db.get(MediaOutlet, to_uuid(media_id))
+        if not media:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Falta el nombre."}), 400
+        parts = name.split(" ", 1)
+        c = MediaContact(
+            media_id=media.id,
+            first_name=parts[0],
+            last_name=(parts[1] if len(parts) > 1 else ""),
+            role=(data.get("role") or "").strip() or None,
+            phone=(data.get("phone") or "").strip() or None,
+            email=(data.get("email") or "").strip() or None,
+        )
+        session_db.add(c)
+        session_db.commit()
+        return jsonify({"ok": True, **_media_contact_row(c)})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post("/vinculaciones/crear", endpoint="entity_link_create")
 @admin_required
 def entity_link_create():
@@ -26526,28 +26584,51 @@ SOCIAL_PLATFORMS = [
 SOCIAL_PLATFORM_KEYS = {row["key"] for row in SOCIAL_PLATFORMS}
 SOCIAL_PLATFORM_ORDER = {row["key"]: idx for idx, row in enumerate(SOCIAL_PLATFORMS)}
 
-ROADMAP_ENTITY_LABELS = {
-    "concert": "actividad",
-    "action": "acción",
-    "promotion": "campaña",
-}
-ROADMAP_ITEM_TYPES = [
-    ("LOGISTICA", "Logística", "fa-route"),
-    ("ENTREVISTA", "Entrevista", "fa-microphone-lines"),
-    ("ACTUACION", "Actuación", "fa-guitar"),
-    ("ACTIVIDAD", "Actividad", "fa-calendar-check"),
-    ("COMIDA", "Comida", "fa-utensils"),
-]
-ROADMAP_LOGISTIC_SUBTYPES = [
+# === Hoja de ruta v2 =========================================================
+# Herramienta de producción por actividad (concierto / acción / promoción).
+# Datos en la columna JSONB `roadmap_payload` (esquema version=2); el panel se
+# renderiza en cliente (static/js/roadmap.js) y el CRUD va por endpoints JSON.
+ROADMAP_ENTITY_TYPES = {"concert", "action", "promotion"}
+# Modos de transporte (comparten color; son el "kind" del item de agenda y la
+# vista de Logística los agrupa).
+ROADMAP_TRANSPORT_MODES = [
     ("TRANSFER", "Transfer", "fa-van-shuttle"),
+    ("VUELO", "Vuelo", "fa-plane-up"),
     ("TREN", "Tren", "fa-train"),
-    ("AVION", "Avión", "fa-plane"),
-    ("FURGONETA", "Furgoneta", "fa-truck"),
-    ("COCHE", "Coche", "fa-car"),
-    ("COCHE_ALQUILER", "Coche de alquiler", "fa-car-side"),
     ("BARCO", "Barco", "fa-ship"),
+    ("CABIFY", "Cabify / VTC", "fa-car-side"),
+    ("TAXI", "Taxi", "fa-taxi"),
+    ("AUTOBUS", "Autobús", "fa-bus"),
+    ("FURGONETA", "Furgoneta", "fa-truck"),
 ]
-ROADMAP_MEAL_TYPES = [("RESTAURANTE", "Restaurante", "fa-utensils"), ("PEDIDO", "Pedido", "fa-bag-shopping")]
+ROADMAP_TRANSPORT_KINDS = {k for k, _l, _i in ROADMAP_TRANSPORT_MODES}
+ROADMAP_TRANSPORT_COLOR = "#007ca2"
+# Tipos de actividad no-transporte (icono + color de línea). "Traslado" no es un
+# tipo almacenado: es un tile del selector que despliega los modos de transporte.
+ROADMAP_ACTIVITY_TYPES = [
+    ("ENTREVISTA", "Entrevista", "fa-microphone-lines", "#8e44ad"),
+    ("ACTUACION", "Actuación", "fa-guitar", "#e33d48"),
+    ("PRUEBA_SONIDO", "Prueba de sonido", "fa-sliders", "#16a085"),
+    ("MG", "Meet & Greet", "fa-handshake", "#d63384"),
+    ("SESION_FOTOS", "Sesión de fotos", "fa-camera", "#6f42c1"),
+    ("COMIDA", "Comida", "fa-utensils", "#e67e22"),
+    ("CITACION", "Citación", "fa-clock", "#0d6efd"),
+    ("OTROS", "Otros", "fa-ellipsis", "#6c757d"),
+]
+ROADMAP_ACTIVITY_KINDS = {k for k, _l, _i, _c in ROADMAP_ACTIVITY_TYPES}
+ROADMAP_ALL_KINDS = ROADMAP_ACTIVITY_KINDS | ROADMAP_TRANSPORT_KINDS
+ROADMAP_INTERVIEW_TYPES = ["Radio", "TV", "Prensa", "Digital", "Podcast", "Streaming", "Otros"]
+ROADMAP_PERSONNEL_KINDS = {"USER", "PROMOTER", "MEMBER", "MANUAL"}
+
+
+def _roadmap_kind_catalog() -> dict:
+    """Mapa kind -> {label, icon, color, transport} para el render en cliente."""
+    cat = {}
+    for k, label, icon, color in ROADMAP_ACTIVITY_TYPES:
+        cat[k] = {"label": label, "icon": icon, "color": color, "transport": False}
+    for k, label, icon in ROADMAP_TRANSPORT_MODES:
+        cat[k] = {"label": label, "icon": icon, "color": ROADMAP_TRANSPORT_COLOR, "transport": True}
+    return cat
 
 
 def _ordered_social_links(value) -> list[dict]:
@@ -26704,15 +26785,6 @@ def _ensure_artist_onesheet_token(session_db, artist: Artist) -> str:
     return token
 
 
-def _ensure_roadmap_token(session_db, row) -> str:
-    token = (getattr(row, "roadmap_public_token", None) or "").strip()
-    if not token:
-        token = _uuid_token()
-        row.roadmap_public_token = token
-        session_db.flush()
-    return token
-
-
 def _ensure_tour_onesheet_token(session_db, tour: TourOneSheet) -> str:
     token = (getattr(tour, "public_token", None) or "").strip()
     if not token:
@@ -26722,309 +26794,298 @@ def _ensure_tour_onesheet_token(session_db, tour: TourOneSheet) -> str:
     return token
 
 
-def _roadmap_payload(value) -> dict:
-    data = _json_loads_safe(value, {})
-    if not isinstance(data, dict):
-        data = {}
-    data.setdefault("hotels", [])
-    data.setdefault("items", [])
-    data.setdefault("mode", "list")
-    data.setdefault("updated_at", "")
-    if not isinstance(data["hotels"], list):
-        data["hotels"] = []
-    if not isinstance(data["items"], list):
-        data["items"] = []
-    return data
+# --- Persistencia --------------------------------------------------------------
+def _roadmap_new_id() -> str:
+    return _uuid.uuid4().hex[:12]
 
 
-def _parse_days_from_request(prefix: str = "") -> list[str]:
-    values = request.form.getlist(prefix + "days[]") or request.form.getlist(prefix + "days")
-    cleaned = []
-    seen = set()
-    for raw in values:
-        val = (raw or "").strip()
-        if not val:
-            continue
-        try:
-            d = datetime.strptime(val, "%Y-%m-%d").date().isoformat()
-        except Exception:
-            continue
-        if d not in seen:
-            seen.add(d)
-            cleaned.append(d)
-    return sorted(cleaned)
-
-
-def _roadmap_day_candidates(entity) -> list[str]:
-    days = []
-    if isinstance(entity, Concert):
-        if getattr(entity, "date", None):
-            days.append(entity.date.isoformat())
-    elif isinstance(entity, CompanyAction):
-        start = getattr(entity, "start_date", None)
-        end = getattr(entity, "end_date", None) or start
-        if start and end:
-            cur = start
-            guard = 0
-            while cur <= end and guard < 60:
-                days.append(cur.isoformat())
-                cur += timedelta(days=1)
-                guard += 1
-        elif start:
-            days.append(start.isoformat())
-        events = _json_loads_safe(getattr(entity, "events_payload", None), [])
-        if isinstance(events, list):
-            for ev in events:
-                d = (ev or {}).get("date") or (ev or {}).get("start_date")
-                if d:
-                    days.append(str(d)[:10])
-    elif isinstance(entity, Promotion):
-        for d in [getattr(entity, "starts_on", None), getattr(entity, "target_date", None), getattr(entity, "ends_on", None)]:
-            if d:
-                days.append(d.isoformat())
-    return sorted({d for d in days if re.match(r"^\d{4}-\d{2}-\d{2}$", d or "")})
-
-
-def _merge_roadmap_days(entity, payload: dict) -> list[dict]:
-    day_set = set(_roadmap_day_candidates(entity))
-    for hotel in payload.get("hotels", []) or []:
-        day_set.update([str(x)[:10] for x in (hotel.get("days") or []) if x])
-    for item in payload.get("items", []) or []:
-        if item.get("day"):
-            day_set.add(str(item.get("day"))[:10])
-        day_set.update([str(x)[:10] for x in (item.get("days") or []) if x])
-    if not day_set:
-        day_set.add(today_local().isoformat())
-    rows = []
-    weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-    months = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
-    for day in sorted(day_set):
-        try:
-            d = datetime.strptime(day, "%Y-%m-%d").date()
-            label = f"{weekdays[d.weekday()]} {d.day} {months[d.month]} {d.year}"
-            rows.append({"date": day, "date_obj": d, "label": label, "short": f"{d.day} {months[d.month]}", "weekday": weekdays[d.weekday()]})
-        except Exception:
-            rows.append({"date": day, "label": day, "short": day, "weekday": ""})
-    return rows
-
-
-def _roadmap_item_title(item: dict) -> str:
-    if not isinstance(item, dict):
-        return "Apunte"
-    title = (item.get("title") or item.get("name") or "").strip()
-    if title:
-        return title
-    kind = (item.get("kind") or item.get("type") or "ACTIVIDAD").upper()
-    subtype = (item.get("subtype") or "").replace("_", " ").title()
-    labels = dict((k, v) for k, v, _ in ROADMAP_ITEM_TYPES)
-    return subtype or labels.get(kind, "Apunte")
-
-
-def _roadmap_icon(kind: str | None, subtype: str | None = None) -> str:
-    kind = (kind or "").strip().upper()
-    subtype = (subtype or "").strip().upper()
-    if kind == "LOGISTICA":
-        for k, _label, icon in ROADMAP_LOGISTIC_SUBTYPES:
-            if k == subtype:
-                return icon
-        return "fa-route"
-    for k, _label, icon in ROADMAP_ITEM_TYPES:
-        if k == kind:
-            return icon
-    return "fa-calendar-check"
-
-
-def _roadmap_item_sort_key(item: dict):
-    return (str(item.get("day") or "9999-12-31"), str(item.get("start_time") or "99:99"), str(item.get("end_time") or "99:99"), str(item.get("created_at") or ""))
-
-
-def _roadmap_enrich(payload: dict) -> dict:
-    data = _roadmap_payload(payload)
-    for item in data.get("items", []) or []:
-        if not isinstance(item, dict):
-            continue
-        item.setdefault("id", _uuid_token())
-        item["display_title"] = _roadmap_item_title(item)
-        item["icon"] = _roadmap_icon(item.get("kind") or item.get("type"), item.get("subtype"))
-        item["participants"] = [x for x in (item.get("participants") or []) if isinstance(x, dict)]
-        item["attachments"] = [x for x in (item.get("attachments") or []) if isinstance(x, dict)]
-        item["repertoire"] = [x for x in (item.get("repertoire") or []) if isinstance(x, dict)]
-        if not item.get("day") and item.get("days"):
-            item["day"] = (item.get("days") or [""])[0]
-    data["items"].sort(key=_roadmap_item_sort_key)
-    for hotel in data.get("hotels", []) or []:
-        if isinstance(hotel, dict):
-            hotel.setdefault("id", _uuid_token())
-            hotel["map_url"] = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(" ".join([hotel.get("name") or "", hotel.get("address") or ""]).strip())
-    return data
-
-
-def _roadmap_item_from_form(existing_id: str | None = None) -> dict:
-    kind = (request.form.get("kind") or request.form.get("type") or "ACTIVIDAD").strip().upper()
-    valid_kinds = {k for k, _label, _icon in ROADMAP_ITEM_TYPES}
-    if kind not in valid_kinds:
-        kind = "ACTIVIDAD"
-    subtype = (request.form.get("subtype") or request.form.get("logistic_subtype") or "").strip().upper()
-    title = (request.form.get("title") or request.form.get("name") or "").strip()
-    day = (request.form.get("day") or "").strip()
+def _roadmap_int(value, default=0):
     try:
-        day = datetime.strptime(day, "%Y-%m-%d").date().isoformat()
+        return int(value)
     except Exception:
-        day = today_local().isoformat()
-    item = {
-        "id": existing_id or _uuid_token(),
-        "kind": kind,
-        "subtype": subtype,
-        "title": title,
-        "day": day,
-        "start_time": (request.form.get("start_time") or "").strip(),
-        "end_time": (request.form.get("end_time") or "").strip(),
-        "location": (request.form.get("location") or "").strip(),
-        "origin": (request.form.get("origin") or "").strip(),
-        "destination": (request.form.get("destination") or "").strip(),
-        "tracking_url": _clean_public_url(request.form.get("tracking_url")),
-        "phone": (request.form.get("phone") or "").strip(),
-        "company": (request.form.get("company") or "").strip(),
-        "locator": (request.form.get("locator") or "").strip(),
-        "description": (request.form.get("description") or "").strip(),
-        "note": (request.form.get("note") or "").strip(),
-        "participants_text": (request.form.get("participants_text") or "").strip(),
-        "is_tbc": bool(request.form.get("is_tbc")),
-        "hide_time": bool(request.form.get("hide_time")),
-        "updated_at": _now_madrid().isoformat(),
-    }
-    # Repertorio simple: filas title/mode/note/order.
-    reps = []
-    titles = request.form.getlist("repertoire_title[]")
-    modes = request.form.getlist("repertoire_mode[]")
-    notes = request.form.getlist("repertoire_note[]")
-    for idx, song_title in enumerate(titles or []):
-        song_title = (song_title or "").strip()
-        if not song_title:
-            continue
-        reps.append({"title": song_title, "mode": (modes[idx] if idx < len(modes) else "DIRECTO") or "DIRECTO", "note": (notes[idx] if idx < len(notes) else "") or "", "order": idx + 1})
-    item["repertoire"] = reps
-    return item
+        return default
 
 
-def _roadmap_hotel_from_form(existing_id: str | None = None) -> dict:
-    days = _parse_days_from_request()
-    if not days:
-        raw_day = (request.form.get("day") or "").strip()
-        if raw_day:
-            days = [raw_day]
-    return {
-        "id": existing_id or _uuid_token(),
-        "name": (request.form.get("hotel_name") or request.form.get("name") or "").strip(),
-        "address": (request.form.get("hotel_address") or request.form.get("address") or "").strip(),
-        "days": days,
-        "for_all": bool(request.form.get("for_all")),
-        "people_text": (request.form.get("people_text") or "").strip(),
-        "breakfast": bool(request.form.get("breakfast")),
-        "free_cancel": bool(request.form.get("free_cancel")),
-        "cancel_until": (request.form.get("cancel_until") or "").strip(),
-        "voucher_url": (request.form.get("voucher_url") or "").strip(),
-        "voucher_name": (request.form.get("voucher_name") or "").strip(),
-        "note": (request.form.get("note") or "").strip(),
-        "updated_at": _now_madrid().isoformat(),
-    }
+def _roadmap_load(row) -> dict:
+    """Payload v2 tolerante: si es esquema viejo o inválido, arranca vacío."""
+    data = _json_loads_safe(getattr(row, "roadmap_payload", None), {})
+    if not isinstance(data, dict) or _roadmap_int(data.get("version")) != 2:
+        data = {"version": 2}
+    data["version"] = 2
+    for key in ("personnel", "hotels", "agenda"):
+        if not isinstance(data.get(key), list):
+            data[key] = []
+    return data
 
 
-def _roadmap_entity(session_db, entity_type: str, entity_id=None, token: str | None = None):
+def _roadmap_save(session_db, row, payload: dict) -> None:
+    from sqlalchemy.orm.attributes import flag_modified
+    payload["version"] = 2
+    payload["updated_at"] = _now_madrid().isoformat()
+    payload["updated_by"] = _email_to_nick(_current_user_email() or "")
+    row.roadmap_payload = payload
+    flag_modified(row, "roadmap_payload")
+    if hasattr(row, "updated_at"):
+        row.updated_at = _now_madrid()
+    session_db.commit()
+
+
+def _roadmap_entity(session_db, entity_type: str, entity_id):
     kind = (entity_type or "").strip().lower()
-    row = None
+    if kind not in ROADMAP_ENTITY_TYPES:
+        return kind, None
     if kind == "concert":
-        q = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue), joinedload(Concert.billing_company), joinedload(Concert.group_company))
-        row = q.filter(Concert.roadmap_public_token == token).first() if token else q.filter(Concert.id == to_uuid(entity_id)).first()
+        row = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).filter(Concert.id == to_uuid(entity_id)).first()
     elif kind == "action":
-        q = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue))
-        row = q.filter(CompanyAction.roadmap_public_token == token).first() if token else q.filter(CompanyAction.id == to_uuid(entity_id)).first()
-    elif kind == "promotion":
-        q = session_db.query(Promotion).options(joinedload(Promotion.company), joinedload(Promotion.bag))
-        row = q.filter(Promotion.roadmap_public_token == token).first() if token else q.filter(Promotion.id == to_uuid(entity_id)).first()
+        row = session_db.query(CompanyAction).options(joinedload(CompanyAction.venue)).filter(CompanyAction.id == to_uuid(entity_id)).first()
+    else:
+        row = session_db.query(Promotion).options(joinedload(Promotion.company)).filter(Promotion.id == to_uuid(entity_id)).first()
     return kind, row
 
 
-def _roadmap_context(session_db, entity_type: str, row, *, ensure_token: bool = False, public: bool = False) -> dict:
-    if ensure_token:
-        token = _ensure_roadmap_token(session_db, row)
-    else:
-        token = (getattr(row, "roadmap_public_token", None) or "").strip()
-    payload = _roadmap_enrich(getattr(row, "roadmap_payload", None))
-    days = _merge_roadmap_days(row, payload)
-    artists = []
-    title = "Hoja de ruta"
-    subtitle = ""
-    cover_url = ""
-    company_logo = ""
-    activity_date = None
+# --- Días de la hoja de ruta ---------------------------------------------------
+def _roadmap_base_days(row) -> list[str]:
+    days = []
     if isinstance(row, Concert):
-        artists = _artists_from_ids(session_db, _concert_primary_artist_ids(row))
-        title = getattr(row, "festival_name", None) or _artist_label_from_rows(artists) or "Actividad"
-        venue = getattr(row, "venue", None)
-        subtitle = " · ".join([x for x in [getattr(venue, "name", None) or getattr(row, "manual_venue_name", None), getattr(venue, "municipality", None) or getattr(row, "manual_municipality", None), getattr(venue, "province", None) or getattr(row, "manual_province", None)] if x])
-        cover_url = (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
-        company_logo = (getattr(getattr(row, "billing_company", None), "logo_url", None) or getattr(getattr(row, "group_company", None), "logo_url", None) or _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public))
-        activity_date = getattr(row, "date", None)
+        if getattr(row, "date", None):
+            days.append(row.date.isoformat())
     elif isinstance(row, CompanyAction):
-        artists = _artists_from_ids(session_db, getattr(row, "artist_ids", None) or [])
-        title = getattr(row, "title", None) or "Acción"
-        subtitle = _venue_label(getattr(row, "venue", None), " ".join([str((getattr(row, "location_snapshot", {}) or {}).get("municipality") or ""), str((getattr(row, "location_snapshot", {}) or {}).get("province") or "")]).strip())
-        cover_url = (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
-        company_logo = _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public)
-        activity_date = getattr(row, "start_date", None)
+        start = getattr(row, "start_date", None)
+        end = getattr(row, "end_date", None) or start
+        if start:
+            cur, guard = start, 0
+            while cur <= (end or start) and guard < 90:
+                days.append(cur.isoformat())
+                cur += timedelta(days=1)
+                guard += 1
     elif isinstance(row, Promotion):
-        artists = _artists_from_ids(session_db, getattr(row, "artist_ids", None) or [])
-        snap = _json_loads_safe(getattr(row, "snapshot", None), {})
-        title = snap.get("title") or snap.get("artist_label") or "Campaña de marketing"
-        subtitle = snap.get("subtitle") or getattr(row, "objectives_notes", None) or ""
-        cover_url = snap.get("cover_url") or (artists[0].photo_url if artists else "") or url_for("static", filename="img/placeholder_photo.png")
-        company_logo = getattr(getattr(row, "company", None), "logo_url", None) or _treinta_y_tres_logo_url(session_db) or url_for("static", filename="img/logo.png", _external=public)
-        activity_date = getattr(row, "target_date", None) or getattr(row, "starts_on", None)
-    if token:
-        public_url = _external_url_for("roadmap_public_view", token=token)
-        pdf_url = _external_url_for("roadmap_public_view", token=token, print="1")
-    else:
-        public_url = ""
-        pdf_url = ""
-    whatsapp_text = f"Consulta la hoja de ruta de: {title}"
-    if activity_date:
+        for d in [getattr(row, "starts_on", None), getattr(row, "target_date", None), getattr(row, "ends_on", None)]:
+            if d:
+                days.append(d.isoformat())
+    return days
+
+
+def _roadmap_next_day(day: str) -> str | None:
+    try:
+        return (datetime.strptime(str(day)[:10], "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+    except Exception:
+        return None
+
+
+def _roadmap_days(row, payload: dict) -> list[dict]:
+    day_set = set(_roadmap_base_days(row))
+    for hotel in payload.get("hotels", []) or []:
+        for d in (hotel.get("days") or []):
+            if d:
+                day_set.add(str(d)[:10])
+    for item in payload.get("agenda", []) or []:
+        if item.get("day"):
+            day_set.add(str(item["day"])[:10])
+        transport = item.get("transport") or {}
+        if item.get("day") and transport.get("ends_next_day"):
+            nd = _roadmap_next_day(item["day"])
+            if nd:
+                day_set.add(nd)
+    if not day_set:
+        day_set.add(today_local().isoformat())
+    weekdays = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+    months = ["", "ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+    rows = []
+    for day in sorted(day_set):
         try:
-            whatsapp_text += f" · {activity_date.strftime('%d/%m/%Y')}"
+            d = datetime.strptime(day, "%Y-%m-%d").date()
+            rows.append({"date": day, "weekday": weekdays[d.weekday()], "day": d.day, "month": months[d.month], "year": d.year, "label": f"{weekdays[d.weekday()]} {d.day} {months[d.month]}"})
         except Exception:
-            pass
-    if public_url:
-        whatsapp_text += "\n" + public_url
+            rows.append({"date": day, "weekday": "", "day": day, "month": "", "year": "", "label": day})
+    return rows
+
+
+# --- Canciones del artista (para el selector de entrevistas) -------------------
+def _roadmap_artist_ids(row) -> list[str]:
+    if isinstance(row, Concert):
+        return [str(x) for x in _concert_primary_artist_ids(row)]
+    return [str(x) for x in (getattr(row, "artist_ids", None) or [])]
+
+
+def _roadmap_artist_songs(session_db, row) -> list[dict]:
+    ids = _as_uuid_list(_roadmap_artist_ids(row))
+    if not ids:
+        return []
+    rows = (
+        session_db.query(Song)
+        .join(SongArtist, SongArtist.song_id == Song.id)
+        .filter(SongArtist.artist_id.in_(ids))
+        .distinct()
+        .order_by(Song.release_date.desc().nullslast(), Song.title.asc())
+        .all()
+    )
+    out = []
+    for s in rows:
+        out.append({"id": str(s.id), "title": (s.title or "").strip(), "cover_url": (getattr(s, "cover_url", None) or "")})
+    return out
+
+
+# --- Contexto para la plantilla ------------------------------------------------
+def _roadmap_title(session_db, entity_type: str, row, artists) -> str:
+    if isinstance(row, Concert):
+        return getattr(row, "festival_name", None) or _artist_label_from_rows(artists) or "Actividad"
+    if isinstance(row, CompanyAction):
+        return getattr(row, "title", None) or "Acción"
+    if isinstance(row, Promotion):
+        snap = _json_loads_safe(getattr(row, "snapshot", None), {})
+        return snap.get("title") or snap.get("artist_label") or _artist_label_from_rows(artists) or "Campaña"
+    return "Hoja de ruta"
+
+
+def _roadmap_context(session_db, entity_type: str, row, **_ignored) -> dict:
+    payload = _roadmap_load(row)
+    artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
     return {
         "entity_type": entity_type,
         "entity_id": str(getattr(row, "id", "")),
-        "entity_label": ROADMAP_ENTITY_LABELS.get(entity_type, "actividad"),
-        "title": title,
-        "subtitle": subtitle,
+        "is_concert": entity_type == "concert",
+        "title": _roadmap_title(session_db, entity_type, row, artists),
         "artist_label": _artist_label_from_rows(artists),
-        "artists": artists,
-        "cover_url": cover_url,
-        "company_logo_url": company_logo,
-        "token": token,
-        "public_url": public_url,
-        "pdf_url": pdf_url,
-        "whatsapp_url": "https://wa.me/?text=" + quote_plus(whatsapp_text),
-        "sms_url": "sms:?&body=" + quote_plus(whatsapp_text),
-        "mail_subject": "Hoja de ruta · " + title,
-        "mail_body": whatsapp_text,
         "payload": payload,
-        "days": days,
-        "selected_day": (request.args.get("day") or (days[0]["date"] if days else today_local().isoformat())),
-        "item_types": ROADMAP_ITEM_TYPES,
-        "logistic_subtypes": ROADMAP_LOGISTIC_SUBTYPES,
-        "meal_types": ROADMAP_MEAL_TYPES,
+        "days": _roadmap_days(row, payload),
+        "artist_songs": _roadmap_artist_songs(session_db, row),
+        "kinds": _roadmap_kind_catalog(),
+        "activity_picker": [{"key": k, "label": l, "icon": i, "color": c} for k, l, i, c in ROADMAP_ACTIVITY_TYPES],
+        "transport_picker": [{"key": k, "label": l, "icon": i} for k, l, i in ROADMAP_TRANSPORT_MODES],
+        "interview_types": ROADMAP_INTERVIEW_TYPES,
     }
 
 
-def _set_roadmap_payload(row, payload: dict):
-    setattr(row, "roadmap_payload", payload)
-    if hasattr(row, "updated_at"):
-        row.updated_at = _now_madrid()
+# --- Constructores desde JSON --------------------------------------------------
+def _roadmap_clean_day(value) -> str:
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").date().isoformat()
+    except Exception:
+        return today_local().isoformat()
+
+
+def _roadmap_clean_time(value) -> str:
+    s = str(value or "").strip()
+    return s if re.match(r"^\d{1,2}:\d{2}$", s) else ""
+
+
+def _roadmap_clean_contact(contact) -> dict:
+    if not isinstance(contact, dict):
+        return {}
+    out = {
+        "name": (contact.get("name") or "").strip(),
+        "phone": (contact.get("phone") or "").strip(),
+        "email": (contact.get("email") or "").strip(),
+    }
+    if contact.get("promoter_id"):
+        out["promoter_id"] = str(contact.get("promoter_id"))
+    if contact.get("media_id"):
+        out["media_id"] = str(contact.get("media_id"))
+    return out if any(v for v in out.values()) else {}
+
+
+def _roadmap_item_from_json(data: dict) -> dict:
+    kind = (data.get("kind") or "OTROS").strip().upper()
+    if kind not in ROADMAP_ALL_KINDS:
+        kind = "OTROS"
+    item = {
+        "id": _roadmap_new_id(),
+        "kind": kind,
+        "title": (data.get("title") or "").strip(),
+        "day": _roadmap_clean_day(data.get("day")),
+        "start_time": _roadmap_clean_time(data.get("start_time")),
+        "end_time": _roadmap_clean_time(data.get("end_time")),
+        "tbc": bool(data.get("tbc")),
+        "confirmed": bool(data.get("confirmed", True)),
+        "cancelled": bool(data.get("cancelled")),
+        "location": (data.get("location") or "").strip(),
+        "note": (data.get("note") or "").strip(),
+        "order": _roadmap_int(data.get("order"), 0),
+        "contact": _roadmap_clean_contact(data.get("contact")),
+        "attachments": [],
+    }
+    if kind == "ENTREVISTA":
+        iv = data.get("interview") or {}
+        songs = []
+        for idx, sg in enumerate(iv.get("songs") or []):
+            songs.append({
+                "song_id": str(sg.get("song_id") or ""),
+                "title": (sg.get("title") or "").strip(),
+                "cover_url": (sg.get("cover_url") or ""),
+                "order": idx,
+            })
+        item["interview"] = {
+            "type": (iv.get("type") or "").strip(),
+            "media_id": (iv.get("media_id") or "").strip(),
+            "media_name": (iv.get("media_name") or "").strip(),
+            "sings": bool(iv.get("sings")),
+            "live": bool(iv.get("live")),
+            "songs": songs,
+        }
+    if kind in ROADMAP_TRANSPORT_KINDS:
+        tr = data.get("transport") or {}
+        passengers = []
+        for p in (tr.get("passengers") or []):
+            if not isinstance(p, dict):
+                continue
+            passengers.append({
+                "personnel_id": (p.get("personnel_id") or "").strip(),
+                "locator": (p.get("locator") or "").strip(),
+                "ticket_url": (p.get("ticket_url") or "").strip(),
+                "ticket_name": (p.get("ticket_name") or "").strip(),
+            })
+        item["transport"] = {
+            "mode": kind,
+            "company": (tr.get("company") or "").strip(),
+            "logo_url": (tr.get("logo_url") or "").strip(),
+            "number": (tr.get("number") or "").strip(),
+            "origin": (tr.get("origin") or "").strip(),
+            "destination": (tr.get("destination") or "").strip(),
+            "duration": (tr.get("duration") or "").strip(),
+            "ends_next_day": bool(tr.get("ends_next_day")),
+            "same_locator": bool(tr.get("same_locator")),
+            "locator_all": (tr.get("locator_all") or "").strip(),
+            "passengers": passengers,
+        }
+    return item
+
+
+def _roadmap_hotel_from_json(data: dict) -> dict:
+    days = []
+    for d in (data.get("days") or []):
+        cd = _roadmap_clean_day(d)
+        if cd not in days:
+            days.append(cd)
+    return {
+        "id": _roadmap_new_id(),
+        "name": (data.get("name") or "").strip(),
+        "stars": _roadmap_int(data.get("stars"), 0),
+        "photo_url": (data.get("photo_url") or "").strip(),
+        "address": (data.get("address") or "").strip(),
+        "phone": (data.get("phone") or "").strip(),
+        "email": (data.get("email") or "").strip(),
+        "days": sorted(days),
+        "for_all": bool(data.get("for_all")),
+        "assignee_ids": [str(x) for x in (data.get("assignee_ids") or [])],
+        "note": (data.get("note") or "").strip(),
+        "attachments": [],
+    }
+
+
+def _roadmap_personnel_from_json(data: dict) -> dict:
+    kind = (data.get("kind") or "MANUAL").strip().upper()
+    if kind not in ROADMAP_PERSONNEL_KINDS:
+        kind = "MANUAL"
+    return {
+        "id": _roadmap_new_id(),
+        "kind": kind,
+        "ref_id": (str(data.get("ref_id")) if data.get("ref_id") else ""),
+        "name": (data.get("name") or "").strip(),
+        "role": (data.get("role") or "").strip(),
+        "phone": (data.get("phone") or "").strip(),
+        "email": (data.get("email") or "").strip(),
+        "photo_url": (data.get("photo_url") or "").strip(),
+    }
 
 
 def _slugify_text(value: str) -> str:
@@ -27369,52 +27430,22 @@ def onesheet_public_view(token):
         session_db.close()
 
 
-def _update_roadmap_and_redirect(session_db, row, payload, target_url):
-    payload['updated_by'] = _email_to_nick(_current_user_email() or '')
-    payload['updated_at'] = _now_madrid().isoformat()
-    _set_roadmap_payload(row, payload)
-    _ensure_roadmap_token(session_db, row)
-    session_db.commit()
-    flash('Hoja de ruta actualizada.', 'success')
-    return redirect(target_url)
+ROADMAP_ATTACHMENT_EXTS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".csv", ".zip",
+}
 
 
-@app.post('/hoja-ruta/<entity_type>/<entity_id>/hotel', endpoint='roadmap_hotel_save')
-@admin_required
-def roadmap_hotel_save(entity_type, entity_id):
-    session_db = db()
-    try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
-        if not row:
-            abort(404)
-        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
-        hotel_id = (request.form.get('hotel_id') or '').strip()
-        hotel = _roadmap_hotel_from_form(hotel_id or None)
-        if not hotel.get('name') and not hotel.get('address'):
-            flash('Indica al menos el hotel o la dirección.', 'warning')
-            return redirect(request.form.get('next') or request.referrer or url_for('home'))
-        rows = payload.setdefault('hotels', [])
-        if hotel_id:
-            replaced = False
-            for idx, current in enumerate(rows):
-                if str(current.get('id')) == hotel_id:
-                    if current.get('voucher_url') and not hotel.get('voucher_url'):
-                        hotel['voucher_url'] = current.get('voucher_url')
-                        hotel['voucher_name'] = current.get('voucher_name')
-                    rows[idx] = hotel
-                    replaced = True
-                    break
-            if not replaced:
-                rows.append(hotel)
-        else:
-            rows.append(hotel)
-        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
-    except Exception as exc:
-        session_db.rollback()
-        flash(f'Error guardando alojamiento: {exc}', 'danger')
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
-    finally:
-        session_db.close()
+def _roadmap_ok(session_db, row, payload):
+    _roadmap_save(session_db, row, payload)
+    return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload)})
+
+
+def _roadmap_find(collection, target_id):
+    for idx, cur in enumerate(collection or []):
+        if str(cur.get("id")) == str(target_id):
+            return idx, cur
+    return -1, None
 
 
 @app.post('/hoja-ruta/<entity_type>/<entity_id>/item', endpoint='roadmap_item_save')
@@ -27422,76 +27453,217 @@ def roadmap_hotel_save(entity_type, entity_id):
 def roadmap_item_save(entity_type, entity_id):
     session_db = db()
     try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
-        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
-        item_id = (request.form.get('item_id') or '').strip()
-        new_item = _roadmap_item_from_form(item_id or None)
-        existing_attachments = []
-        if item_id:
-            for idx, current in enumerate(payload.setdefault('items', [])):
-                if str(current.get('id')) == item_id:
-                    existing_attachments = current.get('attachments') or []
-                    payload['items'][idx] = {**current, **new_item, 'attachments': existing_attachments}
-                    break
-            else:
-                payload['items'].append(new_item)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        agenda = payload.setdefault("agenda", [])
+        item = _roadmap_item_from_json(data)
+        iid = (data.get("id") or "").strip()
+        idx, current = _roadmap_find(agenda, iid) if iid else (-1, None)
+        if current is not None:
+            item["id"] = iid
+            item["attachments"] = current.get("attachments") or []
+            agenda[idx] = item
         else:
-            payload.setdefault('items', []).append(new_item)
-        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+            agenda.append(item)
+        return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error guardando apunte: {exc}', 'danger')
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
 
-@app.post('/hoja-ruta/<entity_type>/<entity_id>/delete', endpoint='roadmap_row_delete')
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/item/delete', endpoint='roadmap_item_delete')
 @admin_required
-def roadmap_row_delete(entity_type, entity_id):
+def roadmap_item_delete(entity_type, entity_id):
     session_db = db()
     try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
-        row_type = (request.form.get('row_type') or 'item').strip().lower()
-        row_id = (request.form.get('row_id') or '').strip()
-        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
-        key = 'hotels' if row_type == 'hotel' else 'items'
-        payload[key] = [x for x in payload.get(key, []) if str(x.get('id')) != row_id]
-        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+        data = request.get_json(silent=True) or {}
+        rid = (data.get("id") or "").strip()
+        payload = _roadmap_load(row)
+        payload["agenda"] = [x for x in payload.get("agenda", []) if str(x.get("id")) != rid]
+        return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error eliminando apunte: {exc}', 'danger')
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
 
-@app.post('/hoja-ruta/<entity_type>/<entity_id>/toggle', endpoint='roadmap_row_toggle')
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/item/toggle', endpoint='roadmap_item_toggle')
 @admin_required
-def roadmap_row_toggle(entity_type, entity_id):
+def roadmap_item_toggle(entity_type, entity_id):
     session_db = db()
     try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
-        row_id = (request.form.get('row_id') or '').strip()
-        field = (request.form.get('field') or 'is_tbc').strip()
-        if field not in {'is_tbc', 'hide_time'}:
-            field = 'is_tbc'
-        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
-        for item in payload.get('items', []) or []:
-            if str(item.get('id')) == row_id:
+        data = request.get_json(silent=True) or {}
+        rid = (data.get("id") or "").strip()
+        field = (data.get("field") or "").strip()
+        if field not in {"confirmed", "cancelled", "tbc"}:
+            return jsonify({"ok": False, "error": "Campo no válido."}), 400
+        payload = _roadmap_load(row)
+        _idx, item = _roadmap_find(payload.get("agenda", []), rid)
+        if item is not None:
+            if "value" in data:
+                item[field] = bool(data.get("value"))
+            else:
                 item[field] = not bool(item.get(field))
-                break
-        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+        return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error actualizando apunte: {exc}', 'danger')
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/item/move', endpoint='roadmap_item_move')
+@admin_required
+def roadmap_item_move(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        # data["moves"] = [{id, day, order}, ...] o un único {id, day, order}
+        moves = data.get("moves")
+        if not isinstance(moves, list):
+            moves = [data]
+        by_id = {str(x.get("id")): x for x in payload.get("agenda", [])}
+        for mv in moves:
+            item = by_id.get(str(mv.get("id") or ""))
+            if not item:
+                continue
+            if mv.get("day"):
+                item["day"] = _roadmap_clean_day(mv.get("day"))
+            item["order"] = _roadmap_int(mv.get("order"), item.get("order") or 0)
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/hotel', endpoint='roadmap_hotel_save')
+@admin_required
+def roadmap_hotel_save(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        hotels = payload.setdefault("hotels", [])
+        hotel = _roadmap_hotel_from_json(data)
+        hid = (data.get("id") or "").strip()
+        idx, current = _roadmap_find(hotels, hid) if hid else (-1, None)
+        if current is not None:
+            hotel["id"] = hid
+            hotel["attachments"] = current.get("attachments") or []
+            hotels[idx] = hotel
+        else:
+            hotels.append(hotel)
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/hotel/delete', endpoint='roadmap_hotel_delete')
+@admin_required
+def roadmap_hotel_delete(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        rid = (data.get("id") or "").strip()
+        payload = _roadmap_load(row)
+        payload["hotels"] = [x for x in payload.get("hotels", []) if str(x.get("id")) != rid]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/personal', endpoint='roadmap_personnel_save')
+@admin_required
+def roadmap_personnel_save(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        payload = _roadmap_load(row)
+        people = payload.setdefault("personnel", [])
+        person = _roadmap_personnel_from_json(data)
+        if not person["name"]:
+            return jsonify({"ok": False, "error": "Falta el nombre."}), 400
+        pid = (data.get("id") or "").strip()
+        idx, current = _roadmap_find(people, pid) if pid else (-1, None)
+        if current is not None:
+            person["id"] = pid
+            people[idx] = person
+        else:
+            # Evita duplicar la misma persona vinculada (mismo kind+ref_id).
+            if person["ref_id"]:
+                for existing in people:
+                    if existing.get("kind") == person["kind"] and str(existing.get("ref_id")) == person["ref_id"]:
+                        person["id"] = existing["id"]
+                        existing.update(person)
+                        _roadmap_save(session_db, row, payload)
+                        return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload), "person_id": person["id"]})
+            people.append(person)
+        _roadmap_save(session_db, row, payload)
+        return jsonify({"ok": True, "payload": payload, "days": _roadmap_days(row, payload), "person_id": person["id"]})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/personal/delete', endpoint='roadmap_personnel_delete')
+@admin_required
+def roadmap_personnel_delete(entity_type, entity_id):
+    session_db = db()
+    try:
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        if not row:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        rid = (data.get("id") or "").strip()
+        payload = _roadmap_load(row)
+        payload["personnel"] = [x for x in payload.get("personnel", []) if str(x.get("id")) != rid]
+        # Limpia referencias en pasajeros y asignaciones de hotel.
+        for it in payload.get("agenda", []):
+            tr = it.get("transport") or {}
+            if tr.get("passengers"):
+                tr["passengers"] = [p for p in tr["passengers"] if str(p.get("personnel_id")) != rid]
+        for h in payload.get("hotels", []):
+            if h.get("assignee_ids"):
+                h["assignee_ids"] = [x for x in h["assignee_ids"] if str(x) != rid]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
@@ -27501,72 +27673,77 @@ def roadmap_row_toggle(entity_type, entity_id):
 def roadmap_attachment_upload(entity_type, entity_id):
     session_db = db()
     try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
-        row_type = (request.form.get('row_type') or 'item').strip().lower()
-        row_id = (request.form.get('row_id') or '').strip()
-        fs = request.files.get('file')
-        if not fs or not getattr(fs, 'filename', ''):
-            flash('Selecciona un archivo.', 'warning')
-            return redirect(request.form.get('next') or request.referrer or url_for('home'))
-        url = upload_file(fs, 'roadmaps/attachments')
-        payload = _roadmap_payload(getattr(row, 'roadmap_payload', None))
-        if row_type == 'hotel':
-            for hotel in payload.get('hotels', []) or []:
-                if str(hotel.get('id')) == row_id:
-                    hotel['voucher_url'] = url
-                    hotel['voucher_name'] = fs.filename
-                    break
+        scope = (request.form.get("scope") or "item").strip().lower()
+        target_id = (request.form.get("id") or "").strip()
+        fs = request.files.get("file")
+        if not fs or not getattr(fs, "filename", ""):
+            return jsonify({"ok": False, "error": "Selecciona un archivo."}), 400
+        url = upload_file(fs, "roadmaps", allowed_extensions=ROADMAP_ATTACHMENT_EXTS)
+        if not url:
+            return jsonify({"ok": False, "error": "Formato de archivo no permitido."}), 400
+        name = fs.filename
+        payload = _roadmap_load(row)
+        att = {"id": _roadmap_new_id(), "url": url, "name": name}
+        if scope == "hotel":
+            _idx, hotel = _roadmap_find(payload.get("hotels", []), target_id)
+            if hotel is not None:
+                hotel.setdefault("attachments", []).append(att)
+        elif scope == "passenger":
+            pidx = _roadmap_int(request.form.get("passenger_index"), -1)
+            _idx, item = _roadmap_find(payload.get("agenda", []), target_id)
+            if item is not None:
+                passengers = (item.get("transport") or {}).get("passengers") or []
+                if 0 <= pidx < len(passengers):
+                    passengers[pidx]["ticket_url"] = url
+                    passengers[pidx]["ticket_name"] = name
         else:
-            for item in payload.get('items', []) or []:
-                if str(item.get('id')) == row_id:
-                    item.setdefault('attachments', []).append({'id': _uuid_token(), 'url': url, 'name': fs.filename, 'kind': (request.form.get('attachment_kind') or 'document').strip(), 'person': (request.form.get('person') or '').strip()})
-                    break
-        return _update_roadmap_and_redirect(session_db, row, payload, request.form.get('next') or request.referrer or url_for('home'))
+            _idx, item = _roadmap_find(payload.get("agenda", []), target_id)
+            if item is not None:
+                item.setdefault("attachments", []).append(att)
+        return _roadmap_ok(session_db, row, payload)
     except Exception as exc:
         session_db.rollback()
-        flash(f'Error subiendo adjunto: {exc}', 'danger')
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
 
-@app.post('/hoja-ruta/<entity_type>/<entity_id>/email', endpoint='roadmap_email_send')
+@app.post('/hoja-ruta/<entity_type>/<entity_id>/adjunto/delete', endpoint='roadmap_attachment_delete')
 @admin_required
-def roadmap_email_send(entity_type, entity_id):
+def roadmap_attachment_delete(entity_type, entity_id):
     session_db = db()
     try:
-        kind, row = _roadmap_entity(session_db, entity_type, entity_id)
+        _kind, row = _roadmap_entity(session_db, entity_type, entity_id)
         if not row:
             abort(404)
-        ctx = _roadmap_context(session_db, kind, row, ensure_token=True, public=True)
-        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + re.split(r'[;,\s]+', request.form.get('extra_emails') or ''))
-        if not recipients:
-            flash('Añade al menos un destinatario.', 'warning')
-            return redirect(request.form.get('next') or request.referrer or url_for('home'))
-        html_body = render_template('public_roadmap.html', roadmap=ctx, public_mode=True, email_mode=True, print_mode=False)
-        ok, err = _send_optional_email(recipients, ctx['mail_subject'], html_body)
-        if ok:
-            flash('Hoja de ruta enviada por email.', 'success')
+        data = request.get_json(silent=True) or {}
+        scope = (data.get("scope") or "item").strip().lower()
+        target_id = (data.get("id") or "").strip()
+        att_id = (data.get("attachment_id") or "").strip()
+        payload = _roadmap_load(row)
+        if scope == "hotel":
+            _idx, hotel = _roadmap_find(payload.get("hotels", []), target_id)
+            if hotel is not None:
+                hotel["attachments"] = [a for a in (hotel.get("attachments") or []) if str(a.get("id")) != att_id]
+        elif scope == "passenger":
+            pidx = _roadmap_int(data.get("passenger_index"), -1)
+            _idx, item = _roadmap_find(payload.get("agenda", []), target_id)
+            if item is not None:
+                passengers = (item.get("transport") or {}).get("passengers") or []
+                if 0 <= pidx < len(passengers):
+                    passengers[pidx]["ticket_url"] = ""
+                    passengers[pidx]["ticket_name"] = ""
         else:
-            flash(f'No se pudo enviar el email: {err}', 'warning')
-        session_db.commit()
-        return redirect(request.form.get('next') or request.referrer or url_for('home'))
-    finally:
-        session_db.close()
-
-
-@app.get('/hoja-ruta/<token>', endpoint='roadmap_public_view')
-def roadmap_public_view(token):
-    session_db = db()
-    try:
-        for kind in ['concert', 'action', 'promotion']:
-            _kind, row = _roadmap_entity(session_db, kind, token=token)
-            if row:
-                ctx = _roadmap_context(session_db, kind, row, ensure_token=False, public=True)
-                return render_template('public_roadmap.html', roadmap=ctx, public_mode=True, print_mode=bool(request.args.get('print')), email_mode=False)
-        abort(404)
+            _idx, item = _roadmap_find(payload.get("agenda", []), target_id)
+            if item is not None:
+                item["attachments"] = [a for a in (item.get("attachments") or []) if str(a.get("id")) != att_id]
+        return _roadmap_ok(session_db, row, payload)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
@@ -29352,7 +29529,7 @@ def _require_login_v2():
         return
     if session.get("user_id"):
         return
-    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "roadmap_public_view", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
+    allowed = {"landing", "admin_login", "concert_contract_public_form", "concert_artwork_public_upload", "onesheet_public_view", "public_royalty_liquidation_pdf", "public_song_lyrics_view", "public_song_lyrics_pdf", "public_song_material_bundle_download", "public_song_material_download", "public_song_label_copy_view", "public_song_label_copy_pdf", "public_album_label_copy_view", "public_album_label_copy_pdf", "public_song_production_contract_download", "public_album_production_contract_download", "public_bag_expense_document_upload", "public_registros_repertoire"} | PUBLIC_ENDPOINTS_EXTRA
     # Convención: TODO endpoint público va prefijado "public_" y se valida por token internamente,
     # así un enlace público nuevo no se queda bloqueado tras el login por olvidar añadirlo aquí.
     if request.endpoint in allowed or (request.endpoint or "").startswith("public_"):
@@ -29381,12 +29558,14 @@ def _require_login_v2():
 SUPPORT_ACTION_ENDPOINTS = {
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
-    "api_create_publishing_company", "api_create_media_outlet",
+    "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
-    # Hoja de ruta (conciertos / acciones / promociones)
-    "roadmap_item_save", "roadmap_hotel_save", "roadmap_row_toggle", "roadmap_row_delete",
-    "roadmap_email_send", "roadmap_attachment_upload",
+    # Hoja de ruta v2 (conciertos / acciones / promociones)
+    "roadmap_item_save", "roadmap_item_delete", "roadmap_item_toggle", "roadmap_item_move",
+    "roadmap_hotel_save", "roadmap_hotel_delete",
+    "roadmap_personnel_save", "roadmap_personnel_delete",
+    "roadmap_attachment_upload", "roadmap_attachment_delete",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
     "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "foto_note_add", "fotos_bulk_update",
@@ -29399,7 +29578,7 @@ SUPPORT_ACTION_ENDPOINTS = {
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_entity_link_search",
-    "api_get_promoter", "api_promoter_detail", "api_promoter_emails",
+    "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
     "api_song_editorial_share_detail", "api_plays_json",
@@ -35083,33 +35262,6 @@ def concert_budget_request(cid):
         session_db.close()
 
 
-@app.post('/conciertos/<cid>/produccion/hoja-ruta', endpoint='concert_roadmap_update')
-@admin_required
-def concert_roadmap_update(cid):
-    session_db = db()
-    try:
-        concert = session_db.get(Concert, to_uuid(cid))
-        if not concert:
-            abort(404)
-        concert.roadmap_payload = {
-            'call_time': (request.form.get('call_time') or '').strip(),
-            'travel_notes': (request.form.get('travel_notes') or '').strip(),
-            'production_notes': (request.form.get('production_notes') or '').strip(),
-            'updated_by': _current_user_email(),
-            'updated_at': _now_madrid().isoformat(),
-        }
-        concert.updated_at = _now_madrid()
-        session_db.commit()
-        flash('Hoja de ruta actualizada.', 'success')
-        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
-    except Exception as exc:
-        session_db.rollback()
-        flash(f'Error actualizando hoja de ruta: {exc}', 'danger')
-        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
-    finally:
-        session_db.close()
-
-
 @app.get('/recintos/<vid>', endpoint='venue_detail_view')
 @admin_required
 def venue_detail_view(vid):
@@ -35334,17 +35486,6 @@ def action_detail_view(action_id):
                 session_db.commit()
                 flash('Bolsa abierta para la acción.', 'success')
                 return redirect(url_for('bag_detail_view', bag_id=bag.id))
-            if form_action == 'roadmap':
-                action.roadmap_payload = {
-                    'call_time': (request.form.get('call_time') or '').strip(),
-                    'travel_notes': (request.form.get('travel_notes') or '').strip(),
-                    'production_notes': (request.form.get('production_notes') or '').strip(),
-                    'updated_by': _current_user_email(),
-                    'updated_at': _now_madrid().isoformat(),
-                }
-                session_db.commit()
-                flash('Hoja de ruta actualizada.', 'success')
-                return redirect(url_for('action_detail_view', action_id=action.id, tab='roadmap'))
             action.title = (request.form.get('title') or action.title).strip()
             action.start_date = parse_optional_date(request.form.get('start_date')) or action.start_date
             action.end_date = parse_optional_date(request.form.get('end_date')) or action.end_date
@@ -39161,7 +39302,11 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
     logo_html = f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:58px;max-width:200px" alt="Logo"></div>'
     meta_rows = [(k, v) for k, v in [("Evento", event_name), ("Ciudad", city), ("Recinto", venue), ("Fecha", date_label), ("Hora", show_time)] if v]
     meta_html = "".join(f'<div style="font-size:13px;color:#444"><b>{esc(k)}:</b> {esc(v)}</div>' for k, v in meta_rows)
-    photo_cell = ''  # Sin foto en el correo (solo saludo con el nombre + datos del evento).
+    # Foto del artista en círculo junto al nombre en la cabecera.
+    photo_cell = (
+        f'<td style="vertical-align:middle;padding-right:12px">'
+        f'<img src="{esc(artist_photo)}" width="52" height="52" alt="" style="width:52px;height:52px;border-radius:50%;object-fit:cover;display:block;border:1px solid #eceef1"></td>'
+    ) if artist_photo else ''
     header_html = (
         '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;margin:8px 0 18px">'
         '<tr><td style="padding:14px 16px"><table role="presentation" cellpadding="0" cellspacing="0"><tr>'

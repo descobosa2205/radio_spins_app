@@ -1690,16 +1690,23 @@
       if (!cats.length){
         qtyPanel.innerHTML = '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
       } else {
-        var _zones = [['PISTA','Pista','fa-people-group','#E33D48'],['GRADA','Grada','fa-chair','#007CA2'],['PALCO','Palcos','fa-crown','#F59E0B']];
-        var _cell = function(c){ var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured) ? ` <span class="text-muted">(${c.configured})</span>` : '';
-          return c.requests_blocked
-          ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)}${_af}</label><input class="form-control" type="number" value="0" disabled><div class="mt-1"><span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span></div></div>`
-          : `<div class="col-md-4"><label class="form-label">${escHtml(c.name)}${_af}</label><input class="form-control" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div></div>`; };
+        var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
+        // Color POR CATEGORÍA (c.color, mismo que en el listado de invitados): franja a la izquierda.
+        // La etiqueta "No admite peticiones" va junto al título de la categoría.
+        var _cell = function(c){
+          var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured) ? ` <span class="text-muted">(${c.configured})</span>` : '';
+          var _color = c.color || '#9ca3af';
+          var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="fw-semibold">${escHtml(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
+          var _input = c.requests_blocked
+            ? `<input class="form-control mt-1" type="number" value="0" disabled>`
+            : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div>`;
+          return `<div class="col-md-4"><div style="border-left:5px solid ${_color};padding-left:.6rem;">${_title}${_input}</div></div>`;
+        };
         var _html = '';
         _zones.forEach(function(z){
           var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });
           if (!_zc.length) return;
-          _html += '<div class="col-12 mt-2"><div class="invitation-zone-head fw-semibold" style="border-left:5px solid ' + z[3] + ';padding-left:.5rem;"><i class="fa ' + z[2] + ' me-1" style="color:' + z[3] + '"></i>' + z[1] + '</div></div>';
+          _html += '<div class="col-12 mt-3 mb-1"><div class="fw-semibold text-muted"><i class="fa ' + z[2] + ' me-1"></i>' + z[1] + '</div></div>';
           _html += _zc.map(_cell).join('');
         });
         qtyPanel.innerHTML = _html;

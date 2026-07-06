@@ -39788,10 +39788,17 @@ def api_invitation_event_categories(concert_id):
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         counts = _invitation_event_counts(session_db, concert)
+        # Color por CATEGORÍA (mismo criterio que en el listado de invitados: por orden de la
+        # categoría en el evento), para que la franja de color sea idéntica en todas partes.
+        cat_payloads = []
+        for i, c in enumerate(categories):
+            p = _invitation_category_payload(c)
+            p['color'] = INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)]
+            cat_payloads.append(p)
         return jsonify({
             'ok': True,
             'event': _invitation_event_payload(session_db, concert, include_counts=True),
-            'categories': [_invitation_category_payload(c) for c in categories],
+            'categories': cat_payloads,
             'counts': counts,
         })
     finally:

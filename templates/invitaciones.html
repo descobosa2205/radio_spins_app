@@ -794,9 +794,10 @@
                     <a class="small text-truncate" style="max-width:min(88vw,420px);" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
                     <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-text="{{ link.url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
                   </div>
-                  {% if link.limit_summary or link.deadline_label %}
-                  <div class="mt-2 d-flex justify-content-center gap-2 flex-wrap">
-                    {% if link.limit_summary %}<span class="badge text-bg-light border"><i class="fa fa-ticket me-1"></i>{{ link.limit_summary }}</span>{% endif %}
+                  {% if link.req_count or link.deadline_label %}
+                  <div class="mt-2 d-flex justify-content-center gap-2 flex-wrap align-items-center">
+                    <span class="badge text-bg-light border"><i class="fa fa-paper-plane me-1"></i>{{ link.req_count }} petición{{ '' if link.req_count == 1 else 'es' }}</span>
+                    {% for c in link.req_cats %}<span class="badge text-bg-light border" style="border-left:4px solid {{ c.color }} !important;" title="{{ c.name }}">{{ c.name }} · <i class="fa fa-ticket"></i> {{ c.qty }}</span>{% endfor %}
                     {% if link.deadline_label %}<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Hasta {{ link.deadline_label }}</span>{% endif %}
                   </div>
                   {% endif %}

@@ -40426,6 +40426,10 @@ def invitation_event_detail(concert_id):
             'expired': ('Vencido', 'secondary'),
             'cancelled': ('Anulado', 'danger'),
         }
+        # Colores/nombres de categoría IGUALES que en Invitados (mismo índice de paleta por orden).
+        _lk_color = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+        _lk_name = {str(c.id): c.name for c in categories}
+        _lk_order = {str(c.id): i for i, c in enumerate(categories)}
         for link in session_db.query(InvitationPublicLink).filter(InvitationPublicLink.concert_id == concert.id).order_by(InvitationPublicLink.created_at.desc()).all():
             # Blindaje por enlace: un enlace con datos inesperados no debe tumbar toda la ficha.
             try:
@@ -40436,6 +40440,28 @@ def invitation_event_detail(concert_id):
                 target_link_summary = _promoter_link_summary(session_db, target_promoter) if target_promoter else {}
                 share_msg = f"Solicita tus invitaciones aquí:\n{url}"
                 state_label, state_badge = _state_meta.get(state, ('—', 'secondary'))
+                # Resumen de peticiones de ESTE enlace: nº de peticiones + invitaciones por categoría
+                # (solo categorías con peticiones), con los colores de Invitados.
+                _lk_rows = (
+                    session_db.query(InvitationRequest)
+                    .filter(InvitationRequest.public_link_id == link.id)
+                    .filter(InvitationRequest.status.notin_(['ANULADAS', 'RECHAZADAS']))
+                    .all()
+                )
+                _per_cat, _uncat = {}, 0
+                for _r in _lk_rows:
+                    _q = _json_dict(_r.quantities_json)
+                    _real = [k for k in _q if str(k).upper() != 'TOTAL' and str(k) in _lk_name]
+                    for k in _real:
+                        _per_cat[str(k)] = _per_cat.get(str(k), 0) + _safe_int(_q.get(k))
+                    if not _real:
+                        _uncat += _invitation_total_qty(_q)
+                _req_cats = [
+                    {"name": _lk_name.get(cid, ''), "color": _lk_color.get(cid, '#9ca3af'), "qty": qty}
+                    for cid, qty in sorted(_per_cat.items(), key=lambda kv: _lk_order.get(kv[0], 9999)) if qty > 0
+                ]
+                if _uncat > 0:
+                    _req_cats.append({"name": "Sin categoría", "color": "#9ca3af", "qty": _uncat})
                 links.append({
                     "id": str(link.id),
                     "token": link.token,
@@ -40459,7 +40485,8 @@ def invitation_event_detail(concert_id):
                     "state": state,
                     "state_label": state_label,
                     "state_badge": state_badge,
-                    "limit_summary": _invitation_limits_summary(link, categories),
+                    "req_count": len(_lk_rows),
+                    "req_cats": _req_cats,
                     "whatsapp_url": 'https://wa.me/?text=' + quote_plus(share_msg),
                     "sms_url": 'sms:?&body=' + quote_plus(share_msg),
                     "message": msg,

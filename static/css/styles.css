@@ -1388,6 +1388,7 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .fotos-tile:hover{ box-shadow:0 4px 14px rgba(0,0,0,.12); }
 .fotos-tile--selected{ border-color:var(--brand-accent); box-shadow:0 0 0 2px var(--brand-accent) inset; }
 .fotos-tile--dragging{ opacity:.45; }
+.fotos-tile--discarded .fotos-tile__frame{ opacity:.5; filter:grayscale(.4); }
 .fotos-tile__frame{ position:relative; aspect-ratio:1/1; background:#f2f2f2; }
 .fotos-tile__media{ width:100%; height:100%; object-fit:cover; display:block; }
 .fotos-tile__check{ position:absolute; top:.4rem; left:.4rem; z-index:3; margin:0; background:rgba(255,255,255,.85); border-radius:.35rem; padding:.1rem .25rem; line-height:1; }

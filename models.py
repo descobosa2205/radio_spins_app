@@ -3184,6 +3184,9 @@ class Photo(Base):
     taken_date = Column(Date)  # fecha de la foto (no la de subida)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
+    # Descartada: se oculta de la vista por defecto pero no se borra (recuperable con un filtro).
+    discarded = Column(Boolean, nullable=False, server_default=text("false"))
+
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())  # subida al back office
@@ -3369,6 +3372,7 @@ def ensure_fotos_schema():
             updated_at timestamptz DEFAULT now()
         );
         """,
+        "ALTER TABLE IF EXISTS photos ADD COLUMN IF NOT EXISTS discarded boolean NOT NULL DEFAULT false;",
         "CREATE INDEX IF NOT EXISTS idx_photos_owner ON photos(owner_type, owner_id, sort_order);",
         "CREATE INDEX IF NOT EXISTS idx_photos_artist ON photos(artist_id);",
         """

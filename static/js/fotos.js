@@ -25,6 +25,7 @@
   var viewMode = localStorage.getItem('fotosViewMode') || 'grid3';
   var selected = {};
   var filters = { APPROVED: true, REJECTED: false, PENDING: false, NONE: true };
+  var showDiscarded = false;   // "Ver descartadas": incluye las fotos ocultas
   var detailPhotoId = null;
   var bulkContext = { ids: [] };       // contexto de acciones en bloque / sobre álbum
 
@@ -117,9 +118,10 @@
   }
   function tileHtml(p, draggable) {
     var selCls = selected[p.id] ? ' fotos-tile--selected' : '';
-    return '<div class="fotos-tile' + selCls + '" data-photo-id="' + esc(p.id) + '"' + (canEdit && draggable ? ' draggable="true"' : '') + '>'
+    var discBadge = p.discarded ? '<span class="fotos-tile__badge badge bg-secondary" style="left:6px;right:auto;" title="Descartada"><i class="fa fa-eye-slash"></i></span>' : '';
+    return '<div class="fotos-tile' + selCls + (p.discarded ? ' fotos-tile--discarded' : '') + '" data-photo-id="' + esc(p.id) + '"' + (canEdit && draggable ? ' draggable="true"' : '') + '>'
       + '<label class="fotos-tile__check"><input type="checkbox" class="form-check-input fotos-check" data-id="' + esc(p.id) + '"' + (selected[p.id] ? ' checked' : '') + '></label>'
-      + approvalBadge(p)
+      + approvalBadge(p) + discBadge
       + '<div class="fotos-tile__frame">' + mediaHtml(p, 'fotos-tile__media') + '</div>'
       + '<div class="fotos-tile__title" title="' + esc(p.title) + '">' + esc(p.title || '—') + '</div>'
       + '</div>';
@@ -224,8 +226,45 @@
       info.innerHTML = detailInfoHtml(p);
       renderNotes(p.notes || []);
       wireNoteForm();
+      buildDetailActions(p);
     });
   }
+  // Barra de acciones de la vista previa (descargar JPG/PNG, compartir, álbum, descartar, eliminar).
+  function buildDetailActions(p) {
+    var box = document.getElementById('fotosDetailActions'); if (!box) return;
+    var id = esc(p.id);
+    var html;
+    if (p.is_video) {
+      html = '<a class="btn btn-sm btn-outline-secondary" href="/fotos/photo/' + id + '/download?fmt=original"><i class="fa fa-download me-1"></i>Descargar</a>';
+    } else {
+      html = '<a class="btn btn-sm btn-outline-secondary" href="/fotos/photo/' + id + '/download?fmt=jpg"><i class="fa fa-download me-1"></i>JPG</a>'
+        + '<a class="btn btn-sm btn-outline-secondary" href="/fotos/photo/' + id + '/download?fmt=png"><i class="fa fa-download me-1"></i>PNG</a>';
+    }
+    html += '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="share"><i class="fa fa-share-nodes me-1"></i>Compartir</button>'
+      + '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="album"><i class="fa fa-layer-group me-1"></i>Álbum</button>';
+    if (canEdit) {
+      html += p.discarded
+        ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-detail-act="restore"><i class="fa fa-rotate-left me-1"></i>Restaurar</button>'
+        : '<button type="button" class="btn btn-sm btn-outline-warning" data-detail-act="discard"><i class="fa fa-eye-slash me-1"></i>Descartar</button>';
+      html += '<button type="button" class="btn btn-sm btn-outline-danger" data-detail-act="delete"><i class="fa fa-trash me-1"></i>Eliminar</button>';
+    }
+    box.innerHTML = html;
+  }
+  document.getElementById('fotosDetailActions').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-detail-act]'); if (!b) return;
+    var act = b.getAttribute('data-detail-act');
+    var id = detailPhotoId; if (!id) return;
+    if (act === 'share') { openShare([id]); }          // se apila sobre la vista previa (modal_stack)
+    else if (act === 'album') { openAddToAlbum([id]); }
+    else if (act === 'discard' || act === 'restore') {
+      postJson('/fotos/photo/' + id + '/discard', { discarded: (act === 'discard') }).then(function (d) {
+        if (d && d.ok) { bsModal('fotosDetailModal').hide(); refresh(); }
+      });
+    } else if (act === 'delete') {
+      if (!confirm('¿Eliminar este elemento? No se puede deshacer.')) return;
+      fetch('/fotos/photo/' + id + '/delete', { method: 'POST' }).then(function () { bsModal('fotosDetailModal').hide(); selected = {}; refresh(); });
+    }
+  });
   function socialLinksHtml(sl) {
     if (!sl) return '';
     var icons = { instagram: 'fa-instagram', tiktok: 'fa-tiktok', twitter: 'fa-x-twitter', facebook: 'fa-facebook', youtube: 'fa-youtube' };
@@ -329,8 +368,16 @@
   }
   function albumById(id) { var f = null; (state.albums || []).forEach(function (a) { if (a.id === id) f = a; }); return f; }
   function refresh() {
-    return fetch(listUrl).then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) { state.albums = d.albums || []; state.photos = d.photos || []; render(); } });
+    var url = listUrl + (showDiscarded ? '?include_discarded=1' : '');
+    return fetch(url).then(function (r) { return r.json(); }).then(function (d) { if (d && d.ok) { state.albums = d.albums || []; state.photos = d.photos || []; render(); } });
   }
+  var discardedBtn = document.getElementById('fotosDiscardedBtn');
+  if (discardedBtn) discardedBtn.addEventListener('click', function () {
+    showDiscarded = !showDiscarded;
+    discardedBtn.classList.toggle('active', showDiscarded);
+    discardedBtn.title = showDiscarded ? 'Ocultar descartadas' : 'Ver descartadas';
+    refresh();
+  });
   // ================================================================== bulk
   document.querySelectorAll('#fotosBulkBar [data-bulk]').forEach(function (a) {
     a.addEventListener('click', function (e) {

@@ -29255,7 +29255,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "roadmap_item_save", "roadmap_hotel_save", "roadmap_row_toggle", "roadmap_row_delete",
     "roadmap_email_send", "roadmap_attachment_upload",
     # Fotos / vídeos (galería transversal de conciertos y acciones)
-    "fotos_upload", "fotos_reorder", "foto_update", "foto_delete",
+    "fotos_upload", "fotos_reorder", "foto_update", "foto_delete", "foto_discard",
     "foto_note_add", "fotos_bulk_update",
     "photo_album_create", "photo_album_add", "photo_album_update", "photo_album_delete",
     "fotos_approval_create", "fotos_zip", "fotos_share_create", "fotos_share_email",
@@ -35313,6 +35313,7 @@ def _photo_payload(p, photographer=None, approval=None):
         "photographer": photographer,
         "created_at": created.isoformat() if created else "",
         "created_by_nick": p.created_by_nick or "",
+        "discarded": bool(getattr(p, "discarded", False)),
         "approval_state": (approval or {}).get("state", "NONE"),
         "approvers": (approval or {}).get("approvers", []),
     }
@@ -35374,15 +35375,14 @@ def _photo_approval_map(session_db, photo_ids):
     return out
 
 
-def _build_fotos_context(session_db, owner_type, owner_id):
-    """Payload de la galería (álbumes primero, luego fotos sueltas) para la pestaña Fotos."""
+def _build_fotos_context(session_db, owner_type, owner_id, include_discarded=False):
+    """Payload de la galería (álbumes primero, luego fotos sueltas) para la pestaña Fotos.
+    Por defecto se excluyen las fotos descartadas (se ven con include_discarded)."""
     oid = to_uuid(owner_id)
-    photos = (
-        session_db.query(Photo)
-        .filter(Photo.owner_type == owner_type, Photo.owner_id == oid)
-        .order_by(Photo.sort_order.asc(), Photo.created_at.asc())
-        .all()
-    )
+    q = session_db.query(Photo).filter(Photo.owner_type == owner_type, Photo.owner_id == oid)
+    if not include_discarded:
+        q = q.filter(Photo.discarded.is_(False))
+    photos = q.order_by(Photo.sort_order.asc(), Photo.created_at.asc()).all()
     promo_map = _photo_promoter_map(session_db, photos)
     appr_map = _photo_approval_map(session_db, [p.id for p in photos])
     photo_by_id = {p.id: p for p in photos}
@@ -35430,6 +35430,7 @@ def _build_fotos_context(session_db, owner_type, owner_id):
         "total": len(photos),
         "video_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() == "VIDEO"),
         "photo_total": sum(1 for p in photos if (getattr(p, "kind", None) or "IMAGE").upper() != "VIDEO"),
+        "include_discarded": bool(include_discarded),
     }
 
 
@@ -35447,6 +35448,7 @@ def _build_artist_fotos_groups(session_db, artist_id):
         return []
     photos = (
         session_db.query(Photo)
+        .filter(Photo.discarded.is_(False))
         .filter(Photo.artist_id == aid)
         .order_by(Photo.created_at.desc())
         .all()
@@ -35537,7 +35539,8 @@ def fotos_list_json(owner_type, owner_id):
         owner, _artist_id, _title = _photo_resolve_owner(session_db, ot, owner_id)
         if not owner:
             return jsonify({"ok": False, "error": "No encontrado."}), 404
-        return jsonify({"ok": True, **_build_fotos_context(session_db, ot, owner_id)})
+        include_discarded = _truthy(request.args.get("include_discarded"))
+        return jsonify({"ok": True, **_build_fotos_context(session_db, ot, owner_id, include_discarded=include_discarded)})
     finally:
         session_db.close()
 
@@ -35752,6 +35755,27 @@ def foto_delete(photo_id):
         session_db.delete(p)
         session_db.commit()
         return jsonify({"ok": True})
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
+
+@app.post("/fotos/photo/<photo_id>/discard", endpoint="foto_discard")
+@admin_required
+def foto_discard(photo_id):
+    """Marca/desmarca una foto como descartada (se oculta de la vista por defecto, no se borra)."""
+    payload = request.get_json(silent=True) or {}
+    discarded = _truthy(payload.get("discarded")) if ("discarded" in payload) else True
+    session_db = db()
+    try:
+        p = session_db.get(Photo, to_uuid(photo_id))
+        if not p:
+            return jsonify({"ok": False, "error": "No encontrada."}), 404
+        p.discarded = discarded
+        session_db.commit()
+        return jsonify({"ok": True, "discarded": discarded})
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -36290,19 +36314,25 @@ def _photo_safe_filename(title, fallback="foto"):
 
 
 def _photo_download_bytes(p, fmt):
-    """Devuelve (bytes, mimetype, filename) de una foto, opcionalmente convertida a JPG."""
+    """Devuelve (bytes, mimetype, filename) de una foto, opcionalmente convertida a JPG o PNG."""
     content, ctype = _download_remote_content(p.file_url)
     title = _photo_safe_filename(p.title or p.file_name)
     is_image = (p.kind or "IMAGE").upper() != "VIDEO"
-    if fmt == "jpg" and is_image:
+    if fmt in ("jpg", "png") and is_image:
         try:
             img = PILImage.open(BytesIO(content))
             img = ImageOps.exif_transpose(img)
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
             out = BytesIO()
-            img.save(out, format="JPEG", quality=90)
-            return out.getvalue(), "image/jpeg", title + ".jpg"
+            if fmt == "jpg":
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                img.save(out, format="JPEG", quality=90)
+                return out.getvalue(), "image/jpeg", title + ".jpg"
+            else:  # png
+                if img.mode not in ("RGB", "RGBA", "L", "LA", "P"):
+                    img = img.convert("RGBA")
+                img.save(out, format="PNG")
+                return out.getvalue(), "image/png", title + ".png"
         except Exception:
             pass
     ext = os.path.splitext(p.file_name or "")[1] or ".bin"

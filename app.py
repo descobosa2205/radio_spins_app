@@ -27897,7 +27897,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_delivery", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -39280,6 +39280,46 @@ def _invitation_event_logo_url(session_db, concert: Concert | None, external: bo
     return (_treinta_y_tres_logo_url(session_db) if "_treinta_y_tres_logo_url" in globals() else "") or url_for("static", filename="img/logo.png", _external=external)
 
 
+@app.get("/invitaciones/entrega/<kind>/<token>", endpoint="public_invitation_delivery")
+def public_invitation_delivery(kind, token):
+    """Página del enlace que se envía por WhatsApp/SMS: composición visual (logo de la empresa del
+    grupo, «Invitaciones», datos del evento, artista, invitado y nº de invitaciones) + descarga."""
+    session_db = db()
+    try:
+        kind = (kind or "").strip().lower()
+        if kind == "c":
+            row = session_db.query(InvitationCommitment).filter(InvitationCommitment.delivery_token == token).first()
+            if not row:
+                abort(404)
+            concert = row.concert or session_db.get(Concert, row.concert_id)
+            guest_name = (getattr(row, "guest_name", None) or getattr(row, "name", None) or "").strip()
+            download_url = url_for("invitation_commitment_download", token=token)
+            cat = (request.args.get("category") or "").strip()
+            if cat:
+                download_url = download_url + ("&" if "?" in download_url else "?") + "category=" + cat
+        else:
+            row = session_db.query(InvitationRequest).filter(InvitationRequest.delivery_token == token).first()
+            if not row:
+                abort(404)
+            concert = row.concert or session_db.get(Concert, row.concert_id)
+            guest_name = (getattr(row, "guest_name", None) or "").strip()
+            download_url = url_for("invitation_request_download", token=token)
+        qty = _invitation_total_qty(_json_dict(getattr(row, "quantities_json", None)))
+        card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
+        logo = _invitation_event_logo_url(session_db, concert, external=False)
+        bits = [x for x in [card["activity_label"], (card["event_name"] or card["city"]), card["date_label"]] if x]
+        qty_label = (str(qty) + (" invitación" if qty == 1 else " invitaciones")) if qty else ""
+        og = {
+            "title": "Invitaciones" + (" · " + card["artist_name"] if card["artist_name"] else ""),
+            "description": " · ".join([x for x in [" · ".join(bits), qty_label] if x]),
+            "image": card["artist_photo"] or logo or "",
+        }
+        return render_template("public_invitation_delivery.html", logo=logo, card=card, guest_name=guest_name,
+                               qty=qty, qty_label=qty_label, download_url=download_url, og=og)
+    finally:
+        session_db.close()
+
+
 def _invitation_list_type_label(value: str | None) -> str:
     key = (value or "COMPLETE").strip().upper()
     return {"COMPLETE": "Listado completo", "DOOR": "Listado de puerta", "BOX_OFFICE": "Listado de taquilla"}.get(key, "Listado completo")
@@ -40550,10 +40590,11 @@ def invitation_commitment_deliver(commitment_id):
         now = _now_madrid()
         row.delivery_token = row.delivery_token or _invitation_token()
         if channel in ('whatsapp', 'sms'):
-            # WhatsApp/SMS: mensaje con enlace que descarga las invitaciones en un único PDF.
-            link = _external_url_for('invitation_commitment_download', token=row.delivery_token)
+            # WhatsApp/SMS: enlace a la página de entrega (composición visual + descarga en un PDF).
             if _cat_id:
-                link = link + ('&' if '?' in link else '?') + 'category=' + str(_cat_id)
+                link = _external_url_for('public_invitation_delivery', kind='c', token=row.delivery_token, category=str(_cat_id))
+            else:
+                link = _external_url_for('public_invitation_delivery', kind='c', token=row.delivery_token)
             share = _invitation_share_text(session_db, row.concert or session_db.get(Concert, cid), (row.guest_name or row.name), link)
             phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
             if channel == 'whatsapp':
@@ -41213,7 +41254,7 @@ def invitation_request_send(request_id):
             # WhatsApp/SMS NO adjuntan archivos: el mensaje lleva el enlace que descarga las
             # invitaciones en un único PDF (directo, sin descomprimir). Se abre en el cliente.
             has_pdfs = not flags.get('uses_guest_list')
-            link = _external_url_for('invitation_request_download', token=row.delivery_token) if has_pdfs else ''
+            link = _external_url_for('public_invitation_delivery', kind='r', token=row.delivery_token) if has_pdfs else ''
             msg = _invitation_share_text(session_db, row.concert or session_db.get(Concert, row.concert_id), row.guest_name, link)
             phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
             if channel == 'whatsapp':

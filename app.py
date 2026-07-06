@@ -17436,6 +17436,9 @@ def promoter_update(pid):
     if "kind" in request.form:
         _kind = (request.form.get("kind") or "").strip().lower()
         p.kind = _kind if _kind in ("empresa", "institucion") else None
+    # Redes sociales (para menciones): solo se tocan si el formulario incluye esos campos.
+    if any(("social_" + _k) in request.form for _k, _l, _i in PROMOTER_SOCIAL_PLATFORMS):
+        p.social_links = _promoter_social_links_from_form(request.form)
     logo = request.files.get("logo")
     try:
         if logo and logo.filename:
@@ -20452,6 +20455,25 @@ def api_create_venue():
     finally:
         session_db.close()
 
+PROMOTER_SOCIAL_PLATFORMS = [
+    ("instagram", "Instagram", "fa-instagram"),
+    ("tiktok", "TikTok", "fa-tiktok"),
+    ("twitter", "X (Twitter)", "fa-x-twitter"),
+    ("facebook", "Facebook", "fa-facebook"),
+    ("youtube", "YouTube", "fa-youtube"),
+]
+
+
+def _promoter_social_links_from_form(form) -> dict:
+    """Recoge las redes sociales (opcionales) del tercero desde el formulario (name="social_<red>")."""
+    out = {}
+    for key, _label, _icon in PROMOTER_SOCIAL_PLATFORMS:
+        val = (form.get("social_" + key) or "").strip()
+        if val:
+            out[key] = val
+    return out
+
+
 @app.post("/api/promoters/create", endpoint="api_create_promoter")
 @admin_required
 def api_create_promoter():
@@ -20490,6 +20512,7 @@ def api_create_promoter():
             contact_email=contact_email or None,
             contact_phone=(request.form.get("contact_phone") or "").strip() or None,
             kind=kind,
+            social_links=_promoter_social_links_from_form(request.form),
         )
         session.add(p)
         session.flush()
@@ -20506,6 +20529,7 @@ def api_create_promoter():
                 "contact_email": (p.contact_email or ""),
                 "contact_phone": (p.contact_phone or ""),
                 "kind": (p.kind or ""),
+                "social_links": (p.social_links or {}),
                 "companies": [],
                 "active_embargos_linked": linked_embargos,
             }
@@ -35263,7 +35287,12 @@ def _photo_promoter_payload(pr):
     name = (getattr(pr, "nick", None) or "").strip()
     if not name:
         name = " ".join(filter(None, [getattr(pr, "first_name", None), getattr(pr, "last_name", None)])).strip()
-    return {"id": str(pr.id), "name": name or "—", "logo_url": (getattr(pr, "logo_url", None) or "")}
+    return {
+        "id": str(pr.id),
+        "name": name or "—",
+        "logo_url": (getattr(pr, "logo_url", None) or ""),
+        "social_links": (getattr(pr, "social_links", None) or {}),
+    }
 
 
 def _photo_payload(p, photographer=None, approval=None):

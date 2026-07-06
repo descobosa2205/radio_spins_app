@@ -1419,6 +1419,7 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 /* buscador fotógrafo */
 .fotos-typeahead{ max-height:260px; overflow:auto; }
 .fotos-chip{ display:inline-flex; align-items:center; gap:.4rem; background:#f1f1f1; border-radius:999px; padding:.15rem .6rem .15rem .2rem; }
+.fotos-social{ font-size:.85rem; white-space:nowrap; text-decoration:none; }
 .fotos-avatar{ width:24px; height:24px; border-radius:50%; overflow:hidden; background:#e2e2e2; display:inline-flex; align-items:center; justify-content:center; color:#999; font-size:.7rem; flex:0 0 auto; }
 .fotos-avatar img{ width:100%; height:100%; object-fit:cover; }
 

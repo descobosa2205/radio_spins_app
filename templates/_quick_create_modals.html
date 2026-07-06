@@ -33,7 +33,18 @@
         <div class="modal-body">
           <div class="mb-2"><label class="form-label">Nombre / nick *</label><input class="form-control" name="nick" required></div>
           <div class="mb-2"><label class="form-label">Email de contacto</label><input type="email" class="form-control" name="contact_email"></div>
-          <div><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          <div class="mb-2"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+          {# Redes sociales opcionales (útiles p. ej. para mencionar al fotógrafo). #}
+          <div>
+            <button class="btn btn-sm btn-link p-0 text-decoration-none" type="button" data-bs-toggle="collapse" data-bs-target="#qcPromoterSocial"><i class="fa fa-hashtag me-1"></i>Redes sociales (opcional, para menciones)</button>
+            <div class="collapse mt-2" id="qcPromoterSocial">
+              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-instagram"></i></span><input class="form-control" name="social_instagram" placeholder="Instagram (@usuario o URL)"></div>
+              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-tiktok"></i></span><input class="form-control" name="social_tiktok" placeholder="TikTok (@usuario o URL)"></div>
+              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-x-twitter"></i></span><input class="form-control" name="social_twitter" placeholder="X / Twitter (@usuario o URL)"></div>
+              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-facebook"></i></span><input class="form-control" name="social_facebook" placeholder="Facebook (usuario o URL)"></div>
+              <div class="input-group input-group-sm mb-1"><span class="input-group-text"><i class="fa-brands fa-youtube"></i></span><input class="form-control" name="social_youtube" placeholder="YouTube (canal o URL)"></div>
+            </div>
+          </div>
           <div class="qc-feedback mt-2"></div>
         </div>
         <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear y seleccionar</button></div>

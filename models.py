@@ -667,6 +667,10 @@ class Promoter(Base):
     contact_email = Column(Text)
     contact_phone = Column(Text)
 
+    # Redes sociales del tercero (p. ej. del fotógrafo) para menciones. Dict opcional:
+    # {"instagram": ..., "tiktok": ..., "twitter": ..., "facebook": ..., "youtube": ...}.
+    social_links = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+
     # Clasificación del tercero para vinculaciones/filtros: ''/NULL = persona/tercero genérico,
     # 'empresa' = empresa, 'institucion' = institución (ayuntamiento, organismo, etc.).
     kind = Column(Text)
@@ -4632,6 +4636,8 @@ def ensure_third_party_and_contract_sheet_schema():
 
         # Clasificación del tercero (empresa / institución) para vinculaciones.
         'ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS kind text;',
+        # Redes sociales del tercero (fotógrafo…) para menciones.
+        "ALTER TABLE IF EXISTS promoters ADD COLUMN IF NOT EXISTS social_links jsonb NOT NULL DEFAULT '{}'::jsonb;",
 
         """
         CREATE TABLE IF NOT EXISTS promoter_companies (

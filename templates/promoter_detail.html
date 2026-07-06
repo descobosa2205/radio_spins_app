@@ -296,6 +296,16 @@
           <div class="col-md-3"><label class="form-label">Logo</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
           <div class="col-md-6"><label class="form-label">Email principal</label><input type="email" class="form-control" name="contact_email" value="{{ promoter.contact_email or '' }}"></div>
           <div class="col-md-6"><label class="form-label">Teléfono</label><input class="form-control" name="contact_phone" value="{{ promoter.contact_phone or '' }}"></div>
+          {% set sl = promoter.social_links or {} %}
+          <div class="col-12"><label class="form-label mb-1">Redes sociales <span class="text-muted small fw-normal">(opcional, para menciones)</span></label>
+            <div class="row g-2">
+              <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text"><i class="fa-brands fa-instagram"></i></span><input class="form-control" name="social_instagram" value="{{ sl.get('instagram','') }}" placeholder="Instagram (@usuario o URL)"></div></div>
+              <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text"><i class="fa-brands fa-tiktok"></i></span><input class="form-control" name="social_tiktok" value="{{ sl.get('tiktok','') }}" placeholder="TikTok (@usuario o URL)"></div></div>
+              <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text"><i class="fa-brands fa-x-twitter"></i></span><input class="form-control" name="social_twitter" value="{{ sl.get('twitter','') }}" placeholder="X / Twitter (@usuario o URL)"></div></div>
+              <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text"><i class="fa-brands fa-facebook"></i></span><input class="form-control" name="social_facebook" value="{{ sl.get('facebook','') }}" placeholder="Facebook (usuario o URL)"></div></div>
+              <div class="col-md-6"><div class="input-group input-group-sm"><span class="input-group-text"><i class="fa-brands fa-youtube"></i></span><input class="form-control" name="social_youtube" value="{{ sl.get('youtube','') }}" placeholder="YouTube (canal o URL)"></div></div>
+            </div>
+          </div>
         </div>
         <div class="modal-footer"><button class="btn btn-primary">Guardar cambios</button></div>
       </form>

@@ -226,6 +226,18 @@
       wireNoteForm();
     });
   }
+  function socialLinksHtml(sl) {
+    if (!sl) return '';
+    var icons = { instagram: 'fa-instagram', tiktok: 'fa-tiktok', twitter: 'fa-x-twitter', facebook: 'fa-facebook', youtube: 'fa-youtube' };
+    var bases = { instagram: 'https://instagram.com/', tiktok: 'https://www.tiktok.com/@', twitter: 'https://x.com/', facebook: 'https://facebook.com/', youtube: 'https://youtube.com/' };
+    var out = [];
+    ['instagram', 'tiktok', 'twitter', 'facebook', 'youtube'].forEach(function (k) {
+      var v = (sl[k] || '').toString().trim(); if (!v) return;
+      var url = /^https?:\/\//i.test(v) ? v : ((bases[k] || '') + v.replace(/^@/, ''));
+      out.push('<a class="fotos-social me-2" href="' + esc(url) + '" target="_blank" rel="noopener"><i class="fa-brands ' + icons[k] + ' me-1"></i>' + esc(v) + '</a>');
+    });
+    return out.join('');
+  }
   function detailInfoHtml(p) {
     var rows = '';
     if (p.artist) rows += infoRow('Artista', '<span class="fotos-chip">' + avatar(p.artist.photo_url) + esc(p.artist.name) + '</span>');
@@ -233,6 +245,7 @@
     if (p.created_at) rows += infoRow('Subida', fmtDate(p.created_at));
     var photog = p.photographer_unknown ? '<span class="text-muted">Desconocido</span>' : (p.photographer ? '<span class="fotos-chip">' + avatar(p.photographer.logo_url) + esc(p.photographer.name) + '</span>' : '<span class="text-muted">Desconocido</span>');
     rows += infoRow('Fotógrafo', photog);
+    if (p.photographer && !p.photographer_unknown) { var sh = socialLinksHtml(p.photographer.social_links); if (sh) rows += infoRow('Menciones', sh); }
     rows += infoRow('Aprobación', '<span class="text-muted small">Sin solicitud de aprobación</span>');
     return '<table class="table table-sm fotos-detail-table mb-3"><tbody>' + rows + '</tbody></table>'
       + '<div class="fotos-notes"><div class="small text-muted mb-1">Notas</div><div id="fotosNotesList"></div>'

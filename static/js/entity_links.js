@@ -125,6 +125,8 @@
       resetSelection();
       if (createMediaWrap) createMediaWrap.classList.toggle('d-none', type !== 'media');
       if (createWrap) createWrap.classList.add('d-none');
+      // "Crear nueva" solo para tipos con alta rápida (p. ej. no aplica a Personal de oficina).
+      if (createToggle) createToggle.classList.toggle('d-none', !CREATE_ENDPOINTS[type]);
       if (createMsg) createMsg.textContent = '';
       runSearch();
       if (search) search.focus();

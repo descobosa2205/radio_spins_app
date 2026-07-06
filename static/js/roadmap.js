@@ -271,6 +271,7 @@
 
       // Contacto
       h += '<hr><div class="fw-semibold mb-2">Contacto</div><div class="row g-2">';
+      h += '<div class="col-12" data-media-contacts></div>';
       h += '<div class="col-12"><div class="rm-chip mb-1' + (draft.contact && draft.contact.name ? '' : ' d-none') + '" data-contact-chip><span data-contact-name>' + esc(draft.contact ? draft.contact.name : '') + '</span><button type="button" class="btn-close btn-sm ms-1" data-contact-clear></button></div><input class="form-control" placeholder="Buscar tercero…" data-contact-search><div class="list-group position-absolute d-none" style="z-index:5" data-contact-results></div></div>';
       h += '<div class="col-md-6"><input class="form-control form-control-sm" data-c="phone" value="' + esc(draft.contact ? draft.contact.phone || '' : '') + '" placeholder="Teléfono"></div>';
       h += '<div class="col-md-6"><input class="form-control form-control-sm" data-c="email" value="' + esc(draft.contact ? draft.contact.email || '' : '') + '" placeholder="Email"></div>';
@@ -287,12 +288,18 @@
 
       // wire contacto
       var cChip = m.querySelector('[data-contact-chip]'), cName = m.querySelector('[data-contact-name]');
+      function setContact(c) {
+        draft.contact = c || {};
+        cName.textContent = draft.contact.name || '';
+        cChip.classList.toggle('d-none', !draft.contact.name);
+        m.querySelector('[data-c="phone"]').value = draft.contact.phone || '';
+        m.querySelector('[data-c="email"]').value = draft.contact.email || '';
+      }
+      m.rmSetContact = setContact;
       attachSearch(m.querySelector('[data-contact-search]'), m.querySelector('[data-contact-results]'), searchPromoters, function (r) {
-        draft.contact = { name: r.label, phone: r.phone || '', email: r.email || '', promoter_id: r.id };
-        cName.textContent = r.label; cChip.classList.remove('d-none');
-        m.querySelector('[data-c="phone"]').value = r.phone || ''; m.querySelector('[data-c="email"]').value = r.email || '';
-      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) { draft.contact = { name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '' }; cName.textContent = draft.contact.name; cChip.classList.remove('d-none'); } }); } });
-      m.querySelector('[data-contact-clear]').addEventListener('click', function () { draft.contact = {}; cChip.classList.add('d-none'); });
+        setContact({ name: r.label, phone: r.phone || '', email: r.email || '', promoter_id: r.id });
+      }, { onCreate: function (q) { createPromoter(q).then(function (r) { if (r && r.id) setContact({ name: r.label || q, promoter_id: r.id, phone: r.contact_phone || '', email: r.contact_email || '' }); }); } });
+      m.querySelector('[data-contact-clear]').addEventListener('click', function () { setContact({}); });
 
       // wire entrevista
       if (draft.kind === 'ENTREVISTA') wireInterview(m, draft);
@@ -308,9 +315,10 @@
       m.querySelector('[data-iv="sings"]').addEventListener('change', function (e) { draft.interview.sings = e.target.checked; if (songsWrap) songsWrap.hidden = !e.target.checked; });
       var chip = m.querySelector('[data-media-chip]'), mname = m.querySelector('[data-media-name]');
       attachSearch(m.querySelector('[data-media-search]'), m.querySelector('[data-media-results]'), searchMedia, function (r) {
-        draft.interview.media_id = r.id; draft.interview.media_name = r.label; mname.textContent = r.label; chip.classList.remove('d-none');
-      }, { onCreate: function (q) { createMedia(q).then(function (r) { if (r && r.id) { draft.interview.media_id = r.id; draft.interview.media_name = r.label || q; mname.textContent = draft.interview.media_name; chip.classList.remove('d-none'); } }); } });
-      m.querySelector('[data-media-clear]').addEventListener('click', function () { draft.interview.media_id = ''; draft.interview.media_name = ''; chip.classList.add('d-none'); });
+        draft.interview.media_id = r.id; draft.interview.media_name = r.label; mname.textContent = r.label; chip.classList.remove('d-none'); renderMediaContacts(m, draft);
+      }, { onCreate: function (q) { createMedia(q).then(function (r) { if (r && r.id) { draft.interview.media_id = r.id; draft.interview.media_name = r.label || q; mname.textContent = draft.interview.media_name; chip.classList.remove('d-none'); renderMediaContacts(m, draft); } }); } });
+      m.querySelector('[data-media-clear]').addEventListener('click', function () { draft.interview.media_id = ''; draft.interview.media_name = ''; chip.classList.add('d-none'); renderMediaContacts(m, draft); });
+      renderMediaContacts(m, draft);
       if (songsWrap) {
         renderSongs(m, draft);
         attachSearch(m.querySelector('[data-song-search]'), m.querySelector('[data-song-results]'), function (q) {
@@ -321,6 +329,40 @@
           draft.interview.songs.push({ song_id: r.id, title: r.label, cover_url: r.logo_url || '' }); renderSongs(m, draft);
         });
       }
+    }
+    function renderMediaContacts(m, draft) {
+      var box = m.querySelector('[data-media-contacts]'); if (!box) return;
+      var mediaId = draft.interview && draft.interview.media_id;
+      if (!mediaId) { box.innerHTML = ''; return; }
+      box.innerHTML = '<div class="text-muted small">Cargando contactos del medio…</div>';
+      getJson('/api/media/' + encodeURIComponent(mediaId) + '/contacts').then(function (list) {
+        var h = '<div class="small text-muted mb-1"><i class="fa fa-address-book me-1"></i>Contactos del medio (elige uno o crea):</div>';
+        (list || []).forEach(function (c, i) {
+          var meta = [c.role, c.phone, c.email].filter(Boolean).join(' · ');
+          h += '<div class="rm-result" data-mci="' + i + '">' + avatar(null) + '<div><div>' + esc(c.name) + '</div>' + (meta ? '<div class="rm-sub">' + esc(meta) + '</div>' : '') + '</div></div>';
+        });
+        h += '<button type="button" class="btn btn-outline-secondary btn-sm mt-1" data-mc-new><i class="fa fa-plus"></i> Nuevo contacto del medio</button><div data-mc-form class="mt-2 d-none"></div>';
+        box.innerHTML = h;
+        box.querySelectorAll('[data-mci]').forEach(function (n) {
+          n.addEventListener('click', function () {
+            var c = (list || [])[parseInt(n.getAttribute('data-mci'), 10)];
+            if (c && m.rmSetContact) m.rmSetContact({ name: c.name, phone: c.phone || '', email: c.email || '', media_id: mediaId });
+          });
+        });
+        box.querySelector('[data-mc-new]').addEventListener('click', function () {
+          var f = box.querySelector('[data-mc-form]');
+          f.classList.remove('d-none');
+          f.innerHTML = '<div class="row g-1"><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="name" placeholder="Nombre"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="role" placeholder="Cargo"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="phone" placeholder="Teléfono"></div><div class="col-md-6"><input class="form-control form-control-sm" data-nmc="email" placeholder="Email"></div></div><button type="button" class="btn btn-primary btn-sm mt-1" data-nmc-save>Añadir y usar</button>';
+          f.querySelector('[data-nmc-save]').addEventListener('click', function () {
+            var name = f.querySelector('[data-nmc="name"]').value.trim(); if (!name) return;
+            var body = { name: name, role: f.querySelector('[data-nmc="role"]').value.trim(), phone: f.querySelector('[data-nmc="phone"]').value.trim(), email: f.querySelector('[data-nmc="email"]').value.trim() };
+            postJson('/api/media/' + encodeURIComponent(mediaId) + '/contacts/create', body).then(function (r) {
+              if (r && r.ok) { if (m.rmSetContact) m.rmSetContact({ name: r.name, phone: r.phone || '', email: r.email || '', media_id: mediaId }); renderMediaContacts(m, draft); }
+              else alert((r && r.error) || 'No se pudo crear el contacto.');
+            });
+          });
+        });
+      });
     }
     function renderSongs(m, draft) {
       var wrap = m.querySelector('[data-songs]'); if (!wrap) return;

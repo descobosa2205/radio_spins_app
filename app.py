@@ -29267,6 +29267,7 @@ def inject_personnel_globals():
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
@@ -43469,6 +43470,32 @@ for _cd_path, _cd_ep, _cd_view, _cd_methods in [
     ("/caldav/calendars/<artist_id>/<resource>", "public_caldav_resource", public_caldav_resource, ["GET", "HEAD", "PROPFIND", "PUT", "DELETE", "OPTIONS"]),
 ]:
     app.add_url_rule(_cd_path, endpoint=_cd_ep, view_func=_caldav_logged(_cd_view), methods=_cd_methods, provide_automatic_options=False)
+
+
+def _home_afavor_alert():
+    """Alerta en Inicio (responsable de registros) al cerrar cada semestre: solicitar la liquidación
+    de las colaboraciones externas del semestre recién cerrado. Devuelve None si no procede."""
+    session_db = db()
+    try:
+        n_ext = session_db.query(func.count(Song.id)).filter(Song.is_external_collab.is_(True)).scalar() or 0
+        if not n_ext:
+            return None
+        today = today_local()
+        # Semestre recién cerrado (mismo criterio por defecto que la vista de royalties).
+        if today.month <= 6:
+            sem_year, sem_half = today.year - 1, 2
+        else:
+            sem_year, sem_half = today.year, 1
+        key = _semester_key(sem_year, sem_half)
+        return {
+            "count": int(n_ext),
+            "semester_label": _semester_label(sem_year, sem_half),
+            "url": url_for("discografica_view", section="royalties", s=key, roy_tab="afavor"),
+        }
+    except Exception:
+        return None
+    finally:
+        session_db.close()
 
 
 def _home_registros_pending(limit: int = 20) -> list[dict]:

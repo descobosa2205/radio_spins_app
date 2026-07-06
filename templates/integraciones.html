@@ -92,64 +92,149 @@
       </div>
     </div>
 
-    {% if chartmetric_configured and review_rows %}
-    <div class="card mt-3">
-      <div class="card-body">
-        <h2 class="h5 mb-1">Revisión de artistas · Chartmetric</h2>
-        <p class="text-muted small mb-3">Comprueba que cada artista esté vinculado al ID correcto (compara con el nombre y la foto que ha encontrado Chartmetric). Si está mal, escribe el ID correcto y guarda; o desvincula.</p>
-        <div class="table-responsive">
-          <table class="table table-sm align-middle">
-            <thead><tr>
-              <th>Artista (nuestro)</th><th>Estado</th><th>ID Chartmetric</th><th>Encontrado en Chartmetric</th><th></th>
-            </tr></thead>
-            <tbody>
-            {% for r in review_rows %}
-              <tr>
-                <td>
-                  <div class="d-flex align-items-center gap-2">
-                    <img src="{{ r.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
-                    <span>{{ r.artist_name }}</span>
-                  </div>
-                </td>
-                <td>
-                  {% if r.status == 'LINKED' %}<span class="badge text-bg-success">Vinculado</span>
-                  {% elif r.status == 'NOT_FOUND' %}<span class="badge text-bg-warning">No encontrado</span>
-                  {% elif r.status == 'ERROR' %}<span class="badge text-bg-danger">Error</span>
-                  {% else %}<span class="badge text-bg-secondary">Sin vincular</span>{% endif %}
-                  {% if r.source %}<div class="small text-muted">por {{ r.source }}</div>{% endif %}
-                </td>
-                <td>
-                  <form method="post" class="d-flex align-items-center gap-1 mb-0">
-                    <input type="hidden" name="action" value="link_chartmetric">
-                    <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
-                    <input type="text" name="chartmetric_id" value="{{ r.cmid or '' }}" class="form-control form-control-sm" style="width:110px" placeholder="ID" inputmode="numeric">
-                    <button class="btn btn-sm btn-outline-primary" title="Guardar ID"><i class="fa fa-floppy-disk"></i></button>
-                    {% if r.cmid %}<a class="btn btn-sm btn-outline-secondary" href="https://app.chartmetric.com/artist/{{ r.cmid }}" target="_blank" rel="noopener" title="Abrir en Chartmetric"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
-                  </form>
-                </td>
-                <td>
-                  {% if r.cm_name %}
-                    <div class="d-flex align-items-center gap-2">
-                      {% if r.cm_image %}<img src="{{ r.cm_image }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">{% endif %}
-                      <span>{{ r.cm_name }}</span>
-                    </div>
-                  {% else %}<span class="text-muted small">—</span>{% endif %}
-                </td>
-                <td class="text-end">
-                  {% if r.cmid %}
-                  <form method="post" class="mb-0" onsubmit="return confirm('¿Desvincular este artista y borrar sus datos cacheados?');">
-                    <input type="hidden" name="action" value="unlink_chartmetric">
-                    <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
-                    <button class="btn btn-sm btn-outline-danger" title="Desvincular"><i class="fa fa-link-slash"></i></button>
-                  </form>
-                  {% endif %}
-                </td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
+    {% if chartmetric_configured %}
+    {% macro cm_link_icons(links) %}
+      {% for pk, plabel in cm_platform_labels %}
+        <img src="{{ url_for('static', filename='img/platforms/' ~ pk ~ '.png') }}" alt="{{ plabel }}" title="{{ plabel }}{{ '' if links[pk] else ' · falta' }}" style="width:20px;height:20px;object-fit:contain;margin-right:2px;{% if not links[pk] %}filter:grayscale(1);opacity:.35;{% endif %}">
+      {% endfor %}
+    {% endmacro %}
+    {% macro cm_status_badge(st) %}
+      {% if st == 'COMPLETE' %}<span class="badge text-bg-success">Completo</span>{% else %}<span class="badge text-bg-secondary">Pendiente</span>{% endif %}
+    {% endmacro %}
+
+    <ul class="nav nav-pills mt-3 mb-2" role="tablist">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#cmsub-artists" type="button"><i class="fa fa-user-music me-1"></i>Artistas</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#cmsub-songs" type="button"><i class="fa fa-music me-1"></i>Canciones</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#cmsub-albums" type="button"><i class="fa fa-compact-disc me-1"></i>Álbumes</button></li>
+    </ul>
+    <div class="tab-content">
+
+      <div class="tab-pane fade show active" id="cmsub-artists" role="tabpanel">
+        {% if review_rows %}
+        <div class="card">
+          <div class="card-body">
+            <h2 class="h5 mb-1">Revisión de artistas · Chartmetric</h2>
+            <p class="text-muted small mb-3">Comprueba que cada artista esté vinculado al ID correcto (compara con el nombre y la foto que ha encontrado Chartmetric). Si está mal, escribe el ID correcto y guarda; o desvincula.</p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead><tr>
+                  <th>Artista (nuestro)</th><th>Estado</th><th>ID Chartmetric</th><th>Encontrado en Chartmetric</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for r in review_rows %}
+                  <tr>
+                    <td>
+                      <div class="d-flex align-items-center gap-2">
+                        <img src="{{ r.artist_photo or DEFAULT_PHOTO_URL }}" data-default-photo="1" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;">
+                        <span>{{ r.artist_name }}</span>
+                      </div>
+                    </td>
+                    <td>
+                      {% if r.status == 'LINKED' %}<span class="badge text-bg-success">Vinculado</span>
+                      {% elif r.status == 'NOT_FOUND' %}<span class="badge text-bg-warning">No encontrado</span>
+                      {% elif r.status == 'ERROR' %}<span class="badge text-bg-danger">Error</span>
+                      {% else %}<span class="badge text-bg-secondary">Sin vincular</span>{% endif %}
+                      {% if r.source %}<div class="small text-muted">por {{ r.source }}</div>{% endif %}
+                    </td>
+                    <td>
+                      <form method="post" class="d-flex align-items-center gap-1 mb-0">
+                        <input type="hidden" name="action" value="link_chartmetric">
+                        <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
+                        <input type="text" name="chartmetric_id" value="{{ r.cmid or '' }}" class="form-control form-control-sm" style="width:110px" placeholder="ID" inputmode="numeric">
+                        <button class="btn btn-sm btn-outline-primary" title="Guardar ID"><i class="fa fa-floppy-disk"></i></button>
+                        {% if r.cmid %}<a class="btn btn-sm btn-outline-secondary" href="https://app.chartmetric.com/artist/{{ r.cmid }}" target="_blank" rel="noopener" title="Abrir en Chartmetric"><i class="fa fa-arrow-up-right-from-square"></i></a>{% endif %}
+                      </form>
+                    </td>
+                    <td>
+                      {% if r.cm_name %}
+                        <div class="d-flex align-items-center gap-2">
+                          {% if r.cm_image %}<img src="{{ r.cm_image }}" alt="" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">{% endif %}
+                          <span>{{ r.cm_name }}</span>
+                        </div>
+                      {% else %}<span class="text-muted small">—</span>{% endif %}
+                    </td>
+                    <td class="text-end">
+                      {% if r.cmid %}
+                      <form method="post" class="mb-0" onsubmit="return confirm('¿Desvincular este artista y borrar sus datos cacheados?');">
+                        <input type="hidden" name="action" value="unlink_chartmetric">
+                        <input type="hidden" name="artist_id" value="{{ r.artist_id }}">
+                        <button class="btn btn-sm btn-outline-danger" title="Desvincular"><i class="fa fa-link-slash"></i></button>
+                      </form>
+                      {% endif %}
+                    </td>
+                  </tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="tab-pane fade" id="cmsub-songs" role="tabpanel">
+        <div class="card">
+          <div class="card-body">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+              <h2 class="h5 mb-0">Canciones · enlaces y reproducciones</h2>
+              <form method="post" class="mb-0" onsubmit="return confirm('Actualizará las reproducciones de las canciones con track de Chartmetric (consume crédito). ¿Continuar?');">
+                <button name="action" value="refresh_songs_chartmetric" class="btn btn-sm btn-primary"><i class="fa fa-cloud-arrow-down me-1"></i>Actualizar reproducciones</button>
+              </form>
+            </div>
+            <p class="text-muted small mb-3">Los enlaces se resuelven solos al actualizar los artistas. Si alguno falta o está mal: «Re-resolver» reintenta desde Chartmetric; para corregir uno concreto, ábrelo en la ficha y pincha el icono en gris para meter el enlace a mano (queda fijado).</p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead><tr><th>Canción</th><th>Artista</th><th>Enlaces</th><th>Reproducciones (Spotify)</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                {% for r in cm_song_rows %}
+                  <tr>
+                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a>{% if r.isrc %}<div class="small text-muted">{{ r.isrc }}</div>{% endif %}</td>
+                    <td class="small">{{ r.artists }}</td>
+                    <td>{{ cm_link_icons(r.links) }}</td>
+                    <td>{% if r.spotify_plays %}<strong>{{ r.spotify_plays }}</strong>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                    <td>{{ cm_status_badge(r.status) }}</td>
+                    <td class="text-end text-nowrap">
+                      <form method="post" action="{{ url_for('cm_song_reresolve', song_id=r.id) }}" class="d-inline mb-0"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-outline-primary" title="Re-resolver con Chartmetric"><i class="fa fa-rotate"></i></button></form>
+                      <a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a>
+                    </td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="6" class="text-muted small">No hay canciones.</td></tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
+
+      <div class="tab-pane fade" id="cmsub-albums" role="tabpanel">
+        <div class="card">
+          <div class="card-body">
+            <h2 class="h5 mb-1">Álbumes · enlaces</h2>
+            <p class="text-muted small mb-3">Los enlaces de álbum se meten/corrigen a mano desde la ficha del álbum (pincha el icono en gris). Aquí ves de un vistazo cuáles faltan.</p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle">
+                <thead><tr><th>Álbum</th><th>Artista</th><th>Enlaces</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                {% for r in cm_album_rows %}
+                  <tr>
+                    <td><a href="{{ r.detail_url }}" class="text-decoration-none">{{ r.title }}</a></td>
+                    <td class="small">{{ r.artists }}</td>
+                    <td>{{ cm_link_icons(r.links) }}</td>
+                    <td>{{ cm_status_badge(r.status) }}</td>
+                    <td class="text-end"><a href="{{ r.detail_url }}" class="btn btn-sm btn-outline-secondary" title="Abrir ficha"><i class="fa fa-arrow-up-right-from-square"></i></a></td>
+                  </tr>
+                {% else %}
+                  <tr><td colspan="5" class="text-muted small">No hay álbumes.</td></tr>
+                {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
     {% endif %}
   </div>

@@ -160,6 +160,34 @@ def get_track(cm_track: int | str) -> dict:
     return obj if isinstance(obj, dict) else {}
 
 
+def get_track_ids_from_isrc(isrc: str) -> dict:
+    """Resuelve el cm_track (y otros ids) de una canción a partir de su ISRC.
+    Endpoint: GET /api/track/isrc/{isrc}/get-ids  → {obj: {...}} (CONFIRMAR al integrar).
+    Devuelve {} ante cualquier problema (no lanza)."""
+    code = (isrc or "").strip()
+    if not code:
+        return {}
+    try:
+        data = _get(f"/api/track/isrc/{code}/get-ids")
+    except RuntimeError:
+        return {}
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    return obj if isinstance(obj, dict) else {}
+
+
+def get_track_stat(cm_track: int | str, platform: str, params: dict | None = None) -> dict:
+    """Serie temporal de una métrica de un TRACK por plataforma (reproducciones/vistas).
+    `platform` (ej.): spotify (streams), youtube (views). Ej. params: {"since": "2024-01-01"}.
+    Endpoint: GET /api/track/{cm_track}/{platform}/stats (CONFIRMAR nombres reales al integrar).
+    Best-effort: {} ante cualquier problema (no lanza)."""
+    if not str(cm_track or "").strip():
+        return {}
+    try:
+        return _get(f"/api/track/{cm_track}/{platform}/stats", params=params)
+    except RuntimeError:
+        return {}
+
+
 def search_artists(query: str, limit: int = 10) -> list:
     """Busca artistas por nombre. Devuelve lista de dicts {id (CMID), name, image_url,
     sp_monthly_listeners, cm_artist_score, verified...}. [] si no hay query o resultados."""

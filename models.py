@@ -299,6 +299,12 @@ class Song(Base):
     amazon_music_url = Column(Text)
     tiktok_url = Column(Text)
     youtube_url = Column(Text)
+    # Chartmetric (canción): id de track resuelto, plataformas fijadas a mano (no re-resolver),
+    # estado del enlazado y último refresco de reproducciones.
+    cm_track = Column(Text)
+    cm_links_locked = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    cm_link_status = Column(Text)
+    cm_refreshed_at = Column(DateTime(timezone=True))
     release_date = Column(Date, nullable=False)
     cover_url = Column(Text)
 
@@ -986,6 +992,10 @@ class Album(Base):
     amazon_music_url = Column(Text)
     tiktok_url = Column(Text)
     youtube_url = Column(Text)
+    # Chartmetric (álbum): id de álbum/track resuelto, plataformas fijadas a mano, estado del enlazado.
+    cm_track = Column(Text)
+    cm_links_locked = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    cm_link_status = Column(Text)
 
     specifications = Column(Text)
     copyright_text = Column(Text)
@@ -5914,6 +5924,25 @@ class ChartmetricMetricPoint(Base):
     )
 
 
+class ChartmetricTrackMetricPoint(Base):
+    """Serie temporal por CANCIÓN: (canción, plataforma, métrica, fecha) -> valor.
+
+    Se usa para las reproducciones de la cabecera de la ficha de canción (total acumulado + tendencia
+    semanal). `field`: streams (Spotify) / views (YouTube). Apple/Amazon casi nunca traen dato."""
+    __tablename__ = "chartmetric_track_metric_point"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    source = Column(Text, nullable=False)   # spotify, apple_music, amazon_music, youtube
+    field = Column(Text, nullable=False)    # streams, views
+    date = Column(Date, nullable=False)
+    value = Column(Numeric)
+    fetched_at = Column(DateTime(timezone=True), server_default=func.now())
+    __table_args__ = (
+        UniqueConstraint("song_id", "source", "field", "date", name="uq_cm_track_metric_point"),
+        Index("idx_cm_track_metric_point_lookup", "song_id", "source", "field", "date"),
+    )
+
+
 class ChartmetricPlaylistEntry(Base):
     """Pertenencia de una canción de un artista a una playlist (actual o pasada), por plataforma.
 
@@ -5965,5 +5994,13 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS song_id uuid;",
         "ALTER TABLE IF EXISTS chartmetric_playlist_entry ADD COLUMN IF NOT EXISTS track_image_url text;",
         "INSERT INTO chartmetric_meta (id) VALUES (1) ON CONFLICT (id) DO NOTHING;",
+        # Chartmetric a nivel canción/álbum (enlaces automáticos + reproducciones).
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_track text;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_link_status text;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS cm_refreshed_at timestamptz;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_track text;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_link_status text;",
     ], "chartmetric")
 

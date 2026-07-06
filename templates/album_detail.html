@@ -22,12 +22,14 @@
   </div>
   <div class="ficha-hero__actions">
     <div class="d-flex align-items-center gap-2 flex-wrap">
-      {% set sp = album.spotify_url %}{% set ap = album.apple_music_url %}{% set am = album.amazon_music_url %}{% set tk = album.tiktok_url %}{% set yt = album.youtube_url %}
-      <a class="song-platform {% if sp %}active platform-spotify{% else %}disabled{% endif %}" data-platform="spotify" data-platform-label="Spotify" {% if sp %}href="{{ sp }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><i class="fab fa-spotify"></i></a>
-      <a class="song-platform {% if ap %}active platform-apple{% else %}disabled{% endif %}" data-platform="apple_music" data-platform-label="Apple Music" {% if ap %}href="{{ ap }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><i class="fab fa-apple"></i></a>
-      <a class="song-platform {% if am %}active platform-amazon{% else %}disabled{% endif %}" data-platform="amazon_music" data-platform-label="Amazon Music" {% if am %}href="{{ am }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><i class="fab fa-amazon"></i></a>
-      <a class="song-platform {% if tk %}active platform-tiktok{% else %}disabled{% endif %}" data-platform="tiktok" data-platform-label="TikTok" {% if tk %}href="{{ tk }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><i class="fab fa-tiktok"></i></a>
-      <a class="song-platform {% if yt %}active platform-youtube{% else %}disabled{% endif %}" data-platform="youtube" data-platform-label="YouTube" {% if yt %}href="{{ yt }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><i class="fab fa-youtube"></i></a>
+      {% for pkey, purl, plabel in [
+        ('spotify', album.spotify_url, 'Spotify'),
+        ('apple_music', album.apple_music_url, 'Apple Music'),
+        ('amazon_music', album.amazon_music_url, 'Amazon Music'),
+        ('tiktok', album.tiktok_url, 'TikTok'),
+        ('youtube', album.youtube_url, 'YouTube')] %}
+        <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ pkey ~ '.png') }}" alt="{{ plabel }}"></a>
+      {% endfor %}
     </div>
   </div>
 </div>

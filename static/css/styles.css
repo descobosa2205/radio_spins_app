@@ -108,19 +108,26 @@ body { background: #fafafa; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: .35rem;
+  padding: .3rem;
   border-radius: 12px;
 }
+/* Logos de plataforma en color (PNG). Inactivo = mismo logo en gris y clicable (mete enlace a mano). */
 .song-platform i{ font-size: 28px; }
-.song-platform.disabled{ color: #adb5bd !important; }
+.song-platform img{ width: 30px; height: 30px; object-fit: contain; display: block; transition: filter .12s ease, opacity .12s ease; }
 .song-platform.active:hover{ opacity: .85; }
+.song-platform.disabled{ color: #adb5bd !important; cursor: pointer; }
+.song-platform.disabled img{ filter: grayscale(1); opacity: .35; }
+.song-platform.disabled:hover img{ opacity: .6; }
 
-/* Colores "naturales" (aproximación a marca) */
-.song-platform.active.platform-spotify{ color: #1DB954; }
-.song-platform.active.platform-apple{ color: #000000; }
-.song-platform.active.platform-amazon{ color: #FF9900; }
-.song-platform.active.platform-tiktok{ color: #111111; }
-.song-platform.active.platform-youtube{ color: #FF0000; }
+/* Reproducciones (cabecera de canción): total por plataforma + flecha de tendencia semanal. */
+.cm-plays{ display: flex; gap: .9rem; flex-wrap: wrap; align-items: center; }
+.cm-play{ display: inline-flex; align-items: center; gap: .35rem; font-size: .9rem; }
+.cm-play img{ width: 18px; height: 18px; object-fit: contain; }
+.cm-play.empty img{ filter: grayscale(1); opacity: .4; }
+.cm-play .cm-empty{ color: #adb5bd; }
+.cm-play .cm-up{ color: #1a9e46; }
+.cm-play .cm-down{ color: #d6293e; }
+.cm-play .cm-flat{ color: #e0a800; }
 
 /* Barra de estados (ficha canción) */
 .song-status-bar {

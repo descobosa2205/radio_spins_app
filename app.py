@@ -130,6 +130,7 @@ from models import (
     User,
     ChartmetricArtist,
     ChartmetricMetricPoint,
+    ChartmetricTrackMetricPoint,
     ChartmetricPlaylistEntry,
     ChartmetricMeta,
     Artist,
@@ -12121,6 +12122,7 @@ def discografica_song_detail(song_id):
         chartmetric_playlists=(_chartmetric_playlists_grouped(session_db, song_id=s.id) if tab == 'playlisting' else None),
         chartmetric_playlists_past=(_chartmetric_playlists_grouped(session_db, song_id=s.id, status="past") if tab == 'playlisting' else None),
         chartmetric_counts=(_chartmetric_playlist_counts(session_db, s.id) if tab == 'playlisting' else None),
+        cm_song_header=_cm_song_header(session_db, s),
         edit=edit,
         status=st,
         interpreters=interpreters,
@@ -13126,6 +13128,13 @@ def discografica_song_set_link(song_id):
 
     try:
         setattr(s, field, url)
+        # Enlace metido a mano → se fija: Chartmetric no lo volverá a tocar/buscar.
+        try:
+            locked = set(_json_list(getattr(s, "cm_links_locked", None)))
+            locked.add(platform)
+            s.cm_links_locked = sorted(locked)
+        except Exception:
+            pass
         session_db.commit()
         flash("Enlace guardado.", "success")
     except Exception as e:
@@ -13134,7 +13143,7 @@ def discografica_song_set_link(song_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_song_detail", song_id=song_id))
+    return redirect(request.form.get("next") or url_for("discografica_song_detail", song_id=song_id))
 
 
 @app.post("/discografica/canciones/<song_id>/materials/upload")
@@ -15916,6 +15925,12 @@ def discografica_album_set_link(album_id):
 
     try:
         setattr(album, field, url)
+        try:
+            locked = set(_json_list(getattr(album, "cm_links_locked", None)))
+            locked.add(platform)
+            album.cm_links_locked = sorted(locked)
+        except Exception:
+            pass
         album.updated_at = datetime.now(TZ_MADRID)
         session_db.commit()
         flash("Enlace guardado.", "success")
@@ -15925,7 +15940,7 @@ def discografica_album_set_link(album_id):
     finally:
         session_db.close()
 
-    return redirect(url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
+    return redirect(request.form.get("next") or url_for("discografica_album_detail", album_id=album_id, tab="informacion"))
 
 @app.post("/discografica/albumes/<album_id>/info/update")
 @admin_required
@@ -44734,6 +44749,7 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
     # id propio de Spotify/Apple/Amazon), así que registramos el track bajo TODOS sus identificadores
     # para casarlo venga como venga. (Antes solo se indexaba por cm_track -> Amazon salía sin nombre.)
     track_map = {}
+    track_objs = []  # objetos crudos de get_artist_tracks (para resolver enlaces de NUESTRAS Song)
 
     def _track_reg(idval, name, isrc, image=None):
         k = str(idval or "").strip()
@@ -44756,6 +44772,7 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
         for t in (cm.get_artist_tracks(cmid, limit=500) or []):
             if not isinstance(t, dict):
                 continue
+            track_objs.append(t)
             nm = t.get("name")
             isrc = t.get("isrc")
             img = _chartmetric_track_image(t)
@@ -44837,6 +44854,11 @@ def _chartmetric_refresh_artist(session_db, artist) -> dict:
         _chartmetric_crossfill_entries(session_db, artist.id)
     except Exception as e:
         errors.append(f"crossfill:{str(e)[:60]}")
+    # Enlaces de plataforma de NUESTRAS canciones (rellena solo huecos vacíos; sin llamadas extra).
+    try:
+        _cm_resolve_artist_song_links(session_db, artist, track_objs)
+    except Exception as e:
+        errors.append(f"songlinks:{str(e)[:60]}")
     link.last_refreshed_at = _now_madrid()
     link.last_error = "; ".join(errors)[:500] if errors else None
     link.status = "LINKED" if not errors else "ERROR"
@@ -45017,10 +45039,15 @@ def integrations_view():
                 s.close()
             threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
             flash(f"Refresco de {n} artista(s) en marcha en segundo plano. Vuelve en unos minutos y recarga la página.", "info")
+        elif action == "refresh_songs_chartmetric":
+            threading.Thread(target=lambda: _cm_refresh_songs_due_bg(force_all=True), daemon=True).start()
+            flash("Actualizando reproducciones de canciones en segundo plano. Recarga en unos minutos.", "info")
         return redirect(url_for("integrations_view"))
     # Resumen de la caché + tabla de revisión (artista -> ID de Chartmetric elegido).
     cm_linked = cm_points = cm_playlists = 0
     review_rows = []
+    cm_song_rows = []
+    cm_album_rows = []
     cm_last_refresh = None
     cm_credit_warning = False
     if chartmetric_utils.chartmetric_configured():
@@ -45030,6 +45057,8 @@ def integrations_view():
             cm_points = s.query(ChartmetricMetricPoint).count()
             cm_playlists = s.query(ChartmetricPlaylistEntry).filter_by(status="current").count()
             review_rows = _chartmetric_review_rows(s)
+            cm_song_rows = _cm_song_review_rows(s)
+            cm_album_rows = _cm_album_review_rows(s)
             cm_last_refresh = s.query(func.max(ChartmetricArtist.last_refreshed_at)).scalar()
             cm_credit_warning = bool(
                 s.query(ChartmetricArtist.artist_id)
@@ -45053,9 +45082,313 @@ def integrations_view():
         cm_points=cm_points,
         cm_playlists=cm_playlists,
         review_rows=review_rows,
+        cm_song_rows=cm_song_rows,
+        cm_album_rows=cm_album_rows,
+        cm_platform_labels=[("spotify", "Spotify"), ("apple_music", "Apple Music"), ("amazon_music", "Amazon Music"), ("tiktok", "TikTok"), ("youtube", "YouTube")],
         cm_last_refresh=cm_last_refresh,
         cm_credit_warning=cm_credit_warning,
     )
+
+
+# ===========================================================================
+# Chartmetric a nivel CANCIÓN/ÁLBUM: enlaces de plataforma automáticos + reproducciones
+# ===========================================================================
+_CM_TRACK_SONG_FIELDS = {
+    "spotify": "spotify_url",
+    "apple_music": "apple_music_url",
+    "amazon_music": "amazon_music_url",
+    "tiktok": "tiktok_url",
+    "youtube": "youtube_url",
+}
+
+
+def _cm_first(d, *keys):
+    """Primer valor no vacío entre varias claves (aplana listas)."""
+    if not isinstance(d, dict):
+        return None
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, (list, tuple)):
+            v = next((x for x in v if x), None)
+        if v not in (None, "", 0, "0"):
+            return v
+    return None
+
+
+def _cm_track_platform_urls(t: dict) -> dict:
+    """Construye URLs de plataforma desde los ids de un track de Chartmetric. Solo las fiables:
+    Spotify y YouTube desde su id; Apple/Amazon solo si viene una URL explícita (los ids no permiten
+    un deep link fiable → esos huecos se rellenan a mano). No hay enlace TikTok a nivel de canción."""
+    out = {}
+    if not isinstance(t, dict):
+        return out
+    sp = _cm_first(t, "spotify_track_id", "spotify_id", "spotify_track_ids")
+    if sp:
+        out["spotify"] = f"https://open.spotify.com/track/{sp}"
+    yt = _cm_first(t, "youtube_video_id", "youtube_track_id", "youtube_id", "youtube_track_ids")
+    if yt:
+        out["youtube"] = f"https://www.youtube.com/watch?v={yt}"
+    for key in ("itunes_url", "apple_music_url", "apple_url", "applemusic_url"):
+        u = t.get(key)
+        if isinstance(u, str) and u.startswith("http"):
+            out["apple_music"] = u
+            break
+    for key in ("amazon_url", "amazon_music_url", "amazonmusic_url"):
+        u = t.get(key)
+        if isinstance(u, str) and u.startswith("http"):
+            out["amazon_music"] = u
+            break
+    return out
+
+
+def _cm_apply_song_links(row, cm_track, urls: dict) -> bool:
+    """Rellena SOLO los *_url vacíos y no bloqueados; guarda cm_track; marca cm_link_status.
+    Sirve para Song y Album (ambos tienen los mismos campos). Nunca pisa enlaces existentes."""
+    changed = False
+    if cm_track and not (getattr(row, "cm_track", None) or "").strip():
+        row.cm_track = str(cm_track)
+        changed = True
+    locked = set(_json_list(getattr(row, "cm_links_locked", None)))
+    for platform, field in _CM_TRACK_SONG_FIELDS.items():
+        if platform in locked:
+            continue
+        if (getattr(row, field, None) or "").strip():
+            continue
+        u = (urls or {}).get(platform)
+        if u:
+            setattr(row, field, u)
+            changed = True
+    have = sum(1 for f in _CM_TRACK_SONG_FIELDS.values() if (getattr(row, f, None) or "").strip())
+    row.cm_link_status = "COMPLETE" if have >= len(_CM_TRACK_SONG_FIELDS) else "PENDING"
+    return changed
+
+
+def _cm_resolve_artist_song_links(session_db, artist, track_objs) -> None:
+    """Casa cada Song del artista con un track de Chartmetric (por ISRC/nombre) y rellena enlaces.
+    Barato: reutiliza los tracks ya descargados en el refresco del artista (sin llamadas extra)."""
+    if not track_objs:
+        return
+    by_isrc, by_name = {}, {}
+    for t in track_objs:
+        if not isinstance(t, dict):
+            continue
+        isrc = t.get("isrc")
+        if isinstance(isrc, (list, tuple)):
+            isrc = next((x for x in isrc if x), None)
+        if isrc:
+            by_isrc.setdefault(_chartmetric_norm_isrc(isrc), t)
+        nm = t.get("name")
+        if nm:
+            by_name.setdefault(_chartmetric_norm_name(nm), t)
+    for sg in (getattr(artist, "songs", None) or []):
+        t = None
+        if getattr(sg, "isrc", None):
+            t = by_isrc.get(_chartmetric_norm_isrc(sg.isrc))
+        if not t and getattr(sg, "title", None):
+            t = by_name.get(_chartmetric_norm_name(sg.title))
+        if not t:
+            continue
+        _cm_apply_song_links(sg, _cm_first(t, "cm_track", "id"), _cm_track_platform_urls(t))
+
+
+def _cm_extract_series(data, field=None) -> list:
+    """Extrae una serie temporal [{timestp,value}] de una respuesta de stats de Chartmetric.
+    Defensivo: prueba obj[field] y, si no, la primera lista de puntos que encuentre."""
+    if not data:
+        return []
+    obj = data.get("obj", data) if isinstance(data, dict) else data
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        if field and isinstance(obj.get(field), list):
+            return obj[field]
+        for v in obj.values():
+            if isinstance(v, list) and v and isinstance(v[0], dict) and ("timestp" in v[0] or "value" in v[0]):
+                return v
+    return []
+
+
+def _cm_upsert_track_points(session_db, song_id, source, field, series, keep_days=120):
+    """Igual que _chartmetric_upsert_metric_points pero sobre ChartmetricTrackMetricPoint (canción)."""
+    for pt in (series or [])[-keep_days:]:
+        if not isinstance(pt, dict):
+            continue
+        ts = (pt.get("timestp") or pt.get("date") or "")[:10]
+        if not ts:
+            continue
+        try:
+            d = date.fromisoformat(ts)
+        except (ValueError, TypeError):
+            continue
+        existing = (
+            session_db.query(ChartmetricTrackMetricPoint)
+            .filter_by(song_id=song_id, source=source, field=field, date=d)
+            .first()
+        )
+        if existing:
+            existing.value = pt.get("value")
+            existing.fetched_at = _now_madrid()
+        else:
+            session_db.add(ChartmetricTrackMetricPoint(
+                song_id=song_id, source=source, field=field, date=d, value=pt.get("value"),
+            ))
+
+
+def _cm_refresh_song_streams(session_db, song) -> None:
+    """Reproducciones de una canción por su cm_track (Spotify streams; YouTube views). Best-effort."""
+    import chartmetric_utils as cm
+    if not (getattr(song, "cm_track", None) or "").strip():
+        return
+    for source, field, platform, params in (
+        ("spotify", "streams", "spotify", {"type": "streams"}),
+        ("youtube", "views", "youtube", {"type": "views"}),
+    ):
+        try:
+            data = cm.get_track_stat(song.cm_track, platform, params)
+        except Exception:
+            data = {}
+        series = _cm_extract_series(data, field)
+        if series:
+            _cm_upsert_track_points(session_db, song.id, source, field, series)
+    song.cm_refreshed_at = _now_madrid()
+
+
+def _cm_songs_due(session_db, limit=200):
+    """Canciones con cm_track que toca refrescar hoy según antigüedad del release:
+    <1 mes diaria, 1–6 meses semanal, >6 meses mensual. Prioriza las más recientes."""
+    today = _now_madrid().date()
+    rows = (
+        session_db.query(Song)
+        .filter(Song.cm_track.isnot(None))
+        .filter(Song.cm_track != "")
+        .all()
+    )
+    due = []
+    for s in rows:
+        age = (today - s.release_date).days if getattr(s, "release_date", None) else 9999
+        interval = 1 if age < 31 else (7 if age < 186 else 30)
+        last = s.cm_refreshed_at.date() if getattr(s, "cm_refreshed_at", None) else None
+        if last is None or (today - last).days >= interval:
+            due.append((age, s))
+    due.sort(key=lambda x: x[0])
+    return [s for _a, s in due[:limit]]
+
+
+def _cm_refresh_songs_due_bg(force_all=False):
+    """Refresca las reproducciones de las canciones vencidas (o todas si force_all). En segundo plano."""
+    import chartmetric_utils as cm
+    if not cm.chartmetric_configured():
+        return
+    s = db()
+    try:
+        if force_all:
+            songs = s.query(Song).filter(Song.cm_track.isnot(None)).filter(Song.cm_track != "").all()
+        else:
+            songs = _cm_songs_due(s, limit=200)
+        for song in songs:
+            try:
+                _cm_refresh_song_streams(s, song)
+                s.commit()
+            except Exception:
+                try:
+                    s.rollback()
+                except Exception:
+                    pass
+    finally:
+        s.close()
+
+
+def _cm_value_on_or_before(rows, target):
+    """rows ordenadas por fecha desc; primer valor con date <= target (float) o None."""
+    for r in rows:
+        if r.date <= target and r.value is not None:
+            return float(r.value)
+    return None
+
+
+def _cm_song_header(session_db, song):
+    """Reproducciones de cabecera de la ficha de canción: Spotify/Apple/Amazon (los 3 huecos siempre),
+    total acumulado + flecha semanal (delta últimos 7 días vs 7 previos). arrow: up|down|flat|none."""
+    plan = [
+        ("spotify", "Spotify", "spotify"),
+        ("apple_music", "Apple Music", "apple_music"),
+        ("amazon_music", "Amazon Music", "amazon_music"),
+    ]
+    out = []
+    for source, label, key in plan:
+        entry = {"platform": key, "label": label, "value_fmt": None, "arrow": "none"}
+        try:
+            rows = (
+                session_db.query(ChartmetricTrackMetricPoint)
+                .filter_by(song_id=song.id, source=source, field="streams")
+                .order_by(ChartmetricTrackMetricPoint.date.desc())
+                .limit(30)
+                .all()
+            )
+            rows = [r for r in rows if r.value is not None]
+            if rows:
+                cur = float(rows[0].value)
+                entry["value_fmt"] = f"{int(cur):,}".replace(",", ".")
+                v7 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=7))
+                v14 = _cm_value_on_or_before(rows, rows[0].date - timedelta(days=14))
+                if v7 is not None and v14 is not None:
+                    last_week, prev_week = cur - v7, v7 - v14
+                    base = abs(prev_week) or 1.0
+                    ratio = (last_week - prev_week) / base
+                    entry["arrow"] = "up" if ratio > 0.03 else ("down" if ratio < -0.03 else "flat")
+        except Exception:
+            pass
+        out.append(entry)
+    return out
+
+
+def _cm_song_review_rows(session_db, limit=400):
+    """Filas para la subpestaña Canciones de Integraciones (estado de enlaces + reproducciones)."""
+    rows = session_db.query(Song).order_by(Song.release_date.desc().nullslast()).limit(limit).all()
+    out = []
+    for s in rows:
+        links = {p: bool((getattr(s, f, None) or "").strip()) for p, f in _CM_TRACK_SONG_FIELDS.items()}
+        sp = (
+            session_db.query(ChartmetricTrackMetricPoint)
+            .filter_by(song_id=s.id, source="spotify", field="streams")
+            .order_by(ChartmetricTrackMetricPoint.date.desc())
+            .first()
+        )
+        out.append({
+            "id": str(s.id),
+            "title": s.title or "—",
+            "artists": ", ".join([a.name for a in (getattr(s, "artists", None) or [])]) or "—",
+            "isrc": s.isrc or "",
+            "cm_track": s.cm_track or "",
+            "status": s.cm_link_status or "PENDING",
+            "links": links,
+            "missing": [p for p, ok in links.items() if not ok],
+            "detail_url": url_for("discografica_song_detail", song_id=s.id),
+            "spotify_plays": (f"{int(float(sp.value)):,}".replace(",", ".") if sp and sp.value is not None else None),
+        })
+    return out
+
+
+def _cm_album_review_rows(session_db, limit=400):
+    """Filas para la subpestaña Álbumes de Integraciones (estado de enlaces; sin reproducciones)."""
+    rows = session_db.query(Album).order_by(Album.release_date.desc().nullslast()).limit(limit).all()
+    out = []
+    for a in rows:
+        links = {p: bool((getattr(a, f, None) or "").strip()) for p, f in _CM_TRACK_SONG_FIELDS.items()}
+        art = getattr(a, "artist", None)
+        if art is None and getattr(a, "artist_id", None):
+            art = session_db.get(Artist, a.artist_id)
+        out.append({
+            "id": str(a.id),
+            "title": a.title or "—",
+            "artists": getattr(art, "name", "") or "—",
+            "cm_track": a.cm_track or "",
+            "status": a.cm_link_status or "PENDING",
+            "links": links,
+            "missing": [p for p, ok in links.items() if not ok],
+            "detail_url": url_for("discografica_album_detail", album_id=a.id, tab="informacion"),
+        })
+    return out
 
 
 def _chartmetric_refresh_all_bg():
@@ -45080,6 +45413,12 @@ def _chartmetric_refresh_all_bg():
         pass
     finally:
         s.close()
+    # Tras resolver artistas (que fija cm_track y enlaces de las canciones), refrescar las
+    # reproducciones de las canciones vencidas por cadencia (diario/semanal/mensual).
+    try:
+        _cm_refresh_songs_due_bg()
+    except Exception:
+        pass
 
 
 _chartmetric_daily_check_date = None
@@ -45118,6 +45457,75 @@ def _chartmetric_maybe_daily_refresh():
             threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
     except Exception:
         pass
+
+
+@app.post("/integraciones/chartmetric/cancion/<song_id>/reresolver", endpoint="cm_song_reresolve")
+@admin_required
+def cm_song_reresolve(song_id):
+    """Re-resuelve enlaces + reproducciones de UNA canción vía Chartmetric (por cm_track o ISRC).
+    Rellena solo los huecos vacíos no bloqueados (para corregir uno, límpialo antes)."""
+    if not (is_master() or can_edit_discografica()):
+        return forbid("Sin permisos.")
+    import chartmetric_utils as cm
+    session_db = db()
+    try:
+        song = session_db.get(Song, to_uuid(song_id))
+        if not song:
+            abort(404)
+        cm_track = (song.cm_track or "").strip()
+        if not cm_track and (getattr(song, "isrc", None) or "").strip():
+            ids = cm.get_track_ids_from_isrc(song.isrc)
+            cm_track = str(_cm_first(ids, "cm_track", "id", "chartmetric_id", "chartmetric_ids") or "")
+        if cm_track:
+            td = cm.get_track(cm_track) or {}
+            td.setdefault("cm_track", cm_track)
+            _cm_apply_song_links(song, cm_track, _cm_track_platform_urls(td))
+            _cm_refresh_song_streams(session_db, song)
+            session_db.commit()
+            flash("Canción re-resuelta con Chartmetric.", "success")
+        else:
+            flash("No se encontró el track en Chartmetric. Revisa el ISRC o mete los enlaces a mano.", "warning")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error al re-resolver: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("integrations_view"))
+
+
+@app.post("/integraciones/chartmetric/limpiar-enlace", endpoint="cm_link_clear")
+@admin_required
+def cm_link_clear():
+    """Limpia un enlace de plataforma de una canción/álbum y lo desbloquea (para re-resolver o rehacer)."""
+    if not (is_master() or can_edit_discografica()):
+        return forbid("Sin permisos.")
+    kind = (request.form.get("kind") or "song").strip().lower()
+    platform = (request.form.get("platform") or "").strip().lower()
+    obj_id = (request.form.get("id") or "").strip()
+    field = _CM_TRACK_SONG_FIELDS.get(platform)
+    if not field:
+        flash("Plataforma no soportada.", "warning")
+        return redirect(request.form.get("next") or url_for("integrations_view"))
+    session_db = db()
+    try:
+        row = session_db.get(Album if kind == "album" else Song, to_uuid(obj_id))
+        if not row:
+            abort(404)
+        setattr(row, field, None)
+        try:
+            locked = set(_json_list(getattr(row, "cm_links_locked", None)))
+            locked.discard(platform)
+            row.cm_links_locked = sorted(locked)
+        except Exception:
+            pass
+        session_db.commit()
+        flash("Enlace limpiado.", "success")
+    except Exception as e:
+        session_db.rollback()
+        flash(f"Error al limpiar: {e}", "danger")
+    finally:
+        session_db.close()
+    return redirect(request.form.get("next") or url_for("integrations_view"))
 
 
 def _chartmetric_playlists_grouped(session_db, artist_id=None, cm_track=None, song_id=None, status="current", only_official=True):

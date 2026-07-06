@@ -19929,7 +19929,7 @@ def concert_detail_view(cid):
         contracting_general_rows = _concert_contracting_general_rows(session, c)
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
-        roadmap_ctx = _roadmap_context(session, "concert", c, ensure_token=True)
+        roadmap_ctx = _roadmap_context(session, "concert", c)
         fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
 
         # Listas para la edición inline (solo en la pestaña general).
@@ -30827,7 +30827,7 @@ def promotion_detail_view(promotion_id):
                     'icon': _marketing_action_icon(key),
                     'rows': rows,
                 })
-        roadmap_ctx = _roadmap_context(session_db, 'promotion', promotion, ensure_token=True)
+        roadmap_ctx = _roadmap_context(session_db, 'promotion', promotion)
         session_db.commit()
         return render_template(
             'marketing_detail.html',
@@ -35502,7 +35502,7 @@ def action_detail_view(action_id):
         artists = _artists_from_ids(session_db, getattr(action, 'artist_ids', []) or [])
         bag = getattr(action, 'bag', None)
         roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
-        roadmap_ctx = _roadmap_context(session_db, 'action', action, ensure_token=True)
+        roadmap_ctx = _roadmap_context(session_db, 'action', action)
         fotos_ctx = _build_fotos_context(session_db, 'ACTION', action.id) if tab == 'fotos' else None
         session_db.commit()
         return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx)
@@ -36322,9 +36322,43 @@ def _photo_owner_group_company_id(session_db, ot, owner):
     return None
 
 
+def _concert_poster_url(concert) -> str:
+    """URL del cartel PRINCIPAL del concierto si hay cartelería subida (imagen no archivada;
+    se prioriza la etiqueta que contenga «principal»/«cartel»/«vertical»). Vacío si no hay."""
+    if not concert:
+        return ""
+    req = getattr(concert, "artwork_request", None)
+    assets = [a for a in (getattr(req, "assets", None) or []) if not bool(getattr(a, "is_archived", False))]
+
+    def _is_image(a):
+        mt = (getattr(a, "mime_type", None) or "").lower()
+        if mt.startswith("image/"):
+            return True
+        url = (getattr(a, "file_url", None) or "").lower()
+        return url.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+
+    images = [a for a in assets if _is_image(a) and (getattr(a, "file_url", None) or "").strip()]
+    if not images:
+        return ""
+
+    def _score(a):
+        lbl = (getattr(a, "format_label", None) or "").lower()
+        if "principal" in lbl:
+            return 0
+        if "cartel" in lbl:
+            return 1
+        if "vertical" in lbl:
+            return 2
+        return 3
+    images.sort(key=lambda a: getattr(a, "created_at", None) or datetime.min, reverse=True)
+    images.sort(key=_score)
+    return (getattr(images[0], "file_url", "") or "").strip()
+
+
 def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
     """Datos para la composición visual de las páginas públicas (enlaces de WhatsApp/SMS):
-    tipo de actividad + icono, nombre del evento (o municipio), fecha y artista con foto."""
+    tipo de actividad + icono, nombre del evento (o municipio), fecha y artista con foto.
+    Si el concierto tiene cartel subido, la imagen (artist_photo) es el cartel principal."""
     card = {"activity_label": "", "activity_icon": "fa-calendar-day", "event_name": "",
             "city": "", "date_label": "", "artist_name": "", "artist_photo": ""}
     if not owner:
@@ -36350,6 +36384,11 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
     if art:
         card["artist_name"] = art.name or ""
         card["artist_photo"] = getattr(art, "photo_url", "") or ""
+    # Si hay cartel de concierto subido, se muestra el cartel principal en vez del avatar.
+    if owner_type == "CONCERT":
+        _poster = _concert_poster_url(owner)
+        if _poster:
+            card["artist_photo"] = _poster
     return card
 
 
@@ -37528,6 +37567,8 @@ def _invitation_event_payload(session_db, concert: Concert, include_counts: bool
         "artists": artists,
         "artist_names": ", ".join([a["name"] for a in artists]) or (getattr(getattr(concert, "artist", None), "name", None) or ""),
         "status": getattr(concert, "status", None) or "",
+        # Cartel principal del concierto (si hay cartelería subida): se usa en cabeceras en vez del avatar.
+        "poster_url": _concert_poster_url(concert),
     }
     if include_counts:
         payload["counts"] = _invitation_event_counts(session_db, concert)
@@ -39286,7 +39327,8 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
 
     logo = _invitation_event_logo_url(session_db, concert, external=True)  # logo de la empresa del evento
     arts = event.get("artists") or []
-    artist_photo = (arts[0].get("photo_url") or "").strip() if arts else ""
+    # Si hay cartel de concierto subido, se usa el cartel principal en la cabecera en vez del avatar.
+    artist_photo = (event.get("poster_url") or "").strip() or ((arts[0].get("photo_url") or "").strip() if arts else "")
 
     # Saludo: SOLO el nombre del invitado tras "Hola" (sin vínculos ni foto).
     _gname = (guest_name or "").strip()

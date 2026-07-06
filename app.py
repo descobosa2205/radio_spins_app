@@ -39269,7 +39269,9 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
         cid = str(cat.id)
         if link.limit_mode == "CATEGORIES" and cid not in category_limits:
             continue
-        if link.limit_mode == "NONE" and enabled and cid not in enabled:
+        # Solo ofrecer las categorías que esta persona puede pedir (las habilitadas
+        # al generar/editar el enlace), en cualquier modo de límite.
+        if enabled and cid not in enabled:
             continue
         limit = _safe_int(category_limits.get(cid), None) if link.limit_mode == "CATEGORIES" else None
         if limit is not None and limit <= 0:

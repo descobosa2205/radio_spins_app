@@ -782,40 +782,44 @@
           {% if links %}
             <div class="list-group">
               {% for link in links %}
-                <div class="list-group-item text-center">
-                  <div class="d-flex justify-content-center align-items-center gap-2 flex-wrap">
-                    {% if link.target_photo_url %}<img src="{{ link.target_photo_url }}" alt="" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
-                    <strong>{{ link.target_name }}</strong>
-                    {% if link.target_link_summary_text %}<span class="invitation-linked-mini">{% if link.target_link_summary.logo_url %}<img src="{{ link.target_link_summary.logo_url }}" alt="">{% endif %}<span>{{ link.target_link_summary_text }}</span></span>{% endif %}
-                    <span class="badge text-bg-{{ link.state_badge }}">{{ link.state_label }}</span>
-                  </div>
-                  <div class="small text-muted mt-1 d-flex justify-content-center align-items-center gap-1 flex-wrap">Generado por <img src="{{ link.requested_by_photo_url }}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;"> {{ link.requested_by }}</div>
-                  <div class="d-flex justify-content-center align-items-center gap-2 mt-2 flex-wrap">
-                    <a class="small text-truncate" style="max-width:min(88vw,420px);" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
-                    <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-text="{{ link.url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
+                <div class="list-group-item">
+                  <div class="d-flex align-items-start gap-3 flex-wrap">
+                    {% if link.target_photo_url %}<img src="{{ link.target_photo_url }}" alt="" style="width:44px;height:44px;border-radius:50%;object-fit:cover;flex:0 0 auto;">{% endif %}
+                    <div class="flex-grow-1" style="min-width:0;">
+                      <div class="fw-bold">{{ link.target_name }}</div>
+                      <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+                        <a class="small text-truncate" style="max-width:min(80vw,420px);" href="{{ link.url }}" target="_blank">{{ link.url }}</a>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-copy-text="{{ link.url }}" title="Copiar enlace"><i class="fa fa-copy"></i></button>
+                      </div>
+                      <div class="small text-muted mt-1 d-flex align-items-center gap-2 flex-wrap">
+                        {% if link.target_link_summary_text %}<span class="invitation-linked-mini">{% if link.target_link_summary.logo_url %}<img src="{{ link.target_link_summary.logo_url }}" alt="">{% endif %}<span>{{ link.target_link_summary_text }}</span></span>{% endif %}
+                        <span class="d-inline-flex align-items-center gap-1">Generado por <img src="{{ link.requested_by_photo_url }}" alt="" style="width:20px;height:20px;border-radius:50%;object-fit:cover;"> {{ link.requested_by }}</span>
+                      </div>
+                    </div>
+                    <span class="badge text-bg-{{ link.state_badge }} align-self-center">{{ link.state_label }}</span>
+                    <div class="dropdown align-self-center">
+                      <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+                        <li><button class="dropdown-item" type="button" data-copy-text="{{ link.url }}"><i class="fa fa-copy me-2"></i>Copiar enlace</button></li>
+                        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#shareLinkModal{{ link.id }}"><i class="fa fa-envelope me-2"></i>Enviar por email</button></li>
+                        <li><a class="dropdown-item" href="{{ link.whatsapp_url }}" target="_blank"><i class="fa-brands fa-whatsapp me-2"></i>Enviar por WhatsApp</a></li>
+                        <li><a class="dropdown-item" href="{{ link.sms_url }}"><i class="fa fa-comment-sms me-2"></i>Enviar por SMS</a></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editLinkModal{{ link.id }}"><i class="fa fa-pen me-2"></i>Editar enlace</button></li>
+                        {% if link.state != 'cancelled' %}
+                          <li><form method="post" action="{{ url_for('invitation_public_link_lock', link_id=link.id) }}"><button class="dropdown-item"><i class="fa fa-{{ 'lock-open' if link.locked else 'lock' }} me-2"></i>{{ 'Reabrir enlace' if link.locked else 'Bloquear peticiones/cambios' }}</button></form></li>
+                          <li><form method="post" action="{{ url_for('invitation_public_link_cancel', link_id=link.id) }}"><button class="dropdown-item text-danger"><i class="fa fa-ban me-2"></i>Anular enlace</button></form></li>
+                        {% endif %}
+                      </ul>
+                    </div>
                   </div>
                   {% if link.req_count or link.deadline_label %}
-                  <div class="mt-2 d-flex justify-content-center gap-2 flex-wrap align-items-center">
+                  <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
                     <span class="badge text-bg-light border"><i class="fa fa-paper-plane me-1"></i>{{ link.req_count }} petición{{ '' if link.req_count == 1 else 'es' }}</span>
                     {% for c in link.req_cats %}<span class="badge text-bg-light border" style="border-left:4px solid {{ c.color }} !important;" title="{{ c.name }}">{{ c.name }} · <i class="fa fa-ticket"></i> {{ c.qty }}</span>{% endfor %}
                     {% if link.deadline_label %}<span class="badge text-bg-light border"><i class="fa fa-clock me-1"></i>Hasta {{ link.deadline_label }}</span>{% endif %}
                   </div>
                   {% endif %}
-                  <div class="dropdown mt-2">
-                    <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                    <ul class="dropdown-menu dropdown-menu-app33">
-                      <li><button class="dropdown-item" type="button" data-copy-text="{{ link.url }}"><i class="fa fa-copy me-2"></i>Copiar enlace</button></li>
-                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#shareLinkModal{{ link.id }}"><i class="fa fa-envelope me-2"></i>Enviar por email</button></li>
-                      <li><a class="dropdown-item" href="{{ link.whatsapp_url }}" target="_blank"><i class="fa-brands fa-whatsapp me-2"></i>Enviar por WhatsApp</a></li>
-                      <li><a class="dropdown-item" href="{{ link.sms_url }}"><i class="fa fa-comment-sms me-2"></i>Enviar por SMS</a></li>
-                      <li><hr class="dropdown-divider"></li>
-                      <li><button class="dropdown-item" type="button" data-bs-toggle="modal" data-bs-target="#editLinkModal{{ link.id }}"><i class="fa fa-pen me-2"></i>Editar enlace</button></li>
-                      {% if link.state != 'cancelled' %}
-                        <li><form method="post" action="{{ url_for('invitation_public_link_lock', link_id=link.id) }}"><button class="dropdown-item"><i class="fa fa-{{ 'lock-open' if link.locked else 'lock' }} me-2"></i>{{ 'Reabrir enlace' if link.locked else 'Bloquear peticiones/cambios' }}</button></form></li>
-                        <li><form method="post" action="{{ url_for('invitation_public_link_cancel', link_id=link.id) }}"><button class="dropdown-item text-danger"><i class="fa fa-ban me-2"></i>Anular enlace</button></form></li>
-                      {% endif %}
-                    </ul>
-                  </div>
                 </div>
                 <div class="modal fade" id="shareLinkModal{{ link.id }}" tabindex="-1" aria-hidden="true">
                   <div class="modal-dialog modal-dialog-centered">

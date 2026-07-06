@@ -469,15 +469,15 @@
               <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Añadir solicitud</button>
             </div>
           </div>
-          {% if requests %}
-            {% set ns = namespace(cur='__init__') %}
-            <div class="list-group inv-request-list">
-              {% for row in requests %}
-                {% if row.group_key != ns.cur %}
-                  {% set ns.cur = row.group_key %}
-                  <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ row.group_color }}"></span>{{ row.group_name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ row.group_total }}</span></div>
-                {% endif %}
-                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone style="border-left:5px solid {{ row.group_color }};">
+          {% if grouped_requests %}
+            <div class="inv-request-list" data-inv-dnd data-recat-base="{{ url_for('invitation_request_recategorize', request_id='__REQ__') }}">
+              {% for g in grouped_requests %}
+              <div class="inv-cat-group" data-cat-drop="{{ g.cat_id }}">
+                <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span></div>
+                <div class="list-group inv-cat-dropzone">
+                {% for row in g.rows %}
+                {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
+                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -495,7 +495,7 @@
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
-                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}A mí{% elif row.guest_email %}{{ row.guest_email }}{% else %}al invitado{% endif %}</span>
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}A mí{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'a la empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'a otro' }}{% elif row.guest_email %}{{ row.guest_email }}{% else %}al invitado{% endif %}</span>
                           <span class="inv-person-sep">|</span>
                           <span class="inv-person">Pedidas por: <img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
                         </div>
@@ -530,6 +530,11 @@
                     </div>
                   </div>
                 </div>
+                {% else %}
+                <div class="inv-cat-empty text-muted small px-3 py-2">Suelta aquí para asignar a esta categoría.</div>
+                {% endfor %}
+                </div>
+              </div>
               {% endfor %}
             </div>
           {% else %}
@@ -1609,9 +1614,15 @@
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Enviar al invitado</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="BOX_OFFICE"><i class="fa fa-store"></i><span>Dejar en taquilla</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="ME"><i class="fa fa-inbox"></i><span>Enviar a mí</span></label>
+            <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="EMPLOYEE"><i class="fa fa-user-tie"></i><span>A alguien de la empresa</span></label>
             <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>Enviar a otro</span></label>
           </div>
           <div class="alert alert-light border mt-3" data-receiver-summary>Se usarán automáticamente los datos disponibles según la ficha seleccionada.</div>
+          <div class="mt-3 d-none" data-employee-receiver>
+            <label class="form-label">Selecciona a la persona de la empresa</label>
+            <input type="hidden" name="receiver_user_id" data-field="receiver_user_id">
+            <div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-receiver-user-id="{{ person.id }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div>
+          </div>
           <div class="mt-3 d-none" data-other-receiver>
             <label class="form-label">Seleccionar tercero receptor</label>
             <input type="hidden" name="receiver_promoter_id" data-field="receiver_promoter_id">
@@ -1810,17 +1821,19 @@
     const updateReceiver = () => {
       const mode = form.querySelector('[name="receiver_mode"]:checked')?.value || 'GUEST';
       form.querySelector('[data-other-receiver]')?.classList.toggle('d-none', mode !== 'OTHER');
+      form.querySelector('[data-employee-receiver]')?.classList.toggle('d-none', mode !== 'EMPLOYEE');
       // "Correo del invitado" solo si la entrega es AL INVITADO y no le consta correo en su ficha.
       const showGuestEmail = (mode === 'GUEST') && !guestHasEmail(form);
       form.querySelector('[data-guest-receiver]')?.classList.toggle('d-none', !showGuestEmail);
       if (!showGuestEmail){ const f = form.querySelector('input[name="guest_fallback_email"]'); if (f) f.value = ''; }
       const summary = form.querySelector('[data-receiver-summary]');
       if(summary){
-        summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Se usarán sus datos de ficha.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.'));
+        summary.textContent = mode === 'BOX_OFFICE' ? 'Se dejarán en taquilla, no hacen falta datos adicionales.' : (mode === 'ME' ? 'Se usarán los datos de la persona que solicita.' : (mode === 'OTHER' ? 'Busca el tercero receptor o crea uno nuevo. Se usarán sus datos de ficha.' : (mode === 'EMPLOYEE' ? 'Elige a la persona de la empresa que recibirá las invitaciones.' : 'Se usarán automáticamente los datos del invitado si existen en su ficha.')));
       }
     };
     form.__onStep = (step) => { if (step === 4) updateReceiver(); };  // recalcular al entrar a "Entrega"
-    form.querySelectorAll('[name="receiver_mode"]').forEach(x => { x.addEventListener('change', updateReceiver); x.addEventListener('click', () => { if (x.value !== 'OTHER' && x.value !== 'GUEST') goStep(form, getStep(form)+1); }); });
+    form.querySelectorAll('[name="receiver_mode"]').forEach(x => { x.addEventListener('change', updateReceiver); x.addEventListener('click', () => { if (x.value !== 'OTHER' && x.value !== 'GUEST' && x.value !== 'EMPLOYEE') goStep(form, getStep(form)+1); }); });
+    form.querySelectorAll('[data-receiver-user-id]').forEach(btn => btn.addEventListener('click', () => { const h = form.querySelector('[data-field="receiver_user_id"]'); if (h) h.value = btn.dataset.receiverUserId; form.querySelectorAll('[data-receiver-user-id]').forEach(b => b.classList.remove('is-selected')); btn.classList.add('is-selected'); }));
     updateReceiver();
   });
   document.querySelectorAll('[data-promoter-picker]').forEach(picker => {

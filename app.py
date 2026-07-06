@@ -279,6 +279,7 @@ _CSRF_EXEMPT_ENDPOINTS = {
     "public_invitation_request_cancel",
     "public_invitation_request_update",
     "public_invitation_request_resend",
+    "public_invitation_request_recategorize",
     "public_song_master_delivery",
     "public_song_delivery_create_author",
     "public_song_delivery_create_publisher",
@@ -28149,7 +28150,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -39127,6 +39128,8 @@ def _invitation_delivery_recipients(session_db, row: InvitationRequest) -> list[
         values.extend(_invitation_requester_live_emails(session_db, row))
     elif mode == "OTHER":
         values.extend([payload.get("email"), row.guest_email])
+    elif mode == "EMPLOYEE":
+        values.append(payload.get("email"))
     elif mode in {"BOX_OFFICE", "DOOR"}:
         values.extend(_invitation_guest_live_emails(session_db, row))
         values.extend(_invitation_requester_live_emails(session_db, row))
@@ -39141,10 +39144,11 @@ def _invitation_receiver_text(row: InvitationRequest) -> str:
         "BOX_OFFICE": "Dejar en taquilla",
         "ME": "Enviar a mí",
         "OTHER": "Enviar a otro",
+        "EMPLOYEE": "A alguien de la empresa",
         "DOOR": "Acceso por puerta",
     }
     base = labels.get(mode, mode)
-    if mode == "OTHER":
+    if mode in ("OTHER", "EMPLOYEE"):
         target = " · ".join([x for x in [payload.get("name"), payload.get("email"), payload.get("phone")] if x])
         return f"{base}: {target}" if target else base
     return base
@@ -39326,9 +39330,9 @@ def _invitation_group_requests(requests: list[dict], categories) -> None:
     for item in requests:
         pk = _primary(item)
         item['group_key'] = pk
-        item['group_name'] = _cat_name.get(pk, 'General')
+        item['group_name'] = _cat_name.get(pk, 'Sin categoría')
         item['group_color'] = _cat_color.get(pk, '#9ca3af')
-        item['group_order'] = _cat_order.get(pk, 9999)
+        item['group_order'] = _cat_order.get(pk, 10000)
         q = item.get('quantities') or {}
         try:
             _n = int(q.get(pk) or 0) if pk else 0
@@ -39339,7 +39343,69 @@ def _invitation_group_requests(requests: list[dict], categories) -> None:
         totals[pk] = totals.get(pk, 0) + max(_n, 0)
     for item in requests:
         item['group_total'] = totals.get(item.get('group_key'), 0)
-    requests.sort(key=lambda x: (x.get('group_order', 9999), _invitation_normalize_search(x.get('guest_name') or '')))
+    requests.sort(key=lambda x: (x.get('group_order', 10000), _invitation_normalize_search(x.get('guest_name') or '')))
+
+
+def _invitation_grouped(requests: list[dict], categories) -> list:
+    """Agrupa para pintar ZONAS DE DROP: un grupo por categoría (aunque esté vacía, para poder soltar
+    ahí) en su orden, y al final 'Sin categoría' SOLO si hay solicitudes sin categoría. Requiere que
+    `requests` ya venga con group_key (via _invitation_group_requests)."""
+    colors = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+    by_key = {}
+    for r in requests:
+        by_key.setdefault(str(r.get('group_key') or ''), []).append(r)
+    groups = []
+    for c in categories:
+        cid = str(c.id)
+        rows = by_key.get(cid, [])
+        groups.append({
+            "cat_id": cid,
+            "name": c.name,
+            "color": colors.get(cid, '#9ca3af'),
+            "total": sum(_safe_int(r.get('qty_total')) for r in rows),
+            "rows": rows,
+        })
+    uncat = by_key.get('', [])
+    if uncat:
+        groups.append({
+            "cat_id": "",
+            "name": "Sin categoría",
+            "color": "#9ca3af",
+            "total": sum(_safe_int(r.get('qty_total')) for r in uncat),
+            "rows": uncat,
+        })
+    return groups
+
+
+INVITATION_SENT_STATUSES = {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+
+
+def _invitation_recategorize(session_db, row: InvitationRequest, category_id: str, confirm: bool) -> dict:
+    """Cambia la categoría de una solicitud arrastrándola. category_id vacío = 'Sin categoría'.
+    Bloquea si ya está enviada/final. Si está ASIGNADAS pide confirmación y, al confirmar, libera las
+    entradas asignadas (vuelven a disponibles) y la solicitud queda pendiente de asignar (APROBADAS)."""
+    status = (row.status or "").upper()
+    if status in INVITATION_SENT_STATUSES or status in {"RECHAZADAS", "ANULADAS"}:
+        return {"ok": False, "error": "Esta solicitud ya no se puede cambiar de categoría (está enviada o cerrada)."}
+    cid = (category_id or "").strip()
+    if cid:
+        cat = session_db.get(InvitationCategory, to_uuid(cid))
+        if not cat or str(cat.concert_id) != str(row.concert_id):
+            return {"ok": False, "error": "Categoría no válida para este evento."}
+    if status == "ASIGNADAS" and not confirm:
+        return {"ok": False, "needs_confirm": True}
+    if status == "ASIGNADAS":
+        for t in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+            t.previous_assignment_warning = f"Se cambió de categoría; estaba asignada a {row.guest_name}."
+            t.assigned_request_id = None
+            t.assigned_label = None
+            t.status = "AVAILABLE"
+        row.status = "APROBADAS"
+        row.assigned_at = None
+    total = _invitation_total_qty(_json_dict(row.quantities_json)) or _safe_int(request.form.get("qty_total")) or 1
+    row.quantities_json = {cid: total} if cid else {"TOTAL": total}
+    row.updated_at = _now_madrid()
+    return {"ok": True}
 
 
 def _invitation_upsert_category_rows_from_request(session_db, concert: Concert, form) -> list[InvitationCategory]:
@@ -40471,6 +40537,7 @@ def invitation_event_detail(concert_id):
             categories=cat_payloads,
             commitments=commitments,
             requests=requests,
+            grouped_requests=_invitation_grouped(requests, categories),
             denied_count=denied_count,
             show_denied=show_denied,
             guest_list_rows_complete=guest_list_rows_complete,
@@ -40750,6 +40817,18 @@ def invitation_request_create():
                     'phone': requester_info.get('phone') or '',
                     'fallback_from_guest': True,
                 }
+        elif receiver_mode == 'EMPLOYEE':
+            ruid = _safe_uuid(request.form.get('receiver_user_id'))
+            ruser = session_db.get(User, ruid) if ruid else None
+            rprof = session_db.get(UserProfile, ruid) if ruid else None
+            if not ruser:
+                raise ValueError('Selecciona a la persona de la empresa que recibirá las invitaciones.')
+            receiver_payload = {
+                'user_id': str(ruid),
+                'name': (_profile_full_name(rprof) if rprof else None) or getattr(rprof, 'nick', None) or ruser.email,
+                'email': ruser.email or '',
+                'photo_url': (getattr(rprof, 'photo_url', None) if rprof else None) or '',
+            }
         elif receiver_mode == 'ME':
             receiver_payload = {
                 'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
@@ -41377,6 +41456,33 @@ def invitation_request_status(request_id):
         # Redirigir al MISMO evento (no a la lista): así el mensaje se ve y, con el envío inline,
         # la zona #req-<id> existe en la respuesta y no se pierde el aviso.
         return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/solicitudes/<request_id>/categoria', endpoint='invitation_request_recategorize')
+@admin_required
+def invitation_request_recategorize(request_id):
+    """Cambia la categoría de una solicitud (arrastrada en Invitados). JSON: {category_id, confirm}."""
+    session_db = db()
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _state = _current_user_state()
+        _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state.get('user_id') or '')
+        if not _is_owner:
+            _ensure_can_manage_invitations(session_db, row.concert)
+        data = request.get_json(silent=True) or request.form
+        res = _invitation_recategorize(session_db, row, (data.get('category_id') or '').strip(), _truthy(data.get('confirm')))
+        if res.get('ok'):
+            session_db.commit()
+        else:
+            session_db.rollback()
+        return jsonify(res)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 
@@ -42935,6 +43041,7 @@ def public_invitation_request_link(token):
             categories=categories,
             limits=limits,
             requests=req_payloads,
+            grouped_requests=_invitation_grouped(req_payloads, categories),
             status_labels=INVITATION_STATUS_LABELS,
             og=og,
         )
@@ -43039,6 +43146,32 @@ def public_invitation_request_cancel(token, request_id):
         session_db.commit()
         flash('Petición anulada.', 'success')
         return redirect(url_for('public_invitation_request_link', token=token))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/p/<token>/solicitudes/<request_id>/categoria', endpoint='public_invitation_request_recategorize')
+def public_invitation_request_recategorize(token, request_id):
+    """Cambia la categoría de una solicitud desde el enlace público (arrastrar). JSON {category_id, confirm}."""
+    session_db = db()
+    try:
+        link = session_db.query(InvitationPublicLink).filter(InvitationPublicLink.token == token).first()
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not link or not row or row.public_link_id != link.id:
+            abort(404)
+        state, msg = _invitation_link_state(link)
+        if state != 'active':
+            return jsonify({"ok": False, "error": msg or "El enlace no admite cambios."})
+        data = request.get_json(silent=True) or request.form
+        res = _invitation_recategorize(session_db, row, (data.get('category_id') or '').strip(), _truthy(data.get('confirm')))
+        if res.get('ok'):
+            session_db.commit()
+        else:
+            session_db.rollback()
+        return jsonify(res)
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         session_db.close()
 

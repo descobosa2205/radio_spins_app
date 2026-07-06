@@ -58,15 +58,15 @@
       {% endif %}
 
       <h5 class="mb-3">Peticiones</h5>
-      {% if requests %}
-        {% set ns = namespace(cur='__init__') %}
-        <div class="list-group mb-4 inv-request-list">
-          {% for row in requests %}
-            {% if row.group_key != ns.cur %}
-              {% set ns.cur = row.group_key %}
-              <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ row.group_color }}"></span>{{ row.group_name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ row.group_total }}</span></div>
-            {% endif %}
-            <div class="list-group-item inv-cat-row" style="border-left:5px solid {{ row.group_color }};">
+      {% if grouped_requests %}
+        <div class="inv-request-list mb-4"{% if open_for_changes %} data-inv-dnd data-recat-base="{{ url_for('public_invitation_request_recategorize', token=link.token, request_id='__REQ__') }}"{% endif %}>
+          {% for g in grouped_requests %}
+          <div class="inv-cat-group" data-cat-drop="{{ g.cat_id }}">
+            <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span></div>
+            <div class="list-group inv-cat-dropzone">
+            {% for row in g.rows %}
+            {% set movable = open_for_changes and row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
+            <div class="list-group-item inv-cat-row" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
               <div class="d-flex justify-content-between gap-3 flex-wrap">
                 <div class="flex-grow-1">
                   <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -104,6 +104,11 @@
                 </div>
               </div>
             </div>
+            {% else %}
+            <div class="inv-cat-empty text-muted small px-3 py-2">Suelta aquí para asignar a esta categoría.</div>
+            {% endfor %}
+            </div>
+          </div>
           {% endfor %}
         </div>
       {% else %}
@@ -270,6 +275,38 @@
       });
       updateEmail(); go(1);
     }
+  })();
+  </script>
+  <script>
+  // Arrastrar solicitudes entre categorías desde el enlace público.
+  (function(){
+    var CONFIRM_MSG = 'Se va a cambiar la categoría. Las invitaciones ya asignadas se recuperarán (volverán a disponibles) y la solicitud quedará pendiente de asignar. ¿Cambiar de categoría?';
+    document.querySelectorAll('[data-inv-dnd]').forEach(function(cont){
+      var base = cont.getAttribute('data-recat-base') || '';
+      var drag = null;
+      function post(url, target, confirmFlag){ return fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ category_id: target, confirm: confirmFlag ? 1 : 0 }) }).then(function(r){ return r.json().catch(function(){ return {}; }); }); }
+      cont.querySelectorAll('.inv-cat-row[data-can-move="1"]').forEach(function(row){
+        row.addEventListener('dragstart', function(e){ drag = { id: row.getAttribute('data-req'), cat: row.getAttribute('data-cat') || '', assigned: row.getAttribute('data-assigned') === '1' }; row.classList.add('inv-dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', drag.id); } catch(_){} });
+        row.addEventListener('dragend', function(){ row.classList.remove('inv-dragging'); cont.querySelectorAll('.inv-dragover').forEach(function(z){ z.classList.remove('inv-dragover'); }); });
+      });
+      cont.querySelectorAll('[data-cat-drop]').forEach(function(zone){
+        zone.addEventListener('dragover', function(e){ if (!drag) return; e.preventDefault(); zone.classList.add('inv-dragover'); });
+        zone.addEventListener('dragleave', function(){ zone.classList.remove('inv-dragover'); });
+        zone.addEventListener('drop', function(e){
+          e.preventDefault(); zone.classList.remove('inv-dragover');
+          if (!drag) return;
+          var target = zone.getAttribute('data-cat-drop') || '';
+          var d = drag; drag = null;
+          if (target === d.cat) return;
+          var url = base.replace('__REQ__', encodeURIComponent(d.id));
+          if (d.assigned && !window.confirm(CONFIRM_MSG)) return;
+          post(url, target, d.assigned).then(function(res){
+            if (res && res.needs_confirm) { if (window.confirm(CONFIRM_MSG)) post(url, target, true).then(function(r2){ if (r2 && r2.ok) location.reload(); else alert((r2 && r2.error) || 'No se pudo cambiar.'); }); return; }
+            if (res && res.ok) location.reload(); else alert((res && res.error) || 'No se pudo cambiar de categoría.');
+          });
+        });
+      });
+    });
   })();
   </script>
 </body>

@@ -1337,7 +1337,49 @@ $(function(){
   try { initIsrcModalControls(); } catch (e) { console.error('initIsrcModalControls', e); }
   try { initSongOwnershipControls(); } catch (e) { console.error('initSongOwnershipControls', e); }
   try { initEditorialTab(); } catch (e) { console.error('initEditorialTab', e); }
+  try { initInvitationDnd(); } catch (e) { console.error('initInvitationDnd', e); }
 });
+
+// Arrastrar solicitudes de invitaciones entre categorías (gestión de invitados y enlace público).
+// El contenedor lleva data-inv-dnd y data-recat-base (URL con __REQ__). Cada tarjeta movible lleva
+// data-req/data-cat/data-can-move/data-assigned; cada zona, data-cat-drop="<cat_id>".
+function initInvitationDnd(){
+  var CONFIRM_MSG = 'Se va a cambiar la categoría. Las invitaciones ya asignadas se recuperarán (volverán a disponibles) y la solicitud quedará pendiente de asignar. ¿Cambiar de categoría?';
+  function csrf(){ var m = document.querySelector('meta[name="csrf-token"]'); return m ? (m.getAttribute('content') || '') : ''; }
+  document.querySelectorAll('[data-inv-dnd]').forEach(function(cont){
+    if (cont.dataset.dndBound === '1') return; cont.dataset.dndBound = '1';
+    var base = cont.getAttribute('data-recat-base') || '';
+    var drag = null;
+    function post(url, target, confirmFlag){
+      return fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json', 'X-CSRFToken': csrf() }, body: JSON.stringify({ category_id: target, confirm: confirmFlag ? 1 : 0 }) }).then(function(r){ return r.json().catch(function(){ return {}; }); });
+    }
+    cont.querySelectorAll('.inv-cat-row[data-can-move="1"]').forEach(function(row){
+      row.addEventListener('dragstart', function(e){ drag = { id: row.getAttribute('data-req'), cat: row.getAttribute('data-cat') || '', assigned: row.getAttribute('data-assigned') === '1' }; row.classList.add('inv-dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', drag.id); } catch(_){} });
+      row.addEventListener('dragend', function(){ row.classList.remove('inv-dragging'); cont.querySelectorAll('.inv-dragover').forEach(function(z){ z.classList.remove('inv-dragover'); }); });
+    });
+    cont.querySelectorAll('[data-cat-drop]').forEach(function(zone){
+      zone.addEventListener('dragover', function(e){ if (!drag) return; e.preventDefault(); zone.classList.add('inv-dragover'); });
+      zone.addEventListener('dragleave', function(){ zone.classList.remove('inv-dragover'); });
+      zone.addEventListener('drop', function(e){
+        e.preventDefault(); zone.classList.remove('inv-dragover');
+        if (!drag) return;
+        var target = zone.getAttribute('data-cat-drop') || '';
+        var d = drag; drag = null;
+        if (target === d.cat) return;
+        var url = base.replace('__REQ__', encodeURIComponent(d.id));
+        if (d.assigned && !window.confirm(CONFIRM_MSG)) return;
+        post(url, target, d.assigned).then(function(res){
+          if (res && res.needs_confirm) {
+            if (window.confirm(CONFIRM_MSG)) post(url, target, true).then(function(r2){ if (r2 && r2.ok) location.reload(); else alert((r2 && r2.error) || 'No se pudo cambiar.'); });
+            return;
+          }
+          if (res && res.ok) location.reload();
+          else alert((res && res.error) || 'No se pudo cambiar de categoría.');
+        });
+      });
+    });
+  });
+}
 
 async function openSalesChart(concertId){
   try {

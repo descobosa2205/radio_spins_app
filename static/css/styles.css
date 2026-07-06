@@ -861,6 +861,11 @@ img[data-default-photo="1"]{
 .inv-name-line { row-gap: .3rem; }
 .inv-name-line .invitation-linked-mini { margin-top: 0; }
 .inv-qty-badge { background: #495057; color: #fff; }         /* nº de entradas en gris oscuro (no rojo) */
+/* Agrupación del listado de invitados por tipo de invitación (categoría). */
+.inv-cat-group-header { display:flex; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; color:#495057; margin:.6rem 0 .1rem; padding-top:.2rem; }
+.inv-cat-group-header:first-child { margin-top:0; }
+.inv-cat-swatch { display:inline-block; width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
+.inv-request-list .list-group-item.inv-cat-row { border-left-width:5px; }
 .inv-dl-done { color: #1c9d5b; font-size: 1rem; }            /* icono de descarga (verde) al descargarse */
 /* Butaca con FOTO del invitado dentro: número arriba (pequeño) y foto debajo (no la tapa). */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }

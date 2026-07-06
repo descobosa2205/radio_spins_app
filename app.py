@@ -39263,8 +39263,35 @@ def invitation_event_detail(concert_id):
             item.update(_invitation_request_kind_flags(session_db, row, categories))
             item['is_denied'] = is_denied
             requests.append(item)
-        # Peticiones ordenadas alfabéticamente por el nombre del invitado (sin distinguir acentos).
-        requests.sort(key=lambda x: _invitation_normalize_search(x.get('guest_name') or ''))
+        # Agrupación del listado por TIPO de invitación (categoría) con una franja de color estable
+        # a la izquierda + orden alfabético dentro de cada grupo. La categoría "principal" de una
+        # solicitud es la que más entradas tiene; las de solo total (sin categoría) van a "General".
+        _cat_order = {str(c.id): i for i, c in enumerate(categories)}
+        _cat_color = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+        _cat_name = {str(c.id): c.name for c in categories}
+
+        def _request_primary_category(item):
+            q = item.get('quantities') or {}
+            best, best_qty = '', -1
+            for k, v in q.items():
+                if str(k).upper() == 'TOTAL' or str(k) not in _cat_name:
+                    continue
+                try:
+                    iv = int(v or 0)
+                except Exception:
+                    iv = 0
+                if iv > best_qty:
+                    best, best_qty = str(k), iv
+            return best
+
+        for item in requests:
+            pk = _request_primary_category(item)
+            item['group_key'] = pk
+            item['group_name'] = _cat_name.get(pk, 'General')
+            item['group_color'] = _cat_color.get(pk, '#9ca3af')
+            item['group_order'] = _cat_order.get(pk, 9999)
+        # Orden: por grupo (orden de configuración de categorías) y, dentro, alfabético por invitado.
+        requests.sort(key=lambda x: (x.get('group_order', 9999), _invitation_normalize_search(x.get('guest_name') or '')))
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
         guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
         guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')
@@ -39508,6 +39535,14 @@ def invitation_request_create():
         quantities = _invitation_quantities_from_form(request.form, categories)
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
+        # Refuerzo server-side del bloqueo de categorías: no se admiten peticiones para las que el
+        # gestor haya marcado como "No admite peticiones" (la UI ya las deshabilita).
+        _blocked_names = [
+            c.name for c in categories
+            if getattr(c, 'requests_blocked', False) and _safe_int(quantities.get(str(c.id))) > 0
+        ]
+        if _blocked_names:
+            raise ValueError('No se admiten peticiones para: ' + ', '.join(_blocked_names) + '.')
         # Las solicitudes (peticiones) NO se limitan por el cupo del evento: el concierto puede no
         # tener invitaciones configuradas todavía, o tenerlas completas y ampliarse después. El
         # control de cupo se ejerce al ACEPTAR/asignar la solicitud (por eso existe el flujo de

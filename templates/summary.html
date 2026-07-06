@@ -16,12 +16,9 @@
 <h5 class="mb-3">Tocadas — Semana {{ week_label }}</h5>
 
 {% for a in artists %}
-  {% set songs_for_artist = [] %}
-  {% for s in songs %}
-    {% if a in s.artists %}
-      {% set _ = songs_for_artist.append(s) %}
-    {% endif %}
-  {% endfor %}
+  {# Canciones del artista ya ordenadas de más a menos tocadas (backend). #}
+  {% set songs_for_artist = songs_by_artist.get(a.id, []) %}
+  {% set latest_release_date = latest_release_by_artist.get(a.id) %}
 
   {% if songs_for_artist %}
   <div class="mb-3 border rounded bg-white">
@@ -69,6 +66,9 @@
                       {% endif %}
                       {% if is_new %}
                         <span class="badge bg-warning text-dark ms-2">Novedad</span>
+                      {% endif %}
+                      {% if latest_release_date and s.release_date == latest_release_date %}
+                        <span class="badge bg-info text-dark ms-2"><i class="fa fa-star me-1"></i>Último lanzamiento</span>
                       {% endif %}
                       <button class="btn btn-sm btn-outline-primary ms-2" onclick="openChart('{{ s.id }}', null)" title="Ver evolución total">
                         <i class="fa fa-chart-line"></i>

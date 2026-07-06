@@ -17291,9 +17291,24 @@ def build_summary_context(base_week: date):
     ranks = {r.song_id: r.national_rank for r in
              session_db.query(SongWeekInfo).filter_by(week_start=base_week).all()}
 
+    # Por artista: canciones ordenadas de MÁS a MENOS tocadas + último lanzamiento (release_date
+    # más reciente entre las del artista que aparecen en el reporte).
+    songs_by_artist = {}
+    latest_release_by_artist = {}
+    for a in artists:
+        a_songs = [s for s in songs if a in s.artists]
+        if not a_songs:
+            continue
+        a_songs.sort(key=lambda s: totals.get(s.id, 0), reverse=True)
+        songs_by_artist[a.id] = a_songs
+        _dates = [s.release_date for s in a_songs if s.release_date]
+        latest_release_by_artist[a.id] = max(_dates) if _dates else None
+
     session_db.close()
     return dict(
         base_week=base_week,
+        songs_by_artist=songs_by_artist,
+        latest_release_by_artist=latest_release_by_artist,
         prev_w=prev_w, next_w=next_w,
         current_week=current_week,
         latest_with_data=latest_with_data,

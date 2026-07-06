@@ -206,6 +206,13 @@
             <label class="form-label">Buscar canción</label>
             <input type="search" class="form-control" id="songsSearchInput" placeholder="Buscar por título, artista, colaborador, ISRC...">
           </div>
+          <div class="col-12">
+            <div class="btn-group btn-group-sm flex-wrap" role="group" id="songsExternalFilter">
+              <button type="button" class="btn btn-outline-secondary active" data-song-external-filter="all">Todas</button>
+              <button type="button" class="btn btn-outline-secondary" data-song-external-filter="only"><i class="fa fa-handshake me-1"></i>Solo colaboraciones externas</button>
+              <button type="button" class="btn btn-outline-secondary" data-song-external-filter="exclude">Sin colaboraciones externas</button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -239,11 +246,12 @@
                   </thead>
                   <tbody>
                     {% for s in songs %}
-                      {% set type_label = 'Distribución' if s.is_distribution else ('Catálogo' if s.is_catalog else 'Discográfica') %}
+                      {% set type_label = 'Colaboración externa' if s.is_external_collab else ('Distribución' if s.is_distribution else ('Catálogo' if s.is_catalog else 'Discográfica')) %}
                       <tr class="clickable-row song-search-row"
                           role="button"
                           tabindex="0"
                           data-song-artist="{{ artist.id }}"
+                          data-song-external="{{ '1' if s.is_external_collab else '0' }}"
                           data-song-search="{{ (s.title ~ ' ' ~ artist.name ~ ' ' ~ (s.display_collaborator or s.collaborator or '') ~ ' ' ~ (song_audio_isrc_map.get(s.id) or s.isrc or '') ~ ' ' ~ type_label)|lower }}"
                           data-href="{{ url_for('discografica_song_detail', song_id=s.id) }}"
                           onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
@@ -254,7 +262,9 @@
                         <td>
                           <div class="fw-semibold">{{ s.title }}{% if s.is_explicit %} <span class="badge text-bg-dark" title="Contenido explícito">E</span>{% endif %}</div>
                           <div class="d-flex gap-1 flex-wrap mt-1">
-                            {% if s.is_distribution %}
+                            {% if s.is_external_collab %}
+                              <span class="badge text-bg-warning text-dark"><i class="fa fa-handshake me-1"></i>Colaboración externa</span>
+                            {% elif s.is_distribution %}
                               <span class="badge text-bg-info">Distribución</span>
                             {% elif s.is_catalog %}
                               <span class="badge text-bg-secondary">Catálogo</span>
@@ -302,87 +312,196 @@
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
           </div>
           <div class="modal-body">
-            <div class="row g-2">
-              <div class="col-12 col-md-6">
-                <label class="form-label">Nombre de la canción</label>
-                <input name="title" class="form-control" required>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label">Artista</label>
-                <select name="artist_id" class="form-select select-artists" required>
-                  <option value="">Selecciona…</option>
-                  {% for a in contract_artists %}
-                    <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
-                  {% endfor %}
-                </select>
-                {% if not contract_artists or (contract_artists|length)==0 %}
-                  <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
-                {% endif %}
-              </div>
-              <div class="col-12">
-                <div class="d-flex justify-content-between align-items-center mb-1">
-                  <label class="form-label m-0">Intérpretes</label>
-                  <button type="button" class="btn btn-sm btn-outline-primary" id="addSongInterpreterRow">
-                    <i class="fa fa-plus"></i> Añadir intérprete
+            <input type="hidden" name="ownership_type" id="songOwnershipType" value="">
+
+            {# Paso 1: tipo de canción (iconos) #}
+            <div data-song-step="1">
+              <div class="text-muted mb-3">¿Qué tipo de canción es?</div>
+              <div class="row g-3">
+                <div class="col-12 col-md-4">
+                  <button type="button" class="btn btn-outline-secondary w-100 h-100 py-4 song-type-card" data-song-type="own">
+                    <i class="fa fa-compact-disc fa-2x d-block mb-2"></i><span class="fw-semibold">Propia</span>
+                    <div class="small text-muted">Nuestra, con % de master</div>
                   </button>
                 </div>
-                <div class="text-muted small mb-2">Los colaboradores se calcularán automáticamente con los intérpretes que no sean el propio artista.</div>
-                <div id="songCreateInterpretersContainer" class="d-flex flex-column gap-2">
-                  <div class="row g-2 interpreter-row">
-                    <div class="col-12 col-md-7">
-                      <input class="form-control" name="interpreter_name[]" placeholder="Nombre" autocomplete="off">
-                    </div>
-                    <div class="col-8 col-md-4">
-                      <select class="form-select" name="interpreter_is_main[]">
-                        <option value="1" selected>Main artist</option>
-                        <option value="0">Colaborador</option>
-                      </select>
-                    </div>
-                    <div class="col-4 col-md-1 d-grid">
-                      <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
-                    </div>
-                  </div>
+                <div class="col-12 col-md-4">
+                  <button type="button" class="btn btn-outline-secondary w-100 h-100 py-4 song-type-card" data-song-type="distribution">
+                    <i class="fa fa-share-nodes fa-2x d-block mb-2"></i><span class="fw-semibold">Distribución</span>
+                    <div class="small text-muted">Distribuida (sin master)</div>
+                  </button>
                 </div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="form-label">Fecha de publicación</label>
-                <input type="date" name="release_date" class="form-control" required>
-              </div>
-              <div class="col-12 col-md-6 d-flex align-items-end">
-                <div class="form-check">
-                  <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog">
-                  <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+                <div class="col-12 col-md-4">
+                  <button type="button" class="btn btn-outline-secondary w-100 h-100 py-4 song-type-card" data-song-type="external_collab">
+                    <i class="fa fa-handshake fa-2x d-block mb-2"></i><span class="fw-semibold">Colaboración externa</span>
+                    <div class="small text-muted">De otra compañía; cobramos %</div>
+                  </button>
                 </div>
-              </div>
-
-              <div class="col-12">
-                <label class="form-label">Tipo</label>
-                <div class="d-flex gap-3 flex-wrap">
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="ownership_type" id="songTypeOwn" value="own" checked>
-                    <label class="form-check-label" for="songTypeOwn">Propia</label>
-                  </div>
-                  <div class="form-check">
-                    <input class="form-check-input" type="radio" name="ownership_type" id="songTypeDist" value="distribution">
-                    <label class="form-check-label" for="songTypeDist">Distribución</label>
-                  </div>
-                </div>
-              </div>
-
-              <div class="col-12 col-md-6 master-ownership-wrap">
-                <label class="form-label">Propiedad master (%)</label>
-                <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="100">
               </div>
             </div>
-            <div class="small text-muted mt-2">
-              El resto de datos (ISRC, portada y enlaces) se completan en la ficha de la canción.
+
+            {# Paso 2: datos #}
+            <div data-song-step="2" class="d-none">
+              <div class="d-flex align-items-center gap-2 mb-3">
+                <span class="badge text-bg-secondary" data-song-type-badge></span>
+                <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-song-back><i class="fa fa-chevron-left me-1"></i>Cambiar tipo</button>
+              </div>
+              <div class="row g-2">
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Nombre de la canción</label>
+                  <input name="title" class="form-control">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Artista</label>
+                  <select name="artist_id" class="form-select select-artists">
+                    <option value="">Selecciona…</option>
+                    {% for a in contract_artists %}
+                      <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>
+                    {% endfor %}
+                  </select>
+                  {% if not contract_artists or (contract_artists|length)==0 %}
+                    <div class="text-warning small mt-1">No hay artistas con contrato discográfico / catálogo / distribución. Añade el contrato en la ficha del artista para poder crear canciones.</div>
+                  {% endif %}
+                </div>
+                <div class="col-12">
+                  <div class="d-flex justify-content-between align-items-center mb-1">
+                    <label class="form-label m-0">Intérpretes</label>
+                    <button type="button" class="btn btn-sm btn-outline-primary" id="addSongInterpreterRow">
+                      <i class="fa fa-plus"></i> Añadir intérprete
+                    </button>
+                  </div>
+                  <div class="text-muted small mb-2">Los colaboradores se calcularán automáticamente con los intérpretes que no sean el propio artista.</div>
+                  <div id="songCreateInterpretersContainer" class="d-flex flex-column gap-2">
+                    <div class="row g-2 interpreter-row">
+                      <div class="col-12 col-md-7">
+                        <input class="form-control" name="interpreter_name[]" placeholder="Nombre" autocomplete="off">
+                      </div>
+                      <div class="col-8 col-md-4">
+                        <select class="form-select" name="interpreter_is_main[]">
+                          <option value="1" selected>Main artist</option>
+                          <option value="0">Colaborador</option>
+                        </select>
+                      </div>
+                      <div class="col-4 col-md-1 d-grid">
+                        <button type="button" class="btn btn-outline-danger btn-sm remove-row"><i class="fa fa-times"></i></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="col-12 col-md-6">
+                  <label class="form-label">Fecha de publicación</label>
+                  <input type="date" name="release_date" class="form-control">
+                </div>
+
+                {# Propia: % de master #}
+                <div class="col-12 col-md-6" data-song-cond="own">
+                  <label class="form-label">Propiedad master (%)</label>
+                  <input name="master_ownership_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="100">
+                </div>
+
+                {# Catálogo: propia o distribución #}
+                <div class="col-12 col-md-6 d-flex align-items-end" data-song-cond="own distribution">
+                  <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="1" id="isCatalogChk" name="is_catalog">
+                    <label class="form-check-label" for="isCatalogChk">Marcar como catálogo</label>
+                  </div>
+                </div>
+
+                {# Colaboración externa: % nuestro + base + compañía colaboradora #}
+                <div class="col-12" data-song-cond="external_collab">
+                  <div class="row g-2">
+                    <div class="col-12 col-md-4">
+                      <label class="form-label">% que nos corresponde</label>
+                      <input name="our_pct" type="number" class="form-control" min="0" max="100" step="0.01" value="0">
+                    </div>
+                    <div class="col-12 col-md-4">
+                      <label class="form-label">Base</label>
+                      <select class="form-select" name="our_pct_base">
+                        <option value="GROSS">Sobre bruto</option>
+                        <option value="NET">Sobre neto</option>
+                      </select>
+                    </div>
+                    <div class="col-12">
+                      <label class="form-label">Compañía colaboradora (tercero)</label>
+                      <div class="input-group">
+                        <input type="text" class="form-control" id="externalCompanySearch" placeholder="Buscar tercero por cualquier dato…" autocomplete="off">
+                        <button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="externalCompanySelectHidden"><i class="fa fa-plus me-1"></i>Nuevo</button>
+                      </div>
+                      <input type="hidden" name="external_company_id" id="externalCompanyId">
+                      <select id="externalCompanySelectHidden" class="d-none"></select>
+                      <div class="form-text">Se le cobrará el % que nos corresponde (Royalties · A favor).</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="small text-muted mt-2">
+                El resto de datos (ISRC, portada y enlaces) se completan en la ficha de la canción.
+              </div>
             </div>
           </div>
           <div class="modal-footer">
             <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-            <button class="btn btn-primary"><i class="fa fa-save"></i> Guardar</button>
+            <button class="btn btn-primary d-none" data-song-submit><i class="fa fa-save"></i> Guardar</button>
           </div>
         </form>
+        <script>
+        (function(){
+          var modal = document.getElementById('addSongModal');
+          if(!modal || modal.__songWizard) return; modal.__songWizard = true;
+          var typeInput = document.getElementById('songOwnershipType');
+          var submitBtn = modal.querySelector('[data-song-submit]');
+          var badge = modal.querySelector('[data-song-type-badge]');
+          var labels = { own:'Propia', distribution:'Distribución', external_collab:'Colaboración externa' };
+          function esc(s){ var d=document.createElement('div'); d.textContent=(s==null?'':String(s)); return d.innerHTML; }
+          function showStep(n){
+            modal.querySelectorAll('[data-song-step]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-song-step') !== String(n)); });
+            if(submitBtn) submitBtn.classList.toggle('d-none', n !== 2);
+          }
+          function applyType(t){
+            typeInput.value = t;
+            if(badge) badge.textContent = labels[t] || '';
+            modal.querySelectorAll('[data-song-cond]').forEach(function(el){
+              var on = (el.getAttribute('data-song-cond')||'').split(/\s+/).indexOf(t) >= 0;
+              el.classList.toggle('d-none', !on);
+              el.querySelectorAll('input,select,textarea').forEach(function(f){ f.disabled = !on; });
+            });
+          }
+          modal.querySelectorAll('.song-type-card').forEach(function(card){
+            card.addEventListener('click', function(){ applyType(card.getAttribute('data-song-type')); showStep(2); });
+          });
+          modal.querySelectorAll('[data-song-back]').forEach(function(b){ b.addEventListener('click', function(){ showStep(1); }); });
+          modal.addEventListener('show.bs.modal', function(){ typeInput.value=''; showStep(1); });
+          // Compañía colaboradora: buscador (+ alta rápida vía quick_create sobre el select oculto).
+          var search = document.getElementById('externalCompanySearch');
+          var hiddenId = document.getElementById('externalCompanyId');
+          var hiddenSel = document.getElementById('externalCompanySelectHidden');
+          if(search && hiddenId){
+            var wrap = search.closest('.input-group'); if(wrap){ wrap.style.position='relative'; }
+            var box = document.createElement('div'); box.className='list-group position-absolute shadow-sm'; box.style.cssText='z-index:1085;top:100%;left:0;right:0;display:none;max-height:220px;overflow:auto;';
+            if(wrap) wrap.appendChild(box);
+            var timer;
+            search.addEventListener('input', function(){
+              hiddenId.value=''; clearTimeout(timer);
+              var q = search.value.trim();
+              if(!q){ box.style.display='none'; box.innerHTML=''; return; }
+              timer = setTimeout(function(){
+                fetch('/api/search/promoters?q='+encodeURIComponent(q)).then(function(r){return r.json();}).then(function(rows){
+                  box.innerHTML = (rows||[]).slice(0,8).map(function(it){ return '<button type="button" class="list-group-item list-group-item-action" data-id="'+esc(it.id)+'">'+esc(it.label||'Sin nombre')+'</button>'; }).join('') || '<div class="list-group-item text-muted small">Sin coincidencias</div>';
+                  box.style.display='';
+                  box.querySelectorAll('[data-id]').forEach(function(b){ b.addEventListener('click', function(){ hiddenId.value=b.getAttribute('data-id'); search.value=b.textContent; box.style.display='none'; }); });
+                }).catch(function(){});
+              }, 200);
+            });
+            document.addEventListener('click', function(e){ if(box && !box.contains(e.target) && e.target!==search) box.style.display='none'; });
+          }
+          if(hiddenSel && hiddenId){
+            hiddenSel.addEventListener('change', function(){
+              hiddenId.value = hiddenSel.value || '';
+              var opt = hiddenSel.options[hiddenSel.selectedIndex];
+              if(opt && search){ search.value = opt.textContent; }
+            });
+          }
+        })();
+        </script>
       </div>
     </div>
     {% endif %}
@@ -1205,15 +1324,18 @@
   }
 
   let selectedSongArtist = 'all';
+  let selectedSongExternal = 'all';   // all | only | exclude (colaboraciones externas)
   const songSearchInput = document.getElementById('songsSearchInput');
   function applySongsFilters(){
     const q = normalize(songSearchInput && songSearchInput.value);
     document.querySelectorAll('.song-search-row').forEach(row => {
       const artistId = row.getAttribute('data-song-artist') || '';
       const haystack = normalize(row.getAttribute('data-song-search'));
+      const isExt = row.getAttribute('data-song-external') === '1';
       const okArtist = selectedSongArtist === 'all' || artistId === selectedSongArtist;
       const okSearch = !q || haystack.includes(q);
-      row.style.display = okArtist && okSearch ? '' : 'none';
+      const okExt = selectedSongExternal === 'all' || (selectedSongExternal === 'only' ? isExt : !isExt);
+      row.style.display = okArtist && okSearch && okExt ? '' : 'none';
     });
     document.querySelectorAll('.song-artist-block').forEach(block => {
       const visibleRows = Array.from(block.querySelectorAll('.song-search-row')).filter(r => r.style.display !== 'none');
@@ -1224,6 +1346,13 @@
     btn.addEventListener('click', () => {
       selectedSongArtist = btn.getAttribute('data-song-artist-filter') || 'all';
       refreshGroupButtons('#songsArtistFilters', 'data-song-artist-filter', selectedSongArtist);
+      applySongsFilters();
+    });
+  });
+  document.querySelectorAll('[data-song-external-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedSongExternal = btn.getAttribute('data-song-external-filter') || 'all';
+      refreshGroupButtons('#songsExternalFilter', 'data-song-external-filter', selectedSongExternal);
       applySongsFilters();
     });
   });

@@ -3108,6 +3108,8 @@ def _norm_isrc_list(values) -> list[str]:
 def _song_type_key(song: Song | None) -> str:
     if not song:
         return "DISCOGRAFICA"
+    if bool(getattr(song, "is_external_collab", False)):
+        return "COLAB_EXTERNA"
     if bool(getattr(song, "is_distribution", False)):
         return "DISTRIBUCION"
     if bool(getattr(song, "is_catalog", False)):
@@ -3117,6 +3119,8 @@ def _song_type_key(song: Song | None) -> str:
 
 def _song_type_label(song: Song | None) -> str:
     key = _song_type_key(song)
+    if key == "COLAB_EXTERNA":
+        return "Colaboración externa"
     if key == "DISTRIBUCION":
         return "Distribución"
     if key == "CATALOGO":
@@ -3126,6 +3130,8 @@ def _song_type_label(song: Song | None) -> str:
 
 def _song_type_badge_class(song: Song | None) -> str:
     key = _song_type_key(song)
+    if key == "COLAB_EXTERNA":
+        return "text-bg-warning text-dark"
     if key == "DISTRIBUCION":
         return "text-bg-info"
     if key == "CATALOGO":
@@ -10024,10 +10030,11 @@ def discografica_song_create():
 
     ownership_type = (request.form.get("ownership_type") or "own").strip().lower()
     is_distribution = ownership_type == "distribution"
+    is_external_collab = ownership_type == "external_collab"
     master_pct_raw = (request.form.get("master_ownership_pct") or "").strip()
 
     master_pct = None
-    if is_distribution:
+    if is_distribution or is_external_collab:
         master_pct = Decimal("0")
     else:
         try:
@@ -10039,6 +10046,26 @@ def discografica_song_create():
             master_pct = Decimal("0")
         if master_pct > 100:
             master_pct = Decimal("100")
+
+    # Colaboración externa: % que nos corresponde + base (bruto/neto) + compañía colaboradora (tercero).
+    external_company_id = None
+    our_pct = Decimal("0")
+    our_pct_base = "GROSS"
+    if is_external_collab:
+        is_catalog = False  # catálogo solo aplica a propia/distribución
+        external_company_id = to_uuid((request.form.get("external_company_id") or "").strip())
+        try:
+            our_pct = Decimal((request.form.get("our_pct") or "").strip() or "0")
+        except (InvalidOperation, ValueError):
+            our_pct = Decimal("0")
+        our_pct = max(Decimal("0"), min(Decimal("100"), our_pct))
+        our_pct_base = (request.form.get("our_pct_base") or "GROSS").strip().upper()
+        if our_pct_base not in ("GROSS", "NET"):
+            our_pct_base = "GROSS"
+
+    if is_external_collab and not external_company_id:
+        flash("En una colaboración externa debes indicar la compañía colaboradora (un tercero).", "warning")
+        return redirect(url_for("discografica_view", section="canciones"))
 
     if not title:
         flash("El nombre de la canción es obligatorio.", "warning")
@@ -10060,6 +10087,10 @@ def discografica_song_create():
             is_catalog=is_catalog,
             is_distribution=is_distribution,
             master_ownership_pct=master_pct,
+            is_external_collab=is_external_collab,
+            external_company_id=external_company_id,
+            our_pct=our_pct,
+            our_pct_base=our_pct_base,
         )
         session_db.add(s)
         session_db.flush()  # para obtener s.id

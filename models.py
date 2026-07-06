@@ -259,6 +259,14 @@ class Song(Base):
     is_distribution = Column(Boolean, nullable=False, server_default=text("false"))
     master_ownership_pct = Column(Numeric, nullable=False, server_default=text("100"))
 
+    # Colaboración externa: canción de otra compañía en la que participamos. NO cuenta para
+    # cumplimiento de contratos, NO genera royalties a artistas/productores, y se cobra a la
+    # compañía colaboradora (tercero) según el % que nos corresponde (royalties «A favor»).
+    is_external_collab = Column(Boolean, nullable=False, server_default=text("false"))
+    external_company_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    our_pct = Column(Numeric, nullable=False, server_default=text("0"))
+    our_pct_base = Column(Text, nullable=False, server_default=text("'GROSS'"))  # GROSS | NET
+
     # ISRC principal (legacy / compat)
     isrc = Column(Text)
 
@@ -3932,6 +3940,11 @@ def ensure_isrc_and_song_detail_schema():
         """,
         # Contenido explícito de la canción (se marca al subir la letra).
         "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_explicit boolean NOT NULL DEFAULT false;",
+        # Colaboración externa (canción de otra compañía en la que participamos).
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS is_external_collab boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS external_company_id uuid REFERENCES promoters(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS our_pct numeric NOT NULL DEFAULT 0;",
+        "ALTER TABLE IF EXISTS songs ADD COLUMN IF NOT EXISTS our_pct_base text NOT NULL DEFAULT 'GROSS';",
 
         # Materiales de canción
         """

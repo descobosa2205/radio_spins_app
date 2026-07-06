@@ -437,6 +437,14 @@
     document.getElementById('fotosApprovalCount').textContent = ids.length;
     document.getElementById('fotosApprovalOthers').innerHTML = '';
     document.getElementById('fotosApprovalHint').textContent = '';
+    // Reset de vistas (formulario visible, resultado oculto).
+    document.getElementById('fotosApprovalForm').classList.remove('d-none');
+    var resBox = document.getElementById('fotosApprovalResult');
+    resBox.classList.add('d-none'); resBox.innerHTML = '';
+    document.getElementById('fotosApprovalSubmit').classList.remove('d-none');
+    document.getElementById('fotosApprovalDone').classList.add('d-none');
+    var supIn = document.getElementById('fotosApprovalSupervision'); if (supIn) supIn.value = '';
+    var sendChk = document.getElementById('fotosApprovalSendEmail'); if (sendChk) sendChk.checked = true;
     var list = document.getElementById('fotosApprovalList');
     list.innerHTML = '<div class="text-muted small"><i class="fa fa-spinner fa-spin"></i> Cargando…</div>';
     bsModal('fotosApprovalModal').show();
@@ -453,10 +461,6 @@
       if (o.promoter) html += approverRow({ kind: 'PROMOTER', name: o.promoter.name, role: 'Promotor', email: o.promoter.email, photo_url: o.promoter.photo_url });
       if (o.show_responsible) html += approverRow({ kind: 'RESPONSIBLE', name: 'Responsable de aprobaciones', role: 'Responsable de aprobaciones', email: '', photo_url: '' });
       list.innerHTML = html || '<div class="text-muted small">No hay candidatos automáticos; añade personas abajo.</div>';
-      var sel = document.getElementById('fotosApprovalCompany');
-      sel.innerHTML = '<option value="">—</option>' + (o.companies || []).map(function (c) {
-        return '<option value="' + esc(c.id) + '"' + (c.id === o.default_company_id ? ' selected' : '') + '>' + esc(c.name) + '</option>';
-      }).join('');
     });
   }
   function approverRow(a, isMember) {
@@ -476,6 +480,41 @@
     box.appendChild(row);
     row.querySelector('.fo-rm').addEventListener('click', function () { row.remove(); });
   });
+  function renderApprovalResult(d) {
+    function copyBtn(url) { return '<button type="button" class="btn btn-outline-secondary fotos-copy" data-copy="' + esc(url) + '"><i class="fa fa-copy"></i></button>'; }
+    var html = '<div class="alert alert-success py-2 small mb-3">Solicitud creada.'
+      + (d.emailed ? ' ' + d.emailed + ' correo(s) de aprobación enviados.' : '')
+      + (d.supervision_emailed ? ' ' + d.supervision_emailed + ' correo(s) de supervisión enviados.' : '')
+      + '</div>';
+    if ((d.approvers || []).length) {
+      html += '<div class="fw-semibold small mb-1">Enlaces de aprobación <span class="text-muted fw-normal">(cópialos para enviarlos a mano)</span></div>';
+      d.approvers.forEach(function (a) {
+        html += '<div class="mb-2"><div class="small">' + esc(a.name) + (a.email ? ' · ' + esc(a.email) : '')
+          + (a.emailed ? ' <span class="badge text-bg-success">enviado</span>' : ' <span class="badge text-bg-light border">sin enviar</span>') + '</div>'
+          + '<div class="input-group input-group-sm"><input class="form-control" readonly value="' + esc(a.url) + '">' + copyBtn(a.url) + '</div></div>';
+      });
+    }
+    if (d.supervision_url) {
+      html += '<div class="fw-semibold small mb-1 mt-3">Enlace de supervisión <span class="text-muted fw-normal">(solo revisar, sin aprobar)</span></div>'
+        + '<div class="input-group input-group-sm"><input class="form-control" readonly value="' + esc(d.supervision_url) + '">' + copyBtn(d.supervision_url) + '</div>';
+    }
+    var res = document.getElementById('fotosApprovalResult');
+    res.innerHTML = html; res.classList.remove('d-none');
+    document.getElementById('fotosApprovalForm').classList.add('d-none');
+    document.getElementById('fotosApprovalSubmit').classList.add('d-none');
+    document.getElementById('fotosApprovalDone').classList.remove('d-none');
+    document.getElementById('fotosApprovalHint').textContent = '';
+  }
+  document.getElementById('fotosApprovalResult').addEventListener('click', function (e) {
+    var b = e.target.closest('.fotos-copy'); if (!b) return;
+    var url = b.getAttribute('data-copy');
+    var done = function () { var old = b.innerHTML; b.innerHTML = '<i class="fa fa-check"></i>'; setTimeout(function () { b.innerHTML = old; }, 1000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(url).then(done, done); }
+    else { var i = b.closest('.input-group').querySelector('input'); if (i) { i.select(); try { document.execCommand('copy'); } catch (e2) {} } done(); }
+  });
+  document.getElementById('fotosApprovalDone').addEventListener('click', function () {
+    bsModal('fotosApprovalModal').hide(); selected = {}; refresh();
+  });
   document.getElementById('fotosApprovalSubmit').addEventListener('click', function () {
     var approvers = [];
     document.querySelectorAll('.fotos-approver:checked').forEach(function (cb) {
@@ -485,17 +524,19 @@
       var name = row.querySelector('.fo-name').value.trim();
       if (name) approvers.push({ kind: 'CUSTOM', name: name, role: row.querySelector('.fo-role').value.trim(), email: row.querySelector('.fo-email').value.trim(), photo_url: '' });
     });
-    if (!approvers.length) { document.getElementById('fotosApprovalHint').textContent = 'Selecciona o añade al menos a una persona.'; return; }
+    var supEmails = (document.getElementById('fotosApprovalSupervision').value || '')
+      .split(/[\s,;]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    if (!approvers.length && !supEmails.length) { document.getElementById('fotosApprovalHint').textContent = 'Selecciona a quién pedir aprobación o indica un correo de supervisión.'; return; }
     var body = {
       photo_ids: approvalIds,
-      brand_company_id: document.getElementById('fotosApprovalCompany').value || null,
       send_email: document.getElementById('fotosApprovalSendEmail').checked,
-      approvers: approvers
+      approvers: approvers,
+      supervision_emails: supEmails
     };
     var btn = document.getElementById('fotosApprovalSubmit'); btn.disabled = true;
     postJson(ownerBase + '/approval/create', body).then(function (d) {
       btn.disabled = false;
-      if (d.ok) { bsModal('fotosApprovalModal').hide(); selected = {}; refresh(); }
+      if (d.ok) { renderApprovalResult(d); }
       else document.getElementById('fotosApprovalHint').textContent = d.error || 'Error.';
     });
   });

@@ -35986,6 +35986,15 @@ def _photo_count_label(photos):
     return " y ".join(parts) if parts else "0 elementos"
 
 
+def _photo_owner_group_company_id(session_db, ot, owner):
+    """Empresa del grupo (GroupCompany) que gestiona el concierto/actividad; su logo se usa en los
+    correos de aprobación/supervisión. En conciertos = group_company_id; en acciones no hay empresa
+    asociada -> None (se usa el logo por defecto)."""
+    if owner and ot == "CONCERT":
+        return getattr(owner, "group_company_id", None)
+    return None
+
+
 def _photo_approval_options(session_db, ot, owner):
     artists = []
     artist_ids = []
@@ -36086,12 +36095,12 @@ def fotos_approval_create(owner_type, owner_id):
     payload = request.get_json(silent=True) or {}
     photo_ids = [to_uuid(x) for x in (payload.get("photo_ids") or []) if to_uuid(x)]
     approvers_in = payload.get("approvers") or []
+    supervision_emails = [(e or "").strip() for e in (payload.get("supervision_emails") or []) if (e or "").strip()]
     if not photo_ids:
         return jsonify({"ok": False, "error": "Sin fotos seleccionadas."}), 400
-    if not approvers_in:
-        return jsonify({"ok": False, "error": "Selecciona al menos a quién pedir aprobación."}), 400
+    if not approvers_in and not supervision_emails:
+        return jsonify({"ok": False, "error": "Selecciona a quién pedir aprobación o indica un correo de supervisión."}), 400
     send_email = _truthy(payload.get("send_email"))
-    brand_company_id = to_uuid(payload.get("brand_company_id"))
     message = (payload.get("message") or "").strip() or None
     state = _current_user_state()
 
@@ -36101,44 +36110,74 @@ def fotos_approval_create(owner_type, owner_id):
         if not owner:
             return jsonify({"ok": False, "error": "No encontrado."}), 404
         photos = session_db.query(Photo).filter(Photo.id.in_(photo_ids)).all()
-        req = PhotoApprovalRequest(
-            owner_type=ot, owner_id=owner.id, brand_company_id=brand_company_id,
-            photo_ids=[str(x) for x in photo_ids], message=message, status="ACTIVE",
-            requested_by_user_id=to_uuid(state.get("user_id")),
-            requested_by_nick=(state.get("nick") or "").strip() or None,
-            requested_by_photo_url=(state.get("photo_url") or "").strip() or None,
-        )
-        session_db.add(req)
-        session_db.flush()
+        # Logo del correo = empresa del grupo que gestiona el concierto/actividad (automático).
+        brand_company_id = _photo_owner_group_company_id(session_db, ot, owner)
 
-        emailed = 0
-        for a in approvers_in:
-            name = (a.get("name") or "").strip()
-            if not name:
-                continue
-            approver = PhotoApprover(
-                request_id=req.id, token=uuid.uuid4().hex,
-                kind=(a.get("kind") or "CUSTOM").strip().upper(),
-                name=name, role=(a.get("role") or "").strip() or None,
-                email=(a.get("email") or "").strip() or None,
-                photo_url=(a.get("photo_url") or "").strip() or None,
-                artist_id=to_uuid(a.get("artist_id")),
+        result = {"ok": True, "emailed": 0, "approvers": [], "supervision_url": "", "supervision_emailed": 0}
+
+        if approvers_in:
+            req = PhotoApprovalRequest(
+                owner_type=ot, owner_id=owner.id, brand_company_id=brand_company_id,
+                photo_ids=[str(x) for x in photo_ids], message=message, status="ACTIVE",
+                requested_by_user_id=to_uuid(state.get("user_id")),
+                requested_by_nick=(state.get("nick") or "").strip() or None,
+                requested_by_photo_url=(state.get("photo_url") or "").strip() or None,
             )
-            session_db.add(approver)
+            session_db.add(req)
             session_db.flush()
-            for pid in photo_ids:
-                session_db.add(PhotoApproval(approver_id=approver.id, photo_id=pid, decision="PENDING"))
-            if send_email and approver.email:
-                ok, _err = _send_optional_email(
-                    approver.email,
-                    "Aprobación de contenidos — %s" % (owner_title or "Materiales"),
-                    _photo_approval_email_html(session_db, req, approver, photos, owner_title),
-                    reply_to=_current_user_email(),
+            for a in approvers_in:
+                name = (a.get("name") or "").strip()
+                if not name:
+                    continue
+                approver = PhotoApprover(
+                    request_id=req.id, token=uuid.uuid4().hex,
+                    kind=(a.get("kind") or "CUSTOM").strip().upper(),
+                    name=name, role=(a.get("role") or "").strip() or None,
+                    email=(a.get("email") or "").strip() or None,
+                    photo_url=(a.get("photo_url") or "").strip() or None,
+                    artist_id=to_uuid(a.get("artist_id")),
                 )
-                if ok:
-                    emailed += 1
+                session_db.add(approver)
+                session_db.flush()
+                for pid in photo_ids:
+                    session_db.add(PhotoApproval(approver_id=approver.id, photo_id=pid, decision="PENDING"))
+                emailed_this = False
+                if send_email and approver.email:
+                    ok, _err = _send_optional_email(
+                        approver.email,
+                        "Aprobación de contenidos — %s" % (owner_title or "Materiales"),
+                        _photo_approval_email_html(session_db, req, approver, photos, owner_title),
+                        reply_to=_current_user_email(),
+                    )
+                    if ok:
+                        emailed_this = True
+                        result["emailed"] += 1
+                result["approvers"].append({
+                    "name": name,
+                    "email": approver.email or "",
+                    "url": _external_url_for("public_photo_approval", token=approver.token),
+                    "emailed": emailed_this,
+                })
+
+        # Supervisión (solo revisar, sin aprobar): enlace de visualización (PhotoShare) enviado por
+        # correo. Reutiliza el mismo logo de empresa del grupo.
+        if supervision_emails:
+            share = _create_photo_share(session_db, ot, owner, photo_ids, brand_company_id, owner_title, state)
+            result["supervision_url"] = _photo_share_urls(share.token)["public_url"]
+            html = _photo_share_email_html(
+                session_db, share, photos, owner_title,
+                "Te compartimos estos contenidos para tu supervisión (solo revisión, no requieren aprobación).",
+            )
+            ok, _err = _send_optional_email(
+                supervision_emails,
+                "Supervisión de contenidos — %s" % (owner_title or "Materiales"),
+                html, reply_to=_current_user_email(),
+            )
+            if ok:
+                result["supervision_emailed"] = len(supervision_emails)
+
         session_db.commit()
-        return jsonify({"ok": True, "emailed": emailed})
+        return jsonify(result)
     except Exception as e:
         session_db.rollback()
         return jsonify({"ok": False, "error": str(e)}), 500

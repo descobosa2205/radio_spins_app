@@ -36166,6 +36166,37 @@ def _photo_owner_group_company_id(session_db, ot, owner):
     return None
 
 
+def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
+    """Datos para la composición visual de las páginas públicas (enlaces de WhatsApp/SMS):
+    tipo de actividad + icono, nombre del evento (o municipio), fecha y artista con foto."""
+    card = {"activity_label": "", "activity_icon": "fa-calendar-day", "event_name": "",
+            "city": "", "date_label": "", "artist_name": "", "artist_photo": ""}
+    if not owner:
+        return card
+    if owner_type == "CONCERT":
+        card["activity_label"] = _invitation_event_type_label(owner)
+        card["activity_icon"] = _concert_activity_icon(owner)
+        card["event_name"] = (getattr(owner, "festival_name", None) or "").strip()
+        card["city"] = _concert_city(owner)
+        d = getattr(owner, "date", None)
+        card["date_label"] = d.strftime("%d/%m/%Y") if d else ""
+    else:
+        akey = (getattr(owner, "action_type", None) or "").strip().upper()
+        card["activity_label"] = ACTION_TYPE_LABELS.get(akey, akey.replace("_", " ").title() or "Acción")
+        card["activity_icon"] = ACTION_TYPE_ICONS.get(akey, "fa-bullhorn")
+        card["event_name"] = (getattr(owner, "title", None) or "").strip()
+        _snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
+        _venue = getattr(owner, "venue", None)
+        card["city"] = (getattr(_venue, "municipality", None) or _snap.get("city") or "").strip()
+        d = getattr(owner, "start_date", None)
+        card["date_label"] = d.strftime("%d/%m/%Y") if d else ""
+    art = session_db.get(Artist, artist_id) if artist_id else None
+    if art:
+        card["artist_name"] = art.name or ""
+        card["artist_photo"] = getattr(art, "photo_url", "") or ""
+    return card
+
+
 def _photo_approval_options(session_db, ot, owner):
     artists = []
     artist_ids = []
@@ -36544,7 +36575,7 @@ def fotos_share_create(owner_type, owner_id):
         if not owner:
             return jsonify({"ok": False, "error": "No encontrado."}), 404
         artist = session_db.get(Artist, artist_id) if artist_id else None
-        share = _create_photo_share(session_db, ot, owner, ids, None, owner_title, state)
+        share = _create_photo_share(session_db, ot, owner, ids, _photo_owner_group_company_id(session_db, ot, owner), owner_title, state)
         session_db.commit()
         urls = _photo_share_urls(share.token)
         # Mensaje para WhatsApp/SMS
@@ -36676,8 +36707,16 @@ def public_photo_share(token):
             "is_video": (p.kind or "IMAGE").upper() == "VIDEO",
             "download_url": url_for("public_photo_share_item", token=token, photo_id=str(p.id)),
         } for p in photos]
+        card = _public_share_card(session_db, share.owner_type, owner, _aid)
+        _card_bits = [x for x in [card["activity_label"], card["event_name"], card["city"], card["date_label"]] if x]
+        og = {
+            "title": ("Fotos / Vídeos" + (" · " + (card["artist_name"] or card["event_name"] or owner_title) if (card["artist_name"] or card["event_name"] or owner_title) else "")),
+            "description": " · ".join(_card_bits),
+            "image": (card["artist_photo"] or (rows[0]["file_url"] if rows and not rows[0]["is_video"] else "") or (logo or "")),
+        }
         return render_template("public_photo_share.html", logo=logo, owner_title=owner_title, photos=rows,
-                               zip_url=url_for("public_photo_share_zip", token=token), count_label=_photo_count_label(photos))
+                               zip_url=url_for("public_photo_share_zip", token=token), count_label=_photo_count_label(photos),
+                               kind_title="Fotos / Vídeos", card=card, og=og)
     finally:
         session_db.close()
 

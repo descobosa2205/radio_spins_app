@@ -39324,8 +39324,14 @@ def public_invitation_delivery(kind, token):
         logo = _invitation_event_logo_url(session_db, concert, external=False)
         bits = [x for x in [card["activity_label"], (card["event_name"] or card["city"]), card["date_label"]] if x]
         qty_label = (str(qty) + (" invitación" if qty == 1 else " invitaciones")) if qty else ""
+        # Título: «Invitaciones · <artista> · <invitado/compromiso>».
+        _title_bits = ["Invitaciones"]
+        if card["artist_name"]:
+            _title_bits.append(card["artist_name"])
+        if guest_name:
+            _title_bits.append(guest_name)
         og = {
-            "title": "Invitaciones" + (" · " + card["artist_name"] if card["artist_name"] else ""),
+            "title": " · ".join(_title_bits),
             "description": " · ".join([x for x in [" · ".join(bits), qty_label] if x]),
             "image": card["artist_photo"] or logo or "",
         }

@@ -26,24 +26,25 @@
 <div class="pi-wrap">
   <div class="text-end mb-3"><img class="pi-logo" src="{{ logo }}" alt=""></div>
   <div class="pi-card text-center">
-    <div class="pi-eyebrow mb-2"><i class="fa fa-ticket me-1"></i>Invitaciones</div>
-    {% set bits = [] %}
-    {% if card.activity_label %}{% set _ = bits.append(card.activity_label) %}{% endif %}
-    {% if card.event_name %}{% set _ = bits.append(card.event_name) %}{% elif card.city %}{% set _ = bits.append(card.city) %}{% endif %}
-    {% if card.date_label %}{% set _ = bits.append(card.date_label) %}{% endif %}
-    <h1 class="h4 mb-1"><i class="fa {{ card.activity_icon or 'fa-calendar-day' }} me-2 text-muted"></i>{{ bits|join(' · ') }}</h1>
-    {% if card.event_name and card.city %}<div class="text-muted">{{ card.city }}</div>{% endif %}
+    {# Título: Invitaciones · artista · nombre del invitado/compromiso. #}
+    <div class="pi-eyebrow mb-2"><i class="fa fa-ticket me-1"></i>Invitaciones{% if card.artist_name %} · {{ card.artist_name }}{% endif %}</div>
+    {% if guest_name %}<h1 class="h4 mb-2">{{ guest_name }}</h1>{% endif %}
 
     {% if card.artist_name %}
-      <div class="d-flex align-items-center justify-content-center gap-2 mt-3">
+      <div class="d-flex align-items-center justify-content-center gap-2 mb-2">
         <img class="pi-avatar" src="{{ card.artist_photo or logo }}" alt="">
         <span class="fw-semibold fs-5">{{ card.artist_name }}</span>
       </div>
     {% endif %}
 
+    {% set bits = [] %}
+    {% if card.activity_label %}{% set _ = bits.append(card.activity_label) %}{% endif %}
+    {% if card.event_name %}{% set _ = bits.append(card.event_name) %}{% elif card.city %}{% set _ = bits.append(card.city) %}{% endif %}
+    {% if card.date_label %}{% set _ = bits.append(card.date_label) %}{% endif %}
+    {% if bits %}<div class="text-muted"><i class="fa {{ card.activity_icon or 'fa-calendar-day' }} me-2"></i>{{ bits|join(' · ') }}{% if card.event_name and card.city %} · {{ card.city }}{% endif %}</div>{% endif %}
+
     <hr class="my-4">
 
-    {% if guest_name %}<div class="mb-1">Invitación para <strong>{{ guest_name }}</strong></div>{% endif %}
     {% if qty %}<div class="mb-3"><span class="badge text-bg-danger fs-6"><i class="fa fa-ticket me-1"></i>{{ qty_label }}</span></div>{% endif %}
 
     {% if download_url %}

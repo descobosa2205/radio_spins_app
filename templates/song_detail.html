@@ -27,26 +27,21 @@
     {% endif %}
   </div>
   <div class="ficha-hero__actions">
-    <div class="d-flex align-items-center gap-2 flex-wrap">
-      {% for pkey, purl, plabel in [
-        ('spotify', song.spotify_url, 'Spotify'),
-        ('apple_music', song.apple_music_url, 'Apple Music'),
-        ('amazon_music', song.amazon_music_url, 'Amazon Music'),
-        ('tiktok', song.tiktok_url, 'TikTok'),
-        ('youtube', song.youtube_url, 'YouTube')] %}
-        <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ pkey ~ '.png') }}" alt="{{ plabel }}"></a>
-      {% endfor %}
-    </div>
-    {% if cm_song_header %}
-    <div class="cm-plays mt-2">
+    <div class="song-platforms">
+      {# Spotify / Apple / Amazon: el MISMO logo enlaza a la plataforma y muestra las reproducciones. #}
       {% for m in cm_song_header %}
-        <span class="cm-play{% if not m.value_fmt %} empty{% endif %}" title="Reproducciones · {{ m.label }}">
-          <img src="{{ url_for('static', filename='img/platforms/' ~ m.platform ~ '.png') }}" alt="{{ m.label }}">
-          {% if m.value_fmt %}<strong>{{ m.value_fmt }}</strong>{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}
-        </span>
+        <div class="song-plat">
+          <a class="song-platform {% if m.url %}active{% else %}disabled{% endif %}" data-platform="{{ m.platform }}" data-platform-label="{{ m.label }}" title="{{ m.label }}{% if not m.url %} · añadir enlace{% endif %}" {% if m.url %}href="{{ m.url }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ m.platform ~ '.png') }}" alt="{{ m.label }}"></a>
+          <div class="song-plat-num" title="Reproducciones · {{ m.label }}">{% if m.value_fmt %}{{ m.value_fmt }}{% if m.arrow == 'up' %}<i class="fa fa-arrow-up cm-up" title="Sube vs semana anterior"></i>{% elif m.arrow == 'down' %}<i class="fa fa-arrow-down cm-down" title="Baja vs semana anterior"></i>{% elif m.arrow == 'flat' %}<i class="fa fa-arrow-right cm-flat" title="Estable"></i>{% endif %}{% else %}<span class="cm-empty">—</span>{% endif %}</div>
+        </div>
+      {% endfor %}
+      {# TikTok / YouTube: solo logo enlazado, mismo tamaño, después. #}
+      {% for pkey, purl, plabel in [('tiktok', song.tiktok_url, 'TikTok'), ('youtube', song.youtube_url, 'YouTube')] %}
+        <div class="song-plat">
+          <a class="song-platform {% if purl %}active{% else %}disabled{% endif %}" data-platform="{{ pkey }}" data-platform-label="{{ plabel }}" title="{{ plabel }}{% if not purl %} · añadir enlace{% endif %}" {% if purl %}href="{{ purl }}" target="_blank" rel="noopener"{% else %}href="#"{% endif %}><img src="{{ url_for('static', filename='img/platforms/' ~ pkey ~ '.png') }}" alt="{{ plabel }}"></a>
+        </div>
       {% endfor %}
     </div>
-    {% endif %}
   </div>
 </div>
 

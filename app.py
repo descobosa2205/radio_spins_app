@@ -45443,13 +45443,13 @@ def _cm_song_header(session_db, song):
     """Reproducciones de cabecera de la ficha de canción: Spotify/Apple/Amazon (los 3 huecos siempre),
     total acumulado + flecha semanal (delta últimos 7 días vs 7 previos). arrow: up|down|flat|none."""
     plan = [
-        ("spotify", "Spotify", "spotify"),
-        ("apple_music", "Apple Music", "apple_music"),
-        ("amazon_music", "Amazon Music", "amazon_music"),
+        ("spotify", "Spotify", "spotify", "spotify_url"),
+        ("apple_music", "Apple Music", "apple_music", "apple_music_url"),
+        ("amazon_music", "Amazon Music", "amazon_music", "amazon_music_url"),
     ]
     out = []
-    for source, label, key in plan:
-        entry = {"platform": key, "label": label, "value_fmt": None, "arrow": "none"}
+    for source, label, key, url_field in plan:
+        entry = {"platform": key, "label": label, "url": (getattr(song, url_field, None) or ""), "value_fmt": None, "arrow": "none"}
         try:
             rows = (
                 session_db.query(ChartmetricTrackMetricPoint)

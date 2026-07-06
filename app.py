@@ -120,6 +120,7 @@ from models import (
     ensure_concert_artwork_schema,
     ensure_invitation_schema,
     ensure_entity_links_schema,
+    ensure_radio_import_schema,
     ensure_simulations_schema,
     ensure_chartmetric_schema,
     ensure_fotos_schema,
@@ -153,6 +154,8 @@ from models import (
     Week,
     Play,
     SongWeekInfo,
+    RadioStationAlias,
+    RadioIsrcAlias,
     Promoter,
     PromoterCompany,
     PromoterContact,
@@ -410,6 +413,7 @@ for _fn, _name in [
     (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
     (ensure_invitation_schema, "ensure_invitation_schema"),
     (ensure_entity_links_schema, "ensure_entity_links_schema"),
+    (ensure_radio_import_schema, "ensure_radio_import_schema"),
     (ensure_simulations_schema, "ensure_simulations_schema"),
     (ensure_fotos_schema, "ensure_fotos_schema"),
     (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
@@ -16778,6 +16782,341 @@ def plays_save():
         session_db.close()
 
     return redirect(url_for("plays_view", week=week_start.isoformat()) + f"#song-{song_id}")
+
+
+# ---------- IMPORTAR TOCADAS DESDE EXCEL ----------
+def _radio_channel_key(name) -> str:
+    """Clave normalizada del nombre de emisora/canal (minúsculas, espacios colapsados)."""
+    return " ".join((str(name) if name is not None else "").strip().lower().split())
+
+
+def _radio_song_options(session_db):
+    """[{id, label}] de todas las canciones (para los selectores de vinculación)."""
+    from collections import defaultdict
+    amap = defaultdict(list)
+    for sid, aname in (
+        session_db.query(SongArtist.song_id, Artist.name)
+        .join(Artist, Artist.id == SongArtist.artist_id)
+        .all()
+    ):
+        if aname:
+            amap[str(sid)].append(aname)
+    out = []
+    for sid, title in session_db.query(Song.id, Song.title).order_by(Song.title.asc()).all():
+        artists = ", ".join(amap.get(str(sid), []))
+        label = f"{title} — {artists}" if artists else (title or "(sin título)")
+        out.append({"id": str(sid), "label": label})
+    return out
+
+
+def _radio_build_isrc_song_map(session_db):
+    """norm_isrc -> song_id(str). Song.isrc legacy + SongISRCCode + alias manuales (prioritarios).
+    Los ISRC ambiguos (varias canciones) se descartan salvo que un alias los resuelva."""
+    m: dict[str, str] = {}
+    ambiguous: set[str] = set()
+
+    def reg(code, sid):
+        k = _norm_isrc(code)
+        if not k:
+            return
+        sid = str(sid)
+        if k in ambiguous:
+            return
+        cur = m.get(k)
+        if cur and cur != sid:
+            ambiguous.add(k)
+            m.pop(k, None)
+            return
+        m[k] = sid
+
+    for sid, code in session_db.query(Song.id, Song.isrc).all():
+        reg(code, sid)
+    for sid, code in session_db.query(SongISRCCode.song_id, SongISRCCode.code).all():
+        reg(code, sid)
+    # Alias manuales: prioridad total (resuelven ambigüedad y correcciones).
+    for isrc, sid in session_db.query(RadioIsrcAlias.isrc, RadioIsrcAlias.song_id).all():
+        k = _norm_isrc(isrc)
+        if k:
+            m[k] = str(sid)
+            ambiguous.discard(k)
+    return m, ambiguous
+
+
+def _radio_build_station_map(session_db):
+    """channel_key -> station_id(str). Nombre de RadioStation + alias aprendidos."""
+    m: dict[str, str] = {}
+    for sid, name in session_db.query(RadioStation.id, RadioStation.name).all():
+        k = _radio_channel_key(name)
+        if k:
+            m[k] = str(sid)
+    for alias, sid in session_db.query(RadioStationAlias.alias, RadioStationAlias.station_id).all():
+        k = _radio_channel_key(alias)
+        if k:
+            m[k] = str(sid)
+    return m
+
+
+def _radio_parse_plays_xlsx(file_storage):
+    """Lee la PRIMERA hoja del Excel de tocadas. Detecta la fila de cabecera (con «isrc» y
+    «channel»), agrega el nº de tocadas por (ISRC, canal) y devuelve metadatos."""
+    try:
+        import openpyxl
+    except Exception:
+        raise ValueError("Falta la dependencia openpyxl para leer archivos Excel.")
+    from io import BytesIO
+    from collections import defaultdict
+    try:
+        wb = openpyxl.load_workbook(BytesIO(file_storage.read()), read_only=True, data_only=True)
+    except Exception:
+        raise ValueError("No se pudo leer el archivo. Asegúrate de subir un Excel (.xlsx).")
+    ws = wb[wb.sheetnames[0]]  # SOLO la primera hoja
+    all_rows = list(ws.iter_rows(values_only=True))
+    header_idx = None
+    header = None
+    for i, r in enumerate(all_rows):
+        vals = [(str(c).strip().lower() if c is not None else "") for c in r]
+        if "isrc" in vals and "channel" in vals:
+            header_idx = i
+            header = vals
+            break
+    if header_idx is None:
+        raise ValueError("No se encuentra la fila de cabecera con las columnas «isrc» y «channel» en la primera hoja.")
+
+    def col(name):
+        return header.index(name) if name in header else None
+
+    ci, ii, ti, ai, di = col("channel"), col("isrc"), col("track"), col("artist"), col("date")
+    pair = defaultdict(int)
+    isrc_meta = {}
+    channel_meta = {}
+    dates = []
+
+    def cell(r, idx):
+        if idx is None or idx >= len(r):
+            return None
+        return r[idx]
+
+    for r in all_rows[header_idx + 1:]:
+        if not r or not any(c is not None for c in r):
+            continue
+        norm = _norm_isrc(cell(r, ii))
+        ckey = _radio_channel_key(cell(r, ci))
+        if not norm or not ckey:
+            continue
+        pair[(norm, ckey)] += 1
+        if norm not in isrc_meta:
+            isrc_meta[norm] = {
+                "track": (str(cell(r, ti)).strip() if cell(r, ti) is not None else ""),
+                "artist": (str(cell(r, ai)).strip() if cell(r, ai) is not None else ""),
+            }
+        if ckey not in channel_meta:
+            channel_meta[ckey] = str(cell(r, ci)).strip()
+        dv = cell(r, di)
+        if dv is not None:
+            try:
+                dates.append(dv.date() if hasattr(dv, "date") else parse_date(str(dv)[:10]))
+            except Exception:
+                pass
+    return pair, isrc_meta, channel_meta, dates
+
+
+@app.post("/tocadas/importar/analizar", endpoint="plays_import_analyze")
+@admin_required
+def plays_import_analyze():
+    if not can_edit_radio():
+        return jsonify({"ok": False, "error": "Sin permisos para actualizar tocadas."}), 403
+    f = request.files.get("file")
+    if not f or not getattr(f, "filename", ""):
+        return jsonify({"ok": False, "error": "Sube un archivo Excel (.xlsx)."}), 400
+    session_db = db()
+    try:
+        try:
+            week = monday_of(parse_date(request.form.get("week_start")))
+        except Exception:
+            week = monday_of(today_local()) - timedelta(days=7)
+        try:
+            pair, isrc_meta, channel_meta, dates = _radio_parse_plays_xlsx(f)
+        except ValueError as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        if not pair:
+            return jsonify({"ok": False, "error": "El archivo no contiene tocadas con ISRC y canal."}), 400
+
+        song_map, ambiguous = _radio_build_isrc_song_map(session_db)
+        station_map = _radio_build_station_map(session_db)
+        song_options = _radio_song_options(session_db)
+        opt_label = {o["id"]: o["label"] for o in song_options}
+        all_stations = [
+            {"id": str(s.id), "name": s.name}
+            for s in session_db.query(RadioStation).order_by(RadioStation.name.asc()).all()
+        ]
+        st_label = {s["id"]: s["name"] for s in all_stations}
+
+        from collections import defaultdict
+        isrc_total, chan_total = defaultdict(int), defaultdict(int)
+        for (isrc, ck), n in pair.items():
+            isrc_total[isrc] += n
+            chan_total[ck] += n
+
+        songs = []
+        for isrc in sorted(isrc_meta):
+            sid = song_map.get(isrc)
+            songs.append({
+                "isrc": isrc,
+                "track": isrc_meta[isrc]["track"],
+                "artist": isrc_meta[isrc]["artist"],
+                "spins": isrc_total[isrc],
+                "song_id": sid,
+                "song_label": opt_label.get(sid, ""),
+                "matched": bool(sid),
+                "ambiguous": isrc in ambiguous,
+            })
+        stations = []
+        for ck in sorted(channel_meta):
+            sid = station_map.get(ck)
+            stations.append({
+                "channel_key": ck,
+                "channel": channel_meta[ck],
+                "spins": chan_total[ck],
+                "station_id": sid,
+                "station_name": st_label.get(sid, ""),
+                "matched": bool(sid),
+            })
+        cells = [{"isrc": i, "channel_key": c, "spins": n} for (i, c), n in pair.items()]
+
+        detected_range = ""
+        detected_week = ""
+        if dates:
+            detected_range = f"{min(dates).strftime('%d/%m/%Y')} - {max(dates).strftime('%d/%m/%Y')}"
+            detected_week = monday_of(min(dates)).isoformat()
+        return jsonify({
+            "ok": True,
+            "week_start": week.isoformat(),
+            "week_label": week_label_range(week),
+            "detected_range": detected_range,
+            "week_mismatch": bool(detected_week and detected_week != week.isoformat()),
+            "songs": songs,
+            "stations": stations,
+            "cells": cells,
+            "song_options": song_options,
+            "all_stations": all_stations,
+            "counts": {"rows": sum(pair.values()), "songs": len(songs), "stations": len(stations)},
+        })
+    finally:
+        session_db.close()
+
+
+def _radio_upsert_station_alias(session_db, alias_key, station_id):
+    a = session_db.query(RadioStationAlias).filter(RadioStationAlias.alias == alias_key).first()
+    if a:
+        a.station_id = station_id
+    else:
+        session_db.add(RadioStationAlias(alias=alias_key, station_id=station_id))
+
+
+def _radio_upsert_isrc_alias(session_db, isrc, song_id):
+    a = session_db.query(RadioIsrcAlias).filter(RadioIsrcAlias.isrc == isrc).first()
+    if a:
+        a.song_id = song_id
+    else:
+        session_db.add(RadioIsrcAlias(isrc=isrc, song_id=song_id))
+
+
+@app.post("/tocadas/importar/aplicar", endpoint="plays_import_apply")
+@admin_required
+def plays_import_apply():
+    if not can_edit_radio():
+        return jsonify({"ok": False, "error": "Sin permisos para actualizar tocadas."}), 403
+    payload = request.get_json(silent=True) or {}
+    session_db = db()
+    try:
+        week = monday_of(parse_date(payload.get("week_start")))
+        ensure_week(session_db, week)
+
+        # Mapa automático de ISRC (para decidir si un enlace de canción es manual y hay que recordarlo).
+        auto_song_map, _amb = _radio_build_isrc_song_map(session_db)
+
+        # 1) Resolver emisoras (enlazar / crear / descartar) y aprender alias de los enlaces manuales.
+        chan_to_station = {}
+        created_stations = 0
+        for st in (payload.get("stations") or []):
+            if st.get("discard"):
+                continue
+            ck = _radio_channel_key(st.get("channel_key") or st.get("channel"))
+            sid = st.get("station_id")
+            if not sid and st.get("create"):
+                name = (st.get("name") or "").strip()
+                if not name:
+                    continue
+                existing = session_db.query(RadioStation).filter(func.lower(RadioStation.name) == name.lower()).first()
+                if existing:
+                    sid = str(existing.id)
+                else:
+                    newst = RadioStation(name=name)
+                    session_db.add(newst)
+                    session_db.flush()
+                    sid = str(newst.id)
+                    created_stations += 1
+            if not sid or not ck:
+                continue
+            chan_to_station[ck] = sid
+            st_obj = session_db.get(RadioStation, to_uuid(sid))
+            if st_obj and _radio_channel_key(st_obj.name) != ck:
+                _radio_upsert_station_alias(session_db, ck, to_uuid(sid))
+
+        # 2) Resolver canciones (enlazar / descartar) y recordar alias de los enlaces manuales.
+        isrc_to_song = {}
+        for so in (payload.get("songs") or []):
+            if so.get("discard"):
+                continue
+            isrc = _norm_isrc(so.get("isrc"))
+            sid = so.get("song_id")
+            if not isrc or not sid:
+                continue
+            isrc_to_song[isrc] = sid
+            if auto_song_map.get(isrc) != str(sid):
+                _radio_upsert_isrc_alias(session_db, isrc, to_uuid(sid))
+
+        # 3) Agregar por (canción, emisora) y fijar las tocadas de la semana (reemplaza el valor).
+        from collections import defaultdict
+        agg = defaultdict(int)
+        for c in (payload.get("cells") or []):
+            isrc = _norm_isrc(c.get("isrc"))
+            ck = _radio_channel_key(c.get("channel_key") or c.get("channel"))
+            sid = isrc_to_song.get(isrc)
+            stid = chan_to_station.get(ck)
+            if not sid or not stid:
+                continue
+            try:
+                n = int(c.get("spins") or 0)
+            except Exception:
+                n = 0
+            agg[(sid, stid)] += n
+
+        applied = 0
+        for (sid, stid), n in agg.items():
+            p = (session_db.query(Play)
+                 .filter_by(song_id=to_uuid(sid), station_id=to_uuid(stid), week_start=week)
+                 .first())
+            if p:
+                p.spins = n
+            else:
+                session_db.add(Play(song_id=to_uuid(sid), station_id=to_uuid(stid), week_start=week, spins=n))
+            applied += 1
+
+        session_db.commit()
+        return jsonify({
+            "ok": True,
+            "applied": applied,
+            "created_stations": created_stations,
+            "songs": len(isrc_to_song),
+            "stations": len(chan_to_station),
+        })
+    except Exception as e:
+        session_db.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        session_db.close()
+
 
 # ---------- RESUMEN (ADMIN y PÚBLICO) ----------
 def build_summary_context(base_week: date):

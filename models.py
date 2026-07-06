@@ -629,6 +629,29 @@ class SongWeekInfo(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class RadioStationAlias(Base):
+    """Nombre de emisora tal cual aparece en los Excel de tocadas (columna 'channel') vinculado a
+    una RadioStation. Permite que un enlace manual se recuerde y auto-aplique en importaciones
+    futuras (y corregirlo si estaba mal)."""
+    __tablename__ = "radio_station_aliases"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    alias = Column(Text, nullable=False, unique=True)  # nombre de canal normalizado (minúsculas)
+    station_id = Column(PGUUID(as_uuid=True), ForeignKey("radio_stations.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RadioIsrcAlias(Base):
+    """ISRC de un Excel de tocadas vinculado a una canción. Recuerda enlaces manuales para futuras
+    importaciones (y permite corregirlos)."""
+    __tablename__ = "radio_isrc_aliases"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    isrc = Column(Text, nullable=False, unique=True)  # ISRC normalizado
+    song_id = Column(PGUUID(as_uuid=True), ForeignKey("songs.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Promoter(Base):
     """Terceros / promotores."""
 
@@ -5441,6 +5464,33 @@ def ensure_contracting_embargo_schema():
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_tax_status ON embargo_orders(detected_tax_id, status)",
         "CREATE INDEX IF NOT EXISTS idx_embargo_orders_created ON embargo_orders(created_at)",
     ], "contracting_embargo_schema")
+
+def ensure_radio_import_schema():
+    """Tablas de alias para la importación de tocadas por Excel (emisora e ISRC)."""
+    Base.metadata.create_all(bind=engine)
+    _exec_ddl_statements([
+        """
+        CREATE TABLE IF NOT EXISTS radio_station_aliases (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            alias text NOT NULL UNIQUE,
+            station_id uuid NOT NULL REFERENCES radio_stations(id) ON DELETE CASCADE,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_radio_station_aliases_station ON radio_station_aliases(station_id);",
+        """
+        CREATE TABLE IF NOT EXISTS radio_isrc_aliases (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            isrc text NOT NULL UNIQUE,
+            song_id uuid NOT NULL REFERENCES songs(id) ON DELETE CASCADE,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_radio_isrc_aliases_song ON radio_isrc_aliases(song_id);",
+    ], "radio_import_schema")
+
 
 def ensure_entity_links_schema():
     """Asegura vinculaciones genéricas y campos extra de invitaciones."""

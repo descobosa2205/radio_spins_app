@@ -19,6 +19,10 @@
     {% if base_w == current_week %}
       <span class="badge bg-success"><i class="fa fa-circle me-1"></i> Semana Actual</span>
     {% endif %}
+    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#playsImportModal"
+            data-week="{{ base_w.isoformat() }}" data-week-label="{{ week_label }}">
+      <i class="fa fa-file-arrow-up me-1"></i>Subir Excel
+    </button>
     <div class="dropdown">
       <button class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
         Semanas anteriores
@@ -143,4 +147,64 @@
     </div>
   </div>
 {% endfor %}
+
+{# ===================== MODAL: subir Excel de tocadas ===================== #}
+<div class="modal fade" id="playsImportModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content" id="playsImportRoot"
+         data-analyze-url="{{ url_for('plays_import_analyze') }}"
+         data-apply-url="{{ url_for('plays_import_apply') }}"
+         data-week="{{ base_w.isoformat() }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-file-arrow-up me-2"></i>Actualizar tocadas por Excel</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border small mb-3">
+          Se actualizarán las tocadas de la semana <strong id="playsImportWeek">{{ week_label }}</strong>.
+          Se lee solo la <strong>primera hoja</strong>; se detecta la canción por <strong>ISRC</strong> y la
+          emisora por la columna <strong>Channel</strong>, sumando las tocadas de cada canción en cada emisora.
+        </div>
+
+        <div class="alert alert-danger d-none" id="playsImportError"></div>
+
+        {# Paso 1: elegir archivo #}
+        <div id="playsImportStep1">
+          <label class="form-label">Archivo Excel (.xlsx)</label>
+          <input type="file" class="form-control" id="playsImportFile" accept=".xlsx,.xls">
+        </div>
+
+        {# Paso 2: revisión #}
+        <div id="playsImportStep2" class="d-none">
+          <div class="alert alert-warning d-none" id="playsImportMismatch"></div>
+          <div class="small text-muted mb-2" id="playsImportSummary"></div>
+          <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#pi-songs" type="button">Canciones <span class="badge text-bg-secondary" id="piSongsCount">0</span></button></li>
+            <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#pi-stations" type="button">Emisoras <span class="badge text-bg-secondary" id="piStationsCount">0</span></button></li>
+          </ul>
+          <div class="tab-content pt-3">
+            <div class="tab-pane fade show active" id="pi-songs">
+              <div class="small text-muted mb-2">Elige la canción para cada ISRC. Deja «— No actualizar —» para descartar la que no quieras importar.</div>
+              <div id="piSongsBody"></div>
+            </div>
+            <div class="tab-pane fade" id="pi-stations">
+              <div class="small text-muted mb-2">Enlaza cada emisora del Excel con una de la app (o créala). Deja «— No actualizar —» para descartar.</div>
+              <div id="piStationsBody"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <div class="me-auto small text-muted d-none" id="playsImportApplyInfo"></div>
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="playsImportAnalyzeBtn"><i class="fa fa-magnifying-glass me-1"></i>Analizar</button>
+        <button type="button" class="btn btn-success d-none" id="playsImportApplyBtn"><i class="fa fa-check me-1"></i>Aplicar a la semana</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/plays_import.js') }}"></script>
 {% endblock %}

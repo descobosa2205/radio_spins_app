@@ -39943,12 +39943,25 @@ def invitation_event_detail(concert_id):
                     best, best_qty = str(k), iv
             return best
 
+        _group_totals = {}
         for item in requests:
             pk = _request_primary_category(item)
             item['group_key'] = pk
             item['group_name'] = _cat_name.get(pk, 'General')
             item['group_color'] = _cat_color.get(pk, '#9ca3af')
             item['group_order'] = _cat_order.get(pk, 9999)
+            # Total de invitaciones solicitadas de ese tipo (cantidad de la categoría del grupo; si
+            # la solicitud es solo total, su total).
+            q = item.get('quantities') or {}
+            try:
+                _n = int(q.get(pk) or 0) if pk else 0
+            except Exception:
+                _n = 0
+            if _n <= 0:
+                _n = _safe_int(item.get('qty_total'))
+            _group_totals[pk] = _group_totals.get(pk, 0) + max(_n, 0)
+        for item in requests:
+            item['group_total'] = _group_totals.get(item.get('group_key'), 0)
         # Orden: por grupo (orden de configuración de categorías) y, dentro, alfabético por invitado.
         requests.sort(key=lambda x: (x.get('group_order', 9999), _invitation_normalize_search(x.get('guest_name') or '')))
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')

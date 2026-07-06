@@ -475,7 +475,7 @@
               {% for row in requests %}
                 {% if row.group_key != ns.cur %}
                   {% set ns.cur = row.group_key %}
-                  <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ row.group_color }}"></span>{{ row.group_name }}</div>
+                  <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ row.group_color }}"></span>{{ row.group_name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ row.group_total }}</span></div>
                 {% endif %}
                 <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone style="border-left:5px solid {{ row.group_color }};">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
@@ -1139,39 +1139,51 @@
   <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
     <form class="modal-content" method="post" action="{{ url_for('invitation_category_save', concert_id=event.id) }}">
       <div class="modal-header"><h5 class="modal-title">Configurar invitaciones disponibles</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
-      <div class="modal-body">
-        <div class="table-responsive">
-          <table class="table align-middle invitation-category-table" data-category-table data-group-promoted="{{ 1 if group_promoted else 0 }}">
-            <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th>Zona</th><th>Escaleras <i class="fa fa-circle-info text-muted" title="Opcional. Solo PDF numeradas: butacas entre las que hay una escalera en el plano. Ej.: 17-19, 27-29"></i></th>{% if group_promoted %}<th class="text-end">Número de invitaciones</th>{% else %}<th class="text-end">Por contrato</th><th class="text-end">Adicionales</th>{% endif %}<th class="text-center">Bloquear peticiones</th><th></th></tr></thead>
-            <tbody>
-              {% for cat in categories %}
-                <tr>
-                  <td><input type="hidden" name="category_id[]" value="{{ cat.id }}"><input class="form-control" name="category_name[]" value="{{ cat.name }}" required></td>
-                  <td>
-                    <select class="form-select" name="ticket_kind[]">
-                      <option value="PDF_UNNUMBERED" {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}selected{% endif %}>PDF sin numerar</option>
-                      <option value="PDF_NUMBERED" {% if cat.ticket_kind == 'PDF_NUMBERED' %}selected{% endif %}>PDF numeradas</option>
-                      <option value="GUEST_LIST_BOX_OFFICE" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode != 'DOOR' %}selected{% endif %}>Lista en taquilla</option>
-                      <option value="GUEST_LIST_DOOR" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode == 'DOOR' %}selected{% endif %}>Lista acceso directo en puerta</option>
-                    </select>
-                    <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
-                  </td>
-                  <td><select class="form-select" name="zone[]"><option value="PISTA" {% if cat.zone == 'PISTA' %}selected{% endif %}>🎶 Pista</option><option value="GRADA" {% if cat.zone == 'GRADA' %}selected{% endif %}>🪑 Grada</option><option value="PALCO" {% if cat.zone == 'PALCO' %}selected{% endif %}>👑 Palcos</option></select></td>
-                  <td><input class="form-control form-control-sm" name="stairs_spec[]" value="{{ cat.stairs_spec or '' }}" placeholder="17-19, 27-29" title="Opcional. Escaleras del plano (solo PDF numeradas): butacas entre las que hay una escalera. Ej.: 17-19, 27-29"></td>
-                  {% if group_promoted %}
-                  <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"><input type="hidden" name="qty_extra[]" value="0"></td>
-                  {% else %}
-                  <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
-                  <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
-                  {% endif %}
-                  <td class="text-center">{% if cat.id %}<div class="form-check d-inline-block"><input class="form-check-input" type="checkbox" name="block_requests_cat" value="{{ cat.id }}" {% if cat.requests_blocked %}checked{% endif %} title="Si lo marcas, no se podrán pedir invitaciones para esta categoría (aparecerá desactivada)"></div>{% else %}<span class="text-muted small" title="Guarda primero para poder bloquearla">—</span>{% endif %}</td>
-                  <td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>
-                </tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <button class="btn btn-outline-danger" type="button" data-add-category-row><i class="fa fa-plus me-1"></i>Tipo de entrada</button>
+      <div class="modal-body" data-group-promoted="{{ 1 if group_promoted else 0 }}">
+        <div class="small text-muted mb-3">Añade los tipos de entrada dentro de su zona. Cada zona se identifica con un color.</div>
+        {% set zone_meta = [('PISTA','Pista','fa-people-group','#E33D48'), ('GRADA','Grada','fa-chair','#007CA2'), ('PALCO','Palcos','fa-crown','#F59E0B')] %}
+        {% for zkey, zlabel, zicon, zcolor in zone_meta %}
+          <div class="invitation-zone-block mb-3" style="border:1px solid #e6e8ec;border-left:5px solid {{ zcolor }};border-radius:12px;overflow:hidden;">
+            <div class="d-flex align-items-center gap-2 px-3 py-2" style="background:{{ zcolor }}14;">
+              <i class="fa {{ zicon }}" style="color:{{ zcolor }}"></i>
+              <span class="fw-semibold">{{ zlabel }}</span>
+            </div>
+            <div class="table-responsive">
+              <table class="table align-middle invitation-category-table mb-0" data-category-table>
+                <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th>Escaleras <i class="fa fa-circle-info text-muted" title="Opcional. Solo PDF numeradas: butacas entre las que hay una escalera en el plano. Ej.: 17-19, 27-29"></i></th>{% if group_promoted %}<th class="text-end">Número de invitaciones</th>{% else %}<th class="text-end">Por contrato</th><th class="text-end">Adicionales</th>{% endif %}<th class="text-center">Bloquear peticiones</th><th></th></tr></thead>
+                <tbody data-zone-tbody="{{ zkey }}">
+                  {% for cat in categories if cat.zone == zkey %}
+                    <tr>
+                      <td><input type="hidden" name="category_id[]" value="{{ cat.id }}"><input class="form-control" name="category_name[]" value="{{ cat.name }}" required></td>
+                      <td>
+                        <select class="form-select" name="ticket_kind[]">
+                          <option value="PDF_UNNUMBERED" {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}selected{% endif %}>PDF sin numerar</option>
+                          <option value="PDF_NUMBERED" {% if cat.ticket_kind == 'PDF_NUMBERED' %}selected{% endif %}>PDF numeradas</option>
+                          <option value="GUEST_LIST_BOX_OFFICE" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode != 'DOOR' %}selected{% endif %}>Lista en taquilla</option>
+                          <option value="GUEST_LIST_DOOR" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode == 'DOOR' %}selected{% endif %}>Lista acceso directo en puerta</option>
+                        </select>
+                        <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
+                        <input type="hidden" name="zone[]" value="{{ zkey }}">
+                      </td>
+                      <td><input class="form-control form-control-sm" name="stairs_spec[]" value="{{ cat.stairs_spec or '' }}" placeholder="17-19, 27-29" title="Opcional. Escaleras del plano (solo PDF numeradas): butacas entre las que hay una escalera. Ej.: 17-19, 27-29"></td>
+                      {% if group_promoted %}
+                      <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"><input type="hidden" name="qty_extra[]" value="0"></td>
+                      {% else %}
+                      <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"></td>
+                      <td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="{{ cat.qty_extra }}"></td>
+                      {% endif %}
+                      <td class="text-center">{% if cat.id %}<div class="form-check d-inline-block"><input class="form-check-input" type="checkbox" name="block_requests_cat" value="{{ cat.id }}" {% if cat.requests_blocked %}checked{% endif %} title="Si lo marcas, no se podrán pedir invitaciones para esta categoría (aparecerá desactivada)"></div>{% else %}<span class="text-muted small" title="Guarda primero para poder bloquearla">—</span>{% endif %}</td>
+                      <td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+            <div class="px-3 py-2">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-add-category-row="{{ zkey }}"><i class="fa fa-plus me-1"></i>Añadir tipo de entrada a {{ zlabel }}</button>
+            </div>
+          </div>
+        {% endfor %}
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger">Guardar configuración</button></div>
     </form>
@@ -1678,7 +1690,7 @@
       if (!cats.length){
         qtyPanel.innerHTML = '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
       } else {
-        var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
+        var _zones = [['PISTA','Pista','fa-people-group','#E33D48'],['GRADA','Grada','fa-chair','#007CA2'],['PALCO','Palcos','fa-crown','#F59E0B']];
         var _cell = function(c){ var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured) ? ` <span class="text-muted">(${c.configured})</span>` : '';
           return c.requests_blocked
           ? `<div class="col-md-4"><label class="form-label text-muted">${escHtml(c.name)}${_af}</label><input class="form-control" type="number" value="0" disabled><div class="mt-1"><span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span></div></div>`
@@ -1687,7 +1699,7 @@
         _zones.forEach(function(z){
           var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });
           if (!_zc.length) return;
-          _html += '<div class="col-12 fw-semibold small text-muted mt-1"><i class="fa ' + z[2] + ' me-1 text-danger"></i>' + z[1] + '</div>';
+          _html += '<div class="col-12 mt-2"><div class="invitation-zone-head fw-semibold" style="border-left:5px solid ' + z[3] + ';padding-left:.5rem;"><i class="fa ' + z[2] + ' me-1" style="color:' + z[3] + '"></i>' + z[1] + '</div></div>';
           _html += _zc.map(_cell).join('');
         });
         qtyPanel.innerHTML = _html;
@@ -1867,7 +1879,20 @@
     (function openWhenReady(){ if(window.bootstrap){ bootstrap.Modal.getOrCreateInstance(modalEl).show(); } else { setTimeout(openWhenReady, 60); } })();
   })();
 
-  document.querySelector('[data-add-category-row]')?.addEventListener('click', () => { const tbody = document.querySelector('[data-category-table] tbody'); const grp = document.querySelector('[data-category-table]')?.getAttribute('data-group-promoted') === '1'; const qtyCells = grp ? '<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"><input type="hidden" name="qty_extra[]" value="0"></td>' : '<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td>'; const tr = document.createElement('tr'); tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><select class="form-select" name="zone[]"><option value="PISTA">🎶 Pista</option><option value="GRADA">🪑 Grada</option><option value="PALCO">👑 Palcos</option></select></td><td><input class="form-control form-control-sm" name="stairs_spec[]" value="" placeholder="17-19, 27-29" title="Opcional. Escaleras del plano (solo PDF numeradas): butacas entre las que hay una escalera. Ej.: 17-19, 27-29"></td>${qtyCells}<td class="text-center"><span class="text-muted small" title="Guarda primero para poder bloquearla">—</span></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`; tbody.appendChild(tr); });
+  // Añadir tipo de entrada a una ZONA concreta (bloques Pista/Grada/Palcos). La fila lleva el zone[]
+  // en un input oculto según el bloque; no hay desplegable de zona.
+  document.addEventListener('click', (ev) => {
+    const addBtn = ev.target.closest('[data-add-category-row]');
+    if(!addBtn) return;
+    const zone = addBtn.getAttribute('data-add-category-row') || 'PISTA';
+    const tbody = document.querySelector('[data-zone-tbody="' + zone + '"]');
+    if(!tbody) return;
+    const grp = document.querySelector('[data-group-promoted]')?.getAttribute('data-group-promoted') === '1';
+    const qtyCells = grp ? '<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"><input type="hidden" name="qty_extra[]" value="0"></td>' : '<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td>';
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""><input type="hidden" name="zone[]" value="${zone}"></td><td><input class="form-control form-control-sm" name="stairs_spec[]" value="" placeholder="17-19, 27-29" title="Opcional. Escaleras del plano (solo PDF numeradas): butacas entre las que hay una escalera. Ej.: 17-19, 27-29"></td>${qtyCells}<td class="text-center"><span class="text-muted small" title="Guarda primero para poder bloquearla">—</span></td><td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-row><i class="fa fa-times"></i></button></td>`;
+    tbody.appendChild(tr);
+  });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
   document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; let kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; const mode = (btn?.dataset.guestListMode || '').toUpperCase(); if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
   function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; const isList = kind === 'GUEST_LIST_BOX_OFFICE' || kind === 'GUEST_LIST_DOOR' || kind === 'GUEST_LIST'; const hiddenMode = root.querySelector('[name="guest_list_mode"]'); if(hiddenMode) hiddenMode.value = kind === 'GUEST_LIST_DOOR' ? 'DOOR' : (isList ? 'BOX_OFFICE' : ''); root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', isList); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', !isList); }

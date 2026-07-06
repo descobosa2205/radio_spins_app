@@ -619,6 +619,67 @@ def _handle_request_entity_too_large(exc):
     return redirect(request.referrer or url_for("discografica_view", section="canciones"))
 
 
+def _error_back_url():
+    """URL a la que apunta el botón «Volver» de las pantallas de error: la pantalla anterior
+    (referrer del mismo host, distinta de la actual) o el inicio como último recurso."""
+    ref = request.referrer
+    try:
+        if ref and ref.startswith(request.host_url) and ref != request.url:
+            return ref
+    except Exception:
+        pass
+    try:
+        return url_for("home")
+    except Exception:
+        return "/"
+
+
+def _wants_json_response() -> bool:
+    if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+        return True
+    accept = (request.headers.get("Accept") or "")
+    return "application/json" in accept and "text/html" not in accept
+
+
+def _render_error_page(code: int, title: str, default_message: str):
+    """Página de error con botón «Volver». Para peticiones AJAX/JSON devuelve JSON."""
+    # Si venía un flash de error (p. ej. de forbid()), se usa como mensaje concreto.
+    message = default_message
+    try:
+        flashed = [m for cat, m in get_flashed_messages(with_categories=True) if cat in ("danger", "warning", "error")]
+        if flashed:
+            message = flashed[-1]
+    except Exception:
+        pass
+    if _wants_json_response():
+        return jsonify({"ok": False, "error": code, "message": message}), code
+    try:
+        return render_template("error.html", code=code, title=title, message=message, back_url=_error_back_url()), code
+    except Exception:
+        # Fallback ultra-defensivo: nunca dejar sin salida (evita recursión si falla el render).
+        return (
+            f"<!doctype html><meta charset='utf-8'><title>{code}</title>"
+            f"<div style='font-family:sans-serif;max-width:520px;margin:15vh auto;text-align:center'>"
+            f"<h1>{code}</h1><p>{message}</p>"
+            f"<p><a href='javascript:history.back()'>&larr; Volver</a> · <a href='/'>Inicio</a></p></div>"
+        ), code
+
+
+@app.errorhandler(403)
+def _handle_403(e):
+    return _render_error_page(403, "Acceso no permitido", "No tienes permiso para acceder a esta página.")
+
+
+@app.errorhandler(404)
+def _handle_404(e):
+    return _render_error_page(404, "Página no encontrada", "La página que buscas no existe o se ha movido.")
+
+
+@app.errorhandler(500)
+def _handle_500(e):
+    return _render_error_page(500, "Error del servidor", "Se ha producido un error inesperado. Vuelve a intentarlo en unos minutos.")
+
+
 # ---------- Roles / permisos ----------
 # role: 1,2,3,4,10 (10 = master)
 ROLE_LABELS = {

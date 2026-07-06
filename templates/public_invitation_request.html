@@ -148,13 +148,14 @@
                   {% if zcats %}
                     <div class="col-12 fw-semibold small text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
                     {% for cat in zcats %}
+                      {% set aforo = ' (aforo ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}
                       <div class="col-md-4">
                         {% if cat.blocked %}
-                          <label class="form-label text-muted">{{ cat.name }} <i class="fa fa-lock text-danger" title="No admite peticiones"></i></label>
+                          <label class="form-label text-muted"><span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }} <i class="fa fa-lock text-danger" title="No admite peticiones"></i></label>
                           <input class="form-control" type="number" value="0" disabled>
                           <div class="small text-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</div>
                         {% else %}
-                          <label class="form-label">{{ cat.name }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
+                          <label class="form-label"><span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }}{% if cat.available is not none %} <small class="text-muted">disp. {{ cat.available }}</small>{% endif %}</label>
                           <input class="form-control" type="number" min="0" max="{{ cat.available if cat.available is not none else '' }}" name="qty_{{ cat.id }}" value="0">
                         {% endif %}
                       </div>

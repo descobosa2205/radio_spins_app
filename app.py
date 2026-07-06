@@ -39265,7 +39265,7 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
         for cid, qty in q.items():
             used_by_category[str(cid)] += _safe_int(qty)
     rows = []
-    for cat in categories:
+    for i, cat in enumerate(categories):
         cid = str(cat.id)
         if link.limit_mode == "CATEGORIES" and cid not in category_limits:
             continue
@@ -39296,6 +39296,8 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
             "zone": _invitation_category_zone(cat),
             "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
             "zone_icon": INVITATION_ZONE_ICONS.get(_invitation_category_zone(cat), "fa-people-group"),
+            "color": INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)],
+            "configured": _safe_int(getattr(cat, "qty_contract", 0)) + _safe_int(getattr(cat, "qty_extra", 0)),
         })
     total_limit = _safe_int(link.total_limit) if link.limit_mode == "TOTAL" else None
     available_total = None if total_limit is None else max(total_limit - used_total, 0)
@@ -40310,6 +40312,8 @@ def invitation_event_detail(concert_id):
             if status != 'AVAILABLE':
                 ticket_counts[str(cid)]["assigned"] += int(count or 0)
         cat_payloads = [_invitation_category_payload(c, ticket_counts.get(str(c.id))) for c in categories]
+        for _i, _cp in enumerate(cat_payloads):
+            _cp['color'] = INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)]
         name_map = _invitation_category_name_map(categories)
         commitments = []
         for row in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():

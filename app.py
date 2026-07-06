@@ -301,27 +301,6 @@ def _handle_csrf_error(e):
     return redirect(url_for("home"))
 
 
-@app.errorhandler(Exception)
-def _handle_unexpected_error(e):
-    """Herramienta interna: si un usuario logueado topa con un error no controlado, mostramos el
-    traceback en pantalla para poder diagnosticar sin acceso a los logs de Render. Los errores HTTP
-    normales (404, 403, CSRF…) se dejan pasar tal cual."""
-    from werkzeug.exceptions import HTTPException
-    if isinstance(e, HTTPException):
-        return e
-    import traceback as _tb
-    detail = _tb.format_exc()
-    try:
-        app.logger.error("Unhandled exception:\n%s", detail)
-    except Exception:
-        pass
-    if session.get("user_id"):
-        return ("<h3>Error interno</h3><p>Detalle visible por estar identificado (temporal):</p>"
-                "<pre style='white-space:pre-wrap;font-size:12px;background:#f6f8fa;padding:1rem;border-radius:8px'>"
-                + str(escape(detail[-6000:])) + "</pre>"), 500
-    return "Error interno del servidor.", 500
-
-
 # Países en español para emisoras/medios. Usa la traducción ISO incluida en pycountry
 # si está disponible y conserva un fallback estable para despliegues sin locales.
 _COUNTRY_OPTIONS_CACHE = None
@@ -40390,6 +40369,12 @@ def invitation_event_detail(concert_id):
                     "requested_by_photo_url": link.requested_by_photo_url or url_for('static', filename='img/placeholder_photo.png'),
                     "deadline_label": _invitation_display_datetime(link.deadline_at),
                     "locked": bool(getattr(link, 'locked', False)),
+                    # Config (para prefijar el modal de editar; `link` en plantilla es este dict).
+                    "categorize_requests": bool(getattr(link, 'categorize_requests', True)),
+                    "show_only_available": bool(getattr(link, 'show_only_available', False)),
+                    "limit_to_available": bool(getattr(link, 'limit_to_available', False)),
+                    "categories_enabled_json": _json_list(link.categories_enabled_json),
+                    "category_limits_json": _json_dict(link.category_limits_json),
                     "state": state,
                     "state_label": state_label,
                     "state_badge": state_badge,

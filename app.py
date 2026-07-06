@@ -27114,6 +27114,23 @@ ACTION_TYPE_OPTIONS = [
 ACTION_TYPES = [key for key, _label, _icon in ACTION_TYPE_OPTIONS]
 ACTION_TYPE_LABELS = {key: label for key, label, _icon in ACTION_TYPE_OPTIONS}
 ACTION_TYPE_ICONS = {key: icon for key, _label, icon in ACTION_TYPE_OPTIONS}
+# Icono por tipo de actividad de un CONCIERTO (las etiquetas las da _invitation_event_type_label).
+CONCERT_ACTIVITY_ICONS = {
+    "CONCIERTO": "fa-guitar",
+    "FESTIVAL": "fa-star",
+    "CADIZ": "fa-star",
+    "GIRA": "fa-route",
+    "EVENTO_PROMOCIONAL": "fa-bullhorn",
+    "TV": "fa-tv",
+    "PROGRAMA_TV": "fa-tv",
+    "MARCA": "fa-tags",
+    "OTROS": "fa-calendar-day",
+}
+
+
+def _concert_activity_icon(concert) -> str:
+    raw = (getattr(concert, "activity_type", None) or getattr(concert, "sale_type", None) or "CONCIERTO").strip().upper()
+    return CONCERT_ACTIVITY_ICONS.get(raw, "fa-guitar")
 ACTION_STATUSES = [
     ("RESERVA", "Reserva de confirmar"),
     ("CONFIRMADO", "Confirmada"),
@@ -34921,6 +34938,12 @@ def _build_artist_fotos_groups(session_db, artist_id):
     )
     if not photos:
         return []
+    artist = session_db.get(Artist, aid)
+    artist_payload = {
+        "id": str(aid),
+        "name": (getattr(artist, "name", None) or "").strip(),
+        "photo_url": (getattr(artist, "photo_url", None) or ""),
+    } if artist else None
     groups, order = {}, []
     for p in photos:
         key = (p.owner_type, p.owner_id)
@@ -34935,6 +34958,23 @@ def _build_artist_fotos_groups(session_db, artist_id):
         if not owner:
             continue
         d = getattr(owner, "date", None) if ot == "CONCERT" else getattr(owner, "start_date", None)
+        # Encabezado del bloque: tipo de actividad (con icono) · nombre del evento (si lo hay) ·
+        # municipio · fecha. Difiere entre conciertos y acciones.
+        if ot == "CONCERT":
+            type_label = _invitation_event_type_label(owner)
+            type_icon = _concert_activity_icon(owner)
+            event_name = (getattr(owner, "festival_name", None) or "").strip()
+            city = _concert_city(owner)
+            province = _concert_province_value(owner)
+        else:
+            akey = (getattr(owner, "action_type", None) or "").strip().upper()
+            type_label = ACTION_TYPE_LABELS.get(akey, akey.replace("_", " ").title() or "Acción")
+            type_icon = ACTION_TYPE_ICONS.get(akey, "fa-bullhorn")
+            event_name = (getattr(owner, "title", None) or "").strip()
+            _snap = _json_loads_safe(getattr(owner, "location_snapshot", None), {}) or {}
+            _venue = getattr(owner, "venue", None)
+            city = (getattr(_venue, "municipality", None) or _snap.get("city") or "").strip()
+            province = (getattr(_venue, "province", None) or _snap.get("province") or "").strip()
         albums = (
             session_db.query(PhotoAlbum)
             .filter(PhotoAlbum.owner_type == ot, PhotoAlbum.owner_id == oid)
@@ -34953,12 +34993,18 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "owner_type": ot,
             "owner_id": str(oid),
             "title": title,
+            "type_label": type_label,
+            "type_icon": type_icon,
+            "event_name": event_name,
+            "city": city,
+            "province": province,
             "date_label": d.strftime("%d/%m/%Y") if d else "",
             "count": len(plist),
             "cover_url": plist[0].file_url if plist else "",
             "url": _photo_owner_url(ot.lower(), str(oid)),
             "albums": album_summ,
             "thumbs": [p.file_url for p in plist[:8]],
+            "artist": artist_payload,
         })
     return out
 

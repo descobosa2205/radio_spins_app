@@ -157,12 +157,17 @@
           {% if g.cover_url %}<img src="{{ g.cover_url }}" alt="">{% else %}<i class="fa fa-images"></i>{% endif %}
         </div>
         <div class="fotos-artist-group__body">
+          {# Título: tipo de actividad (con icono) · nombre del evento (si lo hay) · municipio · fecha #}
+          {% set parts = [g.type_label] %}
+          {% if g.event_name %}{% set _ = parts.append(g.event_name) %}{% endif %}
+          {% if g.city %}{% set _ = parts.append(g.city) %}{% endif %}
+          {% if g.date_label %}{% set _ = parts.append(g.date_label) %}{% endif %}
           <div class="d-flex align-items-center gap-2 flex-wrap">
-            <i class="fa {{ 'fa-guitar' if g.owner_type == 'CONCERT' else 'fa-bullhorn' }} text-muted"></i>
-            <span class="fw-semibold">{{ g.title }}</span>
+            <i class="fa {{ g.type_icon or 'fa-images' }} text-muted"></i>
+            <span class="fw-semibold">{{ parts|select|join(' · ') }}</span>
             <span class="badge text-bg-light border">{{ g.count }} foto{{ '' if g.count == 1 else 's' }}</span>
           </div>
-          {% if g.date_label %}<div class="small text-muted">{{ g.date_label }}</div>{% endif %}
+          {% if g.artist and g.artist.name %}<div class="mt-1">{{ artist_chip(g.artist.name, g.artist.photo_url) }}</div>{% endif %}
           {% if g.albums %}
           <div class="small text-muted mt-1"><i class="fa fa-layer-group me-1"></i>{% for a in g.albums %}{{ a.name }} ({{ a.count }}){% if not loop.last %} · {% endif %}{% endfor %}</div>
           {% endif %}

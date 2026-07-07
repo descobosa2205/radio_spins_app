@@ -615,30 +615,23 @@
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
             </div>
             <div class="modal-body">
-              <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                <div class="btn-group btn-group-sm" role="group">
-                  <button type="button" class="btn btn-outline-secondary plan-editor-mode active" data-plan-mode="stair"><i class="fa fa-stairs me-1"></i>Escalera</button>
-                  <button type="button" class="btn btn-outline-secondary plan-editor-mode" data-plan-mode="off"><i class="fa fa-ban me-1"></i>Asiento apagado</button>
-                  <button type="button" class="btn btn-outline-secondary plan-editor-mode" data-plan-mode="hole"><i class="fa fa-square me-1"></i>Hueco</button>
-                </div>
-                <span class="text-muted small" data-plan-hint>Escalera: pincha (o arrastra) entre dos butacas. Apagado/Hueco: pincha una butaca para alternar.</span>
+              <div class="d-flex flex-wrap gap-2 align-items-center mb-2" data-plan-tools>
+                <span class="small fw-semibold me-1">Arrastra al plano:</span>
+                <span class="plan-tool" draggable="true" data-tool="stair" title="Escalera (entre dos butacas)"><i class="fa fa-stairs me-1"></i>Escalera</span>
+                <span class="plan-tool" draggable="true" data-tool="hole" title="Hueco (sin asiento)"><i class="fa fa-square me-1"></i>Hueco</span>
+                <span class="plan-tool" draggable="true" data-tool="off" title="Asiento apagado (butaca que no ofrecemos)"><i class="fa fa-ban me-1"></i>Apagado</span>
+                <span class="plan-tool plan-tool--stage" draggable="true" data-tool="stage" title="Escenario (arrástralo al borde del mapa)"><i class="fa fa-music me-1"></i>Escenario</span>
+                <button type="button" class="btn btn-sm btn-link text-danger" data-plan-stage-clear><i class="fa fa-xmark me-1"></i>Quitar escenario</button>
               </div>
-              <div class="mb-3">
-                <div class="small fw-semibold mb-1">Escenario (borde del sector):</div>
-                <div class="plan-editor-stage-pick" data-plan-stage>
-                  {% for sv, sl in [('','Sin escenario'),('top','Arriba'),('bottom','Abajo'),('left','Izquierda'),('right','Derecha')] %}
-                  <button type="button" class="btn btn-sm btn-outline-dark" data-stage-val="{{ sv }}">{% if sv %}<i class="fa fa-music me-1"></i>{% endif %}{{ sl }}</button>
-                  {% endfor %}
-                </div>
+              <div class="small text-muted mb-2" data-plan-hint>Arrastra un icono sobre una fila: la <b>escalera</b> entre dos butacas; <b>hueco</b>/<b>apagado</b> sobre una posición o al final para alargar la fila. Pincha un elemento colocado para quitarlo. El <b>escenario</b> se arrastra al borde del mapa (donde quieras).</div>
+              <div class="mb-2">
+                <span class="small fw-semibold me-2">Sentido de numeración:</span>
+                <span class="btn-group btn-group-sm" role="group" data-plan-orient>
+                  <button type="button" class="btn btn-outline-secondary" data-orient-val="ltr"><i class="fa fa-arrow-right me-1"></i>Izq → der</button>
+                  <button type="button" class="btn btn-outline-secondary" data-orient-val="rtl"><i class="fa fa-arrow-left me-1"></i>Der → izq</button>
+                </span>
               </div>
-              <div class="mb-3">
-                <div class="small fw-semibold mb-1">Sentido de numeración (dónde empieza el 1, 2, 3…):</div>
-                <div class="btn-group btn-group-sm" role="group" data-plan-orient>
-                  <button type="button" class="btn btn-outline-secondary" data-orient-val="ltr"><i class="fa fa-arrow-right me-1"></i>Izquierda → derecha</button>
-                  <button type="button" class="btn btn-outline-secondary" data-orient-val="rtl"><i class="fa fa-arrow-left me-1"></i>Derecha → izquierda</button>
-                </div>
-              </div>
-              <div class="plan-editor-grid" data-plan-grid><div class="text-muted small p-3">Cargando plano…</div></div>
+              <div class="plan-editor-map" data-plan-grid><div class="text-muted small p-3">Cargando plano…</div></div>
             </div>
             <div class="modal-footer">
               <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -776,15 +769,15 @@
                 {% elif cat.ticket_kind == 'PDF_NUMBERED' %}
                   {% if cat_groups %}
                     {% for sector in cat_groups %}
-                      <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
+                      <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
                         <div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head">
                           <div class="fw-bold">Sector {{ sector.sector }}</div>
                           <div class="d-flex align-items-center gap-2">
-                            {% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-{{ {'top':'up','bottom':'down','left':'left','right':'right'}[sector.stage] }}"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}
+                            {% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-right" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}
                             <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
                           </div>
                         </div>
-                        {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row">
@@ -1098,8 +1091,8 @@
                   <div class="assignment-drop-zone" data-drop-zone>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                       {% for sector in ticket_groups_by_category.get(cat.id, []) %}
-                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div>{% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-{{ {'top':'up','bottom':'down','left':'left','right':'right'}[sector.stage] }}"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}</div>
-                        {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div>{% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-right" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}</div>
+                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
@@ -2374,53 +2367,109 @@
     const gridEl = modalEl.querySelector('[data-plan-grid]');
     const titleEl = modalEl.querySelector('[data-plan-title]');
     let modal; const getModal = () => { if(!modal && window.bootstrap) modal = bootstrap.Modal.getOrCreateInstance(modalEl); return modal; };
-    let state = null, mode = 'stair';
-    modalEl.querySelectorAll('[data-plan-mode]').forEach(b => b.addEventListener('click', () => { mode = b.dataset.planMode; modalEl.querySelectorAll('[data-plan-mode]').forEach(x => x.classList.toggle('active', x === b)); }));
-    modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(b => b.addEventListener('click', () => { if(state) state.stage = b.dataset.stageVal; modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x === b)); }));
-    modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(b => b.addEventListener('click', () => { if(state) state.orientation = b.dataset.orientVal; modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x === b)); if(state) render(); }));
+    let state = null;
+    let tool = null;      // herramienta seleccionada por CLIC (colocación en táctil / múltiple)
+    let dragTool = null;  // herramienta que se está ARRASTRANDO
+    const enc = s => encodeURIComponent(s == null ? '' : String(s));
+    const dec = s => { try { return decodeURIComponent(s || ''); } catch(e){ return s || ''; } };
+    const escLbl = s => (s == null ? '' : String(s)).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+    function rowCfg(label){ if(!state.rows[label]) state.rows[label] = {stairs:new Set(), gaps:new Set(), off:new Set()}; return state.rows[label]; }
     function render(){
       if(!state) return;
-      const cells = []; let prev = null;
-      for(let pos = state.min; pos <= state.max; pos += state.step){
-        if(prev !== null){ const hasStair = Array.from(state.stairs).some(sa => prev <= sa && sa < pos); cells.push('<div class="plan-cell-boundary' + (hasStair ? ' has-stair' : '') + '" data-boundary="' + prev + '"></div>'); }
-        const cls = state.gaps.has(pos) ? 'is-hole' : ((state.off.has(pos) || !state.seats.has(pos)) ? 'is-off' : 'is-seat');
-        cells.push('<div class="plan-cell ' + cls + '" data-pos="' + pos + '"><span>' + pos + '</span></div>');
-        prev = pos;
-      }
-      var _cells = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
-      gridEl.innerHTML = '<div class="plan-editor-row"><div class="plan-editor-label">Butacas</div>' + _cells.join('') + '</div>';
+      let html = '';
+      state.rowsData.forEach(function(rd){
+        const rc = rowCfg(rd.label);
+        const cells = []; let prev = null;
+        for(let pos = state.min; pos <= state.max; pos += state.step){
+          if(prev !== null){ const hasStair = Array.from(rc.stairs).some(sa => prev <= sa && sa < pos); cells.push('<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-row="'+enc(rd.label)+'" data-boundary="'+prev+'"></div>'); }
+          const isSeat = rd.seats.has(pos);
+          const cls = rc.gaps.has(pos) ? 'is-hole' : (rc.off.has(pos) ? 'is-off' : (isSeat ? 'is-seat' : 'is-empty'));
+          cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(rd.label)+'" data-pos="'+pos+'"><span>'+pos+'</span></div>');
+          prev = pos;
+        }
+        cells.push('<div class="plan-cell plan-cell-end" data-row="'+enc(rd.label)+'" data-endpos="'+(state.max + state.step)+'" title="Añadir al final"><i class="fa fa-plus"></i></div>');
+        const ordered = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
+        html += '<div class="plan-editor-row"><div class="plan-editor-label">'+ escLbl(rd.label) +'</div>'+ ordered.join('') +'</div>';
+      });
+      let stageHtml = state.stage ? ('<div class="invitation-stage plan-stage-marker" style="left:'+state.stage.x+'%;top:'+state.stage.y+'%"><i class="fa fa-music me-1"></i>ESCENARIO</div>') : '';
+      gridEl.innerHTML = '<div class="plan-editor-rows">'+html+'</div>'+stageHtml;
     }
-    gridEl.addEventListener('click', (ev) => {
-      if(!state) return;
-      const b = ev.target.closest('[data-boundary]');
-      if(b && mode === 'stair'){ const sa = parseInt(b.dataset.boundary, 10); if(state.stairs.has(sa)) state.stairs.delete(sa); else state.stairs.add(sa); render(); return; }
-      const c = ev.target.closest('[data-pos]');
-      if(c && mode !== 'stair'){ const pos = parseInt(c.dataset.pos, 10);
-        if(mode === 'off'){ if(state.off.has(pos)) state.off.delete(pos); else { state.off.add(pos); state.gaps.delete(pos); } }
-        else if(mode === 'hole'){ if(state.gaps.has(pos)) state.gaps.delete(pos); else { state.gaps.add(pos); state.off.delete(pos); } }
-        render();
-      }
+    function applyToolAt(target, t){
+      if(!state || !t) return;
+      if(t === 'stair'){ const b = target.closest('[data-boundary]'); if(!b) return; const rc = rowCfg(dec(b.dataset.row)); const sa = parseInt(b.dataset.boundary,10); if(rc.stairs.has(sa)) rc.stairs.delete(sa); else rc.stairs.add(sa); render(); return; }
+      let pos = null, row = null;
+      const end = target.closest('[data-endpos]'); const c = target.closest('[data-pos]');
+      if(end){ pos = parseInt(end.dataset.endpos,10); row = dec(end.dataset.row); if(pos > state.max) state.max = pos; }
+      else if(c){ pos = parseInt(c.dataset.pos,10); row = dec(c.dataset.row); }
+      if(pos === null || row === null) return;
+      const rc = rowCfg(row);
+      if(t === 'off'){ if(rc.off.has(pos)) rc.off.delete(pos); else { rc.off.add(pos); rc.gaps.delete(pos); } }
+      else if(t === 'hole'){ if(rc.gaps.has(pos)) rc.gaps.delete(pos); else { rc.gaps.add(pos); rc.off.delete(pos); } }
+      render();
+    }
+    function placeStageAt(cx, cy){
+      const r = gridEl.getBoundingClientRect(); if(!r.width || !r.height) return;
+      let x = Math.max(0, Math.min(100, (cx - r.left) / r.width * 100));
+      let y = Math.max(0, Math.min(100, (cy - r.top) / r.height * 100));
+      const d = [['x',0,x],['x',100,100-x],['y',0,y],['y',100,100-y]].sort((a,b)=>a[2]-b[2])[0];  // borde más cercano
+      if(d[0] === 'x') x = d[1]; else y = d[1];
+      state.stage = { x: Math.round(x*10)/10, y: Math.round(y*10)/10 };
+      render();
+    }
+    // Herramientas: arrastre (dragTool) y selección por clic (tool).
+    modalEl.querySelectorAll('.plan-tool[data-tool]').forEach(function(el){
+      el.addEventListener('dragstart', function(e){ dragTool = el.dataset.tool; try{ e.dataTransfer.setData('text/plain', dragTool); e.dataTransfer.effectAllowed = 'copy'; }catch(_){}} );
+      el.addEventListener('dragend', function(){ dragTool = null; });
+      el.addEventListener('click', function(){ tool = (tool === el.dataset.tool) ? null : el.dataset.tool; modalEl.querySelectorAll('.plan-tool').forEach(x => x.classList.toggle('active', x === el && tool)); });
     });
+    gridEl.addEventListener('dragover', function(e){ if(dragTool){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+    gridEl.addEventListener('drop', function(e){ if(!state || !dragTool) return; e.preventDefault(); const t = dragTool; if(t === 'stage') placeStageAt(e.clientX, e.clientY); else applyToolAt(e.target, t); });
+    gridEl.addEventListener('click', function(e){
+      if(!state) return;
+      if(tool === 'stage'){ placeStageAt(e.clientX, e.clientY); return; }
+      if(tool){ applyToolAt(e.target, tool); return; }
+      // Sin herramienta seleccionada: un clic QUITA el elemento que haya en esa celda/borde.
+      const b = e.target.closest('[data-boundary]');
+      if(b && b.classList.contains('has-stair')){ const rc = rowCfg(dec(b.dataset.row)); rc.stairs.delete(parseInt(b.dataset.boundary,10)); render(); return; }
+      const c = e.target.closest('[data-pos]');
+      if(c){ const rc = rowCfg(dec(c.dataset.row)); const pos = parseInt(c.dataset.pos,10);
+        if(rc.gaps.has(pos)){ rc.gaps.delete(pos); render(); } else if(rc.off.has(pos)){ rc.off.delete(pos); render(); } }
+    });
+    modalEl.querySelector('[data-plan-stage-clear]')?.addEventListener('click', function(){ if(state){ state.stage = null; render(); } });
+    modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(b => b.addEventListener('click', () => { if(state) state.orientation = b.dataset.orientVal; modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x === b)); if(state) render(); }));
     document.getElementById('inv-tab-tickets')?.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-sector-config]'); if(!btn) return;
       const catId = btn.dataset.categoryId, sector = btn.dataset.sector || 'General';
       titleEl.textContent = (btn.dataset.categoryName || '') + ' · ' + sector;
       gridEl.innerHTML = '<div class="text-muted small p-3">Cargando plano…</div>';
+      tool = null; dragTool = null; modalEl.querySelectorAll('.plan-tool').forEach(x => x.classList.remove('active'));
       getModal()?.show();
       const url = root.dataset.planUrlBase.replace('CID', catId) + '?sector=' + encodeURIComponent(sector);
       const res = await fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ gridEl.innerHTML = '<div class="text-danger small p-3">No se pudo cargar el plano.</div>'; return; }
-      state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, seats: new Set(j.seats || []), stairs: new Set((j.config || {}).stairs || []), gaps: new Set((j.config || {}).gaps || []), off: new Set((j.config || {}).off || []), stage: (j.config || {}).stage || '', orientation: ((j.config || {}).orientation === 'rtl' ? 'rtl' : 'ltr') };
-      modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x.dataset.stageVal === state.stage));
+      const cfg = j.config || {}; const legacy = cfg.legacy || {};
+      const rowsData = (j.rows || []).map(r => ({label: r.label, seats: new Set(r.seats || [])}));
+      const rows = {};
+      rowsData.forEach(rd => {
+        const rc = (cfg.rows || {})[rd.label] || {};
+        const hasOwn = (rc.stairs && rc.stairs.length) || (rc.gaps && rc.gaps.length) || (rc.off && rc.off.length);
+        const src = hasOwn ? rc : legacy;  // migra el legado de sector a por-fila
+        rows[rd.label] = { stairs:new Set(src.stairs || []), gaps:new Set(src.gaps || []), off:new Set(src.off || []) };
+      });
+      state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, rowsData, rows,
+                stage: (cfg.stage && typeof cfg.stage.x === 'number') ? {x: cfg.stage.x, y: cfg.stage.y} : null,
+                orientation: (cfg.orientation === 'rtl' ? 'rtl' : 'ltr') };
       modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x.dataset.orientVal === state.orientation));
-      if(!j.seats || !j.seats.length){ gridEl.innerHTML = '<div class="text-muted small p-3">Este sector no tiene butacas numeradas para configurar.</div>'; return; }
+      if(!rowsData.length || !state.max){ gridEl.innerHTML = '<div class="text-muted small p-3">Este sector no tiene butacas numeradas para configurar.</div>'; return; }
       render();
     });
     modalEl.querySelector('[data-plan-save]')?.addEventListener('click', async () => {
       if(!state) return;
       const url = root.dataset.saveUrlBase.replace('CID', state.catId);
-      const payload = { sector: state.sector, stairs: Array.from(state.stairs), gaps: Array.from(state.gaps), off: Array.from(state.off), stage: state.stage, orientation: state.orientation || 'ltr' };
+      const rowsPayload = {};
+      Object.keys(state.rows).forEach(function(rl){ const rc = state.rows[rl]; if(rc.stairs.size || rc.gaps.size || rc.off.size){ rowsPayload[rl] = {stairs:Array.from(rc.stairs), gaps:Array.from(rc.gaps), off:Array.from(rc.off)}; } });
+      const payload = { sector: state.sector, rows: rowsPayload, stage: state.stage, orientation: state.orientation || 'ltr' };
       const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload)});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ alert(j.error || 'No se pudo guardar el plano.'); return; }

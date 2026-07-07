@@ -38157,27 +38157,66 @@ def _invitation_int_set(vals) -> set[int]:
 _INVITATION_STAGE_EDGES = {"top", "bottom", "left", "right"}
 
 
+def _invitation_stage_point(raw) -> dict | None:
+    """Punto del escenario sobre el MARCO del mapa como {x,y} en % (0-100) + ángulo de la flecha.
+    Acepta el nuevo formato {x,y} o el legado por borde ('top'/'bottom'/'left'/'right')."""
+    edge_map = {"top": (50.0, 0.0), "bottom": (50.0, 100.0), "left": (0.0, 50.0), "right": (100.0, 50.0)}
+    x = y = None
+    if isinstance(raw, dict):
+        try:
+            x = max(0.0, min(100.0, float(raw.get("x"))))
+            y = max(0.0, min(100.0, float(raw.get("y"))))
+        except (TypeError, ValueError):
+            return None
+    elif isinstance(raw, str) and raw.strip().lower() in edge_map:
+        x, y = edge_map[raw.strip().lower()]
+    if x is None or y is None:
+        return None
+    import math as _math
+    angle = _math.degrees(_math.atan2(y - 50.0, x - 50.0))  # 0=derecha, 90=abajo, -90=arriba
+    return {"x": round(x, 2), "y": round(y, 2), "angle": round(angle, 1)}
+
+
 def _invitation_sector_layout(category, sector: str, concert=None, default_stairs=None) -> dict:
-    """Retoques del plano de UN sector sobre la rejilla automática: escaleras (tras qué butaca),
-    huecos (sin asiento), asientos apagados (butaca que no ofrecemos) y borde del escenario.
-    Fuente: category.layout_json['sectors'][sector]; las escaleras caen a stairs_spec / defaults del
-    recinto si el sector no define ninguna (compatibilidad)."""
+    """Configuración del plano de UN sector: por FILA (escaleras/huecos/asientos apagados), sentido de
+    numeración y punto del escenario (360° sobre el marco). Compatibilidad con el formato antiguo por
+    sector (stairs/gaps/off a nivel de sector se aplican como respaldo a todas las filas)."""
     data = _invitation_layout_json(category)
     sectors = data.get("sectors") if isinstance(data.get("sectors"), dict) else {}
     sec = (sectors or {}).get(sector) or (sectors or {}).get((sector or "").strip()) or {}
     if not isinstance(sec, dict):
         sec = {}
-    stairs = _invitation_int_set(sec.get("stairs"))
-    if not stairs:
-        stairs = set(default_stairs or ()) or _invitation_stair_afters_for_category(concert, category)
-    stage = (sec.get("stage") or "").strip().lower()
+    legacy_stairs = _invitation_int_set(sec.get("stairs"))
+    if not legacy_stairs:
+        legacy_stairs = set(default_stairs or ()) or _invitation_stair_afters_for_category(concert, category)
+    rows_raw = sec.get("rows") if isinstance(sec.get("rows"), dict) else {}
+    rows_cfg = {}
+    for rl, rc in (rows_raw or {}).items():
+        if isinstance(rc, dict):
+            rows_cfg[str(rl)] = {
+                "stairs": _invitation_int_set(rc.get("stairs")),
+                "gaps": _invitation_int_set(rc.get("gaps")),
+                "off": _invitation_int_set(rc.get("off")),
+            }
     orientation = (sec.get("orientation") or "ltr").strip().lower()
     return {
-        "stairs": stairs,
-        "gaps": _invitation_int_set(sec.get("gaps")),
-        "off": _invitation_int_set(sec.get("off")),
-        "stage": stage if stage in _INVITATION_STAGE_EDGES else "",
+        "rows_cfg": rows_cfg,
+        "legacy_stairs": legacy_stairs,
+        "legacy_gaps": _invitation_int_set(sec.get("gaps")),
+        "legacy_off": _invitation_int_set(sec.get("off")),
+        "stage": _invitation_stage_point(sec.get("stage")),
         "orientation": "rtl" if orientation == "rtl" else "ltr",
+    }
+
+
+def _invitation_row_layout(cfg: dict, row_label: str) -> dict:
+    """Escaleras/huecos/apagados EFECTIVOS de una fila: los suyos propios o, si no tiene, el respaldo
+    de sector (formato antiguo)."""
+    rc = (cfg.get("rows_cfg") or {}).get(str(row_label)) or {}
+    return {
+        "stairs": rc.get("stairs") if rc.get("stairs") else set(cfg.get("legacy_stairs") or ()),
+        "gaps": rc.get("gaps") if rc.get("gaps") else set(cfg.get("legacy_gaps") or ()),
+        "off": rc.get("off") if rc.get("off") else set(cfg.get("legacy_off") or ()),
     }
 
 
@@ -38211,22 +38250,28 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
     out = []
     for sector in sorted(grouped.keys(), key=lambda x: str(x).casefold()):
         cfg = _invitation_sector_layout(category, sector, concert=concert, default_stairs=stair_afters)
-        stairs_after = set(cfg["stairs"])
-        gaps_cfg = set(cfg["gaps"])
-        off_cfg = set(cfg["off"])
         # Butacas numeradas de TODO el sector para deducir la rejilla común (mín→máx por paso).
         all_nums = [int(s.get("seat_number")) for seats in grouped[sector].values()
                     for s in seats if str(s.get("seat_number") or "").isdigit()]
+        # Posiciones añadidas por configuración (huecos/apagados por fila o legado) extienden la rejilla
+        # para poder ALARGAR filas más allá de la última butaca.
+        cfg_positions = set(cfg.get("legacy_gaps") or ()) | set(cfg.get("legacy_off") or ())
+        for _rc in (cfg.get("rows_cfg") or {}).values():
+            cfg_positions |= set(_rc.get("gaps") or ()) | set(_rc.get("off") or ())
         sector_step = 1
         grid = None
-        if all_nums:
-            mn, mx = min(all_nums), max(all_nums)
-            sector_step = 2 if (len(all_nums) >= 2 and len({n % 2 for n in all_nums}) == 1 and (mx - mn) >= 2) else 1
+        _grid_vals = all_nums + sorted(cfg_positions)
+        if _grid_vals:
+            mn, mx = min(_grid_vals), max(_grid_vals)
+            _parity = all_nums or _grid_vals
+            sector_step = 2 if (len(_parity) >= 2 and len({n % 2 for n in _parity}) == 1 and (mx - mn) >= 2) else 1
             span = (mx - mn) // sector_step + 1
             if 1 <= span <= _INVITATION_GRID_MAX_COLS:
                 grid = list(range(mn, mx + 1, sector_step))
         rows = []
         for row_label in sorted(grouped[sector].keys(), key=lambda x: str(x).casefold()):
+            _rl = _invitation_row_layout(cfg, row_label)
+            stairs_after = _rl["stairs"]; gaps_cfg = _rl["gaps"]; off_cfg = _rl["off"]
             seats = sorted(grouped[sector][row_label], key=lambda x: _safe_int(x.get("seat_number")) if str(x.get("seat_number") or "").isdigit() else 999999)
             # Color por invitado en cada butaca asignada.
             for seat in seats:
@@ -42508,18 +42553,21 @@ def _invitation_pick_grouped_seats(available: list, qty: int, category=None, con
     for t in available:
         key = ((getattr(t, "sector", None) or ""), (getattr(t, "row_label", None) or ""))
         rows.setdefault(key, []).append(t)
-    _stairs_by_sector: dict = {}
+    _cfg_by_sector: dict = {}
 
-    def _stairs_for(sector_name: str) -> set:
-        if sector_name not in _stairs_by_sector:
-            _stairs_by_sector[sector_name] = _invitation_sector_layout(category, sector_name or "General", concert=concert)["stairs"] if category is not None else set()
-        return _stairs_by_sector[sector_name]
+    def _stairs_for(sector_name: str, row_label: str) -> set:
+        if category is None:
+            return set()
+        if sector_name not in _cfg_by_sector:
+            _cfg_by_sector[sector_name] = _invitation_sector_layout(category, sector_name or "General", concert=concert)
+        return _invitation_row_layout(_cfg_by_sector[sector_name], row_label)["stairs"]
     # Parte cada fila en TRAMOS contiguos: dos asientos son contiguos si su diferencia == paso de la
     # fila (el menor salto entre asientos disponibles: 1 si van 1,2,3…; 2 si van 1,3,5…). Un salto
     # mayor = hay una butaca ocupada en medio → se corta el tramo (para no dejar hueco en el grupo).
+    # Una ESCALERA de esa fila también corta el tramo.
     runs: list = []  # [ [tickets_contiguos], ... ] en orden
     for (sector_name, _row), seats in rows.items():
-        stairs_after = _stairs_for(sector_name)
+        stairs_after = _stairs_for(sector_name, _row)
         seats_sorted = sorted(seats, key=lambda t: (_invitation_seat_int(t) if _invitation_seat_int(t) is not None else 10 ** 9))
         nums = [_invitation_seat_int(t) for t in seats_sorted]
         diffs = [b - a for a, b in zip(nums, nums[1:]) if a is not None and b is not None and b > a]
@@ -43520,22 +43568,34 @@ def invitation_sector_plan(concert_id, category_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, concert)
         sector = (request.args.get('sector') or '').strip() or 'General'
-        nums = sorted({int(t.seat_number) for t in session_db.query(InvitationTicket)
-                       .filter(InvitationTicket.category_id == cat.id, InvitationTicket.sector == (None if sector == 'General' else sector))
-                       .all() if str(getattr(t, 'seat_number', None) or '').isdigit()})
-        if not nums:
-            # Sector "General" puede venir de sector NULL: reintenta sin filtro de sector si vacío.
-            nums = sorted({int(t.seat_number) for t in session_db.query(InvitationTicket)
-                           .filter(InvitationTicket.category_id == cat.id)
-                           .all() if str(getattr(t, 'seat_number', None) or '').isdigit()
-                           and ((getattr(t, 'sector', None) or 'General') == sector)})
-        step = 2 if (len(nums) >= 2 and len({n % 2 for n in nums}) == 1 and (nums[-1] - nums[0]) >= 2) else 1
+        # Butacas por FILA del sector (para mostrar el plano completo en el configurador).
+        by_row: dict = {}
+        for t in session_db.query(InvitationTicket).filter(InvitationTicket.category_id == cat.id).all():
+            if (getattr(t, 'sector', None) or 'General') != sector:
+                continue
+            sv = getattr(t, 'seat_number', None)
+            if str(sv or '').isdigit():
+                by_row.setdefault((getattr(t, 'row_label', None) or 'Sin fila'), set()).add(int(sv))
+        all_nums = sorted({n for s in by_row.values() for n in s})
         cfg = _invitation_sector_layout(cat, sector, concert=concert)
+        cfg_positions = set(cfg.get('legacy_gaps') or ()) | set(cfg.get('legacy_off') or ())
+        for _rc in (cfg.get('rows_cfg') or {}).values():
+            cfg_positions |= set(_rc.get('gaps') or ()) | set(_rc.get('off') or ())
+        grid_vals = all_nums + sorted(cfg_positions)
+        step = 2 if (len(all_nums) >= 2 and len({n % 2 for n in all_nums}) == 1 and (all_nums[-1] - all_nums[0]) >= 2) else 1
+        mn = min(grid_vals) if grid_vals else 0
+        mx = max(grid_vals) if grid_vals else 0
+        rows = [{'label': rl, 'seats': sorted(by_row[rl])} for rl in sorted(by_row.keys(), key=lambda x: str(x).casefold())]
+        rows_cfg = {rl: {'stairs': sorted(rc.get('stairs') or ()), 'gaps': sorted(rc.get('gaps') or ()), 'off': sorted(rc.get('off') or ())}
+                    for rl, rc in (cfg.get('rows_cfg') or {}).items()}
         return jsonify({
-            'ok': True, 'sector': sector, 'step': step,
-            'min': (nums[0] if nums else 0), 'max': (nums[-1] if nums else 0),
-            'seats': nums,
-            'config': {'stairs': sorted(cfg['stairs']), 'gaps': sorted(cfg['gaps']), 'off': sorted(cfg['off']), 'stage': cfg['stage'], 'orientation': cfg.get('orientation', 'ltr')},
+            'ok': True, 'sector': sector, 'step': step, 'min': mn, 'max': mx,
+            'rows': rows,
+            'config': {
+                'rows': rows_cfg,
+                'legacy': {'stairs': sorted(cfg.get('legacy_stairs') or ()), 'gaps': sorted(cfg.get('legacy_gaps') or ()), 'off': sorted(cfg.get('legacy_off') or ())},
+                'stage': cfg['stage'], 'orientation': cfg.get('orientation', 'ltr'),
+            },
         })
     finally:
         session_db.close()
@@ -43559,13 +43619,27 @@ def invitation_sector_layout_save(concert_id, category_id):
             if isinstance(v, str):
                 v = [x for x in re.split(r'[^\d]+', v) if x]
             return sorted({int(x) for x in (v or []) if str(x).lstrip('-').isdigit()})
-        stage = (data.get('stage') or '').strip().lower()
         orientation = (data.get('orientation') or 'ltr').strip().lower()
+        # Config por FILA: {rowLabel: {stairs, gaps, off}}.
+        rows_out = {}
+        rows_in = data.get('rows') if isinstance(data.get('rows'), dict) else {}
+        for rl, rc in (rows_in or {}).items():
+            if not isinstance(rc, dict):
+                continue
+            st, gp, of = _as_ints(rc.get('stairs')), _as_ints(rc.get('gaps')), _as_ints(rc.get('off'))
+            if st or gp or of:
+                rows_out[str(rl)] = {'stairs': st, 'gaps': gp, 'off': of}
+        # Escenario: punto {x,y} en % sobre el marco (o null).
+        stage_raw = data.get('stage')
+        stage_out = None
+        if isinstance(stage_raw, dict):
+            try:
+                stage_out = {'x': max(0.0, min(100.0, float(stage_raw.get('x')))), 'y': max(0.0, min(100.0, float(stage_raw.get('y'))))}
+            except (TypeError, ValueError):
+                stage_out = None
         sec_cfg = {
-            'stairs': _as_ints(data.get('stairs')),
-            'gaps': _as_ints(data.get('gaps')),
-            'off': _as_ints(data.get('off')),
-            'stage': stage if stage in _INVITATION_STAGE_EDGES else '',
+            'rows': rows_out,
+            'stage': stage_out,
             'orientation': 'rtl' if orientation == 'rtl' else 'ltr',
         }
         layout = dict(_invitation_layout_json(cat))

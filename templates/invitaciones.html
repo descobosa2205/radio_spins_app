@@ -619,11 +619,10 @@
                 <span class="small fw-semibold me-1">Arrastra al plano:</span>
                 <span class="plan-tool" draggable="true" data-tool="stair" title="Escalera (entre dos butacas)"><i class="fa fa-stairs me-1"></i>Escalera</span>
                 <span class="plan-tool" draggable="true" data-tool="hole" title="Hueco (sin asiento)"><i class="fa fa-square me-1"></i>Hueco</span>
-                <span class="plan-tool" draggable="true" data-tool="off" title="Asiento apagado (butaca que no ofrecemos)"><i class="fa fa-ban me-1"></i>Apagado</span>
+                <span class="plan-tool" draggable="true" data-tool="off" title="Asiento apagado (butaca que no ofrecemos)"><i class="fa fa-couch me-1"></i>Apagado</span>
                 <span class="plan-tool plan-tool--stage" draggable="true" data-tool="stage" title="Escenario (arrástralo al borde del mapa)"><i class="fa fa-music me-1"></i>Escenario</span>
-                <button type="button" class="btn btn-sm btn-link text-danger" data-plan-stage-clear><i class="fa fa-xmark me-1"></i>Quitar escenario</button>
               </div>
-              <div class="small text-muted mb-2" data-plan-hint>Arrastra un icono sobre una fila: la <b>escalera</b> entre dos butacas; <b>hueco</b>/<b>apagado</b> sobre una posición o al final para alargar la fila. Pincha un elemento colocado para quitarlo. El <b>escenario</b> se arrastra al borde del mapa (donde quieras).</div>
+              <div class="small text-muted mb-2" data-plan-hint><b>Arrastra</b> un icono al plano: la <b>escalera</b> entre dos butacas; <b>hueco</b>/<b>apagado</b> entre butacas o a los lados (alarga la fila). <b>Pincha encima</b> de cualquier elemento colocado (incluido el escenario) para <b>quitarlo</b>. El <b>escenario</b> se arrastra a cualquier punto del borde del mapa.</div>
               <div class="mb-2">
                 <span class="small fw-semibold me-2">Sentido de numeración:</span>
                 <span class="btn-group btn-group-sm" role="group" data-plan-orient>
@@ -773,11 +772,10 @@
                         <div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head">
                           <div class="fw-bold">Sector {{ sector.sector }}</div>
                           <div class="d-flex align-items-center gap-2">
-                            {% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-right" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}
                             <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
                           </div>
                         </div>
-                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row">
@@ -800,9 +798,11 @@
                                   {% set t = cell.seat %}
                                   <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
                                 {% elif cell.type == 'missing' %}
-                                  <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }} {{ cell.seat }}"><span><s>{{ cell.seat }}</s></span></span>
+                                  <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }}{% if cell.seat %} {{ cell.seat }}{% endif %}"><i class="fa fa-couch"></i></span>
                                 {% elif cell.type == 'gap' %}
                                   <span class="invitation-seat invitation-seat--hole" title="Hueco (sin asiento)"></span>
+                                {% elif cell.type == 'spacer' %}
+                                  <span class="invitation-seat invitation-seat--spacer"></span>
                                 {% elif cell.type == 'stair' %}
                                   <span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
                                 {% endif %}
@@ -1091,13 +1091,13 @@
                   <div class="assignment-drop-zone" data-drop-zone>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                       {% for sector in ticket_groups_by_category.get(cat.id, []) %}
-                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div>{% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-right" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}</div>
-                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div></div>
+                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><s>{{ cell.seat }}</s></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                           {% endfor %}
                           </div></div>
                         {% endfor %}
@@ -2369,43 +2369,82 @@
     const titleEl = modalEl.querySelector('[data-plan-title]');
     let modal; const getModal = () => { if(!modal && window.bootstrap) modal = bootstrap.Modal.getOrCreateInstance(modalEl); return modal; };
     let state = null;
-    let tool = null;      // herramienta seleccionada por CLIC (colocación en táctil / múltiple)
-    let dragTool = null;  // herramienta que se está ARRASTRANDO
+    let dragTool = null;  // herramienta que se está ARRASTRANDO (no hay selección por clic)
     const enc = s => encodeURIComponent(s == null ? '' : String(s));
     const dec = s => { try { return decodeURIComponent(s || ''); } catch(e){ return s || ''; } };
     const escLbl = s => (s == null ? '' : String(s)).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+    const isInt = n => Number.isInteger(n);
     function rowCfg(label){ if(!state.rows[label]) state.rows[label] = {stairs:new Set(), gaps:new Set(), off:new Set()}; return state.rows[label]; }
+    function has(set, v){ for(const x of set){ if(Math.abs(x - v) < 1e-6) return x; } return null; }
+    function toggleNum(set, v){ const e = has(set, v); if(e !== null) set.delete(e); else set.add(v); }
+    // Columnas del sector: rejilla entera (mín→máx por paso) + posiciones insertadas (decimales o fuera
+    // de rango) de TODAS las filas → columnas alineadas.
+    function columnsOf(){
+      const step = state.step || 1; const cols = new Set();
+      for(let p = state.min; p <= state.max; p += step) cols.add(p);
+      state.rowsData.forEach(rd => rd.seats.forEach(v => cols.add(v)));
+      Object.keys(state.rows).forEach(rl => { const rc = state.rows[rl]; rc.gaps.forEach(v => cols.add(v)); rc.off.forEach(v => cols.add(v)); });
+      return Array.from(cols).sort((a,b) => a - b);
+    }
+    function boundaryHtml(row, bl, br){
+      const rc = state.rows[row]; const hasStair = (bl !== '' && isInt(bl) && has(rc.stairs, bl) !== null);
+      return '<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-row="'+enc(row)+'" data-bl="'+bl+'" data-br="'+br+'"></div>';
+    }
     function render(){
       if(!state) return;
+      const cols = columnsOf(); const step = state.step || 1;
       let html = '';
       state.rowsData.forEach(function(rd){
-        const rc = rowCfg(rd.label);
-        const cells = []; let prev = null;
-        for(let pos = state.min; pos <= state.max; pos += state.step){
-          if(prev !== null){ const hasStair = Array.from(rc.stairs).some(sa => prev <= sa && sa < pos); cells.push('<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-row="'+enc(rd.label)+'" data-boundary="'+prev+'"></div>'); }
-          const isSeat = rd.seats.has(pos);
-          const cls = rc.gaps.has(pos) ? 'is-hole' : (rc.off.has(pos) ? 'is-off' : (isSeat ? 'is-seat' : 'is-empty'));
-          cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(rd.label)+'" data-pos="'+pos+'"><span>'+pos+'</span></div>');
-          prev = pos;
-        }
-        cells.push('<div class="plan-cell plan-cell-end" data-row="'+enc(rd.label)+'" data-endpos="'+(state.max + state.step)+'" title="Añadir al final"><i class="fa fa-plus"></i></div>');
+        const rc = rowCfg(rd.label); const cells = [];
+        cells.push(boundaryHtml(rd.label, '', cols.length ? cols[0] : ''));
+        cols.forEach(function(col, i){
+          let cls, inner = '';
+          if(rd.seats.has(col)){ cls = 'is-seat'; inner = '<i class="fa fa-couch"></i>'; }
+          else if(has(rc.gaps, col) !== null){ cls = 'is-hole'; }
+          else if(has(rc.off, col) !== null){ cls = 'is-off'; inner = '<i class="fa fa-couch"></i>'; }
+          else if(isInt(col) && col >= state.min && col <= state.max && ((col - state.min) % step === 0)){ cls = 'is-missing'; inner = '<i class="fa fa-couch"></i>'; }
+          else { cls = 'is-spacer'; }
+          const num = isInt(col) ? ('<span class="plan-cell-num">'+col+'</span>') : '';
+          cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(rd.label)+'" data-pos="'+col+'">'+inner+num+'</div>');
+          cells.push(boundaryHtml(rd.label, col, (i+1 < cols.length) ? cols[i+1] : ''));
+        });
         const ordered = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
         html += '<div class="plan-editor-row"><div class="plan-editor-label">'+ escLbl(rd.label) +'</div>'+ ordered.join('') +'</div>';
       });
-      let stageHtml = state.stage ? ('<div class="invitation-stage plan-stage-marker" style="left:'+state.stage.x+'%;top:'+state.stage.y+'%"><i class="fa fa-music me-1"></i>ESCENARIO</div>') : '';
+      const stageHtml = state.stage ? ('<div class="invitation-stage plan-stage-marker" data-plan-stage-marker style="left:'+state.stage.x+'%;top:'+state.stage.y+'%;pointer-events:auto;cursor:pointer" title="Pincha para quitar el escenario"><i class="fa fa-music me-1"></i>ESCENARIO</div>') : '';
       gridEl.innerHTML = '<div class="plan-editor-rows">'+html+'</div>'+stageHtml;
     }
-    function applyToolAt(target, t){
+    // Colocar (por ARRASTRE) una herramienta en el objetivo del drop.
+    function dropTool(target, t){
       if(!state || !t) return;
-      if(t === 'stair'){ const b = target.closest('[data-boundary]'); if(!b) return; const rc = rowCfg(dec(b.dataset.row)); const sa = parseInt(b.dataset.boundary,10); if(rc.stairs.has(sa)) rc.stairs.delete(sa); else rc.stairs.add(sa); render(); return; }
-      let pos = null, row = null;
-      const end = target.closest('[data-endpos]'); const c = target.closest('[data-pos]');
-      if(end){ pos = parseInt(end.dataset.endpos,10); row = dec(end.dataset.row); if(pos > state.max) state.max = pos; }
-      else if(c){ pos = parseInt(c.dataset.pos,10); row = dec(c.dataset.row); }
-      if(pos === null || row === null) return;
+      const b = target.closest('[data-boundary]'); const c = target.closest('[data-pos]');
+      if(t === 'stair'){
+        // La escalera va en un BORDE, tras la butaca de la izquierda (entera). Al final también vale.
+        let row = null, at = null;
+        if(b){ row = dec(b.dataset.row); const bl = b.dataset.bl; if(bl !== '' && isInt(parseFloat(bl))) at = parseFloat(bl); }
+        else if(c){ row = dec(c.dataset.row); const pos = parseFloat(c.dataset.pos); if(isInt(pos)) at = pos; }
+        if(row === null || at === null) return;
+        toggleNum(rowCfg(row).stairs, at); render(); return;
+      }
+      // hole / off
+      let row = null, pos = null;
+      if(b){
+        row = dec(b.dataset.row);
+        const bl = b.dataset.bl === '' ? null : parseFloat(b.dataset.bl);
+        const br = b.dataset.br === '' ? null : parseFloat(b.dataset.br);
+        if(bl === null) pos = (br !== null ? br : state.min) - state.step;      // antes del inicio (alarga)
+        else if(br === null) pos = bl + state.step;                              // al final (alarga)
+        else pos = (bl + br) / 2;                                               // inserción entre dos
+      } else if(c){
+        row = dec(c.dataset.row); const cp = parseFloat(c.dataset.pos);
+        const isSeat = state.rowsData.find(rd => rd.label === row && rd.seats.has(cp));
+        pos = isSeat ? (cp - state.step / 2) : cp;   // sobre butaca → inserta justo antes; sobre vacío → esa posición
+      }
+      if(row === null || pos === null) return;
+      pos = Math.round(pos * 100) / 100;
       const rc = rowCfg(row);
-      if(t === 'off'){ if(rc.off.has(pos)) rc.off.delete(pos); else { rc.off.add(pos); rc.gaps.delete(pos); } }
-      else if(t === 'hole'){ if(rc.gaps.has(pos)) rc.gaps.delete(pos); else { rc.gaps.add(pos); rc.off.delete(pos); } }
+      if(t === 'off'){ if(has(rc.off,pos)!==null) toggleNum(rc.off,pos); else { toggleNum(rc.off,pos); const g=has(rc.gaps,pos); if(g!==null) rc.gaps.delete(g); } }
+      else if(t === 'hole'){ if(has(rc.gaps,pos)!==null) toggleNum(rc.gaps,pos); else { toggleNum(rc.gaps,pos); const o=has(rc.off,pos); if(o!==null) rc.off.delete(o); } }
       render();
     }
     function placeStageAt(cx, cy){
@@ -2417,26 +2456,23 @@
       state.stage = { x: Math.round(x*10)/10, y: Math.round(y*10)/10 };
       render();
     }
-    // Herramientas: arrastre (dragTool) y selección por clic (tool).
     modalEl.querySelectorAll('.plan-tool[data-tool]').forEach(function(el){
       el.addEventListener('dragstart', function(e){ dragTool = el.dataset.tool; try{ e.dataTransfer.setData('text/plain', dragTool); e.dataTransfer.effectAllowed = 'copy'; }catch(_){}} );
       el.addEventListener('dragend', function(){ dragTool = null; });
-      el.addEventListener('click', function(){ tool = (tool === el.dataset.tool) ? null : el.dataset.tool; modalEl.querySelectorAll('.plan-tool').forEach(x => x.classList.toggle('active', x === el && tool)); });
     });
     gridEl.addEventListener('dragover', function(e){ if(dragTool){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    gridEl.addEventListener('drop', function(e){ if(!state || !dragTool) return; e.preventDefault(); const t = dragTool; if(t === 'stage') placeStageAt(e.clientX, e.clientY); else applyToolAt(e.target, t); });
+    gridEl.addEventListener('drop', function(e){ if(!state || !dragTool) return; e.preventDefault(); const t = dragTool; if(t === 'stage') placeStageAt(e.clientX, e.clientY); else dropTool(e.target, t); });
+    // CLIC = quitar el elemento colocado (no hay selección de herramienta).
     gridEl.addEventListener('click', function(e){
       if(!state) return;
-      if(tool === 'stage'){ placeStageAt(e.clientX, e.clientY); return; }
-      if(tool){ applyToolAt(e.target, tool); return; }
-      // Sin herramienta seleccionada: un clic QUITA el elemento que haya en esa celda/borde.
+      if(e.target.closest('[data-plan-stage-marker]')){ state.stage = null; render(); return; }
       const b = e.target.closest('[data-boundary]');
-      if(b && b.classList.contains('has-stair')){ const rc = rowCfg(dec(b.dataset.row)); rc.stairs.delete(parseInt(b.dataset.boundary,10)); render(); return; }
+      if(b && b.classList.contains('has-stair')){ const rc = rowCfg(dec(b.dataset.row)); const s = has(rc.stairs, parseFloat(b.dataset.bl)); if(s!==null) rc.stairs.delete(s); render(); return; }
       const c = e.target.closest('[data-pos]');
-      if(c){ const rc = rowCfg(dec(c.dataset.row)); const pos = parseInt(c.dataset.pos,10);
-        if(rc.gaps.has(pos)){ rc.gaps.delete(pos); render(); } else if(rc.off.has(pos)){ rc.off.delete(pos); render(); } }
+      if(c){ const rc = rowCfg(dec(c.dataset.row)); const pos = parseFloat(c.dataset.pos);
+        const g = has(rc.gaps,pos); const o = has(rc.off,pos);
+        if(g!==null){ rc.gaps.delete(g); render(); } else if(o!==null){ rc.off.delete(o); render(); } }
     });
-    modalEl.querySelector('[data-plan-stage-clear]')?.addEventListener('click', function(){ if(state){ state.stage = null; render(); } });
     modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(b => b.addEventListener('click', () => { if(state) state.orientation = b.dataset.orientVal; modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x === b)); if(state) render(); }));
     document.getElementById('inv-tab-tickets')?.addEventListener('click', async (ev) => {
       const btn = ev.target.closest('[data-sector-config]'); if(!btn) return;
@@ -2474,7 +2510,19 @@
       const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload)});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ alert(j.error || 'No se pudo guardar el plano.'); return; }
-      getModal()?.hide(); location.reload();
+      const cid = state.catId;
+      getModal()?.hide();
+      // Reflejar los cambios del plano de INMEDIATO, sin recargar la página (se reemplaza solo el mapa
+      // de esa categoría en la pestaña de invitaciones).
+      let done = false;
+      try {
+        const r = await fetch(location.href, {headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+        const fresh = doc.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="'+cid+'"]');
+        const cur = document.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="'+cid+'"]');
+        if(fresh.length && fresh.length === cur.length){ cur.forEach((el,i)=>el.replaceWith(fresh[i])); done = true; }
+      } catch(e){}
+      if(!done) location.reload();
     });
   })();
   document.querySelector('[data-ticket-files]')?.addEventListener('change', (ev) => { const files = Array.from(ev.target.files || []); document.querySelector('[data-file-summary]').textContent = files.length ? `${files.length} archivo(s) seleccionados` : 'Selecciona varios PDFs sueltos.'; document.querySelector('[data-file-list]').innerHTML = files.map(f=>`<div class="list-group-item">${f.name}</div>`).join(''); });

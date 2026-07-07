@@ -1002,10 +1002,14 @@ img[data-default-photo="1"]{
 /* Butaca apagada (config): existe físicamente pero no la ofrecemos. Hueco: no hay asiento. */
 .invitation-seat--off { background: #d7dbe2; border: 1px solid #c3c9d2; border-style: solid; color: #7b838f; opacity: 1; }
 .invitation-seat--hole { background: transparent; border: 1px dashed #e3e7ec; color: transparent; }
+/* Espaciador de alineación (columna insertada en otra fila): invisible pero ocupa el mismo ancho. */
+.invitation-seat--spacer { background: transparent; border: 1px solid transparent; color: transparent; }
+.invitation-seat--spacer i { visibility: hidden; }
 /* Etiqueta de ESCENARIO: se coloca en un punto libre del marco del sector (left/top en % por estilo
    en línea). Negra, texto/icono en blanco. */
 .invitation-stage { position: absolute; z-index: 3; transform: translate(-50%,-50%); background: #111; color: #fff; font-size: .6rem; font-weight: 800; letter-spacing: .06em; padding: .2rem .6rem; border-radius: .45rem; display: inline-flex; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.25); white-space: nowrap; pointer-events: none; }
 .invitation-stage i { color: #fff; }
+.invitation-stage-arrow { margin-right: .35rem; display: inline-block; }
 .invitation-stage-dir i:first-child { display: inline-block; }
 /* Indicador de dirección del ESCENARIO: chip negro con flecha, siempre visible en la cabecera del
    sector (para saber dónde cae el escenario aunque no se vea el borde por el scroll o en el mapa de
@@ -1031,6 +1035,11 @@ img[data-default-photo="1"]{
 .plan-cell.is-seat { color: #16803a; background: #effaf2; }
 .plan-cell.is-off { color: #7b838f; background: #d7dbe2; }
 .plan-cell.is-hole { color: transparent; background: transparent; border-style: dashed; }
+.plan-cell.is-missing { color: #aeb6c0; background: #eef1f5; }
+.plan-cell.is-spacer { background: transparent; border-color: transparent; }
+.plan-cell.is-spacer i, .plan-cell.is-hole i { visibility: hidden; }
+.plan-cell .fa-couch { font-size: .9rem; }
+.plan-cell-num { font-size: .58rem; line-height: 1; margin-top: 1px; }
 .plan-cell-boundary { width: .7rem; min-width: .7rem; flex: 0 0 auto; align-self: stretch; cursor: pointer; border-radius: .2rem; position: relative; }
 .plan-cell-boundary:hover { background: rgba(0,124,162,.12); }
 .plan-cell-boundary.has-stair { background: rgba(0,124,162,.14); border-left: 2px dashed var(--brand-accent); border-right: 2px dashed var(--brand-accent); }

@@ -38161,6 +38161,19 @@ def _invitation_int_set(vals) -> set[int]:
     return out
 
 
+def _invitation_num_set(vals) -> set:
+    """Conjunto de posiciones numéricas: enteras (butacas existentes) o con decimales (elementos
+    INSERTADOS entre butacas o fuera de rango, p. ej. 6.5 = entre la 6 y la 8, o -1 = antes del inicio)."""
+    out = set()
+    for v in (vals or []):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        out.add(int(f) if f == int(f) else round(f, 4))
+    return out
+
+
 _INVITATION_STAGE_EDGES = {"top", "bottom", "left", "right"}
 
 
@@ -38202,15 +38215,15 @@ def _invitation_sector_layout(category, sector: str, concert=None, default_stair
         if isinstance(rc, dict):
             rows_cfg[str(rl)] = {
                 "stairs": _invitation_int_set(rc.get("stairs")),
-                "gaps": _invitation_int_set(rc.get("gaps")),
-                "off": _invitation_int_set(rc.get("off")),
+                "gaps": _invitation_num_set(rc.get("gaps")),
+                "off": _invitation_num_set(rc.get("off")),
             }
     orientation = (sec.get("orientation") or "ltr").strip().lower()
     return {
         "rows_cfg": rows_cfg,
         "legacy_stairs": legacy_stairs,
-        "legacy_gaps": _invitation_int_set(sec.get("gaps")),
-        "legacy_off": _invitation_int_set(sec.get("off")),
+        "legacy_gaps": _invitation_num_set(sec.get("gaps")),
+        "legacy_off": _invitation_num_set(sec.get("off")),
         "stage": _invitation_stage_point(sec.get("stage")),
         "orientation": "rtl" if orientation == "rtl" else "ltr",
     }
@@ -38260,21 +38273,24 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
         # Butacas numeradas de TODO el sector para deducir la rejilla común (mín→máx por paso).
         all_nums = [int(s.get("seat_number")) for seats in grouped[sector].values()
                     for s in seats if str(s.get("seat_number") or "").isdigit()]
-        # Posiciones añadidas por configuración (huecos/apagados por fila o legado) extienden la rejilla
-        # para poder ALARGAR filas más allá de la última butaca.
-        cfg_positions = set(cfg.get("legacy_gaps") or ()) | set(cfg.get("legacy_off") or ())
+        # COLUMNAS del sector, alineadas para todas las filas: enteros de la rejilla base (mín→máx por
+        # paso, butacas reales) + posiciones INSERTADAS (huecos/apagados con decimales o fuera de rango).
+        int_positions = set(all_nums)
+        insert_positions = set(cfg.get("legacy_gaps") or ()) | set(cfg.get("legacy_off") or ())
         for _rc in (cfg.get("rows_cfg") or {}).values():
-            cfg_positions |= set(_rc.get("gaps") or ()) | set(_rc.get("off") or ())
+            insert_positions |= set(_rc.get("gaps") or ()) | set(_rc.get("off") or ())
         sector_step = 1
-        grid = None
-        _grid_vals = all_nums + sorted(cfg_positions)
-        if _grid_vals:
-            mn, mx = min(_grid_vals), max(_grid_vals)
-            _parity = all_nums or _grid_vals
-            sector_step = 2 if (len(_parity) >= 2 and len({n % 2 for n in _parity}) == 1 and (mx - mn) >= 2) else 1
-            span = (mx - mn) // sector_step + 1
-            if 1 <= span <= _INVITATION_GRID_MAX_COLS:
-                grid = list(range(mn, mx + 1, sector_step))
+        columns = None
+        _int_all = list(int_positions) + [int(p) for p in insert_positions if float(p) == int(p)]
+        mn = mx = 0
+        if _int_all:
+            mn, mx = min(_int_all), max(_int_all)
+            _parity = list(all_nums) or _int_all
+            sector_step = 2 if (len(_parity) >= 2 and len({int(n) % 2 for n in _parity}) == 1 and (mx - mn) >= 2) else 1
+            base = list(range(mn, mx + 1, sector_step))
+            cols = set(base) | set(insert_positions) | int_positions
+            if len(cols) <= _INVITATION_GRID_MAX_COLS:
+                columns = sorted(cols)
         rows = []
         for row_label in sorted(grouped[sector].keys(), key=lambda x: str(x).casefold()):
             _rl = _invitation_row_layout(cfg, row_label)
@@ -38294,24 +38310,29 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                 else:
                     non_numbered.append(s)
             visual = []
-            if grid is not None:
+            if columns is not None:
                 prev_pos = None
-                for pos in grid:
-                    # Escalera(s) al cruzar el borde configurado (entre prev_pos y pos).
+                for pos in columns:
                     if prev_pos is not None and stairs_after:
                         for sa in sorted(stairs_after):
                             if prev_pos <= sa < pos:
                                 visual.append({"type": "stair", "label": "Escalera"})
-                    if pos in by_num:
-                        visual.append({"type": "seat", "seat": by_num[pos]})
+                    ipos = int(pos) if float(pos) == int(pos) else None
+                    if ipos is not None and ipos in by_num:
+                        visual.append({"type": "seat", "seat": by_num[ipos]})
                     elif pos in gaps_cfg:
                         visual.append({"type": "gap", "seat": pos})
+                    elif pos in off_cfg:
+                        visual.append({"type": "missing", "seat": ipos if ipos is not None else "", "off": True})
+                    elif ipos is not None and mn <= ipos <= mx and (ipos - mn) % sector_step == 0:
+                        # Posición entera de la rejilla base sin butaca → gris (no la tenemos), para alinear.
+                        visual.append({"type": "missing", "seat": ipos, "off": False})
                     else:
-                        # Apagada (config) o simplemente no la tenemos → butaca gris para alinear.
-                        visual.append({"type": "missing", "seat": pos, "off": pos in off_cfg})
+                        # Columna de inserción de OTRA fila → espaciador vacío (mantiene la alineación).
+                        visual.append({"type": "spacer"})
                     prev_pos = pos
             else:
-                # Sin rejilla (sin numerar, o span excesivo): butacas seguidas + escaleras entre nº.
+                # Sin rejilla (sin numerar, o demasiadas columnas): butacas seguidas + escaleras entre nº.
                 prev_num = None
                 for s in seats:
                     sv = s.get("seat_number")
@@ -43593,10 +43614,11 @@ def invitation_sector_plan(concert_id, category_id):
         cfg_positions = set(cfg.get('legacy_gaps') or ()) | set(cfg.get('legacy_off') or ())
         for _rc in (cfg.get('rows_cfg') or {}).values():
             cfg_positions |= set(_rc.get('gaps') or ()) | set(_rc.get('off') or ())
-        grid_vals = all_nums + sorted(cfg_positions)
+        # El rango (mín→máx) lo definen las posiciones ENTERAS; los decimales son inserciones intermedias.
+        int_vals = list(all_nums) + [int(p) for p in cfg_positions if float(p) == int(p)]
         step = 2 if (len(all_nums) >= 2 and len({n % 2 for n in all_nums}) == 1 and (all_nums[-1] - all_nums[0]) >= 2) else 1
-        mn = min(grid_vals) if grid_vals else 0
-        mx = max(grid_vals) if grid_vals else 0
+        mn = min(int_vals) if int_vals else 0
+        mx = max(int_vals) if int_vals else 0
         rows = [{'label': rl, 'seats': sorted(by_row[rl])} for rl in sorted(by_row.keys(), key=lambda x: str(x).casefold())]
         rows_cfg = {rl: {'stairs': sorted(rc.get('stairs') or ()), 'gaps': sorted(rc.get('gaps') or ()), 'off': sorted(rc.get('off') or ())}
                     for rl, rc in (cfg.get('rows_cfg') or {}).items()}
@@ -43628,17 +43650,34 @@ def invitation_sector_layout_save(concert_id, category_id):
         sector = (data.get('sector') or request.form.get('sector') or '').strip() or 'General'
 
         def _as_ints(v):
-            if isinstance(v, str):
-                v = [x for x in re.split(r'[^\d]+', v) if x]
-            return sorted({int(x) for x in (v or []) if str(x).lstrip('-').isdigit()})
+            out = set()
+            for x in (v or []):
+                try:
+                    f = float(x)
+                except (TypeError, ValueError):
+                    continue
+                if f == int(f):
+                    out.add(int(f))
+            return sorted(out)
+
+        def _as_nums(v):
+            # Enteros (butacas existentes) o decimales (inserciones entre butacas / fuera de rango).
+            out = set()
+            for x in (v or []):
+                try:
+                    f = float(x)
+                except (TypeError, ValueError):
+                    continue
+                out.add(int(f) if f == int(f) else round(f, 4))
+            return sorted(out)
         orientation = (data.get('orientation') or 'ltr').strip().lower()
-        # Config por FILA: {rowLabel: {stairs, gaps, off}}.
+        # Config por FILA: {rowLabel: {stairs (enteros), gaps/off (enteros o decimales)}}.
         rows_out = {}
         rows_in = data.get('rows') if isinstance(data.get('rows'), dict) else {}
         for rl, rc in (rows_in or {}).items():
             if not isinstance(rc, dict):
                 continue
-            st, gp, of = _as_ints(rc.get('stairs')), _as_ints(rc.get('gaps')), _as_ints(rc.get('off'))
+            st, gp, of = _as_ints(rc.get('stairs')), _as_nums(rc.get('gaps')), _as_nums(rc.get('off'))
             if st or gp or of:
                 rows_out[str(rl)] = {'stairs': st, 'gaps': gp, 'off': of}
         # Escenario: punto {x,y} en % sobre el marco (o null).

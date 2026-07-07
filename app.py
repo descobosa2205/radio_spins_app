@@ -40288,7 +40288,8 @@ def public_invitation_delivery(kind, token):
             if not row:
                 abort(404)
             concert = row.concert or session_db.get(Concert, row.concert_id)
-            guest_name = (getattr(row, "guest_name", None) or getattr(row, "name", None) or "").strip()
+            # En COMPROMISOS el título es el NOMBRE DEL COMPROMISO (no la persona que recibe).
+            guest_name = (getattr(row, "name", None) or "").strip()
             download_url = url_for("invitation_commitment_download", token=token)
             cat = (request.args.get("category") or "").strip()
             if cat:
@@ -40315,6 +40316,8 @@ def public_invitation_delivery(kind, token):
         card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
         poster_url = _concert_poster_url(concert) or ""      # cartel principal (solo si lo hay)
         artist_photo = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()  # foto real del artista
+        show_time = "" if getattr(concert, "show_time_tbc", False) else (getattr(concert, "show_time", None) or "").strip()
+        venue_name = _invitation_event_venue_name(concert) if concert else ""
         logo = _invitation_event_logo_url(session_db, concert, external=False)
         bits = [x for x in [card["activity_label"], (card["event_name"] or card["city"]), card["date_label"]] if x]
         qty_label = (str(qty) + (" invitación" if qty == 1 else " invitaciones")) if qty else ""
@@ -40332,7 +40335,7 @@ def public_invitation_delivery(kind, token):
                                             logo=_invitation_event_logo_url(session_db, concert, external=True)),
         }
         return render_template("public_invitation_delivery.html", logo=logo, card=card, guest_name=guest_name,
-                               poster_url=poster_url, artist_photo=artist_photo,
+                               poster_url=poster_url, artist_photo=artist_photo, show_time=show_time, venue_name=venue_name,
                                qty=qty, qty_label=qty_label, download_url=download_url, tickets_html=tickets_html, og=og)
     finally:
         session_db.close()

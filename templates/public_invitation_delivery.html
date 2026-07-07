@@ -29,7 +29,11 @@
     .pi-artist{ display:flex; align-items:center; gap:.55rem; }
     .pi-artist img{ width:44px; height:44px; border-radius:50%; object-fit:cover; border:1px solid #eceef1; flex:0 0 auto; }
     .pi-artist .n{ font-weight:800; font-size:1.15rem; line-height:1.15; }
-    .pi-meta{ color:#5b636e; font-size:.95rem; }
+    /* Datos del concierto con sus iconos (mismos que la ficha del concierto; icono en verde/teal). */
+    .pi-facts{ display:flex; flex-wrap:wrap; gap:.3rem .95rem; color:#5b636e; font-size:.95rem; }
+    .pi-facts span{ display:inline-flex; align-items:center; }
+    .pi-facts i{ color:#007CA2; width:1rem; text-align:center; margin-right:.3rem; }
+    .pi-guest .badge, .pi-guest .btn{ font-size:.9rem; }
     .pi-eyebrow{ text-transform:uppercase; letter-spacing:.06em; font-weight:700; color:#E33D48; font-size:.8rem; }
     .pi-guest{ display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; }
     .pi-guest .g{ font-weight:800; font-size:1.2rem; }
@@ -46,9 +50,9 @@
 </head>
 <body>
 <div class="pi-wrap">
-  {# Logo de la empresa del grupo, arriba a la derecha. #}
-  <div class="text-end mb-3"><img class="pi-logo" src="{{ logo }}" alt=""></div>
-  <h1 class="pi-title h3"><i class="fa fa-ticket me-2 text-danger"></i>Invitaciones</h1>
+  {# Logo de la empresa del grupo + título "Invitaciones", centrados. #}
+  <div class="text-center mb-2"><img class="pi-logo" src="{{ logo }}" alt=""></div>
+  <h1 class="pi-title h3 text-center"><i class="fa fa-ticket me-2 text-danger"></i>Invitaciones</h1>
 
   {# Cabecera: cartel principal (si lo hay) a la izquierda + info del concierto a la derecha. #}
   <div class="pi-card">
@@ -60,29 +64,34 @@
           {% if artist_photo %}<img src="{{ artist_photo }}" alt="">{% endif %}
           <span class="n">{{ card.artist_name or card.event_name or 'Evento' }}</span>
         </div>
-        {% set bits = [] %}
-        {% if card.activity_label %}{% set _ = bits.append(card.activity_label) %}{% endif %}
-        {% if card.event_name and card.artist_name %}{% set _ = bits.append(card.event_name) %}{% endif %}
-        {% if card.city %}{% set _ = bits.append(card.city) %}{% endif %}
-        {% if card.date_label %}{% set _ = bits.append(card.date_label) %}{% endif %}
-        {% if bits %}<div class="pi-meta"><i class="fa {{ card.activity_icon or 'fa-calendar-day' }} me-2"></i>{{ bits|join(' · ') }}</div>{% endif %}
+        {# Datos con sus iconos (los mismos que en la ficha del concierto): actividad, evento, ciudad,
+           fecha, hora de comienzo (si hay) y recinto (si hay). #}
+        <div class="pi-facts">
+          {% if card.activity_label %}<span><i class="fa {{ card.activity_icon or 'fa-calendar-day' }}"></i>{{ card.activity_label }}</span>{% endif %}
+          {% if card.event_name and card.artist_name %}<span><i class="fa fa-star"></i>{{ card.event_name }}</span>{% endif %}
+          {% if card.city %}<span><i class="fa fa-location-dot"></i>{{ card.city }}</span>{% endif %}
+          {% if card.date_label %}<span><i class="fa fa-calendar-day"></i>{{ card.date_label }}</span>{% endif %}
+          {% if show_time %}<span><i class="fa fa-clock"></i>{{ show_time }}</span>{% endif %}
+          {% if venue_name %}<span><i class="fa fa-location-dot"></i>{{ venue_name }}</span>{% endif %}
+        </div>
       </div>
     </div>
   </div>
 
-  {# Invitado / compromiso + nº de invitaciones (etiqueta roja). #}
-  {% if guest_name or qty %}
+  {# Invitado (solicitud) / nombre del compromiso, con el nº de invitaciones y el botón de descargar
+     todas a la DERECHA, dentro del mismo bocadillo. #}
+  {% if guest_name or qty or download_url %}
   <div class="pi-card pi-guest">
     {% if guest_name %}<span class="g">{{ guest_name }}</span>{% endif %}
-    {% if qty %}<span class="badge text-bg-danger fs-6"><i class="fa fa-ticket me-1"></i>{{ qty_label }}</span>{% endif %}
+    <div class="ms-auto d-flex align-items-center gap-2 flex-wrap">
+      {% if qty %}<span class="badge text-bg-danger"><i class="fa fa-ticket me-1"></i>{{ qty_label }}</span>{% endif %}
+      {% if download_url %}<a class="btn btn-sm btn-danger" href="{{ download_url }}"><i class="fa fa-download me-1"></i>Descargar todas</a>{% endif %}
+    </div>
   </div>
   {% endif %}
 
-  {# Descargar todas (a la derecha) + listado por categorías (mismo ancho). #}
+  {# Listado por categorías (mismo ancho que el resto de bocadillos). #}
   {% if download_url %}
-    <div class="d-flex justify-content-end mb-3">
-      <a class="btn btn-danger btn-lg" href="{{ download_url }}"><i class="fa fa-download me-1"></i>Descargar todas las invitaciones</a>
-    </div>
     <div class="small text-muted mb-2">Se descargan en un único PDF. También puedes descargarlas por tipo o una a una abajo.</div>
     {% if tickets_html %}{{ tickets_html }}{% endif %}
   {% else %}

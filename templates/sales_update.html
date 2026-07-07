@@ -218,7 +218,7 @@
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
-                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
+                          <img src="{{ ct.ticketer.logo_url or DEFAULT_PHOTO_URL }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
                           {% if ct.ticketer %}{{ linked_mini('ticketer', ct.ticketer.id) }}{% endif %}
@@ -482,7 +482,7 @@
                     <select class="form-select form-select-sm select-with-thumbs" name="ticketer_id" style="min-width:220px">
                       <option value="">— Selecciona —</option>
                       {% for t in all_ticketers %}
-                        <option value="{{ t.id }}" data-photo="{{ t.logo_url or url_for('static', filename='img/default_promoter.png') }}">{{ t.name }}</option>
+                        <option value="{{ t.id }}" data-photo="{{ t.logo_url or DEFAULT_PHOTO_URL }}">{{ t.name }}</option>
                       {% endfor %}
                     </select>
                     <button class="btn btn-sm btn-outline-primary" type="submit">
@@ -506,7 +506,7 @@
                     <div class="accordion-item">
                       <h2 class="accordion-header" id="tickh-{{ c.id }}-{{ tid }}">
                         <button class="accordion-button {% if not is_open_tick %}collapsed{% endif %}" type="button" data-bs-toggle="collapse" data-bs-target="#tickc-{{ c.id }}-{{ tid }}" aria-expanded="{% if is_open_tick %}true{% else %}false{% endif %}" aria-controls="tickc-{{ c.id }}-{{ tid }}">
-                          <img src="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}" class="station-logo me-2" style="width:20px;height:20px;object-fit:contain;" alt="">
+                          <img src="{{ ct.ticketer.logo_url or DEFAULT_PHOTO_URL }}" class="station-logo me-2" style="width:20px;height:20px;object-fit:contain;" alt="">
                           <strong class="me-2">{{ ct.ticketer.name }}</strong>
                           <span class="text-muted small">Aforo a la venta: {{ tcap }}</span>
                         </button>
@@ -579,7 +579,7 @@
                                         data-ticketer-id="{{ tid }}"
                                         data-action="{{ url_for('sales_ticketer_rebate_save', cid=c.id, tid=tid) }}"
                                         data-ticketer-name="{{ ct.ticketer.name }}"
-                                        data-ticketer-logo="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}"
+                                        data-ticketer-logo="{{ ct.ticketer.logo_url or DEFAULT_PHOTO_URL }}"
                                         data-rebate-mode="{{ ct.rebate_mode or '' }}"
                                         data-rebate-fixed="{{ '%.2f'|format(ct.rebate_fixed_gross or 0.0) }}"
                                         data-rebate-pct="{{ '%.2f'|format(ct.rebate_pct or 0.0) }}">
@@ -596,7 +596,7 @@
                                         data-ticketer-id="{{ tid }}"
                                         data-action="{{ url_for('sales_ticketer_rebate_save', cid=c.id, tid=tid) }}"
                                         data-ticketer-name="{{ ct.ticketer.name }}"
-                                        data-ticketer-logo="{{ ct.ticketer.logo_url or url_for('static', filename='img/default_promoter.png') }}"
+                                        data-ticketer-logo="{{ ct.ticketer.logo_url or DEFAULT_PHOTO_URL }}"
                                         data-rebate-mode="{{ ct.rebate_mode or '' }}"
                                         data-rebate-fixed="{{ '%.2f'|format(ct.rebate_fixed_gross or 0.0) }}"
                                         data-rebate-pct="{{ '%.2f'|format(ct.rebate_pct or 0.0) }}">
@@ -774,7 +774,7 @@
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title d-flex align-items-center gap-2">
-          <img id="rebateModalLogo" src="{{ url_for('static', filename='img/default_promoter.png') }}" style="width:20px;height:20px;object-fit:contain;" alt="">
+          <img id="rebateModalLogo" src="{{ DEFAULT_PHOTO_URL }}" style="width:20px;height:20px;object-fit:contain;" alt="">
           <span id="rebateModalTitle">Configurar rebate</span>
         </h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>

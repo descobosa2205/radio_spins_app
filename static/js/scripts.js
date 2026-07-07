@@ -886,16 +886,19 @@ function initImageFallbacks(){
     'img[src$="/static/img/promoter_default.png"]'
   ].join(',');
 
-  // REINTENTAR antes de sustituir. Un fallo PUNTUAL de red (Storage que no responde un instante,
-  // cargas lazy al hacer scroll…) disparaba 'error' y reemplazaba PARA SIEMPRE una imagen válida por
-  // el placeholder — de ahí que las miniaturas "se rompieran solas a los minutos" y de forma
-  // aleatoria. Ahora se reintenta la URL original (2 veces, con cache-buster para no releer el fallo
-  // de la caché) y solo si sigue fallando cae al placeholder, que además conserva la caja (CSS
-  // .image-fallback). Si el reintento carga, la imagen vuelve sola a verse bien.
+  // REINTENTAR antes de dar una imagen por perdida. Un fallo PUNTUAL de red (Storage que no
+  // responde un instante, cargas lazy al hacer scroll…) disparaba 'error' y reemplazaba PARA
+  // SIEMPRE una imagen válida por el placeholder. Ahora, al primer fallo: se pone el placeholder
+  // AL INSTANTE (nunca se ve el icono roto "?") y se reintenta la URL original en segundo plano
+  // (2 veces, con cache-buster, usando un probe fuera del DOM); si un reintento carga, se RESTAURA
+  // la imagen real (ya cacheada por el probe) y desaparece el placeholder.
   const RETRY_DELAYS = [800, 2500];
+  const absUrl = (u) => {
+    try { return new URL(u, window.location.href).href; } catch (e) { return u; }
+  };
   const applyFallback = (img) => {
     const fb = fbFor(img);
-    if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
+    if (fb && img.src !== absUrl(fb)) { img.src = fb; img.classList.add('image-fallback'); }
   };
   const retryUrl = (raw, attempt) => {
     try {
@@ -904,23 +907,31 @@ function initImageFallbacks(){
       return u.href;
     } catch (e) { return raw; }
   };
+  const scheduleRetry = (img, attempt) => {
+    if (attempt >= RETRY_DELAYS.length) return; // agotado: se queda el placeholder
+    window.setTimeout(() => {
+      if (!img.isConnected) return;
+      const url = retryUrl(img.dataset.origSrc, attempt + 1);
+      const probe = new Image();
+      probe.onload = () => {
+        if (!img.isConnected) return;
+        img.classList.remove('image-fallback');
+        img.src = url;
+      };
+      probe.onerror = () => scheduleRetry(img, attempt + 1);
+      probe.src = url;
+    }, RETRY_DELAYS[attempt]);
+  };
   const handleImgError = (img) => {
     if (skipImg(img)) return;
     const fb = fbFor(img);
-    if (!fb || img.src === fb) return;
-    if (!img.dataset.origSrc) {
-      const raw = (img.getAttribute('src') || '').trim();
-      if (!raw) { applyFallback(img); return; }
-      img.dataset.origSrc = img.currentSrc || img.src || raw;
-    }
-    const attempt = parseInt(img.dataset.imgRetries || '0', 10) || 0;
-    if (attempt >= RETRY_DELAYS.length) { applyFallback(img); return; }
-    img.dataset.imgRetries = String(attempt + 1);
-    window.setTimeout(() => {
-      if (!img.isConnected) return;
-      if (img.complete && img.naturalWidth > 0) return; // ya cargó por otro camino
-      img.src = retryUrl(img.dataset.origSrc, attempt + 1);
-    }, RETRY_DELAYS[attempt]);
+    if (!fb) return;
+    if (img.dataset.origSrc) { applyFallback(img); return; } // falló tras restaurar: placeholder otra vez
+    const raw = (img.getAttribute('src') || '').trim();
+    if (!raw || absUrl(raw) === absUrl(fb)) { applyFallback(img); return; } // nada que reintentar
+    img.dataset.origSrc = img.currentSrc || img.src || raw;
+    applyFallback(img);
+    scheduleRetry(img, 0);
   };
 
   if (!document.body.dataset.globalImgFallbackBound) {
@@ -947,7 +958,7 @@ function initImageFallbacks(){
   document.querySelectorAll('img').forEach((img) => {
     if (skipImg(img)) return;
     const fb = fbFor(img);
-    if (!fb || img.src === fb || img.dataset.fallbackProbed === '1') return;
+    if (!fb || img.src === absUrl(fb) || img.dataset.fallbackProbed === '1') return;
     const rawSrc = (img.getAttribute('src') || '').trim();
     if (!rawSrc) return;
     if (!(img.complete && img.naturalWidth === 0 && img.naturalHeight === 0)) return;

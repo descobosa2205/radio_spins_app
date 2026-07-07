@@ -1750,7 +1750,7 @@
                 {% for b in royalty_other_beneficiaries %}
                   <div class="list-group-item d-flex align-items-center justify-content-between flex-wrap gap-3">
                     <div class="d-flex align-items-center gap-2">
-                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or url_for('static', filename='img/default_promoter.png') }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
+                      <img src="{{ (b.promoter.logo_url if b.promoter else None) or DEFAULT_PHOTO_URL }}" style="width:44px;height:44px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff" alt="">
                       <div>
                         <div class="fw-semibold">{{ b.promoter.nick if b.promoter else '—' }}</div>
                         <div class="small text-muted">

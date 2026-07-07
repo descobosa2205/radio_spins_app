@@ -3,7 +3,7 @@
 {% import '_my_invitation_menu.html' as inv_menu with context %}
 <div class="card border-0 shadow-sm mb-4">
   <div class="card-body d-flex flex-column flex-lg-row gap-3 align-items-start align-items-lg-center">
-    <img src="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:20px;border:1px solid #eee;background:#fff;">
+    <img src="{{ promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:88px;height:88px;object-fit:contain;border-radius:20px;border:1px solid #eee;background:#fff;">
     <div class="flex-grow-1">
       <div class="d-flex flex-wrap gap-3 align-items-center">
         <h3 class="mb-0">{{ promoter.nick }}</h3>

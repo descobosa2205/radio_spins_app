@@ -37491,10 +37491,35 @@ def _entity_link_rows(session_db, entity_type: str | None, entity_id, active_onl
     return out
 
 
+def _entity_link_dedupe_rows(rows: list[dict]) -> list[dict]:
+    """Colapsa, SOLO para los resúmenes mini, vínculos repetidos hacia "lo mismo" (mismo nombre de
+    entidad vinculada): si el mismo vínculo existe dos veces —p. ej. una vez hacia una ficha creada
+    sin logo y otra hacia la ficha real con logo— se muestra UNA sola vez, prefiriendo la variante
+    CON logo. El panel de gestión de la ficha sigue enseñando todas las filas para poder limpiarlas."""
+    out: list[dict] = []
+    by_label: dict[str, int] = {}
+    for r in rows or []:
+        linked = r.get("linked") or {}
+        key = (linked.get("label") or "").strip().lower()
+        if not key:
+            out.append(r)
+            continue
+        prev = by_label.get(key)
+        if prev is None:
+            by_label[key] = len(out)
+            out.append(r)
+            continue
+        prev_logo = ((out[prev].get("linked") or {}).get("logo_url") or "").strip()
+        this_logo = (linked.get("logo_url") or "").strip()
+        if not prev_logo and this_logo:
+            out[prev] = r
+    return out
+
+
 def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
     if not promoter:
         return {}
-    rows = _entity_link_rows(session_db, "promoter", promoter.id, active_only=True)
+    rows = _entity_link_dedupe_rows(_entity_link_rows(session_db, "promoter", promoter.id, active_only=True))
     if not rows:
         pub = getattr(promoter, "publishing_company", None)
         if pub:
@@ -37611,7 +37636,7 @@ def _entity_link_mini_summary(entity_type, entity_id) -> dict | None:
         return None
     summary = None
     try:
-        rows = _entity_link_rows(_entity_link_mini_session(), etype, eid, active_only=True)
+        rows = _entity_link_dedupe_rows(_entity_link_rows(_entity_link_mini_session(), etype, eid, active_only=True))
     except Exception:
         rows = []
     if rows:

@@ -88,7 +88,9 @@
         var chip = el('button', 'agenda-chip is-on');
         chip.type = 'button';
         chip.style.setProperty('--c', a.color);
-        chip.innerHTML = '<span class="agenda-chip__dot"></span><img src="' + esc(a.photo_url || DEFAULT_PHOTO) + '" onerror="this.src=\'' + DEFAULT_PHOTO + '\'"><span>' + esc(a.name) + '</span>';
+        // Sin onerror propio: el gestor global de scripts.js REINTENTA la foto antes de caer al
+        // placeholder (el onerror antiguo la sustituía al primer fallo puntual y ya no volvía).
+        chip.innerHTML = '<span class="agenda-chip__dot"></span><img src="' + esc(a.photo_url || DEFAULT_PHOTO) + '"><span>' + esc(a.name) + '</span>';
         chip.addEventListener('click', function () {
           activeArtists[a.id] = !activeArtists[a.id];
           chip.classList.toggle('is-on', activeArtists[a.id]);
@@ -155,7 +157,7 @@
       var inner = '';
       // En Inicio (multi-artista) se antepone la foto del artista para identificarlo de un vistazo.
       if (mode === 'home' && a.artist_photo) {
-        inner += '<img class="agenda-event__avatar" src="' + esc(a.artist_photo) + '" alt="" onerror="this.style.display=\'none\'">';
+        inner += '<img class="agenda-event__avatar" src="' + esc(a.artist_photo) + '" alt="">';
       }
       if (a.kind === 'lanzamiento' && a.cover_url) {
         inner += '<img class="agenda-event__cover" src="' + esc(a.cover_url) + '" alt="">';

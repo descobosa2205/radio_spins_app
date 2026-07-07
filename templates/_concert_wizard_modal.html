@@ -216,7 +216,7 @@
                   <select name="promoter_id" id="wizard_promoter_id" class="form-select third-party-select">
                     <option value="">—</option>
                     {% for p in promoters %}
-                      <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
+                      <option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
                     {% endfor %}
                   </select>
                   <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select', selectId:'wizard_promoter_id'})"><i class="fa fa-plus"></i></button>
@@ -393,7 +393,7 @@
     let html = '<option value="">—</option>';
     items.forEach(p => {
       const selected = String(p.id) === String(selectedId || '') ? 'selected' : '';
-      const logo = p.logo_url || '{{ url_for("static", filename="img/default_promoter.png") }}';
+      const logo = p.logo_url || '{{ DEFAULT_PHOTO_URL }}';
       html += `<option value="${p.id}" data-logo="${logo}">${p.nick || '—'}</option>`;
     });
     return html;
@@ -552,7 +552,7 @@
   }
 
   function overrideCreateApis(){
-    const defaultPromoterLogo = '{{ url_for("static", filename="img/default_promoter.png") }}';
+    const defaultPromoterLogo = '{{ DEFAULT_PHOTO_URL }}';
 
     window.openArtistModal = function(selectId){
       window.artistCreateTargetSelectId = selectId || window.artistCreateTargetSelectId || 'wizard_artist_id';

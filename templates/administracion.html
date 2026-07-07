@@ -300,7 +300,7 @@
                       <div class="border rounded bg-white p-2 h-100">
                         <div class="small text-muted mb-1">Tercero sugerido</div>
                         <div class="d-flex gap-2 align-items-center">
-                          <img src="{{ order.suggested_promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%;">
+                          <img src="{{ order.suggested_promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:42px;height:42px;object-fit:cover;border-radius:50%;">
                           <div><div class="fw-semibold">{{ order.suggested_promoter.nick }}</div><div class="small text-muted">{{ order.suggested_promoter.contact_email or 'Sin email' }} · {{ order.suggested_promoter.tax_id or 'Sin NIF/CIF' }}</div>{{ linked_mini('promoter', order.suggested_promoter.id) }}</div>
                         </div>
                         <div class="d-flex gap-2 mt-2 flex-wrap">
@@ -324,7 +324,7 @@
                     <label class="form-label small mb-1">Vincular manualmente a tercero</label>
                     <select name="promoter_id" class="form-select form-select-sm third-party-select">
                       <option value="">Seleccionar tercero...</option>
-                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or url_for('static', filename='img/default_promoter.png') }}" data-photo="{{ (promoter.logo_url or promoter.photo_url) or url_for('static', filename='img/default_promoter.png') }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }} {% for company in promoter.companies %}{{ company.legal_name }} {{ company.tax_id }} {% endfor %}">{{ promoter.nick }}</option>{% endfor %}
+                      {% for promoter in embargo_promoters %}<option value="{{ promoter.id }}" data-logo="{{ promoter.logo_url or DEFAULT_PHOTO_URL }}" data-photo="{{ (promoter.logo_url or promoter.photo_url) or DEFAULT_PHOTO_URL }}" data-search="{{ promoter.nick }} {{ promoter.contact_email }} {{ promoter.tax_id }} {% for company in promoter.companies %}{{ company.legal_name }} {{ company.tax_id }} {% endfor %}">{{ promoter.nick }}</option>{% endfor %}
                     </select>
                   </div>
                   <div class="col-md-3 col-xl-2"><button class="btn btn-sm btn-outline-primary w-100">Vincular</button></div>

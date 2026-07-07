@@ -306,7 +306,7 @@
                       <span class="badge rounded-pill text-bg-primary">{{ c.sale_type_label or c.sale_type }}</span>
                       {% if c.promoter %}
                         <span class="ms-2 d-inline-flex align-items-center gap-2">
-                          <img src="{{ c.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
+                          <img src="{{ c.promoter.logo_url or DEFAULT_PHOTO_URL }}" alt="" style="width:22px;height:22px;object-fit:contain;border-radius:4px;">
                           <span class="small fw-semibold">{{ c.promoter.nick }}</span>
                         </span>
                         {{ linked_mini('promoter', c.promoter.id) }}
@@ -342,7 +342,7 @@
                           {% if s.promoter %}
                             <div class="d-flex align-items-center gap-2">
                               <div class="logo-chip position-relative" title="{{ s.promoter.nick }}">
-                                <img src="{{ s.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" class="station-logo" alt="">
+                                <img src="{{ s.promoter.logo_url or DEFAULT_PHOTO_URL }}" class="station-logo" alt="">
                                 {% if s.pct %}
                                   <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
                                 {% elif s.amount %}
@@ -369,7 +369,7 @@
                           {% if z.promoter %}
                             <div class="d-flex align-items-center gap-2">
                               <div class="logo-chip position-relative" title="{{ z.promoter.nick }}">
-                                <img src="{{ z.promoter.logo_url or url_for('static', filename='img/promoter_default.png') }}" class="station-logo" alt="">
+                                <img src="{{ z.promoter.logo_url or DEFAULT_PHOTO_URL }}" class="station-logo" alt="">
                                 {% if z.commission_type == 'PERCENT' and z.commission_pct %}
                                   <span class="badge bg-warning text-dark position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ z.commission_pct }}%</span>
                                 {% elif z.commission_amount %}
@@ -840,7 +840,7 @@
             <select name="promoter_id" class="form-select third-party-select" id="promoter_id_select">
               <option value="">—</option>
               {% for p in promoters %}
-                <option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
+                <option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>
               {% endfor %}
             </select>
             <button type="button" class="btn btn-outline-secondary" onclick="openPromoterModal({mode:'select', selectId:'promoter_id_select'})"><i class="fa fa-plus"></i></button>
@@ -1207,7 +1207,7 @@
 
     // select2 para terceros con logo
     if (window.jQuery && jQuery.fn.select2) {
-      const defaultLogo = "{{ url_for('static', filename='img/promoter_default.png') }}";
+      const defaultLogo = "{{ DEFAULT_PHOTO_URL }}";
       function tplThird(state){
         if(!state.id) return state.text;
         const logo = state.element?.dataset?.logo || defaultLogo;
@@ -1391,7 +1391,7 @@
       const opt = document.createElement('option');
       opt.value = data.id;
       opt.textContent = data.nick;
-      opt.dataset.logo = data.logo_url || "{{ url_for('static', filename='img/promoter_default.png') }}";
+      opt.dataset.logo = data.logo_url || "{{ DEFAULT_PHOTO_URL }}";
       sel.appendChild(opt);
       sel.value = data.id;
       if (window.jQuery && jQuery.fn.select2) {
@@ -1488,7 +1488,7 @@
         <label class="form-label">Promotor / tercero</label>
         <select name="promoter_share_id[]" class="form-select third-party-select">
           <option value="">—</option>
-          {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>{% endfor %}
+          {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>{% endfor %}
         </select>
       </div>
       <div class="col-md-3">
@@ -1704,7 +1704,7 @@
           <label class="form-label">Comisionista</label>
           <select name="zone_promoter_id[]" class="form-select third-party-select">
             <option value="">—</option>
-            {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or url_for('static', filename='img/promoter_default.png') }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>{% endfor %}
+            {% for p in promoters %}<option value="{{ p.id }}" data-logo="{{ p.logo_url or DEFAULT_PHOTO_URL }}" data-search="{{ p.nick }} {{ p.contact_email or '' }} {{ p.tax_id or '' }}">{{ p.nick }}</option>{% endfor %}
           </select>
         </div>
 

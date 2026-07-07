@@ -361,7 +361,7 @@
       <div class="royalty-section-block" data-royalty-section-block>
         <div class="mb-2 mt-4 text-muted royalty-section-title">Otros beneficiarios</div>
         {% for b in royalty_beneficiaries_others %}
-          {{ render_liquidation_card(b, url_for('static', filename='img/default_promoter.png')) }}
+          {{ render_liquidation_card(b, DEFAULT_PHOTO_URL) }}
         {% endfor %}
       </div>
     {% endif %}
@@ -379,7 +379,7 @@
       <div class="royalty-section-block" data-royalty-section-block>
         <div class="mb-2 mt-4 text-muted royalty-section-title">Otros beneficiarios</div>
         {% for b in royalty_beneficiaries_others %}
-          {{ render_summary_card(b, url_for('static', filename='img/default_promoter.png')) }}
+          {{ render_summary_card(b, DEFAULT_PHOTO_URL) }}
         {% endfor %}
       </div>
     {% endif %}
@@ -388,7 +388,7 @@
       {{ render_summary_modal(b, url_for('static', filename='img/logo.png')) }}
     {% endfor %}
     {% for b in royalty_beneficiaries_others %}
-      {{ render_summary_modal(b, url_for('static', filename='img/default_promoter.png')) }}
+      {{ render_summary_modal(b, DEFAULT_PHOTO_URL) }}
     {% endfor %}
   {% endif %}
 {% endif %}

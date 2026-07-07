@@ -24,6 +24,21 @@
       --brand-accent:  {{ BRAND_ACCENT }};
     }
   </style>
+  <script>
+    /* Capturador TEMPRANO de errores de imagen (antes de que cargue scripts.js): una imagen que
+       falle nada más pintarse se OCULTA al instante (nunca se ve el icono roto) y se encola;
+       initImageFallbacks la procesa al arrancar (reintento en segundo plano + placeholder/omisión). */
+    (function(){
+      window.__imgErrQueue = [];
+      document.addEventListener('error', function(ev){
+        var t = ev.target;
+        if (!t || String(t.tagName || '').toUpperCase() !== 'IMG') return;
+        if (window.__imgFallbacksReady) return;  /* scripts.js ya tiene su propio listener */
+        t.classList.add('img-error-pending');
+        window.__imgErrQueue.push(t);
+      }, true);
+    })();
+  </script>
 </head>
 <body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}">
 <div id="globalLoader" aria-hidden="true"><div class="gl-box"><div class="gl-spinner"></div><div class="gl-text">Cargando…</div></div></div>

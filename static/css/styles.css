@@ -616,6 +616,17 @@ img[data-default-photo="1"]{
   background: var(--default-photo-bg) !important;
   object-fit: cover !important;
 }
+/* POLÍTICA GLOBAL: si alguien/algo NO tiene imagen o logo, el hueco SE OMITE (no se enseña el avatar
+   gris de persona) — solo las PORTADAS conservan su placeholder (cover_placeholder.svg, que no matchea
+   esta regla). Cubre tanto lo renderizado por el servidor («x or DEFAULT_PHOTO_URL») como lo que el JS
+   sustituye tras agotar los reintentos. Excepción puntual: data-placeholder-ok="1" lo mantiene visible. */
+img[src*="/img/placeholder_photo"]:not([data-placeholder-ok]){ display: none !important; }
+/* …y si la imagen omitida vivía en el marco de avatar del panel de vinculaciones, se omite el marco
+   entero (si no, quedaba un hueco redondo vacío). */
+.entity-link-avatar:has(> img[src*="/img/placeholder_photo"]:not([data-placeholder-ok])){ display: none; }
+/* Imagen que ha fallado y aún no ha sido procesada por initImageFallbacks (capturador temprano del
+   <head>): invisible pero conservando su caja — nunca se ve el icono roto del navegador. */
+img.img-error-pending{ visibility: hidden; }
 
 /* Los menús de tres puntos deben mostrarse por encima de tablas, cards y modales. */
 .dropdown-menu{ z-index: 3000 !important; }

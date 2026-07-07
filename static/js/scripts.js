@@ -886,13 +886,16 @@ function initImageFallbacks(){
     'img[src$="/static/img/promoter_default.png"]'
   ].join(',');
 
-  // REINTENTAR antes de dar una imagen por perdida. Un fallo PUNTUAL de red (Storage que no
-  // responde un instante, cargas lazy al hacer scroll…) disparaba 'error' y reemplazaba PARA
-  // SIEMPRE una imagen válida por el placeholder. Ahora, al primer fallo: se pone el placeholder
-  // AL INSTANTE (nunca se ve el icono roto "?") y se reintenta la URL original en segundo plano
-  // (2 veces, con cache-buster, usando un probe fuera del DOM); si un reintento carga, se RESTAURA
-  // la imagen real (ya cacheada por el probe) y desaparece el placeholder.
-  const RETRY_DELAYS = [800, 2500];
+  // REINTENTAR antes de dar una imagen por perdida, SIN fases visibles:
+  //  · Al fallar, la imagen pasa AL INSTANTE al placeholder (nunca el icono roto "?"). Para personas
+  //    y logos el placeholder queda OCULTO por CSS (política: sin imagen → hueco omitido); las
+  //    PORTADAS muestran su placeholder de disco.
+  //  · El reintento hace fetch con cache:'reload' — además de reintentar, REPARA una posible
+  //    respuesta de error CACHEADA por el navegador (causa de que la URL limpia fallara siempre y
+  //    solo funcionara con cache-buster: error → placeholder → buena en CADA página). Después se
+  //    comprueba la URL LIMPIA con un probe y, si carga, se restaura: la imagen queda con su URL
+  //    original ya sana en caché, y las páginas siguientes cargan directas.
+  const RETRY_DELAYS = [700, 2200];
   const absUrl = (u) => {
     try { return new URL(u, window.location.href).href; } catch (e) { return u; }
   };
@@ -900,30 +903,29 @@ function initImageFallbacks(){
     const fb = fbFor(img);
     if (fb && img.src !== absUrl(fb)) { img.src = fb; img.classList.add('image-fallback'); }
   };
-  const retryUrl = (raw, attempt) => {
-    try {
-      const u = new URL(raw, window.location.href);
-      u.searchParams.set('imgretry', String(attempt));
-      return u.href;
-    } catch (e) { return raw; }
+  const restoreImg = (img, url) => {
+    img.classList.remove('image-fallback');
+    img.src = url;
   };
   const scheduleRetry = (img, attempt) => {
-    if (attempt >= RETRY_DELAYS.length) return; // agotado: se queda el placeholder
+    if (attempt >= RETRY_DELAYS.length) return; // agotado: se queda el placeholder (oculto si no es portada)
     window.setTimeout(() => {
       if (!img.isConnected) return;
-      const url = retryUrl(img.dataset.origSrc, attempt + 1);
-      const probe = new Image();
-      probe.onload = () => {
-        if (!img.isConnected) return;
-        img.classList.remove('image-fallback');
-        img.src = url;
+      const orig = img.dataset.origSrc;
+      if (!orig) return;
+      const test = () => {
+        const probe = new Image();
+        probe.onload = () => { if (img.isConnected) restoreImg(img, orig); };
+        probe.onerror = () => scheduleRetry(img, attempt + 1);
+        probe.src = orig;
       };
-      probe.onerror = () => scheduleRetry(img, attempt + 1);
-      probe.src = url;
+      try { fetch(orig, { mode: 'no-cors', cache: 'reload' }).then(test, test); }
+      catch (e) { test(); }
     }, RETRY_DELAYS[attempt]);
   };
   const handleImgError = (img) => {
     if (skipImg(img)) return;
+    img.classList.remove('img-error-pending');
     const fb = fbFor(img);
     if (!fb) return;
     if (img.dataset.origSrc) { applyFallback(img); return; } // falló tras restaurar: placeholder otra vez
@@ -940,6 +942,11 @@ function initImageFallbacks(){
     // galería de fotos…). Si el reintento vuelve a fallar, el propio 'error' reentra aquí y agota
     // los intentos antes de caer al placeholder.
     document.addEventListener('error', (ev) => { handleImgError(ev.target); }, true);
+    // Imágenes que fallaron ANTES de llegar aquí: las encoló el capturador temprano del <head>
+    // (layout.html) ya ocultas — se procesan ahora (reintento + placeholder/omisión).
+    window.__imgFallbacksReady = true;
+    (window.__imgErrQueue || []).forEach((img) => { try { handleImgError(img); } catch (e) {} });
+    window.__imgErrQueue = [];
   }
 
   document.querySelectorAll(selector).forEach((img) => {

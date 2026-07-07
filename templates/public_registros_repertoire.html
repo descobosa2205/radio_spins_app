@@ -23,7 +23,7 @@
         {% for item in author.songs %}
           <div class="song-row">
             <div class="d-flex gap-3 align-items-start flex-wrap">
-              <img class="cover" src="{{ item.cover_url or DEFAULT_PHOTO_URL }}" alt="">
+              <img class="cover" src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="">
               <div class="flex-grow-1 min-w-0">
                 <div class="fw-bold fs-5">{{ item.title }}</div>
                 <div class="d-flex align-items-center gap-2 mt-1"><img class="artist-mini" src="{{ item.artist_photo or DEFAULT_PHOTO_URL }}" alt=""><span class="muted">{{ item.artist_name }}</span>{% if item.collaborator %}<span class="muted">· {{ item.collaborator }}</span>{% endif %}</div>

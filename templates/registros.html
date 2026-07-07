@@ -20,7 +20,7 @@
        data-search="{{ (item.title ~ ' ' ~ item.artist_name ~ ' ' ~ (item.collaborator or '') ~ ' ' ~ (item.location or '') ~ ' ' ~ ((item.platform_authors or [])|map(attribute='name')|join(' '))) }}">
     <div class="d-flex gap-3 align-items-start">
       <a href="{{ item.detail_url }}" class="text-decoration-none text-reset flex-shrink-0">
-        <img src="{{ item.cover_url or item.artist_photo or DEFAULT_PHOTO_URL }}" alt="" class="cover-square" style="width:74px;height:74px;object-fit:cover;border-radius:14px;">
+        <img src="{{ item.cover_url or item.artist_photo or DEFAULT_COVER_URL }}" alt="" class="cover-square" style="width:74px;height:74px;object-fit:cover;border-radius:14px;">
       </a>
       <div class="flex-grow-1 min-w-0">
         <a href="{{ item.detail_url }}" class="text-decoration-none text-reset"><div class="fw-semibold text-truncate">{{ item.title }}</div></a>

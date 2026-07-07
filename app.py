@@ -29677,6 +29677,9 @@ def inject_personnel_globals():
         "PERSONNEL_DEPARTMENTS": PERSONNEL_DEPARTMENTS,
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
+        # Placeholder de PORTADA (canción/álbum) cuando no hay portada: disco gris sobre fondo gris
+        # claro, para cubrir el hueco sin fingir que es la portada real.
+        "DEFAULT_COVER_URL": url_for("static", filename="img/cover_placeholder.svg"),
         "SECTION_ICONS": SECTION_ICONS,
         # Icono ÚNICO por tipo de invitación (Pista/Grada/Palcos), en rojo de marca, como SVG para que
         # sea idéntico en toda la app, correos, enlaces y PDF.

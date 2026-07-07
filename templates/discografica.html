@@ -90,7 +90,7 @@
                                 <div class="d-flex flex-wrap justify-content-end gap-1" style="min-width:0;">
                                   {% for item in day["items"] %}
                                     <a href="{{ item.detail_url }}" class="text-decoration-none d-inline-flex" title="{{ item.title }} · {{ item.artist_label }}">
-                                      <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ item.title }}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;border:1px solid #eee;background:#fff;">
+                                      <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="{{ item.title }}" style="width:24px;height:24px;object-fit:cover;border-radius:5px;border:1px solid #eee;background:#fff;">
                                     </a>
                                   {% endfor %}
                                 </div>
@@ -120,7 +120,7 @@
               {% for item in launches_items %}
                 <a href="{{ item.detail_url }}" class="text-decoration-none text-reset border rounded p-3 bg-white d-flex justify-content-between align-items-center gap-3 flex-wrap">
                   <div class="d-flex align-items-center gap-3">
-                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:68px;height:68px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
+                    <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="" style="width:68px;height:68px;object-fit:cover;border-radius:12px;border:1px solid #eee;background:#fff;">
                     <div>
                       <div class="d-flex align-items-center gap-2 flex-wrap">
                         <div class="fw-semibold">{{ item.title }}</div>
@@ -257,7 +257,7 @@
                           onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
                           onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
                         <td>
-                          <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                          <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                         </td>
                         <td>
                           <div class="fw-semibold">{{ s.title }}{% if s.is_explicit %} <span class="badge text-bg-dark" title="Contenido explícito">E</span>{% endif %}</div>
@@ -570,7 +570,7 @@
                         onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}';"
                         onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}'; }">
                       <td>
-                        <img src="{{ al.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                        <img src="{{ al.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                       </td>
                       <td>
                         <div class="fw-semibold">{{ al.title }}</div>
@@ -774,7 +774,7 @@
                       onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
                       onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
                     <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                      <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                     </td>
                     <td>
                       <div class="fw-semibold">{{ s.title }}</div>
@@ -839,7 +839,7 @@
                       onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
                       onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
                     <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                      <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                     </td>
                     <td>
                       <div class="fw-semibold">{{ s.title }}</div>
@@ -1075,7 +1075,7 @@
                       onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}';"
                       onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='informacion') }}'; }">
                     <td>
-                      <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                      <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                     </td>
                     <td>
                       <div class="fw-semibold">{{ s.title }}</div>

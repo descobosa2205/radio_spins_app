@@ -297,7 +297,7 @@
                     data-income-search="{{ (s.title ~ ' ' ~ (r.interpreters or '') ~ ' ' ~ (r.isrc or '') ~ ' ' ~ (s.collaborator or ''))|lower }}">
                   <td>
                     <a href="{{ url_for('discografica_song_detail', song_id=s.id, tab='ingresos') }}">
-                      <img src="{{ r.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                      <img src="{{ r.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                     </a>
                   </td>
                   <td>

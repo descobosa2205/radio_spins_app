@@ -871,9 +871,14 @@ window.shareTextWithClickableUrl = shareTextWithClickableUrl;
 
 function initImageFallbacks(){
   const defaultUrl = document.body ? (document.body.getAttribute('data-default-photo-url') || '') : '';
+  const coverUrl = document.body ? (document.body.getAttribute('data-default-cover-url') || '') : '';
   if (!defaultUrl) return;
+  // Las PORTADAS de canción/álbum (cover-square / song-hero-cover / .cover / [data-cover]) caen a un
+  // placeholder de portada (disco gris), NO al avatar de persona.
+  const isCover = (img) => !!(img && (img.classList.contains('cover-square') || img.classList.contains('song-hero-cover') || img.classList.contains('cover') || img.hasAttribute('data-cover')));
+  const fbFor = (img) => (coverUrl && isCover(img)) ? coverUrl : defaultUrl;
   const selector = [
-    'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square',
+    'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square', 'img.cover', 'img[data-cover]',
     'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',
     'img[src$="/static/img/default_promoter.png"]',
     'img[src$="/static/img/promoter_default.png"]'
@@ -884,27 +889,22 @@ function initImageFallbacks(){
       const img = ev.target;
       if (!img || String(img.tagName || '').toUpperCase() !== 'IMG') return;
       if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
-      if (img.src !== defaultUrl) {
-        img.src = defaultUrl;
-        img.classList.add('image-fallback');
-      }
+      const fb = fbFor(img);
+      if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
     }, true);
   }
 
   document.querySelectorAll(selector).forEach((img) => {
     if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
+    const fb = fbFor(img);
     const src = (img.getAttribute('src') || '').trim();
     if (!src || /\/static\/img\/(default_promoter|promoter_default)\.(png|jpg|jpeg|svg)$/i.test(src)) {
-      img.src = defaultUrl;
-      img.classList.add('image-fallback');
+      if (fb) { img.src = fb; img.classList.add('image-fallback'); }
     }
     if (!img.dataset.fallbackBound) {
       img.dataset.fallbackBound = '1';
       img.addEventListener('error', () => {
-        if (img.src !== defaultUrl) {
-          img.src = defaultUrl;
-          img.classList.add('image-fallback');
-        }
+        if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
       });
     }
   });
@@ -916,17 +916,15 @@ function initImageFallbacks(){
   // falla; si el probe carga, la imagen era válida y no se toca. No toca logos de marca.
   document.querySelectorAll('img').forEach((img) => {
     if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
-    if (img.src === defaultUrl || img.dataset.fallbackProbed === '1') return;
+    const fb = fbFor(img);
+    if (!fb || img.src === fb || img.dataset.fallbackProbed === '1') return;
     const rawSrc = (img.getAttribute('src') || '').trim();
     if (!rawSrc) return;
     if (!(img.complete && img.naturalWidth === 0 && img.naturalHeight === 0)) return;
     img.dataset.fallbackProbed = '1';
     const probe = new Image();
     probe.onerror = () => {
-      if (img.src !== defaultUrl) {
-        img.src = defaultUrl;
-        img.classList.add('image-fallback');
-      }
+      if (img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
     };
     probe.src = img.currentSrc || img.src;
   });

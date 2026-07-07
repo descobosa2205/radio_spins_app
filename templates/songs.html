@@ -106,7 +106,7 @@
           <div class="card mb-2">
             <div class="card-body">
               <div class="d-flex align-items-start">
-                <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square me-3" alt="">
+                <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square me-3" alt="">
                 <div class="flex-grow-1">
                   <form method="post" action="{{ url_for('song_update', song_id=s.id) }}" enctype="multipart/form-data">
                     <div class="row g-2">
@@ -227,7 +227,7 @@
         {% if songs %}
           {% for s in songs %}
             <div class="d-flex align-items-start gap-3 py-2 border-bottom">
-              <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+              <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
               <div class="flex-grow-1">
                 <div class="fw-semibold">{{ s.title }}</div>
                 <div class="small text-muted">

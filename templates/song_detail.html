@@ -5,7 +5,7 @@
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discografica_view', section='canciones', rep_tab='canciones') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
 </div>
 <div class="ficha-hero">
-  <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+  <img class="ficha-hero__media" src="{{ song.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ song_type_label }}</div>
     <h1 class="ficha-hero__title">{{ song.title }}{% if song.is_explicit %} <span class="badge text-bg-dark align-middle" style="font-size:.5em;vertical-align:middle;" title="Contenido explícito">EXPLÍCITA</span>{% endif %}</h1>
@@ -19,7 +19,7 @@
         <span class="small text-muted">Forma parte de:</span>
         {% for album_link in linked_albums %}
           <a href="{{ album_link.detail_url }}" class="text-decoration-none text-reset d-inline-flex align-items-center gap-1" title="{{ album_link.title }}">
-            <img src="{{ album_link.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ album_link.title }}" style="width:30px;height:30px;object-fit:cover;border-radius:6px;border:1px solid #eee;">
+            <img src="{{ album_link.cover_url or DEFAULT_COVER_URL }}" alt="{{ album_link.title }}" style="width:30px;height:30px;object-fit:cover;border-radius:6px;border:1px solid #eee;">
             <span class="small fw-semibold">{{ album_link.title }}</span>
           </a>
         {% endfor %}

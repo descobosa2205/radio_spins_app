@@ -5,7 +5,7 @@
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discografica_view', section='canciones', rep_tab='albumes') }}"><i class="fa fa-arrow-left me-1"></i>Volver</a>
 </div>
 <div class="ficha-hero">
-  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+  <img class="ficha-hero__media" src="{{ album.cover_url or DEFAULT_COVER_URL }}" alt="" data-cover>
   <div class="ficha-hero__body">
     <div class="ficha-hero__eyebrow">{{ album_kind_label }}</div>
     <h1 class="ficha-hero__title">{{ album.title }}</h1>

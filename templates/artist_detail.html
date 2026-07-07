@@ -856,7 +856,7 @@
                   onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}';"
                   onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id) }}'; }">
                 <td>
-                  <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                 </td>
                 <td>
                   <div class="fw-semibold">{{ s.title }}</div>
@@ -906,7 +906,7 @@
                   onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label')) return; window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}';"
                   onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_album_detail', album_id=al.id) }}'; }">
                 <td>
-                  <img src="{{ al.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  <img src="{{ al.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                 </td>
                 <td>
                   <div class="fw-semibold">{{ al.title }}</div>

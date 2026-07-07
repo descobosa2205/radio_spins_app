@@ -129,7 +129,7 @@
         <div class="col-12 col-lg-6">
           <a href="{{ row.detail_url }}" class="text-decoration-none text-reset">
             <div class="d-flex align-items-center gap-3 border rounded p-2 h-100">
-              <img src="{{ row.cover_url or url_for('static', filename='img/logo.png') }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;">
+              <img src="{{ row.cover_url or DEFAULT_COVER_URL }}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:8px;border:1px solid #eee;">
               <div class="flex-grow-1 min-w-0">
                 <div class="fw-semibold text-truncate">{{ row.title }}</div>
                 <div class="small text-muted text-truncate">{{ row.artist_names }}</div>

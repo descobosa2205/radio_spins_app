@@ -26,7 +26,7 @@
           <a href="{{ item.detail_url }}" class="text-decoration-none text-reset">
             <div class="border rounded p-3 d-flex justify-content-between align-items-center gap-3 flex-wrap bg-white">
               <div class="d-flex align-items-start gap-3">
-                <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" alt="{{ item.title }}" class="cover-square" style="width:72px;height:72px;">
+                <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" alt="{{ item.title }}" class="cover-square" style="width:72px;height:72px;">
                 <div>
                   <div class="d-flex gap-1 flex-wrap mb-1">
                     <span class="badge text-bg-light border">{{ item.kind_label }}</span>
@@ -155,7 +155,7 @@
                   onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}';"
                   onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ url_for('discografica_song_detail', song_id=s.id, tab='editorial') }}'; }">
                 <td>
-                  <img src="{{ s.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                  <img src="{{ s.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                 </td>
                 <td>
                   <div class="fw-semibold">{{ s.title }}</div>
@@ -214,7 +214,7 @@
 
             <div class="border rounded p-3 mb-3 bg-light-subtle">
               <div class="d-flex gap-3 flex-wrap align-items-start">
-                <img id="registrosSgaeSongCover" src="{{ url_for('static', filename='img/logo.png') }}" alt="" class="cover-square" style="width:96px;height:96px;">
+                <img id="registrosSgaeSongCover" src="{{ DEFAULT_COVER_URL }}" alt="" class="cover-square" style="width:96px;height:96px;">
                 <div class="flex-grow-1">
                   <div class="fw-semibold fs-5" id="registrosSgaeSongTitle">—</div>
                   <div class="text-muted" id="registrosSgaeSongInterpreters">—</div>
@@ -303,7 +303,7 @@
                     onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ item.detail_url }}';"
                     onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ item.detail_url }}'; }">
                   <td>
-                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                    <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                   </td>
                   <td>
                     <div class="fw-semibold">{{ item.title }}</div>
@@ -402,7 +402,7 @@
                     onclick="if(event && event.target && event.target.closest && event.target.closest('a,button,input,select,textarea,label,form')) return; window.location.href='{{ item.detail_url }}';"
                     onkeydown="if(event && (event.key==='Enter' || event.key===' ')) { window.location.href='{{ item.detail_url }}'; }">
                   <td>
-                    <img src="{{ item.cover_url or url_for('static', filename='img/logo.png') }}" class="cover-square" alt="">
+                    <img src="{{ item.cover_url or DEFAULT_COVER_URL }}" class="cover-square" alt="">
                   </td>
                   <td>
                     <div class="fw-semibold">{{ item.title }}</div>
@@ -496,7 +496,7 @@ document.addEventListener('DOMContentLoaded', function(){
   const modalEl = document.getElementById('registrosSgaeModal');
   if (!modalEl) return;
 
-  const fallbackLogo = {{ url_for('static', filename='img/logo.png')|tojson }};
+  const fallbackLogo = {{ DEFAULT_COVER_URL|tojson }};
   const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
   const messageEl = document.getElementById('registrosSgaeMessage');
   const songCoverEl = document.getElementById('registrosSgaeSongCover');

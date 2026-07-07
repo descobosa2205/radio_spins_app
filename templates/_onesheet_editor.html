@@ -52,7 +52,7 @@
         <section class="onesheet-module h-100">
           <div class="d-flex justify-content-between align-items-center mb-2"><h5>Último lanzamiento</h5><button class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#onesheetReleaseModal"><i class="fa fa-pen"></i></button></div>
           {% if os.selected_release %}
-            <div class="d-flex gap-3 align-items-center flex-wrap"><img class="onesheet-release-cover" src="{{ os.selected_release.cover_url or DEFAULT_PHOTO_URL }}" alt=""><div><h6 class="mb-1">{{ os.selected_release.title }}</h6><div class="small text-muted">{{ os.selected_release.type }}{% if os.selected_release.date %} · {{ os.selected_release.date.strftime('%d/%m/%Y') }}{% endif %}</div></div></div>
+            <div class="d-flex gap-3 align-items-center flex-wrap"><img class="onesheet-release-cover" src="{{ os.selected_release.cover_url or DEFAULT_COVER_URL }}" alt=""><div><h6 class="mb-1">{{ os.selected_release.title }}</h6><div class="small text-muted">{{ os.selected_release.type }}{% if os.selected_release.date %} · {{ os.selected_release.date.strftime('%d/%m/%Y') }}{% endif %}</div></div></div>
           {% else %}<div class="text-muted small">Selecciona un single o álbum.</div>{% endif %}
         </section>
       </div>

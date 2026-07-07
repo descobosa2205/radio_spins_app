@@ -2095,6 +2095,20 @@ def _external_url_for(endpoint: str, **values) -> str:
     return base + url_for(endpoint, **values)
 
 
+def _absolute_media_url(url: str) -> str:
+    """Convierte una URL en absoluta (https). Necesario para las imágenes de previsualización
+    (og:image de WhatsApp/SMS): una ruta relativa (p. ej. /static/...) no se previsualiza."""
+    url = (url or "").strip()
+    if not url:
+        return ""
+    if url.startswith(("http://", "https://")):
+        return url
+    if url.startswith("//"):
+        return "https:" + url
+    base = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip('/')
+    return base + (url if url.startswith('/') else '/' + url)
+
+
 def _parse_uuid_list(values) -> list[str]:
     out = []
     seen = set()
@@ -27915,12 +27929,32 @@ def public_roadmap_view(token):
         ctx = _roadmap_context(session_db, entity_type, row)
         ctx["readonly"] = True
         artists = _artists_from_ids(session_db, _roadmap_artist_ids(row))
+        title = ctx.get("title") or "Hoja de ruta"
+        # Previsualización (og): cartel principal / foto del artista + 2ª fila con los detalles.
+        if entity_type == "concert":
+            card = _public_share_card(session_db, "CONCERT", row, artist_id=getattr(row, "artist_id", None))
+            og_image = _public_share_og_image(session_db, row, card=card)
+        else:
+            _aids = _roadmap_artist_ids(row)
+            card = _public_share_card(session_db, "ACTION", row, artist_id=(_aids[0] if _aids else None))
+            og_image = ""
+        if not og_image:
+            og_image = _absolute_media_url(card.get("artist_photo") or (getattr(artists[0], "photo_url", "") if artists else ""))
+        # 2ª fila: tipo de actividad · fecha · municipio. Si el título ya muestra el municipio
+        # (evento sin nombre propio), en su lugar se pone el nombre del recinto.
+        municipio = (card.get("city") or "").strip()
+        location = municipio
+        if municipio and municipio.casefold() in (title or "").casefold():
+            venue_name = (getattr(getattr(row, "venue", None), "name", None) or "").strip()
+            location = venue_name or municipio
+        og_desc = " · ".join([x for x in [card.get("activity_label"), card.get("date_label"), location] if x])
         return render_template(
             'public_roadmap_view.html',
             rm=ctx,
-            title=ctx.get("title") or "Hoja de ruta",
+            title=title,
             artist_label=ctx.get("artist_label") or "",
             artist_photo=(getattr(artists[0], "photo_url", "") if artists else ""),
+            og={"image": og_image, "description": og_desc},
         )
     finally:
         session_db.close()
@@ -36566,6 +36600,30 @@ def _public_share_card(session_db, owner_type, owner, artist_id=None) -> dict:
     return card
 
 
+def _public_share_og_image(session_db, concert, event_payload=None, card=None, logo=None) -> str:
+    """Imagen de previsualización (og:image) para enlaces públicos de un concierto/evento.
+    Orden: cartel principal → foto del artista principal (card) → foto de CUALQUIER artista del
+    evento → logo. Siempre devuelve una URL ABSOLUTA (si no, WhatsApp/SMS no la previsualizan)."""
+    ev = event_payload
+    if ev is None:
+        try:
+            ev = _invitation_event_payload(session_db, concert) if concert else {}
+        except Exception:
+            ev = {}
+    candidates = [(ev or {}).get("poster_url")]
+    if card:
+        candidates.append(card.get("artist_photo"))
+    for a in ((ev or {}).get("artists") or []):
+        candidates.append(a.get("photo_url"))
+    candidates.append(logo)
+    for c in candidates:
+        c = (c or "").strip()
+        # El placeholder (silueta genérica) no aporta como previsualización: se salta para caer al logo.
+        if c and "placeholder" not in c.lower():
+            return _absolute_media_url(c)
+    return ""
+
+
 def _photo_approval_options(session_db, ot, owner):
     artists = []
     artist_ids = []
@@ -39887,6 +39945,9 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
                 f'<span style="font-weight:700">{esc(cat_name)}</span>'
                 f'&nbsp;&nbsp;{abtn(catzip(zip_all, cid), "Descargar todas las de " + cat_name, primary=False)}'
                 '</div>')
+            # Tabla en vez de lista: el nº de invitación va en una celda de ancho fijo (cabe hasta
+            # 3 dígitos) y la flecha de descarga en una columna a la derecha, así TODAS las flechas
+            # quedan alineadas en vertical independientemente de los dígitos del número.
             items = []
             for t in cat_tickets:
                 n += 1
@@ -39896,10 +39957,18 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
                                                  ("Asiento " + (t.seat_number or "").strip()) if (t.seat_number or "").strip() else ""] if x])
                 else:
                     loc = (t.sector or cat_name).strip()
-                line = f"Invitación {n}" + (f" · {esc(loc)}" if loc else "")
+                loc_html = f'<span style="color:#555"> · {esc(loc)}</span>' if loc else ""
                 dl = dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
-                items.append(f'<li style="margin:4px 0">{line} &nbsp;&nbsp; {dl}</li>')
-            sections.append('<ul style="list-style:none;padding:0;margin:0 0 12px">' + "".join(items) + "</ul>")
+                items.append(
+                    '<tr>'
+                    f'<td style="padding:4px 0;font-size:14px;color:#111;vertical-align:middle;white-space:nowrap">Invitación {n}</td>'
+                    f'<td style="padding:4px 0;font-size:14px;vertical-align:middle;width:100%">{loc_html}</td>'
+                    f'<td align="right" style="padding:4px 0;vertical-align:middle;white-space:nowrap">{dl}</td>'
+                    '</tr>')
+            sections.append(
+                '<table role="presentation" cellpadding="0" cellspacing="0" '
+                'style="width:100%;max-width:460px;border-collapse:collapse;margin:0 0 12px">'
+                + "".join(items) + "</table>")
 
     top_zip = catzip(zip_all, category_filter_id) if category_filter_id else zip_all
     # Solo ofrecemos el botón "Descargar todas" si REALMENTE hay PDFs que descargar. Si no, el enlace
@@ -39994,7 +40063,9 @@ def public_invitation_delivery(kind, token):
         og = {
             "title": " · ".join(_title_bits),
             "description": " · ".join([x for x in [" · ".join(bits), qty_label] if x]),
-            "image": card["artist_photo"] or logo or "",
+            # Cartel principal → foto de cualquier artista del evento → logo (siempre absoluta).
+            "image": _public_share_og_image(session_db, concert, card=card,
+                                            logo=_invitation_event_logo_url(session_db, concert, external=True)),
         }
         return render_template("public_invitation_delivery.html", logo=logo, card=card, guest_name=guest_name,
                                qty=qty, qty_label=qty_label, download_url=download_url, og=og)
@@ -43521,14 +43592,16 @@ def public_invitation_request_link(token):
             card = {}
         event_payload = _invitation_event_payload(session_db, concert)
         og_title = f"Solicitud de invitaciones · {event_payload.get('artist_names') or event_payload.get('title') or ''}".strip(' ·')
+        # El nombre del invitado va en el propio TÍTULO, con «Para:» delante.
+        if (link.target_name or '').strip():
+            og_title = f"{og_title} · Para: {link.target_name.strip()}"
         og_desc_parts = [x for x in [card.get('activity_label'), card.get('event_name') or card.get('city'), card.get('date_label')] if x]
-        if link.target_name:
-            og_desc_parts.append(f"para {link.target_name}")
         og = {
             'title': og_title,
             'description': ' · '.join(og_desc_parts),
-            # Cartel principal primero; si no hay, foto del artista (card.artist_photo ya cae al artista).
-            'image': event_payload.get('poster_url') or card.get('artist_photo') or ((event_payload.get('artists') or [{}])[0].get('photo_url') if event_payload.get('artists') else '') or '',
+            # Cartel principal → foto de cualquier artista del evento → logo (siempre absoluta).
+            'image': _public_share_og_image(session_db, concert, event_payload=event_payload, card=card,
+                                             logo=_invitation_event_logo_url(session_db, concert, external=True)),
         }
         return render_template(
             'public_invitation_request.html',

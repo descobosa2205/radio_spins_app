@@ -46,6 +46,9 @@ body { background: #fafafa; }
   width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
   border: 2px solid #eee;
 }
+/* Imagen sustituida por el avatar por defecto (fallback): conserva SIEMPRE la caja del hueco en el
+   que está (no deforma cabeceras ni listados aunque el placeholder tenga otro aspecto). */
+img.image-fallback { object-fit: cover; }
 
 .artist-hero{
   border: 1px solid rgba(0,0,0,.06);

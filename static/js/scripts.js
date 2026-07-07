@@ -909,16 +909,26 @@ function initImageFallbacks(){
     }
   });
 
-  // Barrido de seguridad: CUALQUIER imagen (miniatura de artista, vínculo, personal…) que ya haya
-  // fallado al cargar antes de este punto (p. ej. una foto que no responde) se sustituye por el
-  // avatar por defecto local, para no dejar nunca el icono roto "?". No toca logos de marca.
+  // Barrido de seguridad: imágenes que ya habían fallado ANTES de registrar los listeners.
+  // IMPORTANTE: naturalWidth===0 da FALSOS POSITIVOS con SVG válidos (un SVG sin ancho intrínseco
+  // reporta 0 aunque cargue bien) — eso sustituía logos correctos por el placeholder gris. Por eso
+  // solo se sustituye si al re-verificar la URL con un probe (sale de caché, es inmediato) REALMENTE
+  // falla; si el probe carga, la imagen era válida y no se toca. No toca logos de marca.
   document.querySelectorAll('img').forEach((img) => {
     if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
-    if (img.src === defaultUrl) return;
-    if (img.complete && img.naturalWidth === 0 && (img.getAttribute('src') || '').trim()) {
-      img.src = defaultUrl;
-      img.classList.add('image-fallback');
-    }
+    if (img.src === defaultUrl || img.dataset.fallbackProbed === '1') return;
+    const rawSrc = (img.getAttribute('src') || '').trim();
+    if (!rawSrc) return;
+    if (!(img.complete && img.naturalWidth === 0 && img.naturalHeight === 0)) return;
+    img.dataset.fallbackProbed = '1';
+    const probe = new Image();
+    probe.onerror = () => {
+      if (img.src !== defaultUrl) {
+        img.src = defaultUrl;
+        img.classList.add('image-fallback');
+      }
+    };
+    probe.src = img.currentSrc || img.src;
   });
 }
 

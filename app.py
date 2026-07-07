@@ -39937,6 +39937,117 @@ def _build_invitation_request_pdf(session_db, row: InvitationRequest) -> bytes:
     return buffer.getvalue()
 
 
+def _hex_tint(hex_color: str | None, factor: float = 0.72) -> str:
+    """Versión más CLARA de un color hex (mezcla con blanco al `factor`), para la barra suave."""
+    try:
+        h = (hex_color or "").lstrip("#")
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        r = int(r + (255 - r) * factor); g = int(g + (255 - g) * factor); b = int(b + (255 - b) * factor)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return "#e5e7eb"
+
+
+def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, categories=None) -> str:
+    """Lista de entradas para el correo y para la página pública de descarga, con la MISMA estética que
+    "configurar invitaciones": agrupada por ZONA → CATEGORÍA (borde de color + topo + barra suave +
+    "Descargar todas") → SECTOR (si hay varios), y con la flecha de descarga PEGADA al número de cada
+    invitación (alineada en columna). Estilos en línea (compatibles con clientes de correo)."""
+    esc = html.escape
+    if not tickets:
+        return ""
+    cats = categories if categories is not None else (_invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else [])
+    cat_map = {str(c.id): c for c in cats}
+    # Color por categoría según su ORDEN (idéntico al de la pantalla de gestión).
+    color_by = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(cats)}
+    zone_order = ["PISTA", "GRADA", "PALCO"]
+    zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palcos"}
+    grouped: dict = {z: [] for z in zone_order}
+    bykey: dict = {}
+    for t in tickets:
+        cid = str(t.category_id)
+        cat = cat_map.get(cid)
+        zone = _invitation_category_zone(cat) if cat else "PISTA"
+        k = (zone, cid)
+        if k not in bykey:
+            bykey[k] = []
+            grouped.setdefault(zone, []).append((cid, cat, bykey[k]))
+        bykey[k].append(t)
+
+    def _dlicon(href, title=""):
+        return (f'<a href="{esc(href)}" title="{esc(title or "Descargar entrada")}" '
+                'style="color:#e83b4b;text-decoration:none;font-size:16px;line-height:1;display:inline-block;vertical-align:middle">&#11015;</a>')
+
+    def _dlall(cid):
+        sep = "&" if "?" in (zip_all or "") else "?"
+        href = f"{zip_all}{sep}category={cid}"
+        return (f'<a href="{esc(href)}" style="color:#e83b4b;text-decoration:none;font-weight:600;'
+                'font-size:12px;white-space:nowrap">&#11015; Descargar todas</a>')
+
+    out = []
+    n = 0
+    for zone in zone_order:
+        zcats = grouped.get(zone) or []
+        if not zcats:
+            continue
+        out.append(f'<div style="font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a929c;margin:18px 0 6px">{esc(zone_labels[zone])}</div>')
+        for cid, cat, cat_tickets in zcats:
+            cat_name = (getattr(cat, "name", None) or "Categoría").strip()
+            color = color_by.get(cid, "#9ca3af")
+            soft = _hex_tint(color, 0.72)
+            is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
+            header = (
+                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>'
+                '<td style="vertical-align:middle">'
+                f'<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:{color};margin-right:8px;vertical-align:middle"></span>'
+                f'<span style="font-weight:700;color:#111;font-size:14px;vertical-align:middle">{esc(cat_name)}</span>'
+                f'<span style="color:#98a1ac;font-size:12px">&nbsp;({len(cat_tickets)})</span></td>'
+                f'<td align="right" style="vertical-align:middle">{_dlall(cid)}</td>'
+                '</tr></table>'
+                f'<div style="height:3px;background:{soft};border-radius:3px;margin:6px 0 2px"></div>'
+            )
+            # Sub-agrupar por SECTOR (en orden de aparición) si hay más de uno.
+            sector_order, by_sector = [], {}
+            for t in cat_tickets:
+                sec = (t.sector or "").strip()
+                if sec not in by_sector:
+                    by_sector[sec] = []
+                    sector_order.append(sec)
+                by_sector[sec].append(t)
+            multi_sector = len(sector_order) > 1
+            parts = []
+            for sec in sector_order:
+                if multi_sector and sec:
+                    parts.append(f'<div style="font-size:12px;font-weight:600;color:#6b7280;margin:8px 0 2px">Sector {esc(sec)}</div>')
+                trs = []
+                for t in by_sector[sec]:
+                    n += 1
+                    if is_num:
+                        bits = []
+                        if not multi_sector and (t.sector or "").strip():
+                            bits.append((t.sector or "").strip())
+                        if (t.row_label or "").strip():
+                            bits.append("Fila " + (t.row_label or "").strip())
+                        if (t.seat_number or "").strip():
+                            bits.append("Asiento " + (t.seat_number or "").strip())
+                        detail = ", ".join(bits)
+                    else:
+                        detail = ""
+                    dl = _dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
+                    detail_html = f'<span style="color:#667085"> · {esc(detail)}</span>' if detail else ""
+                    trs.append(
+                        '<tr>'
+                        f'<td style="padding:3px 0;font-size:14px;color:#111;white-space:nowrap;vertical-align:middle;width:120px">Invitación {n}</td>'
+                        f'<td style="padding:3px 8px 3px 0;white-space:nowrap;vertical-align:middle">{dl}</td>'
+                        f'<td style="padding:3px 0;font-size:14px;vertical-align:middle">{detail_html}</td>'
+                        '</tr>')
+                parts.append('<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
+            out.append(f'<div style="border-left:4px solid {color};padding:8px 0 10px 12px;margin:6px 0 14px">' + header + "".join(parts) + "</div>")
+    return "".join(out)
+
+
 def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_text=None, only_guest_list=False, guest_name=None, receiver_mode=None, category_filter_id=None) -> tuple:
     """Construye (asunto, html, texto) del correo de invitaciones. Compartido por solicitudes y
     compromisos: recibe ya las entradas y la URL base del ZIP. Si se pasa category_filter_id, el
@@ -40010,61 +40121,9 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
         return subject, body, f"Hola, tus invitaciones para {subject} estarán {mode} a nombre de {gname}."
 
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
-    cat_map = {str(c.id): c for c in categories}
-
-    zone_order = ["PISTA", "GRADA", "PALCO"]
-    zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palcos"}
-    grouped = {z: [] for z in zone_order}
-    bykey: dict = {}
-    for t in tickets:
-        cid = str(t.category_id)
-        cat = cat_map.get(cid)
-        zone = _invitation_category_zone(cat) if cat else "PISTA"
-        k = (zone, cid)
-        if k not in bykey:
-            bykey[k] = []
-            grouped.setdefault(zone, []).append((cid, cat, bykey[k]))
-        bykey[k].append(t)
-
-    sections = []
-    n = 0
-    for zone in zone_order:
-        cats = grouped.get(zone) or []
-        if not cats:
-            continue
-        sections.append(f'<h3 style="margin:18px 0 6px;font-size:15px;color:#111">Invitaciones de {zone_labels[zone]}</h3>')
-        for cid, cat, cat_tickets in cats:
-            cat_name = (getattr(cat, "name", None) or "Categoría").strip()
-            is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
-            sections.append(
-                '<div style="margin:8px 0 4px">'
-                f'<span style="font-weight:700">{esc(cat_name)}</span>'
-                f'&nbsp;&nbsp;{abtn(catzip(zip_all, cid), "Descargar todas las de " + cat_name, primary=False)}'
-                '</div>')
-            # Tabla en vez de lista: el nº de invitación va en una celda de ancho fijo (cabe hasta
-            # 3 dígitos) y la flecha de descarga en una columna a la derecha, así TODAS las flechas
-            # quedan alineadas en vertical independientemente de los dígitos del número.
-            items = []
-            for t in cat_tickets:
-                n += 1
-                if is_num:
-                    loc = ", ".join([x for x in [(t.sector or "").strip(),
-                                                 ("Fila " + (t.row_label or "").strip()) if (t.row_label or "").strip() else "",
-                                                 ("Asiento " + (t.seat_number or "").strip()) if (t.seat_number or "").strip() else ""] if x])
-                else:
-                    loc = (t.sector or cat_name).strip()
-                loc_html = f'<span style="color:#555"> · {esc(loc)}</span>' if loc else ""
-                dl = dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
-                items.append(
-                    '<tr>'
-                    f'<td style="padding:4px 0;font-size:14px;color:#111;vertical-align:middle;white-space:nowrap">Invitación {n}</td>'
-                    f'<td style="padding:4px 0;font-size:14px;vertical-align:middle;width:100%">{loc_html}</td>'
-                    f'<td align="right" style="padding:4px 0;vertical-align:middle;white-space:nowrap">{dl}</td>'
-                    '</tr>')
-            sections.append(
-                '<table role="presentation" cellpadding="0" cellspacing="0" '
-                'style="width:100%;max-width:460px;border-collapse:collapse;margin:0 0 12px">'
-                + "".join(items) + "</table>")
+    # Lista de entradas agrupada (zona → categoría → sector) con la estética del configurador y la
+    # flecha de descarga pegada al número. Mismo componente que la página pública de descarga.
+    sections = [_invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, categories=categories)]
 
     top_zip = catzip(zip_all, category_filter_id) if category_filter_id else zip_all
     # Solo ofrecemos el botón "Descargar todas" si REALMENTE hay PDFs que descargar. Si no, el enlace
@@ -40146,6 +40205,17 @@ def public_invitation_delivery(kind, token):
             guest_name = (getattr(row, "guest_name", None) or "").strip()
             download_url = url_for("invitation_request_download", token=token)
         qty = _invitation_total_qty(_json_dict(getattr(row, "quantities_json", None)))
+        # Lista de entradas agrupada (zona → categoría → sector) con descarga individual, igual que en
+        # el correo. Reutiliza el mismo componente.
+        if kind == "c":
+            _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
+            _catf = _safe_uuid((request.args.get("category") or "").strip())
+            if _catf:
+                _tq = _tq.filter(InvitationTicket.category_id == _catf)
+        else:
+            _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
+        _dtickets = _tq.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        tickets_html = Markup(_invitation_tickets_grouped_html(session_db, concert, _dtickets, download_url)) if _dtickets else ""
         card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
         logo = _invitation_event_logo_url(session_db, concert, external=False)
         bits = [x for x in [card["activity_label"], (card["event_name"] or card["city"]), card["date_label"]] if x]
@@ -40164,7 +40234,7 @@ def public_invitation_delivery(kind, token):
                                             logo=_invitation_event_logo_url(session_db, concert, external=True)),
         }
         return render_template("public_invitation_delivery.html", logo=logo, card=card, guest_name=guest_name,
-                               qty=qty, qty_label=qty_label, download_url=download_url, og=og)
+                               qty=qty, qty_label=qty_label, download_url=download_url, tickets_html=tickets_html, og=og)
     finally:
         session_db.close()
 

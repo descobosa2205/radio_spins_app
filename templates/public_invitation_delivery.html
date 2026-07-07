@@ -49,11 +49,17 @@
 
     {% if download_url %}
       <a class="btn btn-danger btn-lg w-100" href="{{ download_url }}"><i class="fa fa-download me-1"></i>Descargar invitaciones</a>
-      <div class="small text-muted mt-2">Se descargan en un único PDF.</div>
+      <div class="small text-muted mt-2">Se descargan en un único PDF. También puedes descargarlas por tipo o una a una abajo.</div>
     {% else %}
       <div class="alert alert-light border mb-0">Tus invitaciones estarán a tu nombre en el acceso / taquilla.</div>
     {% endif %}
   </div>
+
+  {% if tickets_html %}
+  <div class="pi-card mt-3" style="text-align:left">
+    {{ tickets_html }}
+  </div>
+  {% endif %}
 </div>
 </body>
 </html>

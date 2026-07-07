@@ -472,8 +472,8 @@
           {% if grouped_requests %}
             <div class="inv-request-list" data-inv-dnd data-recat-base="{{ url_for('invitation_request_recategorize', request_id='__REQ__') }}">
               {% for g in grouped_requests %}
-              <div class="inv-cat-group" data-cat-drop="{{ g.cat_id }}">
-                <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span></div>
+              <div class="inv-cat-group{% if not g.droppable %} inv-cat-locked{% endif %}"{% if g.droppable %} data-cat-drop="{{ g.cat_id }}"{% else %} data-cat-locked="1"{% endif %}>
+                <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}{% if g.zone == 'PALCO' and g.configured %} <span class="text-muted">({{ g.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span>{% if not g.droppable %}<span class="badge text-bg-secondary ms-1" title="Palco ya comprometido"><i class="fa fa-lock me-1"></i>Asignado{% if g.locked_label %} a {{ g.locked_label }}{% endif %}</span>{% endif %}</div>
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
@@ -1590,6 +1590,8 @@
       <div class="modal-header"><h5 class="modal-title">Pedir invitaciones</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
         <input type="hidden" name="concert_id" data-field="concert_id">
+        {# Al pedir DESDE la gestión de un evento, volver a esa misma ficha (no a "pedir") para no moverse de sitio. #}
+        <input type="hidden" name="next" value="{% if tab == 'evento' and concert %}{{ url_for('invitation_event_detail', concert_id=concert.id) }}{% endif %}">
         <input type="hidden" name="guest_type" data-field="guest_type" value="SELF">
         <input type="hidden" name="guest_artist_id" data-field="guest_artist_id">
         <input type="hidden" name="guest_user_id" data-field="guest_user_id">
@@ -2092,6 +2094,30 @@
     // El script va en el contenido, ANTES de cargar Bootstrap; se difiere a DOMContentLoaded.
     if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
   })();
+{% if tab == 'evento' %}
+  // Mantener la POSICIÓN DE SCROLL tras cualquier acción que recargue la ficha del evento (aprobar,
+  // compromisos, enlaces, guardar categorías, crear solicitud…): al volver se aterriza donde estabas
+  // y no arriba del todo. Junto con la memoria de pestaña, cumple "sin moverse de donde estás".
+  (function(){
+    var SKEY = 'invEventScroll:' + location.pathname;
+    function save(){ try { sessionStorage.setItem(SKEY, String(window.scrollY || window.pageYOffset || 0)); } catch(e){} }
+    window.addEventListener('beforeunload', save);
+    window.addEventListener('pagehide', save);
+    document.addEventListener('submit', save, true);
+    function restore(){
+      var v = null;
+      try { v = sessionStorage.getItem(SKEY); } catch(e){}
+      if(v === null) return;
+      try { sessionStorage.removeItem(SKEY); } catch(e){}
+      var y = parseInt(v, 10) || 0;
+      if(y <= 0) return;
+      if('scrollRestoration' in history){ try { history.scrollRestoration = 'manual'; } catch(e){} }
+      var tries = 0;
+      (function go(){ window.scrollTo(0, y); if(++tries < 8 && Math.abs((window.scrollY || 0) - y) > 2) requestAnimationFrame(go); })();
+    }
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ requestAnimationFrame(restore); }); else requestAnimationFrame(restore);
+  })();
+{% endif %}
 
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
     const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';

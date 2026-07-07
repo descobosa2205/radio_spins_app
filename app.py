@@ -39337,6 +39337,50 @@ def _invitation_link_state(link: InvitationPublicLink) -> tuple[str, str]:
     return "active", ""
 
 
+def _invitation_committed_category_ids(session_db, concert) -> set[str]:
+    """IDs de categoría con al menos un COMPROMISO activo (status != ANULADAS y cantidad > 0).
+    Un palco cuyo id esté aquí ya está "asignado a alguien" (aunque no se le hayan asignado las
+    entradas todavía) y no debe ofrecerse al pedir ni admitir que se le arrastren invitados."""
+    concert_id = getattr(concert, "id", concert)
+    out: set[str] = set()
+    for x in (
+        session_db.query(InvitationCommitment)
+        .filter(InvitationCommitment.concert_id == concert_id)
+        .filter(InvitationCommitment.status != "ANULADAS")
+        .all()
+    ):
+        for cid, q in _json_dict(x.quantities_json).items():
+            if str(cid).upper() != "TOTAL" and _safe_int(q) > 0:
+                out.add(str(cid))
+    return out
+
+
+def _invitation_committed_palco_labels(session_db, concert, categories) -> dict[str, str]:
+    """{category_id: "Nombre destinatario"} SOLO para las categorías de zona PALCO que ya están
+    comprometidas. Se usa para (a) ocultarlas al pedir y (b) mostrarlas bloqueadas ("Asignado a …")
+    en el arrastre de peticiones. Si un mismo palco tuviera varios compromisos, se unen los nombres."""
+    palco_ids = {str(c.id) for c in categories if _invitation_category_zone(c) == "PALCO"}
+    if not palco_ids:
+        return {}
+    concert_id = getattr(concert, "id", concert)
+    out: dict[str, list[str]] = {}
+    for x in (
+        session_db.query(InvitationCommitment)
+        .filter(InvitationCommitment.concert_id == concert_id)
+        .filter(InvitationCommitment.status != "ANULADAS")
+        .order_by(InvitationCommitment.created_at.asc())
+        .all()
+    ):
+        label = (getattr(x, "name", None) or _invitation_guest_identity(session_db, x).get("name") or "").strip()
+        for cid, q in _json_dict(x.quantities_json).items():
+            scid = str(cid)
+            if scid in palco_ids and _safe_int(q) > 0:
+                out.setdefault(scid, [])
+                if label and label not in out[scid]:
+                    out[scid].append(label)
+    return {cid: " · ".join(names) for cid, names in out.items()}
+
+
 def _invitation_event_available_by_category(session_db, concert: Concert, categories: list[InvitationCategory]) -> dict:
     """Aforo disponible del EVENTO por categoría (capacidad - comprometidas - solicitadas activas).
     Se usa para las opciones 'solo con aforo' y 'limitar a aforo' del enlace público."""
@@ -39367,7 +39411,7 @@ def _invitation_event_available_by_category(session_db, concert: Concert, catego
     return out
 
 
-def _invitation_public_limits(link: InvitationPublicLink, categories: list[InvitationCategory], requests: list[InvitationRequest] | None = None, event_available_by_cat: dict | None = None, event_available_total: int | None = None) -> dict:
+def _invitation_public_limits(link: InvitationPublicLink, categories: list[InvitationCategory], requests: list[InvitationRequest] | None = None, event_available_by_cat: dict | None = None, event_available_total: int | None = None, exclude_ids: set | None = None) -> dict:
     category_limits = _json_dict(link.category_limits_json)
     enabled = set(str(x) for x in _json_list(link.categories_enabled_json))
     only_available = bool(getattr(link, "show_only_available", False))
@@ -39381,9 +39425,13 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
         used_total += _invitation_total_qty(q)
         for cid, qty in q.items():
             used_by_category[str(cid)] += _safe_int(qty)
+    _exclude = set(str(x) for x in (exclude_ids or set()))
     rows = []
     for i, cat in enumerate(categories):
         cid = str(cat.id)
+        # Palco ya comprometido a alguien: no se ofrece al pedir por el enlace público.
+        if cid in _exclude:
+            continue
         if link.limit_mode == "CATEGORIES" and cid not in category_limits:
             continue
         # Solo ofrecer las categorías que esta persona puede pedir (las habilitadas
@@ -39467,13 +39515,16 @@ def _invitation_group_requests(requests: list[dict], categories) -> None:
     requests.sort(key=lambda x: (x.get('group_order', 10000), _invitation_normalize_search(x.get('guest_name') or '')))
 
 
-def _invitation_grouped(requests: list[dict], categories, allowed_ids=None) -> list:
+def _invitation_grouped(requests: list[dict], categories, allowed_ids=None, locked_labels=None) -> list:
     """Agrupa para pintar ZONAS DE DROP: un grupo por categoría (aunque esté vacía, para poder soltar
     ahí) en su orden, y al final 'Sin categoría' SOLO si hay solicitudes sin categoría. Requiere que
     `requests` ya venga con group_key (via _invitation_group_requests).
     Si `allowed_ids` no es None, solo se pintan las categorías permitidas (las disponibles para pedir
-    en el enlace); las que no lo estén se conservan solo si ya tienen peticiones (para no ocultarlas)."""
+    en el enlace); las que no lo estén se conservan solo si ya tienen peticiones (para no ocultarlas).
+    `locked_labels` (dict {cat_id: "Asignado a …"}) marca palcos ya comprometidos: el grupo se pinta
+    BLOQUEADO (droppable=False, con la etiqueta del destinatario) para que no se le arrastren invitados."""
     allowed = set(str(x) for x in allowed_ids) if allowed_ids is not None else None
+    locked = {str(k): v for k, v in (locked_labels or {}).items()}
     colors = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
     by_key = {}
     for r in requests:
@@ -39494,6 +39545,11 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None) -> l
             "zone": zone,
             "zone_label": INVITATION_ZONE_LABELS.get(zone, "Pista"),
             "zone_icon": INVITATION_ZONE_ICONS.get(zone, "fa-people-group"),
+            # Aforo del palco (para mostrarlo entre paréntesis en Invitados) y bloqueo si ya está
+            # comprometido a alguien (no se le pueden arrastrar invitados).
+            "configured": _safe_int(getattr(c, 'qty_contract', 0)) + _safe_int(getattr(c, 'qty_extra', 0)),
+            "droppable": cid not in locked,
+            "locked_label": locked.get(cid, ""),
         })
     uncat = by_key.get('', [])
     if uncat:
@@ -39506,6 +39562,9 @@ def _invitation_grouped(requests: list[dict], categories, allowed_ids=None) -> l
             "zone": "",
             "zone_label": "Sin categoría",
             "zone_icon": "fa-circle-question",
+            "configured": 0,
+            "droppable": True,
+            "locked_label": "",
         })
     return groups
 
@@ -39525,6 +39584,9 @@ def _invitation_recategorize(session_db, row: InvitationRequest, category_id: st
         cat = session_db.get(InvitationCategory, to_uuid(cid))
         if not cat or str(cat.concert_id) != str(row.concert_id):
             return {"ok": False, "error": "Categoría no válida para este evento."}
+        # Un palco ya comprometido a alguien no admite que se le arrastren invitados.
+        if _invitation_category_zone(cat) == "PALCO" and str(cat.id) in _invitation_committed_category_ids(session_db, row.concert_id):
+            return {"ok": False, "error": "Este palco ya está asignado a un compromiso; no se le pueden mover invitados."}
     if status == "ASIGNADAS" and not confirm:
         return {"ok": False, "needs_confirm": True}
     if status == "ASIGNADAS":
@@ -40386,10 +40448,15 @@ def api_invitation_event_categories(concert_id):
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         counts = _invitation_event_counts(session_db, concert)
+        # Un palco ya comprometido a alguien (aunque no se le hayan asignado las entradas) NO se ofrece
+        # al pedir: desaparece de la lista de categorías del asistente.
+        committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
         # Color por CATEGORÍA (mismo criterio que en el listado de invitados: por orden de la
         # categoría en el evento), para que la franja de color sea idéntica en todas partes.
         cat_payloads = []
         for i, c in enumerate(categories):
+            if str(c.id) in committed_palco:
+                continue
             p = _invitation_category_payload(c)
             p['color'] = INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)]
             cat_payloads.append(p)
@@ -40539,6 +40606,8 @@ def invitation_event_detail(concert_id):
         # Agrupación del listado por TIPO de invitación (categoría) con franja de color + orden
         # alfabético (helper reutilizado también por la página pública del enlace).
         _invitation_group_requests(requests, categories)
+        # Palcos ya comprometidos a alguien: {cat_id: "Asignado a …"} para bloquear su zona de drop.
+        committed_palco_labels = _invitation_committed_palco_labels(session_db, concert, categories)
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
         guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
         guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')
@@ -40699,7 +40768,7 @@ def invitation_event_detail(concert_id):
             categories=cat_payloads,
             commitments=commitments,
             requests=requests,
-            grouped_requests=_invitation_grouped(requests, categories),
+            grouped_requests=_invitation_grouped(requests, categories, locked_labels=committed_palco_labels),
             denied_count=denied_count,
             show_denied=show_denied,
             guest_list_rows_complete=guest_list_rows_complete,
@@ -40875,6 +40944,20 @@ def api_invitation_request_duplicates():
         session_db.close()
 
 
+def _invitation_safe_next(value: str | None) -> str | None:
+    """Valida un `next` para redirigir tras crear una solicitud: solo rutas locales de la ficha de
+    evento de invitaciones (evita open-redirect). Devuelve la ruta o None."""
+    v = (value or "").strip()
+    if not v:
+        return None
+    # Solo rutas locales (sin esquema/host) y limitadas a la ficha de gestión de invitaciones.
+    if v.startswith("//") or "://" in v:
+        return None
+    if v.startswith("/invitaciones/evento/"):
+        return v
+    return None
+
+
 @app.post('/invitaciones/solicitudes', endpoint='invitation_request_create')
 @admin_required
 def invitation_request_create():
@@ -41046,14 +41129,15 @@ def invitation_request_create():
             flash('El invitado no tenía correo configurado: la solicitud se completó y las invitaciones te llegarán a ti (quien las pide). Puedes añadir un correo a su ficha para enviárselas directamente.', 'warning')
         else:
             flash('Solicitud de invitaciones guardada como solicitada.', 'success')
-        # Volvemos a la vista de invitaciones (pestaña "pedir", con "Mis solicitudes"), que el
-        # solicitante siempre puede ver. La ficha del evento exige permiso de gestión, así que
-        # redirigir allí daría 403 a quien solo tiene habilitado "pedir".
-        return redirect(url_for('invitations_view', tab='pedir'))
+        # Si la solicitud se pidió DESDE la gestión de un evento (campo `next` con la ruta de la ficha),
+        # se vuelve a esa misma ficha para no moverse de sitio (el gestor sí tiene permiso). Si no,
+        # volvemos a la vista de invitaciones (pestaña "pedir", con "Mis solicitudes"), que el
+        # solicitante siempre puede ver: la ficha del evento exige gestión y daría 403 a quien solo pide.
+        return redirect(_invitation_safe_next(request.form.get('next')) or url_for('invitations_view', tab='pedir'))
     except Exception as exc:
         session_db.rollback()
         flash(f'No se pudo crear la solicitud: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='pedir'))
+        return redirect(_invitation_safe_next(request.form.get('next')) or url_for('invitations_view', tab='pedir'))
     finally:
         session_db.close()
 
@@ -43163,7 +43247,9 @@ def public_invitation_request_link(token):
         open_for_changes = (state == 'active')
         event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
         event_avail_total = _invitation_event_counts(session_db, concert)['result']
-        limits = _invitation_public_limits(link, categories, requests, event_avail_by_cat, event_avail_total)
+        # Palcos ya comprometidos a alguien: no se ofrecen al pedir por el enlace público.
+        committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+        limits = _invitation_public_limits(link, categories, requests, event_avail_by_cat, event_avail_total, exclude_ids=committed_palco)
         editable_statuses = {'SOLICITADAS', 'APROBADAS', 'ASIGNADAS'}
         manage_statuses = {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
         req_payloads = []
@@ -43205,7 +43291,7 @@ def public_invitation_request_link(token):
             categories=categories,
             limits=limits,
             requests=req_payloads,
-            grouped_requests=_invitation_grouped(req_payloads, categories, allowed_ids=[c['id'] for c in limits['categories']]),
+            grouped_requests=_invitation_grouped(req_payloads, categories, allowed_ids=[c['id'] for c in limits['categories']], locked_labels={cid: 'Asignado' for cid in committed_palco}),
             status_labels=INVITATION_STATUS_LABELS,
             og=og,
         )
@@ -43240,7 +43326,8 @@ def public_invitation_request_submit(token):
         if _invitation_total_qty(quantities) > _inv_available:
             raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
         _event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
-        limits = _invitation_public_limits(link, categories, existing, _event_avail_by_cat, _inv_available)
+        _committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+        limits = _invitation_public_limits(link, categories, existing, _event_avail_by_cat, _inv_available, exclude_ids=_committed_palco)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')
         available_by_cat = {str(x['id']): x.get('available') for x in limits.get('categories') or []}
@@ -43373,7 +43460,10 @@ def public_invitation_request_update(token, request_id):
         if _invitation_total_qty(quantities) > event_avail_total:
             raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
         existing = [x for x in session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).all() if x.id != row.id]
-        limits = _invitation_public_limits(link, categories, existing, event_avail_by_cat, event_avail_total)
+        # Palcos comprometidos a otros: no se pueden elegir al reeditar (salvo los que esta misma
+        # petición ya ocupaba, para poder mantener/reducir).
+        _committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys()) - {str(k) for k in current.keys()}
+        limits = _invitation_public_limits(link, categories, existing, event_avail_by_cat, event_avail_total, exclude_ids=_committed_palco)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')
         available_by_cat = {str(x['id']): x.get('available') for x in limits.get('categories') or []}

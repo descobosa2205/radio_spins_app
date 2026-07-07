@@ -26,39 +26,52 @@
 
   <hr>
   <h6 class="mb-2">Invitaciones por categoría</h6>
+  {# Misma estética que el asistente de crear: agrupado por zona, franja de color por categoría y
+     aforo del palco entre paréntesis. En modo gestión (solicitud ya asignada) cada categoría ocupa
+     todo el ancho para poder marcar las entradas que se quedan. #}
+  <div class="row g-3">
   {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
     {% set zcats = cat_rows|selectattr('zone','equalto',zkey)|list %}
     {% if zcats %}
-    <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+    <div class="col-12 mt-2 mb-0"><div class="fw-semibold text-muted"><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</div></div>
     {% for c in zcats %}
-    <div class="border rounded p-2 mb-2">
-      <div class="fw-semibold mb-1">{{ c.name }}</div>
+      {% set aforo = ' (Aforo: ' ~ c.configured ~ ')' if (c.zone == 'PALCO' and c.configured) else '' %}
       {% if assign_mode and c.kind != 'GUEST_LIST' %}
-        {% if c.assigned %}
-          <div class="small text-muted mb-1">Marca las que se quedan; <strong>desmarca para recuperarlas</strong> (si ya estaban enviadas/descargadas se darán por perdidas):</div>
-          <div class="d-flex flex-wrap gap-2 mb-2">
-            {% for t in c.assigned %}
-              <label class="border rounded px-2 py-1 small d-inline-flex align-items-center gap-2">
-                <input type="checkbox" name="keep_ticket" value="{{ t.id }}" checked>
-                <span>{{ t.location or t.code }}</span>
-                {% if t.status_class == 'sent' %}<span class="badge text-bg-success">Enviada</span>{% elif t.status_class == 'lost' %}<span class="badge text-bg-dark">Perdida</span>{% endif %}
-              </label>
-            {% endfor %}
-          </div>
-        {% endif %}
-        <label class="form-label small mb-0">Añadir más <span class="text-muted">(disponibles: {{ c.available }})</span></label>
-        <input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_{{ c.id }}_add" min="0" max="{{ c.available }}" value="0">
+      <div class="col-12">
+        <div style="border-left:5px solid {{ c.color }};padding-left:.6rem;">
+          <div class="fw-semibold mb-1">{{ c.name }}{% if aforo %}<span class="text-muted">{{ aforo }}</span>{% endif %}</div>
+          {% if c.assigned %}
+            <div class="small text-muted mb-1">Marca las que se quedan; <strong>desmarca para recuperarlas</strong> (si ya estaban enviadas/descargadas se darán por perdidas):</div>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              {% for t in c.assigned %}
+                <label class="border rounded px-2 py-1 small d-inline-flex align-items-center gap-2">
+                  <input type="checkbox" name="keep_ticket" value="{{ t.id }}" checked>
+                  <span>{{ t.location or t.code }}</span>
+                  {% if t.status_class == 'sent' %}<span class="badge text-bg-success">Enviada</span>{% elif t.status_class == 'lost' %}<span class="badge text-bg-dark">Perdida</span>{% endif %}
+                </label>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <label class="form-label small mb-0">Añadir más <span class="text-muted">(disponibles: {{ c.available }})</span></label>
+          <input type="number" class="form-control form-control-sm mt-1" style="max-width:160px" name="cat_{{ c.id }}_add" min="0" max="{{ c.available }}" value="0">
+        </div>
+      </div>
       {% else %}
-        <label class="form-label small mb-0">Cantidad</label>
-        <input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_{{ c.id }}_qty" min="0" value="{{ c.qty }}">
+      <div class="col-md-4">
+        <div style="border-left:5px solid {{ c.color }};padding-left:.6rem;">
+          <div class="fw-semibold">{{ c.name }}{% if aforo %}<span class="text-muted">{{ aforo }}</span>{% endif %}</div>
+          <input type="number" class="form-control mt-1" name="cat_{{ c.id }}_qty" min="0" value="{{ c.qty }}">
+          <div class="small text-muted">Disponibles {{ c.configured }}</div>
+        </div>
+      </div>
       {% endif %}
-    </div>
     {% endfor %}
     {% endif %}
   {% endfor %}
   {% if total_qty %}
-    <div class="border rounded p-2 mb-2"><label class="form-label small mb-0">Total (sin categoría)</label><input type="number" class="form-control form-control-sm" style="max-width:160px" name="cat_TOTAL_qty" min="0" value="{{ total_qty }}"></div>
+    <div class="col-md-4"><div style="border-left:5px solid #9ca3af;padding-left:.6rem;"><div class="fw-semibold">Total (sin categoría)</div><input type="number" class="form-control mt-1" name="cat_TOTAL_qty" min="0" value="{{ total_qty }}"></div></div>
   {% endif %}
+  </div>
 
   <div class="mt-2"><label class="form-label">Nota</label><textarea class="form-control" name="note" rows="2">{{ row.note }}</textarea></div>
   <div class="text-end mt-3"><button type="submit" class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar cambios</button></div>

@@ -41986,7 +41986,7 @@ def invitation_request_edit_form(request_id):
             ):
                 avail_by_cat[str(_cid)] = int(_n or 0)
         cat_rows = []
-        for cat in categories:
+        for _i, cat in enumerate(categories):
             cid = str(cat.id)
             available = avail_by_cat.get(cid, 0)
             cat_rows.append({
@@ -41997,6 +41997,9 @@ def invitation_request_edit_form(request_id):
                 'assigned': tickets_by_cat.get(cid, []),
                 'available': int(available),
                 'zone': _invitation_category_zone(cat),
+                # Mismo color por orden y aforo del palco que en el asistente de crear (estética común).
+                'color': INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)],
+                'configured': _safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0)),
             })
         return render_template(
             '_invitation_edit_form.html',

@@ -59,6 +59,7 @@ try:
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_JUSTIFY
     from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
     from reportlab.graphics.shapes import Drawing, PolyLine, Line
+    from reportlab.pdfgen import canvas
 
     REPORTLAB_AVAILABLE = True
 except Exception:
@@ -40098,6 +40099,215 @@ def _build_invitation_guest_list_pdf(session_db, concert: Concert, list_type: st
     doc.build(story)
     return buf.getvalue()
 
+
+# ── PDF de Compromisos / Peticiones (misma cabecera: logo de la empresa del grupo arriba a la
+#    derecha, título "Invitaciones" centrado, cabecera del evento; paginado "1/1" abajo). ───────────
+def _invitation_pdf_header_drawer(session_db, concert):
+    """Devuelve una función onPage(canvas, doc) que pinta en CADA página: logo del grupo (arriba dcha.),
+    título "Invitaciones" centrado y la cabecera del evento; y el nº de página "n/N" abajo centrado."""
+    from reportlab.lib.utils import ImageReader
+    logo_url = _invitation_event_logo_url(session_db, concert)
+    logo_reader = None
+    try:
+        if logo_url:
+            src = logo_url
+            if isinstance(logo_url, str) and logo_url.startswith(("http://", "https://")):
+                with urlopen(logo_url, timeout=6) as resp:
+                    src = BytesIO(resp.read())
+            logo_reader = ImageReader(src)
+    except Exception:
+        logo_reader = None
+    event = _invitation_event_payload(session_db, concert) if concert else {}
+    header_line = ' · '.join([x for x in [event.get('artist_names'), event.get('type_label'), event.get('date_label'), event.get('venue'), event.get('city')] if x])
+
+    def _draw(canvas, doc):
+        canvas.saveState()
+        W, H = doc.pagesize
+        # Logo del grupo arriba a la derecha.
+        if logo_reader is not None:
+            try:
+                iw, ih = logo_reader.getSize()
+                max_w, max_h = 130.0, 46.0
+                scale = min(max_w / float(iw or 1), max_h / float(ih or 1))
+                lw, lh = float(iw) * scale, float(ih) * scale
+                canvas.drawImage(logo_reader, W - doc.rightMargin - lw, H - lh - 20, width=lw, height=lh, mask='auto', preserveAspectRatio=True)
+            except Exception:
+                pass
+        # Título centrado.
+        canvas.setFillColor(colors.HexColor('#111111'))
+        canvas.setFont('Helvetica-Bold', 17)
+        canvas.drawCentredString(W / 2.0, H - 40, 'Invitaciones')
+        # Cabecera del evento.
+        if header_line:
+            canvas.setFont('Helvetica', 8.5)
+            canvas.setFillColor(colors.HexColor('#444444'))
+            canvas.drawCentredString(W / 2.0, H - 56, header_line[:160])
+        # El nº de página "n/N" lo pinta el canvas numerado en la segunda pasada (para saber el total).
+        canvas.restoreState()
+    return _draw
+
+
+class _InvitationNumberedCanvas(canvas.Canvas if REPORTLAB_AVAILABLE else object):
+    """Canvas de dos pasadas para poder escribir el total de páginas en "n/N"."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_states = []
+
+    def showPage(self):
+        self._saved_states.append(dict(self.__dict__))
+        self._startPage()
+
+    def save(self):
+        total = len(self._saved_states)
+        for state in self._saved_states:
+            self.__dict__.update(state)
+            self._replace_page_total(total)
+            super().showPage()
+        super().save()
+
+    def _replace_page_total(self, total):
+        # Pinta "n/N" centrado en el pie (segunda pasada, cuando ya se conoce el total).
+        try:
+            W = self._pagesize[0]
+            self.saveState()
+            self.setFont('Helvetica', 7.5)
+            self.setFillColor(colors.HexColor('#888888'))
+            self.drawCentredString(W / 2.0, 18, "%d/%d" % (self.getPageNumber(), total))
+            self.restoreState()
+        except Exception:
+            pass
+
+
+def _build_invitation_commitments_pdf(session_db, concert: Concert) -> bytes:
+    """PDF de "Compromisos de invitaciones" tal como se ven: por compromiso, para quién es, quién lo
+    añadió y a quién se manda; y debajo sus categorías (color, aforo del palco, nº, ubicación, estado)."""
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+    _cat_meta = {}
+    for i, c in enumerate(categories):
+        _cat_meta[str(c.id)] = {
+            'color': INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)],
+            'zone': _invitation_category_zone(c),
+            'configured': _safe_int(getattr(c, 'qty_contract', 0)) + _safe_int(getattr(c, 'qty_extra', 0)),
+        }
+    name_map = _invitation_category_name_map(categories)
+    rows = list(session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all())
+    if not REPORTLAB_AVAILABLE:
+        return ("Compromisos de invitaciones\n" + "\n".join(r.name or '' for r in rows)).encode('utf-8')
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=76, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    h = ParagraphStyle('InvCmtH', parent=styles['Normal'], fontSize=10.5, leading=13, spaceBefore=8, spaceAfter=2, textColor=colors.HexColor('#111111'))
+    meta = ParagraphStyle('InvCmtMeta', parent=styles['Normal'], fontSize=8, leading=10, textColor=colors.HexColor('#555555'))
+    cell = ParagraphStyle('InvCmtCell', parent=styles['Normal'], fontSize=8, leading=10)
+    story = [Paragraph('Compromisos de invitaciones', ParagraphStyle('InvCmtTitle', parent=styles['Normal'], fontSize=12, leading=14, spaceAfter=6, textColor=colors.HexColor('#111111')))]
+    if not rows:
+        story.append(Paragraph('No hay compromisos configurados.', meta))
+    for r in rows:
+        q = _json_dict(r.quantities_json)
+        _tk_by_cat = defaultdict(list)
+        for _st, _cidt in session_db.query(InvitationTicket.status, InvitationTicket.category_id).filter(InvitationTicket.assigned_commitment_id == r.id).all():
+            _tk_by_cat[str(_cidt)].append(_st)
+        _dl_cats = _json_dict(getattr(r, 'downloaded_categories_json', None))
+        _idn = _invitation_guest_identity(session_db, r)
+        _rcpt = _idn.get('name') or r.guest_name or ''
+        _link = _promoter_link_summary_text(_idn.get('link_summary') or {})
+        top = '<b>' + html.escape(r.name or '') + '</b>'
+        if r.reason:
+            top += ' · ' + html.escape(r.reason)
+        story.append(Paragraph(top, h))
+        sub = []
+        if _rcpt:
+            sub.append('Enviar a: ' + html.escape(_rcpt) + (' (' + html.escape(_link) + ')' if _link else ''))
+        if (r.created_by_nick or '').strip():
+            sub.append('Añadido por: ' + html.escape((r.created_by_nick or '').strip()))
+        if sub:
+            story.append(Paragraph(' · '.join(sub), meta))
+        data = [[Paragraph('<b>Nº</b>', cell), Paragraph('<b>Categoría</b>', cell), Paragraph('<b>Ubicación</b>', cell), Paragraph('<b>Descarga</b>', cell), Paragraph('<b>Estado</b>', cell)]]
+        for _cid, _qv in q.items():
+            if str(_cid) == 'TOTAL':
+                continue
+            _qn = _safe_int(_qv)
+            if _qn <= 0:
+                continue
+            _sts = _tk_by_cat.get(str(_cid), [])
+            _asg = len(_sts)
+            _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
+            if not _sts and (getattr(r, 'status', '') or '').upper() == 'ENVIADAS':
+                _lbl = 'Enviadas'
+            _m = _cat_meta.get(str(_cid), {})
+            _nm = name_map.get(str(_cid), 'Categoría')
+            if _m.get('zone') == 'PALCO' and _m.get('configured'):
+                _nm += ' (Aforo: %d)' % _m['configured']
+            data.append([
+                Paragraph('%d/%d' % (_asg, _qn), cell),
+                Paragraph(html.escape(_nm), cell),
+                Paragraph(html.escape(name_map.get(str(_cid), '')), cell),
+                Paragraph('Sí' if str(_cid) in _dl_cats else '—', cell),
+                Paragraph(html.escape(_lbl or ''), cell),
+            ])
+        t = Table(data, colWidths=[36, 200, 150, 48, 105], repeatRows=1)
+        _ts = [('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#d9dee6')), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fbfcfd')]), ('LEFTPADDING', (0, 0), (-1, -1), 4), ('RIGHTPADDING', (0, 0), (-1, -1), 4), ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]
+        # Franja de color por categoría en la primera columna (misma estética que en pantalla).
+        for _ri, (_cid, _qv) in enumerate([kv for kv in q.items() if str(kv[0]) != 'TOTAL' and _safe_int(kv[1]) > 0], start=1):
+            _col = _cat_meta.get(str(_cid), {}).get('color', '#9ca3af')
+            _ts.append(('LINEBEFORE', (0, _ri), (0, _ri), 4, colors.HexColor(_col)))
+        t.setStyle(TableStyle(_ts))
+        story.append(t)
+        if (r.note or '').strip():
+            story.append(Paragraph('Nota: ' + html.escape(r.note.strip()), meta))
+    _drawer = _invitation_pdf_header_drawer(session_db, concert)
+    doc.build(story, onFirstPage=_drawer, onLaterPages=_drawer, canvasmaker=_InvitationNumberedCanvas)
+    return buf.getvalue()
+
+
+def _build_invitation_requests_pdf(session_db, concert: Concert) -> bytes:
+    """PDF de "Peticiones de invitaciones" agrupadas por categoría (color + aforo del palco), con
+    invitado, vínculo, nº de entradas, ubicación/categorías, descarga y estado."""
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+    color_by = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(categories)}
+    conf_by = {str(c.id): _safe_int(getattr(c, 'qty_contract', 0)) + _safe_int(getattr(c, 'qty_extra', 0)) for c in categories}
+    zone_by = {str(c.id): _invitation_category_zone(c) for c in categories}
+    reqs = []
+    for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).filter(~InvitationRequest.status.in_(['RECHAZADAS', 'ANULADAS'])).order_by(InvitationRequest.created_at.desc()).all():
+        reqs.append(_invitation_request_payload(row, categories))
+    _invitation_group_requests(reqs, categories)
+    groups = _invitation_grouped(reqs, categories)
+    groups = [g for g in groups if g.get('rows')]
+    if not REPORTLAB_AVAILABLE:
+        return ("Peticiones de invitaciones\n" + "\n".join((g.get('name') or '') for g in groups)).encode('utf-8')
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=28, rightMargin=28, topMargin=76, bottomMargin=30)
+    styles = getSampleStyleSheet()
+    cell = ParagraphStyle('InvReqCell', parent=styles['Normal'], fontSize=8, leading=10)
+    grp = ParagraphStyle('InvReqGrp', parent=styles['Normal'], fontSize=10, leading=12, spaceBefore=8, spaceAfter=2, textColor=colors.HexColor('#111111'))
+    story = [Paragraph('Peticiones de invitaciones', ParagraphStyle('InvReqTitle', parent=styles['Normal'], fontSize=12, leading=14, spaceAfter=6, textColor=colors.HexColor('#111111')))]
+    if not groups:
+        story.append(Paragraph('No hay peticiones.', cell))
+    for g in groups:
+        _gname = g.get('name') or 'Sin categoría'
+        if g.get('zone') == 'PALCO' and g.get('configured'):
+            _gname += ' (Aforo: %d)' % _safe_int(g.get('configured'))
+        _col = g.get('color', '#9ca3af')
+        story.append(Paragraph('<font color="%s">■</font> %s · %d' % (_col, html.escape(_gname), _safe_int(g.get('total'))), grp))
+        data = [[Paragraph('<b>Invitado</b>', cell), Paragraph('<b>Vínculo</b>', cell), Paragraph('<b>Nº</b>', cell), Paragraph('<b>Ubicación</b>', cell), Paragraph('<b>Descarga</b>', cell), Paragraph('<b>Estado</b>', cell)]]
+        for r in g.get('rows', []):
+            data.append([
+                Paragraph(html.escape(r.get('guest_name') or '') + (' · ' + html.escape(r.get('guest_title')) if r.get('guest_title') else ''), cell),
+                Paragraph(html.escape(r.get('link_summary_text') or ''), cell),
+                Paragraph(str(_safe_int(r.get('qty_total'))), cell),
+                Paragraph(html.escape(r.get('categories_label') or ''), cell),
+                Paragraph('Sí' if r.get('downloaded_at_label') else '—', cell),
+                Paragraph(html.escape(r.get('status_label') or ''), cell),
+            ])
+        t = Table(data, colWidths=[150, 120, 26, 130, 46, 90], repeatRows=1)
+        _ts = [('GRID', (0, 0), (-1, -1), 0.25, colors.HexColor('#d9dee6')), ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#f3f4f6')), ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'), ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#fbfcfd')]), ('LINEBEFORE', (0, 1), (0, -1), 4, colors.HexColor(_col)), ('LEFTPADDING', (0, 0), (-1, -1), 4), ('RIGHTPADDING', (0, 0), (-1, -1), 4), ('TOPPADDING', (0, 0), (-1, -1), 2), ('BOTTOMPADDING', (0, 0), (-1, -1), 2)]
+        t.setStyle(TableStyle(_ts))
+        story.append(t)
+    _drawer = _invitation_pdf_header_drawer(session_db, concert)
+    doc.build(story, onFirstPage=_drawer, onLaterPages=_drawer, canvasmaker=_InvitationNumberedCanvas)
+    return buf.getvalue()
+
+
 def _invitation_rejection_email_body(session_db, row: InvitationRequest, reason: str | None = None) -> tuple[str, str, str]:
     concert = row.concert or session_db.get(Concert, row.concert_id)
     event = _invitation_event_payload(session_db, concert) if concert else {}
@@ -43169,6 +43379,36 @@ def invitation_guest_list_pdf(concert_id):
         list_type = (request.args.get('type') or 'COMPLETE').strip().upper()
         data = _build_invitation_guest_list_pdf(session_db, concert, list_type)
         return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name=f'listado_invitados_{list_type.lower()}.pdf')
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/compromisos.pdf', endpoint='invitation_commitments_pdf')
+@admin_required
+def invitation_commitments_pdf(concert_id):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        data = _build_invitation_commitments_pdf(session_db, concert)
+        return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name='compromisos_invitaciones.pdf')
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/peticiones.pdf', endpoint='invitation_requests_pdf')
+@admin_required
+def invitation_requests_pdf(concert_id):
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        data = _build_invitation_requests_pdf(session_db, concert)
+        return send_file(BytesIO(data), mimetype='application/pdf' if REPORTLAB_AVAILABLE else 'text/plain', as_attachment=True, download_name='peticiones_invitaciones.pdf')
     finally:
         session_db.close()
 

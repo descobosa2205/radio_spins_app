@@ -370,16 +370,28 @@
 
   <div class="tab-content">
     <div class="tab-pane fade show active" id="inv-tab-guests">
-      <div class="card mb-4">
+      {# Búsqueda de invitados: filtra en vivo compromisos y peticiones por cualquier campo o vínculo. #}
+      <div class="mb-3" data-inv-search-box>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+          <input type="search" class="form-control" id="invGuestSearch" placeholder="Buscar invitado por nombre, contacto, vínculo o categoría…" autocomplete="off" data-no-loader>
+          <button class="btn btn-outline-secondary" type="button" data-inv-search-clear title="Limpiar"><i class="fa fa-xmark"></i></button>
+        </div>
+        <div class="small text-muted mt-1 d-none" data-inv-search-empty>Sin resultados de invitaciones o compromisos para «<span data-inv-search-term></span>».</div>
+      </div>
+      <div class="card mb-4" data-inv-search-section>
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">Compromisos de invitaciones</h5>
-            <button class="btn btn-sm btn-outline-danger" data-commitment-add data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
+            <div class="d-flex gap-2">
+              {% if commitments %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_commitments_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
+              <button class="btn btn-sm btn-outline-danger" data-commitment-add data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
+            </div>
           </div>
           {% if commitments %}
-            <div class="list-group">
+            <div class="inv-commitment-list">
               {% for row in commitments %}
-                <div class="list-group-item">
+                <div class="inv-commitment-card" data-inv-search-item data-search="{{ row.name }} {{ row.reason }} {{ row.recipient_name }} {{ row.recipient_link_summary_text }} {{ row.created_by_nick }} {{ row.guest_email }} {{ row.guest_phone }} {% for cs in row.category_status %}{{ cs.name }} {% endfor %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1 min-w-0">
                       <div class="invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -467,11 +479,12 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" data-inv-search-section>
         <div class="card-body">
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h5 class="mb-0">Peticiones de invitaciones</h5>
             <div class="d-flex gap-2 flex-wrap">
+              {% if grouped_requests %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_requests_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
               {% if denied_count and not show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id, show_denied=1) }}#inv-tab-guests"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>{% endif %}
               {% if show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id) }}#inv-tab-guests"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>{% endif %}
               {% set assigned_reqs = (requests or []) | selectattr('status', 'equalto', 'ASIGNADAS') | list %}
@@ -486,12 +499,12 @@
           {% if grouped_requests %}
             <div class="inv-request-list" data-inv-dnd data-recat-base="{{ url_for('invitation_request_recategorize', request_id='__REQ__') }}">
               {% for g in grouped_requests %}
-              <div class="inv-cat-group{% if not g.droppable %} inv-cat-locked{% endif %}"{% if g.droppable %} data-cat-drop="{{ g.cat_id }}"{% else %} data-cat-locked="1"{% endif %}>
+              <div class="inv-cat-group{% if not g.droppable %} inv-cat-locked{% endif %}" data-inv-search-group{% if g.droppable %} data-cat-drop="{{ g.cat_id }}"{% else %} data-cat-locked="1"{% endif %}>
                 <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}{% if g.zone == 'PALCO' and g.configured %} <span class="text-muted">(Aforo: {{ g.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span>{% if not g.droppable %}<span class="badge text-bg-secondary ms-1" title="Palco ya comprometido"><i class="fa fa-lock me-1"></i>Asignado{% if g.locked_label %} a {{ g.locked_label }}{% endif %}</span>{% endif %}</div>
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
-                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
+                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -2130,6 +2143,36 @@
       (function go(){ window.scrollTo(0, y); if(++tries < 8 && Math.abs((window.scrollY || 0) - y) > 2) requestAnimationFrame(go); })();
     }
     if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ requestAnimationFrame(restore); }); else requestAnimationFrame(restore);
+  })();
+  // Búsqueda de invitados: filtra en vivo compromisos y peticiones (por cualquier campo o vínculo).
+  (function(){
+    function norm(s){ return (s || '').toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+    function init(){
+      var input = document.getElementById('invGuestSearch');
+      if(!input) return;
+      var clearBtn = document.querySelector('[data-inv-search-clear]');
+      var emptyBox = document.querySelector('[data-inv-search-empty]');
+      var termEl = document.querySelector('[data-inv-search-term]');
+      function apply(){
+        var term = norm(input.value.trim());
+        var items = document.querySelectorAll('[data-inv-search-item]');
+        var anyVisible = false;
+        items.forEach(function(it){
+          var hit = !term || norm(it.getAttribute('data-search')).indexOf(term) !== -1;
+          it.style.display = hit ? '' : 'none';
+          if(hit) anyVisible = true;
+        });
+        // Ocultar grupos de categoría (peticiones) sin resultados visibles.
+        document.querySelectorAll('[data-inv-search-group]').forEach(function(gr){
+          var vis = gr.querySelector('[data-inv-search-item]:not([style*="display: none"])');
+          gr.style.display = (term && !vis) ? 'none' : '';
+        });
+        if(emptyBox){ emptyBox.classList.toggle('d-none', !term || anyVisible); if(termEl) termEl.textContent = input.value.trim(); }
+      }
+      input.addEventListener('input', apply);
+      if(clearBtn) clearBtn.addEventListener('click', function(){ input.value = ''; apply(); input.focus(); });
+    }
+    if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
   })();
 {% endif %}
 

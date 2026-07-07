@@ -40124,14 +40124,15 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                         detail = ""
                     dl = _dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
                     detail_html = f'<span style="color:#667085"> · {esc(detail)}</span>' if detail else ""
-                    # Numeradas: nº + fila/asiento a la IZQUIERDA (delante) y la flecha ALINEADA a la
-                    # derecha del bloque de su categoría.
+                    # Numeradas: nº + fila/asiento delante y la flecha JUSTO tras el texto. La tabla se
+                    # ajusta al contenido (sin width:100%) → la columna del texto toma el ancho del texto
+                    # MÁS LARGO de esa categoría, así todas las flechas quedan en la misma vertical.
                     trs.append(
                         '<tr>'
-                        f'<td style="padding:3px 0;font-size:14px;color:#111;vertical-align:middle">Invitación {n}{detail_html}</td>'
-                        f'<td align="right" style="padding:3px 0 3px 10px;white-space:nowrap;vertical-align:middle">{dl}</td>'
+                        f'<td style="padding:3px 0;font-size:14px;color:#111;vertical-align:middle;white-space:nowrap">Invitación {n}{detail_html}</td>'
+                        f'<td style="padding:3px 0 3px 12px;white-space:nowrap;vertical-align:middle">{dl}</td>'
                         '</tr>')
-                parts.append('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
+                parts.append('<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
             # Bloque de categoría: borde de color; el sombreado va SOLO en la barra del título.
             inner.append(f'<div style="border:1px solid {shade};border-left:4px solid {color};border-radius:8px;margin:8px 0;overflow:hidden">'
                          + title_bar + '<div style="padding:6px 12px 8px">' + "".join(parts) + '</div></div>')

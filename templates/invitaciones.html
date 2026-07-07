@@ -384,7 +384,7 @@
           <div class="d-flex justify-content-between align-items-center mb-3">
             <h5 class="mb-0">Compromisos de invitaciones</h5>
             <div class="d-flex gap-2">
-              {% if commitments %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_commitments_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
+              {% if commitments %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_commitments_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
               <button class="btn btn-sm btn-outline-danger" data-commitment-add data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
             </div>
           </div>
@@ -484,7 +484,6 @@
           <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
             <h5 class="mb-0">Peticiones de invitaciones</h5>
             <div class="d-flex gap-2 flex-wrap">
-              {% if grouped_requests %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_requests_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
               {% if denied_count and not show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id, show_denied=1) }}#inv-tab-guests"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>{% endif %}
               {% if show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id) }}#inv-tab-guests"><i class="fa fa-eye-slash me-1"></i>Ocultar denegadas</a>{% endif %}
               {% set assigned_reqs = (requests or []) | selectattr('status', 'equalto', 'ASIGNADAS') | list %}
@@ -493,6 +492,7 @@
                 <button class="btn btn-sm btn-outline-success" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar todas las asignadas</button>
               </form>
               {% endif %}
+              {% if grouped_requests %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_requests_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
               <button class="btn btn-sm btn-outline-danger" data-bs-toggle="modal" data-bs-target="#invitationRequestModal" data-default-event="{{ event.id }}"><i class="fa fa-plus me-1"></i>Añadir solicitud</button>
             </div>
           </div>

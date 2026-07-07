@@ -39964,6 +39964,9 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
     color_by = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(cats)}
     zone_order = ["PISTA", "GRADA", "PALCO"]
     zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palcos"}
+    # Icono por zona como EMOJI (Font Awesome no renderiza en clientes de correo; el emoji sí).
+    zone_emoji = {"PISTA": "\U0001F465", "GRADA": "\U0001FA91", "PALCO": "\U0001F451"}
+    zone_emoji_default = "\U0001F3AB"
     grouped: dict = {z: [] for z in zone_order}
     bykey: dict = {}
     for t in tickets:
@@ -39992,11 +39995,14 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
         zcats = grouped.get(zone) or []
         if not zcats:
             continue
-        out.append(f'<div style="font-size:12px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#8a929c;margin:18px 0 6px">{esc(zone_labels[zone])}</div>')
+        # Cabecera de zona destacada: icono (emoji) + nombre en negro y en negrita.
+        _zicon = zone_emoji.get(zone, zone_emoji_default)
+        inner = [f'<div style="font-weight:800;color:#111;font-size:15px;margin:0 0 10px">'
+                 f'<span style="font-size:17px;margin-right:7px">{_zicon}</span>{esc(zone_labels[zone])}</div>']
         for cid, cat, cat_tickets in zcats:
             cat_name = (getattr(cat, "name", None) or "Categoría").strip()
             color = color_by.get(cid, "#9ca3af")
-            soft = _hex_tint(color, 0.72)
+            shade = _hex_tint(color, 0.88)  # sombreado claro del color de la categoría
             is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
             header = (
                 '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>'
@@ -40006,7 +40012,6 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                 f'<span style="color:#98a1ac;font-size:12px">&nbsp;({len(cat_tickets)})</span></td>'
                 f'<td align="right" style="vertical-align:middle">{_dlall(cid)}</td>'
                 '</tr></table>'
-                f'<div style="height:3px;background:{soft};border-radius:3px;margin:6px 0 2px"></div>'
             )
             # Sub-agrupar por SECTOR (en orden de aparición) si hay más de uno.
             sector_order, by_sector = [], {}
@@ -40020,7 +40025,7 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
             parts = []
             for sec in sector_order:
                 if multi_sector and sec:
-                    parts.append(f'<div style="font-size:12px;font-weight:600;color:#6b7280;margin:8px 0 2px">Sector {esc(sec)}</div>')
+                    parts.append(f'<div style="font-size:12px;font-weight:700;color:#49515d;margin:8px 0 2px">Sector {esc(sec)}</div>')
                 trs = []
                 for t in by_sector[sec]:
                     n += 1
@@ -40044,7 +40049,10 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                         f'<td style="padding:3px 0;font-size:14px;vertical-align:middle">{detail_html}</td>'
                         '</tr>')
                 parts.append('<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
-            out.append(f'<div style="border-left:4px solid {color};padding:8px 0 10px 12px;margin:6px 0 14px">' + header + "".join(parts) + "</div>")
+            # Categoría con SOMBREADO del color + borde de color (como en "configurar disponibles").
+            inner.append(f'<div style="border-left:4px solid {color};background:{shade};border-radius:8px;padding:9px 12px;margin:6px 0">' + header + "".join(parts) + "</div>")
+        # Toda la zona dentro de un "bocadillo" claro que la diferencia.
+        out.append('<div style="border:1px solid #e6e9ee;background:#fafbfc;border-radius:14px;padding:12px 14px;margin:14px 0">' + "".join(inner) + "</div>")
     return "".join(out)
 
 

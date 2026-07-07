@@ -1960,14 +1960,23 @@
     var _cell = function(c){
       var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? ` <span class="text-muted">(Aforo: ${c.configured})</span>` : '';
       var _color = c.color || '#9ca3af';
-      var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="fw-semibold">${_esc(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
+      var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="inv-cat-swatch" style="background:${_color}"></span><span class="fw-semibold">${_esc(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
       var _input = (c.requests_blocked && opts.blockDisabled)
         ? `<input class="form-control mt-1" type="number" value="0" disabled>`
         : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div>`;
-      return `<div class="col-md-4"><div style="border-left:5px solid ${_color};padding-left:.6rem;">${_title}${_input}</div></div>`;
+      // Categoría con SOMBREADO del color + borde de color (como en "configurar disponibles").
+      return `<div class="col-md-4"><div class="inv-qty-cell" style="border-left:5px solid ${_color};background:color-mix(in srgb, ${_color} 12%, white);">${_title}${_input}</div></div>`;
     };
     var _html = '';
-    _zones.forEach(function(z){ var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; }); if (!_zc.length) return; _html += '<div class="col-12 mt-3 mb-1"><div class="fw-semibold text-muted"><i class="fa ' + z[2] + ' me-1"></i>' + z[1] + '</div></div>'; _html += _zc.map(_cell).join(''); });
+    // Cada tipo (Pista/Grada/Palcos) dentro de un "bocadillo" claro, con su icono en rojo y nombre en negro.
+    _zones.forEach(function(z){
+      var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });
+      if (!_zc.length) return;
+      _html += '<div class="col-12 mt-2"><div class="inv-zone-bubble">'
+             + '<div class="inv-zone-head"><i class="fa ' + z[2] + ' me-2"></i>' + z[1] + '</div>'
+             + '<div class="row g-2">' + _zc.map(_cell).join('') + '</div>'
+             + '</div></div>';
+    });
     return _html;
   };
   document.querySelectorAll('[data-invitation-wizard]').forEach(form => { goStep(form, 1); form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); })); form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); })); form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1))); form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1))); form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY'); form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE'); form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST'); if (btn.dataset.guestType === 'SELF') goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); });

@@ -931,6 +931,12 @@ img[data-default-photo="1"]{
 .inv-cat-group-header { display:flex; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; color:#495057; margin:.6rem 0 .1rem; padding-top:.2rem; }
 .inv-cat-group-header:first-child { margin-top:0; }
 .inv-cat-swatch { display:inline-block; width:12px; height:12px; border-radius:3px; flex:0 0 auto; }
+/* "Bocadillo" claro por tipo de entrada (Pista/Grada/Palcos) con su icono en rojo y nombre en negro;
+   dentro, cada categoría con sombreado de su color. Estética común con el correo y los enlaces. */
+.inv-zone-bubble { border:1px solid #e6e9ee; background:#fafbfc; border-radius:14px; padding:.75rem .9rem; }
+.inv-zone-head { font-weight:800; color:#111; margin-bottom:.5rem; }
+.inv-zone-head i { color:#e83b4b; }
+.inv-qty-cell { border-radius:8px; padding:.5rem .6rem; }
 .inv-request-list .list-group-item.inv-cat-row { border-left-width:5px; }
 /* Arrastrar solicitudes entre categorías */
 .inv-cat-group { border-radius:12px; padding:.15rem .1rem .3rem; transition:background .12s ease, box-shadow .12s ease; }

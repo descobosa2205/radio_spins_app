@@ -1369,6 +1369,15 @@ function initInvitationDnd(){
       row.addEventListener('dragstart', function(e){ drag = { id: row.getAttribute('data-req'), cat: row.getAttribute('data-cat') || '', assigned: row.getAttribute('data-assigned') === '1' }; row.classList.add('inv-dragging'); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', drag.id); } catch(_){} });
       row.addEventListener('dragend', function(){ row.classList.remove('inv-dragging'); cont.querySelectorAll('.inv-dragover').forEach(function(z){ z.classList.remove('inv-dragover'); }); });
     });
+    // Recalcula el total (badge) de una zona sumando el data-qty de sus filas.
+    function refreshZoneTotal(zoneEl){
+      if (!zoneEl) return;
+      var dz = zoneEl.querySelector('.inv-cat-dropzone');
+      var total = 0;
+      (dz ? dz.querySelectorAll('.inv-cat-row') : []).forEach(function(r){ total += (parseInt(r.getAttribute('data-qty'), 10) || 0); });
+      var badge = zoneEl.querySelector('.inv-cat-group-header .inv-qty-badge');
+      if (badge) { badge.innerHTML = '<i class="fa fa-ticket me-1"></i>' + total; }
+    }
     cont.querySelectorAll('[data-cat-drop]').forEach(function(zone){
       zone.addEventListener('dragover', function(e){ if (!drag) return; e.preventDefault(); zone.classList.add('inv-dragover'); });
       zone.addEventListener('dragleave', function(){ zone.classList.remove('inv-dragover'); });
@@ -1378,16 +1387,39 @@ function initInvitationDnd(){
         var target = zone.getAttribute('data-cat-drop') || '';
         var d = drag; drag = null;
         if (target === d.cat) return;
-        var url = base.replace('__REQ__', encodeURIComponent(d.id));
+        var rowEl = document.getElementById('req-' + d.id) || cont.querySelector('.inv-cat-row[data-req="' + d.id + '"]');
+        if (!rowEl) return;
         if (d.assigned && !window.confirm(CONFIRM_MSG)) return;
+        var url = base.replace('__REQ__', encodeURIComponent(d.id));
+        // --- Movimiento OPTIMISTA (inmediato, sin recarga) ---
+        var srcZone = rowEl.closest('[data-cat-drop]');
+        var placeholder = document.createComment('inv-recat');       // marca la posición original para revertir
+        rowEl.parentNode.insertBefore(placeholder, rowEl.nextSibling);
+        var destDz = zone.querySelector('.inv-cat-dropzone') || zone;
+        var newColor = (function(){ var sw = zone.querySelector('.inv-cat-group-header .inv-cat-swatch'); return sw ? (sw.style.backgroundColor || '') : ''; })();
+        var oldColor = rowEl.style.borderLeftColor;
+        destDz.appendChild(rowEl);
+        rowEl.setAttribute('data-cat', target);
+        if (newColor) rowEl.style.borderLeftColor = newColor;
+        refreshZoneTotal(srcZone); refreshZoneTotal(zone);
+        function revert(){
+          if (placeholder && placeholder.parentNode) { placeholder.parentNode.insertBefore(rowEl, placeholder); }
+          rowEl.setAttribute('data-cat', d.cat);
+          if (oldColor) rowEl.style.borderLeftColor = oldColor;
+          if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+          refreshZoneTotal(srcZone); refreshZoneTotal(zone);
+        }
+        function done(){ if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder); }
         post(url, target, d.assigned).then(function(res){
           if (res && res.needs_confirm) {
-            if (window.confirm(CONFIRM_MSG)) post(url, target, true).then(function(r2){ if (r2 && r2.ok) location.reload(); else alert((r2 && r2.error) || 'No se pudo cambiar.'); });
+            if (window.confirm(CONFIRM_MSG)) {
+              post(url, target, true).then(function(r2){ if (r2 && r2.ok) { done(); } else { revert(); alert((r2 && r2.error) || 'No se pudo cambiar.'); } });
+            } else { revert(); }
             return;
           }
-          if (res && res.ok) location.reload();
-          else alert((res && res.error) || 'No se pudo cambiar de categoría.');
-        });
+          if (res && res.ok) { done(); }
+          else { revert(); alert((res && res.error) || 'No se pudo cambiar de categoría.'); }
+        }).catch(function(){ revert(); alert('No se pudo cambiar de categoría.'); });
       });
     });
   });

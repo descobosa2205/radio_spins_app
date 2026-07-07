@@ -183,7 +183,28 @@
   window.appLoader={ show:show, hide:hide };  // para mostrarlo manualmente desde cualquier script
 
   // Descargas directas por extensión (no son "carga de página"); el PDF por fetch SÍ se cubre abajo.
-  var DOWNLOAD_RE=/\.(zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
+  var DOWNLOAD_RE=/\.(pdf|zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
+  // Descargas de FICHERO (same-origin): se abren por un iframe oculto para que salga el diálogo de
+  // GUARDAR sin abandonar la página ni dejarla en blanco. (Los target=_blank y cross-origin se dejan.)
+  var FILE_DL_RE=/\.(pdf|zip|csv|xlsx?|docx?|pptx?|ics)(\?|$)/i;
+  document.addEventListener('click', function(e){
+    var a=e.target.closest('a'); if(!a) return;
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0) return;
+    if(a.target==='_blank'||a.hasAttribute('data-no-iframe-dl')) return;
+    var href=a.getAttribute('href')||'';
+    if(!href||href.charAt(0)==='#') return;
+    if(/^(javascript:|mailto:|tel:|blob:|data:)/i.test(href)) return;
+    if(!(a.hasAttribute('download')||FILE_DL_RE.test(href))) return;
+    if(a.host && a.host!==location.host){
+      // Descarga cross-origin (p. ej. PDF de la entrada en Supabase): abrir en pestaña nueva para no
+      // abandonar la página actual.
+      e.preventDefault(); window.open(a.href, '_blank', 'noopener'); return;
+    }
+    e.preventDefault();
+    var ifr=document.createElement('iframe'); ifr.style.display='none'; ifr.setAttribute('aria-hidden','true');
+    ifr.src=a.href; document.body.appendChild(ifr);
+    setTimeout(function(){ try{ document.body.removeChild(ifr); }catch(_){} }, 120000);
+  }, true);
 
   // Navegación por enlaces internos: se muestra INMEDIATO (síncrono), clave para que Safari lo pinte
   // antes de congelar el JS al iniciar la navegación.

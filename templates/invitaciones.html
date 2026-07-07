@@ -335,9 +335,9 @@
 {% elif tab == 'evento' %}
   <div class="mb-3">
     {% if back_to_ficha %}
-      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back href="{{ url_for('concert_detail_view', cid=event.id) }}"><i class="fa fa-arrow-left me-1"></i>Volver a la actividad</a>
+      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back data-restore-scroll href="{{ url_for('concert_detail_view', cid=event.id) }}"><i class="fa fa-arrow-left me-1"></i>Volver a la actividad</a>
     {% else %}
-      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back data-inv-return-gestionar href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
+      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back data-restore-scroll href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
     {% endif %}
   </div>
   <div class="card mb-3 invitation-event-header">
@@ -3027,36 +3027,5 @@
     if (pendingForm) send(pendingForm);
   });
 })();
-</script>
-<script>
-  // "Volver a gestión de invitaciones": vuelve a la LISTA de gestión en la posición EXACTA en la que
-  // estabas. Guardamos el scroll de la lista al salir de ella y lo restauramos SOLO cuando se vuelve
-  // con ese botón (así no interfiere con visitas normales, que van arriba del todo).
-  (function(){
-    var TAB = "{{ tab }}";
-    var KEY = 'invGestionarScrollY', FLAG = 'invReturnScroll';
-    if (TAB === 'gestionar') {
-      var _save = function(){ try { sessionStorage.setItem(KEY, String(window.scrollY || window.pageYOffset || 0)); } catch(e){} };
-      window.addEventListener('pagehide', _save);
-      window.addEventListener('beforeunload', _save);
-      try {
-        if (sessionStorage.getItem(FLAG) === '1') {
-          sessionStorage.removeItem(FLAG);
-          var y = parseInt(sessionStorage.getItem(KEY) || '0', 10) || 0;
-          if (y > 0) {
-            if ('scrollRestoration' in history) { try { history.scrollRestoration = 'manual'; } catch(e){} }
-            var _restore = function(){ window.scrollTo(0, y); };
-            window.addEventListener('load', _restore);
-            requestAnimationFrame(function(){ requestAnimationFrame(_restore); });
-          }
-        }
-      } catch(e){}
-    }
-    // Al pulsar "Volver a gestión de invitaciones" desde un evento, pide restaurar la posición.
-    document.addEventListener('click', function(ev){
-      var a = ev.target.closest ? ev.target.closest('[data-inv-return-gestionar]') : null;
-      if (a) { try { sessionStorage.setItem(FLAG, '1'); } catch(e){} }
-    });
-  })();
 </script>
 {% endblock %}

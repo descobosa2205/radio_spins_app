@@ -1886,3 +1886,35 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     // Si no hay historial de la app, se sigue el href (fallback a la página padre).
   });
 })();
+
+/* Restaurar la posición EXACTA al "volver" a una pantalla concreta, aunque entre medias haya habido
+   recargas (p. ej. en la gestión de invitaciones cada edición recarga la página, así que history.back
+   dejaría en una edición previa). Un enlace con [data-restore-scroll] indica que, al llegar a su
+   destino, hay que restaurar el scroll que esa pantalla tenía. Guardamos el scroll de cada página en
+   su pagehide (por URL) y, al cargar, si el destino coincide con lo marcado, lo restauramos. Global. */
+(function () {
+  'use strict';
+  var PREFIX = 'scrollpos:', FLAG = 'restoreScrollPath';
+  function keyFor(path) { return PREFIX + path; }
+  function curPath() { return location.pathname + location.search; }
+  function save() { try { sessionStorage.setItem(keyFor(curPath()), String(window.scrollY || window.pageYOffset || 0)); } catch (e) {} }
+  window.addEventListener('pagehide', save);
+  window.addEventListener('beforeunload', save);
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest ? e.target.closest('a[data-restore-scroll]') : null;
+    if (!a || !a.getAttribute('href')) return;
+    try { var u = new URL(a.href, location.origin); sessionStorage.setItem(FLAG, u.pathname + u.search); } catch (err) {}
+  });
+  try {
+    if (sessionStorage.getItem(FLAG) === curPath()) {
+      sessionStorage.removeItem(FLAG);
+      var y = parseInt(sessionStorage.getItem(keyFor(curPath())) || '0', 10) || 0;
+      if (y > 0) {
+        if ('scrollRestoration' in history) { try { history.scrollRestoration = 'manual'; } catch (e) {} }
+        var restore = function () { window.scrollTo(0, y); };
+        window.addEventListener('load', restore);
+        requestAnimationFrame(function () { requestAnimationFrame(restore); });
+      }
+    }
+  } catch (e) {}
+})();

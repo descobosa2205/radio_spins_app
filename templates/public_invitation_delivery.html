@@ -59,7 +59,6 @@
     <div class="pi-header">
       {% if poster_url %}<div class="pi-poster"><img src="{{ poster_url }}" alt=""></div>{% endif %}
       <div class="pi-hinfo">
-        <div class="pi-eyebrow">Concierto / evento</div>
         <div class="pi-artist">
           {% if artist_photo %}<img src="{{ artist_photo }}" alt="">{% endif %}
           <span class="n">{{ card.artist_name or card.event_name or 'Evento' }}</span>

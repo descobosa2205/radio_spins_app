@@ -40313,6 +40313,8 @@ def public_invitation_delivery(kind, token):
         _dtickets = _tq.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
         tickets_html = Markup(_invitation_tickets_grouped_html(session_db, concert, _dtickets, download_url)) if _dtickets else ""
         card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
+        poster_url = _concert_poster_url(concert) or ""      # cartel principal (solo si lo hay)
+        artist_photo = (getattr(getattr(concert, "artist", None), "photo_url", None) or "").strip()  # foto real del artista
         logo = _invitation_event_logo_url(session_db, concert, external=False)
         bits = [x for x in [card["activity_label"], (card["event_name"] or card["city"]), card["date_label"]] if x]
         qty_label = (str(qty) + (" invitación" if qty == 1 else " invitaciones")) if qty else ""
@@ -40330,6 +40332,7 @@ def public_invitation_delivery(kind, token):
                                             logo=_invitation_event_logo_url(session_db, concert, external=True)),
         }
         return render_template("public_invitation_delivery.html", logo=logo, card=card, guest_name=guest_name,
+                               poster_url=poster_url, artist_photo=artist_photo,
                                qty=qty, qty_label=qty_label, download_url=download_url, tickets_html=tickets_html, og=og)
     finally:
         session_db.close()

@@ -1868,6 +1868,10 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
   }
   function isBackLink(a) {
     if (!a) return false;
+    // Opt-out explícito: botones que deben ir SIEMPRE a su href (un destino concreto), sin
+    // retroceder por el historial (que en pantallas que recargan tras cada edición te dejaría en
+    // una "edición ya hecha" en vez de en la pantalla anterior real).
+    if (a.hasAttribute('data-no-smart-back')) return false;
     if (a.hasAttribute('data-smart-back')) return true;
     var txt = (a.textContent || '').trim().toLowerCase();
     return !!a.querySelector('.fa-arrow-left') && txt.indexOf('volver') === 0;

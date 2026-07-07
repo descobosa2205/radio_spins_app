@@ -335,9 +335,9 @@
 {% elif tab == 'evento' %}
   <div class="mb-3">
     {% if back_to_ficha %}
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('concert_detail_view', cid=event.id) }}"><i class="fa fa-arrow-left me-1"></i>Volver a la actividad</a>
+      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back href="{{ url_for('concert_detail_view', cid=event.id) }}"><i class="fa fa-arrow-left me-1"></i>Volver a la actividad</a>
     {% else %}
-      <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
+      <a class="btn btn-outline-secondary btn-sm" data-no-smart-back href="{{ url_for('invitations_view', tab='gestionar') }}"><i class="fa fa-arrow-left me-1"></i>Volver a gestión de invitaciones</a>
     {% endif %}
   </div>
   <div class="card mb-3 invitation-event-header">
@@ -1594,18 +1594,10 @@
           <div class="small text-muted mt-2 d-none" data-cmt-current></div>
         </div>
 
-        {# ---- Paso 3: selección de invitaciones ---- #}
+        {# ---- Paso 3: selección de invitaciones (MISMO panel que al pedir invitaciones) ---- #}
         <div class="cmt-step d-none" data-cmt-step="3">
           <h6 class="mb-3">3. Selección de invitaciones</h6>
-          {% if categories %}
-            {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
-              {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
-              {% if zcats %}
-                <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
-                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}{% if zkey == 'PALCO' and cat.configured %} <span class="text-muted">(Aforo: {{ cat.configured }})</span>{% endif %}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
-              {% endif %}
-            {% endfor %}
-          {% endif %}
+          <div class="row g-3" data-cmt-qty-panel><div class="col-12 text-muted small">Cargando categorías…</div></div>
           <label class="form-label mt-3">Nota</label><textarea class="form-control" name="note" rows="2"></textarea>
         </div>
       </div>
@@ -1627,6 +1619,28 @@
     var form = modalEl.querySelector('form');
     var title = modalEl.querySelector('.modal-title');
     function setVal(name, val){ var i = form.querySelector('[name="' + name + '"]'); if(i) i.value = (val == null ? '' : val); }
+    // Panel de "nº de invitaciones" IDÉNTICO al de pedir invitaciones (mismo componente compartido
+    // window.__invQtyPanelHtml). Se cargan las categorías del evento una vez y se cachean.
+    var CMT_CATS_URL = "{{ url_for('api_invitation_event_categories', concert_id=event.id) }}";
+    var _cmtQtyPanel = form.querySelector('[data-cmt-qty-panel]');
+    var _cmtCats = null;
+    function renderQtyPanel(quantities){
+      if(!_cmtQtyPanel) return;
+      var apply = function(cats){
+        _cmtQtyPanel.innerHTML = (window.__invQtyPanelHtml && cats && cats.length)
+          ? window.__invQtyPanelHtml(cats, {blockDisabled:true})
+          : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
+        if(quantities){
+          Object.keys(quantities).forEach(function(k){
+            var inp = form.querySelector('[name="qty_' + k + '"]');
+            if(inp){ inp.value = quantities[k]; }
+            else if(k !== 'TOTAL'){ var h = document.createElement('input'); h.type = 'hidden'; h.name = 'qty_' + k; h.value = quantities[k]; _cmtQtyPanel.appendChild(h); }
+          });
+        }
+      };
+      if(_cmtCats){ apply(_cmtCats); return; }
+      fetch(CMT_CATS_URL).then(function(r){ return r.json(); }).then(function(d){ _cmtCats = (d && d.categories) || []; apply(_cmtCats); }).catch(function(){ apply([]); });
+    }
 
     // --- Asistente en 3 pasos (1: nombre/motivo · 2: destinatario · 3: invitaciones) ---
     var STEP_LABELS = { 1: 'Nombre y motivo', 2: 'Destinatario', 3: 'Selección de invitaciones' };
@@ -1671,7 +1685,7 @@
     function resetForm(){
       setVal('commitment_id', '');
       setVal('name', ''); setVal('reason', ''); setVal('note', '');
-      form.querySelectorAll('input[name^="qty_"]').forEach(function(i){ i.value = 0; });
+      renderQtyPanel({});
       clearGuest();
       if(title) title.textContent = 'Añadir compromiso';
       goStep(1);
@@ -1706,7 +1720,7 @@
         setVal('reason', edit.getAttribute('data-reason') || '');
         setVal('note', edit.getAttribute('data-note') || '');
         var q = {}; try { q = JSON.parse(edit.getAttribute('data-quantities') || '{}'); } catch(e){}
-        Object.keys(q).forEach(function(k){ setVal('qty_' + k, q[k]); });
+        renderQtyPanel(q);
         var gt = edit.getAttribute('data-guest-type') || '';
         if(gt){
           setVal('guest_promoter_id', edit.getAttribute('data-guest-promoter-id') || '');
@@ -1913,30 +1927,8 @@
     const data = await res.json(); const cats = data.categories || [];
     const qtyPanel = form.querySelector('[data-category-qty-panel]');
     if (qtyPanel){
-      if (!cats.length){
-        qtyPanel.innerHTML = '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
-      } else {
-        var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
-        // Color POR CATEGORÍA (c.color, mismo que en el listado de invitados): franja a la izquierda.
-        // La etiqueta "No admite peticiones" va junto al título de la categoría.
-        var _cell = function(c){
-          var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? ` <span class="text-muted">(Aforo: ${c.configured})</span>` : '';
-          var _color = c.color || '#9ca3af';
-          var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="fw-semibold">${escHtml(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
-          var _input = c.requests_blocked
-            ? `<input class="form-control mt-1" type="number" value="0" disabled>`
-            : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div>`;
-          return `<div class="col-md-4"><div style="border-left:5px solid ${_color};padding-left:.6rem;">${_title}${_input}</div></div>`;
-        };
-        var _html = '';
-        _zones.forEach(function(z){
-          var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; });
-          if (!_zc.length) return;
-          _html += '<div class="col-12 mt-3 mb-1"><div class="fw-semibold text-muted"><i class="fa ' + z[2] + ' me-1"></i>' + z[1] + '</div></div>';
-          _html += _zc.map(_cell).join('');
-        });
-        qtyPanel.innerHTML = _html;
-      }
+      qtyPanel.innerHTML = cats.length ? window.__invQtyPanelHtml(cats, {blockDisabled:true})
+        : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
     }
     const linkPanel = form.querySelector('[data-link-category-panel]');
     if (linkPanel){
@@ -1958,6 +1950,26 @@
   }
   function getStep(form){ return parseInt(form.dataset.step || '1',10); }
   function goStep(form, step){ const max = 5; step = Math.max(1, Math.min(step, max)); form.dataset.step = step; form.querySelectorAll('.invitation-step').forEach(el => el.classList.toggle('d-none', parseInt(el.dataset.step,10) !== step)); const prev = form.querySelector('[data-inv-prev]'), next = form.querySelector('[data-inv-next]'), submit = form.querySelector('[data-inv-submit]'); if (prev) prev.disabled = step === 1; if (next) next.classList.toggle('d-none', step === max); if (submit) submit.classList.toggle('d-none', step !== max); if (form.__onStep) form.__onStep(step); }
+  // Panel de "marcar nº de invitaciones" por categoría (agrupado por zona, franja de color, aforo de
+  // palcos y "Disponibles N"). ÚNICO para PETICIONES y COMPROMISOS, para que siempre se vean igual.
+  // opts.blockDisabled: si la categoría no admite peticiones, desactiva el input (solo en peticiones).
+  window.__invQtyPanelHtml = function(cats, opts){
+    opts = opts || {};
+    var _esc = (typeof escHtml === 'function') ? escHtml : function(s){ return (s == null ? '' : String(s)); };
+    var _zones = [['PISTA','Pista','fa-people-group'],['GRADA','Grada','fa-chair'],['PALCO','Palcos','fa-crown']];
+    var _cell = function(c){
+      var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? ` <span class="text-muted">(Aforo: ${c.configured})</span>` : '';
+      var _color = c.color || '#9ca3af';
+      var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="fw-semibold">${_esc(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
+      var _input = (c.requests_blocked && opts.blockDisabled)
+        ? `<input class="form-control mt-1" type="number" value="0" disabled>`
+        : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div>`;
+      return `<div class="col-md-4"><div style="border-left:5px solid ${_color};padding-left:.6rem;">${_title}${_input}</div></div>`;
+    };
+    var _html = '';
+    _zones.forEach(function(z){ var _zc = cats.filter(function(c){ return (c.zone || 'PISTA') === z[0]; }); if (!_zc.length) return; _html += '<div class="col-12 mt-3 mb-1"><div class="fw-semibold text-muted"><i class="fa ' + z[2] + ' me-1"></i>' + z[1] + '</div></div>'; _html += _zc.map(_cell).join(''); });
+    return _html;
+  };
   document.querySelectorAll('[data-invitation-wizard]').forEach(form => { goStep(form, 1); form.querySelectorAll('[data-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelectorAll('[data-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); loadEvents(form, btn.dataset.artistId, false); goStep(form, 2); })); form.querySelectorAll('[data-load-all-events]').forEach(btn => btn.addEventListener('click', () => { const artist = form.querySelector('[data-artist-id].is-selected'); loadEvents(form, artist ? artist.dataset.artistId : '', true); })); form.querySelectorAll('[data-inv-next]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)+1))); form.querySelectorAll('[data-inv-prev]').forEach(btn => btn.addEventListener('click', () => goStep(form, getStep(form)-1))); form.querySelectorAll('[data-guest-type]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_type"]').value = btn.dataset.guestType; form.querySelectorAll('[data-guest-type]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); form.querySelector('[data-third-party-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'THIRD_PARTY'); form.querySelector('[data-personnel-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'EMPLOYEE'); form.querySelector('[data-artist-guest-panel]')?.classList.toggle('d-none', btn.dataset.guestType !== 'ARTIST'); if (btn.dataset.guestType === 'SELF') goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.userId; form.querySelectorAll('[data-user-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); form.querySelectorAll('[data-guest-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.guestArtistId; form.querySelectorAll('[data-guest-artist-id]').forEach(b=>b.classList.remove('is-selected')); btn.classList.add('is-selected'); goStep(form, getStep(form)+1); })); });
   document.querySelectorAll('[data-default-event]').forEach(btn => btn.addEventListener('click', () => { const modal = document.querySelector(btn.getAttribute('data-bs-target') + ' form'); if (modal) selectEvent(modal, btn.dataset.defaultEvent); }));
 

@@ -964,6 +964,58 @@ img[data-default-photo="1"]{
 .invitation-stair { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; align-self: stretch; gap: 2px; margin: 0 .2rem; padding: .15rem .45rem; line-height: 1; color: #55606b; font-size: .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; white-space: nowrap; border-left: 2px dashed var(--brand-accent); border-right: 2px dashed var(--brand-accent); background: rgba(0,124,162,.06); border-radius: .35rem; }
 .invitation-stair i { font-size: 1rem; color: var(--brand-accent); }
 .invitation-seat.is-selected { outline: 3px solid rgba(232,59,75,.22); transform: translateY(-1px); }
+/* ---- Plano de butacas alineado: cada fila en UNA sola línea y columnas de ancho fijo, para que
+   el sector se vea como un plano completo (una fila debajo de otra, alineadas). El sector hace
+   scroll horizontal si es muy ancho. ---- */
+.invitation-sector--plan { position: relative; --seatw: 2.5rem; }
+.invitation-sector-rows { display: flex; flex-direction: column; gap: .5rem; }
+/* Cada fila como una LÍNEA a lo ancho del contenido (no del contenedor): todas las filas del sector
+   comparten ancho (misma rejilla) y el sector entero hace scroll horizontal como un plano completo. */
+.invitation-sector--plan .invitation-seat-row { display: flex; align-items: center; gap: .5rem; width: max-content; min-width: 100%; grid-template-columns: none; }
+.invitation-sector--plan .invitation-row-label { min-width: 4.5rem; flex: 0 0 auto; }
+.invitation-seat-grid--line { flex-wrap: nowrap; gap: .28rem; align-items: stretch; }
+.invitation-seat-grid--line .invitation-seat,
+.invitation-seat-grid--line .invitation-seat--missing,
+.invitation-seat-grid--line .invitation-seat--hole { width: var(--seatw); min-width: var(--seatw); flex: 0 0 auto; justify-content: center; padding: .35rem .1rem; gap: .1rem; }
+.invitation-seat-grid--line .invitation-seat-block { margin: 0; }
+.invitation-seat-grid--line .invitation-seat-block-seats { gap: .28rem; flex-wrap: nowrap; }
+.invitation-seat-grid--line .invitation-seat--photo { width: var(--seatw); min-width: var(--seatw); }
+.invitation-seat-row .invitation-row-label { position: sticky; left: 0; z-index: 2; background: #fff; padding-right: .3rem; }
+/* Butaca IMPRESA (naranja): funciona como enviada (no reutilizable) pero se distingue. */
+.invitation-seat--printed { color: #b45309; background: #fff4e5; border-color: #fdba74; }
+/* Butaca apagada (config): existe físicamente pero no la ofrecemos. Hueco: no hay asiento. */
+.invitation-seat--off { background: #d7dbe2; border: 1px solid #c3c9d2; border-style: solid; color: #7b838f; opacity: 1; }
+.invitation-seat--hole { background: transparent; border: 1px dashed #e3e7ec; color: transparent; }
+/* Etiqueta de ESCENARIO sobre un borde del sector (negra, texto/icono en blanco). */
+.invitation-sector--plan.has-stage.stage-top { padding-top: 2.6rem; }
+.invitation-sector--plan.has-stage.stage-bottom { padding-bottom: 2.6rem; }
+.invitation-sector--plan.has-stage.stage-left { padding-left: 2.4rem; }
+.invitation-sector--plan.has-stage.stage-right { padding-right: 2.4rem; }
+.invitation-stage { position: absolute; z-index: 3; background: #111; color: #fff; font-size: .64rem; font-weight: 800; letter-spacing: .08em; padding: .22rem .7rem; border-radius: .45rem; display: inline-flex; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+.invitation-stage i { color: #fff; }
+.invitation-stage--top { top: .55rem; left: 50%; transform: translateX(-50%); }
+.invitation-stage--bottom { bottom: .55rem; left: 50%; transform: translateX(-50%); }
+.invitation-stage--left { top: 50%; left: .5rem; transform: translateY(-50%) rotate(180deg); writing-mode: vertical-rl; }
+.invitation-stage--right { top: 50%; right: .5rem; transform: translateY(-50%); writing-mode: vertical-rl; }
+/* ---- Configurador del plano (popup de la rueda) ---- */
+.plan-editor-grid { display: flex; flex-direction: column; gap: .5rem; overflow-x: auto; padding: .5rem; background: #f1f4f8; border-radius: .8rem; }
+.plan-editor-row { display: flex; align-items: stretch; gap: .28rem; }
+.plan-editor-row .plan-editor-label { position: sticky; left: 0; z-index: 2; background: #f1f4f8; font-weight: 700; color: #49515d; min-width: 4rem; display: flex; align-items: center; }
+.plan-cell { width: 2.5rem; min-width: 2.5rem; flex: 0 0 auto; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; padding: .3rem .1rem; border-radius: .55rem; border: 1px solid #dfe4ea; background: #fff; font-size: .7rem; cursor: pointer; user-select: none; }
+.plan-cell.is-seat { color: #16803a; background: #effaf2; }
+.plan-cell.is-off { color: #7b838f; background: #d7dbe2; }
+.plan-cell.is-hole { color: transparent; background: transparent; border-style: dashed; }
+.plan-cell-boundary { width: .7rem; min-width: .7rem; flex: 0 0 auto; align-self: stretch; cursor: pointer; border-radius: .2rem; position: relative; }
+.plan-cell-boundary:hover { background: rgba(0,124,162,.12); }
+.plan-cell-boundary.has-stair { background: rgba(0,124,162,.14); border-left: 2px dashed var(--brand-accent); border-right: 2px dashed var(--brand-accent); }
+.plan-cell-boundary.has-stair::after { content: "\f6d0"; font-family: "Font Awesome 6 Free"; font-weight: 900; color: var(--brand-accent); font-size: .7rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+.plan-editor-stage-pick { display: flex; gap: .4rem; flex-wrap: wrap; }
+.plan-editor-mode.active { box-shadow: 0 0 0 .16rem rgba(232,59,75,.2) inset; }
+/* Popup de acciones de la selección múltiple (junto a la selección). */
+.inv-selection-pop { position: fixed; z-index: 6000; background: #fff; border: 1px solid #e2e6ec; border-radius: .9rem; box-shadow: 0 12px 40px rgba(16,24,40,.18); padding: .5rem; display: none; flex-direction: column; gap: .3rem; min-width: 210px; }
+.inv-selection-pop.show { display: flex; }
+.inv-selection-pop .inv-sel-count { font-size: .78rem; color: #6b7280; padding: .1rem .3rem .3rem; border-bottom: 1px solid #eef0f3; margin-bottom: .2rem; }
+.inv-selection-pop button { text-align: left; }
 .assignment-source-list { display: flex; flex-direction: column; gap: .6rem; max-height: 60vh; overflow: auto; }
 .assignment-source { border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }
 .assignment-source.is-selected, .assignment-source:hover { border-color: #e83b4b; box-shadow: 0 0 0 .16rem rgba(232,59,75,.1); }

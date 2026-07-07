@@ -2136,6 +2136,9 @@ class InvitationCategory(Base):
     requests_blocked = Column(Boolean, nullable=False, server_default=text("false"))
     zone = Column(Text)  # PISTA / GRADA / PALCO (si vacío se infiere del nombre)
     stairs_spec = Column(Text)  # Escaleras del plano (opcional): butacas entre las que hay escalera, p. ej. "17-19, 27-29"
+    # Plano por sector (configurador de la rueda): {sectors: {"<sector>": {stairs:[17,..], gaps:[..],
+    # off:[..], stage:"top|bottom|left|right"}}}. Rejilla auto (rango mín→máx por paso) + estos retoques.
+    layout_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_by_nick = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -2325,6 +2328,8 @@ class InvitationTicket(Base):
     assigned_at = Column(DateTime(timezone=True))
     sent_at = Column(DateTime(timezone=True))
     delivered_at = Column(DateTime(timezone=True))
+    printed_at = Column(DateTime(timezone=True))  # impresa en bloque (funciona como enviada, color naranja)
+    print_reason = Column(Text)  # motivo de la impresión en bloque
     previous_assignment_warning = Column(Text)
     uploaded_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     uploaded_by_nick = Column(Text)
@@ -5619,6 +5624,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_blocked boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS zone text;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS stairs_spec text;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS layout_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "CREATE INDEX IF NOT EXISTS idx_invitation_categories_concert ON invitation_categories(concert_id, is_active, sort_order);",
         """
         CREATE TABLE IF NOT EXISTS invitation_commitments (
@@ -5763,6 +5769,8 @@ def ensure_invitation_schema():
         "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_assigned_request ON invitation_tickets(assigned_request_id);",
         "CREATE INDEX IF NOT EXISTS idx_invitation_tickets_sha ON invitation_tickets(pdf_sha256);",
         "ALTER TABLE invitation_tickets ALTER COLUMN category_id DROP NOT NULL;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS printed_at timestamptz;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS print_reason text;",
         """
         INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
         VALUES

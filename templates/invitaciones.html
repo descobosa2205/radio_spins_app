@@ -586,6 +586,129 @@
         <button type="submit" class="btn btn-sm btn-danger" data-bulk-delete><i class="fa fa-trash me-1"></i>Eliminar</button>
         <button type="button" class="btn btn-sm btn-link ms-auto" data-select-cancel>Cancelar</button>
       </form>
+      {# Popup flotante de acciones de la selección (aparece junto a la selección). #}
+      <div class="inv-selection-pop" id="invSelectionPop"
+           data-print-url="{{ url_for('invitation_tickets_bulk_print', concert_id=event.id) }}"
+           data-download-url="{{ url_for('invitation_tickets_bulk_download', concert_id=event.id) }}"
+           data-redetect-url="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}">
+        <div class="inv-sel-count"><span data-sel-count>0</span> seleccionada(s)</div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-redetect><i class="fa fa-wand-magic-sparkles fa-fw me-2"></i>Redetectar butacas</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-print><i class="fa fa-print fa-fw me-2"></i>Imprimir</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-download><i class="fa fa-file-pdf fa-fw me-2"></i>Descargar PDF</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-send><i class="fa fa-paper-plane fa-fw me-2"></i>Enviar…</button>
+        <hr class="my-1">
+        <div class="d-flex gap-1 align-items-center">
+          <select class="form-select form-select-sm" data-sel-move-cat style="max-width:150px">{% for cat in categories %}<option value="{{ cat.id }}">{{ cat.name }}</option>{% endfor %}</select>
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-move title="Mover a la categoría elegida"><i class="fa fa-right-left"></i></button>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-danger" data-sel-delete><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button>
+        <button type="button" class="btn btn-sm btn-link" data-sel-close>Cerrar</button>
+      </div>
+      {# Configurador del plano de un sector (rueda). #}
+      <div class="modal fade" id="invPlanConfigModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+          <div class="modal-content" data-plan-config
+               data-plan-url-base="{{ url_for('invitation_sector_plan', concert_id=event.id, category_id='CID') }}"
+               data-save-url-base="{{ url_for('invitation_sector_layout_save', concert_id=event.id, category_id='CID') }}">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-gear me-2"></i>Configurar plano · <span data-plan-title></span></h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                <div class="btn-group btn-group-sm" role="group">
+                  <button type="button" class="btn btn-outline-secondary plan-editor-mode active" data-plan-mode="stair"><i class="fa fa-stairs me-1"></i>Escalera</button>
+                  <button type="button" class="btn btn-outline-secondary plan-editor-mode" data-plan-mode="off"><i class="fa fa-ban me-1"></i>Asiento apagado</button>
+                  <button type="button" class="btn btn-outline-secondary plan-editor-mode" data-plan-mode="hole"><i class="fa fa-square me-1"></i>Hueco</button>
+                </div>
+                <span class="text-muted small" data-plan-hint>Escalera: pincha (o arrastra) entre dos butacas. Apagado/Hueco: pincha una butaca para alternar.</span>
+              </div>
+              <div class="mb-3">
+                <div class="small fw-semibold mb-1">Escenario (borde del sector):</div>
+                <div class="plan-editor-stage-pick" data-plan-stage>
+                  {% for sv, sl in [('','Sin escenario'),('top','Arriba'),('bottom','Abajo'),('left','Izquierda'),('right','Derecha')] %}
+                  <button type="button" class="btn btn-sm btn-outline-dark" data-stage-val="{{ sv }}">{% if sv %}<i class="fa fa-music me-1"></i>{% endif %}{{ sl }}</button>
+                  {% endfor %}
+                </div>
+              </div>
+              <div class="plan-editor-grid" data-plan-grid><div class="text-muted small p-3">Cargando plano…</div></div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="button" class="btn btn-danger" data-plan-save><i class="fa fa-check me-1"></i>Guardar plano</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      {# Enviar la selección: «para quién son» + «a quién se le mandan» (mismo componente que las peticiones). #}
+      <div class="modal fade" id="invSelectionSendModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+          <form class="modal-content" data-sel-send-form action="{{ url_for('invitation_tickets_bulk_send', concert_id=event.id) }}" method="post">
+            <div class="modal-header">
+              <h5 class="modal-title"><i class="fa fa-paper-plane me-2"></i>Enviar <span data-sel-send-count>0</span> invitación(es)</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+              <input type="hidden" name="ticket_ids" data-sel-send-ids value="">
+              <input type="hidden" name="channel" data-sel-send-channel value="email">
+              <input type="hidden" name="accept_warnings" value="1">
+              <input type="hidden" name="guest_type" value="THIRD_PARTY">
+              <input type="hidden" name="guest_promoter_id">
+              <input type="hidden" name="guest_artist_id" data-field="guest_artist_id">
+              <input type="hidden" name="guest_user_id" data-field="guest_user_id">
+              <h6 class="mb-2">¿Para quién son?</h6>
+              <div class="invitation-icon-grid">
+                <button type="button" class="invitation-icon-option is-selected" data-sel-guest-type="THIRD_PARTY"><i class="fa fa-handshake"></i><span>Tercero</span></button>
+                <button type="button" class="invitation-icon-option" data-sel-guest-type="EMPLOYEE"><i class="fa fa-users"></i><span>Alguien de la empresa</span></button>
+                <button type="button" class="invitation-icon-option" data-sel-guest-type="ARTIST"><i class="fa fa-microphone"></i><span>Artista</span></button>
+                <button type="button" class="invitation-icon-option" data-sel-guest-type="SELF"><i class="fa fa-user"></i><span>Para mí</span></button>
+              </div>
+              <div class="mt-3" data-sel-third-party-panel>
+                <label class="form-label">Seleccionar tercero</label>
+                <div class="invitation-search-picker" data-promoter-picker data-hidden-target="guest_promoter_id" data-name-target="guest_name" data-email-target="guest_email" data-phone-target="guest_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div><button class="btn btn-sm btn-outline-danger mt-2" type="button" data-bs-toggle="modal" data-bs-target="#newPromoterModal"><i class="fa fa-plus me-1"></i>Añadir tercero nuevo</button></div>
+                <input type="hidden" name="guest_name"><input type="hidden" name="guest_email"><input type="hidden" name="guest_phone">
+                <div class="mt-2"><label class="form-label">Título / relación</label><input class="form-control" name="guest_title" placeholder="Ej: prensa, patrocinador, amigo del artista..."></div>
+              </div>
+              <div class="mt-3 d-none" data-sel-personnel-panel><div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-sel-user-id="{{ person.id }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div></div>
+              <div class="mt-3 d-none" data-sel-artist-panel><div class="invitation-option-grid">{% for artist in artists %}<button type="button" class="invitation-option" data-sel-artist-id="{{ artist.id }}"><img src="{{ artist.photo_url }}" alt=""><span>{{ artist.name }}</span></button>{% endfor %}</div></div>
+              <hr>
+              <h6 class="mb-2">¿A quién se le mandan?</h6>
+              <div class="invitation-icon-grid">
+                <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="GUEST" checked><i class="fa fa-paper-plane"></i><span>Al invitado</span></label>
+                <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="ME"><i class="fa fa-inbox"></i><span>A mí</span></label>
+                <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="EMPLOYEE"><i class="fa fa-user-tie"></i><span>A la empresa</span></label>
+                <label class="invitation-radio-option"><input type="radio" name="receiver_mode" value="OTHER"><i class="fa fa-user-plus"></i><span>A otro</span></label>
+              </div>
+              <div class="mt-3 d-none" data-sel-employee-receiver>
+                <label class="form-label">Persona de la empresa</label>
+                <input type="hidden" name="receiver_user_id" data-field="receiver_user_id">
+                <div class="invitation-option-grid">{% for person in personnel %}<button type="button" class="invitation-option" data-sel-receiver-user-id="{{ person.id }}"><img src="{{ person.photo_url }}" alt=""><span>{{ person.name }}</span></button>{% endfor %}</div>
+              </div>
+              <div class="mt-3 d-none" data-sel-other-receiver>
+                <label class="form-label">Tercero receptor</label>
+                <input type="hidden" name="receiver_promoter_id" data-field="receiver_promoter_id">
+                <div class="invitation-search-picker" data-promoter-picker data-hidden-target="receiver_promoter_id" data-name-target="receiver_name" data-email-target="receiver_email" data-phone-target="receiver_phone"><input class="form-control" placeholder="Buscar tercero por cualquier dato"><div class="invitation-search-results"></div><div class="invitation-picker-selected mt-2 d-none" data-picker-selected></div></div>
+                <input type="hidden" name="receiver_name"><input type="hidden" name="receiver_email"><input type="hidden" name="receiver_phone">
+              </div>
+              <div class="mt-3" data-sel-email-extra>
+                <label class="form-label">Correo(s) adicional(es) <span class="text-muted">(opcional, separados por comas)</span></label>
+                <input class="form-control" name="extra_emails_csv" data-sel-extra-emails placeholder="correo1@x.com, correo2@x.com">
+                <label class="form-label mt-2">Nota (opcional)</label>
+                <textarea class="form-control" name="custom_text" rows="2" placeholder="Texto del correo (si se deja vacío se usa el genérico)."></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <div class="btn-group me-auto" role="group">
+                <button type="button" class="btn btn-outline-secondary btn-sm plan-editor-mode active" data-sel-channel="email"><i class="fa fa-envelope me-1"></i>Email</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm plan-editor-mode" data-sel-channel="whatsapp"><i class="fa-brands fa-whatsapp me-1"></i>WhatsApp</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm plan-editor-mode" data-sel-channel="sms"><i class="fa fa-comment-sms me-1"></i>SMS</button>
+              </div>
+              <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+              <button type="submit" class="btn btn-danger" data-sel-send-submit><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+            </div>
+          </form>
+        </div>
+      </div>
       <div class="row g-4">
         {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
           {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
@@ -646,12 +769,17 @@
                 {% elif cat.ticket_kind == 'PDF_NUMBERED' %}
                   {% if cat_groups %}
                     {% for sector in cat_groups %}
-                      <div class="invitation-sector mb-3">
-                        <div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                      <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
+                        <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                          <div class="fw-bold">Sector {{ sector.sector }}</div>
+                          <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
+                        </div>
+                        {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row">
                             <div class="invitation-row-label">Fila {{ row.row_label }}</div>
-                            <div class="invitation-seat-grid invitation-seat-grid--numbered">
+                            <div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                               {% for cell in row.layout %}
                                 {% if cell.type == 'block' %}
                                   {# Bloque de butacas seguidas del mismo invitado: nombre + línea fina de color
@@ -669,16 +797,17 @@
                                   {% set t = cell.seat %}
                                   <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
                                 {% elif cell.type == 'missing' %}
-                                  <span class="invitation-seat invitation-seat--missing"><span><s>{{ cell.seat }}</s></span></span>
+                                  <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }} {{ cell.seat }}"><span><s>{{ cell.seat }}</s></span></span>
+                                {% elif cell.type == 'gap' %}
+                                  <span class="invitation-seat invitation-seat--hole" title="Hueco (sin asiento)"></span>
                                 {% elif cell.type == 'stair' %}
                                   <span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
-                                {% else %}
-                                  <span class="invitation-seat-gap">{{ cell.count }} huecos</span>
                                 {% endif %}
                               {% endfor %}
                             </div>
                           </div>
                         {% endfor %}
+                        </div>
                       </div>
                     {% endfor %}
                   {% else %}
@@ -959,14 +1088,17 @@
                   <div class="assignment-drop-zone" data-drop-zone>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                       {% for sector in ticket_groups_by_category.get(cat.id, []) %}
-                        <div class="invitation-sector mb-3"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                        {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
-                          <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered">
+                          <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing"><s>{{ cell.seat }}</s></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% else %}<span class="invitation-seat-gap">{{ cell.count }} huecos</span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><s>{{ cell.seat }}</s></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                           {% endfor %}
                           </div></div>
-                        {% endfor %}</div>
+                        {% endfor %}
+                        </div></div>
                       {% endfor %}
                     {% else %}
                       {% if cat.ticket_kind != 'GUEST_LIST' %}
@@ -2026,17 +2158,33 @@
     const tab = document.getElementById('inv-tab-tickets');
     if(!tab) return;
     const bar = tab.querySelector('[data-bulk-bar]');
-    const countEl = tab.querySelector('[data-bulk-count]');
+    const pop = document.getElementById('invSelectionPop');
+    const countEls = [tab.querySelector('[data-bulk-count]'), pop ? pop.querySelector('[data-sel-count]') : null].filter(Boolean);
     const toggleBtns = tab.querySelectorAll('[data-select-toggle]');  // uno por bloque de categoría
     const selected = new Set();
+    const seatById = (id) => tab.querySelector('[data-ticket-id="' + id + '"]');
     const isSelecting = () => tab.classList.contains('is-selecting');
-    const update = () => { if(countEl) countEl.textContent = selected.size; };
+    let lastSeat = null;
+    function positionPop(){
+      if(!pop) return;
+      if(!isSelecting() || selected.size === 0){ pop.classList.remove('show'); return; }
+      pop.classList.add('show');
+      const ref = (lastSeat && lastSeat.isConnected) ? lastSeat : tab.querySelector('[data-ticket-id].is-checked');
+      if(!ref) return;
+      const r = ref.getBoundingClientRect();
+      const pw = pop.offsetWidth || 220, ph = pop.offsetHeight || 220;
+      let left = r.right + 8, top = r.top;
+      if(left + pw > window.innerWidth - 8) left = Math.max(8, r.left - pw - 8);
+      if(top + ph > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ph - 8);
+      pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    }
+    const update = () => { countEls.forEach(el => el.textContent = selected.size); positionPop(); };
+    window.addEventListener('scroll', positionPop, true);
+    window.addEventListener('resize', positionPop);
     const setMode = (on) => {
       tab.classList.toggle('is-selecting', on);
-      if(bar) bar.classList.toggle('d-none', !on);
+      if(bar) bar.classList.add('d-none');  // el popup flotante sustituye a la barra superior
       toggleBtns.forEach(b => b.classList.toggle('active', on));
-      // El botón "Re-detectar butacas" solo se ve en modo selección (o en el popup tras subir).
-      tab.querySelectorAll('[data-redetect-btn]').forEach(b => b.classList.toggle('d-none', !on));
       // En modo selección desactivamos la apertura del modal (vista previa) de cada entrada, para
       // que al pinchar se SELECCIONE en vez de abrirse el PDF. Se restaura al salir del modo.
       tab.querySelectorAll('[data-ticket-id]').forEach(b => {
@@ -2044,18 +2192,18 @@
           if(b.hasAttribute('data-bs-toggle')){ b.dataset.bsToggleSaved = b.getAttribute('data-bs-toggle'); b.removeAttribute('data-bs-toggle'); }
         } else if(b.dataset.bsToggleSaved){ b.setAttribute('data-bs-toggle', b.dataset.bsToggleSaved); delete b.dataset.bsToggleSaved; }
       });
-      if(!on){ selected.clear(); tab.querySelectorAll('[data-ticket-id].is-checked').forEach(b => b.classList.remove('is-checked')); update(); }
+      if(!on){ selected.clear(); tab.querySelectorAll('[data-ticket-id].is-checked').forEach(b => b.classList.remove('is-checked')); if(pop) pop.classList.remove('show'); }
+      update();
     };
     toggleBtns.forEach(b => b.addEventListener('click', () => setMode(!isSelecting())));
     const cancelBtn = tab.querySelector('[data-select-cancel]');
     if(cancelBtn) cancelBtn.addEventListener('click', () => setMode(false));
-    // Selección por CLIC y por ARRASTRE (pintar) sobre el plano. Pointer events valen para ratón y
-    // táctil: al pulsar una butaca se fija el modo (añadir si no estaba marcada, quitar si lo estaba)
-    // y al arrastrar sobre otras se aplica el mismo modo.
+    pop?.querySelector('[data-sel-close]')?.addEventListener('click', () => setMode(false));
+    // Selección por CLIC y por ARRASTRE (pintar). Pointer events valen para ratón y táctil.
     let dragging = false, dragMode = null;
     const applySeat = (seat) => {
       if(!seat) return;
-      const id = seat.dataset.ticketId;
+      const id = seat.dataset.ticketId; lastSeat = seat;
       if(dragMode === 'remove'){ if(selected.has(id)){ selected.delete(id); seat.classList.remove('is-checked'); } }
       else { if(!selected.has(id)){ selected.add(id); seat.classList.add('is-checked'); } }
       update();
@@ -2082,20 +2230,168 @@
     tab.addEventListener('click', (ev) => {
       if(isSelecting() && ev.target.closest('[data-ticket-id]')){ ev.preventDefault(); ev.stopPropagation(); }
     }, true);
-    if(bar){
-      const idsField = bar.querySelector('[data-bulk-ids]');
-      const actionField = bar.querySelector('[data-bulk-action]');
-      const moveBtn = bar.querySelector('[data-bulk-move]');
-      const delBtn = bar.querySelector('[data-bulk-delete]');
-      if(moveBtn) moveBtn.addEventListener('click', () => { actionField.value = 'move'; });
-      if(delBtn) delBtn.addEventListener('click', () => { actionField.value = 'delete'; });
-      bar.addEventListener('submit', (ev) => {
-        if(!selected.size){ ev.preventDefault(); alert('Selecciona al menos una invitación.'); return; }
-        idsField.value = Array.from(selected).join(',');
-        const msg = actionField.value === 'delete' ? ('¿Eliminar ' + selected.size + ' invitación(es)? No se puede deshacer.') : ('¿Mover ' + selected.size + ' invitación(es) a la categoría seleccionada?');
-        if(!confirm(msg)){ ev.preventDefault(); }
-      });
+    const idsCsv = () => Array.from(selected).join(',');
+    const needSel = () => { if(!selected.size){ alert('Selecciona al menos una invitación.'); return false; } return true; };
+    // Mover / Eliminar reutilizan el formulario oculto (POST + recarga), como siempre.
+    function submitBulk(action){
+      if(!needSel() || !bar) return;
+      bar.querySelector('[data-bulk-ids]').value = idsCsv();
+      bar.querySelector('[data-bulk-action]').value = action;
+      if(action === 'move'){ const sel = pop.querySelector('[data-sel-move-cat]'); const bcat = bar.querySelector('[data-bulk-category]'); if(sel && bcat) bcat.value = sel.value; }
+      const msg = action === 'delete' ? ('¿Eliminar ' + selected.size + ' invitación(es)? No se puede deshacer.') : ('¿Mover ' + selected.size + ' invitación(es) a la categoría elegida?');
+      if(confirm(msg)) bar.submit();
     }
+    pop?.querySelector('[data-sel-move]')?.addEventListener('click', () => submitBulk('move'));
+    pop?.querySelector('[data-sel-delete]')?.addEventListener('click', () => submitBulk('delete'));
+    // Descargar en un único PDF (sin cambiar estado).
+    pop?.querySelector('[data-sel-download]')?.addEventListener('click', async () => {
+      if(!needSel()) return;
+      const fd = new FormData(); fd.append('ticket_ids', idsCsv());
+      const res = await fetch(pop.dataset.downloadUrl, {method:'POST', body:fd});
+      if(!res.ok){ const j = await res.json().catch(()=>({})); alert(j.error || 'No se pudo descargar.'); return; }
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'invitaciones.pdf'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    });
+    // Imprimir en bloque: avisa (quedarán IMPRESAS = no reutilizables), pide motivo, marca e imprime.
+    pop?.querySelector('[data-sel-print]')?.addEventListener('click', async () => {
+      if(!needSel()) return;
+      if(!confirm('Se imprimirán ' + selected.size + ' invitación(es) y quedarán marcadas como IMPRESAS: ya no se podrán asignar a otros invitados (podrás recuperarlas igual que las enviadas). ¿Continuar?')) return;
+      const reason = prompt('Motivo de la impresión (opcional):', '');
+      if(reason === null) return;
+      const fd = new FormData(); fd.append('ticket_ids', idsCsv()); fd.append('reason', reason);
+      const res = await fetch(pop.dataset.printUrl, {method:'POST', body:fd});
+      if(!res.ok){ const j = await res.json().catch(()=>({})); alert(j.error || 'No se pudo imprimir.'); return; }
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const w = window.open(url, '_blank'); if(w){ setTimeout(() => { try{ w.focus(); w.print(); }catch(e){} }, 700); }
+      setTimeout(() => { location.reload(); }, 1400);
+    });
+    // Redetectar butacas de las categorías (numeradas) presentes en la selección.
+    pop?.querySelector('[data-sel-redetect]')?.addEventListener('click', async () => {
+      if(!needSel()) return;
+      const cats = new Set();
+      selected.forEach(id => { const s = seatById(id); const sec = s ? s.closest('[data-sector-plan]') : null; if(sec && sec.dataset.categoryId) cats.add(sec.dataset.categoryId); });
+      if(!cats.size){ alert('La redetección de butacas solo aplica a invitaciones numeradas.'); return; }
+      let total = 0;
+      for(const cid of cats){ const fd = new FormData(); fd.append('ajax','1'); fd.append('category_id', cid); const res = await fetch(pop.dataset.redetectUrl, {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}}); const j = await res.json().catch(()=>({})); total += (j.updated || 0); }
+      alert('Redetección completada (' + total + ' actualizada(s)).'); location.reload();
+    });
+    // Enviar: abre el modal (para quién / a quién) con la selección.
+    pop?.querySelector('[data-sel-send]')?.addEventListener('click', () => {
+      if(!needSel()) return;
+      if(window.__invSelSendOpen) window.__invSelSendOpen(idsCsv(), selected.size);
+    });
+  })();
+
+  // Modal de envío de la selección: «para quién son» + «a quién se le mandan» (mismos campos que las
+  // peticiones; los pickers de tercero se autoconfiguran con el init global de [data-promoter-picker]).
+  (function(){
+    const modalEl = document.getElementById('invSelectionSendModal');
+    if(!modalEl) return;
+    const form = modalEl.querySelector('[data-sel-send-form]');
+    const idsField = form.querySelector('[data-sel-send-ids]');
+    const channelField = form.querySelector('[data-sel-send-channel]');
+    const countEl = modalEl.querySelector('[data-sel-send-count]');
+    const guestTypeField = form.querySelector('input[name="guest_type"]');
+    let modal;
+    const getModal = () => { if(!modal && window.bootstrap) modal = bootstrap.Modal.getOrCreateInstance(modalEl); return modal; };
+    window.__invSelSendOpen = (idsCsv, count) => { idsField.value = idsCsv; if(countEl) countEl.textContent = count; getModal()?.show(); };
+    modalEl.querySelectorAll('[data-sel-guest-type]').forEach(btn => btn.addEventListener('click', () => {
+      const t = btn.dataset.selGuestType; guestTypeField.value = t;
+      modalEl.querySelectorAll('[data-sel-guest-type]').forEach(b => b.classList.toggle('is-selected', b === btn));
+      modalEl.querySelector('[data-sel-third-party-panel]')?.classList.toggle('d-none', t !== 'THIRD_PARTY');
+      modalEl.querySelector('[data-sel-personnel-panel]')?.classList.toggle('d-none', t !== 'EMPLOYEE');
+      modalEl.querySelector('[data-sel-artist-panel]')?.classList.toggle('d-none', t !== 'ARTIST');
+    }));
+    modalEl.querySelectorAll('[data-sel-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_user_id"]').value = btn.dataset.selUserId; modalEl.querySelectorAll('[data-sel-user-id]').forEach(b => b.classList.toggle('is-selected', b === btn)); }));
+    modalEl.querySelectorAll('[data-sel-artist-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="guest_artist_id"]').value = btn.dataset.selArtistId; modalEl.querySelectorAll('[data-sel-artist-id]').forEach(b => b.classList.toggle('is-selected', b === btn)); }));
+    const syncReceiver = () => {
+      const mode = (form.querySelector('input[name="receiver_mode"]:checked') || {}).value || 'GUEST';
+      modalEl.querySelector('[data-sel-employee-receiver]')?.classList.toggle('d-none', mode !== 'EMPLOYEE');
+      modalEl.querySelector('[data-sel-other-receiver]')?.classList.toggle('d-none', mode !== 'OTHER');
+    };
+    form.querySelectorAll('input[name="receiver_mode"]').forEach(x => x.addEventListener('change', syncReceiver));
+    modalEl.querySelectorAll('[data-sel-receiver-user-id]').forEach(btn => btn.addEventListener('click', () => { form.querySelector('[data-field="receiver_user_id"]').value = btn.dataset.selReceiverUserId; modalEl.querySelectorAll('[data-sel-receiver-user-id]').forEach(b => b.classList.toggle('is-selected', b === btn)); }));
+    modalEl.querySelectorAll('[data-sel-channel]').forEach(btn => btn.addEventListener('click', () => {
+      channelField.value = btn.dataset.selChannel;
+      modalEl.querySelectorAll('[data-sel-channel]').forEach(b => b.classList.toggle('active', b === btn));
+      modalEl.querySelector('[data-sel-email-extra]')?.classList.toggle('d-none', btn.dataset.selChannel !== 'email');
+    }));
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const fd = new FormData(form);
+      const csv = (form.querySelector('[data-sel-extra-emails]') || {}).value || '';
+      csv.split(',').map(s => s.trim()).filter(Boolean).forEach(e => fd.append('extra_emails', e));
+      const submitBtn = form.querySelector('[data-sel-send-submit]'); if(submitBtn) submitBtn.disabled = true;
+      try{
+        const res = await fetch(form.getAttribute('action'), {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+        const j = await res.json().catch(() => ({}));
+        if(!res.ok || !j.ok){ alert(j.error || 'No se pudo enviar.'); if(submitBtn) submitBtn.disabled = false; return; }
+        if(j.url){ window.open(j.url, '_blank'); }  // WhatsApp/SMS abren la app
+        getModal()?.hide();
+        location.reload();
+      }catch(e){ alert('Error al enviar.'); if(submitBtn) submitBtn.disabled = false; }
+    });
+  })();
+
+  // Configurador del plano de un sector (rueda): escaleras (entre butacas), huecos, asientos apagados
+  // y borde del escenario. Rejilla automática (mín→máx por paso) + estos retoques.
+  (function(){
+    const modalEl = document.getElementById('invPlanConfigModal');
+    if(!modalEl) return;
+    const root = modalEl.querySelector('[data-plan-config]');
+    const gridEl = modalEl.querySelector('[data-plan-grid]');
+    const titleEl = modalEl.querySelector('[data-plan-title]');
+    let modal; const getModal = () => { if(!modal && window.bootstrap) modal = bootstrap.Modal.getOrCreateInstance(modalEl); return modal; };
+    let state = null, mode = 'stair';
+    modalEl.querySelectorAll('[data-plan-mode]').forEach(b => b.addEventListener('click', () => { mode = b.dataset.planMode; modalEl.querySelectorAll('[data-plan-mode]').forEach(x => x.classList.toggle('active', x === b)); }));
+    modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(b => b.addEventListener('click', () => { if(state) state.stage = b.dataset.stageVal; modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x === b)); }));
+    function render(){
+      if(!state) return;
+      const cells = []; let prev = null;
+      for(let pos = state.min; pos <= state.max; pos += state.step){
+        if(prev !== null){ const hasStair = Array.from(state.stairs).some(sa => prev <= sa && sa < pos); cells.push('<div class="plan-cell-boundary' + (hasStair ? ' has-stair' : '') + '" data-boundary="' + prev + '"></div>'); }
+        const cls = state.gaps.has(pos) ? 'is-hole' : ((state.off.has(pos) || !state.seats.has(pos)) ? 'is-off' : 'is-seat');
+        cells.push('<div class="plan-cell ' + cls + '" data-pos="' + pos + '"><span>' + pos + '</span></div>');
+        prev = pos;
+      }
+      gridEl.innerHTML = '<div class="plan-editor-row"><div class="plan-editor-label">Butacas</div>' + cells.join('') + '</div>';
+    }
+    gridEl.addEventListener('click', (ev) => {
+      if(!state) return;
+      const b = ev.target.closest('[data-boundary]');
+      if(b && mode === 'stair'){ const sa = parseInt(b.dataset.boundary, 10); if(state.stairs.has(sa)) state.stairs.delete(sa); else state.stairs.add(sa); render(); return; }
+      const c = ev.target.closest('[data-pos]');
+      if(c && mode !== 'stair'){ const pos = parseInt(c.dataset.pos, 10);
+        if(mode === 'off'){ if(state.off.has(pos)) state.off.delete(pos); else { state.off.add(pos); state.gaps.delete(pos); } }
+        else if(mode === 'hole'){ if(state.gaps.has(pos)) state.gaps.delete(pos); else { state.gaps.add(pos); state.off.delete(pos); } }
+        render();
+      }
+    });
+    document.getElementById('inv-tab-tickets')?.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('[data-sector-config]'); if(!btn) return;
+      const catId = btn.dataset.categoryId, sector = btn.dataset.sector || 'General';
+      titleEl.textContent = (btn.dataset.categoryName || '') + ' · ' + sector;
+      gridEl.innerHTML = '<div class="text-muted small p-3">Cargando plano…</div>';
+      getModal()?.show();
+      const url = root.dataset.planUrlBase.replace('CID', catId) + '?sector=' + encodeURIComponent(sector);
+      const res = await fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const j = await res.json().catch(() => ({}));
+      if(!j.ok){ gridEl.innerHTML = '<div class="text-danger small p-3">No se pudo cargar el plano.</div>'; return; }
+      state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, seats: new Set(j.seats || []), stairs: new Set((j.config || {}).stairs || []), gaps: new Set((j.config || {}).gaps || []), off: new Set((j.config || {}).off || []), stage: (j.config || {}).stage || '' };
+      modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x.dataset.stageVal === state.stage));
+      if(!j.seats || !j.seats.length){ gridEl.innerHTML = '<div class="text-muted small p-3">Este sector no tiene butacas numeradas para configurar.</div>'; return; }
+      render();
+    });
+    modalEl.querySelector('[data-plan-save]')?.addEventListener('click', async () => {
+      if(!state) return;
+      const url = root.dataset.saveUrlBase.replace('CID', state.catId);
+      const payload = { sector: state.sector, stairs: Array.from(state.stairs), gaps: Array.from(state.gaps), off: Array.from(state.off), stage: state.stage };
+      const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload)});
+      const j = await res.json().catch(() => ({}));
+      if(!j.ok){ alert(j.error || 'No se pudo guardar el plano.'); return; }
+      getModal()?.hide(); location.reload();
+    });
   })();
   document.querySelector('[data-ticket-files]')?.addEventListener('change', (ev) => { const files = Array.from(ev.target.files || []); document.querySelector('[data-file-summary]').textContent = files.length ? `${files.length} archivo(s) seleccionados` : 'Selecciona varios PDFs sueltos.'; document.querySelector('[data-file-list]').innerHTML = files.map(f=>`<div class="list-group-item">${f.name}</div>`).join(''); });
 
@@ -2265,8 +2561,18 @@
       const all = seatEls();
       const start = all.indexOf(seatEl);
       if (start < 0) return;
-      const pick = [];
-      for (let i = start; i < all.length && pick.length < need; i++){ if (all[i].dataset.ticketStatus === 'AVAILABLE') pick.push(all[i]); }
+      // No cruzar una ESCALERA dentro de la misma fila al coger butacas seguidas (no separar el grupo).
+      const stairBetween = (a, b) => {
+        const g = a.closest('.invitation-seat-grid'); if (!g || b.closest('.invitation-seat-grid') !== g) return false;
+        let n = a; while (n && n !== b){ n = n.nextElementSibling; if (n && n !== b && n.classList && n.classList.contains('invitation-stair')) return true; } return false;
+      };
+      const pick = []; let prevEl = null;
+      for (let i = start; i < all.length && pick.length < need; i++){
+        const el = all[i];
+        if (el.dataset.ticketStatus !== 'AVAILABLE') continue;
+        if (prevEl && stairBetween(prevEl, el)) break;
+        pick.push(el); prevEl = el;
+      }
       commitAssign(e, pick);
     };
 

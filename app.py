@@ -37965,6 +37965,7 @@ def _invitation_ticket_status_label(value: str | None) -> str:
         "SENT": "Enviada",
         "DELIVERED": "Entregada",
         "PICKED_UP": "Recogida",
+        "PRINTED": "Impresa",
         "LOST": "Perdida",
     }
     return labels.get((value or "AVAILABLE").upper(), (value or "AVAILABLE").title())
@@ -37976,11 +37977,18 @@ def _invitation_ticket_status_class(value: str | None) -> str:
         return "available"
     if key == "ASSIGNED":
         return "assigned"
+    if key == "PRINTED":
+        return "printed"
     if key in {"SENT", "DELIVERED", "PICKED_UP"}:
         return "sent"
     if key == "LOST":
         return "lost"
     return key.lower()
+
+
+# Estados en los que una entrada ya "salió" y NO se puede reutilizar para asignar a otro invitado:
+# enviada por cualquier vía o IMPRESA (la impresión bloquea igual que el envío, distinto color).
+INVITATION_TICKET_CONSUMED_STATUSES = {"SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
 
 
 # Paleta para colorear cada invitado en el plano de butacas (borde de la butaca + chip bajo la fila).
@@ -38130,7 +38138,59 @@ def _invitation_stair_afters_for_category(concert, category) -> set[int]:
     return set()
 
 
-def _invitation_ticket_groups(ticket_payloads: list[dict], stair_afters: set[int] | None = None) -> list[dict]:
+def _invitation_layout_json(category) -> dict:
+    raw = getattr(category, "layout_json", None) if category is not None else None
+    if isinstance(raw, dict):
+        return raw
+    return _json_loads_safe(raw, {}) or {}
+
+
+def _invitation_int_set(vals) -> set[int]:
+    out: set[int] = set()
+    for v in (vals or []):
+        s = str(v).strip()
+        if s.lstrip("-").isdigit():
+            out.add(int(s))
+    return out
+
+
+_INVITATION_STAGE_EDGES = {"top", "bottom", "left", "right"}
+
+
+def _invitation_sector_layout(category, sector: str, concert=None, default_stairs=None) -> dict:
+    """Retoques del plano de UN sector sobre la rejilla automática: escaleras (tras qué butaca),
+    huecos (sin asiento), asientos apagados (butaca que no ofrecemos) y borde del escenario.
+    Fuente: category.layout_json['sectors'][sector]; las escaleras caen a stairs_spec / defaults del
+    recinto si el sector no define ninguna (compatibilidad)."""
+    data = _invitation_layout_json(category)
+    sectors = data.get("sectors") if isinstance(data.get("sectors"), dict) else {}
+    sec = (sectors or {}).get(sector) or (sectors or {}).get((sector or "").strip()) or {}
+    if not isinstance(sec, dict):
+        sec = {}
+    stairs = _invitation_int_set(sec.get("stairs"))
+    if not stairs:
+        stairs = set(default_stairs or ()) or _invitation_stair_afters_for_category(concert, category)
+    stage = (sec.get("stage") or "").strip().lower()
+    return {
+        "stairs": stairs,
+        "gaps": _invitation_int_set(sec.get("gaps")),
+        "off": _invitation_int_set(sec.get("off")),
+        "stage": stage if stage in _INVITATION_STAGE_EDGES else "",
+    }
+
+
+# Tope de columnas por fila al alinear un sector: más allá NO se rellena la rejilla (evita un DOM
+# gigante si hay numeraciones muy dispersas por datos raros). El plano cae al modo simple.
+_INVITATION_GRID_MAX_COLS = 260
+
+
+def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concert=None, stair_afters: set[int] | None = None) -> list[dict]:
+    """Plano por sector→fila. La rejilla de cada sector se DEDUCE de las butacas que hay (rango
+    mín→máx por paso) y CADA fila se alinea a esa rejilla, rellenando con «asientos apagados» (gris)
+    las posiciones que la fila no tiene: así todo el sector queda alineado y se ve como un plano
+    completo. Se aplican por sector los retoques del configurador (escaleras, huecos, apagados y borde
+    del escenario) desde layout_json. Devuelve por sector: filas con `visual` (celdas seat/missing/
+    gap/stair) y `layout` (bloques por invitado), `step` y `stage` (borde del escenario)."""
     grouped: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
     for item in ticket_payloads:
         grouped[item.get("sector") or "General"][item.get("row_label") or "Sin fila"].append(item)
@@ -38144,51 +38204,74 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], stair_afters: set[int
             color_by_key[key] = INVITATION_ASSIGNEE_COLORS[len(color_by_key) % len(INVITATION_ASSIGNEE_COLORS)]
         return color_by_key[key]
 
-    _assigned_states = {"ASSIGNED", "SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
+    _assigned_states = {"ASSIGNED", "SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
+    _sent_set = {"SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
     out = []
     for sector in sorted(grouped.keys(), key=lambda x: str(x).casefold()):
+        cfg = _invitation_sector_layout(category, sector, concert=concert, default_stairs=stair_afters)
+        stairs_after = set(cfg["stairs"])
+        gaps_cfg = set(cfg["gaps"])
+        off_cfg = set(cfg["off"])
+        # Butacas numeradas de TODO el sector para deducir la rejilla común (mín→máx por paso).
+        all_nums = [int(s.get("seat_number")) for seats in grouped[sector].values()
+                    for s in seats if str(s.get("seat_number") or "").isdigit()]
+        sector_step = 1
+        grid = None
+        if all_nums:
+            mn, mx = min(all_nums), max(all_nums)
+            sector_step = 2 if (len(all_nums) >= 2 and len({n % 2 for n in all_nums}) == 1 and (mx - mn) >= 2) else 1
+            span = (mx - mn) // sector_step + 1
+            if 1 <= span <= _INVITATION_GRID_MAX_COLS:
+                grid = list(range(mn, mx + 1, sector_step))
         rows = []
         for row_label in sorted(grouped[sector].keys(), key=lambda x: str(x).casefold()):
             seats = sorted(grouped[sector][row_label], key=lambda x: _safe_int(x.get("seat_number")) if str(x.get("seat_number") or "").isdigit() else 999999)
-            numbered = [(_safe_int(s.get("seat_number")), s) for s in seats if str(s.get("seat_number") or "").isdigit()]
-            non_numbered = [s for s in seats if not str(s.get("seat_number") or "").isdigit()]
-            # Detección automática del patrón: si todas las butacas de la fila son de la misma
-            # paridad (todas pares o todas impares) se numeran de 2 en 2 (pares/impares); si no,
-            # correlativas. Así el plano muestra "butacas seguidas" sin inventar huecos de la
-            # paridad contraria.
-            step = 2 if (len(numbered) >= 2 and len({n % 2 for n, _ in numbered}) == 1 and (numbered[-1][0] - numbered[0][0]) >= 2) else 1
-            visual = []
-            last_num = None
-            _stair_afters = set(stair_afters or ())
-            _stairs_done: set[int] = set()
-            for num, seat in numbered:
-                if last_num is not None:
-                    diff = num - last_num
-                    missing_slots = (diff // step) - 1 if (step and diff % step == 0) else 0
-                    if missing_slots > 4:
-                        visual.append({"type": "gap-large", "count": missing_slots})
-                    elif missing_slots > 0:
-                        m = last_num + step
-                        while m < num:
-                            visual.append({"type": "missing", "seat": m})
-                            m += step
-                # Separador(es) de «escalera»: al cruzar de una butaca <= N a la siguiente > N (p. ej.
-                # entre la 17 y la 19). Rompe el bloque de invitado (si lo hay). Admite varias por fila.
-                if _stair_afters and last_num is not None:
-                    for _sa in sorted(_stair_afters):
-                        if _sa not in _stairs_done and last_num <= _sa < num:
-                            visual.append({"type": "stair", "label": "Escalera"})
-                            _stairs_done.add(_sa)
-                visual.append({"type": "seat", "seat": seat})
-                last_num = num
-            for seat in non_numbered:
-                visual.append({"type": "seat", "seat": seat})
             # Color por invitado en cada butaca asignada.
-            _sent_set = {"SENT", "DELIVERED", "PICKED_UP", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
             for seat in seats:
                 st = (seat.get("status") or "").upper()
                 key = seat.get("assignee_key") if st in _assigned_states else ""
                 seat["assignee_color"] = _color_for(key) if key else ""
+            by_num: dict[int, dict] = {}
+            non_numbered = []
+            for s in seats:
+                sv = s.get("seat_number")
+                if str(sv or "").isdigit():
+                    by_num[int(sv)] = s
+                else:
+                    non_numbered.append(s)
+            visual = []
+            if grid is not None:
+                prev_pos = None
+                for pos in grid:
+                    # Escalera(s) al cruzar el borde configurado (entre prev_pos y pos).
+                    if prev_pos is not None and stairs_after:
+                        for sa in sorted(stairs_after):
+                            if prev_pos <= sa < pos:
+                                visual.append({"type": "stair", "label": "Escalera"})
+                    if pos in by_num:
+                        visual.append({"type": "seat", "seat": by_num[pos]})
+                    elif pos in gaps_cfg:
+                        visual.append({"type": "gap", "seat": pos})
+                    else:
+                        # Apagada (config) o simplemente no la tenemos → butaca gris para alinear.
+                        visual.append({"type": "missing", "seat": pos, "off": pos in off_cfg})
+                    prev_pos = pos
+            else:
+                # Sin rejilla (sin numerar, o span excesivo): butacas seguidas + escaleras entre nº.
+                prev_num = None
+                for s in seats:
+                    sv = s.get("seat_number")
+                    cur = int(sv) if str(sv or "").isdigit() else None
+                    if cur is not None and prev_num is not None and stairs_after:
+                        for sa in sorted(stairs_after):
+                            if prev_num <= sa < cur:
+                                visual.append({"type": "stair", "label": "Escalera"})
+                    visual.append({"type": "seat", "seat": s})
+                    if cur is not None:
+                        prev_num = cur
+                non_numbered = []
+            for seat in non_numbered:
+                visual.append({"type": "seat", "seat": seat})
             # Layout de la fila: agrupa butacas SEGUIDAS del mismo invitado en un bloque con barra
             # (nombre + foto) ENCIMA que las abarca; las libres/huecos van sueltos. Así se ve sobre
             # el plano de quién es cada butaca, sin leyenda aparte.
@@ -38213,8 +38296,8 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], stair_afters: set[int
                 else:
                     block = None
                     layout.append(cell)
-            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "layout": layout, "step": step})
-        out.append({"sector": sector, "rows": rows})
+            rows.append({"row_label": row_label, "seats": seats, "visual": visual, "layout": layout, "step": sector_step})
+        out.append({"sector": sector, "rows": rows, "stage": cfg["stage"]})
     return out
 
 
@@ -41050,7 +41133,7 @@ def invitation_event_detail(concert_id):
         uncategorized_tickets = tickets_by_category.get('None', [])
         _cat_by_id = {str(c.id): c for c in categories}
         ticket_groups_by_category = {
-            cid: _invitation_ticket_groups(rows, stair_afters=_invitation_stair_afters_for_category(concert, _cat_by_id.get(cid)))
+            cid: _invitation_ticket_groups(rows, category=_cat_by_id.get(cid), concert=concert)
             for cid, rows in tickets_by_category.items()
         }
         availability_by_category = {
@@ -41259,6 +41342,117 @@ def _invitation_safe_next(value: str | None) -> str | None:
     return None
 
 
+def _invitation_parse_guest_receiver(session_db, form, state, requester_info):
+    """Interpreta «para quién son» (guest_*) y «a quién se le mandan» (receiver_*) de una petición.
+    ÚNICA fuente de verdad, compartida por CREAR peticiones y por ENVIAR una selección de entradas del
+    plano (así cambiar el flujo de peticiones cambia también el envío por selección).
+    Devuelve (fields, requester_info, no_guest_contact); las claves de `fields` coinciden con los
+    kwargs de InvitationRequest para poder construirlo con **fields."""
+    guest_type = (form.get('guest_type') or 'THIRD_PARTY').strip().upper()
+    guest_name = (form.get('guest_name') or '').strip()
+    guest_email = (form.get('guest_email') or '').strip()
+    guest_phone = (form.get('guest_phone') or '').strip()
+    guest_company = (form.get('guest_company') or '').strip()
+    guest_title = (form.get('guest_title') or guest_company or '').strip()
+    guest_link_summary = {}
+    guest_promoter_id = _safe_uuid(form.get('guest_promoter_id'))
+    guest_artist_id = _safe_uuid(form.get('guest_artist_id'))
+    guest_user_id = _safe_uuid(form.get('guest_user_id'))
+    if guest_type == 'SELF':
+        guest_name = state.get('nick') or state.get('email') or 'Solicitante'
+        guest_email = state.get('email') or guest_email
+    elif guest_type == 'EMPLOYEE' and guest_user_id:
+        user = session_db.get(User, guest_user_id)
+        profile = session_db.get(UserProfile, guest_user_id)
+        if user:
+            guest_name = _profile_full_name(profile) or getattr(profile, 'nick', None) or user.email
+            guest_email = user.email
+            _emp_phones = list(getattr(profile, 'mobile_phones', None) or [])
+            requester_info = {
+                'user_id': str(user.id),
+                'nick': getattr(profile, 'nick', None) or _profile_full_name(profile) or _email_to_nick(user.email or ''),
+                'email': user.email,
+                'photo_url': getattr(profile, 'photo_url', None),
+                'phone': (_emp_phones[0] if _emp_phones else ''),
+            }
+    elif guest_type == 'ARTIST' and guest_artist_id:
+        artist = session_db.get(Artist, guest_artist_id)
+        if artist:
+            guest_name = artist.name
+            guest_email = artist.email or guest_email
+    elif guest_promoter_id:
+        promoter = session_db.get(Promoter, guest_promoter_id)
+        if promoter:
+            guest_name = _promoter_display_name(promoter) or promoter.nick
+            guest_email = promoter.contact_email or guest_email
+            guest_phone = promoter.contact_phone or guest_phone
+            guest_link_summary = _promoter_link_summary(session_db, promoter)
+    if not guest_name:
+        guest_name = 'Invitado'
+    if not guest_email:
+        guest_email = (form.get('guest_fallback_email') or '').strip()
+    receiver_mode = (form.get('receiver_mode') or 'GUEST').strip().upper()
+    receiver_payload = {
+        'name': (form.get('receiver_name') or '').strip(),
+        'email': (form.get('receiver_email') or '').strip(),
+        'phone': (form.get('receiver_phone') or '').strip(),
+    }
+    no_guest_contact = False
+    if receiver_mode == 'GUEST':
+        receiver_payload['name'] = receiver_payload.get('name') or guest_name
+        receiver_payload['email'] = receiver_payload.get('email') or guest_email
+        receiver_payload['phone'] = receiver_payload.get('phone') or guest_phone
+        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
+            no_guest_contact = True
+            receiver_mode = 'ME'
+            receiver_payload = {
+                'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+                'email': requester_info.get('email') or '',
+                'phone': requester_info.get('phone') or '',
+                'fallback_from_guest': True,
+            }
+    elif receiver_mode == 'EMPLOYEE':
+        ruid = _safe_uuid(form.get('receiver_user_id'))
+        ruser = session_db.get(User, ruid) if ruid else None
+        rprof = session_db.get(UserProfile, ruid) if ruid else None
+        if not ruser:
+            raise ValueError('Selecciona a la persona de la empresa que recibirá las invitaciones.')
+        receiver_payload = {
+            'user_id': str(ruid),
+            'name': (_profile_full_name(rprof) if rprof else None) or getattr(rprof, 'nick', None) or ruser.email,
+            'email': ruser.email or '',
+            'photo_url': (getattr(rprof, 'photo_url', None) if rprof else None) or '',
+        }
+    elif receiver_mode == 'ME':
+        receiver_payload = {
+            'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
+            'email': requester_info.get('email') or '',
+            'phone': requester_info.get('phone') or '',
+        }
+    elif receiver_mode == 'OTHER':
+        receiver_promoter_id = _safe_uuid(form.get('receiver_promoter_id'))
+        if receiver_promoter_id:
+            receiver_promoter = session_db.get(Promoter, receiver_promoter_id)
+            if receiver_promoter:
+                receiver_payload['promoter_id'] = str(receiver_promoter.id)
+                receiver_payload['name'] = receiver_payload.get('name') or _promoter_display_name(receiver_promoter) or receiver_promoter.nick
+                receiver_payload['email'] = receiver_payload.get('email') or receiver_promoter.contact_email or ''
+                receiver_payload['phone'] = receiver_payload.get('phone') or receiver_promoter.contact_phone or ''
+        if not receiver_payload.get('name'):
+            receiver_payload['name'] = 'Otro receptor'
+        if not receiver_payload.get('email') and not receiver_payload.get('phone'):
+            raise ValueError('Para enviar a otro receptor selecciona un tercero con email/teléfono o indica al menos email o teléfono.')
+    elif receiver_mode == 'BOX_OFFICE':
+        receiver_payload = {}
+    fields = {
+        'guest_type': guest_type, 'guest_promoter_id': guest_promoter_id, 'guest_artist_id': guest_artist_id,
+        'guest_user_id': guest_user_id, 'guest_name': guest_name, 'guest_company': guest_company,
+        'guest_title': guest_title, 'guest_link_summary': guest_link_summary, 'guest_email': guest_email,
+        'guest_phone': guest_phone, 'receiver_mode': receiver_mode, 'receiver_payload': receiver_payload,
+    }
+    return fields, requester_info, no_guest_contact
+
+
 @app.post('/invitaciones/solicitudes', endpoint='invitation_request_create')
 @admin_required
 def invitation_request_create():
@@ -41295,107 +41489,7 @@ def invitation_request_create():
             'photo_url': state.get('photo_url'),
             'phone': state.get('phone') or '',
         }
-        guest_type = (request.form.get('guest_type') or 'THIRD_PARTY').strip().upper()
-        guest_name = (request.form.get('guest_name') or '').strip()
-        guest_email = (request.form.get('guest_email') or '').strip()
-        guest_phone = (request.form.get('guest_phone') or '').strip()
-        guest_company = (request.form.get('guest_company') or '').strip()
-        guest_title = (request.form.get('guest_title') or guest_company or '').strip()
-        guest_link_summary = {}
-        guest_promoter_id = _safe_uuid(request.form.get('guest_promoter_id'))
-        guest_artist_id = _safe_uuid(request.form.get('guest_artist_id'))
-        guest_user_id = _safe_uuid(request.form.get('guest_user_id'))
-        if guest_type == 'SELF':
-            guest_name = state.get('nick') or state.get('email') or 'Solicitante'
-            guest_email = state.get('email') or guest_email
-        elif guest_type == 'EMPLOYEE' and guest_user_id:
-            user = session_db.get(User, guest_user_id)
-            profile = session_db.get(UserProfile, guest_user_id)
-            if user:
-                guest_name = _profile_full_name(profile) or getattr(profile, 'nick', None) or user.email
-                guest_email = user.email
-                # Pedir "para alguien de la empresa" hace que la petición figure como suya: el
-                # solicitante pasa a ser esa persona (aparece en SUS invitaciones solicitadas).
-                _emp_phones = list(getattr(profile, 'mobile_phones', None) or [])
-                requester_info = {
-                    'user_id': str(user.id),
-                    'nick': getattr(profile, 'nick', None) or _profile_full_name(profile) or _email_to_nick(user.email or ''),
-                    'email': user.email,
-                    'photo_url': getattr(profile, 'photo_url', None),
-                    'phone': (_emp_phones[0] if _emp_phones else ''),
-                }
-        elif guest_type == 'ARTIST' and guest_artist_id:
-            artist = session_db.get(Artist, guest_artist_id)
-            if artist:
-                guest_name = artist.name
-                guest_email = artist.email or guest_email
-        elif guest_promoter_id:
-            promoter = session_db.get(Promoter, guest_promoter_id)
-            if promoter:
-                guest_name = _promoter_display_name(promoter) or promoter.nick
-                guest_email = promoter.contact_email or guest_email
-                guest_phone = promoter.contact_phone or guest_phone
-                guest_link_summary = _promoter_link_summary(session_db, promoter)
-        if not guest_name:
-            guest_name = 'Invitado'
-        # Correo añadido a mano en el paso de entrega (cuando el invitado no lo tiene en su ficha).
-        if not guest_email:
-            guest_email = (request.form.get('guest_fallback_email') or '').strip()
-        receiver_mode = (request.form.get('receiver_mode') or 'GUEST').strip().upper()
-        receiver_payload = {
-            'name': (request.form.get('receiver_name') or '').strip(),
-            'email': (request.form.get('receiver_email') or '').strip(),
-            'phone': (request.form.get('receiver_phone') or '').strip(),
-        }
-        no_guest_contact = False
-        if receiver_mode == 'GUEST':
-            receiver_payload['name'] = receiver_payload.get('name') or guest_name
-            receiver_payload['email'] = receiver_payload.get('email') or guest_email
-            receiver_payload['phone'] = receiver_payload.get('phone') or guest_phone
-            if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-                # El invitado no tiene correo ni teléfono: en vez de fallar, la petición se completa
-                # y las invitaciones se envían a quien las solicita (puede añadir un correo después).
-                no_guest_contact = True
-                receiver_mode = 'ME'
-                receiver_payload = {
-                    'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
-                    'email': requester_info.get('email') or '',
-                    'phone': requester_info.get('phone') or '',
-                    'fallback_from_guest': True,
-                }
-        elif receiver_mode == 'EMPLOYEE':
-            ruid = _safe_uuid(request.form.get('receiver_user_id'))
-            ruser = session_db.get(User, ruid) if ruid else None
-            rprof = session_db.get(UserProfile, ruid) if ruid else None
-            if not ruser:
-                raise ValueError('Selecciona a la persona de la empresa que recibirá las invitaciones.')
-            receiver_payload = {
-                'user_id': str(ruid),
-                'name': (_profile_full_name(rprof) if rprof else None) or getattr(rprof, 'nick', None) or ruser.email,
-                'email': ruser.email or '',
-                'photo_url': (getattr(rprof, 'photo_url', None) if rprof else None) or '',
-            }
-        elif receiver_mode == 'ME':
-            receiver_payload = {
-                'name': requester_info.get('nick') or requester_info.get('email') or 'Solicitante',
-                'email': requester_info.get('email') or '',
-                'phone': requester_info.get('phone') or '',
-            }
-        elif receiver_mode == 'OTHER':
-            receiver_promoter_id = _safe_uuid(request.form.get('receiver_promoter_id'))
-            if receiver_promoter_id:
-                receiver_promoter = session_db.get(Promoter, receiver_promoter_id)
-                if receiver_promoter:
-                    receiver_payload['promoter_id'] = str(receiver_promoter.id)
-                    receiver_payload['name'] = receiver_payload.get('name') or _promoter_display_name(receiver_promoter) or receiver_promoter.nick
-                    receiver_payload['email'] = receiver_payload.get('email') or receiver_promoter.contact_email or ''
-                    receiver_payload['phone'] = receiver_payload.get('phone') or receiver_promoter.contact_phone or ''
-            if not receiver_payload.get('name'):
-                receiver_payload['name'] = 'Otro receptor'
-            if not receiver_payload.get('email') and not receiver_payload.get('phone'):
-                raise ValueError('Para enviar a otro receptor selecciona un tercero con email/teléfono o indica al menos email o teléfono.')
-        elif receiver_mode == 'BOX_OFFICE':
-            receiver_payload = {}
+        _rfields, requester_info, no_guest_contact = _invitation_parse_guest_receiver(session_db, request.form, state, requester_info)
         row = InvitationRequest(
             concert_id=concert.id,
             request_source='INTERNAL',
@@ -41406,23 +41500,12 @@ def invitation_request_create():
             requester_photo_url=requester_info.get('photo_url'),
             created_by_user_id=_safe_uuid(session.get('user_id')),
             created_by_nick=state.get('nick') or _email_to_nick(state.get('email') or ''),
-            guest_type=guest_type,
-            guest_promoter_id=guest_promoter_id,
-            guest_artist_id=guest_artist_id,
-            guest_user_id=guest_user_id,
-            guest_name=guest_name,
-            guest_company=guest_company,
-            guest_title=guest_title,
-            guest_link_summary=guest_link_summary,
-            guest_email=guest_email,
-            guest_phone=guest_phone,
             guest_note=(request.form.get('guest_note') or '').strip(),
-            receiver_mode=receiver_mode,
-            receiver_payload=receiver_payload,
             quantities_json=quantities,
             status='SOLICITADAS',
             note=(request.form.get('note') or '').strip(),
             delivery_token=_invitation_token(),
+            **_rfields,
         )
         session_db.add(row)
         session_db.commit()
@@ -42189,7 +42272,7 @@ def invitation_request_update(request_id):
                         if len(available_all) < add_n:
                             raise ValueError(f'No hay suficientes invitaciones disponibles en {cat.name}: faltan {add_n - len(available_all)}.')
                         # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
-                        available = _invitation_pick_grouped_seats(available_all, add_n)
+                        available = _invitation_pick_grouped_seats(available_all, add_n, category=cat, concert=row.concert)
                         for t in available:
                             t.assigned_request_id = row.id
                             t.assigned_commitment_id = None
@@ -42326,11 +42409,13 @@ def _invitation_seat_int(ticket) -> int | None:
     return int(m.group(0)) if m else None
 
 
-def _invitation_pick_grouped_seats(available: list, qty: int) -> list:
+def _invitation_pick_grouped_seats(available: list, qty: int, category=None, concert=None) -> list:
     """Elige `qty` butacas de `available` (entradas AVAILABLE ya ordenadas por sector/fila/asiento)
     intentando que el grupo quede JUNTO, sin dividirlo:
       1) Un tramo CONTIGUO (asientos seguidos, sin huecos) dentro de una misma fila.
       2) Si no cabe en ninguna fila, se llenan filas CONSECUTIVAS (una detrás de otra) hasta completar.
+    Una ESCALERA configurada (layout del sector) corta el tramo aunque las butacas sean seguidas, para
+    no repartir el grupo a ambos lados de la escalera.
     Devuelve la lista elegida (puede ser < qty si no hay suficientes disponibles)."""
     if qty <= 0 or not available:
         return []
@@ -42339,11 +42424,18 @@ def _invitation_pick_grouped_seats(available: list, qty: int) -> list:
     for t in available:
         key = ((getattr(t, "sector", None) or ""), (getattr(t, "row_label", None) or ""))
         rows.setdefault(key, []).append(t)
+    _stairs_by_sector: dict = {}
+
+    def _stairs_for(sector_name: str) -> set:
+        if sector_name not in _stairs_by_sector:
+            _stairs_by_sector[sector_name] = _invitation_sector_layout(category, sector_name or "General", concert=concert)["stairs"] if category is not None else set()
+        return _stairs_by_sector[sector_name]
     # Parte cada fila en TRAMOS contiguos: dos asientos son contiguos si su diferencia == paso de la
     # fila (el menor salto entre asientos disponibles: 1 si van 1,2,3…; 2 si van 1,3,5…). Un salto
     # mayor = hay una butaca ocupada en medio → se corta el tramo (para no dejar hueco en el grupo).
     runs: list = []  # [ [tickets_contiguos], ... ] en orden
-    for seats in rows.values():
+    for (sector_name, _row), seats in rows.items():
+        stairs_after = _stairs_for(sector_name)
         seats_sorted = sorted(seats, key=lambda t: (_invitation_seat_int(t) if _invitation_seat_int(t) is not None else 10 ** 9))
         nums = [_invitation_seat_int(t) for t in seats_sorted]
         diffs = [b - a for a, b in zip(nums, nums[1:]) if a is not None and b is not None and b > a]
@@ -42351,7 +42443,8 @@ def _invitation_pick_grouped_seats(available: list, qty: int) -> list:
         run = [seats_sorted[0]]
         for prev, cur in zip(seats_sorted, seats_sorted[1:]):
             pn, cn = _invitation_seat_int(prev), _invitation_seat_int(cur)
-            if pn is not None and cn is not None and (cn - pn) == step:
+            _stair_between = bool(stairs_after and pn is not None and cn is not None and any(pn <= sa < cn for sa in stairs_after))
+            if pn is not None and cn is not None and (cn - pn) == step and not _stair_between:
                 run.append(cur)
             else:
                 runs.append(run)
@@ -42408,7 +42501,7 @@ def invitation_request_auto_assign(request_id):
             if len(available_all) < qty:
                 raise ValueError(f'No hay invitaciones suficientes en {cat.name}: faltan {qty - len(available_all)}.')
             # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
-            available = _invitation_pick_grouped_seats(available_all, qty)
+            available = _invitation_pick_grouped_seats(available_all, qty, category=cat, concert=concert)
             for ticket in available:
                 if ticket.previous_assignment_warning and not _truthy(request.form.get('accept_warnings')):
                     raise ValueError(f'La entrada {ticket.ticket_code or ticket.pdf_name} ya había sido enviada/asignada antes. Acepta la advertencia para reasignarla.')
@@ -42434,6 +42527,56 @@ def invitation_request_auto_assign(request_id):
         session_db.close()
 
 
+def _invitation_send_request(session_db, row, channel, *, custom_text=None, extra_recipients=None):
+    """Envía una SOLICITUD ya asignada por email/WhatsApp/SMS y la marca ENVIADAS (+ entradas SENT).
+    ÚNICA lógica de envío, reutilizada por el envío individual y por el envío de una selección de
+    entradas del plano. WhatsApp/SMS marca siempre y devuelve la URL a abrir; email solo marca si el
+    correo se manda de verdad. Devuelve dict {ok, channel, url?/recipients?, error?}."""
+    channel = (channel or 'email').strip().lower()
+    concert = row.concert or session_db.get(Concert, row.concert_id)
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if row.concert_id else []
+    flags = _invitation_request_kind_flags(session_db, row, categories)
+    if not flags.get('can_send'):
+        raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
+    row.delivery_token = row.delivery_token or _invitation_token()
+    if channel in ('whatsapp', 'sms'):
+        # WhatsApp/SMS NO adjuntan archivos: el mensaje lleva el enlace que descarga las invitaciones
+        # en un único PDF (directo, sin descomprimir). Se abre en el cliente.
+        has_pdfs = not flags.get('uses_guest_list')
+        link = _external_url_for('public_invitation_delivery', kind='r', token=row.delivery_token) if has_pdfs else ''
+        msg = _invitation_share_text(session_db, concert, row.guest_name, link)
+        phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
+        if channel == 'whatsapp':
+            url = ('https://wa.me/' + phone + '?text=' + quote_plus(msg)) if phone else ('https://wa.me/?text=' + quote_plus(msg))
+        else:
+            url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(msg))
+        row.status = 'ENVIADAS'
+        row.sent_at = _now_madrid()
+        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+            ticket.status = 'SENT'
+            ticket.sent_at = row.sent_at
+            ticket.updated_at = row.sent_at
+        session_db.commit()
+        return {'ok': True, 'url': url, 'channel': channel}
+    # Email
+    subject, html_body, text_body = _invitation_email_body(session_db, row, None, custom_text=custom_text)
+    recipients = _dedupe_valid_email_addresses(list(extra_recipients or []) + _invitation_delivery_recipients(session_db, row))
+    # Reply-To: el peticionario de la oficina (no quien gestiona el envío).
+    reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+    ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+    if ok:
+        row.status = 'ENVIADAS'
+        row.sent_at = _now_madrid()
+        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+            ticket.status = 'SENT'
+            ticket.sent_at = row.sent_at
+            ticket.updated_at = row.sent_at
+        session_db.commit()
+        return {'ok': True, 'channel': 'email', 'recipients': recipients}
+    session_db.rollback()
+    return {'ok': False, 'channel': 'email', 'error': err or 'SMTP no configurado', 'recipients': recipients}
+
+
 @app.post('/invitaciones/solicitudes/<request_id>/enviar', endpoint='invitation_request_send')
 @admin_required
 def invitation_request_send(request_id):
@@ -42445,52 +42588,16 @@ def invitation_request_send(request_id):
         _ensure_can_manage_invitations(session_db, row.concert)
         channel = (request.form.get('channel') or 'email').strip().lower()
         wants_json = (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
-        categories = _invitation_get_categories(session_db, row.concert or session_db.get(Concert, row.concert_id), ensure_defaults=False) if row.concert_id else []
-        flags = _invitation_request_kind_flags(session_db, row, categories)
-        if not flags.get('can_send'):
-            raise ValueError('Solo se pueden enviar invitaciones cuando ya tienen entradas asignadas o cuando son de tipo listado.')
-        row.delivery_token = row.delivery_token or _invitation_token()
+        extra = request.form.getlist('recipients') + request.form.getlist('extra_emails')
+        res = _invitation_send_request(session_db, row, channel, custom_text=(request.form.get('custom_text') or None), extra_recipients=extra)
         if channel in ('whatsapp', 'sms'):
-            # WhatsApp/SMS NO adjuntan archivos: el mensaje lleva el enlace que descarga las
-            # invitaciones en un único PDF (directo, sin descomprimir). Se abre en el cliente.
-            has_pdfs = not flags.get('uses_guest_list')
-            link = _external_url_for('public_invitation_delivery', kind='r', token=row.delivery_token) if has_pdfs else ''
-            msg = _invitation_share_text(session_db, row.concert or session_db.get(Concert, row.concert_id), row.guest_name, link)
-            phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
-            if channel == 'whatsapp':
-                url = ('https://wa.me/' + phone + '?text=' + quote_plus(msg)) if phone else ('https://wa.me/?text=' + quote_plus(msg))
-            else:
-                url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(msg))
-            # Marcar como enviadas (no hay confirmación de entrega posible en WhatsApp/SMS).
-            row.status = 'ENVIADAS'
-            row.sent_at = _now_madrid()
-            for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                ticket.status = 'SENT'
-                ticket.sent_at = row.sent_at
-                ticket.updated_at = row.sent_at
-            session_db.commit()
             if wants_json:
-                return jsonify({'ok': True, 'url': url, 'channel': channel})
-            return redirect(url)
-        # Email
-        subject, html_body, text_body = _invitation_email_body(session_db, row, None, custom_text=(request.form.get('custom_text') or None))
-        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + request.form.getlist('extra_emails') + _invitation_delivery_recipients(session_db, row))
-        # Reply-To: el peticionario de la oficina (no quien gestiona el envío).
-        reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
-        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
-        if ok:
-            # Solo se marca como ENVIADA cuando el correo se ha enviado de verdad.
-            row.status = 'ENVIADAS'
-            row.sent_at = _now_madrid()
-            for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
-                ticket.status = 'SENT'
-                ticket.sent_at = row.sent_at
-                ticket.updated_at = row.sent_at
-            session_db.commit()
-            flash('Invitaciones enviadas por email a: ' + (', '.join(recipients) if recipients else '—') + '.', 'success')
+                return jsonify({'ok': True, 'url': res.get('url'), 'channel': channel})
+            return redirect(res.get('url'))
+        if res.get('ok'):
+            flash('Invitaciones enviadas por email a: ' + (', '.join(res.get('recipients') or []) or '—') + '.', 'success')
         else:
-            session_db.rollback()
-            flash(f'No se pudo enviar el email (no se marca como enviada): {err or "SMTP no configurado"}', 'warning')
+            flash(f'No se pudo enviar el email (no se marca como enviada): {res.get("error")}', 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
     except Exception as exc:
         session_db.rollback()
@@ -43090,7 +43197,8 @@ def invitation_ticket_release(ticket_id):
         cid = ticket.concert_id
         req = session_db.get(InvitationRequest, ticket.assigned_request_id) if getattr(ticket, 'assigned_request_id', None) else None
         sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
-        was_sent = (ticket.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP'} or bool(getattr(ticket, 'sent_at', None)) \
+        # Una IMPRESA se recupera igual que una enviada (pide confirmación): ya "salió" y no es reutilizable.
+        was_sent = (ticket.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED'} or bool(getattr(ticket, 'sent_at', None)) \
             or (req is not None and (bool(req.sent_at) or (req.status or '') in sent_statuses))
         was_downloaded = bool(req is not None and (bool(req.downloaded_at) or _safe_int(req.downloaded_count) > 0))
         who = ticket.assigned_label or (req.guest_name if req else '') or 'el invitado'
@@ -43315,6 +43423,230 @@ def invitation_tickets_bulk(concert_id):
         session_db.close()
 
 
+@app.get('/invitaciones/evento/<concert_id>/plano/<category_id>', endpoint='invitation_sector_plan')
+@admin_required
+def invitation_sector_plan(concert_id, category_id):
+    """Datos del plano de UN sector para el configurador (rueda): rejilla auto (mín→máx por paso),
+    qué butacas existen y los retoques guardados (escaleras/huecos/apagados/escenario)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        cat = session_db.get(InvitationCategory, to_uuid(category_id))
+        if not concert or not cat or cat.concert_id != concert.id:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        sector = (request.args.get('sector') or '').strip() or 'General'
+        nums = sorted({int(t.seat_number) for t in session_db.query(InvitationTicket)
+                       .filter(InvitationTicket.category_id == cat.id, InvitationTicket.sector == (None if sector == 'General' else sector))
+                       .all() if str(getattr(t, 'seat_number', None) or '').isdigit()})
+        if not nums:
+            # Sector "General" puede venir de sector NULL: reintenta sin filtro de sector si vacío.
+            nums = sorted({int(t.seat_number) for t in session_db.query(InvitationTicket)
+                           .filter(InvitationTicket.category_id == cat.id)
+                           .all() if str(getattr(t, 'seat_number', None) or '').isdigit()
+                           and ((getattr(t, 'sector', None) or 'General') == sector)})
+        step = 2 if (len(nums) >= 2 and len({n % 2 for n in nums}) == 1 and (nums[-1] - nums[0]) >= 2) else 1
+        cfg = _invitation_sector_layout(cat, sector, concert=concert)
+        return jsonify({
+            'ok': True, 'sector': sector, 'step': step,
+            'min': (nums[0] if nums else 0), 'max': (nums[-1] if nums else 0),
+            'seats': nums,
+            'config': {'stairs': sorted(cfg['stairs']), 'gaps': sorted(cfg['gaps']), 'off': sorted(cfg['off']), 'stage': cfg['stage']},
+        })
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/plano/<category_id>', endpoint='invitation_sector_layout_save')
+@admin_required
+def invitation_sector_layout_save(concert_id, category_id):
+    """Guarda los retoques del plano de un sector (escaleras/huecos/apagados/escenario) en layout_json."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        cat = session_db.get(InvitationCategory, to_uuid(category_id))
+        if not concert or not cat or cat.concert_id != concert.id:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        data = request.get_json(silent=True) or {}
+        sector = (data.get('sector') or request.form.get('sector') or '').strip() or 'General'
+
+        def _as_ints(v):
+            if isinstance(v, str):
+                v = [x for x in re.split(r'[^\d]+', v) if x]
+            return sorted({int(x) for x in (v or []) if str(x).lstrip('-').isdigit()})
+        stage = (data.get('stage') or '').strip().lower()
+        sec_cfg = {
+            'stairs': _as_ints(data.get('stairs')),
+            'gaps': _as_ints(data.get('gaps')),
+            'off': _as_ints(data.get('off')),
+            'stage': stage if stage in _INVITATION_STAGE_EDGES else '',
+        }
+        layout = dict(_invitation_layout_json(cat))
+        sectors = dict(layout.get('sectors') or {})
+        sectors[sector] = sec_cfg
+        layout['sectors'] = sectors
+        cat.layout_json = layout
+        cat.updated_at = _now_madrid()
+        session_db.commit()
+        return jsonify({'ok': True, 'sector': sector, 'config': sec_cfg})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+def _invitation_bulk_selected_tickets(session_db, concert):
+    ids = [to_uuid(x) for x in (request.form.get('ticket_ids') or '').split(',') if to_uuid(x)]
+    if not ids:
+        raise ValueError('No has seleccionado ninguna invitación.')
+    tickets = (session_db.query(InvitationTicket)
+               .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.id.in_(ids))
+               .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast())
+               .all())
+    if not tickets:
+        raise ValueError('No se encontraron las invitaciones seleccionadas.')
+    return tickets
+
+
+@app.post('/invitaciones/evento/<concert_id>/tickets/imprimir', endpoint='invitation_tickets_bulk_print')
+@admin_required
+def invitation_tickets_bulk_print(concert_id):
+    """Imprime en bloque las entradas seleccionadas: las une en un PDF y las marca IMPRESAS (naranja).
+    Una impresa funciona como enviada (no reutilizable); se recupera igual que una enviada."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        tickets = _invitation_bulk_selected_tickets(session_db, concert)
+        reason = (request.form.get('reason') or '').strip()
+        with_pdf = [t for t in tickets if (getattr(t, 'pdf_url', None) or '').strip()]
+        if not with_pdf:
+            raise ValueError('Las invitaciones seleccionadas no tienen PDF que imprimir.')
+        pdf_bytes, _n = _invitation_tickets_to_merged_pdf(with_pdf)
+        if not pdf_bytes:
+            raise ValueError('No se pudieron preparar los PDF para imprimir.')
+        now = _now_madrid()
+        for t in tickets:
+            t.status = 'PRINTED'
+            t.printed_at = now
+            t.print_reason = reason or t.print_reason
+            t.sent_at = t.sent_at or now
+            t.updated_at = now
+        session_db.commit()
+        resp = Response(pdf_bytes, mimetype='application/pdf')
+        resp.headers['Content-Disposition'] = 'inline; filename="invitaciones.pdf"'
+        return resp
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/tickets/descargar', endpoint='invitation_tickets_bulk_download')
+@admin_required
+def invitation_tickets_bulk_download(concert_id):
+    """Descarga en un único PDF las entradas seleccionadas (sin cambiar su estado)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        tickets = [t for t in _invitation_bulk_selected_tickets(session_db, concert) if (getattr(t, 'pdf_url', None) or '').strip()]
+        if not tickets:
+            raise ValueError('Las invitaciones seleccionadas no tienen PDF.')
+        pdf_bytes, _n = _invitation_tickets_to_merged_pdf(tickets)
+        if not pdf_bytes:
+            raise ValueError('No se pudieron preparar los PDF.')
+        resp = Response(pdf_bytes, mimetype='application/pdf')
+        resp.headers['Content-Disposition'] = 'attachment; filename="invitaciones.pdf"'
+        return resp
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/tickets/enviar-seleccion', endpoint='invitation_tickets_bulk_send')
+@admin_required
+def invitation_tickets_bulk_send(concert_id):
+    """Envía por email/WhatsApp/SMS las entradas seleccionadas del plano. Crea una solicitud con «para
+    quién son» (guest_*) y «a quién se le mandan» (receiver_*) —mismo componente que las peticiones—,
+    le asigna EXACTAMENTE esas entradas y la envía como una solicitud asignada (queda en la lista de
+    invitados y las entradas se marcan como enviadas)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        tickets = _invitation_bulk_selected_tickets(session_db, concert)
+        accept_warnings = _truthy(request.form.get('accept_warnings'))
+        # No se pueden enviar entradas de un listado (sin PDF) por esta vía.
+        for t in tickets:
+            if t.previous_assignment_warning and not accept_warnings:
+                raise ValueError(f'La entrada {t.ticket_code or t.pdf_name or ""} ya había sido enviada/asignada antes. Confirma para reutilizarla.')
+        per_cat: dict = {}
+        for t in tickets:
+            per_cat[str(t.category_id)] = per_cat.get(str(t.category_id), 0) + 1
+        state = _current_user_state()
+        requester_info = {
+            'user_id': session.get('user_id'),
+            'nick': state.get('nick') or _email_to_nick(state.get('email') or ''),
+            'email': state.get('email'),
+            'photo_url': state.get('photo_url'),
+            'phone': state.get('phone') or '',
+        }
+        _rfields, requester_info, _no_contact = _invitation_parse_guest_receiver(session_db, request.form, state, requester_info)
+        now = _now_madrid()
+        row = InvitationRequest(
+            concert_id=concert.id,
+            request_source='INTERNAL',
+            requester_type='USER',
+            requester_user_id=_safe_uuid(requester_info.get('user_id')),
+            requester_nick=requester_info.get('nick'),
+            requester_email=requester_info.get('email'),
+            requester_photo_url=requester_info.get('photo_url'),
+            created_by_user_id=_safe_uuid(session.get('user_id')),
+            created_by_nick=state.get('nick') or _email_to_nick(state.get('email') or ''),
+            guest_note=(request.form.get('guest_note') or '').strip(),
+            quantities_json=per_cat,
+            status='ASIGNADAS',
+            assigned_at=now,
+            delivery_token=_invitation_token(),
+            **_rfields,
+        )
+        session_db.add(row)
+        session_db.flush()
+        for t in tickets:
+            t.assigned_request_id = row.id
+            t.assigned_commitment_id = None
+            t.assigned_label = row.guest_name
+            t.status = 'ASSIGNED'
+            t.assigned_at = now
+            t.sent_at = None
+            t.updated_at = now
+        session_db.commit()  # persistimos solicitud + asignación antes de enviar (si el email falla, se conservan)
+        channel = (request.form.get('channel') or 'email').strip().lower()
+        extra = request.form.getlist('recipients') + request.form.getlist('extra_emails')
+        res = _invitation_send_request(session_db, row, channel, custom_text=(request.form.get('custom_text') or None), extra_recipients=extra)
+        return jsonify({
+            'ok': bool(res.get('ok')), 'channel': channel, 'url': res.get('url'),
+            'request_id': str(row.id), 'recipients': res.get('recipients'), 'error': res.get('error'),
+        })
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/evento/<concert_id>/asignaciones', endpoint='invitation_assignment_save')
 @admin_required
 def invitation_assignment_save(concert_id):
@@ -43378,7 +43710,7 @@ def invitation_assignment_save(concert_id):
                     .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
                     .all()
                 )
-                ticket_ids = [x.id for x in _invitation_pick_grouped_seats(available_all, qty)]
+                ticket_ids = [x.id for x in _invitation_pick_grouped_seats(available_all, qty, category=cat, concert=concert)]
             if qty > 0 and len(ticket_ids) < qty:
                 raise ValueError(f'No hay invitaciones suficientes disponibles en {cat.name}.')
             for tid in ticket_ids[:qty or len(ticket_ids)]:

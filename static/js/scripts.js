@@ -908,6 +908,18 @@ function initImageFallbacks(){
       });
     }
   });
+
+  // Barrido de seguridad: CUALQUIER imagen (miniatura de artista, vínculo, personal…) que ya haya
+  // fallado al cargar antes de este punto (p. ej. una foto que no responde) se sustituye por el
+  // avatar por defecto local, para no dejar nunca el icono roto "?". No toca logos de marca.
+  document.querySelectorAll('img').forEach((img) => {
+    if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
+    if (img.src === defaultUrl) return;
+    if (img.complete && img.naturalWidth === 0 && (img.getAttribute('src') || '').trim()) {
+      img.src = defaultUrl;
+      img.classList.add('image-fallback');
+    }
+  });
 }
 
 function initDropdownOverflowFix(){

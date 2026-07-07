@@ -877,45 +877,75 @@ function initImageFallbacks(){
   // placeholder de portada (disco gris), NO al avatar de persona.
   const isCover = (img) => !!(img && (img.classList.contains('cover-square') || img.classList.contains('song-hero-cover') || img.classList.contains('cover') || img.hasAttribute('data-cover')));
   const fbFor = (img) => (coverUrl && isCover(img)) ? coverUrl : defaultUrl;
+  const skipImg = (img) => !img || String(img.tagName || '').toUpperCase() !== 'IMG' ||
+    img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1';
   const selector = [
     'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square', 'img.cover', 'img[data-cover]',
     'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',
     'img[src$="/static/img/default_promoter.png"]',
     'img[src$="/static/img/promoter_default.png"]'
   ].join(',');
+
+  // REINTENTAR antes de sustituir. Un fallo PUNTUAL de red (Storage que no responde un instante,
+  // cargas lazy al hacer scroll…) disparaba 'error' y reemplazaba PARA SIEMPRE una imagen válida por
+  // el placeholder — de ahí que las miniaturas "se rompieran solas a los minutos" y de forma
+  // aleatoria. Ahora se reintenta la URL original (2 veces, con cache-buster para no releer el fallo
+  // de la caché) y solo si sigue fallando cae al placeholder, que además conserva la caja (CSS
+  // .image-fallback). Si el reintento carga, la imagen vuelve sola a verse bien.
+  const RETRY_DELAYS = [800, 2500];
+  const applyFallback = (img) => {
+    const fb = fbFor(img);
+    if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
+  };
+  const retryUrl = (raw, attempt) => {
+    try {
+      const u = new URL(raw, window.location.href);
+      u.searchParams.set('imgretry', String(attempt));
+      return u.href;
+    } catch (e) { return raw; }
+  };
+  const handleImgError = (img) => {
+    if (skipImg(img)) return;
+    const fb = fbFor(img);
+    if (!fb || img.src === fb) return;
+    if (!img.dataset.origSrc) {
+      const raw = (img.getAttribute('src') || '').trim();
+      if (!raw) { applyFallback(img); return; }
+      img.dataset.origSrc = img.currentSrc || img.src || raw;
+    }
+    const attempt = parseInt(img.dataset.imgRetries || '0', 10) || 0;
+    if (attempt >= RETRY_DELAYS.length) { applyFallback(img); return; }
+    img.dataset.imgRetries = String(attempt + 1);
+    window.setTimeout(() => {
+      if (!img.isConnected) return;
+      if (img.complete && img.naturalWidth > 0) return; // ya cargó por otro camino
+      img.src = retryUrl(img.dataset.origSrc, attempt + 1);
+    }, RETRY_DELAYS[attempt]);
+  };
+
   if (!document.body.dataset.globalImgFallbackBound) {
     document.body.dataset.globalImgFallbackBound = '1';
-    document.addEventListener('error', (ev) => {
-      const img = ev.target;
-      if (!img || String(img.tagName || '').toUpperCase() !== 'IMG') return;
-      if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
-      const fb = fbFor(img);
-      if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
-    }, true);
+    // Captura a nivel de documento: cubre también las imágenes insertadas después (Select2, AJAX,
+    // galería de fotos…). Si el reintento vuelve a fallar, el propio 'error' reentra aquí y agota
+    // los intentos antes de caer al placeholder.
+    document.addEventListener('error', (ev) => { handleImgError(ev.target); }, true);
   }
 
   document.querySelectorAll(selector).forEach((img) => {
-    if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
-    const fb = fbFor(img);
+    if (skipImg(img)) return;
     const src = (img.getAttribute('src') || '').trim();
     if (!src || /\/static\/img\/(default_promoter|promoter_default)\.(png|jpg|jpeg|svg)$/i.test(src)) {
-      if (fb) { img.src = fb; img.classList.add('image-fallback'); }
-    }
-    if (!img.dataset.fallbackBound) {
-      img.dataset.fallbackBound = '1';
-      img.addEventListener('error', () => {
-        if (fb && img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
-      });
+      applyFallback(img);
     }
   });
 
-  // Barrido de seguridad: imágenes que ya habían fallado ANTES de registrar los listeners.
+  // Barrido de seguridad: imágenes que ya habían fallado ANTES de registrar el listener global.
   // IMPORTANTE: naturalWidth===0 da FALSOS POSITIVOS con SVG válidos (un SVG sin ancho intrínseco
   // reporta 0 aunque cargue bien) — eso sustituía logos correctos por el placeholder gris. Por eso
-  // solo se sustituye si al re-verificar la URL con un probe (sale de caché, es inmediato) REALMENTE
-  // falla; si el probe carga, la imagen era válida y no se toca. No toca logos de marca.
+  // solo se actúa si al re-verificar la URL con un probe (sale de caché, es inmediato) REALMENTE
+  // falla; y aun entonces pasa por el ciclo de reintentos, no directo al placeholder.
   document.querySelectorAll('img').forEach((img) => {
-    if (img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1') return;
+    if (skipImg(img)) return;
     const fb = fbFor(img);
     if (!fb || img.src === fb || img.dataset.fallbackProbed === '1') return;
     const rawSrc = (img.getAttribute('src') || '').trim();
@@ -923,9 +953,7 @@ function initImageFallbacks(){
     if (!(img.complete && img.naturalWidth === 0 && img.naturalHeight === 0)) return;
     img.dataset.fallbackProbed = '1';
     const probe = new Image();
-    probe.onerror = () => {
-      if (img.src !== fb) { img.src = fb; img.classList.add('image-fallback'); }
-    };
+    probe.onerror = () => handleImgError(img);
     probe.src = img.currentSrc || img.src;
   });
 }

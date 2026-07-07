@@ -46,10 +46,6 @@ body { background: #fafafa; }
   width: 56px; height: 56px; border-radius: 50%; object-fit: cover;
   border: 2px solid #eee;
 }
-/* Imagen sustituida por el avatar por defecto (fallback): conserva SIEMPRE la caja del hueco en el
-   que está (no deforma cabeceras ni listados aunque el placeholder tenga otro aspecto). */
-img.image-fallback { object-fit: cover; }
-
 .artist-hero{
   border: 1px solid rgba(0,0,0,.06);
   background: #fff;
@@ -612,10 +608,13 @@ img.default-photo,
 img[data-default-photo="1"]{
   background: var(--default-photo-bg) !important;
 }
+/* Imagen sustituida por el placeholder (fallback): conserva SIEMPRE la caja del hueco en el que
+   está — mismo ancho/alto que la imagen original, sin padding. El padding:10% anterior se calculaba
+   sobre el ANCHO DEL CONTENEDOR y en imágenes sin ancho fijo (logos de vinculaciones, personal…)
+   inflaba la imagen hasta un "cuadrado gris grande" que además aplastaba el texto de al lado. */
 .image-fallback{
   background: var(--default-photo-bg) !important;
-  object-fit: contain !important;
-  padding: 10% !important;
+  object-fit: cover !important;
 }
 
 /* Los menús de tres puntos deben mostrarse por encima de tablas, cards y modales. */

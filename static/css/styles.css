@@ -936,6 +936,9 @@ img[data-default-photo="1"]{
 .inv-zone-bubble { border:1px solid #e6e9ee; background:#fafbfc; border-radius:14px; padding:.75rem .9rem; }
 .inv-zone-head { font-weight:800; color:#111; margin-bottom:.5rem; }
 .inv-zone-head i { color:#e83b4b; }
+/* Icono ÚNICO por tipo de invitación (Pista/Grada/Palcos): mismo SVG en rojo en toda la app. */
+.inv-zone-ico { height:1.05em; width:auto; vertical-align:-0.16em; }
+.inv-zone-ico--lg { height:1.2em; }
 .inv-qty-cell { border-radius:8px; padding:.5rem .6rem; }
 .inv-request-list .list-group-item.inv-cat-row { border-left-width:5px; }
 /* Arrastrar solicitudes entre categorías */

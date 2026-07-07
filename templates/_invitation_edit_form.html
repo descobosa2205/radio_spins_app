@@ -33,7 +33,7 @@
   {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
     {% set zcats = cat_rows|selectattr('zone','equalto',zkey)|list %}
     {% if zcats %}
-    <div class="col-12 mt-2 mb-0"><div class="fw-semibold text-muted"><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</div></div>
+    <div class="col-12 mt-2 mb-0"><div class="fw-semibold text-muted"><img src="{{ ZONE_ICON_SVG.get(zkey) }}" class="inv-zone-ico me-1" alt="">{{ zlabel }}</div></div>
     {% for c in zcats %}
       {% set aforo = ' (Aforo: ' ~ c.configured ~ ')' if (c.zone == 'PALCO' and c.configured and 'honor' not in (c.name|lower)) else '' %}
       {% if assign_mode and c.kind != 'GUEST_LIST' %}

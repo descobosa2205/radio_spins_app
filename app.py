@@ -29678,6 +29678,13 @@ def inject_personnel_globals():
         "SECTION_STATS": _section_stats_counts() if request.endpoint in {"promocion_view", "marketing_view", "administracion_view", "contabilidad_view", "produccion_view", "acciones_view", "action_detail_view", "personnel_view", "invitations_view", "invitation_event_detail"} and session.get("user_id") else {},
         "has_access_key": has_access_key,
         "SECTION_ICONS": SECTION_ICONS,
+        # Icono ÚNICO por tipo de invitación (Pista/Grada/Palcos), en rojo de marca, como SVG para que
+        # sea idéntico en toda la app, correos, enlaces y PDF.
+        "ZONE_ICON_SVG": {
+            "PISTA": url_for("static", filename="img/zone/pista.svg"),
+            "GRADA": url_for("static", filename="img/zone/grada.svg"),
+            "PALCO": url_for("static", filename="img/zone/palco.svg"),
+        },
         "IMPERSONATING": bool(session.get("impersonator_id")),
         "IMPERSONATOR_NICK": _impersonator_nick() if session.get("impersonator_id") else "",
     }
@@ -40015,9 +40022,13 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
     color_by = {str(c.id): INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)] for i, c in enumerate(cats)}
     zone_order = ["PISTA", "GRADA", "PALCO"]
     zone_labels = {"PISTA": "Pista", "GRADA": "Grada", "PALCO": "Palcos"}
-    # Icono por zona como EMOJI (Font Awesome no renderiza en clientes de correo; el emoji sí).
-    zone_emoji = {"PISTA": "\U0001F465", "GRADA": "\U0001FA91", "PALCO": "\U0001F451"}
-    zone_emoji_default = "\U0001F3AB"
+    # Icono por zona: el MISMO SVG (rojo de marca) que usa la app; como <img> para que se vea igual en
+    # correo/enlace (Font Awesome no renderiza en email).
+    def _zone_img(zone):
+        # PNG (no SVG) porque muchos clientes de correo (Gmail) no renderizan SVG en <img>.
+        fn = {"PISTA": "pista", "GRADA": "grada", "PALCO": "palco"}.get(zone, "pista")
+        src = _absolute_media_url(url_for("static", filename="img/zone/" + fn + ".png"))
+        return f'<img src="{esc(src)}" width="17" height="17" alt="" style="height:17px;width:auto;vertical-align:-3px;margin-right:7px">'
     grouped: dict = {z: [] for z in zone_order}
     bykey: dict = {}
     for t in tickets:
@@ -40046,22 +40057,21 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
         zcats = grouped.get(zone) or []
         if not zcats:
             continue
-        # Cabecera de zona destacada: icono (emoji) + nombre en negro y en negrita.
-        _zicon = zone_emoji.get(zone, zone_emoji_default)
-        inner = [f'<div style="font-weight:800;color:#111;font-size:15px;margin:0 0 10px">'
-                 f'<span style="font-size:17px;margin-right:7px">{_zicon}</span>{esc(zone_labels[zone])}</div>']
+        # Cabecera de zona: icono (mismo SVG que la app, rojo) + nombre en negro y en negrita.
+        inner = [f'<div style="font-weight:800;color:#111;font-size:15px;margin:0 0 10px">{_zone_img(zone)}{esc(zone_labels[zone])}</div>']
         for cid, cat, cat_tickets in zcats:
             cat_name = (getattr(cat, "name", None) or "Categoría").strip()
             color = color_by.get(cid, "#9ca3af")
-            shade = _hex_tint(color, 0.88)  # sombreado claro del color de la categoría
+            shade = _hex_tint(color, 0.85)  # sombreado claro SOLO para la barra del título
             is_num = (getattr(cat, "ticket_kind", "") or "") == "PDF_NUMBERED"
-            header = (
-                '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>'
-                '<td style="vertical-align:middle">'
+            # Barra del TÍTULO con sombreado de lado a lado (como en "configurar invitaciones").
+            title_bar = (
+                f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:{shade}"><tr>'
+                f'<td style="padding:7px 12px;vertical-align:middle">'
                 f'<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:{color};margin-right:8px;vertical-align:middle"></span>'
                 f'<span style="font-weight:700;color:#111;font-size:14px;vertical-align:middle">{esc(cat_name)}</span>'
-                f'<span style="color:#98a1ac;font-size:12px">&nbsp;({len(cat_tickets)})</span></td>'
-                f'<td align="right" style="vertical-align:middle">{_dlall(cid)}</td>'
+                f'<span style="color:#7a828d;font-size:12px">&nbsp;({len(cat_tickets)})</span></td>'
+                f'<td align="right" style="padding:7px 12px;vertical-align:middle">{_dlall(cid)}</td>'
                 '</tr></table>'
             )
             # Sub-agrupar por SECTOR (en orden de aparición) si hay más de uno.
@@ -40093,15 +40103,17 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
                         detail = ""
                     dl = _dlicon(t.pdf_url, f"Descargar invitación {n}") if (t.pdf_url or "").strip() else ""
                     detail_html = f'<span style="color:#667085"> · {esc(detail)}</span>' if detail else ""
+                    # Numeradas: nº + fila/asiento a la IZQUIERDA (delante) y la flecha ALINEADA a la
+                    # derecha del bloque de su categoría.
                     trs.append(
                         '<tr>'
-                        f'<td style="padding:3px 0;font-size:14px;color:#111;white-space:nowrap;vertical-align:middle;width:120px">Invitación {n}</td>'
-                        f'<td style="padding:3px 8px 3px 0;white-space:nowrap;vertical-align:middle">{dl}</td>'
-                        f'<td style="padding:3px 0;font-size:14px;vertical-align:middle">{detail_html}</td>'
+                        f'<td style="padding:3px 0;font-size:14px;color:#111;vertical-align:middle">Invitación {n}{detail_html}</td>'
+                        f'<td align="right" style="padding:3px 0 3px 10px;white-space:nowrap;vertical-align:middle">{dl}</td>'
                         '</tr>')
-                parts.append('<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
-            # Categoría con SOMBREADO del color + borde de color (como en "configurar disponibles").
-            inner.append(f'<div style="border-left:4px solid {color};background:{shade};border-radius:8px;padding:9px 12px;margin:6px 0">' + header + "".join(parts) + "</div>")
+                parts.append('<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">' + "".join(trs) + "</table>")
+            # Bloque de categoría: borde de color; el sombreado va SOLO en la barra del título.
+            inner.append(f'<div style="border:1px solid {shade};border-left:4px solid {color};border-radius:8px;margin:8px 0;overflow:hidden">'
+                         + title_bar + '<div style="padding:6px 12px 8px">' + "".join(parts) + '</div></div>')
         # Toda la zona dentro de un "bocadillo" claro que la diferencia.
         out.append('<div style="border:1px solid #e6e9ee;background:#fafbfc;border-radius:14px;padding:12px 14px;margin:14px 0">' + "".join(inner) + "</div>")
     return "".join(out)

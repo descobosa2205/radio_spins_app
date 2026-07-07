@@ -63,7 +63,7 @@
           {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown'),('','Sin categoría','fa-circle-question')] %}
           {% set zgroups = grouped_requests|selectattr('zone','equalto',zkey)|list %}
           {% if zgroups %}
-          <h6 class="mb-2 mt-2 d-flex align-items-center gap-2"><i class="fa {{ zicon }} text-danger"></i>{{ zlabel }}</h6>
+          <h6 class="mb-2 mt-2 d-flex align-items-center gap-2">{% if ZONE_ICON_SVG.get(zkey) %}<img src="{{ ZONE_ICON_SVG.get(zkey) }}" class="inv-zone-ico inv-zone-ico--lg" alt="">{% else %}<i class="fa {{ zicon }} text-danger"></i>{% endif %}{{ zlabel }}</h6>
           {% for g in zgroups %}
           <div class="inv-cat-group" data-cat-drop="{{ g.cat_id }}">
             <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span></div>
@@ -152,7 +152,7 @@
                 {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
                   {% set zcats = limits.categories|selectattr('zone','equalto',zkey)|list %}
                   {% if zcats %}
-                    <div class="col-12 fw-semibold small text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
+                    <div class="col-12 fw-semibold small text-muted mt-1"><img src="{{ ZONE_ICON_SVG.get(zkey) }}" class="inv-zone-ico me-1" alt="">{{ zlabel }}</div>
                     {% for cat in zcats %}
                       {% set aforo = ' (aforo ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}
                       <div class="col-md-4">

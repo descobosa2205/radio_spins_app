@@ -38171,11 +38171,13 @@ def _invitation_sector_layout(category, sector: str, concert=None, default_stair
     if not stairs:
         stairs = set(default_stairs or ()) or _invitation_stair_afters_for_category(concert, category)
     stage = (sec.get("stage") or "").strip().lower()
+    orientation = (sec.get("orientation") or "ltr").strip().lower()
     return {
         "stairs": stairs,
         "gaps": _invitation_int_set(sec.get("gaps")),
         "off": _invitation_int_set(sec.get("off")),
         "stage": stage if stage in _INVITATION_STAGE_EDGES else "",
+        "orientation": "rtl" if orientation == "rtl" else "ltr",
     }
 
 
@@ -38272,6 +38274,10 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                 non_numbered = []
             for seat in non_numbered:
                 visual.append({"type": "seat", "seat": seat})
+            # Sentido de numeración: por defecto 1,2,3… de izquierda a derecha; si el sector está en
+            # 'rtl' se invierte visualmente (el 1 queda a la derecha).
+            if cfg.get("orientation") == "rtl":
+                visual = list(reversed(visual))
             # Layout de la fila: agrupa butacas SEGUIDAS del mismo invitado en un bloque con barra
             # (nombre + foto) ENCIMA que las abarca; las libres/huecos van sueltos. Así se ve sobre
             # el plano de quién es cada butaca, sin leyenda aparte.
@@ -43529,7 +43535,7 @@ def invitation_sector_plan(concert_id, category_id):
             'ok': True, 'sector': sector, 'step': step,
             'min': (nums[0] if nums else 0), 'max': (nums[-1] if nums else 0),
             'seats': nums,
-            'config': {'stairs': sorted(cfg['stairs']), 'gaps': sorted(cfg['gaps']), 'off': sorted(cfg['off']), 'stage': cfg['stage']},
+            'config': {'stairs': sorted(cfg['stairs']), 'gaps': sorted(cfg['gaps']), 'off': sorted(cfg['off']), 'stage': cfg['stage'], 'orientation': cfg.get('orientation', 'ltr')},
         })
     finally:
         session_db.close()
@@ -43554,11 +43560,13 @@ def invitation_sector_layout_save(concert_id, category_id):
                 v = [x for x in re.split(r'[^\d]+', v) if x]
             return sorted({int(x) for x in (v or []) if str(x).lstrip('-').isdigit()})
         stage = (data.get('stage') or '').strip().lower()
+        orientation = (data.get('orientation') or 'ltr').strip().lower()
         sec_cfg = {
             'stairs': _as_ints(data.get('stairs')),
             'gaps': _as_ints(data.get('gaps')),
             'off': _as_ints(data.get('off')),
             'stage': stage if stage in _INVITATION_STAGE_EDGES else '',
+            'orientation': 'rtl' if orientation == 'rtl' else 'ltr',
         }
         layout = dict(_invitation_layout_json(cat))
         sectors = dict(layout.get('sectors') or {})

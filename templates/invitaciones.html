@@ -631,6 +631,13 @@
                   {% endfor %}
                 </div>
               </div>
+              <div class="mb-3">
+                <div class="small fw-semibold mb-1">Sentido de numeración (dónde empieza el 1, 2, 3…):</div>
+                <div class="btn-group btn-group-sm" role="group" data-plan-orient>
+                  <button type="button" class="btn btn-outline-secondary" data-orient-val="ltr"><i class="fa fa-arrow-right me-1"></i>Izquierda → derecha</button>
+                  <button type="button" class="btn btn-outline-secondary" data-orient-val="rtl"><i class="fa fa-arrow-left me-1"></i>Derecha → izquierda</button>
+                </div>
+              </div>
               <div class="plan-editor-grid" data-plan-grid><div class="text-muted small p-3">Cargando plano…</div></div>
             </div>
             <div class="modal-footer">
@@ -770,9 +777,12 @@
                   {% if cat_groups %}
                     {% for sector in cat_groups %}
                       <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
-                        <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
+                        <div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head">
                           <div class="fw-bold">Sector {{ sector.sector }}</div>
-                          <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
+                          <div class="d-flex align-items-center gap-2">
+                            {% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-{{ {'top':'up','bottom':'down','left':'left','right':'right'}[sector.stage] }}"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}
+                            <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
+                          </div>
                         </div>
                         {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
@@ -1088,7 +1098,7 @@
                   <div class="assignment-drop-zone" data-drop-zone>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                       {% for sector in ticket_groups_by_category.get(cat.id, []) %}
-                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}"><div class="fw-bold mb-2">Sector {{ sector.sector }}</div>
+                        <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage stage-{{ sector.stage }}{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div>{% if sector.stage %}<span class="invitation-stage-dir" title="Escenario"><i class="fa fa-arrow-{{ {'top':'up','bottom':'down','left':'left','right':'right'}[sector.stage] }}"></i><i class="fa fa-music"></i>Escenario</span>{% endif %}</div>
                         {% if sector.stage %}<div class="invitation-stage invitation-stage--{{ sector.stage }}"><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         <div class="invitation-sector-rows">
                         {% for row in sector.rows %}
@@ -2367,6 +2377,7 @@
     let state = null, mode = 'stair';
     modalEl.querySelectorAll('[data-plan-mode]').forEach(b => b.addEventListener('click', () => { mode = b.dataset.planMode; modalEl.querySelectorAll('[data-plan-mode]').forEach(x => x.classList.toggle('active', x === b)); }));
     modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(b => b.addEventListener('click', () => { if(state) state.stage = b.dataset.stageVal; modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x === b)); }));
+    modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(b => b.addEventListener('click', () => { if(state) state.orientation = b.dataset.orientVal; modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x === b)); if(state) render(); }));
     function render(){
       if(!state) return;
       const cells = []; let prev = null;
@@ -2376,7 +2387,8 @@
         cells.push('<div class="plan-cell ' + cls + '" data-pos="' + pos + '"><span>' + pos + '</span></div>');
         prev = pos;
       }
-      gridEl.innerHTML = '<div class="plan-editor-row"><div class="plan-editor-label">Butacas</div>' + cells.join('') + '</div>';
+      var _cells = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
+      gridEl.innerHTML = '<div class="plan-editor-row"><div class="plan-editor-label">Butacas</div>' + _cells.join('') + '</div>';
     }
     gridEl.addEventListener('click', (ev) => {
       if(!state) return;
@@ -2399,15 +2411,16 @@
       const res = await fetch(url, {headers:{'X-Requested-With':'XMLHttpRequest'}});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ gridEl.innerHTML = '<div class="text-danger small p-3">No se pudo cargar el plano.</div>'; return; }
-      state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, seats: new Set(j.seats || []), stairs: new Set((j.config || {}).stairs || []), gaps: new Set((j.config || {}).gaps || []), off: new Set((j.config || {}).off || []), stage: (j.config || {}).stage || '' };
+      state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, seats: new Set(j.seats || []), stairs: new Set((j.config || {}).stairs || []), gaps: new Set((j.config || {}).gaps || []), off: new Set((j.config || {}).off || []), stage: (j.config || {}).stage || '', orientation: ((j.config || {}).orientation === 'rtl' ? 'rtl' : 'ltr') };
       modalEl.querySelectorAll('[data-plan-stage] [data-stage-val]').forEach(x => x.classList.toggle('active', x.dataset.stageVal === state.stage));
+      modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x.dataset.orientVal === state.orientation));
       if(!j.seats || !j.seats.length){ gridEl.innerHTML = '<div class="text-muted small p-3">Este sector no tiene butacas numeradas para configurar.</div>'; return; }
       render();
     });
     modalEl.querySelector('[data-plan-save]')?.addEventListener('click', async () => {
       if(!state) return;
       const url = root.dataset.saveUrlBase.replace('CID', state.catId);
-      const payload = { sector: state.sector, stairs: Array.from(state.stairs), gaps: Array.from(state.gaps), off: Array.from(state.off), stage: state.stage };
+      const payload = { sector: state.sector, stairs: Array.from(state.stairs), gaps: Array.from(state.gaps), off: Array.from(state.off), stage: state.stage, orientation: state.orientation || 'ltr' };
       const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload)});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ alert(j.error || 'No se pudo guardar el plano.'); return; }

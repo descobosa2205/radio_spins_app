@@ -412,30 +412,44 @@
                       </ul>
                     </div>
                   </div>
-                  {# Categorías del compromiso a lo ANCHO de la tarjeta: así la etiqueta de estado queda
-                     alineada con la de las solicitudes. #}
+                  {# Categorías del compromiso con la MISMA estética que las peticiones: leyenda de color
+                     + nombre de categoría (aforo del palco entre paréntesis) y, debajo, una fila con la
+                     franja de color mostrando nº de entradas, ubicación, descarga, estado y menú (3 puntos).
+                     Sin "a quién se manda" (eso ya va arriba, a nivel de compromiso). #}
                   {% if row.category_status %}
-                  <div class="mt-2 d-flex flex-column gap-1">
+                  <div class="inv-request-list mt-2">
                     {% for cs in row.category_status %}
-                      <div class="d-flex align-items-center gap-2 border rounded px-2 py-1">
-                        <span class="small text-muted inv-cmt-count">{{ cs.assigned }}/{{ cs.qty }}</span>
-                        <span class="small flex-grow-1">{{ cs.name }}{% if cs.downloaded %} <i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}</span>
-                        <span class="badge text-bg-{{ cs.status_badge }} inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
-                        <div class="dropdown">
-                          <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-                          <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
-                            {% if cs.assigned < cs.qty %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar</button></li>{% endif %}
-                            {% if cs.assigned > 0 %}
-                            <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar por email</button></li>
-                            <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp" data-inv-share-category="{{ cs.id }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-                            <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms" data-inv-share-category="{{ cs.id }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
-                            <li><form method="post" action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>
-                            <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
-                            {% endif %}
-                            <li><hr class="dropdown-divider"></li>
-                            <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                            <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
-                          </ul>
+                      <div class="inv-cat-group">
+                        <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ cs.color }}"></span>{{ cs.name }}{% if cs.zone == 'PALCO' and cs.configured %} <span class="text-muted">(Aforo: {{ cs.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ cs.qty }}</span></div>
+                        <div class="list-group inv-cat-dropzone">
+                          <div class="list-group-item inv-cat-row" style="border-left:5px solid {{ cs.color }};">
+                            <div class="d-flex justify-content-between gap-3 flex-wrap align-items-center">
+                              <div class="d-flex align-items-center gap-2 flex-wrap inv-name-line">
+                                <span class="badge inv-qty-badge" title="Entradas asignadas / totales"><i class="fa fa-ticket me-1"></i>{{ cs.assigned }}/{{ cs.qty }} entrada{{ '' if cs.qty == 1 else 's' }}</span>
+                                <span class="badge text-bg-light border" title="Ubicación / categoría"><i class="fa fa-location-dot me-1"></i>{{ cs.name }}</span>
+                                {% if cs.downloaded %}<i class="fa fa-circle-down inv-dl-done" title="Descargada"></i>{% endif %}
+                              </div>
+                              <div class="d-flex align-items-center gap-2">
+                                <span class="badge text-bg-{{ cs.status_badge }} align-self-center inv-status-pill" title="{{ cs.assigned }} de {{ cs.qty }}">{% if cs.done and cs.assigned %}<i class="fa fa-check me-1"></i>{% endif %}{{ cs.status_label }}</span>
+                                <div class="dropdown dropdown-menu-end">
+                                  <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
+                                  <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+                                    {% if cs.assigned < cs.qty %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar</button></li>{% endif %}
+                                    {% if cs.assigned > 0 %}
+                                    <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar por email</button></li>
+                                    <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp" data-inv-share-category="{{ cs.id }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+                                    <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms" data-inv-share-category="{{ cs.id }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+                                    <li><form method="post" action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>
+                                    <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
+                                    {% endif %}
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
+                                    <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+                                  </ul>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     {% endfor %}
@@ -473,7 +487,7 @@
             <div class="inv-request-list" data-inv-dnd data-recat-base="{{ url_for('invitation_request_recategorize', request_id='__REQ__') }}">
               {% for g in grouped_requests %}
               <div class="inv-cat-group{% if not g.droppable %} inv-cat-locked{% endif %}"{% if g.droppable %} data-cat-drop="{{ g.cat_id }}"{% else %} data-cat-locked="1"{% endif %}>
-                <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}{% if g.zone == 'PALCO' and g.configured %} <span class="text-muted">({{ g.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span>{% if not g.droppable %}<span class="badge text-bg-secondary ms-1" title="Palco ya comprometido"><i class="fa fa-lock me-1"></i>Asignado{% if g.locked_label %} a {{ g.locked_label }}{% endif %}</span>{% endif %}</div>
+                <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}{% if g.zone == 'PALCO' and g.configured %} <span class="text-muted">(Aforo: {{ g.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span>{% if not g.droppable %}<span class="badge text-bg-secondary ms-1" title="Palco ya comprometido"><i class="fa fa-lock me-1"></i>Asignado{% if g.locked_label %} a {{ g.locked_label }}{% endif %}</span>{% endif %}</div>
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
@@ -857,8 +871,8 @@
                           <label class="invitation-radio-option"><input type="checkbox" name="limit_to_available" value="1" {% if link.limit_to_available %}checked{% endif %}><i class="fa fa-gauge-high"></i><span>Limitar al aforo disponible</span></label>
                         </div>
                         <div class="small text-muted mb-1"><i class="fa fa-layer-group me-1"></i>Categorías ofrecidas (desactiva las que no quieras permitir):</div>
-                        <div class="row g-2 mb-3">{% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}{% set zc = categories|selectattr('zone','equalto',zkey)|list %}{% if zc %}<div class="col-12 small fw-semibold text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>{% for cat in zc %}{% set aforo = ' (aforo ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}<div class="col-md-4"><label class="form-check border rounded-3 p-2 w-100"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" {% if not link.categories_enabled_json or (cat.id|string) in (link.categories_enabled_json|map('string')|list) %}checked{% endif %}> <span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }}</label></div>{% endfor %}{% endif %}{% endfor %}</div>
-                        <div class="row g-3 d-none" data-limit-category-panel><div class="col-12 small text-muted">Máximo por categoría:</div>{% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}{% set zc = categories|selectattr('zone','equalto',zkey)|list %}{% if zc %}<div class="col-12 small fw-semibold text-muted"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>{% for cat in zc %}{% set aforo = ' (aforo ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}<div class="col-md-4"><label class="form-label small"><span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo" value="{{ link.category_limits_json.get(cat.id|string) or '' }}"></div>{% endfor %}{% endif %}{% endfor %}</div>
+                        <div class="row g-2 mb-3">{% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}{% set zc = categories|selectattr('zone','equalto',zkey)|list %}{% if zc %}<div class="col-12 small fw-semibold text-muted mt-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>{% for cat in zc %}{% set aforo = ' (Aforo: ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}<div class="col-md-4"><label class="form-check border rounded-3 p-2 w-100"><input class="form-check-input" type="checkbox" name="link_enabled_{{ cat.id }}" value="1" {% if not link.categories_enabled_json or (cat.id|string) in (link.categories_enabled_json|map('string')|list) %}checked{% endif %}> <span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }}</label></div>{% endfor %}{% endif %}{% endfor %}</div>
+                        <div class="row g-3 d-none" data-limit-category-panel><div class="col-12 small text-muted">Máximo por categoría:</div>{% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}{% set zc = categories|selectattr('zone','equalto',zkey)|list %}{% if zc %}<div class="col-12 small fw-semibold text-muted"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>{% for cat in zc %}{% set aforo = ' (Aforo: ' ~ cat.configured ~ ')' if (cat.zone == 'PALCO' and cat.configured and 'honor' not in (cat.name|lower)) else '' %}<div class="col-md-4"><label class="form-label small"><span class="inv-cat-swatch me-1" style="background: {{ cat.color }}"></span>{{ cat.name }}{{ aforo }}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_{{ cat.id }}" placeholder="Máximo" value="{{ link.category_limits_json.get(cat.id|string) or '' }}"></div>{% endfor %}{% endif %}{% endfor %}</div>
                         <div class="row g-3 mb-3 mt-1" data-deadline-group>
                           <div class="col-12"><div class="invitation-icon-grid"><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="NONE" checked><i class="fa fa-clock"></i><span>Sin límite temporal</span></label><label class="invitation-radio-option"><input type="radio" name="deadline_mode" value="WITH"><i class="fa fa-calendar-check"></i><span>Con límite temporal</span></label></div></div>
                           <div class="col-md-5 d-none" data-deadline-panel><label class="form-label">Fecha límite</label><input class="form-control" name="deadline_at" type="datetime-local"></div>
@@ -1442,7 +1456,7 @@
               {% set zcats = categories|selectattr('zone','equalto',zkey)|list %}
               {% if zcats %}
                 <div class="fw-semibold small text-muted mt-2 mb-1"><i class="fa {{ zicon }} me-1 text-danger"></i>{{ zlabel }}</div>
-                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}{% if zkey == 'PALCO' and cat.configured %} <span class="text-muted">({{ cat.configured }})</span>{% endif %}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
+                <div class="row g-3">{% for cat in zcats %}<div class="col-md-4"><label class="form-label">{{ cat.name }}{% if zkey == 'PALCO' and cat.configured %} <span class="text-muted">(Aforo: {{ cat.configured }})</span>{% endif %}</label><input type="number" min="0" class="form-control" name="qty_{{ cat.id }}" value="0"></div>{% endfor %}</div>
               {% endif %}
             {% endfor %}
           {% endif %}
@@ -1760,7 +1774,7 @@
         // Color POR CATEGORÍA (c.color, mismo que en el listado de invitados): franja a la izquierda.
         // La etiqueta "No admite peticiones" va junto al título de la categoría.
         var _cell = function(c){
-          var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? ` <span class="text-muted">(aforo ${c.configured})</span>` : '';
+          var _af = (String(c.zone||'').toUpperCase() === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? ` <span class="text-muted">(Aforo: ${c.configured})</span>` : '';
           var _color = c.color || '#9ca3af';
           var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="fw-semibold">${escHtml(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
           var _input = c.requests_blocked
@@ -1788,7 +1802,7 @@
         if (!_zc.length) return;
         _lh += '<div class="col-12 small fw-semibold text-muted mt-1"><i class="fa ' + z[2] + ' me-1 text-danger"></i>' + z[1] + '</div>';
         _lh += _zc.map(function(c){
-          var _af = (z[0] === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? (' (aforo ' + c.configured + ')') : '';
+          var _af = (z[0] === 'PALCO' && c.configured && String(c.name||'').toLowerCase().indexOf('honor') < 0) ? (' (Aforo: ' + c.configured + ')') : '';
           return `<div class="col-md-4"><div class="border rounded-3 p-2"><label class="form-check mb-2"><input class="form-check-input" type="checkbox" name="link_enabled_${c.id}" value="1" checked> <span class="inv-cat-swatch me-1" style="background:${c.color || '#9ca3af'}"></span>${_le(c.name)}${_af}</label><input class="form-control form-control-sm" type="number" min="0" name="link_limit_${c.id}" placeholder="Máximo"></div></div>`;
         }).join('');
       });

@@ -40512,6 +40512,9 @@ def invitation_event_detail(concert_id):
         cat_payloads = [_invitation_category_payload(c, ticket_counts.get(str(c.id))) for c in categories]
         for _i, _cp in enumerate(cat_payloads):
             _cp['color'] = INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)]
+        # Meta por categoría (color/zona/aforo) para pintar las categorías del compromiso con la MISMA
+        # estética de color que las peticiones.
+        _cat_meta = {cp['id']: cp for cp in cat_payloads}
         name_map = _invitation_category_name_map(categories)
         commitments = []
         for row in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
@@ -40535,6 +40538,7 @@ def invitation_event_detail(concert_id):
                 # categoría sin entradas se muestra como "Enviadas" en vez de "Sin asignar".
                 if not _sts and (getattr(row, "status", "") or "").upper() == "ENVIADAS":
                     _lbl, _bdg = ("Enviadas", "success")
+                _meta = _cat_meta.get(str(_cid), {})
                 cat_status.append({
                     "id": str(_cid),
                     "name": name_map.get(str(_cid), "Categoría"),
@@ -40544,6 +40548,9 @@ def invitation_event_detail(concert_id):
                     "status_label": _lbl,
                     "status_badge": _bdg,
                     "downloaded": str(_cid) in _dl_cats,
+                    "color": _meta.get("color", "#9ca3af"),
+                    "zone": _meta.get("zone", "PISTA"),
+                    "configured": _safe_int(_meta.get("configured", 0)),
                 })
             # Destinatario (a quién se mandan): nombre + foto/logo para "Enviar a ...".
             # Identidad ACTUAL del destinatario (en vivo desde su ficha) — nombre, foto, email y vínculo.

@@ -825,8 +825,14 @@ img[data-default-photo="1"]{
 .invitation-linked-mini img{ height:16px; width:16px; flex:0 0 auto; }
 .invitation-linked-mini img.is-photo{ border-radius:50%; object-fit:cover; background:#eef0f3; border:1px solid #eef0f3; }
 .invitation-linked-mini img.is-logo{ width:auto; max-width:40px; object-fit:contain; background:transparent; }
-/* Previsualización de selección por arrastre al asignar invitaciones */
-.invitation-seat.is-drag-sel{ outline:2px solid var(--brand-accent); outline-offset:1px; }
+/* Asignación EN PROCESO (sin guardar): AMARILLO. La previsualización mientras arrastras es amarillo
+   punteado; una butaca ya elegida en esta sesión (staged) es amarillo sólido. Se diferencia así de
+   las butacas ya asignadas ANTES (que van con el color y la foto del invitado). Al guardar/recargar
+   todo pasa al aspecto normal. */
+.invitation-seat.is-drag-sel{ outline:2px dashed #e0a800; outline-offset:1px; background:#fff3cd !important; border-color:#e0a800 !important; color:#7a5b00 !important; }
+.invitation-seat.is-drag-sel i, .invitation-seat.is-drag-sel span{ color:#7a5b00 !important; }
+.invitation-seat.is-staged{ background:#ffdf7e !important; border-color:#e0a800 !important; color:#7a5b00 !important; }
+.invitation-seat.is-staged i, .invitation-seat.is-staged span{ color:#7a5b00 !important; }
 .invitation-linked-mini span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 /* Solicitudes pedidas para OTRA persona de la oficina (vista de solo lectura en "Mis solicitudes") */
 .invitation-office-row{ border-left:3px solid var(--brand-accent); background:rgba(0,124,162,.045); }
@@ -986,7 +992,11 @@ img[data-default-photo="1"]{
 .invitation-sector--plan { position: relative; --seatw: 2.5rem; overflow: hidden; }
 /* SOLO las filas hacen scroll horizontal; la cabecera (nombre + rueda de ajustes) queda fija arriba,
    así la rueda siempre está visible arriba a la derecha aunque desplaces el mapa. */
-.invitation-sector-rows { display: flex; flex-direction: column; gap: .5rem; overflow-x: auto; }
+/* position:relative → la etiqueta de ESCENARIO se posiciona DENTRO del área del mapa (la «sombra
+   gris»), por debajo de la cabecera/rueda y sin sobresalir por arriba. overflow-x:auto la recorta al
+   área del mapa; al ser hija del contenedor de scroll queda fija en el viewport del mapa (visible
+   siempre en el punto marcado aunque se desplace). */
+.invitation-sector-rows { position: relative; display: flex; flex-direction: column; gap: .5rem; overflow-x: auto; }
 /* Cabecera OPACA y por ENCIMA del escenario: si la etiqueta de escenario cae donde el título o la
    rueda, queda tapada por debajo (no por encima). El fondo iguala al del sector. */
 .invitation-sector--plan .invitation-sector-head { position: relative; z-index: 6; background: #f1f4f8; border-radius: .5rem; }
@@ -1058,10 +1068,26 @@ img[data-default-photo="1"]{
 .inv-selection-pop .inv-sel-count { font-size: .78rem; color: #6b7280; padding: .1rem .3rem .3rem; border-bottom: 1px solid #eef0f3; margin-bottom: .2rem; }
 .inv-selection-pop button { text-align: left; }
 .assignment-source-list { display: flex; flex-direction: column; gap: .6rem; max-height: 60vh; overflow: auto; }
-.assignment-source { border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }
+.assignment-source { position: relative; border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }
 .assignment-source.is-selected, .assignment-source:hover { border-color: #e83b4b; box-shadow: 0 0 0 .16rem rgba(232,59,75,.1); }
 .assignment-source.is-active { border-color: #e83b4b; box-shadow: 0 0 0 .2rem rgba(232,59,75,.18); }
-.assignment-source--done { opacity: .55; border-color: #16803a; }
+.assignment-source--done { border-color: #16803a; box-shadow: 0 0 0 .2rem rgba(22,128,58,.14); }
+/* Tarjeta de solicitud del asignador (invitado con foto+nombre+nº, vínculo, «pedidas por», nota). */
+.assignment-source-flag { position: absolute; top: .45rem; right: .5rem; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; }
+.assign-src-head { display: flex; align-items: center; gap: .5rem; }
+.assign-src-photo { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; flex: 0 0 auto; background: #eef0f3; border: 1px solid #e4e8ee; }
+.assign-src-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assign-src-qty { margin-left: auto; flex: 0 0 auto; }
+.assign-src-link { margin-top: .35rem; }
+.assign-src-requester { display: flex; align-items: center; gap: .35rem; margin-top: .3rem; font-size: .74rem; color: #6b7280; min-width: 0; }
+.assign-src-requester img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: #eef0f3; }
+.assign-src-requester span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.assign-src-note { margin-top: .3rem; font-size: .74rem; color: #555; }
+/* «asignado x/x» durante el proceso: verde por defecto, NARANJA mientras hay asignaciones en curso. */
+.assign-src-progress { display: inline-flex; align-items: center; gap: .3rem; margin-top: .45rem; padding: .12rem .2rem .12rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; background: #e7f6ec; color: #16803a; border: 1px solid #bfe6cd; }
+.assign-src-progress.is-active { background: #fff0dd; color: #b5560c; border-color: #ffca80; }
+.assign-src-cancel { border: 0; background: transparent; color: inherit; line-height: 1; padding: .05rem .32rem; border-radius: 50%; cursor: pointer; }
+.assign-src-cancel:hover { background: rgba(0,0,0,.1); }
 .invitation-remaining { min-height: 1.2rem; }
 .assignment-drop-zone { min-height: 260px; border: 1px dashed #cfd6df; border-radius: 1rem; padding: .9rem; background: #fafbfc; }
 .assignment-unnumbered-pool { display: flex; flex-wrap: wrap; gap: .45rem; }

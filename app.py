@@ -38561,8 +38561,10 @@ def _invitation_assigned_qty_for_source(session_db, category_id, source_type: st
 def _invitation_pending_assignment_payloads(session_db, concert: Concert, categories: list[InvitationCategory]) -> dict[str, list[dict]]:
     name_map = _invitation_category_name_map(categories)
     payload: dict[str, list[dict]] = {str(c.id): [] for c in categories}
+    placeholder_photo = url_for("static", filename="img/placeholder_photo.png")
     for commitment in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
         quantities = _json_dict(commitment.quantities_json)
+        vis = _invitation_assignee_visual(session_db, commitment)
         for cid, qty in quantities.items():
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
@@ -38576,8 +38578,16 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 "source_id": str(commitment.id),
                 "name": commitment.name,
                 "company": commitment.reason or "Compromiso",
-                "photo_url": url_for("static", filename="img/placeholder_photo.png"),
+                "photo_url": vis["photo"] or placeholder_photo,
+                # Visual del destinatario (foto/logo + vínculo) para la tarjeta del asignador.
+                "guest_photo": vis["photo"] or "",
+                "guest_link_text": vis["link"] or "",
+                "guest_link_logo": vis["link_logo"] or "",
+                "guest_link_type": vis["link_type"] or "",
                 "requester": commitment.created_by_nick or "",
+                "requester_name": commitment.created_by_nick or "",
+                "requester_photo": placeholder_photo,
+                "note": (commitment.note or "").strip(),
                 "date_label": _invitation_display_datetime(commitment.created_at),
                 "qty": pending,
                 "qty_total": _safe_int(qty),
@@ -38591,6 +38601,9 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
     for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(source_statuses)).order_by(InvitationRequest.created_at.asc()).all():
         is_pending_approval = (row.status or "") == "SOLICITADAS"
         quantities = _json_dict(row.quantities_json)
+        vis = _invitation_assignee_visual(session_db, row)
+        guest_name = vis["name"] or row.guest_name
+        note = (row.note or getattr(row, "guest_note", None) or "").strip()
         for cid, qty in quantities.items():
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
@@ -38602,10 +38615,18 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
             payload[str(cat.id)].append({
                 "source_type": "request",
                 "source_id": str(row.id),
-                "name": row.guest_name,
+                "name": guest_name,
                 "company": row.guest_company or ("Pendiente de aprobar" if is_pending_approval else "Petición aprobada"),
-                "photo_url": row.requester_photo_url or url_for("static", filename="img/placeholder_photo.png"),
+                "photo_url": vis["photo"] or row.requester_photo_url or placeholder_photo,
+                # Visual del invitado (foto/logo + vínculo) para la tarjeta del asignador.
+                "guest_photo": vis["photo"] or "",
+                "guest_link_text": vis["link"] or "",
+                "guest_link_logo": vis["link_logo"] or "",
+                "guest_link_type": vis["link_type"] or "",
                 "requester": row.requester_nick or row.requester_email or "",
+                "requester_name": row.requester_nick or row.requester_email or "",
+                "requester_photo": row.requester_photo_url or placeholder_photo,
+                "note": note,
                 "date_label": _invitation_display_datetime(row.created_at),
                 "qty": pending,
                 "qty_total": _safe_int(qty),

@@ -982,12 +982,16 @@ img[data-default-photo="1"]{
 /* Contenido principal: aprovechar mejor el ancho de la ventana (antes ~1140px = medio en pantallas
    grandes). Se limita a 1600px para no perder legibilidad en monitores muy anchos. */
 .app-main { width: 100%; max-width: 1600px; margin-left: auto; margin-right: auto; }
-.invitation-sector--plan { position: relative; --seatw: 2.5rem; overflow: visible; }
+/* overflow:hidden → la etiqueta de escenario queda SIEMPRE dentro del sombreado del mapa (no sobresale
+   por arriba/lados). Las filas siguen con su propio scroll horizontal interno. */
+.invitation-sector--plan { position: relative; --seatw: 2.5rem; overflow: hidden; }
 /* SOLO las filas hacen scroll horizontal; la cabecera (nombre + rueda de ajustes) queda fija arriba,
    así la rueda siempre está visible arriba a la derecha aunque desplaces el mapa. */
 .invitation-sector-rows { display: flex; flex-direction: column; gap: .5rem; overflow-x: auto; }
-.invitation-sector--plan .invitation-sector-head { position: sticky; left: 0; z-index: 6; }
-.invitation-sector-config-btn { position: sticky; right: 0; z-index: 6; }
+/* Cabecera OPACA y por ENCIMA del escenario: si la etiqueta de escenario cae donde el título o la
+   rueda, queda tapada por debajo (no por encima). El fondo iguala al del sector. */
+.invitation-sector--plan .invitation-sector-head { position: relative; z-index: 6; background: #f1f4f8; border-radius: .5rem; }
+.invitation-sector-config-btn { position: relative; z-index: 7; }
 /* Cada fila como una LÍNEA a lo ancho del contenido (no del contenedor): todas las filas del sector
    comparten ancho (misma rejilla) y el sector entero hace scroll horizontal como un plano completo. */
 .invitation-sector--plan .invitation-seat-row { display: flex; align-items: center; gap: .5rem; width: max-content; min-width: 100%; grid-template-columns: none; }

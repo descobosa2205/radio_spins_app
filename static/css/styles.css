@@ -939,7 +939,7 @@ img[data-default-photo="1"]{
 .inv-cat-group.inv-cat-locked .inv-cat-dropzone { min-height:0; }
 /* Compromisos: cada uno como tarjeta bien separada y diferenciada. */
 .inv-commitment-list { display:flex; flex-direction:column; gap:1rem; }
-.inv-commitment-card { border:1px solid #e2e6ea; border-radius:14px; padding:.9rem 1rem; background:#fff; box-shadow:0 1px 3px rgba(16,24,40,.06); border-left:4px solid var(--brand-primary, #e33d48); }
+.inv-commitment-card { border:1px solid #e2e6ea; border-radius:14px; padding:.9rem 1rem; background:#fff; box-shadow:0 1px 3px rgba(16,24,40,.06); border-left:4px solid #ced4da; }
 .inv-commitment-card + .inv-commitment-card { margin-top:0; }
 .inv-cat-dropzone { display:flex; flex-direction:column; gap:.6rem; min-height:8px; }
 .inv-cat-row.inv-dragging { opacity:.45; }

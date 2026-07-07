@@ -684,9 +684,10 @@
                   {% else %}
                     <div class="text-muted small">No hay PDFs numerados subidos para esta categoría.</div>
                   {% endif %}
-                {% elif zkey != 'PALCO' %}
+                {% elif zkey != 'PALCO' or 'honor' in (cat.name|lower) %}
                   {# Sin numerar (Pista/Grada): resumen de 3 contadores; al pinchar cada uno se
-                     despliega el detalle de esas entradas. En palcos NO se resume. #}
+                     despliega el detalle de esas entradas. En palcos NO se resume, SALVO el Palco
+                     de Honor, que funciona como una categoría de entrada más (sí se resume). #}
                   {% set _avail = cat_tickets|selectattr('status','equalto','AVAILABLE')|list %}
                   {% set _assigned = cat_tickets|selectattr('status','equalto','ASSIGNED')|list %}
                   {% set _sent = cat_tickets|selectattr('status','in',['SENT','DELIVERED','PICKED_UP','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','ENTREGADAS_MANO'])|list %}

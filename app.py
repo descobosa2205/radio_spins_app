@@ -37912,6 +37912,18 @@ def _invitation_category_zone(cat) -> str:
     return "PISTA"
 
 
+def _invitation_category_name_is_honor(cat) -> bool:
+    return "honor" in ((getattr(cat, "name", None) or "").lower())
+
+
+def _invitation_is_locking_palco(cat) -> bool:
+    """True para los palcos que se asignan como UNIDAD: una vez comprometidos a alguien quedan
+    bloqueados (no se les arrastran más invitados) y desaparecen del asistente de pedir.
+    EXCEPCIÓN: el «Palco de Honor» funciona como una categoría de entrada más (varios compromisos/
+    peticiones, no se bloquea al haber compromisos), así que NO es un palco de bloqueo."""
+    return _invitation_category_zone(cat) == "PALCO" and not _invitation_category_name_is_honor(cat)
+
+
 def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = None) -> dict:
     qty_contract = _safe_int(getattr(cat, "qty_contract", 0))
     qty_extra = _safe_int(getattr(cat, "qty_extra", 0))
@@ -39418,7 +39430,7 @@ def _invitation_committed_palco_labels(session_db, concert, categories) -> dict[
     """{category_id: "Nombre destinatario"} SOLO para las categorías de zona PALCO que ya están
     comprometidas. Se usa para (a) ocultarlas al pedir y (b) mostrarlas bloqueadas ("Asignado a …")
     en el arrastre de peticiones. Si un mismo palco tuviera varios compromisos, se unen los nombres."""
-    palco_ids = {str(c.id) for c in categories if _invitation_category_zone(c) == "PALCO"}
+    palco_ids = {str(c.id) for c in categories if _invitation_is_locking_palco(c)}
     if not palco_ids:
         return {}
     concert_id = getattr(concert, "id", concert)
@@ -39644,7 +39656,8 @@ def _invitation_recategorize(session_db, row: InvitationRequest, category_id: st
         if not cat or str(cat.concert_id) != str(row.concert_id):
             return {"ok": False, "error": "Categoría no válida para este evento."}
         # Un palco ya comprometido a alguien no admite que se le arrastren invitados.
-        if _invitation_category_zone(cat) == "PALCO" and str(cat.id) in _invitation_committed_category_ids(session_db, row.concert_id):
+        # (El «Palco de Honor» es la excepción: funciona como una categoría más y admite varios.)
+        if _invitation_is_locking_palco(cat) and str(cat.id) in _invitation_committed_category_ids(session_db, row.concert_id):
             return {"ok": False, "error": "Este palco ya está asignado a un compromiso; no se le pueden mover invitados."}
     if status == "ASIGNADAS" and not confirm:
         return {"ok": False, "needs_confirm": True}
@@ -40307,7 +40320,7 @@ def _build_invitation_commitments_pdf(session_db, concert: Concert) -> bytes:
                 _lbl = 'Enviadas'
             _m = _cat_meta.get(str(_cid), {})
             _nm = name_map.get(str(_cid), 'Categoría')
-            if _m.get('zone') == 'PALCO' and _m.get('configured'):
+            if _m.get('zone') == 'PALCO' and _m.get('configured') and 'honor' not in _nm.lower():
                 _nm += ' (Aforo: %d)' % _m['configured']
             data.append([
                 Paragraph('%d/%d' % (_asg, _qn), cell),
@@ -40356,7 +40369,7 @@ def _build_invitation_requests_pdf(session_db, concert: Concert) -> bytes:
         story.append(Paragraph('No hay peticiones.', cell))
     for g in groups:
         _gname = g.get('name') or 'Sin categoría'
-        if g.get('zone') == 'PALCO' and g.get('configured'):
+        if g.get('zone') == 'PALCO' and g.get('configured') and 'honor' not in _gname.lower():
             _gname += ' (Aforo: %d)' % _safe_int(g.get('configured'))
         _col = g.get('color', '#9ca3af')
         story.append(Paragraph('<font color="%s">■</font> %s · %d' % (_col, html.escape(_gname), _safe_int(g.get('total'))), grp))

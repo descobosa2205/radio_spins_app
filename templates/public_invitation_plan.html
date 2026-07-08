@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reparto de invitados</title>
+  {# Solo visionado y SIEMPRE al día: la página se recarga sola cada minuto. #}
+  {% if not revoked %}<meta http-equiv="refresh" content="60">{% endif %}
+  <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
+  <style>
+    body{ background:#fafafa; }
+    .pp-wrap{ max-width:1500px; margin:0 auto; padding:1.2rem; }
+    .pp-header{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid #e1e6ed; padding-bottom:.8rem; margin-bottom:1rem; }
+    .pp-logo{ max-height:52px; max-width:190px; object-fit:contain; }
+    .pp-updated{ margin-left:auto; display:inline-flex; align-items:center; gap:.4rem; background:#eef7f0; color:#16803a; border:1px solid #bfe6cd; border-radius:999px; padding:.3rem .8rem; font-size:.8rem; font-weight:700; white-space:nowrap; }
+    .pp-title{ text-align:center; font-weight:800; margin:0 0 1rem; }
+    .pp-cards{ display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.2rem; }
+    .pp-card{ border:1px solid #e1e6ed; border-radius:1rem; background:#fff; padding:.6rem .7rem; width:230px; }
+    .pp-card .nm{ display:flex; align-items:center; gap:.45rem; font-weight:700; font-size:.86rem; }
+    .pp-card .nm img{ width:26px; height:26px; border-radius:50%; object-fit:cover; flex:0 0 auto; }
+    .pp-card .ln{ margin-top:.3rem; }
+    .pp-card .rq{ display:flex; align-items:center; gap:.3rem; margin-top:.25rem; font-size:.72rem; color:#6b7280; }
+    .pp-card .rq img{ width:16px; height:16px; border-radius:50%; object-fit:cover; }
+    .pp-badge{ display:inline-block; margin-top:.4rem; border-radius:999px; padding:.12rem .6rem; font-size:.72rem; font-weight:700; background:#eef0f3; color:#6b7280; border:1px solid #e1e6ed; }
+    .pp-badge.part{ background:#ffc107; color:#3a2f00; border-color:#e0a800; }
+    .pp-badge.full{ background:#d7f2df; color:#116330; border-color:#a9dcb9; }
+    .pp-revoked{ max-width:560px; margin:12vh auto; text-align:center; background:#fff; border:1px solid #e1e6ed; border-radius:1rem; padding:2.2rem; }
+  </style>
+</head>
+<body data-default-photo-url="{{ url_for('static', filename='img/placeholder_photo.png') }}" data-default-cover-url="{{ url_for('static', filename='img/cover_placeholder.svg') }}">
+{% if revoked %}
+  <div class="pp-revoked">
+    <i class="fa fa-link-slash fa-2x text-muted mb-3"></i>
+    <h4>Enlace anulado</h4>
+    <p class="text-muted mb-0">Este enlace del reparto de invitados ya no está disponible. Pide uno nuevo a la organización.</p>
+  </div>
+{% else %}
+<div class="pp-wrap">
+  <div class="pp-header">
+    {% if logo_url %}<img class="pp-logo" src="{{ logo_url }}" alt="Logo">{% endif %}
+    <div class="min-w-0">
+      <div class="fw-bold fs-5">{{ header_title }}</div>
+      <div class="text-muted small">{{ header_meta }}</div>
+    </div>
+    <span class="pp-updated"><i class="fa fa-rotate"></i>Actualizado {{ updated_label }}</span>
+  </div>
+
+  <h4 class="pp-title">{{ sector_title }}</h4>
+
+  <div class="invitation-sector invitation-sector--plan mb-3">
+    <div class="invitation-sector-rows">
+      {% for row in sector.rows %}
+        <div class="invitation-seat-row">
+          <div class="invitation-row-label">Fila {{ row.row_label }}</div>
+          <div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
+            {% for cell in row.layout %}
+              {% if cell.type == 'block' %}
+                <div class="invitation-seat-block" style="--asg:{{ cell.color }}">
+                  <div class="invitation-seat-block-name" title="{{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %}">{{ cell.name or 'Asignada' }}{% if cell.link %} · {{ cell.link }}{% endif %}</div>
+                  <div class="invitation-seat-block-line"></div>
+                  <div class="invitation-seat-block-seats">
+                    {% for t in cell.seats %}
+                      <span class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if cell.photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}">{% if cell.photo %}<img class="invitation-seat-photo" src="{{ cell.photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></span>
+                    {% endfor %}
+                  </div>
+                </div>
+              {% elif cell.type == 'seat' %}
+                {% set t = cell.seat %}
+                <span class="invitation-seat invitation-seat--{{ t.status_class }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></span>
+              {% elif cell.type == 'missing' %}
+                <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>
+              {% elif cell.type == 'gap' %}
+                <span class="invitation-seat invitation-seat--hole"></span>
+              {% elif cell.type == 'spacer' %}
+                <span class="invitation-seat invitation-seat--spacer"></span>
+              {% elif cell.type == 'stair' %}
+                <span class="invitation-stair"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% if cards %}
+    <h6 class="text-muted">Pendientes de asignar</h6>
+    <div class="pp-cards">
+      {% for it in cards %}
+        <div class="pp-card">
+          <div class="nm">{% if it.guest_photo %}<img src="{{ it.guest_photo }}" alt="">{% endif %}<span class="text-truncate">{{ it.name }}</span></div>
+          {% if it.guest_link_text %}<div class="invitation-linked-mini ln">{% if it.guest_link_logo %}<img class="{{ 'is-photo' if it.guest_link_type in ['artist','venue'] else 'is-logo' }}" src="{{ it.guest_link_logo }}" alt="">{% endif %}<span>{{ it.guest_link_text }}</span></div>{% endif %}
+          {% if it.requester_name %}<div class="rq">Pedido por:{% if it.requester_photo and '/img/placeholder_photo' not in it.requester_photo %} <img src="{{ it.requester_photo }}" alt="">{% endif %} <span class="text-truncate">{{ it.requester_name }}</span></div>{% endif %}
+          {% set asg = it.assigned or 0 %}{% set tot = it.qty_total or 0 %}
+          <span class="pp-badge {% if asg > 0 and asg < tot %}part{% elif tot > 0 and asg >= tot %}full{% endif %}">Asignadas {{ asg }}/{{ tot }}</span>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+{% endif %}
+</body>
+</html>

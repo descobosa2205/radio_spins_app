@@ -28317,7 +28317,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -39016,6 +39016,9 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "link_summary_text": _promoter_link_summary_text(link_summary),
         "note": row.note or "",
         "created_at_label": _invitation_display_datetime(row.created_at),
+        "sent_at_label": _invitation_display_datetime(getattr(row, 'sent_at', None)),
+        "sent_via": (getattr(row, 'sent_via', None) or ''),
+        "sent_to": (getattr(row, 'sent_to', None) or ''),
         "downloaded_at_label": _invitation_display_datetime(row.downloaded_at),
         "downloaded_count": _safe_int(row.downloaded_count),
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
@@ -41386,6 +41389,8 @@ def invitation_event_detail(concert_id):
                 "category_status": cat_status,
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
+                "sent_via": (getattr(row, 'sent_via', None) or ''),
+                "sent_to": (getattr(row, 'sent_to', None) or ''),
                 "downloaded_at_label": _invitation_display_datetime(getattr(row, 'downloaded_at', None)),
                 "note": row.note or "",
                 "created_by_nick": _cb_nick,
@@ -42270,6 +42275,8 @@ def invitation_commitment_deliver(commitment_id):
                 t.status = 'SENT'
                 t.sent_at = now
                 t.updated_at = now
+            row.sent_via = 'WhatsApp' if channel == 'whatsapp' else 'SMS'
+            row.sent_to = ('+' + phone) if phone else ''
             if not _cat_id:
                 row.status = 'ENVIADAS'
                 row.updated_at = now
@@ -42281,6 +42288,8 @@ def invitation_commitment_deliver(commitment_id):
             for t in tickets:
                 t.status = 'DISPONIBLES_TAQUILLA'
                 t.updated_at = now
+            row.sent_via = 'Taquilla'
+            row.sent_to = 'Recogida en taquilla'
             session_db.commit()
             flash(f'{len(tickets)} entrada(s) de «{row.name}» quedan para recogida en taquilla.', 'success')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
@@ -42300,6 +42309,8 @@ def invitation_commitment_deliver(commitment_id):
                 t.status = 'SENT'
                 t.sent_at = now
                 t.updated_at = now
+            row.sent_via = 'Email'
+            row.sent_to = ', '.join(recipients or [])
             session_db.commit()
             flash(f'Invitaciones de «{row.name}» enviadas por email a: ' + (', '.join(recipients) if recipients else '—') + '.', 'success')
         else:
@@ -42342,6 +42353,8 @@ def invitation_commitment_mark_sent(commitment_id):
             t.updated_at = now
         # Marca el compromiso completo como enviado (sirve también sin entradas asignadas). En el
         # marcado por categoría no se toca el estado global para no afectar a las demás categorías.
+        row.sent_via = 'Manual'
+        row.sent_to = 'Marcada como enviada'
         if not _cat_id:
             row.status = 'ENVIADAS'
             row.updated_at = now
@@ -42372,6 +42385,16 @@ def invitation_send_preview():
         cat_id = _safe_uuid(request.form.get('category_id'))
         if not obj_id:
             abort(404)
+        if kind == 'plan':
+            cat = session_db.get(InvitationCategory, obj_id)
+            if not cat:
+                abort(404)
+            concert = session_db.get(Concert, cat.concert_id)
+            _sector = (request.form.get('sector') or request.form.get('category_id') or '').strip()
+            _ent = (_json_dict(getattr(cat, 'plan_share_json', None)).get(_sector) or {})
+            _link = _external_url_for('public_invitation_plan', token=_ent.get('token') or 'previsualizacion')
+            _subject, html_body, _txt = _invitation_plan_email_body(session_db, concert, cat, _sector, _link, custom_text=custom_text)
+            return html_body
         if kind == 'commitment':
             row = session_db.get(InvitationCommitment, obj_id)
             if not row:
@@ -42977,6 +43000,8 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
             url = ('sms:' + ('+' + phone if phone else '') + '?&body=' + quote_plus(msg))
         row.status = 'ENVIADAS'
         row.sent_at = _now_madrid()
+        row.sent_via = 'WhatsApp' if channel == 'whatsapp' else 'SMS'
+        row.sent_to = ('+' + phone) if phone else ''
         for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
             ticket.status = 'SENT'
             ticket.sent_at = row.sent_at
@@ -42992,6 +43017,8 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
     if ok:
         row.status = 'ENVIADAS'
         row.sent_at = _now_madrid()
+        row.sent_via = 'Email'
+        row.sent_to = ', '.join(recipients or [])
         for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
             ticket.status = 'SENT'
             ticket.sent_at = row.sent_at
@@ -43056,6 +43083,8 @@ def invitation_request_mark_sent(request_id):
         now = _now_madrid()
         row.status = 'ENVIADAS'
         row.sent_at = now
+        row.sent_via = 'Manual'
+        row.sent_to = 'Marcada como enviada'
         row.delivery_token = row.delivery_token or _invitation_token()
         for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
             ticket.status = 'SENT'
@@ -43208,6 +43237,8 @@ def invitation_category_send_all(concert_id, category_id):
             if ok:
                 row.status = 'ENVIADAS'
                 row.sent_at = now
+                row.sent_via = 'Email'
+                row.sent_to = ', '.join(recipients or [])
                 for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
                     ticket.status = 'SENT'
                     ticket.sent_at = now
@@ -43314,6 +43345,8 @@ def invitation_event_send_all(concert_id):
             if ok:
                 row.status = 'ENVIADAS'
                 row.sent_at = _now_madrid()
+                row.sent_via = 'Email'
+                row.sent_to = ', '.join(recipients or [])
                 for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
                     ticket.status = 'SENT'
                     ticket.sent_at = row.sent_at
@@ -44719,7 +44752,47 @@ app.jinja_env.globals['invitation_plan_share_url'] = (
         'public_invitation_plan_pdf', token=_invitation_plan_share_token(concert_id, category_id, sector)))
 
 
-def _invitation_plan_pdf_response(session_db, concert, category, sector_name, dl: bool):
+def _plan_share_ensure(session_db, category, sector_name) -> str:
+    """Devuelve (creándolo si hace falta) el token del enlace de «reparto en vivo» del sector."""
+    data = dict(_json_dict(getattr(category, 'plan_share_json', None)))
+    key = str(sector_name or '')
+    ent = dict(data.get(key) or {})
+    if not ent.get('token'):
+        ent = {'token': _invitation_token(), 'created_at': _now_madrid().isoformat()}
+        data[key] = ent
+        category.plan_share_json = data
+        category.updated_at = _now_madrid()
+        session_db.commit()
+    return ent['token']
+
+
+def _plan_share_revoke(session_db, category, sector_name) -> bool:
+    data = dict(_json_dict(getattr(category, 'plan_share_json', None)))
+    key = str(sector_name or '')
+    if key in data:
+        data.pop(key, None)
+        category.plan_share_json = data
+        category.updated_at = _now_madrid()
+        session_db.commit()
+        return True
+    return False
+
+
+def _plan_share_find(session_db, token):
+    """(category, sector) del token de reparto, o (None, None). El token vive en plan_share_json."""
+    if not token:
+        return None, None
+    from sqlalchemy import String
+    for cat in session_db.query(InvitationCategory).filter(
+            InvitationCategory.plan_share_json.cast(String).contains(str(token))).all():
+        for sector_name, ent in _json_dict(cat.plan_share_json).items():
+            if (ent or {}).get('token') == token:
+                return cat, sector_name
+    return None, None
+
+
+def _invitation_plan_view_context(session_db, concert, category, sector_name) -> dict:
+    """Datos comunes del reparto de un sector (los usan el PDF y la página en vivo)."""
     ctx = _invitation_assign_context(session_db, concert, _invitation_get_categories(session_db, concert, ensure_defaults=False))
     groups = ctx['ticket_groups_by_category'].get(str(category.id), [])
     sector = next((g for g in groups if str(g.get('sector')) == str(sector_name)), None) or (groups[0] if groups else {'rows': [], 'sector': sector_name})
@@ -44732,17 +44805,179 @@ def _invitation_plan_pdf_response(session_db, concert, category, sector_name, dl
         (event.get('date_label') or '').strip(),
         (('Hora: ' + event.get('show_time')) if (event.get('show_time') or '').strip() else ''),
     ] if x])
+    return {
+        'sector': sector,
+        'cards': cards,
+        'header_title': header_title,
+        'header_meta': header_meta,
+        'logo_url': _invitation_event_logo_url(session_db, concert, external=True),
+        'sector_title': f"Reparto Invitados {sector.get('sector') or ''}".strip(),
+    }
+
+
+def _invitation_plan_email_body(session_db, concert, category, sector_name, url, custom_text=None) -> tuple:
+    """(subject, html, text) del correo de compartir el reparto EN VIVO: misma cabecera que los
+    correos de invitaciones + botón al enlace (la página se actualiza sola con cada cambio)."""
+    event = _invitation_event_payload(session_db, concert)
+    esc = lambda x: html.escape(str(x or ''))
+    artist_name = (event.get('artist_names') or '').strip()
+    event_name = ((getattr(concert, 'festival_name', None) or '') or '').strip()
+    subject = 'Reparto de invitados · Sector ' + str(sector_name or '') + (' · ' + artist_name if artist_name else '')
+    logo = _invitation_event_logo_url(session_db, concert, external=True)
+    meta_rows = [(k, v) for k, v in [('Evento', event_name), ('Ciudad', (event.get('city') or '').strip()),
+                                     ('Recinto', (event.get('venue') or '').strip()),
+                                     ('Fecha', (event.get('date_label') or '').strip()),
+                                     ('Hora', (event.get('show_time') or '').strip())] if v]
+    meta_html = ''.join(f'<tr><td style="padding:2px 10px 2px 0;color:#6b7280">{esc(k)}</td><td style="padding:2px 0;color:#111"><strong>{esc(v)}</strong></td></tr>' for k, v in meta_rows)
+    if custom_text and custom_text.strip():
+        body_paras = ''.join(f'<p style="margin:0 0 10px;text-align:justify">{esc(pp.strip())}</p>' for pp in custom_text.split('\n') if pp.strip())
+    else:
+        body_paras = '<p style="margin:0 0 10px;text-align:justify">Aquí tienes el reparto de invitados actualizado. El enlace muestra siempre la última versión con los cambios que se vayan haciendo.</p>'
+    html_body = f"""
+    <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111">
+      {f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:58px;max-width:200px" alt="Logo"></div>' if logo else ''}
+      <h2 style="margin:0 0 4px">{esc(artist_name or 'Invitaciones')}</h2>
+      <div style="font-size:15px;font-weight:bold;margin:0 0 10px;color:#333">Reparto Invitados · Sector {esc(sector_name)}</div>
+      <table style="border-collapse:collapse;font-size:13px;margin:0 0 14px">{meta_html}</table>
+      {body_paras}
+      <div style="margin:18px 0"><a href="{esc(url)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;display:inline-block">Ver el reparto actualizado</a></div>
+      <p style="color:#6b7280;font-size:12px">Si el botón no funciona, copia este enlace: {esc(url)}</p>
+    </div>
+    """
+    text_body = f"Reparto de invitados · Sector {sector_name}\n\nEnlace (siempre actualizado): {url}"
+    return subject, html_body, text_body
+
+
+@app.post('/invitaciones/evento/<concert_id>/plano/<category_id>/compartir', endpoint='invitation_plan_share_link')
+@admin_required
+def invitation_plan_share_link(concert_id, category_id):
+    """Crea (o reutiliza) el enlace del reparto EN VIVO y devuelve la URL para WhatsApp/SMS."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        sector = (request.args.get('sector') or request.form.get('sector') or '').strip()
+        token = _plan_share_ensure(session_db, cat, sector)
+        link = _external_url_for('public_invitation_plan', token=token)
+        channel = (request.form.get('channel') or '').strip().lower()
+        event = _invitation_event_payload(session_db, concert)
+        artist_name = (event.get('artist_names') or '').strip()
+        msg = f"Reparto de invitados · Sector {sector}" + (f" · {artist_name}" if artist_name else '') + "\n\n" + link
+        if channel == 'whatsapp':
+            url = 'https://wa.me/?text=' + quote_plus(msg)
+        elif channel == 'sms':
+            url = 'sms:?&body=' + quote_plus(msg)
+        else:
+            url = link
+        return jsonify({'ok': True, 'url': url, 'channel': channel or 'link'})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/plano/<category_id>/enviar', endpoint='invitation_plan_share_send')
+@admin_required
+def invitation_plan_share_send(concert_id, category_id):
+    """Envía por email el enlace del reparto EN VIVO (modal de envío con vista previa, como el
+    envío de invitaciones). El campo category_id del modal transporta aquí el SECTOR."""
+    session_db = db()
+    _cid = None
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        _cid = str(concert.id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        sector = (request.form.get('sector') or request.form.get('category_id') or '').strip()
+        recipients = _dedupe_valid_email_addresses(request.form.getlist('recipients') + request.form.getlist('extra_emails'))
+        if not recipients:
+            raise ValueError('Añade al menos un correo de destino.')
+        token = _plan_share_ensure(session_db, cat, sector)
+        link = _external_url_for('public_invitation_plan', token=token)
+        subject, html_body, text_body = _invitation_plan_email_body(session_db, concert, cat, sector, link, custom_text=(request.form.get('custom_text') or None))
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=_current_user_email())
+        if ok:
+            flash('Reparto compartido por email a: ' + ', '.join(recipients) + '.', 'success')
+        else:
+            flash(f'No se pudo enviar el email: {err or "SMTP no configurado"}', 'warning')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo compartir el reparto: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid) if _cid else url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/plano/<category_id>/compartir/anular', endpoint='invitation_plan_share_revoke')
+@admin_required
+def invitation_plan_share_revoke(concert_id, category_id):
+    """Anula el enlace compartido del reparto de un sector (quien lo tenga verá el aviso de anulado)."""
+    session_db = db()
+    _cid = None
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        _cid = str(concert.id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        sector = (request.form.get('sector') or '').strip()
+        if _plan_share_revoke(session_db, cat, sector):
+            flash(f'Enlace del reparto de «{sector}» anulado: deja de funcionar para quien lo tuviera.', 'success')
+        else:
+            flash('Este sector no tenía enlace compartido activo.', 'info')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid))
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/plano/<token>', endpoint='public_invitation_plan')
+def public_invitation_plan(token):
+    """Página PÚBLICA del reparto EN VIVO: mismo contenido que el PDF, solo visionado, siempre con
+    los datos actuales (se recarga sola cada minuto) y con la etiqueta «Actualizado <día y hora>»."""
+    session_db = db()
+    try:
+        cat, sector_name = _plan_share_find(session_db, token)
+        if not cat:
+            return render_template('public_invitation_plan.html', revoked=True), 410
+        concert = session_db.get(Concert, cat.concert_id)
+        if not concert:
+            abort(404)
+        ctx = _invitation_plan_view_context(session_db, concert, cat, sector_name)
+        return render_template('public_invitation_plan.html', revoked=False,
+                               updated_label=_now_madrid().strftime('%d/%m/%Y %H:%M'), **ctx)
+    finally:
+        session_db.close()
+
+
+def _invitation_plan_pdf_response(session_db, concert, category, sector_name, dl: bool):
+    v = _invitation_plan_view_context(session_db, concert, category, sector_name)
     pdf = _invitation_plan_pdf_build(
-        logo_url=_invitation_event_logo_url(session_db, concert, external=True),
-        header_title=header_title,
-        header_meta=header_meta,
-        sector_title=f"Reparto Invitados {sector.get('sector') or ''}".strip(),
-        sector=sector,
-        cards=cards,
+        logo_url=v['logo_url'],
+        header_title=v['header_title'],
+        header_meta=v['header_meta'],
+        sector_title=v['sector_title'],
+        sector=v['sector'],
+        cards=v['cards'],
     )
-    fname = f"Reparto Invitados {sector.get('sector') or category.name}.pdf"
-    resp = send_file(io.BytesIO(pdf), mimetype='application/pdf', as_attachment=bool(dl), download_name=fname)
-    return resp
+    fname = f"Reparto Invitados {v['sector'].get('sector') or category.name}.pdf"
+    return send_file(io.BytesIO(pdf), mimetype='application/pdf', as_attachment=bool(dl), download_name=fname)
 
 
 @app.get('/invitaciones/evento/<concert_id>/plano/<category_id>/pdf', endpoint='invitation_sector_plan_pdf_view')

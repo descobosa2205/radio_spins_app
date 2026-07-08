@@ -2332,6 +2332,13 @@
     }
     function render(){
       if(!state) return;
+      // Conservar el SCROLL del plano entre re-dibujados: al soltar/quitar un elemento se
+      // reconstruye el HTML y sin esto el mapa saltaba al comienzo (había que volver a desplazarse
+      // para seguir colocando elementos).
+      const _prevRows = gridEl.querySelector('.plan-editor-rows');
+      const _sx = _prevRows ? _prevRows.scrollLeft : 0;
+      const _sy = _prevRows ? _prevRows.scrollTop : 0;
+      const _gx = gridEl.scrollLeft, _gy = gridEl.scrollTop;
       const cols = columnsOf(); const step = state.step || 1;
       let html = '';
       state.rowsData.forEach(function(rd){
@@ -2353,6 +2360,9 @@
       });
       const stageHtml = state.stage ? ('<div class="invitation-stage plan-stage-marker" data-plan-stage-marker style="left:'+state.stage.x+'%;top:'+state.stage.y+'%;pointer-events:auto;cursor:pointer" title="Pincha para quitar el escenario"><i class="fa fa-music me-1"></i>ESCENARIO</div>') : '';
       gridEl.innerHTML = '<div class="plan-editor-rows">'+html+'</div>'+stageHtml;
+      const _newRows = gridEl.querySelector('.plan-editor-rows');
+      if (_newRows){ _newRows.scrollLeft = _sx; _newRows.scrollTop = _sy; }
+      gridEl.scrollLeft = _gx; gridEl.scrollTop = _gy;
     }
     // Colocar (por ARRASTRE) una herramienta en el objetivo del drop.
     function dropTool(target, t){

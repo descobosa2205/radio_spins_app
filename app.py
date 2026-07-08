@@ -26645,7 +26645,10 @@ def _bootstrap_schema_bg():
         (ensure_simulations_schema, "ensure_simulations_schema"),
         (ensure_fotos_schema, "ensure_fotos_schema"),
         (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
-        (ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema"),
+        # OJO: ensure_personnel_and_operations_schema NO va aquí. Lo ejecuta (serializado, con lock) el
+        # before_request `ensure_personnel_bootstrap` -> _bootstrap_access_and_personnel. Ejecutarlo
+        # TAMBIÉN aquí, a la vez, provocaba un interbloqueo (deadlock) con las peticiones -> la web se
+        # quedaba en blanco cargando. Un único ejecutor evita el choque de locks DDL.
         (ensure_bag_expense_schema, "ensure_bag_expense_schema"),
         (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
         (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
@@ -28783,10 +28786,26 @@ def _sync_user_access_grants(session_db, user: User, profile: UserProfile):
     session_db.flush()
 
 
+_ACCESS_BOOTSTRAP_LOCK = threading.Lock()
+
+
 def _bootstrap_access_and_personnel():
+    # Serializa el arranque de accesos/personal: si varias peticiones (before_request) entran a la vez,
+    # SOLO UNA ejecuta el DDL + la siembra de accesos/usuarios; las demás esperan y salen. Antes, dos
+    # hilos ejecutando a la vez el MISMO DDL (ensure_personnel_and_operations_schema) se interbloqueaban
+    # y las peticiones se quedaban colgadas (pantalla en blanco). Este DDL YA NO se ejecuta también en
+    # el hilo de arranque en 2º plano (se retiró de su lista), para que no haya dos ejecutándolo a la vez.
     global _ACCESS_BOOTSTRAP_DONE
     if _ACCESS_BOOTSTRAP_DONE:
         return
+    with _ACCESS_BOOTSTRAP_LOCK:
+        if _ACCESS_BOOTSTRAP_DONE:
+            return
+        _do_bootstrap_access_and_personnel()
+
+
+def _do_bootstrap_access_and_personnel():
+    global _ACCESS_BOOTSTRAP_DONE
     ensure_personnel_and_operations_schema()
     session_db = db()
     try:

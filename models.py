@@ -2134,6 +2134,9 @@ class InvitationCategory(Base):
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
     is_active = Column(Boolean, nullable=False, server_default=text("true"))
     requests_blocked = Column(Boolean, nullable=False, server_default=text("false"))
+    # «No aceptar peticiones por encima del cupo»: si está activo, pedir/modificar esta categoría se
+    # rechaza cuando la cantidad supera el aforo disponible del evento (por defecto NO se limita).
+    requests_over_quota_blocked = Column(Boolean, nullable=False, server_default=text("false"))
     zone = Column(Text)  # PISTA / GRADA / PALCO (si vacío se infiere del nombre)
     stairs_spec = Column(Text)  # Escaleras del plano (opcional): butacas entre las que hay escalera, p. ej. "17-19, 27-29"
     # Plano por sector (configurador de la rueda): {sectors: {"<sector>": {stairs:[17,..], gaps:[..],
@@ -5622,6 +5625,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS qty_extra integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_blocked boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_over_quota_blocked boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS zone text;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS stairs_spec text;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS layout_json jsonb NOT NULL DEFAULT '{}'::jsonb;",

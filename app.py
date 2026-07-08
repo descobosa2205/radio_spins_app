@@ -37983,6 +37983,7 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
+        "requests_over_quota_blocked": bool(getattr(cat, "requests_over_quota_blocked", False)),
         "stairs_spec": (getattr(cat, "stairs_spec", None) or ""),
         "zone": _invitation_category_zone(cat),
         "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
@@ -39874,10 +39875,12 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
             continue
         available = None if limit is None else max(limit - used_by_category.get(cid, 0), 0)
         event_avail = None
+        _cat_over_quota = bool(getattr(cat, "requests_over_quota_blocked", False))
         if event_available_by_cat is not None and cid in event_available_by_cat:
             event_avail = event_available_by_cat.get(cid)
-            if cap_available:
-                # Limitar lo solicitable al aforo real disponible del evento.
+            if cap_available or _cat_over_quota:
+                # Limitar lo solicitable al aforo real disponible (opción del enlace o flag
+                # «No aceptar por encima del cupo» de la categoría).
                 available = event_avail if available is None else min(available, event_avail)
                 if limit is None:
                     limit = event_avail
@@ -39891,6 +39894,7 @@ def _invitation_public_limits(link: InvitationPublicLink, categories: list[Invit
             "available": available,
             "event_available": event_avail,
             "blocked": bool(getattr(cat, "requests_blocked", False)),
+            "over_quota_blocked": _cat_over_quota,
             "zone": _invitation_category_zone(cat),
             "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
             "zone_icon": INVITATION_ZONE_ICONS.get(_invitation_category_zone(cat), "fa-people-group"),
@@ -41547,6 +41551,7 @@ def invitation_category_save(concert_id):
             kinds = request.form.getlist('ticket_kind[]')
             guest_modes = request.form.getlist('guest_list_mode[]')
             blocked_ids = set(request.form.getlist('block_requests_cat'))  # categorías con peticiones bloqueadas
+            over_quota_ids = set(request.form.getlist('block_over_quota_cat'))  # no aceptar por encima de cupo
             zone_vals = request.form.getlist('zone[]')  # zona (PISTA/GRADA/PALCO) por categoría
             stairs_specs = request.form.getlist('stairs_spec[]')  # escaleras (opcional) por categoría
             for idx, name_raw in enumerate(row_names):
@@ -41570,6 +41575,7 @@ def invitation_category_save(concert_id):
                 row.guest_list_mode = guest_mode
                 row.is_active = True
                 row.requests_blocked = bool(category_id and str(category_id) in blocked_ids)
+                row.requests_over_quota_blocked = bool(category_id and str(category_id) in over_quota_ids)
                 _zone_raw = (zone_vals[idx] if idx < len(zone_vals) else '').strip().upper()
                 row.zone = _zone_raw if _zone_raw in ('PISTA', 'GRADA', 'PALCO') else None
                 _stairs_raw = (stairs_specs[idx] if idx < len(stairs_specs) else '').strip()
@@ -41798,6 +41804,16 @@ def invitation_request_create():
         ]
         if _blocked_names:
             raise ValueError('No se admiten peticiones para: ' + ', '.join(_blocked_names) + '.')
+        # «No aceptar peticiones por encima del cupo» (configuración por categoría): única otra
+        # razón para frenar una petición — sin el flag, se puede pedir aunque no haya cupo/subidas.
+        _oq_cats = [c for c in categories if getattr(c, 'requests_over_quota_blocked', False)]
+        if _oq_cats:
+            _avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+            _over = [f"{c.name} (quedan {max(_safe_int(_avail_by_cat.get(str(c.id), 0)), 0)})"
+                     for c in _oq_cats
+                     if _safe_int(quantities.get(str(c.id))) > max(_safe_int(_avail_by_cat.get(str(c.id), 0)), 0)]
+            if _over:
+                raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
         # Las solicitudes (peticiones) NO se limitan por el cupo del evento: el concierto puede no
         # tener invitaciones configuradas todavía, o tenerlas completas y ampliarse después. El
         # control de cupo se ejerce al ACEPTAR/asignar la solicitud (por eso existe el flujo de
@@ -42633,6 +42649,19 @@ def invitation_request_update(request_id):
             total_input = request.form.get('cat_TOTAL_qty')
             if total_input is not None and _safe_int(total_input) > 0:
                 new_quantities['TOTAL'] = _safe_int(total_input)
+            # «No aceptar por encima del cupo» (flag por categoría): al modificar se acredita lo que
+            # esta misma solicitud ya ocupaba; sin el flag se puede modificar libremente.
+            _oq_cats = [c for c in categories if getattr(c, 'requests_over_quota_blocked', False)]
+            if _oq_cats and concert is not None:
+                _avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+                for _pcid, _pq in prior_quantities.items():
+                    if str(_pcid).upper() != 'TOTAL':
+                        _avail_by_cat[str(_pcid)] = _safe_int(_avail_by_cat.get(str(_pcid), 0)) + _safe_int(_pq)
+                _over = [f"{c.name} (quedan {max(_safe_int(_avail_by_cat.get(str(c.id), 0)), 0)})"
+                         for c in _oq_cats
+                         if _safe_int(new_quantities.get(str(c.id))) > max(_safe_int(_avail_by_cat.get(str(c.id), 0)), 0)]
+                if _over:
+                    raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
             row.quantities_json = new_quantities
             remaining = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).count()
             if remaining > 0 and (row.status or '') not in sent_statuses:
@@ -44440,11 +44469,17 @@ def public_invitation_request_submit(token):
             quantities = {'TOTAL': total}
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
-        # Validación de cupo global del evento (además de los límites propios del enlace).
+        # Cupo: por defecto las peticiones NO se limitan por el aforo del evento (el control real se
+        # hace al asignar). Solo se rechaza superar el cupo en las categorías marcadas con
+        # «No aceptar peticiones por encima del cupo» en la configuración de invitaciones.
         _inv_available = _invitation_event_counts(session_db, concert)['result']
-        if _invitation_total_qty(quantities) > _inv_available:
-            raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
         _event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
+        _over = [f"{c.name} (quedan {max(_safe_int(_event_avail_by_cat.get(str(c.id), 0)), 0)})"
+                 for c in categories
+                 if getattr(c, 'requests_over_quota_blocked', False)
+                 and _safe_int(quantities.get(str(c.id))) > max(_safe_int(_event_avail_by_cat.get(str(c.id), 0)), 0)]
+        if _over:
+            raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
         _committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
         limits = _invitation_public_limits(link, categories, existing, _event_avail_by_cat, _inv_available, exclude_ids=_committed_palco)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
@@ -44576,8 +44611,14 @@ def public_invitation_request_update(token, request_id):
             if str(cid).upper() != 'TOTAL':
                 event_avail_by_cat[str(cid)] = event_avail_by_cat.get(str(cid), 0) + _safe_int(q)
         event_avail_total = _invitation_event_counts(session_db, concert)['result'] + _invitation_total_qty(current)
-        if _invitation_total_qty(quantities) > event_avail_total:
-            raise ValueError('No hay cupo suficiente de invitaciones disponibles para este evento.')
+        # Solo se rechaza superar el cupo en las categorías con «No aceptar por encima del cupo»
+        # (event_avail_by_cat ya acredita lo que esta misma petición ocupaba).
+        _over = [f"{c.name} (quedan {max(_safe_int(event_avail_by_cat.get(str(c.id), 0)), 0)})"
+                 for c in categories
+                 if getattr(c, 'requests_over_quota_blocked', False)
+                 and _safe_int(quantities.get(str(c.id))) > max(_safe_int(event_avail_by_cat.get(str(c.id), 0)), 0)]
+        if _over:
+            raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
         existing = [x for x in session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).all() if x.id != row.id]
         # Palcos comprometidos a otros: no se pueden elegir al reeditar (salvo los que esta misma
         # petición ya ocupaba, para poder mantener/reducir).

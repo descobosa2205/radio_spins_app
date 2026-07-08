@@ -43127,7 +43127,7 @@ def invitation_request_auto_assign(request_id):
                 .all()
             )
             if len(available_all) < qty:
-                raise ValueError(f'No hay invitaciones suficientes en {cat.name}: faltan {qty - len(available_all)}.')
+                raise ValueError(f'No se ha podido realizar la asignación por falta de invitaciones disponibles en «{cat.name}» (faltan {qty - len(available_all)}). Todo queda como estaba.')
             # Butacas contiguas para no dividir al grupo (mismo tramo de fila; si no, filas seguidas).
             available = _invitation_pick_grouped_seats(available_all, qty, category=cat, concert=concert)
             for ticket in available:
@@ -43142,13 +43142,14 @@ def invitation_request_auto_assign(request_id):
             row.status = 'ASIGNADAS'
             row.assigned_at = _now_madrid()
         if assigned_count <= 0:
-            raise ValueError('No se pudo asignar ninguna invitación (revisa que haya invitaciones subidas y disponibles en la categoría).')
+            raise ValueError('No se ha podido realizar la asignación por falta de invitaciones disponibles (no hay invitaciones subidas y disponibles en la categoría). Todo queda como estaba.')
         session_db.commit()
         flash('Invitaciones asignadas.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=row.concert_id))
     except Exception as exc:
         session_db.rollback()
-        flash(f'No se pudieron asignar automáticamente: {exc}', 'danger')
+        # Los ValueError ya traen el mensaje pensado para el usuario (falta de disponibles, etc.).
+        flash(str(exc) if isinstance(exc, ValueError) else f'No se pudieron asignar automáticamente: {exc}', 'danger')
         # Volver al mismo evento para que el aviso se vea (con envío inline la zona existe ahí).
         return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
@@ -43320,11 +43321,16 @@ def invitation_category_auto_assign(concert_id, category_id):
         now = _now_madrid()
         assigned_total = 0
         short = 0
+        skipped = 0
         for src in pend:
-            need = min(_safe_int(src.get('qty')), len(remaining))
-            if _safe_int(src.get('qty')) > len(remaining):
-                short += _safe_int(src.get('qty')) - len(remaining)
+            need = _safe_int(src.get('qty'))
             if need <= 0:
+                continue
+            # TODO-O-NADA por invitado: si no hay disponibles para su cupo COMPLETO, se deja
+            # exactamente como estaba (sin asignación parcial) y se avisa al final.
+            if need > len(remaining):
+                short += need
+                skipped += 1
                 continue
             request_row = None
             commitment_row = None
@@ -43356,15 +43362,17 @@ def invitation_category_auto_assign(concert_id, category_id):
             if commitment_row:
                 commitment_row.status = 'ASIGNADAS'
                 commitment_row.updated_at = now
+        if assigned_total <= 0 and skipped:
+            raise ValueError(f'No se ha podido realizar la asignación por falta de invitaciones disponibles en «{cat.name}» (faltaban {short}). Todo queda como estaba.')
         session_db.commit()
         msg = f'{assigned_total} invitación(es) de «{cat.name}» asignadas automáticamente.'
-        if short > 0:
-            msg += f' Faltaron {short} por falta de disponibles.'
-        flash(msg, 'success' if assigned_total else 'warning')
+        if skipped:
+            msg += f' {skipped} invitado(s) se han quedado SIN asignar por falta de invitaciones disponibles (faltaban {short}); quedan como estaban.'
+        flash(msg, 'warning' if skipped else 'success')
         return redirect(url_for('invitation_event_detail', concert_id=_cid))
     except Exception as exc:
         session_db.rollback()
-        flash(f'No se pudo asignar automáticamente: {exc}', 'danger')
+        flash(str(exc) if isinstance(exc, ValueError) else f'No se pudo asignar automáticamente: {exc}', 'danger')
         return redirect(url_for('invitation_event_detail', concert_id=_cid) if _cid else url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()

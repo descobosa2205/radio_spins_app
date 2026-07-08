@@ -556,7 +556,7 @@
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-edit-request-full data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Aprobar</button></form></li>{% endif %}
-                        {% if row.can_auto_assign %}<li><form method="post" action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
+                        {% if row.can_auto_assign %}<li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
                         {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-source-name="{{ row.guest_name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
@@ -2897,7 +2897,15 @@
           }
           return r.text().then(function(html){
             var doc = new DOMParser().parseFromString(html, 'text/html');
-            if (doc.getElementById('inv-tab-guests')){ applyDoc(doc); return; }
+            if (doc.getElementById('inv-tab-guests')){
+              applyDoc(doc);
+              // Errores/avisos del servidor (p. ej. «No se ha podido realizar la asignación por
+              // falta de invitaciones disponibles»): además del flash arriba, un alert VISIBLE
+              // aunque se esté con la página desplazada.
+              var bad = doc.querySelector('main > .alert-danger, main > .alert-warning');
+              if (bad) alert(bad.textContent.replace(/\s+/g, ' ').trim());
+              return;
+            }
             // El redirect fue a OTRA página (p. ej. error grave): mostrar su aviso y recargar.
             var fl = doc.querySelector('main > .alert');
             if (fl) alert(fl.textContent.replace(/\s+/g, ' ').trim());
@@ -3392,12 +3400,15 @@
       }
       return seg.slice(best, best + take);
     };
-    const autoPlaceFor = (src) => {
-      if (isGuestList) { if (!guestListStaged.has(src)) setActive(src); return; }
+    const autoPlaceFor = (src, quiet) => {
+      if (isGuestList) { if (!guestListStaged.has(src)) setActive(src); return 0; }
       let leftN = need(src);
-      if (leftN <= 0) return;
+      if (leftN <= 0) return 0;
       activeSource = src;
       sources().forEach(x => x.classList.toggle('is-active', x === src));
+      // TODO-O-NADA: si no hay disponibles para completar el cupo, se deshace lo marcado en ESTA
+      // pasada y el invitado queda exactamente como estaba (sin asignación parcial).
+      const stagedBefore = new Set(stage.keys());
       let refRect = null;
       while (leftN > 0) {
         const segs = selectableSegments();
@@ -3425,17 +3436,32 @@
         if (after >= leftN) break;   // no avanzó (butacas no stageable): evitar bucle
         leftN = after;
       }
+      const short = need(src);
+      if (short > 0) {
+        stage.forEach((s, seat) => { if (s === src && !stagedBefore.has(seat)) { stage.delete(seat); markStaged(seat, false); } });
+        updateAllSources();
+        refreshStagedVisuals();
+        if (!quiet) alert('No se ha podido realizar la asignación por falta de invitaciones disponibles (faltan ' + short + '). Se queda como estaba.');
+      }
       setRemaining();
+      return short;
     };
     form.querySelectorAll('[data-auto-source]').forEach(btn => btn.addEventListener('click', (ev) => {
       ev.stopPropagation(); const src = btn.closest('.assignment-source'); if (!src) return;
       autoPlaceFor(src);
     }));
     // Global (arriba del listado): todas las pendientes visibles, con los mismos criterios.
+    // Los invitados que no quepan COMPLETOS se dejan como estaban y se avisa en un único mensaje.
     const autoAllSmart = form.querySelector('[data-auto-all-smart]');
     if (autoAllSmart) autoAllSmart.addEventListener('click', () => {
-      sources().forEach(src => { if (!src.classList.contains('d-none') && src.style.display !== 'none' && need(src) > 0) autoPlaceFor(src); });
+      let shortTotal = 0, shortSources = 0;
+      sources().forEach(src => {
+        if (src.classList.contains('d-none') || src.style.display === 'none' || need(src) <= 0) return;
+        const s = autoPlaceFor(src, true);
+        if (s > 0) { shortTotal += s; shortSources++; }
+      });
       setRemaining();
+      if (shortSources) alert('No se ha podido realizar la asignación de ' + shortSources + ' invitado(s) por falta de invitaciones disponibles (faltaban ' + shortTotal + '). Se quedan como estaban.');
     });
 
     form.addEventListener('submit', ev => ev.preventDefault());

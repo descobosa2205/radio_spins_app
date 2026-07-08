@@ -607,12 +607,14 @@
       <div class="inv-selection-pop" id="invSelectionPop"
            data-print-url="{{ url_for('invitation_tickets_bulk_print', concert_id=event.id) }}"
            data-download-url="{{ url_for('invitation_tickets_bulk_download', concert_id=event.id) }}"
-           data-redetect-url="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}">
+           data-redetect-url="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}"
+           data-release-base="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}">
         <div class="inv-sel-count"><span data-sel-count>0</span> seleccionada(s)</div>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-redetect><i class="fa fa-wand-magic-sparkles fa-fw me-2"></i>Redetectar butacas</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-print><i class="fa fa-print fa-fw me-2"></i>Imprimir</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-download><i class="fa fa-file-pdf fa-fw me-2"></i>Descargar PDF</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-send><i class="fa fa-paper-plane fa-fw me-2"></i>Enviar…</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-recover><i class="fa fa-rotate-left fa-fw me-2"></i>Recuperar</button>
         <hr class="my-1">
         <div class="d-flex gap-1 align-items-center">
           <select class="form-select form-select-sm" data-sel-move-cat style="max-width:150px">{% for cat in categories %}<option value="{{ cat.id }}">{{ cat.name }}</option>{% endfor %}</select>
@@ -2275,6 +2277,43 @@
       const w = window.open(url, '_blank'); if(w){ setTimeout(() => { try{ w.focus(); w.print(); }catch(e){} }, 700); }
       setMode(false);
       if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { setTimeout(() => { location.reload(); }, 1400); }
+    });
+    // Recuperar en bloque: mismas reglas que el «Recuperar invitación» individual
+    // (invitation_ticket_release): las no enviadas vuelven a disponibles directamente; las ya
+    // enviadas/impresas piden una confirmación aparte antes de recuperarlas.
+    pop?.querySelector('[data-sel-recover]')?.addEventListener('click', async () => {
+      if(!needSel()) return;
+      const base = pop.dataset.releaseBase || '';
+      // Solo las que tienen algo que recuperar (ni disponibles ni desvinculadas).
+      const ids = Array.from(selected).filter(id => {
+        const s = seatById(id);
+        return s && !s.classList.contains('invitation-seat--available') && !s.classList.contains('invitation-seat--lost');
+      });
+      if(!ids.length){ alert('La selección no tiene invitaciones asignadas, enviadas o impresas que recuperar.'); return; }
+      if(!confirm('¿Recuperar ' + ids.length + ' invitación(es)? Volverán a estar disponibles y dejarán de estar asignadas.')) return;
+      const post = async (id, mode) => {
+        const fd = new FormData(); fd.append('ajax','1'); if(mode) fd.append('mode', mode);
+        try{
+          const res = await fetch(base.replace('RELEASE_TICKET_ID', encodeURIComponent(id)), {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+          return await res.json().catch(() => ({}));
+        }catch(e){ return {}; }
+      };
+      let done = 0, failed = 0; const sentPending = [];
+      for(const id of ids){
+        const j = await post(id, '');
+        if(j && j.ok) done++;
+        else if(j && j.needs_confirm) sentPending.push(id);   // enviada/impresa/descargada: decidir aparte
+        else failed++;
+      }
+      if(sentPending.length){
+        if(confirm(sentPending.length + ' de ellas ya fueron ENVIADAS o impresas. ¿Recuperarlas también? Volverán a estar disponibles (quedará el aviso de a quién se habían enviado).')){
+          for(const id of sentPending){ const j = await post(id, 'recover'); if(j && j.ok) done++; else failed++; }
+        }
+      }
+      const skipped = ids.length - done - failed;
+      alert('Recuperada(s) ' + done + ' invitación(es)' + (skipped > 0 ? ' · ' + skipped + ' sin cambios' : '') + (failed ? ' · ' + failed + ' con error' : '') + '.');
+      setMode(false);
+      if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { location.reload(); }
     });
     // Redetectar butacas de las categorías (numeradas) presentes en la selección.
     pop?.querySelector('[data-sel-redetect]')?.addEventListener('click', async () => {

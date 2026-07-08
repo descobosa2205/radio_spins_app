@@ -511,13 +511,12 @@
               <div class="inv-cat-group{% if not g.droppable %} inv-cat-locked{% endif %}" data-inv-search-group{% if g.droppable %} data-cat-drop="{{ g.cat_id }}"{% else %} data-cat-locked="1"{% endif %}>
                 <div class="inv-cat-group-header"><span class="inv-cat-swatch" style="background: {{ g.color }}"></span>{{ g.name }}{% if g.zone == 'PALCO' and g.configured %} <span class="text-muted">(Aforo: {{ g.configured }})</span>{% endif %}<span class="badge inv-qty-badge ms-1"><i class="fa fa-ticket me-1"></i>{{ g.total }}</span>{% if not g.droppable %}<span class="badge text-bg-secondary ms-1" title="Palco ya comprometido"><i class="fa fa-lock me-1"></i>Asignado{% if g.locked_label %} a {{ g.locked_label }}{% endif %}</span>{% endif %}
                   {# Enviar de golpe todas las ASIGNADAS (sin enviar) de ESTA categoría: solicitudes
-                     y compromisos completos; taquilla y sin email se saltan con aviso. Solo se
-                     muestra si hay algo pendiente de enviar. #}
-                  {% if (assigned_pending_by_category or {}).get(g.cat_id) %}
+                     y compromisos completos; taquilla y sin email se saltan con aviso. SIEMPRE
+                     visible en cada tipo de entrada; deshabilitado si no hay nada pendiente. #}
+                  {% set _pend = (assigned_pending_by_category or {}).get(g.cat_id, 0) %}
                   <form method="post" data-inv-refresh class="ms-auto" action="{{ url_for('invitation_category_send_all', concert_id=event.id, category_id=g.cat_id) }}" onsubmit="return confirm('¿Enviar por email todas las invitaciones ASIGNADAS (aún no enviadas) de «{{ g.name }}»? Las de recogida en taquilla y las incompletas se saltan.');">
-                    <button class="btn btn-sm btn-outline-success" type="submit" title="Enviar por email todas las asignadas de {{ g.name }}"><i class="fa fa-paper-plane me-1"></i>Enviar todas las asignadas</button>
+                    <button class="btn btn-sm btn-outline-success" type="submit"{% if not _pend %} disabled title="No hay invitaciones asignadas pendientes de enviar en esta categoría"{% else %} title="Enviar por email todas las asignadas de {{ g.name }}"{% endif %}><i class="fa fa-paper-plane me-1"></i>Enviar todas las asignadas{% if _pend %} ({{ _pend }}){% endif %}</button>
                   </form>
-                  {% endif %}
                 </div>
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}

@@ -1,3 +1,5 @@
+import os
+
 from sqlalchemy import (
     create_engine,
     Column,
@@ -30,8 +32,10 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,        # descarta conexiones muertas antes de reutilizarlas
     pool_recycle=280,          # recicla antes de que el pooler/Supabase corte por inactividad (~300s)
-    pool_size=5,
-    max_overflow=10,
+    # A juego con gunicorn (2 workers × 8 hilos): con el pool antiguo (5+10) los hilos se quedaban
+    # esperando conexión bajo carga y las peticiones se encolaban unas detrás de otras.
+    pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
     pool_timeout=30,
     connect_args={
         "connect_timeout": 10,

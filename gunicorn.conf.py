@@ -6,8 +6,12 @@ import os
 bind = f"0.0.0.0:{os.getenv('PORT', '10000')}"
 
 # Subidas de masters de audio: evita 502 por timeout del worker durante cargas WAV grandes.
-workers = int(os.getenv("WEB_CONCURRENCY", "1"))
-threads = int(os.getenv("GUNICORN_THREADS", "4"))
+# CONCURRENCIA: con 1 worker × 4 hilos, unas pocas peticiones pesadas (páginas de invitaciones,
+# refrescos en 2º plano, PDFs) saturaban el servidor y TODO lo demás quedaba en cola — la app
+# entera parecía «congelada». Por defecto 2 workers × 8 hilos; en Render se puede subir más con
+# WEB_CONCURRENCY / GUNICORN_THREADS sin tocar código.
+workers = int(os.getenv("WEB_CONCURRENCY", "2"))
+threads = int(os.getenv("GUNICORN_THREADS", "8"))
 worker_class = os.getenv("GUNICORN_WORKER_CLASS", "gthread")
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "300"))
 graceful_timeout = int(os.getenv("GUNICORN_GRACEFUL_TIMEOUT", "60"))

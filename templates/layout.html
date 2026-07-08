@@ -237,6 +237,9 @@
   document.addEventListener('submit', function(e){
     var f=e.target; if(!f) return;
     if(f.hasAttribute('data-no-loader')||f.getAttribute('target')==='_blank'||f.classList.contains('no-loader')) return;
+    // Los formularios con refresco EN SITIO gestionan su propio feedback (spinner en el botón):
+    // el overlay a pantalla completa dejaba la página inclicable mientras respondía el servidor.
+    if(f.hasAttribute('data-inv-refresh')) return;
     showForNav();
   }, true);
   window.addEventListener('pageshow', hide);   // oculta al cargar la página o al volver atrás (bfcache)

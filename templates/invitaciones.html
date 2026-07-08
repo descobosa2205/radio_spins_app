@@ -564,7 +564,7 @@
                           <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
                           <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                         {% endif %}
-                        {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
+                        {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
                         {% if row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
                         <li><button type="button" class="dropdown-item" data-inv-recover data-recover-action="{{ url_for('invitation_request_release', request_id=row.id) }}" data-recover-name="{{ row.guest_name|e }}" data-recover-confirm="¿Recuperar las invitaciones de esta solicitud? Volverán a estar disponibles y la solicitud quedará pendiente de asignar."><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></li>
                         {% endif %}
@@ -784,7 +784,7 @@
                             <div class="invitation-seat-block-line"></div>
                             <div class="invitation-seat-block-seats">
                               {% for t in group %}
-                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
+                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
                               {% endfor %}
                             </div>
                           </div>
@@ -793,7 +793,7 @@
                     {% else %}
                       <div class="invitation-seat-grid">
                         {% for t in items %}
-                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
                         {% endfor %}
                       </div>
                     {% endif %}
@@ -858,7 +858,7 @@
               </div>
               <div class="invitation-seat-grid">
                 {% for t in uncategorized_tickets %}
-                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
+                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
                 {% endfor %}
               </div>
             </div>
@@ -1042,107 +1042,19 @@
           </div>
         </div>
         <div class="modal-body">
-          {% include '_invitation_assign_body.html' %}
+          {# El contenido del asignador (tarjetas + planos) se pide al ABRIR con el PARCIAL ligero
+             (refreshAssignContent con force): renderizarlo aquí duplicaba media página en cada
+             carga y en cada refresco en sitio. #}
+          <div class="text-muted py-5 text-center" data-assign-body-placeholder><i class="fa fa-spinner fa-spin me-2"></i>Cargando invitaciones…</div>
         </div>
         <div class="modal-footer"><span class="me-auto small text-muted" data-assign-save-hint><i class="fa fa-hand-pointer text-danger me-1"></i>Marca una solicitud y pinta o arrastra las butacas. Pulsa <strong>Guardar</strong> para confirmar.</span><button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cerrar</button><button class="btn btn-danger" type="button" data-assign-save><i class="fa fa-floppy-disk me-1"></i>Guardar asignaciones</button></div>
       </div>
     </div>
   </div>
 
-  {% for t in tickets %}
-    <div class="modal fade" id="ticketModal{{ t.id }}" tabindex="-1" aria-hidden="true">
-      <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content">
-          <div class="modal-header">
-            <div class="btn-group btn-group-sm me-2" role="group">
-              <button class="btn btn-outline-secondary" type="button" data-ticket-nav="prev" data-ticket-id="{{ t.id }}" title="Anterior"><i class="fa fa-chevron-left"></i></button>
-              <button class="btn btn-outline-secondary" type="button" data-ticket-nav="next" data-ticket-id="{{ t.id }}" title="Siguiente"><i class="fa fa-chevron-right"></i></button>
-            </div>
-            <h5 class="modal-title flex-grow-1 text-truncate">Entrada {{ t.code }}{% if t.location %} · {{ t.location }}{% endif %}</h5>
-            <form method="post" action="{{ url_for('invitation_ticket_delete', ticket_id=t.id) }}" class="d-inline me-2" onsubmit="return confirm('¿Eliminar esta entrada?');"><button class="btn btn-sm btn-outline-danger" title="Eliminar entrada"><i class="fa fa-trash"></i></button></form>
-            <button class="btn-close" type="button" data-bs-dismiss="modal"></button>
-          </div>
-          <div class="modal-body">
-            <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
-              <a class="btn btn-sm btn-outline-danger" href="{{ t.pdf_url }}" download target="_blank" rel="noopener"><i class="fa fa-download me-1"></i>Descargar</a>
-              <button class="btn btn-sm btn-outline-danger" type="button" data-print-ticket="{{ t.pdf_url }}"><i class="fa fa-print me-1"></i>Imprimir</button>
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ticketReplace{{ t.id }}"><i class="fa fa-rotate me-1"></i>Reemplazar</button>
-              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#ticketEdit{{ t.id }}"><i class="fa fa-pen me-1"></i>Editar datos</button>
-              <form method="post" action="{{ url_for('invitation_ticket_delete', ticket_id=t.id) }}" class="d-inline ms-auto" onsubmit="return confirm('¿Eliminar esta entrada?');"><button class="btn btn-sm btn-danger"><i class="fa fa-trash me-1"></i>Eliminar</button></form>
-            </div>
-            <div class="collapse" id="ticketReplace{{ t.id }}">
-              <form method="post" action="{{ url_for('invitation_ticket_replace', ticket_id=t.id) }}" enctype="multipart/form-data" class="border rounded p-2 mb-3 d-flex gap-2 align-items-center flex-wrap">
-                <input type="file" name="ticket" accept="application/pdf" class="form-control form-control-sm" required style="max-width:340px">
-                <button class="btn btn-sm btn-danger" type="submit"><i class="fa fa-rotate me-1"></i>Reemplazar PDF</button>
-                <span class="form-text mb-0">Sustituye el PDF manteniendo su sitio y asignación.</span>
-              </form>
-            </div>
-            <div class="collapse" id="ticketEdit{{ t.id }}">
-              <div class="row g-3 mb-3">
-                <div class="col-md-6">
-                  <form method="post" action="{{ url_for('invitation_ticket_update', ticket_id=t.id) }}" class="row g-2 align-items-end">
-                    <div class="col-6"><label class="form-label mb-0 small">Código</label><input class="form-control form-control-sm" name="ticket_code" value="{{ t.code }}"></div>
-                    <div class="col-6"><label class="form-label mb-0 small">Sector</label><input class="form-control form-control-sm" name="sector" value="{{ t.sector }}"></div>
-                    <div class="col-6"><label class="form-label mb-0 small">Fila</label><input class="form-control form-control-sm" name="row_label" value="{{ t.row_label }}"></div>
-                    <div class="col-6"><label class="form-label mb-0 small">Asiento</label><input class="form-control form-control-sm" name="seat_number" value="{{ t.seat_number }}"></div>
-                    <div class="col-12"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-save me-1"></i>Corregir datos</button></div>
-                  </form>
-                </div>
-                {% set other_cats = categories | rejectattr('id', 'equalto', t.category_id) | list %}
-                {% if other_cats %}
-                <div class="col-md-6">
-                  <form method="post" action="{{ url_for('invitation_ticket_move_category', ticket_id=t.id) }}" class="vstack gap-2">
-                    <label class="form-label mb-0 small">Mover a categoría</label>
-                    <div class="d-flex gap-2"><select class="form-select form-select-sm" name="category_id">{% for cat in other_cats %}<option value="{{ cat.id }}">{{ cat.name }}</option>{% endfor %}</select><button class="btn btn-sm btn-outline-secondary text-nowrap" type="submit"><i class="fa fa-right-left me-1"></i>Mover</button></div>
-                    <div class="form-text">Si estaba asignada, se liberará al moverla.</div>
-                  </form>
-                </div>
-                {% endif %}
-              </div>
-            </div>
-            {% if t.assigned_label or t.status_class in ['assigned','sent','lost'] %}
-            <div class="border rounded p-3 mb-3 bg-light" data-ticket-assign="{{ t.id }}">
-              <div class="d-flex flex-wrap align-items-start gap-3">
-                <div class="flex-grow-1" style="min-width:0">
-                  <div class="small text-muted mb-1">Asignada a</div>
-                  <div class="fw-semibold text-truncate">{{ t.assigned_label or '—' }}</div>
-                  {% if t.assignee_promoter_id %}{{ linked_mini('promoter', t.assignee_promoter_id) }}{% elif t.assignee_artist_id %}{{ linked_mini('artist', t.assignee_artist_id) }}{% endif %}
-                  <div class="d-flex flex-wrap gap-2 mt-2">
-                    {% if t.sent %}<span class="badge text-bg-success"><i class="fa fa-paper-plane me-1"></i>Enviada</span>{% else %}<span class="badge text-bg-secondary"><i class="fa fa-clock me-1"></i>Sin enviar</span>{% endif %}
-                    {% if t.sent %}{% if t.downloaded %}<span class="badge text-bg-warning text-dark"><i class="fa fa-download me-1"></i>Descargada</span>{% else %}<span class="badge text-bg-light border text-muted">No descargada</span>{% endif %}{% endif %}
-                    {% if t.status_class == 'lost' %}<span class="badge text-bg-dark">Desvinculada · no disponible</span>{% endif %}
-                  </div>
-                </div>
-                {% if t.status_class != 'lost' %}
-                <div class="text-end flex-shrink-0">
-                  <button type="button" class="btn btn-sm btn-outline-danger"
-                          data-ticket-recover
-                          data-action="{{ url_for('invitation_ticket_release', ticket_id=t.id) }}"
-                          data-sent="{{ '1' if t.sent else '' }}"
-                          data-downloaded="{{ '1' if t.downloaded else '' }}"
-                          data-who="{{ t.assigned_label }}">
-                    <i class="fa fa-rotate-left me-1"></i>Recuperar invitación
-                  </button>
-                </div>
-                {% endif %}
-              </div>
-            </div>
-            {% endif %}
-            {% if t.warning %}<div class="alert alert-warning py-2 small mb-3">{{ t.warning }}</div>{% endif %}
-            <div class="invitation-ticket-preview border rounded" data-pdf-viewer data-pdf-url="{{ t.pdf_url }}">
-              <div class="invitation-pdf-toolbar">
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="out" title="Alejar"><i class="fa fa-magnifying-glass-minus"></i></button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="fit" title="Ajustar al ancho">Ajustar</button>
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-pdf-zoom="in" title="Acercar"><i class="fa fa-magnifying-glass-plus"></i></button>
-                <a class="btn btn-sm btn-outline-secondary ms-auto" href="{{ t.pdf_url }}" target="_blank" rel="noopener" title="Abrir en pestaña"><i class="fa fa-up-right-from-square"></i></a>
-              </div>
-              <div class="invitation-pdf-scroll"><div class="invitation-pdf-status text-muted small p-3">Cargando vista previa…</div></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  {% endfor %}
+  {# Los modales de entrada se cargan BAJO DEMANDA (invitation_ticket_modal_partial) al pinchar
+     una butaca: renderizar uno por entrada hacía la página enorme y lenta. #}
+  <div id="invTicketModalHost"></div>
 {% endif %}
 
 {% if tab == 'evento' %}
@@ -1150,6 +1062,38 @@
 {{ inv_menu.full_edit_modal() }}
 <script>
 (function(){
+  // ===== Modal de entrada BAJO DEMANDA =====
+  // La página ya NO renderiza un modal por cada entrada (eso la hacía enorme y lenta): al pinchar
+  // una butaca se pide el modal de ESA entrada al servidor (parcial ligero, siempre fresco) y se
+  // inyecta en #invTicketModalHost. Al cerrarse se elimina.
+  var TICKET_MODAL_URL = "{{ url_for('invitation_ticket_modal_partial', ticket_id='TID') }}";
+  var loadingTicket = false;
+  async function openTicketModal(tid){
+    var host = document.getElementById('invTicketModalHost');
+    if(!host || !tid || loadingTicket) return;
+    loadingTicket = true;
+    try{
+      var res = await fetch(TICKET_MODAL_URL.replace('TID', encodeURIComponent(tid)), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      if(!res.ok) throw new Error('HTTP ' + res.status);
+      host.innerHTML = await res.text();
+      var modalEl = host.querySelector('.modal');
+      if(modalEl && window.bootstrap){
+        modalEl.addEventListener('hidden.bs.modal', function(){ modalEl.remove(); });
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+      }
+    }catch(e){ alert('No se pudo abrir la entrada. Inténtalo de nuevo.'); }
+    finally{ loadingTicket = false; }
+  }
+  window.__openTicketModal = openTicketModal;
+  document.addEventListener('click', function(ev){
+    if (ev.target.closest('#assignAllModal')) return;   // butacas del asignador: su propia lógica
+    var seat = ev.target.closest('#inv-tab-tickets .invitation-seat[data-ticket-id]');
+    if(!seat) return;
+    var tab = document.getElementById('inv-tab-tickets');
+    if (tab && tab.classList.contains('is-selecting')) return;  // modo selección: seleccionar, no abrir
+    ev.preventDefault();
+    openTicketModal(seat.getAttribute('data-ticket-id'));
+  });
   // Navegación anterior/siguiente entre entradas dentro de la vista previa, sin salir de ella.
   function ticketOrder(){
     var scope = document.getElementById('inv-tab-tickets') || document;
@@ -1170,14 +1114,12 @@
     if(j >= ord.length) j = 0;
     var targetId = ord[j];
     if(!targetId || targetId === cur || !window.bootstrap) return;
-    var curModal = document.getElementById('ticketModal' + cur);
-    var nextModal = document.getElementById('ticketModal' + targetId);
-    if(!nextModal) return;
+    var curModal = btn.closest('.modal');
     if(curModal){
-      curModal.addEventListener('hidden.bs.modal', function _h(){ curModal.removeEventListener('hidden.bs.modal', _h); bootstrap.Modal.getOrCreateInstance(nextModal).show(); });
+      curModal.addEventListener('hidden.bs.modal', function _h(){ curModal.removeEventListener('hidden.bs.modal', _h); openTicketModal(targetId); });
       bootstrap.Modal.getOrCreateInstance(curModal).hide();
     } else {
-      bootstrap.Modal.getOrCreateInstance(nextModal).show();
+      openTicketModal(targetId);
     }
   });
 })();
@@ -2886,11 +2828,8 @@
         var cb = document.querySelector('#inv-tab-tickets [data-unnum-toggle="' + fb.getAttribute('data-unnum-toggle') + '"]');
         if (cb) cb.innerHTML = fb.innerHTML;
       });
-      // Modales de cada entrada (estado/asignación de la butaca): solo los que no estén abiertos.
-      doc.querySelectorAll('.modal[id^="ticketModal"]').forEach(function(fm){
-        var cm = document.getElementById(fm.id);
-        if (cm && !cm.classList.contains('show')) cm.replaceWith(fm);
-      });
+      // (Los modales de entrada ya NO se renderizan en la página: se piden bajo demanda al abrir,
+      // así que llegan siempre frescos y no hay nada que reemplazar aquí.)
       // Buscador de invitados: re-enganchar y conservar el término escrito.
       var input = document.getElementById('invGuestSearch');
       if (input) input.value = searchVal;
@@ -2931,15 +2870,18 @@
     document.addEventListener('submit', function(e){
       var form = e.target.closest('form[data-inv-refresh]');
       if (!form) return;
-      // confirm() cancelado en el onsubmit: no enviar y apagar el loader que encendió el layout.
-      if (e.defaultPrevented){ if (window.appLoader) window.appLoader.hide(); return; }
+      if (e.defaultPrevented) return;   // confirm() cancelado en el onsubmit
       e.preventDefault();
       var modalEl = form.closest('.modal');
       if (modalEl && window.bootstrap) try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch(err){}
-      if (window.appLoader) window.appLoader.show();
+      // Feedback NO bloqueante: spinner en el botón pulsado. Nada de overlay a pantalla completa
+      // (dejaba toda la página «congelada» e inclicable mientras el servidor respondía).
+      var btn = e.submitter || form.querySelector('button[type="submit"], button:not([type])');
+      var btnHtml = null;
+      if (btn){ btnHtml = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>' + btnHtml; }
       var fd = new FormData(form);
       if (e.submitter && e.submitter.name) fd.append(e.submitter.name, e.submitter.value || '');
-      fetch(form.getAttribute('action') || window.location.href, { method: 'POST', body: fd, redirect: 'follow' })
+      fetch(form.getAttribute('action') || window.location.href, { method: 'POST', body: fd, redirect: 'follow', noLoader: true })
         .then(function(r){
           var ct = r.headers.get('content-type') || '';
           if (ct.indexOf('application/json') >= 0){
@@ -2963,7 +2905,7 @@
           });
         })
         .catch(function(){ window.location.reload(); })
-        .finally(function(){ if (window.appLoader) window.appLoader.hide(); });
+        .finally(function(){ if (btn){ btn.disabled = false; btn.innerHTML = btnHtml; } });
     });
   })();
 {% endif %}
@@ -3691,9 +3633,10 @@
     async function refreshAssignContent(force){
       var body = modal.querySelector('.modal-body');
       if (!body) return;
-      // La página recién cargada YA está fresca: evita re-pedirla (era un render completo extra en
-      // el camino crítico de abrir el asignador). Pasados unos segundos sí se refresca siempre.
-      if (!force && Date.now() - pageLoadedAt < 10000) return;
+      // El cuerpo ya NO viene renderizado con la página (la aligeramos): la PRIMERA apertura carga
+      // siempre el parcial; después, si el contenido es reciente (<10 s), se reutiliza.
+      var hasContent = !!body.querySelector('.invitation-assignment-form');
+      if (!force && hasContent && Date.now() - pageLoadedAt < 10000) return;
       body.style.opacity = '.45'; body.style.pointerEvents = 'none';
       try {
         // PARCIAL ligero (solo el contenido del modal), no la página completa: abrir es casi inmediato.
@@ -3734,7 +3677,9 @@
         ev.preventDefault();
         var sel = srcSel(src.getAttribute('data-source-type'), src.getAttribute('data-source-id'));
         var catAttr = src.getAttribute('data-assign-cat') || '';
-        if (!modal.querySelector(sel)){
+        // OJO: el cuerpo del modal se carga BAJO DEMANDA al abrir — esta comprobación solo vale si
+        // el contenido YA está cargado; si está vacío se abre normal y el filtro se aplica después.
+        if (modal.querySelector('.invitation-assignment-form') && !modal.querySelector(sel)){
           // Sin tarjeta en el modal (p. ej. ya enviada): si venimos de una categoría concreta, abrimos ahí.
           if (catAttr){ pending = null; pendingCat = catAttr; pendingCatName = src.getAttribute('data-source-name') || ''; clearFilter(); bootstrap.Modal.getOrCreateInstance(modal).show(); return; }
           alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén enviadas).'); return;

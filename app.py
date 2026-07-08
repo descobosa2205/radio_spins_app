@@ -37562,18 +37562,45 @@ def _entity_link_dedupe_rows(rows: list[dict]) -> list[dict]:
 def _promoter_link_summary(session_db, promoter: Promoter | None, publisher_fallback: bool = True) -> dict:
     if not promoter:
         return {}
-    rows = _entity_link_dedupe_rows(_entity_link_rows(session_db, "promoter", promoter.id, active_only=True))
+    # CACHÉ por request + atajo del índice de vínculos activos. Los listados de invitaciones piden
+    # el resumen del MISMO tercero muchas veces (solicitudes, compromisos y los 3 listados) y cada
+    # llamada era una consulta; con la BD en otra región eso convertía la página en segundos de
+    # espera. Además, si el tercero no tiene ningún vínculo (la mayoría), ni se consulta.
+    _ck = (str(promoter.id), bool(publisher_fallback))
+    try:
+        _cache = getattr(g, "_promoter_link_summary_cache", None)
+        if _cache is None:
+            _cache = {}
+            g._promoter_link_summary_cache = _cache
+    except Exception:
+        _cache = None
+    if _cache is not None and _ck in _cache:
+        return _cache[_ck]
+
+    def _remember(res: dict) -> dict:
+        if _cache is not None:
+            _cache[_ck] = res
+        return res
+
+    rows = []
+    _active = None
+    try:
+        _active = _entity_link_active_keys()
+    except Exception:
+        _active = None
+    if _active is None or ("promoter", str(promoter.id)) in _active:
+        rows = _entity_link_dedupe_rows(_entity_link_rows(session_db, "promoter", promoter.id, active_only=True))
     if not rows:
         # Fallback a la EDITORIAL del tercero (contextos discográficos). En INVITACIONES va a False:
         # la editorial NO es una vinculación y aparecía como tal sobre el plano/listados.
         pub = getattr(promoter, "publishing_company", None) if publisher_fallback else None
         if pub:
-            return {"label": pub.name, "type_label": "Editorial", "type": "publishing", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []}
-        return {}
+            return _remember({"label": pub.name, "type_label": "Editorial", "type": "publishing", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []})
+        return _remember({})
     first = rows[0].get("linked") or {}
     label = first.get("label") or ""
     type_label = first.get("type_label") or ""
-    return {
+    return _remember({
         "label": label,
         "type_label": type_label,
         "type": first.get("type") or "",
@@ -37587,7 +37614,7 @@ def _promoter_link_summary(session_db, promoter: Promoter | None, publisher_fall
             "icon": (r.get("linked") or {}).get("icon", "fa-link"),
             "logo_url": (r.get("linked") or {}).get("logo_url", ""),
         } for r in rows[:3]],
-    }
+    })
 
 
 def _promoter_link_summary_text(summary: dict | None) -> str:
@@ -41389,13 +41416,35 @@ def invitation_event_detail(concert_id):
         # estética de color que las peticiones.
         _cat_meta = {cp['id']: cp for cp in cat_payloads}
         name_map = _invitation_category_name_map(categories)
+        # ---- PRECARGA en bloque (rendimiento con BD remota) ----
+        # 1) Compromisos y solicitudes de una vez (se reutilizan en sus bucles de abajo).
+        _cmt_rows_all = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all()
+        _req_rows_all = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).order_by(InvitationRequest.created_at.desc()).all()
+        # 2) Entidades invitadas (terceros/artistas/empleados) en 3 consultas IN: puebla el identity
+        #    map de la sesión y los session.get() por fila (identidad EN VIVO) dejan de ser un viaje
+        #    a la BD cada uno (~30 ms/consulta con la BD en otra región: los listados tardaban segundos).
+        _all_guest_rows = _cmt_rows_all + _req_rows_all
+        _pids = {x.guest_promoter_id for x in _all_guest_rows if getattr(x, 'guest_promoter_id', None)}
+        _aids = {x.guest_artist_id for x in _all_guest_rows if getattr(x, 'guest_artist_id', None)}
+        _uids = {x.guest_user_id for x in _all_guest_rows if getattr(x, 'guest_user_id', None)}
+        _uids |= {x.created_by_user_id for x in _cmt_rows_all if getattr(x, 'created_by_user_id', None)}
+        if _pids:
+            session_db.query(Promoter).filter(Promoter.id.in_(list(_pids))).all()
+        if _aids:
+            session_db.query(Artist).filter(Artist.id.in_(list(_aids))).all()
+        if _uids:
+            session_db.query(UserProfile).filter(UserProfile.user_id.in_(list(_uids))).all()
+        # 3) Estados de las entradas de TODOS los compromisos en UNA consulta agrupable (antes, una
+        #    consulta por compromiso dentro del bucle).
+        _tk_by_cmt: dict = defaultdict(lambda: defaultdict(list))
+        for _st, _cidt, _cmid in (session_db.query(InvitationTicket.status, InvitationTicket.category_id, InvitationTicket.assigned_commitment_id)
+                                  .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.assigned_commitment_id.isnot(None)).all()):
+            _tk_by_cmt[str(_cmid)][str(_cidt)].append(_st)
         commitments = []
-        for row in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
+        for row in _cmt_rows_all:
             q = _json_dict(row.quantities_json)
             # Entradas de este compromiso por categoría: nº asignadas + ESTADO (asignadas/enviadas/...).
-            _tk_by_cat = defaultdict(list)
-            for _st, _cidt in session_db.query(InvitationTicket.status, InvitationTicket.category_id).filter(InvitationTicket.assigned_commitment_id == row.id).all():
-                _tk_by_cat[str(_cidt)].append(_st)
+            _tk_by_cat = _tk_by_cmt.get(str(row.id)) or {}
             _dl_cats = _json_dict(getattr(row, "downloaded_categories_json", None))
             cat_status = []
             for _cid, _qv in q.items():
@@ -41479,7 +41528,7 @@ def invitation_event_detail(concert_id):
         requests = []
         denied_count = 0
         show_denied = _truthy(request.args.get('show_denied'))
-        for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).order_by(InvitationRequest.created_at.desc()).all():
+        for row in _req_rows_all:
             is_denied = (row.status or '') in {'RECHAZADAS', 'ANULADAS'}
             if is_denied:
                 denied_count += 1
@@ -45304,6 +45353,63 @@ def invitation_assign_partial(concert_id):
                                tickets_by_category=ctx['tickets_by_category'],
                                ticket_groups_by_category=ctx['ticket_groups_by_category'],
                                pending_assignments=ctx['pending_assignments'])
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/tickets/<ticket_id>/modal-parcial', endpoint='invitation_ticket_modal_partial')
+@admin_required
+def invitation_ticket_modal_partial(ticket_id):
+    """Modal de UNA entrada, BAJO DEMANDA. Antes la página del evento renderizaba un modal completo
+    por cada entrada (~8 KB × cientos de entradas = varios MB de HTML y miles de nodos): la página
+    tardaba en renderizar/parsear y el navegador se quedaba «congelado». Ahora el modal se pide al
+    pinchar la butaca (además llega siempre FRESCO, sin estados desactualizados)."""
+    session_db = db()
+    try:
+        ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
+        if not ticket:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
+        concert = ticket.concert or session_db.get(Concert, ticket.concert_id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        name_map = _invitation_category_name_map(categories)
+        # Mini-mapas SOLO con la solicitud/compromiso de esta entrada (mismo formato que la página).
+        request_map: dict = {}
+        commitment_map: dict = {}
+        _sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        if getattr(ticket, 'assigned_request_id', None):
+            r = session_db.get(InvitationRequest, ticket.assigned_request_id)
+            if r:
+                _ai = _invitation_assignee_visual(session_db, r)
+                request_map[str(r.id)] = {
+                    'sent': bool(r.sent_at) or (r.status or '') in _sent_statuses,
+                    'downloaded': bool(r.downloaded_at) or _safe_int(r.downloaded_count) > 0,
+                    'guest_name': _ai['name'] or (r.guest_name or ''),
+                    'promoter_id': str(r.guest_promoter_id) if getattr(r, 'guest_promoter_id', None) else '',
+                    'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
+                    'photo': _ai['photo'],
+                    'link': _ai['link'],
+                    'link_logo': _ai['link_logo'],
+                    'link_type': _ai['link_type'],
+                    'total': _invitation_total_qty(_json_dict(r.quantities_json)),
+                    'requester': (r.requester_nick or r.requester_email or '').strip(),
+                }
+        if getattr(ticket, 'assigned_commitment_id', None):
+            c = session_db.get(InvitationCommitment, ticket.assigned_commitment_id)
+            if c:
+                _ai = _invitation_assignee_visual(session_db, c)
+                commitment_map[str(c.id)] = {
+                    'guest_name': (c.name or _ai['name'] or ''),
+                    'photo': _ai['photo'],
+                    'link': _ai['link'],
+                    'link_logo': _ai['link_logo'],
+                    'link_type': _ai['link_type'],
+                    'total': _invitation_total_qty(_json_dict(c.quantities_json)),
+                    'requester': (c.created_by_nick or '').strip(),
+                }
+        t = _invitation_ticket_payload(ticket, name_map, request_map, commitment_map)
+        return render_template('_invitation_ticket_modal.html', t=t,
+                               categories=[{'id': str(cc.id), 'name': cc.name} for cc in categories])
     finally:
         session_db.close()
 

@@ -895,7 +895,11 @@ function initImageFallbacks(){
   //    solo funcionara con cache-buster: error → placeholder → buena en CADA página). Después se
   //    comprueba la URL LIMPIA con un probe y, si carga, se restaura: la imagen queda con su URL
   //    original ya sana en caché, y las páginas siguientes cargan directas.
-  const RETRY_DELAYS = [700, 2200];
+  // Más intentos y con JITTER (retardo aleatorizado): los fallos suelen venir en RÁFAGA (decenas de
+  // miniaturas a la vez contra el Storage) y reintentarlas todas en el mismo milisegundo re-crea la
+  // ráfaga que las hizo fallar — por eso a veces "no cargaban a la primera" pero sí al actualizar.
+  const RETRY_DELAYS = [600, 1600, 3500, 7000, 15000];
+  const retryDelay = (attempt) => Math.round(RETRY_DELAYS[attempt] * (0.7 + Math.random() * 0.6));
   const absUrl = (u) => {
     try { return new URL(u, window.location.href).href; } catch (e) { return u; }
   };
@@ -907,21 +911,48 @@ function initImageFallbacks(){
     img.classList.remove('image-fallback');
     img.src = url;
   };
+  // Limitador: máximo 4 reparaciones simultáneas — sin él, tras una ráfaga de fallos todos los
+  // fetch de reparación salían a la vez y volvían a saturar, fallando también los reintentos.
+  let repairActive = 0;
+  const repairQueue = [];
+  const runRepair = (job) => {
+    if (repairActive >= 4) { repairQueue.push(job); return; }
+    repairActive++;
+    job(() => {
+      repairActive = Math.max(0, repairActive - 1);
+      const next = repairQueue.shift();
+      if (next) runRepair(next);
+    });
+  };
+  // Último recurso agotados los reintentos: probar con cache-buster; si así carga, se muestra así
+  // (mejor la imagen con sufijo que el hueco/placeholder hasta la próxima recarga).
+  const tryCacheBuster = (img) => {
+    const orig = img.dataset.origSrc;
+    if (!orig || !img.isConnected) return;
+    const busted = orig + (orig.indexOf('?') >= 0 ? '&' : '?') + 'cb=' + Date.now();
+    const probe = new Image();
+    probe.onload = () => { if (img.isConnected) restoreImg(img, busted); };
+    probe.onerror = () => {}; // agotado de verdad: queda el placeholder (oculto si no es portada)
+    probe.src = busted;
+  };
   const scheduleRetry = (img, attempt) => {
-    if (attempt >= RETRY_DELAYS.length) return; // agotado: se queda el placeholder (oculto si no es portada)
+    if (attempt >= RETRY_DELAYS.length) { tryCacheBuster(img); return; }
     window.setTimeout(() => {
       if (!img.isConnected) return;
       const orig = img.dataset.origSrc;
       if (!orig) return;
-      const test = () => {
-        const probe = new Image();
-        probe.onload = () => { if (img.isConnected) restoreImg(img, orig); };
-        probe.onerror = () => scheduleRetry(img, attempt + 1);
-        probe.src = orig;
-      };
-      try { fetch(orig, { mode: 'no-cors', cache: 'reload' }).then(test, test); }
-      catch (e) { test(); }
-    }, RETRY_DELAYS[attempt]);
+      runRepair((done) => {
+        const test = () => {
+          const probe = new Image();
+          probe.onload = () => { done(); if (img.isConnected) restoreImg(img, orig); };
+          probe.onerror = () => { done(); scheduleRetry(img, attempt + 1); };
+          probe.src = orig;
+        };
+        // noLoader: reparación en 2º plano — no debe encender el overlay de carga global.
+        try { fetch(orig, { mode: 'no-cors', cache: 'reload', noLoader: true }).then(test, test); }
+        catch (e) { test(); }
+      });
+    }, retryDelay(attempt));
   };
   const handleImgError = (img) => {
     if (skipImg(img)) return;

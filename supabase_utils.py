@@ -136,7 +136,10 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
             file=data,
             file_options={
                 "content-type": content_type,
-                "cache-control": "3600",
+                # Las claves son UUID únicos (el contenido de una URL no cambia jamás): caché larga
+                # de 1 año. Con la caché corta de antes (1 h) las miniaturas caducaban y se
+                # re-descargaban todas en ráfaga, provocando fallos intermitentes de carga.
+                "cache-control": "31536000",
                 "upsert": "false",
             },
         )
@@ -169,7 +172,7 @@ def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
             file=file_obj,
             file_options={
                 "content-type": content_type,
-                "cache-control": "3600",
+                "cache-control": "31536000",   # claves UUID inmutables: caché larga (ver _upload_bytes)
                 "upsert": "false",
             },
         )

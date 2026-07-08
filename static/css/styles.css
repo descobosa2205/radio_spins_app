@@ -603,9 +603,11 @@ button.song-status-item:focus {
    Correcciones generales 2026-05-29
    ========================================================= */
 :root{ --default-photo-bg:#f3f4f6; --default-photo-fg:#c4c8cf; }
+/* OJO: NO añadir fondo a img[data-default-photo="1"] — ese atributo lo llevan también fotos y LOGOS
+   reales (marca «candidata a fallback»), y el fondo gris se veía detrás de los logos transparentes.
+   Los placeholders de persona ya no necesitan fondo: van OCULTOS (política «hueco omitido»). */
 .default-photo-bg,
-img.default-photo,
-img[data-default-photo="1"]{
+img.default-photo{
   background: var(--default-photo-bg) !important;
 }
 /* Imagen sustituida por el placeholder (fallback): conserva SIEMPRE la caja del hueco en el que
@@ -1086,7 +1088,7 @@ img.img-error-pending{ visibility: hidden; }
 /* Tarjeta de solicitud del asignador (invitado con foto+nombre+nº, vínculo, «pedidas por», nota). */
 .assignment-source-flag { position: absolute; top: .45rem; right: .5rem; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; }
 .assign-src-head { display: flex; align-items: center; gap: .5rem; }
-.assign-src-photo { width: 34px; height: 34px; border-radius: 9px; object-fit: cover; flex: 0 0 auto; background: #eef0f3; border: 1px solid #e4e8ee; }
+.assign-src-photo { width: 34px; height: 34px; border-radius: 9px; object-fit: contain; flex: 0 0 auto; background: transparent; border: 0; }
 .assign-src-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assign-src-qty { margin-left: auto; flex: 0 0 auto; }
 .assign-src-link { margin-top: .35rem; }
@@ -1322,7 +1324,10 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .entity-link-row:hover{ box-shadow:var(--shadow-md-2); transform:translateY(-1px); border-color:transparent; }
 .entity-link-row-main{ display:flex; align-items:center; gap:.7rem; min-width:0; flex:1; text-decoration:none; color:inherit; }
 .entity-link-avatar{ position:relative; flex:0 0 auto; width:46px; height:46px; }
-.entity-link-avatar img{ width:46px; height:46px; border-radius:12px; object-fit:cover; background:#f1f3f8; border:1px solid var(--line-2); }
+/* Sin fondo: los logos transparentes (PNG) se ven tal cual, sin caja gris detrás. Las FOTOS
+   (artista/recinto, clase is-photo) sí rellenan su marco con recorte. */
+.entity-link-avatar img{ width:46px; height:46px; border-radius:12px; object-fit:contain; background:transparent; border:0; }
+.entity-link-avatar img.is-photo{ object-fit:cover; border:1px solid var(--line-2); }
 .entity-link-avatar > i{ position:absolute; right:-4px; bottom:-4px; width:20px; height:20px; border-radius:50%;
   background:var(--brand-accent); color:#fff; font-size:.62rem; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 5px rgba(0,0,0,.15); }
 .entity-link-avatar--sm{ width:40px; height:40px; }

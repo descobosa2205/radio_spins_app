@@ -24,7 +24,7 @@
         <div class="entity-link-row">
           <a class="entity-link-row-main" href="{{ item.href or '#' }}">
             <span class="entity-link-avatar">
-              <img src="{{ item.logo_url or DEFAULT_PHOTO_URL }}" alt="{{ item.label }}" data-default-photo="1">
+              <img class="{{ 'is-photo' if item.type in ['artist','venue'] else 'is-logo' }}" src="{{ item.logo_url or DEFAULT_PHOTO_URL }}" alt="{{ item.label }}" data-default-photo="1">
               <i class="fa {{ item.icon or 'fa-link' }}"></i>
             </span>
             <span class="min-w-0">
@@ -59,7 +59,7 @@
                 <div class="modal-header"><h5 class="modal-title">Editar relación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
                 <div class="modal-body">
                   <div class="d-flex align-items-center gap-2 mb-3">
-                    <span class="entity-link-avatar entity-link-avatar--sm"><img src="{{ item.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><i class="fa {{ item.icon or 'fa-link' }}"></i></span>
+                    <span class="entity-link-avatar entity-link-avatar--sm"><img class="{{ 'is-photo' if item.type in ['artist','venue'] else 'is-logo' }}" src="{{ item.logo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><i class="fa {{ item.icon or 'fa-link' }}"></i></span>
                     <div class="min-w-0"><div class="fw-semibold text-truncate">{{ item.label }}</div><div class="small text-muted">{{ item.type_label }}</div></div>
                   </div>
                   <label class="form-label">Relación</label>

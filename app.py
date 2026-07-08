@@ -38070,9 +38070,12 @@ def _invitation_ticket_payload(t: InvitationTicket, name_map: dict[str, str] | N
     }
 
 
-def _invitation_assignee_visual(session_db, row) -> dict:
+def _invitation_assignee_visual(session_db, row, link_photo_fallback: bool = True) -> dict:
     """Nombre + foto/logo + vínculo del invitado de una solicitud/compromiso, para pintarlo sobre el
-    plano. Tercero → logo + vínculo; artista/empleado → foto."""
+    plano. Tercero → logo + vínculo; artista/empleado → foto.
+    link_photo_fallback: si la persona NO tiene foto propia, usar el logo de su vinculación como
+    imagen. SOLO debe activarse para las BUTACAS asignadas (ver de un vistazo para quién son);
+    en listados/tarjetas va a False y quien no tiene foto simplemente no la muestra."""
     name = (getattr(row, "guest_name", None) or "").strip()
     photo = ""
     link = ""
@@ -38090,8 +38093,9 @@ def _invitation_assignee_visual(session_db, row) -> dict:
             link = _promoter_link_summary_text(_ls)
             link_logo = (_ls or {}).get("logo_url") or ""
             link_type = (_ls or {}).get("type") or ""
-            # Si el tercero no tiene foto/logo pero está vinculado, usa el logo/foto de lo vinculado.
-            if not photo and _ls:
+            # Si el tercero no tiene foto/logo pero está vinculado, usa el logo/foto de lo vinculado
+            # (solo para las butacas asignadas; en listados no se sustituye).
+            if link_photo_fallback and not photo and _ls:
                 photo = _ls.get("logo_url") or ""
     elif ga:
         ar = session_db.get(Artist, ga)
@@ -38564,7 +38568,7 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
     placeholder_photo = url_for("static", filename="img/placeholder_photo.png")
     for commitment in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
         quantities = _json_dict(commitment.quantities_json)
-        vis = _invitation_assignee_visual(session_db, commitment)
+        vis = _invitation_assignee_visual(session_db, commitment, link_photo_fallback=False)
         for cid, qty in quantities.items():
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
@@ -38601,7 +38605,7 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
     for row in session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id, InvitationRequest.status.in_(source_statuses)).order_by(InvitationRequest.created_at.asc()).all():
         is_pending_approval = (row.status or "") == "SOLICITADAS"
         quantities = _json_dict(row.quantities_json)
-        vis = _invitation_assignee_visual(session_db, row)
+        vis = _invitation_assignee_visual(session_db, row, link_photo_fallback=False)
         guest_name = vis["name"] or row.guest_name
         note = (row.note or getattr(row, "guest_note", None) or "").strip()
         for cid, qty in quantities.items():

@@ -414,6 +414,7 @@
                       <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown"><i class="fa fa-ellipsis me-1"></i>Compromiso</button>
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar todo</button></li>
+                        <li><button type="button" class="dropdown-item" data-cmt-cat-add data-commitment-id="{{ row.id }}" data-commitment-name="{{ row.name|e }}"><i class="fa fa-plus fa-fw me-1"></i>Añadir petición</button></li>
                         {# «Enviar todo» solo cuando TODAS las categorías tienen su cupo completo asignado;
                            con asignación parcial se envía categoría a categoría (solo las completas). #}
                         {% set _all_done = row.category_status and (row.category_status|rejectattr('done')|list|length == 0) %}
@@ -463,8 +464,8 @@
                                     <li><form method="post" action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
                                     {% endif %}
                                     <li><hr class="dropdown-divider"></li>
-                                    <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                                    <li><form method="post" action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso?');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+                                    <li><button type="button" class="dropdown-item" data-cmt-cat-edit data-commitment-id="{{ row.id }}" data-commitment-name="{{ row.name|e }}" data-category-id="{{ cs.id }}" data-category-name="{{ cs.name|e }}" data-qty="{{ cs.qty }}"><i class="fa fa-pen fa-fw me-1"></i>Editar petición</button></li>
+                                    <li><form method="post" action="{{ url_for('invitation_commitment_category_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar la petición de «{{ cs.name }}» de este compromiso? Sus entradas asignadas volverán a estar disponibles (las demás categorías no se tocan).');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar petición</button></form></li>
                                   </ul>
                                 </div>
                               </div>
@@ -1451,6 +1452,25 @@
 })();
 </script>
 
+<div class="modal fade" id="cmtCategoryModal" tabindex="-1" aria-hidden="true" data-action-base="{{ url_for('invitation_commitment_set_category', commitment_id='CID') }}">
+  <div class="modal-dialog modal-dialog-centered">
+    <form class="modal-content" method="post" action="">
+      <div class="modal-header"><h5 class="modal-title" data-cmt-cat-title>Añadir petición</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
+      <div class="modal-body">
+        <div class="small text-muted mb-2" data-cmt-cat-cmt></div>
+        <div data-cmt-cat-selectwrap>
+          <label class="form-label">Categoría</label>
+          <select class="form-select" name="category_id" data-cmt-cat-select required></select>
+        </div>
+        <div class="d-none fw-semibold mb-1" data-cmt-cat-fixed></div>
+        <label class="form-label mt-2">Número de invitaciones</label>
+        <input class="form-control" type="number" min="1" name="qty" value="1" required>
+        <div class="form-text" data-cmt-cat-avail></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger" type="submit">Guardar petición</button></div>
+    </form>
+  </div>
+</div>
 <div class="modal fade" id="commitmentModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
     <form class="modal-content" method="post" action="{{ url_for('invitation_commitment_save', concert_id=event.id) }}">
@@ -1521,9 +1541,13 @@
     var CMT_CATS_URL = "{{ url_for('api_invitation_event_categories', concert_id=event.id) }}";
     var _cmtQtyPanel = form.querySelector('[data-cmt-qty-panel]');
     var _cmtCats = null;
+    var _qtySeq = 0;   // último render gana: sin esto, el render VACÍO del reset (fetch async) podía
+                       // pisar al precargado de «Editar» y el modal salía sin las cantidades actuales
     function renderQtyPanel(quantities){
       if(!_cmtQtyPanel) return;
+      var _seq = ++_qtySeq;
       var apply = function(cats){
+        if(_seq !== _qtySeq) return;
         _cmtQtyPanel.innerHTML = (window.__invQtyPanelHtml && cats && cats.length)
           ? window.__invQtyPanelHtml(cats, {blockDisabled:true})
           : '<div class="col-md-4"><label class="form-label">Total</label><input class="form-control" type="number" min="1" name="qty_total" value="1"></div>';
@@ -1607,7 +1631,48 @@
     }
     form.querySelectorAll('[data-cmt-artist-id]').forEach(function(btn){ btn.addEventListener('click', function(){ pickEntity(btn, 'guest_artist_id'); }); });
     form.querySelectorAll('[data-cmt-user-id]').forEach(function(btn){ btn.addEventListener('click', function(){ pickEntity(btn, 'guest_user_id'); }); });
+    // --- Modal de PETICIÓN del compromiso (añadir/editar UNA categoría sin tocar las demás) ---
+    var catModalEl = document.getElementById('cmtCategoryModal');
+    function openCatModal(opts){
+      if(!catModalEl) return;
+      var f = catModalEl.querySelector('form');
+      f.action = (catModalEl.getAttribute('data-action-base') || '').replace('CID', opts.commitmentId || '');
+      catModalEl.querySelector('[data-cmt-cat-title]').textContent = opts.mode === 'edit' ? 'Editar petición' : 'Añadir petición';
+      catModalEl.querySelector('[data-cmt-cat-cmt]').textContent = 'Compromiso: ' + (opts.commitmentName || '');
+      var selWrap = catModalEl.querySelector('[data-cmt-cat-selectwrap]');
+      var fixed = catModalEl.querySelector('[data-cmt-cat-fixed]');
+      var sel = catModalEl.querySelector('[data-cmt-cat-select]');
+      var qty = f.querySelector('[name="qty"]');
+      var avail = catModalEl.querySelector('[data-cmt-cat-avail]');
+      var setAvail = function(cid){
+        var c = (_cmtCats || []).find(function(x){ return String(x.id) === String(cid); });
+        avail.textContent = c ? ('Disponibles: ' + (c.available_real != null ? c.available_real : (c.configured || 0))) : '';
+      };
+      var fill = function(cats){
+        if(opts.mode === 'edit'){
+          // categoría FIJA (se edita solo su número); el select oculto conserva el value que se envía
+          selWrap.classList.add('d-none');
+          sel.innerHTML = '<option value="' + opts.categoryId + '" selected></option>';
+          fixed.classList.remove('d-none'); fixed.textContent = 'Categoría: ' + (opts.categoryName || '');
+          qty.value = opts.qty || 1;
+          setAvail(opts.categoryId);
+        } else {
+          selWrap.classList.remove('d-none'); fixed.classList.add('d-none');
+          sel.innerHTML = (cats || []).map(function(c){ return '<option value="' + c.id + '">' + (c.name || '') + '</option>'; }).join('');
+          qty.value = 1;
+          if(cats && cats.length) setAvail(cats[0].id);
+          sel.onchange = function(){ setAvail(sel.value); };
+        }
+        if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(catModalEl).show();
+      };
+      if(_cmtCats){ fill(_cmtCats); return; }
+      fetch(CMT_CATS_URL).then(function(r){ return r.json(); }).then(function(d){ _cmtCats = (d && d.categories) || []; fill(_cmtCats); }).catch(function(){ fill([]); });
+    }
     document.addEventListener('click', function(ev){
+      var catAdd = ev.target.closest('[data-cmt-cat-add]');
+      if(catAdd){ ev.preventDefault(); openCatModal({ mode: 'add', commitmentId: catAdd.getAttribute('data-commitment-id'), commitmentName: catAdd.getAttribute('data-commitment-name') }); return; }
+      var catEdit = ev.target.closest('[data-cmt-cat-edit]');
+      if(catEdit){ ev.preventDefault(); openCatModal({ mode: 'edit', commitmentId: catEdit.getAttribute('data-commitment-id'), commitmentName: catEdit.getAttribute('data-commitment-name'), categoryId: catEdit.getAttribute('data-category-id'), categoryName: catEdit.getAttribute('data-category-name'), qty: catEdit.getAttribute('data-qty') }); return; }
       var edit = ev.target.closest('[data-commitment-edit]');
       if(edit){
         ev.preventDefault();
@@ -1861,7 +1926,7 @@
       var _title = `<div class="d-flex align-items-center gap-2 flex-wrap"><span class="inv-cat-swatch" style="background:${_color}"></span><span class="fw-semibold">${_esc(c.name)}${_af}</span>${c.requests_blocked ? '<span class="badge text-bg-danger"><i class="fa fa-ban me-1"></i>No admite peticiones</span>' : ''}</div>`;
       var _input = (c.requests_blocked && opts.blockDisabled)
         ? `<input class="form-control mt-1" type="number" value="0" disabled>`
-        : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${c.configured ?? 0}</div>`;
+        : `<input class="form-control mt-1" type="number" min="0" name="qty_${c.id}" value="0"><div class="small text-muted">Disponibles ${(c.available_real != null ? c.available_real : (c.configured || 0))}</div>`;
       // Categoría con SOMBREADO del color + borde de color (como en "configurar disponibles").
       return `<div class="col-md-4"><div class="inv-qty-cell" style="border-left:5px solid ${_color};background:color-mix(in srgb, ${_color} 12%, white);">${_title}${_input}</div></div>`;
     };

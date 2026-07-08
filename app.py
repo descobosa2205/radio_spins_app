@@ -37961,6 +37961,23 @@ def _invitation_is_locking_palco(cat) -> bool:
     return _invitation_category_zone(cat) == "PALCO" and not _invitation_category_name_is_honor(cat)
 
 
+def _invitation_ticket_counts_by_category(session_db, concert) -> dict:
+    """{cat_id: {uploaded, assigned}} de las entradas del concierto (assigned = no disponibles,
+    incluye enviadas). Compartido por la página y el API de categorías (el API construía el payload
+    SIN conteos y el «Disponibles» de los asistentes salía solo con lo configurado)."""
+    counts = defaultdict(lambda: {"uploaded": 0, "assigned": 0})
+    for cid, status, count in (
+        session_db.query(InvitationTicket.category_id, InvitationTicket.status, func.count(InvitationTicket.id))
+        .filter(InvitationTicket.concert_id == concert.id)
+        .group_by(InvitationTicket.category_id, InvitationTicket.status)
+        .all()
+    ):
+        counts[str(cid)]["uploaded"] += int(count or 0)
+        if status != 'AVAILABLE':
+            counts[str(cid)]["assigned"] += int(count or 0)
+    return counts
+
+
 def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = None) -> dict:
     qty_contract = _safe_int(getattr(cat, "qty_contract", 0))
     qty_extra = _safe_int(getattr(cat, "qty_extra", 0))
@@ -37980,6 +37997,9 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "uploaded": uploaded,
         "assigned": assigned,
         "available_configured": max(effective_configured - assigned, 0),
+        # Disponible REAL para pedir/comprometer: si hay entradas SUBIDAS manda eso (subidas menos
+        # asignadas/enviadas); si aún no se subió nada, lo configurado.
+        "available_real": max(uploaded - assigned, 0) if uploaded > 0 else max(total_configured, 0),
         "source": cat.source or "MANUAL",
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
@@ -41201,11 +41221,12 @@ def api_invitation_event_categories(concert_id):
         committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
         # Color por CATEGORÍA (mismo criterio que en el listado de invitados: por orden de la
         # categoría en el evento), para que la franja de color sea idéntica en todas partes.
+        _tk_counts = _invitation_ticket_counts_by_category(session_db, concert)
         cat_payloads = []
         for i, c in enumerate(categories):
             if str(c.id) in committed_palco:
                 continue
-            p = _invitation_category_payload(c)
+            p = _invitation_category_payload(c, _tk_counts.get(str(c.id)))
             p['color'] = INVITATION_ASSIGNEE_COLORS[i % len(INVITATION_ASSIGNEE_COLORS)]
             cat_payloads.append(p)
         return jsonify({
@@ -41247,16 +41268,7 @@ def invitation_event_detail(concert_id):
         session_db.commit()
         # Releer tras crear defaults para contar bien.
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
-        ticket_counts = defaultdict(lambda: {"uploaded": 0, "assigned": 0})
-        for cid, status, count in (
-            session_db.query(InvitationTicket.category_id, InvitationTicket.status, func.count(InvitationTicket.id))
-            .filter(InvitationTicket.concert_id == concert.id)
-            .group_by(InvitationTicket.category_id, InvitationTicket.status)
-            .all()
-        ):
-            ticket_counts[str(cid)]["uploaded"] += int(count or 0)
-            if status != 'AVAILABLE':
-                ticket_counts[str(cid)]["assigned"] += int(count or 0)
+        ticket_counts = _invitation_ticket_counts_by_category(session_db, concert)
         cat_payloads = [_invitation_category_payload(c, ticket_counts.get(str(c.id))) for c in categories]
         for _i, _cp in enumerate(cat_payloads):
             _cp['color'] = INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)]
@@ -42501,16 +42513,11 @@ def invitation_request_edit_form(request_id):
         is_assigned = bool(all_tickets) or (row.status or '') in {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
         can_edit = bool(can_manage or not is_assigned)
         quantities = _json_dict(row.quantities_json)
-        # Disponibles por categoría en UNA sola consulta (antes: una por categoría → modal lento).
-        avail_by_cat = {}
-        if categories:
-            for _cid, _n in (
-                session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
-                .filter(InvitationTicket.category_id.in_([c.id for c in categories]), InvitationTicket.status == 'AVAILABLE')
-                .group_by(InvitationTicket.category_id)
-                .all()
-            ):
-                avail_by_cat[str(_cid)] = int(_n or 0)
+        # Conteos por categoría en UNA sola consulta (helper compartido): disponibles reales
+        # (subidas - asignadas/enviadas) y subidas, para mostrar el disponible correcto.
+        _tk_counts = _invitation_ticket_counts_by_category(session_db, concert) if concert else {}
+        avail_by_cat = {cid: max(_safe_int(v.get('uploaded')) - _safe_int(v.get('assigned')), 0) for cid, v in _tk_counts.items()}
+        uploaded_by_cat = {cid: _safe_int(v.get('uploaded')) for cid, v in _tk_counts.items()}
         cat_rows = []
         for _i, cat in enumerate(categories):
             cid = str(cat.id)
@@ -42526,6 +42533,8 @@ def invitation_request_edit_form(request_id):
                 # Mismo color por orden y aforo del palco que en el asistente de crear (estética común).
                 'color': INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)],
                 'configured': _safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0)),
+                # Disponible REAL: con entradas subidas manda eso; sin subidas, lo configurado.
+                'available_real': int(available) if uploaded_by_cat.get(cid, 0) > 0 else (_safe_int(getattr(cat, 'qty_contract', 0)) + _safe_int(getattr(cat, 'qty_extra', 0))),
             })
         return render_template(
             '_invitation_edit_form.html',
@@ -44071,6 +44080,90 @@ def invitation_tickets_bulk_send(concert_id):
         return jsonify({'ok': False, 'error': str(exc)}), 400
     finally:
         session_db.close()
+
+
+@app.post('/invitaciones/compromisos/<commitment_id>/categoria', endpoint='invitation_commitment_set_category')
+@admin_required
+def invitation_commitment_set_category(commitment_id):
+    """Añade o edita UNA «petición» (categoría) de un compromiso sin tocar las demás: fija la
+    cantidad de esa categoría en quantities_json (qty<=0 la elimina)."""
+    session_db = db()
+    _cid_concert = None
+    try:
+        row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        _cid_concert = row.concert_id
+        cat_id = _safe_uuid(request.form.get('category_id'))
+        cat = session_db.get(InvitationCategory, cat_id) if cat_id else None
+        if not cat or cat.concert_id != row.concert_id:
+            raise ValueError('Selecciona una categoría válida.')
+        qty = _safe_int(request.form.get('qty'))
+        q = _json_dict(row.quantities_json)
+        if qty > 0:
+            q[str(cat.id)] = qty
+        else:
+            q.pop(str(cat.id), None)
+        q.pop('TOTAL', None)
+        row.quantities_json = q
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        flash(('Petición de «' + cat.name + '» guardada en el compromiso «' + (row.name or '') + '».') if qty > 0
+              else ('Petición de «' + cat.name + '» eliminada del compromiso.'), 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo guardar la petición del compromiso: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(url_for('invitation_event_detail', concert_id=_cid_concert) if _cid_concert else url_for('invitations_view', tab='gestionar'))
+
+
+@app.post('/invitaciones/compromisos/<commitment_id>/categoria/eliminar', endpoint='invitation_commitment_category_delete')
+@admin_required
+def invitation_commitment_category_delete(commitment_id):
+    """Elimina UNA «petición» (categoría) de un compromiso: libera sus entradas ASIGNADAS (vuelven
+    a disponibles) y quita la categoría de quantities_json. Si hay entradas ya enviadas/entregadas
+    en esa categoría, se rechaza (recupéralas antes). No afecta al resto de categorías."""
+    session_db = db()
+    _cid_concert = None
+    try:
+        row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        _cid_concert = row.concert_id
+        cat_id = _safe_uuid(request.form.get('category_id'))
+        cat = session_db.get(InvitationCategory, cat_id) if cat_id else None
+        if not cat or cat.concert_id != row.concert_id:
+            raise ValueError('Categoría no válida.')
+        tickets = session_db.query(InvitationTicket).filter(
+            InvitationTicket.assigned_commitment_id == row.id,
+            InvitationTicket.category_id == cat.id).all()
+        _sent = [t for t in tickets if (t.status or '') != 'ASSIGNED']
+        if _sent:
+            raise ValueError(f'Hay {len(_sent)} entrada(s) ya enviadas/entregadas en esta categoría: recupéralas antes de eliminar la petición.')
+        now = _now_madrid()
+        for t in tickets:
+            t.status = 'AVAILABLE'
+            t.assigned_commitment_id = None
+            t.assigned_request_id = None
+            t.assigned_label = None
+            t.previous_assignment_warning = f'Recuperada al eliminar la petición de {cat.name} del compromiso {row.name}.'
+            t.updated_at = now
+        q = _json_dict(row.quantities_json)
+        q.pop(str(cat.id), None)
+        q.pop('TOTAL', None)
+        row.quantities_json = q
+        row.updated_at = now
+        session_db.commit()
+        flash(f'Petición de «{cat.name}» eliminada del compromiso «{row.name or ""}» ({len(tickets)} entrada(s) recuperadas).', 'success')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo eliminar la petición: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(url_for('invitation_event_detail', concert_id=_cid_concert) if _cid_concert else url_for('invitations_view', tab='gestionar'))
 
 
 @app.get('/invitaciones/evento/<concert_id>/asignador-parcial', endpoint='invitation_assign_partial')

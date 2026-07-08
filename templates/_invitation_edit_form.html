@@ -61,7 +61,7 @@
         <div style="border-left:5px solid {{ c.color }};padding-left:.6rem;">
           <div class="fw-semibold">{{ c.name }}{% if aforo %}<span class="text-muted">{{ aforo }}</span>{% endif %}</div>
           <input type="number" class="form-control mt-1" name="cat_{{ c.id }}_qty" min="0" value="{{ c.qty }}">
-          <div class="small text-muted">Disponibles {{ c.configured }}</div>
+          <div class="small text-muted">Disponibles {{ c.available_real if c.available_real is defined else c.configured }}</div>
         </div>
       </div>
       {% endif %}

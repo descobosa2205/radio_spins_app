@@ -40583,9 +40583,9 @@ def public_invitation_delivery(kind, token):
             concert = row.concert or session_db.get(Concert, row.concert_id)
             guest_name = (getattr(row, "guest_name", None) or "").strip()
             download_url = url_for("invitation_request_download", token=token)
-        qty = _invitation_total_qty(_json_dict(getattr(row, "quantities_json", None)))
         # Lista de entradas agrupada (zona → categoría → sector) con descarga individual, igual que en
         # el correo. Reutiliza el mismo componente.
+        _catf = None
         if kind == "c":
             _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id)
             _catf = _safe_uuid((request.args.get("category") or "").strip())
@@ -40594,6 +40594,11 @@ def public_invitation_delivery(kind, token):
         else:
             _tq = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
         _dtickets = _tq.order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc()).all()
+        # Nº de invitaciones DE ESTA ENTREGA (no el total del compromiso/solicitud): las entradas que
+        # de verdad van con este enlace; si no hay PDF (listas de invitados), lo pedido en la
+        # categoría del enlace o, sin filtro, el total.
+        _q_all = _json_dict(getattr(row, "quantities_json", None))
+        qty = len(_dtickets) or (_safe_int(_q_all.get(str(_catf))) if _catf else _invitation_total_qty(_q_all))
         tickets_html = Markup(_invitation_tickets_grouped_html(session_db, concert, _dtickets, download_url)) if _dtickets else ""
         card = _public_share_card(session_db, "CONCERT", concert, getattr(concert, "artist_id", None))
         poster_url = _concert_poster_url(concert) or ""      # cartel principal (solo si lo hay)

@@ -3155,7 +3155,12 @@
     saveBtn.addEventListener('click', async () => {
       var entries = [];
       invAssignForms.forEach(function(f){ entries = entries.concat(f.entries()); });
-      if (!entries.length) { alert('No hay asignaciones nuevas que guardar.'); return; }
+      if (!entries.length) {
+        // Nada NUEVO en proceso (p. ej. solo se movió/liberó algo ya asignado, que se guarda al
+        // momento): cerrar sin mensajes — si hubo cambios, el cierre ya recarga la página.
+        try { bootstrap.Modal.getOrCreateInstance(document.getElementById('assignAllModal')).hide(); } catch (e) {}
+        return;
+      }
       saveBtn.disabled = true; var orig = saveBtn.innerHTML; saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
       // TODO junto en UNA petición: el servidor itera assignments_json.
       var ok = false;

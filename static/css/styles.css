@@ -846,6 +846,14 @@ img.img-error-pending{ visibility: hidden; }
 .invitation-seat.is-drag-sel i, .invitation-seat.is-drag-sel span{ color:#7a5b00 !important; }
 .invitation-seat.is-staged{ background:#ffdf7e !important; border-color:#e0a800 !important; color:#7a5b00 !important; }
 .invitation-seat.is-staged i, .invitation-seat.is-staged span{ color:#7a5b00 !important; }
+/* Identidad sobre el plano MIENTRAS se asigna: la butaca amarilla lleva dentro la foto/logo del
+   invitado (se oculta el icono de butaca) y sobre el primer asiento de cada tramo va una
+   etiquetita con foto + nombre + logo del vínculo. */
+.invitation-seat{ position:relative; }
+.invitation-seat.is-staged.has-staged-photo > i{ display:none; }
+.staged-owner-label{ position:absolute; bottom:calc(100% + 3px); left:0; z-index:5; display:inline-flex; align-items:center; gap:.25rem; max-width:190px; padding:.08rem .45rem; border-radius:999px; background:#fff8e1; border:1px solid #e0a800; color:#6b4e00; font-size:.62rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; box-shadow:0 1px 4px rgba(0,0,0,.12); }
+.staged-owner-label img{ width:14px; height:14px; border-radius:50%; object-fit:cover; flex:0 0 auto; }
+.staged-owner-label img.is-logo{ width:auto; max-width:26px; border-radius:2px; object-fit:contain; background:transparent; }
 .invitation-linked-mini span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
 /* Solicitudes pedidas para OTRA persona de la oficina (vista de solo lectura en "Mis solicitudes") */
 .invitation-office-row{ border-left:3px solid var(--brand-accent); background:rgba(0,124,162,.045); }
@@ -1080,6 +1088,12 @@ img.img-error-pending{ visibility: hidden; }
 .plan-cell-boundary:hover { background: rgba(0,124,162,.12); }
 .plan-cell-boundary.has-stair { background: rgba(0,124,162,.14); border-left: 2px dashed var(--brand-accent); border-right: 2px dashed var(--brand-accent); }
 .plan-cell-boundary.has-stair::after { content: "\f6d0"; font-family: "Font Awesome 6 Free"; font-weight: 900; color: var(--brand-accent); font-size: .7rem; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); }
+/* Feedback del arrastre en el configurador: fantasma pegado al cursor + resaltado del punto EXACTO
+   donde caerá la herramienta (borde de escalera / celda) y previsualización del escenario. */
+.plan-drag-ghost{ position:fixed; z-index:99999; pointer-events:none; transform:translate(10px,12px); display:inline-flex; align-items:center; gap:.3rem; padding:.25rem .55rem; border-radius:.5rem; background:#fff; border:1px solid var(--brand-accent); color:#222; font-size:.78rem; font-weight:600; box-shadow:0 4px 14px rgba(0,0,0,.22); }
+.plan-cell-boundary.is-drop-stair{ background:rgba(0,124,162,.28); border-left:2px dashed var(--brand-accent); border-right:2px dashed var(--brand-accent); box-shadow:0 0 0 2px rgba(0,124,162,.25); }
+.plan-cell.is-drop-hint, .plan-cell-boundary.is-drop-hint{ outline:2px dashed var(--brand-accent); outline-offset:1px; background:rgba(0,124,162,.14); }
+.plan-stage-marker.is-preview{ opacity:.65; pointer-events:none; }
 .plan-editor-stage-pick { display: flex; gap: .4rem; flex-wrap: wrap; }
 .plan-editor-mode.active { box-shadow: 0 0 0 .16rem rgba(232,59,75,.2) inset; }
 /* Popup de acciones de la selección múltiple (junto a la selección). */

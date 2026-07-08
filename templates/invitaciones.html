@@ -756,7 +756,7 @@
                             <div class="invitation-seat-block-line"></div>
                             <div class="invitation-seat-block-seats">
                               {% for t in group %}
-                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><span class="invitation-seat-num">{{ loop.index }}</span>{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}</button>
+                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><span class="invitation-seat-num">{{ loop.index }}</span>{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}</button>
                               {% endfor %}
                             </div>
                           </div>
@@ -799,7 +799,7 @@
                                     <div class="invitation-seat-block-line"></div>
                                     <div class="invitation-seat-block-seats">
                                       {% for t in cell.seats %}
-                                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if cell.photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }} · {{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if cell.photo %}<img class="invitation-seat-photo" src="{{ cell.photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>
+                                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if cell.photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }} · {{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if cell.photo %}<img class="invitation-seat-photo" src="{{ cell.photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>
                                       {% endfor %}
                                     </div>
                                   </div>
@@ -1127,7 +1127,7 @@
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                           {% endfor %}
                           </div></div>
                         {% endfor %}
@@ -2418,8 +2418,10 @@
       return Array.from(cols).sort((a,b) => a - b);
     }
     function boundaryHtml(row, bl, br){
+      // OJO: dropTool/click buscan closest('[data-boundary]') — el atributo es imprescindible
+      // (faltaba y el drop de ESCALERAS sobre el borde nunca acertaba).
       const rc = state.rows[row]; const hasStair = (bl !== '' && isInt(bl) && has(rc.stairs, bl) !== null);
-      return '<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-row="'+enc(row)+'" data-bl="'+bl+'" data-br="'+br+'"></div>';
+      return '<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-boundary="1" data-row="'+enc(row)+'" data-bl="'+bl+'" data-br="'+br+'"></div>';
     }
     function render(){
       if(!state) return;
@@ -2487,12 +2489,72 @@
       state.stage = { x: Math.round(x*10)/10, y: Math.round(y*10)/10 };
       render();
     }
+    // ---- Feedback del ARRASTRE: un fantasma de la herramienta sigue al cursor y se resalta el
+    // punto EXACTO donde caerá (el candidato se calcula por geometría —borde/celda más cercano al
+    // cursor dentro de la fila—, no por el elemento bajo el ratón: los bordes de escalera son muy
+    // finos y el drop era impreciso). Al soltar se usa ese candidato resaltado. ----
+    let dragGhostEl = null, dropHintEl = null, stagePrevEl = null;
+    function clearDropHint(){ if(dropHintEl){ dropHintEl.classList.remove('is-drop-stair','is-drop-hint'); dropHintEl = null; } }
+    function removeDragGhost(){ if(dragGhostEl){ dragGhostEl.remove(); dragGhostEl = null; } if(stagePrevEl){ stagePrevEl.remove(); stagePrevEl = null; } clearDropHint(); }
+    function moveDragGhost(x, y){
+      if(!dragGhostEl){
+        const src = modalEl.querySelector('.plan-tool[data-tool="' + dragTool + '"]');
+        dragGhostEl = document.createElement('div');
+        dragGhostEl.className = 'plan-drag-ghost';
+        dragGhostEl.innerHTML = src ? src.innerHTML : '';
+        document.body.appendChild(dragGhostEl);
+      }
+      dragGhostEl.style.left = x + 'px'; dragGhostEl.style.top = y + 'px';
+    }
+    function dropCandidate(clientX, clientY){
+      const rows = Array.from(gridEl.querySelectorAll('.plan-editor-row'));
+      if(!rows.length) return null;
+      let rowEl = rows.find(function(r){ const rc = r.getBoundingClientRect(); return clientY >= rc.top && clientY <= rc.bottom; });
+      if(!rowEl){ let bestR = null; rows.forEach(function(r){ const rc = r.getBoundingClientRect(); const d = Math.min(Math.abs(clientY - rc.top), Math.abs(clientY - rc.bottom)); if(!bestR || d < bestR.d) bestR = {r:r, d:d}; }); rowEl = bestR.r; }
+      const sel = dragTool === 'stair' ? '[data-boundary]' : '.plan-cell, [data-boundary]';
+      let best = null;
+      rowEl.querySelectorAll(sel).forEach(function(el){ const r = el.getBoundingClientRect(); const cx = r.left + r.width/2; const d = Math.abs(clientX - cx); if(!best || d < best.d) best = {el:el, d:d}; });
+      return best ? best.el : null;
+    }
     modalEl.querySelectorAll('.plan-tool[data-tool]').forEach(function(el){
-      el.addEventListener('dragstart', function(e){ dragTool = el.dataset.tool; try{ e.dataTransfer.setData('text/plain', dragTool); e.dataTransfer.effectAllowed = 'copy'; }catch(_){}} );
-      el.addEventListener('dragend', function(){ dragTool = null; });
+      el.addEventListener('dragstart', function(e){
+        dragTool = el.dataset.tool;
+        try{
+          e.dataTransfer.setData('text/plain', dragTool); e.dataTransfer.effectAllowed = 'copy';
+          // Anular la imagen fantasma nativa: la sustituye nuestro fantasma pegado al cursor.
+          const im = new Image(); im.src = 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==';
+          if(e.dataTransfer.setDragImage) e.dataTransfer.setDragImage(im, 0, 0);
+        }catch(_){ }
+      });
+      el.addEventListener('dragend', function(){ dragTool = null; removeDragGhost(); });
     });
-    gridEl.addEventListener('dragover', function(e){ if(dragTool){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-    gridEl.addEventListener('drop', function(e){ if(!state || !dragTool) return; e.preventDefault(); const t = dragTool; if(t === 'stage') placeStageAt(e.clientX, e.clientY); else dropTool(e.target, t); });
+    gridEl.addEventListener('dragover', function(e){
+      if(!dragTool) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+      moveDragGhost(e.clientX, e.clientY);
+      if(dragTool === 'stage'){
+        // Previsualización del ESCENARIO pegada al borde más cercano (mismo cálculo que al soltar).
+        const r = gridEl.getBoundingClientRect(); if(!r.width || !r.height) return;
+        let x = Math.max(0, Math.min(100, (e.clientX - r.left) / r.width * 100));
+        let y = Math.max(0, Math.min(100, (e.clientY - r.top) / r.height * 100));
+        const d = [['x',0,x],['x',100,100-x],['y',0,y],['y',100,100-y]].sort(function(a,b){ return a[2]-b[2]; })[0];
+        if(d[0] === 'x') x = d[1]; else y = d[1];
+        if(!stagePrevEl){ stagePrevEl = document.createElement('div'); stagePrevEl.className = 'invitation-stage plan-stage-marker is-preview'; stagePrevEl.innerHTML = '<i class="fa fa-music me-1"></i>ESCENARIO'; gridEl.appendChild(stagePrevEl); }
+        stagePrevEl.style.left = x + '%'; stagePrevEl.style.top = y + '%';
+        clearDropHint();
+        return;
+      }
+      const cand = dropCandidate(e.clientX, e.clientY);
+      if(cand !== dropHintEl){ clearDropHint(); if(cand){ dropHintEl = cand; cand.classList.add(dragTool === 'stair' ? 'is-drop-stair' : 'is-drop-hint'); } }
+    });
+    gridEl.addEventListener('dragleave', function(e){ if(!gridEl.contains(e.relatedTarget)){ clearDropHint(); if(stagePrevEl){ stagePrevEl.remove(); stagePrevEl = null; } } });
+    gridEl.addEventListener('drop', function(e){
+      if(!state || !dragTool) return; e.preventDefault();
+      const t = dragTool; const cand = dropHintEl;
+      removeDragGhost();
+      if(t === 'stage'){ placeStageAt(e.clientX, e.clientY); return; }
+      dropTool(cand || e.target, t);   // el candidato RESALTADO es lo que se ve = lo que se coloca
+    });
     // CLIC = quitar el elemento colocado (no hay selección de herramienta).
     gridEl.addEventListener('click', function(e){
       if(!state) return;
@@ -2647,6 +2709,12 @@
   //   · Arrastrar EMPEZANDO en una butaca amarilla → va DESELECCIONANDO las que pases.
   //   · Clic en butaca ya guardada → la libera (confirmación).
   var invAssignForms = [];   // registro de formularios, para el botón global «Guardar».
+  // Re-invocable: el contenido del modal se REFRESCA desde el servidor al abrirlo (lista de
+  // peticiones y planos siempre al día) y hay que volver a enganchar los formularios nuevos.
+  function initInvitationAssigner(){
+  invAssignForms.length = 0;
+  if (window.__invAssignAbort) { try { window.__invAssignAbort.abort(); } catch (e) {} }
+  window.__invAssignAbort = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
     const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';
     const releaseTpl = form.dataset.releaseUrl || '';
@@ -2667,6 +2735,80 @@
     const assignedX = (src) => persisted(src) + stagedCount(src);
     const need = (src) => src ? Math.max(qtyTotal(src) - assignedX(src), 0) : 0;
     const markStaged = (seat, on) => { seat.classList.toggle('is-staged', on); };
+
+    // ---- Identidad visible sobre el plano MIENTRAS asignas (antes de guardar) ----
+    // Cada butaca amarilla lleva dentro la foto/logo del invitado (o el de su vinculación) y sobre
+    // cada tramo contiguo se pinta una etiquetita con foto + nombre + logo del vínculo, igual que
+    // el aspecto final tras guardar.
+    const isPlaceholderUrl = (u) => !u || u.indexOf('/img/placeholder_photo') >= 0;
+    const cardInfo = (src) => {
+      const photoEl = src.querySelector('.assign-src-photo');
+      const nameEl = src.querySelector('.assign-src-name');
+      const linkImgEl = src.querySelector('.assign-src-link img');
+      const linkTxtEl = src.querySelector('.assign-src-link span');
+      const own = photoEl && !isPlaceholderUrl(photoEl.getAttribute('src') || '') ? photoEl.getAttribute('src') : '';
+      const linkLogo = linkImgEl && !isPlaceholderUrl(linkImgEl.getAttribute('src') || '') ? linkImgEl.getAttribute('src') : '';
+      return {
+        name: nameEl ? nameEl.textContent.trim() : '',
+        seatPhoto: own || linkLogo,     // en butacas vale el logo del vínculo si no hay foto propia
+        ownPhoto: own,
+        linkLogo: linkLogo,
+        linkIsPhoto: !!(linkImgEl && linkImgEl.classList.contains('is-photo')),
+        linkText: linkTxtEl ? linkTxtEl.textContent.trim() : ''
+      };
+    };
+    const refreshStagedVisuals = () => {
+      // limpiar decoraciones y etiquetas anteriores
+      form.querySelectorAll('.staged-owner-label').forEach(el => el.remove());
+      seatEls().forEach(seat => {
+        if (!stage.has(seat) && seat.dataset.stagedPhoto === '1') {
+          seat.querySelectorAll('img.staged-ph').forEach(im => im.remove());
+          seat.classList.remove('has-staged-photo', 'invitation-seat--photo');
+          delete seat.dataset.stagedPhoto;
+          seat.removeAttribute('title');
+        }
+      });
+      const infoCache = new Map();
+      const infoFor = (src) => { if (!infoCache.has(src)) infoCache.set(src, cardInfo(src)); return infoCache.get(src); };
+      // foto dentro de cada butaca staged + título
+      stage.forEach((src, seat) => {
+        const info = infoFor(src);
+        const T = qtyTotal(src);
+        seat.title = info.name + (info.linkText ? ' · ' + info.linkText : '') + (T ? (' · ' + T + ' invitaci' + (T === 1 ? 'ón' : 'ones')) : '');
+        if (info.seatPhoto && seat.dataset.stagedPhoto !== '1') {
+          const im = document.createElement('img');
+          im.className = 'invitation-seat-photo staged-ph';
+          im.src = info.seatPhoto; im.alt = '';
+          seat.appendChild(im);
+          seat.classList.add('has-staged-photo', 'invitation-seat--photo');
+          seat.dataset.stagedPhoto = '1';
+        }
+      });
+      // etiqueta (foto + nombre + logo del vínculo) sobre el PRIMER asiento de cada tramo contiguo
+      const all = seatEls();
+      let run = null;   // { src, first }
+      const closeRun = () => {
+        if (!run) return;
+        const info = infoFor(run.src);
+        const label = document.createElement('span');
+        label.className = 'staged-owner-label';
+        let html = '';
+        if (info.ownPhoto) html += '<img src="' + info.ownPhoto + '" alt="">';
+        html += '<span>' + (info.name || 'Invitado') + '</span>';
+        if (info.linkLogo) html += '<img class="' + (info.linkIsPhoto ? 'is-photo' : 'is-logo') + '" src="' + info.linkLogo + '" alt="">';
+        label.innerHTML = html;
+        run.first.appendChild(label);
+        run = null;
+      };
+      all.forEach(seat => {
+        const src = stage.get(seat);
+        const sameGrid = run && run.first.closest('.invitation-seat-grid') === seat.closest('.invitation-seat-grid');
+        if (src && run && run.src === src && sameGrid) return;    // continúa el tramo
+        closeRun();
+        if (src) run = { src: src, first: seat };
+      });
+      closeRun();
+    };
 
     const updateSource = (src) => {
       const T = qtyTotal(src);
@@ -2717,13 +2859,13 @@
       if (stage.has(seat)) return false;              // ya elegida por otra solicitud
       if (need(activeSource) <= 0) return false;      // tope: nº pedido
       stage.set(seat, activeSource); markStaged(seat, true);
-      updateSource(activeSource); setRemaining();
+      updateSource(activeSource); setRemaining(); refreshStagedVisuals();
       return true;
     };
     const unstageSeat = (seat) => {
       const src = stage.get(seat); if (!src) return;
       stage.delete(seat); markStaged(seat, false);
-      updateSource(src); setRemaining();
+      updateSource(src); setRemaining(); refreshStagedVisuals();
     };
 
     // Liberar una butaca YA guardada: llama al servidor al momento y actualiza contadores.
@@ -2774,14 +2916,14 @@
         // eslint-disable-next-line no-await-in-loop
         await releaseAssignedSeat(seat, true);
       }
-      updateSource(src); setRemaining();
+      updateSource(src); setRemaining(); refreshStagedVisuals();
     };
 
-    // Bloque de N butacas AVAILABLE consecutivas desde una (sin cruzar escaleras dentro de la fila).
+    // Bloques de N butacas consecutivas desde una (sin cruzar escaleras dentro de la misma fila).
+    const stairBetween = (a, b) => { const g = a.closest('.invitation-seat-grid'); if (!g || b.closest('.invitation-seat-grid') !== g) return false; let x = a; while (x && x !== b) { x = x.nextElementSibling; if (x && x !== b && x.classList && x.classList.contains('invitation-stair')) return true; } return false; };
     const consecutiveFrom = (startSeat, n) => {
       const all = seatEls(); const start = all.indexOf(startSeat);
       if (start < 0 || n <= 0) return [];
-      const stairBetween = (a, b) => { const g = a.closest('.invitation-seat-grid'); if (!g || b.closest('.invitation-seat-grid') !== g) return false; let x = a; while (x && x !== b) { x = x.nextElementSibling; if (x && x !== b && x.classList && x.classList.contains('invitation-stair')) return true; } return false; };
       const pick = []; let prev = null;
       for (let i = start; i < all.length && pick.length < n; i++) {
         const el = all[i];
@@ -2791,13 +2933,30 @@
       }
       return pick;
     };
+    // Variante para MOVER un bloque staged: las butacas del propio bloque cuentan como libres
+    // (permite desplazarlo solapándose consigo mismo, a otra fila o a otro sector).
+    const consecutiveFromMove = (startSeat, n, src) => {
+      const all = seatEls(); const start = all.indexOf(startSeat);
+      if (start < 0 || n <= 0) return [];
+      const pick = []; let prev = null;
+      for (let i = start; i < all.length && pick.length < n; i++) {
+        const el = all[i];
+        if (seatStatus(el) !== 'AVAILABLE') continue;
+        if (stage.has(el) && stage.get(el) !== src) continue;
+        if (prev && stairBetween(prev, el)) break;
+        pick.push(el); prev = el;
+      }
+      return pick;
+    };
 
     const zone = form.querySelector('[data-drop-zone]');
     if (zone) {
       // ---- pintar con el ratón sobre el plano ----
-      // clic = una; arrastrar sobre libres = seleccionar varias; arrastrar EMPEZANDO en una amarilla
-      // (staged) = ir DESELECCIONANDO las amarillas que pases sin soltar.
-      let paint = null;                       // { mode:'add'|'erase', moved, start }
+      // clic en libre = una; arrastrar sobre libres = seleccionar varias. Empezando en una AMARILLA
+      // (staged), el PRIMER movimiento decide el gesto: hacia OTRA amarilla = ir DESELECCIONANDO
+      // las que pases; hacia un asiento LIBRE = MOVER el bloque entero de esa solicitud (se desplaza
+      // con el cursor entre asientos, filas o sectores; al soltar queda recolocado).
+      let paint = null;                       // { mode:'add'|'staged-pending'|'erase'|'move', start, src }
       const preview = new Set();
       const clearPreview = () => { preview.forEach(s => s.classList.remove('is-drag-sel')); preview.clear(); };
       const addPreview = (seat) => {
@@ -2805,10 +2964,17 @@
         if (preview.has(seat) || preview.size >= need(activeSource)) return;
         preview.add(seat); seat.classList.add('is-drag-sel');
       };
+      const movePrev = new Set();
+      const clearMovePrev = () => { movePrev.forEach(s => s.classList.remove('is-drag-sel')); movePrev.clear(); };
+      const stagedOf = (src) => Array.from(stage.keys()).filter(s => stage.get(s) === src);
+      const movePreviewAt = (seat, src) => {
+        clearMovePrev();
+        consecutiveFromMove(seat, stagedOf(src).length, src).forEach(s => { movePrev.add(s); s.classList.add('is-drag-sel'); });
+      };
       zone.addEventListener('mousedown', (ev) => {
         if (isGuestList || busy) return;
         const seat = ev.target.closest('[data-ticket-id]'); if (!seat) return;
-        if (stage.get(seat)) { ev.preventDefault(); paint = { mode: 'erase', moved: false, start: seat }; unstageSeat(seat); return; }
+        if (stage.get(seat)) { ev.preventDefault(); paint = { mode: 'staged-pending', start: seat, src: stage.get(seat) }; return; }
         if (seatStatus(seat) !== 'AVAILABLE') { ev.preventDefault(); releaseAssignedSeat(seat); return; }
         if (!activeSource) { alert('Marca primero a quién asignar (una solicitud a la izquierda).'); return; }
         ev.preventDefault();
@@ -2817,18 +2983,44 @@
       zone.addEventListener('mouseover', (ev) => {
         if (!paint) return;
         const seat = ev.target.closest('[data-ticket-id]');
-        if (seat && seat !== paint.start) paint.moved = true;
-        if (paint.mode === 'erase') { if (seat && stage.get(seat)) unstageSeat(seat); return; }
+        if (!seat) return;
+        if (paint.mode === 'staged-pending' && seat !== paint.start) {
+          // primer movimiento: decide entre DESELECCIONAR (hacia otra amarilla) o MOVER (hacia libre)
+          if (stage.get(seat)) { paint.mode = 'erase'; unstageSeat(paint.start); unstageSeat(seat); return; }
+          if (seatStatus(seat) === 'AVAILABLE') { paint.mode = 'move'; movePreviewAt(seat, paint.src); return; }
+          return;
+        }
+        if (paint.mode === 'erase') { if (stage.get(seat)) unstageSeat(seat); return; }
+        if (paint.mode === 'move') {
+          if (seatStatus(seat) === 'AVAILABLE' && (!stage.has(seat) || stage.get(seat) === paint.src)) movePreviewAt(seat, paint.src);
+          return;
+        }
+        if (seat !== paint.start) paint.moved = true;
         addPreview(seat);
       });
       document.addEventListener('mouseup', () => {
         if (!paint) return;
-        const mode = paint.mode;
+        const p = paint; paint = null;
+        if (p.mode === 'staged-pending') { unstageSeat(p.start); return; }   // clic simple = quitar una
+        if (p.mode === 'erase') return;
+        if (p.mode === 'move') {
+          const targets = Array.from(movePrev); clearMovePrev();
+          const mine = stagedOf(p.src);
+          // Solo se mueve si cabe el bloque COMPLETO en el destino; si no, se queda donde estaba.
+          if (targets.length && targets.length >= mine.length) {
+            mine.forEach(s => { stage.delete(s); markStaged(s, false); });
+            activeSource = p.src;
+            sources().forEach(x => x.classList.toggle('is-active', x === p.src));
+            targets.slice(0, mine.length).forEach(stageSeat);
+            refreshStagedVisuals();
+          }
+          return;
+        }
         const seats = Array.from(preview); clearPreview();
-        const multi = paint.moved && seats.length > 1; paint = null;
-        if (mode === 'erase' || !seats.length) return;
+        const multi = p.moved && seats.length > 1;
+        if (!seats.length) return;
         if (multi) { seats.forEach(stageSeat); } else { const s = seats[0]; if (stage.get(s)) { unstageSeat(s); } else { stageSeat(s); } }
-      });
+      }, window.__invAssignAbort ? { signal: window.__invAssignAbort.signal } : false);
 
       // ---- arrastrar la TARJETA sobre el plano: bloque de N que sigue al cursor ----
       const cardPreview = new Set();
@@ -2900,6 +3092,9 @@
 
     updateAllSources(); setRemaining();
   });
+  }
+  initInvitationAssigner();
+  window.initInvitationAssigner = initInvitationAssigner;
 
   // Botón «Guardar asignaciones»: persiste lo staged de todos los formularios y recarga.
   (function () {
@@ -2978,7 +3173,24 @@
       showBanner(name);
       if (first) first.scrollIntoView({ block: 'start' });
     }
-    modal.addEventListener('shown.bs.modal', function(){
+    // Al ABRIR: el contenido (lista de peticiones + planos) se recarga SIEMPRE desde el servidor
+    // para reflejar cambios recientes (peticiones nuevas, planos reconfigurados, asignaciones de
+    // otros). Después se aplica el filtro de apertura sobre el contenido fresco.
+    async function refreshAssignContent(){
+      var body = modal.querySelector('.modal-body');
+      if (!body) return;
+      body.style.opacity = '.45'; body.style.pointerEvents = 'none';
+      try {
+        const res = await fetch(window.location.href, { cache: 'no-store', headers: { 'X-Requested-With': 'fetch' } });
+        const html = await res.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const fresh = doc.querySelector('#assignAllModal .modal-body');
+        if (fresh) { body.innerHTML = fresh.innerHTML; if (window.initInvitationAssigner) window.initInvitationAssigner(); }
+      } catch (e) { /* sin red: se queda el contenido renderizado con la página */ }
+      body.style.opacity = ''; body.style.pointerEvents = '';
+    }
+    modal.addEventListener('shown.bs.modal', async function(){
+      await refreshAssignContent();
       if (pending){
         applyFilter(pending.stype, pending.sid, pending.name, pending.cat || '');
         pending = null; pendingCat = null;

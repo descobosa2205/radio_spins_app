@@ -38143,6 +38143,7 @@ def _invitation_ticket_assignee_fields(t, rid, rinfo, request_map, commitment_ma
         "assignee_link": (info.get("link") if info else "") or "",
         "assignee_link_logo": (info.get("link_logo") if info else "") or "",
         "assignee_link_type": (info.get("link_type") if info else "") or "",
+        "assignee_total": _safe_int(info.get("total")) if info else 0,
     }
 
 
@@ -41371,6 +41372,7 @@ def invitation_event_detail(concert_id):
                     'link': _ai['link'],
                     'link_logo': _ai['link_logo'],
                     'link_type': _ai['link_type'],
+                    'total': _invitation_total_qty(_json_dict(r.quantities_json)),
                 }
         commitment_map: dict[str, dict] = {}
         if ticket_commitment_ids:
@@ -41383,6 +41385,7 @@ def invitation_event_detail(concert_id):
                     'link': _ai['link'],
                     'link_logo': _ai['link_logo'],
                     'link_type': _ai['link_type'],
+                    'total': _invitation_total_qty(_json_dict(c.quantities_json)),
                 }
         tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
         tickets_by_category = {str(c.id): [] for c in categories}

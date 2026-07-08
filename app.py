@@ -42101,6 +42101,26 @@ def invitation_commitment_deliver(commitment_id):
                 return jsonify({'ok': False, 'error': msg}), 400
             flash(msg, 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
+        # Blindaje servidor: la ENTREGA requiere el cupo COMPLETO asignado — con category_id, esa
+        # categoría entera; sin él, TODAS las categorías del compromiso (la UI ya oculta la opción;
+        # esto protege ante pestañas desactualizadas o dobles clics).
+        _q_all = _json_dict(row.quantities_json)
+        _incomplete = False
+        for _qcid, _qv in _q_all.items():
+            if str(_qcid) == 'TOTAL' or _safe_int(_qv) <= 0:
+                continue
+            if _cat_id and str(_qcid) != str(_cat_id):
+                continue
+            if _invitation_assigned_qty_for_source(session_db, _safe_uuid(_qcid), 'commitment', row.id) < _safe_int(_qv):
+                _incomplete = True
+                break
+        if _incomplete:
+            msg = ('Faltan invitaciones por asignar en esta categoría: la entrega requiere el cupo completo.'
+                   if _cat_id else 'Alguna categoría del compromiso no está completa: entrega categoría a categoría o completa la asignación.')
+            if wants_json:
+                return jsonify({'ok': False, 'error': msg}), 400
+            flash(msg, 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
         now = _now_madrid()
         row.delivery_token = row.delivery_token or _invitation_token()
         if channel in ('whatsapp', 'sms'):
@@ -42850,6 +42870,11 @@ def invitation_request_send(request_id):
         if not row:
             abort(404)
         _ensure_can_manage_invitations(session_db, row.concert)
+        # Blindaje servidor: solo se envía con el cupo COMPLETO asignado (la UI ya oculta la opción,
+        # esto protege ante pestañas desactualizadas o dobles clics).
+        _flags = _invitation_request_kind_flags(session_db, row, _invitation_get_categories(session_db, row.concert, ensure_defaults=False))
+        if not _flags.get('can_send'):
+            raise ValueError('Faltan invitaciones por asignar: el envío requiere el cupo completo.')
         channel = (request.form.get('channel') or 'email').strip().lower()
         wants_json = (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
         extra = request.form.getlist('recipients') + request.form.getlist('extra_emails')

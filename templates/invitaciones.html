@@ -2155,26 +2155,74 @@
       }, 200);
     });
   });
-  document.querySelector('[data-create-promoter-form]')?.addEventListener('submit', async (ev) => {
-    ev.preventDefault();
-    const form = ev.currentTarget;
-    const fd = new FormData(form);
-    const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd});
-    const data = await res.json();
-    if(!res.ok){ form.querySelector('[data-similar-warning]')?.classList.remove('d-none'); form.querySelector('[data-similar-warning]').textContent = data.error || 'No se pudo crear.'; return; }
-    const picker = window.__activePromoterPicker;
-    if(picker){
-      const parentForm = picker.closest('form');
-      const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget};
-      const input = picker.querySelector('input.form-control');
-      const item = {id:data.id,label:data.label || data.nick || fd.get('nick') || '',contact_email:data.contact_email || fd.get('contact_email') || '',contact_phone:data.contact_phone || fd.get('contact_phone') || '', logo_url:data.logo_url || placeholder, link_summary:data.link_summary || {}, link_summary_text:data.link_summary_text || ''};
-      fillTarget(parentForm, fields, item);
-      renderPickerSelected(picker, item);
-      if(input) input.value = item.label;
-      picker.querySelector('.invitation-search-results').innerHTML = '';
+  // Alta de tercero desde el asistente de invitaciones. Si ya existe algo SIMILAR, en vez de solo
+  // avisar se MUESTRAN los similares (con su logo) para elegir uno de ellos —queda seleccionado en
+  // el asistente, como si se hubiera buscado— o crear el nuevo igualmente (force_new).
+  (function(){
+    const form = document.querySelector('[data-create-promoter-form]');
+    if(!form) return;
+    const warnBox = () => form.querySelector('[data-similar-warning]');
+    function clearWarn(){ const wb = warnBox(); if(wb){ wb.classList.add('d-none'); wb.innerHTML = ''; } }
+    function applyPromoterToPicker(item){
+      const picker = window.__activePromoterPicker;
+      if(picker){
+        const parentForm = picker.closest('form');
+        const fields = {hidden: picker.dataset.hiddenTarget, name: picker.dataset.nameTarget, email: picker.dataset.emailTarget, phone: picker.dataset.phoneTarget};
+        const input = picker.querySelector('input.form-control');
+        fillTarget(parentForm, fields, item);
+        renderPickerSelected(picker, item);
+        if(input) input.value = item.label || '';
+        picker.querySelector('.invitation-search-results').innerHTML = '';
+      }
+      const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide();
+      form.reset();
+      clearWarn();
     }
-    const modal = bootstrap.Modal.getInstance(document.getElementById('newPromoterModal')); modal?.hide(); form.reset();
-  });
+    async function useExisting(s){
+      // Elegido un similar: traer su ficha completa (correo/teléfono/vínculo) del buscador para
+      // dejarlo seleccionado exactamente igual que si se hubiera encontrado buscando.
+      let item = {id: s.id, label: s.label || '', contact_email:'', contact_phone:'', logo_url: s.logo_url || placeholder, link_summary:{}, link_summary_text:''};
+      try{
+        const res = await fetch(`{{ url_for('api_search_promoters') }}?q=${encodeURIComponent(s.label || '')}`);
+        const data = await res.json();
+        const hit = (data || []).find(x => String(x.id) === String(s.id));
+        if(hit) item = hit;
+      }catch(e){}
+      applyPromoterToPicker(item);
+    }
+    async function submitCreate(force){
+      const fd = new FormData(form);
+      if(force) fd.set('force_new', '1');
+      const res = await fetch(`{{ url_for('api_create_promoter') }}`, {method:'POST', body:fd});
+      const data = await res.json().catch(() => ({}));
+      const wb = warnBox();
+      if(res.status === 409 && data.similar && data.similar.length){
+        if(!wb) return;
+        wb.classList.remove('d-none');
+        wb.innerHTML = '<div class="mb-2">' + (data.error || 'Ya existe un tercero similar.') + ' Elige uno de estos o crea el nuevo igualmente:</div>';
+        data.similar.forEach(s => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = 'btn btn-sm btn-outline-secondary me-1 mb-1 d-inline-flex align-items-center gap-1';
+          if(s.logo_url){ const im = document.createElement('img'); im.src = s.logo_url; im.alt = ''; im.style.cssText = 'width:20px;height:20px;object-fit:contain;border-radius:4px;background:#fff'; b.appendChild(im); }
+          b.appendChild(document.createTextNode('Usar: ' + (s.label || '')));
+          b.addEventListener('click', () => useExisting(s));
+          wb.appendChild(b);
+        });
+        const f = document.createElement('button');
+        f.type = 'button';
+        f.className = 'btn btn-sm btn-danger mb-1';
+        f.textContent = 'Crear igualmente';
+        f.addEventListener('click', () => submitCreate(true));
+        wb.appendChild(f);
+        return;
+      }
+      if(!res.ok){ if(wb){ wb.classList.remove('d-none'); wb.textContent = data.error || 'No se pudo crear.'; } return; }
+      applyPromoterToPicker({id:data.id, label:data.label || data.nick || fd.get('nick') || '', contact_email:data.contact_email || fd.get('contact_email') || '', contact_phone:data.contact_phone || fd.get('contact_phone') || '', logo_url:data.logo_url || placeholder, link_summary:data.link_summary || {}, link_summary_text:data.link_summary_text || ''});
+    }
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); submitCreate(false); });
+    document.getElementById('newPromoterModal')?.addEventListener('show.bs.modal', clearWarn);
+  })();
   document.querySelectorAll('[data-open-selected-link]').forEach(btn => btn.addEventListener('click', () => {
     const sourceId = btn.dataset.sourceId || '';
     const modal = document.getElementById('invitationQuickLinkModal');

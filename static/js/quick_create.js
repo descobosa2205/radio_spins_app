@@ -64,10 +64,13 @@
         if (btn) btn.disabled = false;
         var data = res.data || {};
         if (res.status === 409 && data.similar) {
-          var html = '<div class="alert alert-warning py-2 mb-2">' + (data.error || 'Parece que ya existe algo similar.') + '</div>';
+          // Mostrar los SIMILARES (con su logo/foto) para elegir uno de ellos, o crear igualmente.
+          var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); };
+          var html = '<div class="alert alert-warning py-2 mb-2">' + esc(data.error || 'Parece que ya existe algo similar.') + ' Elige uno de estos o crea el nuevo igualmente:</div>';
           data.similar.forEach(function (s) {
-            var lbl = (s.label || '').replace(/"/g, '&quot;');
-            html += '<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 qc-use" data-id="' + s.id + '" data-label="' + lbl + '">Usar: ' + (s.label || '') + '</button>';
+            var thumb = (s.logo_url || s.photo_url || '').trim();
+            var img = thumb ? '<img src="' + esc(thumb) + '" alt="" style="width:20px;height:20px;object-fit:contain;border-radius:4px;background:#fff">' : '';
+            html += '<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 qc-use d-inline-flex align-items-center gap-1" data-id="' + esc(s.id) + '" data-label="' + esc(s.label || '') + '" data-logo="' + esc(thumb) + '">' + img + '<span>Usar: ' + esc(s.label || '') + '</span></button>';
           });
           html += '<button type="button" class="btn btn-sm btn-primary mb-1 qc-force">Crear igualmente</button>';
           feedback(form, html);
@@ -116,7 +119,7 @@
     var use = e.target.closest('.qc-use');
     if (use) {
       e.preventDefault();
-      selectInTarget(currentTargetId, use.getAttribute('data-id'), use.getAttribute('data-label'));
+      selectInTarget(currentTargetId, use.getAttribute('data-id'), use.getAttribute('data-label'), use.getAttribute('data-logo') || '');
       var m = use.closest('.modal');
       if (m && window.bootstrap) bootstrap.Modal.getInstance(m).hide();
       return;

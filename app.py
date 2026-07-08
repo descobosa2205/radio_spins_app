@@ -20569,7 +20569,7 @@ def api_create_venue():
             label = (row.name or '').strip()
             if row.municipality or row.province:
                 label = f"{label} — {(row.municipality or '').strip()} ({(row.province or '').strip()})".strip()
-            rows.append({"id": str(row.id), "label": label, "name": (row.name or '').strip()})
+            rows.append({"id": str(row.id), "label": label, "name": (row.name or '').strip(), "photo_url": (getattr(row, 'photo_url', None) or '').strip()})
 
         exact = None
         for row in session_db.query(Venue).all():
@@ -20578,7 +20578,7 @@ def api_create_venue():
                 break
         similar = _build_similarity_rows(name, rows, threshold=0.76)
         if exact and not force_new:
-            similar = [{"id": str(exact.id), "label": f"{(exact.name or '').strip()} — {(exact.municipality or '').strip()} ({(exact.province or '').strip()})".strip(), "score": 1.0}]
+            similar = [{"id": str(exact.id), "label": f"{(exact.name or '').strip()} — {(exact.municipality or '').strip()} ({(exact.province or '').strip()})".strip(), "score": 1.0, "photo_url": (getattr(exact, 'photo_url', None) or '').strip()}]
         if similar and not force_new:
             return jsonify({"error": "Parece que ya existe un recinto similar.", "similar": similar}), 409
 

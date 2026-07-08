@@ -983,7 +983,8 @@ img.img-error-pending{ visibility: hidden; }
 .inv-cat-row.inv-dragging { opacity:.45; }
 .inv-cat-empty { border:1px dashed #d4d9df; border-radius:10px; }
 .inv-dl-done { color: #1c9d5b; font-size: 1rem; }            /* icono de descarga (verde) al descargarse */
-/* Butaca con FOTO del invitado dentro: número arriba (pequeño) y foto debajo (no la tapa). */
+/* Butaca con FOTO del invitado dentro: la foto ocupa el sitio del icono (ARRIBA) y el número va
+   debajo — mismo orden icono→número que el resto de butacas. */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }
 .invitation-seat--photo .invitation-seat-num { font-size: .66rem; font-weight: 700; line-height: 1; }
 .invitation-seat-photo { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; border: 2px solid var(--asg, #fff); background: #fff; }

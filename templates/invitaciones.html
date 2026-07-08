@@ -785,7 +785,7 @@
                         </div>
                         {% set stg = sector.stage %}
                         <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
-                        {% if stg %}<div class="invitation-stage" style="left:{{ stg.x }}%;top:{{ stg.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row">
                             <div class="invitation-row-label">Fila {{ row.row_label }}</div>
@@ -1123,11 +1123,11 @@
                         <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div></div>
                         {% set stg = sector.stage %}
                         <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
-                        {% if stg %}<div class="invitation-stage" style="left:{{ stg.x }}%;top:{{ stg.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}">{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}" data-an="{{ t.assignee_name|e }}" data-alk="{{ t.assignee_link|e }}" data-alo="{{ t.assignee_link_logo|e }}" data-alt="{{ t.assignee_link_type }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}">{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                           {% endfor %}
                           </div></div>
                         {% endfor %}
@@ -2757,9 +2757,10 @@
         linkText: linkTxtEl ? linkTxtEl.textContent.trim() : ''
       };
     };
+    const escHtmlInv = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
     const refreshStagedVisuals = () => {
-      // limpiar decoraciones y etiquetas anteriores
-      form.querySelectorAll('.staged-owner-label').forEach(el => el.remove());
+      // limpiar franjas y decoraciones anteriores
+      form.querySelectorAll('.seat-owner-strip').forEach(el => el.remove());
       seatEls().forEach(seat => {
         if (!stage.has(seat) && seat.dataset.stagedPhoto === '1') {
           seat.querySelectorAll('img.staged-ph').forEach(im => im.remove());
@@ -2784,28 +2785,38 @@
           seat.dataset.stagedPhoto = '1';
         }
       });
-      // etiqueta (foto + nombre + logo del vínculo) sobre el PRIMER asiento de cada tramo contiguo
-      const all = seatEls();
-      let run = null;   // { src, first }
-      const closeRun = () => {
-        if (!run) return;
-        const info = infoFor(run.src);
-        const label = document.createElement('span');
-        label.className = 'staged-owner-label';
-        let html = '';
-        if (info.ownPhoto) html += '<img src="' + info.ownPhoto + '" alt="">';
-        html += '<span>' + (info.name || 'Invitado') + '</span>';
-        if (info.linkLogo) html += '<img class="' + (info.linkIsPhoto ? 'is-photo' : 'is-logo') + '" src="' + info.linkLogo + '" alt="">';
-        label.innerHTML = html;
-        run.first.appendChild(label);
-        run = null;
+      // FRANJA de propietario (nombre + logo del vínculo + línea de color abarcando TODO el tramo),
+      // IGUAL que en el mapa de la pestaña de invitaciones — sobre TODAS las butacas con dueño:
+      // las del proceso (amarillas) y las YA asignadas/enviadas.
+      const ownerOfSeat = (seat) => {
+        const s = stage.get(seat);
+        if (s) { const i = infoFor(s); return { key: 'S:' + srcKey(s), name: i.name, link: i.linkText, logo: i.linkLogo, logoPhoto: i.linkIsPhoto, color: '#e0a800' }; }
+        if (seatStatus(seat) !== 'AVAILABLE' && seat.dataset.src) {
+          return { key: 'P:' + seat.dataset.src, name: seat.dataset.an || '', link: seat.dataset.alk || '', logo: seat.dataset.alo || '', logoPhoto: (seat.dataset.alt === 'artist' || seat.dataset.alt === 'venue'), color: seat.style.getPropertyValue('--asg') || '#999' };
+        }
+        return null;
       };
-      all.forEach(seat => {
-        const src = stage.get(seat);
-        const sameGrid = run && run.first.closest('.invitation-seat-grid') === seat.closest('.invitation-seat-grid');
-        if (src && run && run.src === src && sameGrid) return;    // continúa el tramo
+      const drawStrip = (grid, seats, own) => {
+        const first = seats[0], last = seats[seats.length - 1];
+        const strip = document.createElement('div');
+        strip.className = 'seat-owner-strip';
+        strip.style.left = first.offsetLeft + 'px';
+        strip.style.width = Math.max(last.offsetLeft + last.offsetWidth - first.offsetLeft, 24) + 'px';
+        strip.style.top = (first.offsetTop - 17) + 'px';
+        strip.style.setProperty('--asg', own.color);
+        let nameHtml = escHtmlInv(own.name || 'Asignada');
+        if (own.link) nameHtml += ' · ' + (own.logo ? '<img class="inv-seat-block-linklogo ' + (own.logoPhoto ? 'is-photo' : 'is-logo') + '" src="' + escHtmlInv(own.logo) + '" alt="">' : '') + escHtmlInv(own.link);
+        strip.innerHTML = '<div class="invitation-seat-block-name" title="' + escHtmlInv(own.name + (own.link ? ' · ' + own.link : '')) + '">' + nameHtml + '</div><div class="invitation-seat-block-line"></div>';
+        grid.appendChild(strip);
+      };
+      let run = null;   // { key, grid, seats, own }
+      const closeRun = () => { if (run && run.seats.length) drawStrip(run.grid, run.seats, run.own); run = null; };
+      seatEls().forEach(seat => {
+        const own = ownerOfSeat(seat);
+        const grid = seat.closest('.invitation-seat-grid');
+        if (own && run && run.key === own.key && run.grid === grid) { run.seats.push(seat); return; }
         closeRun();
-        if (src) run = { src: src, first: seat };
+        if (own && grid) run = { key: own.key, grid: grid, seats: [seat], own: own };
       });
       closeRun();
     };
@@ -2971,10 +2982,68 @@
         clearMovePrev();
         consecutiveFromMove(seat, stagedOf(src).length, src).forEach(s => { movePrev.add(s); s.classList.add('is-drag-sel'); });
       };
+      // ---- mover un bloque YA ASIGNADO (guardado, no enviado): mismas reglas que el staged ----
+      const persistedSeatsOf = (key) => seatEls().filter(s => (s.dataset.src || '') === key && seatStatus(s) === 'ASSIGNED');
+      const consecutiveFree = (startSeat, n, okSet) => {
+        const all = seatEls(); const start = all.indexOf(startSeat);
+        if (start < 0 || n <= 0) return [];
+        const pick = []; let prev = null;
+        for (let i = start; i < all.length && pick.length < n; i++) {
+          const el = all[i];
+          const free = (seatStatus(el) === 'AVAILABLE' && !stage.has(el)) || (okSet && okSet.has(el));
+          if (!free) continue;
+          if (prev && stairBetween(prev, el)) break;
+          pick.push(el); prev = el;
+        }
+        return pick;
+      };
+      const pmovePreviewAt = (seat, key) => {
+        clearMovePrev();
+        const movers = persistedSeatsOf(key);
+        consecutiveFree(seat, movers.length, new Set(movers)).forEach(s => { movePrev.add(s); s.classList.add('is-drag-sel'); });
+      };
+      const applyPersistedMove = async (key, movers, targets) => {
+        if (busy || !targets.length || targets.length < movers.length) return;
+        targets = targets.slice(0, movers.length);
+        if (targets.length === movers.length && targets.every(t => movers.indexOf(t) >= 0)) return;   // mismo sitio
+        const parts = key.split(':');
+        // instantánea del visual ANTES de tocar nada (para replicarlo en el destino)
+        const snap = movers.map(m => ({ html: m.innerHTML, cls: m.className, asg: m.style.getPropertyValue('--asg'), an: m.dataset.an || '', alk: m.dataset.alk || '', alo: m.dataset.alo || '', alt: m.dataset.alt || '', title: m.getAttribute('title') || '' }));
+        busy = true; movers.forEach(s => s.classList.add('is-pending'));
+        let ok = true;
+        for (const s of movers) {
+          // eslint-disable-next-line no-await-in-loop
+          if (!(await postRelease(s.dataset.ticketId))) { ok = false; break; }
+        }
+        if (ok) {
+          const fd = new FormData();
+          fd.append('assignments_json', JSON.stringify([{ source_type: parts[0], source_id: parts.slice(1).join(':'), category_id: form.dataset.categoryId, qty: 0, ticket_ids: targets.map(t => t.dataset.ticketId) }]));
+          fd.append('ajax', '1'); fd.append('accept_warnings', '1');
+          try { const res = await fetch(form.action, { method: 'POST', body: fd }); const d = await res.json().catch(() => null); ok = !!(res.ok && d && d.ok); if (ok) window.__invAssignChanged = true; } catch (e) { ok = false; }
+        }
+        busy = false; movers.forEach(s => s.classList.remove('is-pending'));
+        if (!ok) { alert('No se pudo recolocar el bloque; se recarga para resincronizar.'); window.location.reload(); return; }
+        movers.forEach(m => { if (targets.indexOf(m) < 0) resetSeatVisual(m); });
+        targets.forEach((t2, i2) => {
+          const sn = snap[i2];
+          const numEl2 = t2.querySelector('.invitation-seat-num, span');
+          const label2 = numEl2 ? numEl2.textContent : '';
+          t2.className = sn.cls.replace(' is-pending', '').replace(' is-drag-sel', '');
+          t2.dataset.ticketStatus = 'ASSIGNED';
+          t2.style.setProperty('--asg', sn.asg);
+          t2.dataset.src = key;
+          if (sn.an) t2.dataset.an = sn.an; if (sn.alk) t2.dataset.alk = sn.alk; if (sn.alo) t2.dataset.alo = sn.alo; if (sn.alt) t2.dataset.alt = sn.alt;
+          if (sn.title) t2.setAttribute('title', sn.title);
+          t2.innerHTML = sn.html;   // foto/icono del origen…
+          const numNew = t2.querySelector('.invitation-seat-num, span'); if (numNew) numNew.textContent = label2;   // …con el número del destino
+        });
+        refreshStagedVisuals(); setRemaining();
+      };
       zone.addEventListener('mousedown', (ev) => {
         if (isGuestList || busy) return;
         const seat = ev.target.closest('[data-ticket-id]'); if (!seat) return;
         if (stage.get(seat)) { ev.preventDefault(); paint = { mode: 'staged-pending', start: seat, src: stage.get(seat) }; return; }
+        if (seatStatus(seat) === 'ASSIGNED' && seat.dataset.src) { ev.preventDefault(); paint = { mode: 'persisted-pending', start: seat, key: seat.dataset.src }; return; }
         if (seatStatus(seat) !== 'AVAILABLE') { ev.preventDefault(); releaseAssignedSeat(seat); return; }
         if (!activeSource) { alert('Marca primero a quién asignar (una solicitud a la izquierda).'); return; }
         ev.preventDefault();
@@ -2990,6 +3059,15 @@
           if (seatStatus(seat) === 'AVAILABLE') { paint.mode = 'move'; movePreviewAt(seat, paint.src); return; }
           return;
         }
+        if (paint.mode === 'persisted-pending' && seat !== paint.start) {
+          // bloque YA ASIGNADO: arrastrar hacia un asiento libre = MOVERLO (los enviados no entran aquí)
+          if (seatStatus(seat) === 'AVAILABLE' && !stage.has(seat)) { paint.mode = 'pmove'; pmovePreviewAt(seat, paint.key); }
+          return;
+        }
+        if (paint.mode === 'pmove') {
+          if (seatStatus(seat) === 'AVAILABLE' && !stage.has(seat)) pmovePreviewAt(seat, paint.key);
+          return;
+        }
         if (paint.mode === 'erase') { if (stage.get(seat)) unstageSeat(seat); return; }
         if (paint.mode === 'move') {
           if (seatStatus(seat) === 'AVAILABLE' && (!stage.has(seat) || stage.get(seat) === paint.src)) movePreviewAt(seat, paint.src);
@@ -3002,6 +3080,12 @@
         if (!paint) return;
         const p = paint; paint = null;
         if (p.mode === 'staged-pending') { unstageSeat(p.start); return; }   // clic simple = quitar una
+        if (p.mode === 'persisted-pending') { releaseAssignedSeat(p.start); return; }   // clic simple = liberar (con confirmación)
+        if (p.mode === 'pmove') {
+          const targets = Array.from(movePrev); clearMovePrev();
+          applyPersistedMove(p.key, persistedSeatsOf(p.key), targets);
+          return;
+        }
         if (p.mode === 'erase') return;
         if (p.mode === 'move') {
           const targets = Array.from(movePrev); clearMovePrev();
@@ -3071,26 +3155,20 @@
 
     form.addEventListener('submit', ev => ev.preventDefault());
 
-    // Persistir TODO lo staged de este formulario (lo llama el botón «Guardar»).
-    const commitStaged = async () => {
+    // Entradas staged de este formulario: las junta el botón «Guardar» de TODOS los formularios en
+    // UNA sola petición (antes se hacía un POST por solicitud — con la BD lejos, cada uno sumaba).
+    const stagedEntries = () => {
       const bySrc = new Map();
       stage.forEach((src, seat) => { if (!bySrc.has(src)) bySrc.set(src, []); bySrc.get(src).push(seat.dataset.ticketId); });
-      let okAll = true;
-      const post = async (src, ticketIds, qty) => {
-        const fd = new FormData();
-        fd.append('assignments_json', JSON.stringify([{ source_type: src.dataset.sourceType, source_id: src.dataset.sourceId, category_id: src.dataset.categoryId, qty: qty || 0, ticket_ids: ticketIds || [] }]));
-        fd.append('ajax', '1'); fd.append('accept_warnings', '1');
-        try { const res = await fetch(form.action, { method: 'POST', body: fd }); const d = await res.json().catch(() => null); if (res.ok && d && d.ok) { window.__invAssignChanged = true; return true; } } catch (e) {}
-        return false;
-      };
-      for (const [src, ticketIds] of bySrc.entries()) { if (!(await post(src, ticketIds, 0))) okAll = false; }
-      for (const src of Array.from(guestListStaged)) { if (!(await post(src, [], qtyTotal(src) || 1))) okAll = false; }
-      return okAll;
+      const out = [];
+      bySrc.forEach((ids, src) => out.push({ source_type: src.dataset.sourceType, source_id: src.dataset.sourceId, category_id: src.dataset.categoryId, qty: 0, ticket_ids: ids }));
+      guestListStaged.forEach(src => out.push({ source_type: src.dataset.sourceType, source_id: src.dataset.sourceId, category_id: src.dataset.categoryId, qty: qtyTotal(src) || 1, ticket_ids: [] }));
+      return out;
     };
     const hasStaged = () => stage.size > 0 || guestListStaged.size > 0;
-    invAssignForms.push({ commit: commitStaged, hasStaged: hasStaged });
+    invAssignForms.push({ hasStaged: hasStaged, entries: stagedEntries, action: form.action });
 
-    updateAllSources(); setRemaining();
+    updateAllSources(); setRemaining(); refreshStagedVisuals();   // franjas también al cargar (asignadas previas)
   });
   }
   initInvitationAssigner();
@@ -3101,13 +3179,22 @@
     var saveBtn = document.querySelector('#assignAllModal [data-assign-save]');
     if (!saveBtn) return;
     saveBtn.addEventListener('click', async () => {
-      var pend = invAssignForms.filter(f => f.hasStaged());
-      if (!pend.length) { alert('No hay asignaciones nuevas que guardar.'); return; }
+      var entries = [];
+      invAssignForms.forEach(function(f){ entries = entries.concat(f.entries()); });
+      if (!entries.length) { alert('No hay asignaciones nuevas que guardar.'); return; }
       saveBtn.disabled = true; var orig = saveBtn.innerHTML; saveBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Guardando…';
-      var ok = true;
-      for (var f of pend) { if (!(await f.commit())) ok = false; }
-      if (ok) { window.location.reload(); }
-      else { saveBtn.disabled = false; saveBtn.innerHTML = orig; alert('Algunas asignaciones no se pudieron guardar. Revisa e inténtalo de nuevo.'); }
+      // TODO junto en UNA petición: el servidor itera assignments_json.
+      var ok = false;
+      try {
+        var fd = new FormData();
+        fd.append('assignments_json', JSON.stringify(entries));
+        fd.append('ajax', '1'); fd.append('accept_warnings', '1');
+        var res = await fetch(invAssignForms[0].action, { method: 'POST', body: fd });
+        var d = await res.json().catch(function(){ return null; });
+        ok = !!(res.ok && d && d.ok);
+      } catch (e) { ok = false; }
+      if (ok) { window.__invAssignChanged = true; window.location.reload(); }
+      else { saveBtn.disabled = false; saveBtn.innerHTML = orig; alert('No se pudieron guardar las asignaciones. Revisa e inténtalo de nuevo.'); }
     });
     var modalEl = document.getElementById('assignAllModal');
     if (modalEl) modalEl.addEventListener('hide.bs.modal', function (ev) {
@@ -3176,9 +3263,13 @@
     // Al ABRIR: el contenido (lista de peticiones + planos) se recarga SIEMPRE desde el servidor
     // para reflejar cambios recientes (peticiones nuevas, planos reconfigurados, asignaciones de
     // otros). Después se aplica el filtro de apertura sobre el contenido fresco.
+    var pageLoadedAt = Date.now();
     async function refreshAssignContent(){
       var body = modal.querySelector('.modal-body');
       if (!body) return;
+      // La página recién cargada YA está fresca: evita re-pedirla (era un render completo extra en
+      // el camino crítico de abrir el asignador). Pasados unos segundos sí se refresca siempre.
+      if (Date.now() - pageLoadedAt < 10000) return;
       body.style.opacity = '.45'; body.style.pointerEvents = 'none';
       try {
         const res = await fetch(window.location.href, { cache: 'no-store', headers: { 'X-Requested-With': 'fetch' } });

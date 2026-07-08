@@ -38567,6 +38567,27 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
     name_map = _invitation_category_name_map(categories)
     payload: dict[str, list[dict]] = {str(c.id): [] for c in categories}
     placeholder_photo = url_for("static", filename="img/placeholder_photo.png")
+    # UNA sola consulta agrupada con TODOS los conteos de asignación del concierto. Antes se hacían
+    # 1-2 COUNT por fuente×categoría (decenas de consultas) y, con la BD en otra región, eso son
+    # segundos de espera al abrir/refrescar el asignador.
+    assigned_counts: dict[tuple, int] = {}
+    unsent_counts: dict[tuple, int] = {}
+    for _cid, _rq, _cm, _st, _n in session_db.query(
+            InvitationTicket.category_id, InvitationTicket.assigned_request_id,
+            InvitationTicket.assigned_commitment_id, InvitationTicket.status,
+            func.count(InvitationTicket.id)).filter(
+            InvitationTicket.concert_id == concert.id).group_by(
+            InvitationTicket.category_id, InvitationTicket.assigned_request_id,
+            InvitationTicket.assigned_commitment_id, InvitationTicket.status).all():
+        if _rq:
+            _key = (str(_cid), "request", str(_rq))
+        elif _cm:
+            _key = (str(_cid), "commitment", str(_cm))
+        else:
+            continue
+        assigned_counts[_key] = assigned_counts.get(_key, 0) + int(_n or 0)
+        if (_st or "").upper() == "ASSIGNED":
+            unsent_counts[_key] = unsent_counts.get(_key, 0) + int(_n or 0)
     for commitment in session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all():
         quantities = _json_dict(commitment.quantities_json)
         vis = _invitation_assignee_visual(session_db, commitment, link_photo_fallback=False)
@@ -38574,15 +38595,11 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
                 continue
-            assigned = _invitation_assigned_qty_for_source(session_db, cat.id, "commitment", commitment.id)
+            assigned = assigned_counts.get((str(cat.id), "commitment", str(commitment.id)), 0)
             pending = max(_safe_int(qty) - assigned, 0)
             # Sin pendientes: sigue apareciendo si tiene entradas ASIGNADAS sin enviar (editable).
             if pending <= 0:
-                unsent = int(session_db.query(func.count(InvitationTicket.id)).filter(
-                    InvitationTicket.category_id == cat.id,
-                    InvitationTicket.assigned_commitment_id == commitment.id,
-                    InvitationTicket.status == 'ASSIGNED').scalar() or 0)
-                if unsent <= 0:
+                if unsent_counts.get((str(cat.id), "commitment", str(commitment.id)), 0) <= 0:
                     continue
             payload[str(cat.id)].append({
                 "source_type": "commitment",
@@ -38619,7 +38636,7 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
             cat = next((c for c in categories if str(c.id) == str(cid)), None)
             if not cat:
                 continue
-            assigned = _invitation_assigned_qty_for_source(session_db, cat.id, "request", row.id)
+            assigned = assigned_counts.get((str(cat.id), "request", str(row.id)), 0)
             pending = max(_safe_int(qty) - assigned, 0)
             # Sin pendientes: sigue apareciendo si está ASIGNADA (no enviada) para poder modificarla.
             if pending <= 0 and not (assigned > 0 and (row.status or "") == "ASIGNADAS"):
@@ -38830,11 +38847,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     _display_status = row.status or "SOLICITADAS"
     if _display_status == "ASIGNADAS" and _sess is not None:
         _qty_total = _invitation_total_qty(quantities)
-        try:
-            _asg_total = int(_sess.query(func.count(InvitationTicket.id)).filter(
-                InvitationTicket.assigned_request_id == row.id).scalar() or 0)
-        except Exception:
-            _asg_total = _qty_total
+        _asg_total = _invitation_request_assigned_total(_sess, row)
         if _qty_total > 0 and _asg_total < _qty_total:
             _display_status = "APROBADAS"
     return {
@@ -39101,6 +39114,32 @@ def _invitation_request_visible_for_user(row: InvitationRequest | None) -> bool:
     return _invitation_concert_visible_for_user(getattr(row, "concert", None))
 
 
+def _invitation_request_assigned_total(session_db, row) -> int:
+    """Total de entradas asignadas a una solicitud, con caché POR CONCIERTO en g: una única consulta
+    agrupada por solicitud en vez de un COUNT por fila al pintar listados (con la BD en otra región,
+    cada consulta extra son ~30 ms — los listados grandes tardaban segundos)."""
+    cid = str(getattr(row, "concert_id", "") or "")
+    cache = getattr(g, "_inv_req_assigned_totals", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._inv_req_assigned_totals = cache
+        except Exception:
+            pass
+    m = cache.get(cid)
+    if m is None:
+        m = {}
+        try:
+            for _rq, _n in session_db.query(InvitationTicket.assigned_request_id, func.count(InvitationTicket.id)).filter(
+                    InvitationTicket.concert_id == row.concert_id,
+                    InvitationTicket.assigned_request_id.isnot(None)).group_by(InvitationTicket.assigned_request_id).all():
+                m[str(_rq)] = int(_n or 0)
+        except Exception:
+            m = {}
+        cache[cid] = m
+    return m.get(str(row.id), 0)
+
+
 def _invitation_request_kind_flags(session_db, row: InvitationRequest, categories: list[InvitationCategory]) -> dict:
     quantities = _json_dict(getattr(row, "quantities_json", None))
     cat_map = {str(c.id): c for c in (categories or [])}
@@ -39120,11 +39159,7 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
     fully_assigned = True
     if status == "ASIGNADAS" and not uses_guest_list:
         qty_total = sum(_safe_int(v) for k, v in quantities.items() if str(k) != "TOTAL")
-        try:
-            assigned_total = int(session_db.query(func.count(InvitationTicket.id)).filter(
-                InvitationTicket.assigned_request_id == row.id).scalar() or 0)
-        except Exception:
-            assigned_total = qty_total
+        assigned_total = _invitation_request_assigned_total(session_db, row)
         fully_assigned = qty_total <= 0 or assigned_total >= qty_total
     return {
         "uses_guest_list": uses_guest_list,

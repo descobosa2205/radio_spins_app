@@ -39894,6 +39894,23 @@ def _invitation_committed_palco_labels(session_db, concert, categories) -> dict[
     return {cid: " · ".join(names) for cid, names in out.items()}
 
 
+def _invitation_request_excluded_category_ids(session_db, concert, categories) -> set:
+    """Categorías que NO se ofrecen al PEDIR invitaciones (asistente interno y enlace público):
+    (a) palcos ya COMPROMETIDOS a alguien (se asignan como unidad), y (b) cualquier palco COMPLETO
+    — con entradas subidas y ninguna disponible porque ya están todas asignadas o enviadas—.
+    Un palco lleno o cuyas invitaciones ya salieron no puede aceptar más peticiones."""
+    excluded = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+    palco_ids = {str(c.id) for c in categories if _invitation_category_zone(c) == "PALCO"}
+    if palco_ids:
+        counts = _invitation_ticket_counts_by_category(session_db, concert)
+        for cid in palco_ids:
+            cc = counts.get(cid) or {}
+            uploaded = _safe_int(cc.get("uploaded"))
+            if uploaded > 0 and _safe_int(cc.get("assigned")) >= uploaded:
+                excluded.add(cid)
+    return excluded
+
+
 def _invitation_event_available_by_category(session_db, concert: Concert, categories: list[InvitationCategory]) -> dict:
     """Aforo disponible del EVENTO por categoría (capacidad - comprometidas - solicitadas activas).
     Se usa para las opciones 'solo con aforo' y 'limitar a aforo' del enlace público."""
@@ -41283,9 +41300,10 @@ def api_invitation_event_categories(concert_id):
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         session_db.commit()
         counts = _invitation_event_counts(session_db, concert)
-        # Un palco ya comprometido a alguien (aunque no se le hayan asignado las entradas) NO se ofrece
-        # al pedir: desaparece de la lista de categorías del asistente.
-        committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+        # Un palco ya comprometido a alguien (aunque no se le hayan asignado las entradas) o un
+        # palco COMPLETO (todas sus entradas asignadas/enviadas) NO se ofrece al pedir: desaparece
+        # de la lista de categorías del asistente.
+        committed_palco = _invitation_request_excluded_category_ids(session_db, concert, categories)
         # Color por CATEGORÍA (mismo criterio que en el listado de invitados: por orden de la
         # categoría en el evento), para que la franja de color sea idéntica en todas partes.
         _tk_counts = _invitation_ticket_counts_by_category(session_db, concert)
@@ -41884,6 +41902,12 @@ def invitation_request_create():
         quantities = _invitation_quantities_from_form(request.form, categories)
         if _invitation_total_qty(quantities) <= 0:
             raise ValueError('Indica al menos una invitación.')
+        # Blindaje server-side: palcos comprometidos o COMPLETOS (asignados/enviados) no admiten
+        # peticiones (el asistente ya no los ofrece; esto protege ante pestañas desactualizadas).
+        _excluded = _invitation_request_excluded_category_ids(session_db, concert, categories)
+        _excluded_names = [c.name for c in categories if str(c.id) in _excluded and _safe_int(quantities.get(str(c.id))) > 0]
+        if _excluded_names:
+            raise ValueError('No se admiten peticiones en: ' + ', '.join(_excluded_names) + ' (palco ya completo o comprometido).')
         # Refuerzo server-side del bloqueo de categorías: no se admiten peticiones para las que el
         # gestor haya marcado como "No admite peticiones" (la UI ya las deshabilita).
         _blocked_names = [
@@ -45544,8 +45568,9 @@ def public_invitation_request_link(token):
         open_for_changes = (state == 'active')
         event_avail_by_cat = _invitation_event_available_by_category(session_db, concert, categories)
         event_avail_total = _invitation_event_counts(session_db, concert)['result']
-        # Palcos ya comprometidos a alguien: no se ofrecen al pedir por el enlace público.
-        committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+        # Palcos ya comprometidos o COMPLETOS (asignados/enviados): no se ofrecen al pedir por el
+        # enlace público.
+        committed_palco = _invitation_request_excluded_category_ids(session_db, concert, categories)
         limits = _invitation_public_limits(link, categories, requests, event_avail_by_cat, event_avail_total, exclude_ids=committed_palco)
         editable_statuses = {'SOLICITADAS', 'APROBADAS', 'ASIGNADAS'}
         manage_statuses = {'ASIGNADAS', 'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
@@ -45631,7 +45656,7 @@ def public_invitation_request_submit(token):
                  and _safe_int(quantities.get(str(c.id))) > max(_safe_int(_event_avail_by_cat.get(str(c.id), 0)), 0)]
         if _over:
             raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
-        _committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys())
+        _committed_palco = _invitation_request_excluded_category_ids(session_db, concert, categories)
         limits = _invitation_public_limits(link, categories, existing, _event_avail_by_cat, _inv_available, exclude_ids=_committed_palco)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')
@@ -45773,7 +45798,7 @@ def public_invitation_request_update(token, request_id):
         existing = [x for x in session_db.query(InvitationRequest).filter(InvitationRequest.public_link_id == link.id).all() if x.id != row.id]
         # Palcos comprometidos a otros: no se pueden elegir al reeditar (salvo los que esta misma
         # petición ya ocupaba, para poder mantener/reducir).
-        _committed_palco = set(_invitation_committed_palco_labels(session_db, concert, categories).keys()) - {str(k) for k in current.keys()}
+        _committed_palco = _invitation_request_excluded_category_ids(session_db, concert, categories) - {str(k) for k in current.keys()}
         limits = _invitation_public_limits(link, categories, existing, event_avail_by_cat, event_avail_total, exclude_ids=_committed_palco)
         if limits.get('total_limit') is not None and _invitation_total_qty(quantities) > limits.get('available_total', 0):
             raise ValueError('La petición supera el límite disponible del enlace.')

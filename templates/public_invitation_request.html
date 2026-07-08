@@ -83,7 +83,7 @@
                   </div>
                   <div class="small text-muted mt-1">
                     <i class="fa fa-paper-plane"></i>
-                    {% if row.receiver_mode == 'BOX_OFFICE' %}Recoger en taquilla{% elif row.receiver_mode == 'ME' %}Al titular del enlace{% elif row.guest_email %}{{ row.guest_email }}{% else %}Al invitado{% endif %}
+                    {% if row.receiver_mode == 'BOX_OFFICE' %}Recoger en taquilla{% elif row.receiver_mode == 'ME' %}Al titular del enlace{% else %}Invitado{% endif %}
                     · {{ row.created_at_label }}
                   </div>
                   {% if row.note %}<div class="small mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}

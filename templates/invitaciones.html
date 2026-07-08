@@ -531,7 +531,7 @@
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
-                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}A mí{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'a la empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'a otro' }}{% elif row.guest_email %}{{ row.guest_email }}{% else %}al invitado{% endif %}</span>
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}<img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}</span>
                           <span class="inv-person-sep">|</span>
                           <span class="inv-person">Pedidas por: <img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
                         </div>

@@ -17504,8 +17504,6 @@ def promoters_view():
             try:
                 if not nick:
                     raise ValueError("El nick es obligatorio.")
-                if not contact_email:
-                    raise ValueError("El email de contacto es obligatorio.")
                 logo_url = upload_image(logo, "promoters") if (logo and getattr(logo, "filename", "")) else None
                 kind = (request.form.get("kind") or "").strip().lower()
                 if kind not in ("empresa", "institucion"):

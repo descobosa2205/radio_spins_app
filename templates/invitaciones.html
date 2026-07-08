@@ -3186,7 +3186,7 @@
       return out;
     };
     const hasStaged = () => stage.size > 0 || guestListStaged.size > 0;
-    invAssignForms.push({ hasStaged: hasStaged, entries: stagedEntries, action: form.action });
+    invAssignForms.push({ hasStaged: hasStaged, entries: stagedEntries, action: form.action, reset: function(){ stage.clear(); guestListStaged.clear(); } });
 
     updateAllSources(); setRemaining(); refreshStagedVisuals();   // franjas también al cargar (asignadas previas)
   });
@@ -3219,11 +3219,13 @@
         ok = !!(res.ok && d && d.ok);
       } catch (e) { ok = false; }
       if (ok) {
-        // Guardado casi inmediato: se refresca SOLO el contenido del modal (parcial ligero) y se
-        // sigue trabajando; la página de detrás se recarga UNA vez al cerrar (__invAssignChanged).
+        // Guardado OK: se CIERRA el asignador y vuelves al punto donde estabas (el cierre recarga
+        // la página para reflejar los cambios y el navegador conserva la posición del scroll).
         window.__invAssignChanged = true;
-        if (window.__refreshAssignContent) { try { await window.__refreshAssignContent(true); } catch (e) {} }
+        invAssignForms.forEach(function(f){ if (f.reset) f.reset(); });   // sin staging → cierre sin avisos
         saveBtn.disabled = false; saveBtn.innerHTML = orig;
+        try { bootstrap.Modal.getOrCreateInstance(document.getElementById('assignAllModal')).hide(); }
+        catch (e) { window.location.reload(); }
       }
       else { saveBtn.disabled = false; saveBtn.innerHTML = orig; alert('No se pudieron guardar las asignaciones. Revisa e inténtalo de nuevo.'); }
     });

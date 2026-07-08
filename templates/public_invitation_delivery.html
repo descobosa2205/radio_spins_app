@@ -50,8 +50,9 @@
 </head>
 <body>
 <div class="pi-wrap">
-  {# Logo de la empresa del grupo arriba a la derecha; título "Invitaciones" centrado. #}
-  <div class="text-end mb-2"><img class="pi-logo" src="{{ logo }}" alt=""></div>
+  {# Logo de la empresa del grupo arriba a la derecha; título "Invitaciones" centrado.
+     Si el logo no carga (URL antigua/borrada), se oculta en vez de dejar el icono de imagen rota. #}
+  {% if logo %}<div class="text-end mb-2"><img class="pi-logo" src="{{ logo }}" alt="" onerror="this.parentNode.style.display='none'"></div>{% endif %}
   <h1 class="pi-title h3 text-center"><i class="fa fa-ticket me-2 text-danger"></i>Invitaciones</h1>
 
   {# Cabecera: cartel principal (si lo hay) a la izquierda + info del concierto a la derecha. #}

@@ -148,8 +148,15 @@ def _upload_bytes(data: bytes, key: str, content_type: str) -> str:
     # Algunas versiones devuelven dict con 'error'
     _check_dict_response(resp, size_bytes)
 
-    return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
+    return _public_url(client, key)
 
+
+def _public_url(client: Client, key: str) -> str:
+    """URL pública LIMPIA de un objeto. storage3 0.7.x añade siempre un «?» final (query vacía) en
+    get_public_url; ese sufijo se guardaba en BD y algunos clientes de correo y previsualizadores
+    de enlaces lo digieren mal. Se recorta antes de devolverla/guardarla."""
+    url = client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key) or ""
+    return url.rstrip("?")
 
 
 def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
@@ -171,7 +178,7 @@ def _upload_fileobj(file_obj, key: str, content_type: str) -> str:
     except Exception as e:
         _raise_storage_error(e, size_bytes=size_bytes)
     _check_dict_response(resp, size_bytes)
-    return client.storage.from_(settings.SUPABASE_BUCKET).get_public_url(key)
+    return _public_url(client, key)
 
 
 def _rewind_file_storage(file_storage) -> None:

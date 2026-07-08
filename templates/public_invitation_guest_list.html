@@ -27,7 +27,7 @@
             {% if event.province %} · {{ event.province }}{% endif %}
           </div>
         </div>
-        <img src="{{ logo_url }}" alt="Logo" class="public-company-logo">
+        <img src="{{ logo_url }}" alt="Logo" class="public-company-logo" onerror="this.style.display='none'">
       </div>
 
       {% if unavailable %}

@@ -237,6 +237,14 @@ from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, up
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
 app = Flask(__name__)
+# Detrás del proxy de Render las peticiones llegan por http aunque el usuario entre por https;
+# sin esto, TODAS las URLs absolutas generadas (url_for _external, request.url_root) salían con
+# http:// y los clientes de correo / previsualizaciones de WhatsApp bloqueaban esas imágenes
+# (logos de empresa, iconos de zona, og:image) por contenido inseguro. ProxyFix aplica el esquema
+# real que manda el proxy en X-Forwarded-Proto (solo el esquema: el host se mantiene como hasta
+# ahora para no abrir otra vía de suplantación; el blindaje del host es EXTERNAL_BASE_URL).
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=0, x_for=1)
 app.secret_key = settings.SECRET_KEY
 # Cookies de sesión más seguras. HTTPONLY y SAMESITE=Lax no afectan al uso normal y mitigan robo
 # de cookie por XSS y ataques CSRF cross-site. SECURE (solo HTTPS) se activa con
@@ -2071,8 +2079,10 @@ def _external_url_for(endpoint: str, **values) -> str:
 
 def _absolute_media_url(url: str) -> str:
     """Convierte una URL en absoluta (https). Necesario para las imágenes de previsualización
-    (og:image de WhatsApp/SMS): una ruta relativa (p. ej. /static/...) no se previsualiza."""
-    url = (url or "").strip()
+    (og:image de WhatsApp/SMS): una ruta relativa (p. ej. /static/...) no se previsualiza.
+    También recorta el «?» final vacío que storage3 0.7.x dejaba en las URLs públicas guardadas
+    (algunos clientes de correo/previsualizadores lo digieren mal)."""
+    url = (url or "").strip().rstrip("?")
     if not url:
         return ""
     if url.startswith(("http://", "https://")):
@@ -3622,7 +3632,7 @@ def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name:
                 except Exception:
                     pass
 
-    logo_url = (getattr(group_company, 'logo_url', None) or '').strip()
+    logo_url = (getattr(group_company, 'logo_url', None) or '').strip().rstrip('?')
     if not logo_url and fallback_static_filename:
         try:
             logo_url = url_for('static', filename=fallback_static_filename, _external=True)
@@ -40570,12 +40580,19 @@ def _invitation_commitment_email_body(session_db, commitment, custom_text: str |
 
 
 def _invitation_event_logo_url(session_db, concert: Concert | None, external: bool = True) -> str:
+    """Logo de la empresa del evento. Con external=True (correos, PDFs, previsualizaciones) la URL
+    se devuelve SIEMPRE absoluta y sin el «?» final que dejaba storage3 (si está guardada relativa
+    o con ese sufijo, algunos clientes de correo no la cargaban)."""
+    logo = ""
     if concert:
         for company in (getattr(concert, "billing_company", None), getattr(concert, "group_company", None)):
             logo = (getattr(company, "logo_url", None) or "").strip()
             if logo:
-                return logo
-    return (_treinta_y_tres_logo_url(session_db) if "_treinta_y_tres_logo_url" in globals() else "") or url_for("static", filename="img/logo.png", _external=external)
+                break
+    if not logo:
+        logo = (_treinta_y_tres_logo_url(session_db) if "_treinta_y_tres_logo_url" in globals() else "") \
+            or url_for("static", filename="img/logo.png", _external=external)
+    return _absolute_media_url(logo) if external else logo.rstrip("?")
 
 
 @app.get("/invitaciones/entrega/<kind>/<token>", endpoint="public_invitation_delivery")

@@ -39,7 +39,7 @@
 {% else %}
 <div class="pp-wrap">
   <div class="pp-header">
-    {% if logo_url %}<img class="pp-logo" src="{{ logo_url }}" alt="Logo">{% endif %}
+    {% if logo_url %}<img class="pp-logo" src="{{ logo_url }}" alt="Logo" onerror="this.style.display='none'">{% endif %}
     <div class="min-w-0">
       <div class="fw-bold fs-5">{{ header_title }}</div>
       <div class="text-muted small">{{ header_meta }}</div>

@@ -38824,6 +38824,18 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             _cbp = _sess.get(UserProfile, row.created_by_user_id)
             if _cbp:
                 _cb_nick = _profile_full_name(_cbp) or getattr(_cbp, "nick", "") or _cb_nick
+    # Etiqueta de estado: «Asignadas» SOLO con el cupo COMPLETO asignado; parcialmente asignada se
+    # muestra aún como «Aprobadas» (el envío también queda bloqueado hasta completarla).
+    _display_status = row.status or "SOLICITADAS"
+    if _display_status == "ASIGNADAS" and _sess is not None:
+        _qty_total = _invitation_total_qty(quantities)
+        try:
+            _asg_total = int(_sess.query(func.count(InvitationTicket.id)).filter(
+                InvitationTicket.assigned_request_id == row.id).scalar() or 0)
+        except Exception:
+            _asg_total = _qty_total
+        if _qty_total > 0 and _asg_total < _qty_total:
+            _display_status = "APROBADAS"
     return {
         "id": str(row.id),
         "guest_name": guest_name,
@@ -38843,10 +38855,10 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "quantities_label": _invitation_quantities_label(quantities, name_map),
         "categories_label": categories_label,
         "status": row.status or "SOLICITADAS",
-        "status_label": INVITATION_STATUS_LABELS.get(row.status or "", row.status or "Solicitadas"),
-        "status_badge": _invitation_status_badge(row.status),
-        "requester_status_label": _invitation_requester_status(row.status)[0],
-        "requester_status_badge": _invitation_requester_status(row.status)[1],
+        "status_label": INVITATION_STATUS_LABELS.get(_display_status, _display_status or "Solicitadas"),
+        "status_badge": _invitation_status_badge(_display_status),
+        "requester_status_label": _invitation_requester_status(_display_status)[0],
+        "requester_status_badge": _invitation_requester_status(_display_status)[1],
         "link_summary": link_summary,
         "link_summary_text": _promoter_link_summary_text(link_summary),
         "note": row.note or "",
@@ -39100,13 +39112,26 @@ def _invitation_request_kind_flags(session_db, row: InvitationRequest, categorie
             kinds.append((cat.ticket_kind or "PDF_UNNUMBERED").upper())
     uses_guest_list = bool(kinds) and all(k == "GUEST_LIST" for k in kinds)
     requires_numbered_assignment = any(k == "PDF_NUMBERED" for k in kinds)
-    assigned_or_sent = (getattr(row, "status", None) or "") in {"ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+    status = (getattr(row, "status", None) or "")
+    assigned_or_sent = status in {"ASIGNADAS", "ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+    # Solo se puede ENVIAR con el cupo COMPLETO asignado: una solicitud parcialmente asignada
+    # no ofrece envío (ni etiqueta «Asignadas») hasta completarla.
+    fully_assigned = True
+    if status == "ASIGNADAS" and not uses_guest_list:
+        qty_total = sum(_safe_int(v) for k, v in quantities.items() if str(k) != "TOTAL")
+        try:
+            assigned_total = int(session_db.query(func.count(InvitationTicket.id)).filter(
+                InvitationTicket.assigned_request_id == row.id).scalar() or 0)
+        except Exception:
+            assigned_total = qty_total
+        fully_assigned = qty_total <= 0 or assigned_total >= qty_total
     return {
         "uses_guest_list": uses_guest_list,
         "requires_numbered_assignment": requires_numbered_assignment,
-        "can_send": uses_guest_list or assigned_or_sent,
+        "fully_assigned": fully_assigned,
+        "can_send": uses_guest_list or (assigned_or_sent and fully_assigned),
         "can_download_pdf": assigned_or_sent and not uses_guest_list,
-        "can_auto_assign": not requires_numbered_assignment and (getattr(row, "status", None) or "") in {"SOLICITADAS", "APROBADAS"},
+        "can_auto_assign": not requires_numbered_assignment and status in {"SOLICITADAS", "APROBADAS"},
     }
 
 
@@ -41140,6 +41165,10 @@ def invitation_event_detail(concert_id):
                 _sts = _tk_by_cat.get(str(_cid), [])
                 _asg = len(_sts)
                 _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
+                # «Asignadas» SOLO cuando está asignado el cupo COMPLETO de la categoría; si es
+                # parcial se sigue mostrando «Sin asignar» (el badge x/y ya enseña el progreso).
+                if _lbl == "Asignadas" and _asg < _qn:
+                    _lbl, _bdg = ("Sin asignar", "secondary")
                 # Compromiso marcado como enviado de forma directa (sin entradas asignadas): la
                 # categoría sin entradas se muestra como "Enviadas" en vez de "Sin asignar".
                 if not _sts and (getattr(row, "status", "") or "").upper() == "ENVIADAS":

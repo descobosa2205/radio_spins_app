@@ -37516,12 +37516,14 @@ def _entity_link_dedupe_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
-def _promoter_link_summary(session_db, promoter: Promoter | None) -> dict:
+def _promoter_link_summary(session_db, promoter: Promoter | None, publisher_fallback: bool = True) -> dict:
     if not promoter:
         return {}
     rows = _entity_link_dedupe_rows(_entity_link_rows(session_db, "promoter", promoter.id, active_only=True))
     if not rows:
-        pub = getattr(promoter, "publishing_company", None)
+        # Fallback a la EDITORIAL del tercero (contextos discográficos). En INVITACIONES va a False:
+        # la editorial NO es una vinculación y aparecía como tal sobre el plano/listados.
+        pub = getattr(promoter, "publishing_company", None) if publisher_fallback else None
         if pub:
             return {"label": pub.name, "type_label": "Editorial", "type": "publishing", "logo_url": pub.logo_url or _entity_placeholder_url(), "items": []}
         return {}
@@ -38089,7 +38091,7 @@ def _invitation_assignee_visual(session_db, row, link_photo_fallback: bool = Tru
         if pr:
             name = name or _promoter_display_name(pr) or pr.nick
             photo = pr.logo_url or ""
-            _ls = _promoter_link_summary(session_db, pr)
+            _ls = _promoter_link_summary(session_db, pr, publisher_fallback=False)
             link = _promoter_link_summary_text(_ls)
             link_logo = (_ls or {}).get("logo_url") or ""
             link_type = (_ls or {}).get("type") or ""
@@ -39479,7 +39481,7 @@ def _invitation_guest_identity(session_db, row) -> dict:
         if pr:
             name = _promoter_display_name(pr) or pr.nick or name
             photo = pr.logo_url or ""
-            link_summary = _promoter_link_summary(session_db, pr)
+            link_summary = _promoter_link_summary(session_db, pr, publisher_fallback=False)
     elif ga:
         ar = session_db.get(Artist, ga)
         if ar:
@@ -44068,6 +44070,30 @@ def invitation_assign_partial(concert_id):
                                tickets_by_category=ctx['tickets_by_category'],
                                ticket_groups_by_category=ctx['ticket_groups_by_category'],
                                pending_assignments=ctx['pending_assignments'])
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/planos-parcial/<category_id>', endpoint='invitation_category_plans_partial')
+@admin_required
+def invitation_category_plans_partial(concert_id, category_id):
+    """Planos de sectores de UNA categoría (parcial LIGERO): lo pide el configurador tras guardar
+    para refrescar SOLO el mapa de esa categoría en la pestaña (antes se re-renderizaba la página
+    completa de invitaciones y guardar el plano tardaba segundos)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        ctx = _invitation_assign_context(session_db, concert, categories)
+        return render_template('_invitation_sector_plans.html',
+                               cat={'id': str(cat.id), 'name': cat.name},
+                               cat_groups=ctx['ticket_groups_by_category'].get(str(cat.id), []))
     finally:
         session_db.close()
 

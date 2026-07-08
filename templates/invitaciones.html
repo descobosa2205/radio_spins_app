@@ -617,7 +617,8 @@
         <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
           <div class="modal-content" data-plan-config
                data-plan-url-base="{{ url_for('invitation_sector_plan', concert_id=event.id, category_id='CID') }}"
-               data-save-url-base="{{ url_for('invitation_sector_layout_save', concert_id=event.id, category_id='CID') }}">
+               data-save-url-base="{{ url_for('invitation_sector_layout_save', concert_id=event.id, category_id='CID') }}"
+               data-plans-partial-base="{{ url_for('invitation_category_plans_partial', concert_id=event.id, category_id='CID') }}">
             <div class="modal-header">
               <h5 class="modal-title"><i class="fa fa-gear me-2"></i>Configurar plano · <span data-plan-title></span></h5>
               <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
@@ -775,53 +776,7 @@
                   <div class="alert alert-info mb-0"><i class="fa fa-list-check me-1"></i>Listado de invitados · {{ cat.guest_list_mode or 'Recogida en taquilla' }}. No requiere asignar PDFs.</div>
                 {% elif cat.ticket_kind == 'PDF_NUMBERED' %}
                   {% if cat_groups %}
-                    {% for sector in cat_groups %}
-                      <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
-                        <div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head">
-                          <div class="fw-bold">Sector {{ sector.sector }}</div>
-                          <div class="d-flex align-items-center gap-2">
-                            <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
-                          </div>
-                        </div>
-                        {% set stg = sector.stage %}
-                        <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
-                        {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
-                        {% for row in sector.rows %}
-                          <div class="invitation-seat-row">
-                            <div class="invitation-row-label">Fila {{ row.row_label }}</div>
-                            <div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
-                              {% for cell in row.layout %}
-                                {% if cell.type == 'block' %}
-                                  {# Bloque de butacas seguidas del mismo invitado: nombre + línea fina de color
-                                     ENCIMA uniéndolas, y dentro de cada butaca la foto de para quién es. #}
-                                  <div class="invitation-seat-block" style="--asg:{{ cell.color }}">
-                                    <div class="invitation-seat-block-name" title="{{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %} · {% if cell.sent %}enviadas{% else %}asignadas{% endif %}">{{ cell.name or 'Asignada' }}{% if cell.link %} · {% if cell.link_logo %}<img class="inv-seat-block-linklogo {{ 'is-photo' if cell.link_type in ['artist','venue'] else 'is-logo' }}" src="{{ cell.link_logo }}" alt="">{% endif %}{{ cell.link }}{% endif %}</div>
-                                    <div class="invitation-seat-block-line"></div>
-                                    <div class="invitation-seat-block-seats">
-                                      {% for t in cell.seats %}
-                                        <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if cell.photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }} · {{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if cell.photo %}<img class="invitation-seat-photo" src="{{ cell.photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>
-                                      {% endfor %}
-                                    </div>
-                                  </div>
-                                {% elif cell.type == 'seat' %}
-                                  {% set t = cell.seat %}
-                                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
-                                {% elif cell.type == 'missing' %}
-                                  <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }}{% if cell.seat %} {{ cell.seat }}{% endif %}"><i class="fa fa-couch"></i></span>
-                                {% elif cell.type == 'gap' %}
-                                  <span class="invitation-seat invitation-seat--hole" title="Hueco (sin asiento)"></span>
-                                {% elif cell.type == 'spacer' %}
-                                  <span class="invitation-seat invitation-seat--spacer"></span>
-                                {% elif cell.type == 'stair' %}
-                                  <span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
-                                {% endif %}
-                              {% endfor %}
-                            </div>
-                          </div>
-                        {% endfor %}
-                        </div>
-                      </div>
-                    {% endfor %}
+                    {% include '_invitation_sector_plans.html' %}
                   {% else %}
                     <div class="text-muted small">No hay PDFs numerados subidos para esta categoría.</div>
                   {% endif %}
@@ -2526,11 +2481,20 @@
       // de esa categoría en la pestaña de invitaciones).
       let done = false;
       try {
-        const r = await fetch(location.href, {headers:{'X-Requested-With':'XMLHttpRequest'}});
-        const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
-        const fresh = doc.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="'+cid+'"]');
-        const cur = document.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="'+cid+'"]');
-        if(fresh.length && fresh.length === cur.length){ cur.forEach((el,i)=>el.replaceWith(fresh[i])); done = true; }
+        // PARCIAL ligero (solo los planos de esta categoría): guardar es casi inmediato
+        // (antes se re-renderizaba la página completa de invitaciones para recortar el mapa).
+        const pr = await fetch(root.dataset.plansPartialBase.replace('CID', cid), {headers:{'X-Requested-With':'XMLHttpRequest'}});
+        if (pr.ok) {
+          const tpl = document.createElement('template');
+          tpl.innerHTML = await pr.text();
+          const fresh = Array.from(tpl.content.querySelectorAll('[data-sector-plan][data-category-id="'+cid+'"]'));
+          const cur = Array.from(document.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="'+cid+'"]'));
+          if (fresh.length && cur.length) {
+            cur[0].before.apply(cur[0], fresh);
+            cur.forEach(function(el){ el.remove(); });
+            done = true;
+          }
+        }
       } catch(e){}
       if(!done) location.reload();
     });
@@ -2707,11 +2671,15 @@
       // FRANJA de propietario (nombre + logo del vínculo + línea de color abarcando TODO el tramo),
       // IGUAL que en el mapa de la pestaña de invitaciones — sobre TODAS las butacas con dueño:
       // las del proceso (amarillas) y las YA asignadas/enviadas.
+      // La clave del tramo es la FUENTE (no staged/guardada): al completar una asignación previa,
+      // las butacas nuevas CONTINÚAN la misma franja/línea (mismo color) en vez de verse aparte.
+      const persistedColor = {};
+      seatEls().forEach(st => { const k = st.dataset.src; if (k && !persistedColor[k]) { const c = st.style.getPropertyValue('--asg'); if (c) persistedColor[k] = c; } });
       const ownerOfSeat = (seat) => {
         const s = stage.get(seat);
-        if (s) { const i = infoFor(s); return { key: 'S:' + srcKey(s), name: i.name, link: i.linkText, logo: i.linkLogo, logoPhoto: i.linkIsPhoto, color: '#e0a800' }; }
+        if (s) { const i = infoFor(s); const k = srcKey(s); return { key: k, name: i.name, link: i.linkText, logo: i.linkLogo, logoPhoto: i.linkIsPhoto, color: persistedColor[k] || '#e0a800' }; }
         if (seatStatus(seat) !== 'AVAILABLE' && seat.dataset.src) {
-          return { key: 'P:' + seat.dataset.src, name: seat.dataset.an || '', link: seat.dataset.alk || '', logo: seat.dataset.alo || '', logoPhoto: (seat.dataset.alt === 'artist' || seat.dataset.alt === 'venue'), color: seat.style.getPropertyValue('--asg') || '#999' };
+          return { key: seat.dataset.src, name: seat.dataset.an || '', link: seat.dataset.alk || '', logo: seat.dataset.alo || '', logoPhoto: (seat.dataset.alt === 'artist' || seat.dataset.alt === 'venue'), color: seat.style.getPropertyValue('--asg') || '#999' };
         }
         return null;
       };
@@ -3174,7 +3142,13 @@
         var d = await res.json().catch(function(){ return null; });
         ok = !!(res.ok && d && d.ok);
       } catch (e) { ok = false; }
-      if (ok) { window.__invAssignChanged = true; window.location.reload(); }
+      if (ok) {
+        // Guardado casi inmediato: se refresca SOLO el contenido del modal (parcial ligero) y se
+        // sigue trabajando; la página de detrás se recarga UNA vez al cerrar (__invAssignChanged).
+        window.__invAssignChanged = true;
+        if (window.__refreshAssignContent) { try { await window.__refreshAssignContent(true); } catch (e) {} }
+        saveBtn.disabled = false; saveBtn.innerHTML = orig;
+      }
       else { saveBtn.disabled = false; saveBtn.innerHTML = orig; alert('No se pudieron guardar las asignaciones. Revisa e inténtalo de nuevo.'); }
     });
     var modalEl = document.getElementById('assignAllModal');
@@ -3245,12 +3219,12 @@
     // para reflejar cambios recientes (peticiones nuevas, planos reconfigurados, asignaciones de
     // otros). Después se aplica el filtro de apertura sobre el contenido fresco.
     var pageLoadedAt = Date.now();
-    async function refreshAssignContent(){
+    async function refreshAssignContent(force){
       var body = modal.querySelector('.modal-body');
       if (!body) return;
       // La página recién cargada YA está fresca: evita re-pedirla (era un render completo extra en
       // el camino crítico de abrir el asignador). Pasados unos segundos sí se refresca siempre.
-      if (Date.now() - pageLoadedAt < 10000) return;
+      if (!force && Date.now() - pageLoadedAt < 10000) return;
       body.style.opacity = '.45'; body.style.pointerEvents = 'none';
       try {
         // PARCIAL ligero (solo el contenido del modal), no la página completa: abrir es casi inmediato.
@@ -3266,6 +3240,7 @@
       } catch (e) { /* sin red: se queda el contenido renderizado con la página */ }
       body.style.opacity = ''; body.style.pointerEvents = '';
     }
+    window.__refreshAssignContent = refreshAssignContent;
     modal.addEventListener('shown.bs.modal', async function(){
       await refreshAssignContent();
       if (pending){

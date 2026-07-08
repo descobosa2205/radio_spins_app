@@ -1,0 +1,51 @@
+{# Planos de sectores de UNA categoría (pestaña de invitaciones). Lo incluye la página y lo
+   sirve invitation_category_plans_partial para refrescar SOLO el mapa tras guardar el
+   configurador (antes se re-renderizaba la página completa: tardaba segundos).
+   Requiere: cat (id/name), cat_groups. #}
+{% for sector in cat_groups %}
+  <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}" data-sector-plan data-category-id="{{ cat.id }}" data-sector="{{ sector.sector }}">
+    <div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head">
+      <div class="fw-bold">Sector {{ sector.sector }}</div>
+      <div class="d-flex align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
+      </div>
+    </div>
+    {% set stg = sector.stage %}
+    <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
+    {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+    {% for row in sector.rows %}
+      <div class="invitation-seat-row">
+        <div class="invitation-row-label">Fila {{ row.row_label }}</div>
+        <div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
+          {% for cell in row.layout %}
+            {% if cell.type == 'block' %}
+              {# Bloque de butacas seguidas del mismo invitado: nombre + línea fina de color
+                 ENCIMA uniéndolas, y dentro de cada butaca la foto de para quién es. #}
+              <div class="invitation-seat-block" style="--asg:{{ cell.color }}">
+                <div class="invitation-seat-block-name" title="{{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %} · {% if cell.sent %}enviadas{% else %}asignadas{% endif %}">{{ cell.name or 'Asignada' }}{% if cell.link %} · {% if cell.link_logo %}<img class="inv-seat-block-linklogo {{ 'is-photo' if cell.link_type in ['artist','venue'] else 'is-logo' }}" src="{{ cell.link_logo }}" alt="">{% endif %}{{ cell.link }}{% endif %}</div>
+                <div class="invitation-seat-block-line"></div>
+                <div class="invitation-seat-block-seats">
+                  {% for t in cell.seats %}
+                    <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if cell.photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }} · {{ cell.name }}{% if cell.link %} · {{ cell.link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if cell.photo %}<img class="invitation-seat-photo" src="{{ cell.photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>
+                  {% endfor %}
+                </div>
+              </div>
+            {% elif cell.type == 'seat' %}
+              {% set t = cell.seat %}
+              <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-bs-toggle="modal" data-bs-target="#ticketModal{{ t.id }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
+            {% elif cell.type == 'missing' %}
+              <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }}{% if cell.seat %} {{ cell.seat }}{% endif %}"><i class="fa fa-couch"></i></span>
+            {% elif cell.type == 'gap' %}
+              <span class="invitation-seat invitation-seat--hole" title="Hueco (sin asiento)"></span>
+            {% elif cell.type == 'spacer' %}
+              <span class="invitation-seat invitation-seat--spacer"></span>
+            {% elif cell.type == 'stair' %}
+              <span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% endfor %}
+    </div>
+  </div>
+{% endfor %}

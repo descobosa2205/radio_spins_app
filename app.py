@@ -42228,10 +42228,12 @@ def invitation_commitment_save(concert_id):
 @app.post('/invitaciones/compromisos/<commitment_id>/eliminar', endpoint='invitation_commitment_delete')
 @admin_required
 def invitation_commitment_delete(commitment_id):
-    """Elimina un compromiso liberando sus entradas ASIGNADAS (vuelven a disponibles con aviso).
-    Si tiene entradas ya enviadas/entregadas se rechaza: hay que recuperarlas antes (igual que al
-    eliminar una petición del compromiso). Sin esto, el FK ON DELETE SET NULL dejaba las entradas
-    en ASSIGNED sin dueño: ni disponibles ni asignadas a nadie."""
+    """Elimina un compromiso liberando sus entradas: las asignadas (no enviadas) vuelven SIEMPRE a
+    disponibles automáticamente. Si tiene entradas ya enviadas/descargadas/impresas hace falta
+    decidir con `mode` (`recover` = vuelven al pool con aviso de duplicidad; `lost` = se descartan);
+    sin `mode` responde needs_confirm para que el front muestre la alerta Recuperar/Descartar. Sin
+    esta liberación, el FK ON DELETE SET NULL dejaba las entradas en ASSIGNED sin dueño."""
+    _ajax = _truthy(request.form.get('ajax'))
     cid = None
     session_db = db()
     try:
@@ -42241,27 +42243,30 @@ def invitation_commitment_delete(commitment_id):
         _ensure_can_manage_invitations(session_db, row.concert)
         cid = row.concert_id
         tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
-        _sent = [t for t in tickets if (t.status or '') != 'ASSIGNED']
-        if _sent:
-            flash(f'No se puede eliminar el compromiso «{row.name or ""}»: tiene {len(_sent)} entrada(s) ya enviadas/entregadas. Recupéralas antes de eliminarlo.', 'warning')
+        mode = (request.form.get('mode') or '').strip().lower()
+        _dl = _json_dict(getattr(row, 'downloaded_categories_json', None))
+        sent_f = any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'DISPONIBLES_TAQUILLA'} for t in tickets)
+        printed_f = any((t.status or '') == 'PRINTED' for t in tickets)
+        downloaded_f = bool(_dl) or bool(getattr(row, 'downloaded_at', None))
+        if tickets and (sent_f or printed_f or downloaded_f) and mode not in {'recover', 'lost'}:
+            info = {'ok': False, 'needs_confirm': True, 'sent': sent_f, 'downloaded': bool(downloaded_f),
+                    'printed': printed_f, 'ticket_count': len(tickets)}
+            if _ajax:
+                return jsonify(info)
+            flash('Estas invitaciones ya se enviaron, descargaron o imprimieron: confirma en el menú si recuperarlas o descartarlas.', 'warning')
             return redirect(url_for('invitation_event_detail', concert_id=cid))
-        now = _now_madrid()
-        for t in tickets:
-            t.status = 'AVAILABLE'
-            t.assigned_commitment_id = None
-            t.assigned_request_id = None
-            t.assigned_label = None
-            t.previous_assignment_warning = f'Recuperada al eliminar el compromiso {row.name}.'
-            t.updated_at = now
+        recovered, discarded = _invitation_release_apply(tickets, mode=mode, entity_label=f'el compromiso «{row.name}»')
         session_db.delete(row)
         session_db.commit()
-        if tickets:
-            flash(f'Compromiso eliminado. {len(tickets)} entrada(s) vuelven a estar disponibles.', 'success')
-        else:
-            flash('Compromiso eliminado.', 'success')
+        msg = 'Compromiso eliminado.' + ((' ' + _invitation_release_summary(recovered, discarded)) if tickets else '')
+        if _ajax:
+            return jsonify({'ok': True, 'message': msg})
+        flash(msg, 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
     except Exception as exc:
         session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudo eliminar el compromiso: {exc}', 'danger')
         return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
@@ -42473,12 +42478,62 @@ def invitation_send_preview():
         session_db.close()
 
 
+# Estados de entrada que ya "salieron" (enviada/entregada/impresa/en taquilla): recuperarlas puede
+# provocar duplicidades, así que exigen decisión explícita (recover|lost) en los flujos de liberar.
+_INVITATION_TICKET_SENTISH = {'SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED', 'DISPONIBLES_TAQUILLA'}
+
+
+def _invitation_release_apply(tickets, *, mode: str, entity_label: str) -> tuple[int, int]:
+    """Libera una lista de entradas de un compromiso/solicitud: las NO enviadas vuelven SIEMPRE a
+    disponibles (con aviso de asignación anterior); las ya enviadas/impresas/en taquilla vuelven al
+    pool con mode='recover' (aviso de posible duplicidad) o se DESCARTAN con mode='lost' (estado
+    LOST: no vuelven a estar disponibles). Devuelve (recuperadas, descartadas)."""
+    now = _now_madrid()
+    recovered = discarded = 0
+    for t in tickets:
+        sentish = (t.status or '') in _INVITATION_TICKET_SENTISH
+        who = (t.assigned_label or '').strip()
+        if sentish and mode == 'lost':
+            t.previous_assignment_warning = f"Ya enviada/impresa ({who or entity_label}); descartada sin recuperar."
+            t.status = 'LOST'
+            discarded += 1
+        else:
+            if sentish:
+                t.previous_assignment_warning = f"Ya había sido enviada o impresa ({who or entity_label}): puede haber duplicidades."
+            elif who:
+                t.previous_assignment_warning = f"Ya había sido asignada a {who}."
+            else:
+                t.previous_assignment_warning = f"Recuperada de {entity_label}."
+            t.status = 'AVAILABLE'
+            recovered += 1
+        t.assigned_request_id = None
+        t.assigned_commitment_id = None
+        t.assigned_label = None
+        t.sent_at = None
+        t.updated_at = now
+    return recovered, discarded
+
+
+def _invitation_release_summary(recovered: int, discarded: int) -> str:
+    parts = []
+    if recovered:
+        parts.append(f'{recovered} invitación(es) vuelven a estar disponibles')
+    if discarded:
+        parts.append(f'{discarded} descartada(s) (no vuelven al pool)')
+    return ' · '.join(parts) if parts else 'No había invitaciones asignadas que recuperar.'
+
+
 @app.post('/invitaciones/compromisos/<commitment_id>/recuperar', endpoint='invitation_commitment_release')
 @admin_required
 def invitation_commitment_release(commitment_id):
-    """Recupera (libera) las entradas asignadas a un compromiso —opcionalmente solo de una categoría—
-    devolviéndolas a disponibles."""
+    """Recupera (libera) las entradas asignadas a un compromiso —opcionalmente solo de una
+    categoría—. Las no enviadas vuelven a disponibles directamente; si hay ya enviadas, descargadas
+    o impresas hace falta decidir con `mode`: `recover` (vuelven, con aviso de posible duplicidad)
+    o `lost` (se descartan). Sin `mode` responde needs_confirm para que el front muestre la alerta
+    Recuperar/Descartar."""
+    _ajax = _truthy(request.form.get('ajax'))
     session_db = db()
+    cid = None
     try:
         row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
         if not row:
@@ -42490,26 +42545,104 @@ def invitation_commitment_release(commitment_id):
         if _cat_id:
             tq = tq.filter(InvitationTicket.category_id == _cat_id)
         tickets = tq.all()
-        n = 0
-        for t in tickets:
-            t.previous_assignment_warning = f"Recuperada del compromiso «{row.name}»."
-            t.status = 'AVAILABLE'
-            t.assigned_commitment_id = None
-            t.assigned_request_id = None
-            t.assigned_label = None
-            t.sent_at = None
-            t.updated_at = _now_madrid()
-            n += 1
-        session_db.commit()
-        if n:
-            flash(f'{n} invitación(es) recuperada(s); vuelven a estar disponibles.', 'success')
+        mode = (request.form.get('mode') or '').strip().lower()
+        _dl = _json_dict(getattr(row, 'downloaded_categories_json', None))
+        sent_f = any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'DISPONIBLES_TAQUILLA'} for t in tickets)
+        printed_f = any((t.status or '') == 'PRINTED' for t in tickets)
+        downloaded_f = bool(_dl.get(str(_cat_id))) if _cat_id else (bool(_dl) or bool(getattr(row, 'downloaded_at', None)))
+        if tickets and (sent_f or printed_f or downloaded_f) and mode not in {'recover', 'lost'}:
+            info = {'ok': False, 'needs_confirm': True, 'sent': sent_f, 'downloaded': bool(downloaded_f),
+                    'printed': printed_f, 'ticket_count': len(tickets)}
+            if _ajax:
+                return jsonify(info)
+            flash('Estas invitaciones ya se enviaron, descargaron o imprimieron: confirma en el menú si recuperarlas o descartarlas.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        recovered, discarded = _invitation_release_apply(tickets, mode=mode, entity_label=f'el compromiso «{row.name}»')
+        # El compromiso deja de contar como enviado/descargado en lo recuperado.
+        if _cat_id:
+            if _dl.pop(str(_cat_id), None) is not None:
+                row.downloaded_categories_json = _dl
         else:
-            flash('No había invitaciones asignadas que recuperar.', 'warning')
+            if (row.status or '') == 'ENVIADAS':
+                row.status = 'COMPROMETIDAS'
+            row.sent_via = ''
+            row.sent_to = ''
+            row.downloaded_categories_json = {}
+            if hasattr(row, 'downloaded_at'):
+                row.downloaded_at = None
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        msg = _invitation_release_summary(recovered, discarded)
+        if _ajax:
+            return jsonify({'ok': True, 'message': msg})
+        flash(msg, 'success' if (recovered or discarded) else 'warning')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
     except Exception as exc:
         session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudieron recuperar las invitaciones: {exc}', 'danger')
-        return redirect(url_for('invitations_view', tab='gestionar'))
+        return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/solicitudes/<request_id>/recuperar', endpoint='invitation_request_release')
+@admin_required
+def invitation_request_release(request_id):
+    """Recupera las invitaciones de una solicitud SIN eliminarla: vuelven a estar disponibles y la
+    solicitud queda de nuevo APROBADA (pendiente de asignar). Si ya se enviaron, descargaron o
+    imprimieron, exige decidir con `mode` (recover|lost); sin él responde needs_confirm para que el
+    front muestre la alerta Recuperar/Descartar."""
+    _ajax = _truthy(request.form.get('ajax'))
+    session_db = db()
+    cid = None
+    try:
+        row = session_db.get(InvitationRequest, to_uuid(request_id))
+        if not row:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, row.concert)
+        cid = row.concert_id
+        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+        mode = (request.form.get('mode') or '').strip().lower()
+        sent_row_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        sent_f = bool(row.sent_at) or (row.status or '') in sent_row_statuses \
+            or any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'DISPONIBLES_TAQUILLA'} for t in tickets)
+        printed_f = any((t.status or '') == 'PRINTED' for t in tickets)
+        downloaded_f = bool(row.downloaded_at) or _safe_int(row.downloaded_count) > 0
+        if not tickets and not sent_f:
+            msg = 'Esta solicitud no tiene invitaciones asignadas que recuperar.'
+            if _ajax:
+                return jsonify({'ok': False, 'error': msg}), 400
+            flash(msg, 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        if (sent_f or printed_f or downloaded_f) and mode not in {'recover', 'lost'}:
+            info = {'ok': False, 'needs_confirm': True, 'sent': sent_f, 'downloaded': bool(downloaded_f),
+                    'printed': printed_f, 'ticket_count': len(tickets), 'guest_name': row.guest_name or ''}
+            if _ajax:
+                return jsonify(info)
+            flash('Estas invitaciones ya se enviaron, descargaron o imprimieron: confirma en el menú si recuperarlas o descartarlas.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        recovered, discarded = _invitation_release_apply(tickets, mode=mode, entity_label=f'la solicitud de {row.guest_name}')
+        row.status = 'APROBADAS'
+        row.sent_at = None
+        row.sent_via = ''
+        row.sent_to = ''
+        row.downloaded_at = None
+        row.downloaded_count = 0
+        row.updated_at = _now_madrid()
+        session_db.commit()
+        msg = _invitation_release_summary(recovered, discarded) + ' La solicitud queda pendiente de asignar.'
+        if _ajax:
+            return jsonify({'ok': True, 'message': msg})
+        flash(msg, 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=cid))
+    except Exception as exc:
+        session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
+        flash(f'No se pudieron recuperar las invitaciones: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 
@@ -42857,48 +42990,29 @@ def invitation_request_delete(request_id):
             _ensure_can_manage_invitations(session_db, row.concert)
         tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
         sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
-        was_sent = bool(row.sent_at) or (row.status or '') in sent_statuses or any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP'} for t in tickets)
+        was_sent = bool(row.sent_at) or (row.status or '') in sent_statuses \
+            or any((t.status or '') in _INVITATION_TICKET_SENTISH for t in tickets)
+        was_printed = any((t.status or '') == 'PRINTED' for t in tickets)
         was_downloaded = bool(row.downloaded_at) or _safe_int(row.downloaded_count) > 0
         mode = (request.form.get('mode') or '').strip().lower()
 
-        # Entradas enviadas sin decisión → no borrar a ciegas: pedir confirmación.
+        # Entradas enviadas/descargadas/impresas sin decisión → no borrar a ciegas: pedir
+        # confirmación (el front muestra la alerta con Recuperar/Descartar).
         if tickets and was_sent and mode not in {'recover', 'lost'}:
             info = {
-                'ok': False, 'needs_confirm': True, 'sent': True,
+                'ok': False, 'needs_confirm': True, 'sent': True, 'printed': was_printed,
                 'downloaded': bool(was_downloaded), 'ticket_count': len(tickets),
                 'guest_name': row.guest_name or '',
             }
             if _ajax:
                 return jsonify(info)
-            flash('Estas invitaciones ya fueron enviadas. Usa el menú para recuperarlas o darlas por perdidas antes de eliminar.', 'warning')
+            flash('Estas invitaciones ya fueron enviadas. Usa el menú para recuperarlas o descartarlas antes de eliminar.', 'warning')
             return redirect(fallback or (url_for('invitation_event_detail', concert_id=row.concert_id) if not _is_owner else url_for('invitations_view', tab='pedir')))
 
-        give_up = bool(tickets) and was_sent and was_downloaded and mode == 'lost'
-        for t in tickets:
-            if give_up:
-                t.previous_assignment_warning = f"Entregada y descargada por {row.guest_name}; dada por perdida."
-                t.status = 'LOST'
-            else:
-                if was_downloaded:
-                    t.previous_assignment_warning = f"Ya había sido enviada y descargada por {row.guest_name}."
-                elif was_sent:
-                    t.previous_assignment_warning = f"Ya había sido enviada a {row.guest_name}."
-                elif t.assigned_label:
-                    t.previous_assignment_warning = f"Ya había sido asignada a {t.assigned_label}."
-                t.status = 'AVAILABLE'
-            t.assigned_request_id = None
-            t.assigned_commitment_id = None
-            t.assigned_label = None
-            t.sent_at = None
-            t.updated_at = _now_madrid()
+        recovered, discarded = _invitation_release_apply(tickets, mode=mode, entity_label=f'la solicitud de {row.guest_name}')
         session_db.delete(row)
         session_db.commit()
-        if give_up:
-            msg = f'Solicitud eliminada. {len(tickets)} entrada(s) dadas por perdidas (no vuelven a estar disponibles).'
-        elif tickets:
-            msg = f'Solicitud eliminada. {len(tickets)} entrada(s) vuelven a estar disponibles.'
-        else:
-            msg = 'Solicitud eliminada.'
+        msg = 'Solicitud eliminada.' + ((' ' + _invitation_release_summary(recovered, discarded)) if tickets else '')
         if _ajax:
             return jsonify({'ok': True, 'message': msg})
         flash(msg, 'success')
@@ -44468,8 +44582,10 @@ def invitation_commitment_set_category(commitment_id):
 @admin_required
 def invitation_commitment_category_delete(commitment_id):
     """Elimina UNA «petición» (categoría) de un compromiso: libera sus entradas ASIGNADAS (vuelven
-    a disponibles) y quita la categoría de quantities_json. Si hay entradas ya enviadas/entregadas
-    en esa categoría, se rechaza (recupéralas antes). No afecta al resto de categorías."""
+    a disponibles automáticamente) y quita la categoría de quantities_json. Si hay entradas ya
+    enviadas/descargadas/impresas en esa categoría, exige decidir con `mode` (recover|lost); sin él
+    responde needs_confirm para la alerta Recuperar/Descartar. No afecta al resto de categorías."""
+    _ajax = _truthy(request.form.get('ajax'))
     session_db = db()
     _cid_concert = None
     try:
@@ -44485,26 +44601,35 @@ def invitation_commitment_category_delete(commitment_id):
         tickets = session_db.query(InvitationTicket).filter(
             InvitationTicket.assigned_commitment_id == row.id,
             InvitationTicket.category_id == cat.id).all()
-        _sent = [t for t in tickets if (t.status or '') != 'ASSIGNED']
-        if _sent:
-            raise ValueError(f'Hay {len(_sent)} entrada(s) ya enviadas/entregadas en esta categoría: recupéralas antes de eliminar la petición.')
-        now = _now_madrid()
-        for t in tickets:
-            t.status = 'AVAILABLE'
-            t.assigned_commitment_id = None
-            t.assigned_request_id = None
-            t.assigned_label = None
-            t.previous_assignment_warning = f'Recuperada al eliminar la petición de {cat.name} del compromiso {row.name}.'
-            t.updated_at = now
+        mode = (request.form.get('mode') or '').strip().lower()
+        _dl = _json_dict(getattr(row, 'downloaded_categories_json', None))
+        sent_f = any((t.status or '') in {'SENT', 'DELIVERED', 'PICKED_UP', 'DISPONIBLES_TAQUILLA'} for t in tickets)
+        printed_f = any((t.status or '') == 'PRINTED' for t in tickets)
+        downloaded_f = bool(_dl.get(str(cat.id)))
+        if tickets and (sent_f or printed_f or downloaded_f) and mode not in {'recover', 'lost'}:
+            info = {'ok': False, 'needs_confirm': True, 'sent': sent_f, 'downloaded': bool(downloaded_f),
+                    'printed': printed_f, 'ticket_count': len(tickets)}
+            if _ajax:
+                return jsonify(info)
+            flash('Estas invitaciones ya se enviaron, descargaron o imprimieron: confirma en el menú si recuperarlas o descartarlas.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=_cid_concert))
+        recovered, discarded = _invitation_release_apply(tickets, mode=mode, entity_label=f'la petición de {cat.name} del compromiso «{row.name}»')
         q = _json_dict(row.quantities_json)
         q.pop(str(cat.id), None)
         q.pop('TOTAL', None)
         row.quantities_json = q
-        row.updated_at = now
+        if _dl.pop(str(cat.id), None) is not None:
+            row.downloaded_categories_json = _dl
+        row.updated_at = _now_madrid()
         session_db.commit()
-        flash(f'Petición de «{cat.name}» eliminada del compromiso «{row.name or ""}» ({len(tickets)} entrada(s) recuperadas).', 'success')
+        msg = f'Petición de «{cat.name}» eliminada del compromiso «{row.name or ""}».' + ((' ' + _invitation_release_summary(recovered, discarded)) if tickets else '')
+        if _ajax:
+            return jsonify({'ok': True, 'message': msg})
+        flash(msg, 'success')
     except Exception as exc:
         session_db.rollback()
+        if _ajax:
+            return jsonify({'ok': False, 'error': str(exc)}), 400
         flash(f'No se pudo eliminar la petición: {exc}', 'danger')
     finally:
         session_db.close()

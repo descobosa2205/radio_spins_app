@@ -424,9 +424,12 @@
                         <li><button class="dropdown-item" type="button" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar todo por SMS</button></li>
                         {% endif %}
                         <li><form method="post" data-inv-refresh action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar todo como enviadas</button></form></li>
+                        {% if (row.category_status|selectattr('assigned')|list) or row.status == 'ENVIADAS' %}
+                        <li><button type="button" class="dropdown-item" data-inv-recover data-recover-action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" data-recover-name="{{ row.name|e }}" data-recover-confirm="¿Recuperar TODAS las invitaciones de este compromiso? Volverán a estar disponibles."><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></li>
+                        {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li><button type="button" class="dropdown-item" data-commitment-edit data-commitment-id="{{ row.id }}" data-name="{{ row.name|e }}" data-reason="{{ row.reason|e }}" data-note="{{ row.note|e }}" data-quantities='{{ row.quantities|tojson }}' data-guest-type="{{ row.guest_type }}" data-guest-promoter-id="{{ row.guest_promoter_id }}" data-guest-artist-id="{{ row.guest_artist_id }}" data-guest-user-id="{{ row.guest_user_id }}" data-guest-name="{{ row.recipient_name|e }}" data-guest-email="{{ row.guest_email|e }}" data-guest-phone="{{ row.guest_phone|e }}" data-guest-photo="{{ row.recipient_photo|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
-                        <li><form method="post" data-inv-refresh action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar este compromiso? Sus invitaciones asignadas (no enviadas) volverán a estar disponibles.');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+                        <li><button type="button" class="dropdown-item text-danger" data-inv-recover data-recover-kind="delete" data-recover-entity="el compromiso" data-recover-action="{{ url_for('invitation_commitment_delete', commitment_id=row.id) }}" data-recover-name="{{ row.name|e }}" data-recover-confirm="¿Eliminar este compromiso? Sus invitaciones asignadas (no enviadas) volverán a estar disponibles."><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></li>
                       </ul>
                     </div>
                   </div>
@@ -461,11 +464,11 @@
                                     {% endif %}
                                     {% if cs.assigned > 0 %}
                                     <li><form method="post" data-inv-refresh action="{{ url_for('invitation_commitment_mark_sent', commitment_id=row.id) }}"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>
-                                    <li><form method="post" data-inv-refresh action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" onsubmit="return confirm('¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles.');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></form></li>
+                                    <li><button type="button" class="dropdown-item" data-inv-recover data-recover-action="{{ url_for('invitation_commitment_release', commitment_id=row.id) }}" data-recover-category="{{ cs.id }}" data-recover-name="{{ row.name|e }} · {{ cs.name|e }}" data-recover-confirm="¿Recuperar las invitaciones de esta categoría? Volverán a estar disponibles."><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></li>
                                     {% endif %}
                                     <li><hr class="dropdown-divider"></li>
                                     <li><button type="button" class="dropdown-item" data-cmt-cat-edit data-commitment-id="{{ row.id }}" data-commitment-name="{{ row.name|e }}" data-category-id="{{ cs.id }}" data-category-name="{{ cs.name|e }}" data-qty="{{ cs.qty }}"><i class="fa fa-pen fa-fw me-1"></i>Editar petición</button></li>
-                                    <li><form method="post" data-inv-refresh action="{{ url_for('invitation_commitment_category_delete', commitment_id=row.id) }}" onsubmit="return confirm('¿Eliminar la petición de «{{ cs.name }}» de este compromiso? Sus entradas asignadas volverán a estar disponibles (las demás categorías no se tocan).');"><input type="hidden" name="category_id" value="{{ cs.id }}"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar petición</button></form></li>
+                                    <li><button type="button" class="dropdown-item text-danger" data-inv-recover data-recover-kind="delete" data-recover-entity="la petición" data-recover-action="{{ url_for('invitation_commitment_category_delete', commitment_id=row.id) }}" data-recover-category="{{ cs.id }}" data-recover-name="{{ row.name|e }} · {{ cs.name|e }}" data-recover-confirm="¿Eliminar la petición de «{{ cs.name }}» de este compromiso? Sus entradas asignadas volverán a estar disponibles (las demás categorías no se tocan)."><i class="fa fa-trash fa-fw me-1"></i>Eliminar petición</button></li>
                                   </ul>
                                 </div>
                               </div>
@@ -562,6 +565,9 @@
                           <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                         {% endif %}
                         {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}" data-inline data-inline-target="#req-{{ row.id }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
+                        {% if row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
+                        <li><button type="button" class="dropdown-item" data-inv-recover data-recover-action="{{ url_for('invitation_request_release', request_id=row.id) }}" data-recover-name="{{ row.guest_name|e }}" data-recover-confirm="¿Recuperar las invitaciones de esta solicitud? Volverán a estar disponibles y la solicitud quedará pendiente de asignar."><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></li>
+                        {% endif %}
                         <li><hr class="dropdown-divider"></li>
                         <li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_status', request_id=row.id) }}" onsubmit="return confirm('¿Rechazar esta solicitud? Sus invitaciones asignadas (no enviadas) volverán a estar disponibles.');"><input type="hidden" name="action" value="REJECT"><button class="dropdown-item text-warning"><i class="fa fa-ban fa-fw me-1"></i>Rechazar</button></form></li>
                         <li><button type="button" class="dropdown-item text-danger" data-delete-request
@@ -1245,6 +1251,94 @@
   });
   btnRecover.addEventListener('click', function(){ if(current){ post(current.action, 'recover'); } });
   btnLost.addEventListener('click', function(){ if(current){ post(current.action, 'lost'); } });
+})();
+</script>
+
+{# Modal GENÉRICO de recuperar/eliminar con invitaciones ya enviadas/descargadas/impresas.
+   Lo disparan los botones [data-inv-recover] (recuperar de compromiso completo, de una categoría
+   del compromiso, de una solicitud; eliminar compromiso o petición). Flujo: POST ajax sin mode →
+   si el servidor responde needs_confirm (ya salieron), alerta «Estas invitaciones ya se han …
+   si las recuperas podría haber duplicidades» con dos opciones: Recuperar (vuelven al pool) o
+   Descartar (LOST, no vuelven). Al terminar refresca los estados en sitio. #}
+<div class="modal fade" id="invRecoverConfirmModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-rotate-left me-2 text-danger"></i>Recuperar invitaciones</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body"><div class="alert alert-danger mb-0" data-irc-msg></div></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-outline-dark" data-irc-lost><i class="fa fa-link-slash me-1"></i>Descartar</button>
+        <button type="button" class="btn btn-danger" data-irc-recover><i class="fa fa-rotate-left me-1"></i>Recuperar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var modalEl = document.getElementById('invRecoverConfirmModal');
+  if(!modalEl) return;
+  var msgEl = modalEl.querySelector('[data-irc-msg]');
+  var btnR = modalEl.querySelector('[data-irc-recover]');
+  var btnL = modalEl.querySelector('[data-irc-lost]');
+  var ctx = null;   // {action, category, kind, entity, name}
+  function busy(on){ btnR.disabled = on; btnL.disabled = on; }
+  function getModal(){ return (window.bootstrap && bootstrap.Modal) ? bootstrap.Modal.getOrCreateInstance(modalEl) : null; }
+  function verb(d){
+    var parts = [];
+    if(d.sent) parts.push('enviado');
+    if(d.downloaded) parts.push('descargado');
+    if(d.printed) parts.push('impreso');
+    return parts.join(' y ') || 'enviado';
+  }
+  function show(d){
+    var nombre = ctx && ctx.name ? ' (' + ctx.name + ')' : '';
+    var extra = (ctx && ctx.kind === 'delete') ? ('<div class="mt-2">Después se eliminará ' + (ctx.entity || 'el elemento') + '.</div>') : '';
+    msgEl.innerHTML = '<strong>Estas invitaciones ya se han ' + verb(d) + '</strong>' + nombre +
+      '. Si las recuperas podría haber <strong>duplicidades</strong>.' +
+      '<ul class="mb-0 mt-2"><li><strong>Recuperar</strong>: vuelven a estar disponibles (con aviso al reasignarlas).</li>' +
+      '<li><strong>Descartar</strong>: quedan fuera y NO vuelven a estar disponibles.</li></ul>' + extra;
+    busy(false);
+    var m = getModal(); if(m) m.show();
+  }
+  function post(mode){
+    if(!ctx || !ctx.action) return;
+    busy(true);
+    var fd = new FormData();
+    fd.append('ajax', '1');
+    if(mode) fd.append('mode', mode);
+    if(ctx.category) fd.append('category_id', ctx.category);
+    fetch(ctx.action, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
+      .then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(d){
+        if(d && d.ok){
+          var m = getModal(); if(m) m.hide();
+          busy(false);
+          if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { window.location.reload(); }
+          return;
+        }
+        busy(false);
+        if(d && d.needs_confirm){ show(d); return; }
+        alert((d && d.error) || 'No se pudo completar la acción.');
+      })
+      .catch(function(){ busy(false); alert('No se pudo completar la acción.'); });
+  }
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest('[data-inv-recover]');
+    if(!btn) return;
+    ev.preventDefault();
+    ctx = {
+      action: btn.getAttribute('data-recover-action') || '',
+      category: btn.getAttribute('data-recover-category') || '',
+      kind: btn.getAttribute('data-recover-kind') || 'release',
+      entity: btn.getAttribute('data-recover-entity') || '',
+      name: btn.getAttribute('data-recover-name') || ''
+    };
+    var c = btn.getAttribute('data-recover-confirm');
+    if(c && !confirm(c)) return;
+    post('');
+  });
+  btnR.addEventListener('click', function(){ post('recover'); });
+  btnL.addEventListener('click', function(){ post('lost'); });
 })();
 </script>
 

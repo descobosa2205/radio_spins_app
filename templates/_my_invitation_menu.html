@@ -116,7 +116,7 @@
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-          <button type="button" class="btn btn-outline-danger d-none" id="invDelLostBtn">Darlas por perdidas</button>
+          <button type="button" class="btn btn-outline-danger d-none" id="invDelLostBtn">Descartar</button>
           <button type="button" class="btn btn-danger" id="invDelMainBtn">Eliminar</button>
         </div>
       </div>
@@ -130,8 +130,15 @@
       var alertEl = document.getElementById('invDelAlert');
       var mainBtn = document.getElementById('invDelMainBtn');
       var lostBtn = document.getElementById('invDelLostBtn');
-      var st = { action:'', name:'', sent:false, downloaded:false };
+      var st = { action:'', name:'', sent:false, downloaded:false, printed:false };
       function esc(s){ return (s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+      function verb(){
+        var parts = [];
+        if (st.sent) parts.push('enviado');
+        if (st.downloaded) parts.push('descargado');
+        if (st.printed) parts.push('impreso');
+        return parts.join(' y ') || 'enviado';
+      }
       function render(){
         var name = st.name || 'esta persona';
         lostBtn.classList.add('d-none');
@@ -140,15 +147,13 @@
           alertEl.className = 'alert alert-warning mb-0';
           alertEl.innerHTML = 'Vas a eliminar la petición de <strong>'+esc(name)+'</strong>. Las entradas asignadas (si las hay) volverán a estar disponibles.';
           mainBtn.textContent = 'Eliminar'; mainBtn.dataset.mode = '';
-        } else if (!st.downloaded){
-          alertEl.className = 'alert alert-warning mb-0';
-          alertEl.innerHTML = '<strong>Estas invitaciones ya fueron enviadas</strong> a '+esc(name)+', pero <strong>aún no se han descargado</strong>. Si eliminas la petición se cancelará el envío y las entradas volverán a estar disponibles.';
-          mainBtn.textContent = 'Cancelar envío y eliminar'; mainBtn.dataset.mode = 'recover';
         } else {
           alertEl.className = 'alert alert-danger mb-0';
-          alertEl.innerHTML = '<strong>Estas invitaciones ya fueron enviadas y descargadas</strong> por '+esc(name)+'. Elige qué hacer con las entradas:<ul class="mb-0 mt-2"><li><strong>Recuperar invitaciones</strong>: vuelven a estar disponibles.</li><li><strong>Darlas por perdidas</strong>: no vuelven a estar disponibles.</li></ul>';
-          mainBtn.textContent = 'Recuperar invitaciones'; mainBtn.dataset.mode = 'recover';
-          lostBtn.classList.remove('d-none'); lostBtn.dataset.mode = 'lost';
+          alertEl.innerHTML = '<strong>Estas invitaciones ya se han ' + verb() + '</strong> ('+esc(name)+'). Si las recuperas podría haber <strong>duplicidades</strong>. Elige qué hacer con ellas al eliminar la petición:'
+            + '<ul class="mb-0 mt-2"><li><strong>Recuperar</strong>: vuelven a estar disponibles (con aviso al reasignarlas).</li>'
+            + '<li><strong>Descartar</strong>: quedan fuera y NO vuelven a estar disponibles.</li></ul>';
+          mainBtn.textContent = 'Recuperar'; mainBtn.dataset.mode = 'recover';
+          lostBtn.classList.remove('d-none'); lostBtn.textContent = 'Descartar'; lostBtn.dataset.mode = 'lost';
         }
       }
       function submit(mode){
@@ -168,7 +173,7 @@
               } else { location.reload(); }
               return;
             }
-            if (d && d.needs_confirm){ st.sent = !!d.sent; st.downloaded = !!d.downloaded; render(); return; }
+            if (d && d.needs_confirm){ st.sent = !!d.sent; st.downloaded = !!d.downloaded; st.printed = !!d.printed; render(); return; }
             alert((d && d.error) || 'No se pudo eliminar la petición.'); mainBtn.disabled = false; lostBtn.disabled = false;
           })
           .catch(function(){ alert('No se pudo eliminar la petición.'); mainBtn.disabled = false; lostBtn.disabled = false; });
@@ -181,6 +186,7 @@
         st.name = btn.getAttribute('data-name') || '';
         st.sent = btn.getAttribute('data-sent') === '1';
         st.downloaded = btn.getAttribute('data-downloaded') === '1';
+        st.printed = false;   // el botón no lo sabe; lo actualiza la respuesta needs_confirm
         render();
         bootstrap.Modal.getOrCreateInstance(modalEl).show();
       });

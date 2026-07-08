@@ -2,7 +2,7 @@
    (invitaciones.html) y el módulo de inicio (home.html) para que ambos tengan SIEMPRE las
    mismas funcionalidades. `row` = payload de _invitation_request_payload (+ row.event). #}
 
-{% macro request_kebab(row, can_manage=False) %}
+{% macro request_kebab(row, can_manage=False, send_ui=False) %}
   {% set has_tickets = row.download_url and row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
   {% set share_text = 'Invitaciones para ' ~ row.event.artist_names ~ ' (' ~ row.event.date_label ~ '): ' ~ row.download_url_abs %}
   <div class="dropdown dropdown-menu-end">
@@ -13,7 +13,16 @@
       <li><button type="button" class="dropdown-item" data-edit-request-full
             data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
       {% endif %}
-      {% if has_tickets %}
+      {% if send_ui and (row.can_send or row.can_download_pdf) %}
+        {# MISMO envío que en gestión de invitaciones: mismos correos, enlaces, previsualización y
+           marcado ENVIADAS en toda la app (la página debe incluir el modal #invSendModal). #}
+        {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar PDF</a></li>{% endif %}
+        {% if row.can_send %}
+          <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por email</button></li>
+          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+        {% endif %}
+      {% elif has_tickets %}
         <li><a class="dropdown-item" href="{{ row.download_url }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
         <li><a class="dropdown-item" target="_blank" rel="noopener" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
         <li><a class="dropdown-item" href="sms:?&body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>

@@ -41046,6 +41046,7 @@ def invitations_view():
                 concert = row.concert
                 cats = _invitation_get_categories(session_db, concert, ensure_defaults=False) if concert else []
                 item = _invitation_request_payload(row, cats)
+                item.update(_invitation_request_kind_flags(session_db, row, cats))
                 item['event'] = _invitation_event_payload(session_db, concert) if concert else {}
                 item['is_denied'] = is_denied
                 item['for_office'] = False
@@ -43037,7 +43038,12 @@ def invitation_request_send(request_id):
         row = session_db.get(InvitationRequest, to_uuid(request_id))
         if not row:
             abort(404)
-        _ensure_can_manage_invitations(session_db, row.concert)
+        # Quien gestiona O el PROPIO peticionario (desde «Mis solicitudes» el envío funciona
+        # exactamente igual: mismo correo, mismos enlaces y estado → ENVIADAS en toda la app).
+        _state_o = _current_user_state()
+        _is_owner = str(getattr(row, 'requester_user_id', '') or '') == str(_state_o.get('user_id') or '')
+        if not _is_owner:
+            _ensure_can_manage_invitations(session_db, row.concert)
         # Blindaje servidor: solo se envía con el cupo COMPLETO asignado (la UI ya oculta la opción,
         # esto protege ante pestañas desactualizadas o dobles clics).
         _flags = _invitation_request_kind_flags(session_db, row, _invitation_get_categories(session_db, row.concert, ensure_defaults=False))

@@ -88,7 +88,7 @@
                     </div>
                     <div class="d-flex align-items-center gap-2">
                       <span class="badge text-bg-{{ row.requester_status_badge }}"{% if row.sent_at_label %} title="Enviada el {{ row.sent_at_label }}{% if row.sent_via %} · {{ row.sent_via }}{% endif %}{% if row.sent_to %}: {{ row.sent_to }}{% endif %}"{% endif %}>{{ row.requester_status_label }}</span>
-                      {% if not row.for_office %}{{ inv_menu.request_kebab(row) }}{% endif %}
+                      {% if not row.for_office %}{{ inv_menu.request_kebab(row, send_ui=True) }}{% endif %}
                     </div>
                   </div>
                 </div>

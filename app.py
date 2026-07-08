@@ -40121,6 +40121,11 @@ def _invitation_recategorize(session_db, row: InvitationRequest, category_id: st
         # (El «Palco de Honor» es la excepción: funciona como una categoría más y admite varios.)
         if _invitation_is_locking_palco(cat) and str(cat.id) in _invitation_committed_category_ids(session_db, row.concert_id):
             return {"ok": False, "error": "Este palco ya está asignado a un compromiso; no se le pueden mover invitados."}
+        # Un palco COMPLETO (todas sus entradas ya asignadas o enviadas) tampoco admite más invitados.
+        if _invitation_category_zone(cat) == "PALCO":
+            _cc = _invitation_ticket_counts_by_category(session_db, row.concert).get(str(cat.id)) or {}
+            if _safe_int(_cc.get("uploaded")) > 0 and _safe_int(_cc.get("assigned")) >= _safe_int(_cc.get("uploaded")):
+                return {"ok": False, "error": "Este palco ya está completo (invitaciones asignadas o enviadas); no se le pueden mover invitados."}
     if status == "ASIGNADAS" and not confirm:
         return {"ok": False, "needs_confirm": True}
     if status == "ASIGNADAS":
@@ -41472,6 +41477,10 @@ def invitation_event_detail(concert_id):
         _invitation_group_requests(requests, categories)
         # Palcos ya comprometidos a alguien: {cat_id: "Asignado a …"} para bloquear su zona de drop.
         committed_palco_labels = _invitation_committed_palco_labels(session_db, concert, categories)
+        # Palcos COMPLETOS (todas sus entradas asignadas/enviadas): también bloqueados en el listado
+        # (sin arrastrar peticiones dentro), aunque no tengan compromiso.
+        for _cid_full in _invitation_request_excluded_category_ids(session_db, concert, categories):
+            committed_palco_labels.setdefault(_cid_full, '')
         guest_list_rows_complete = _invitation_guest_list_rows(session_db, concert, 'COMPLETE')
         guest_list_rows_door = _invitation_guest_list_rows(session_db, concert, 'DOOR')
         guest_list_rows_box_office = _invitation_guest_list_rows(session_db, concert, 'BOX_OFFICE')
@@ -42803,9 +42812,14 @@ def invitation_request_edit_form(request_id):
         _tk_counts = _invitation_ticket_counts_by_category(session_db, concert) if concert else {}
         avail_by_cat = {cid: max(_safe_int(v.get('uploaded')) - _safe_int(v.get('assigned')), 0) for cid, v in _tk_counts.items()}
         uploaded_by_cat = {cid: _safe_int(v.get('uploaded')) for cid, v in _tk_counts.items()}
+        _excluded = _invitation_request_excluded_category_ids(session_db, concert, categories) if concert else set()
         cat_rows = []
         for _i, cat in enumerate(categories):
             cid = str(cat.id)
+            # Palcos comprometidos o COMPLETOS (asignados/enviados): fuera del formulario de
+            # edición, salvo que ESTA solicitud ya los tenga (pedidos o con entradas asignadas).
+            if cid in _excluded and _safe_int(quantities.get(cid)) <= 0 and not tickets_by_cat.get(cid):
+                continue
             available = avail_by_cat.get(cid, 0)
             cat_rows.append({
                 'id': cid,

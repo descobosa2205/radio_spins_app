@@ -2663,6 +2663,7 @@
       const nameEl = src.querySelector('.assign-src-name');
       const linkImgEl = src.querySelector('.assign-src-link img');
       const linkTxtEl = src.querySelector('.assign-src-link span');
+      const reqEl = src.querySelector('.assign-src-requester span');
       const own = photoEl && !isPlaceholderUrl(photoEl.getAttribute('src') || '') ? photoEl.getAttribute('src') : '';
       const linkLogo = linkImgEl && !isPlaceholderUrl(linkImgEl.getAttribute('src') || '') ? linkImgEl.getAttribute('src') : '';
       return {
@@ -2671,7 +2672,8 @@
         ownPhoto: own,
         linkLogo: linkLogo,
         linkIsPhoto: !!(linkImgEl && linkImgEl.classList.contains('is-photo')),
-        linkText: linkTxtEl ? linkTxtEl.textContent.trim() : ''
+        linkText: linkTxtEl ? linkTxtEl.textContent.trim() : '',
+        requester: reqEl ? reqEl.textContent.trim() : ''
       };
     };
     const escHtmlInv = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
@@ -2692,7 +2694,7 @@
       stage.forEach((src, seat) => {
         const info = infoFor(src);
         const T = qtyTotal(src);
-        seat.title = info.name + (info.linkText ? ' · ' + info.linkText : '') + (T ? (' · ' + T + ' invitaci' + (T === 1 ? 'ón' : 'ones')) : '');
+        seat.title = info.name + (info.linkText ? ' · ' + info.linkText : '') + (T ? (' · ' + T + ' invitaci' + (T === 1 ? 'ón' : 'ones')) : '') + (info.requester ? ' · Pedidas por: ' + info.requester : '');
         if (info.seatPhoto && seat.dataset.stagedPhoto !== '1') {
           const im = document.createElement('img');
           im.className = 'invitation-seat-photo staged-ph';

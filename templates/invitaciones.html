@@ -726,7 +726,7 @@
                   </div>
                   <div class="d-flex gap-2 flex-wrap">
                     {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>{% endif %}
-                    {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
+                    {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button class="btn btn-sm btn-danger" type="button" data-bs-toggle="modal" data-bs-target="#assignAllModal" data-assign-cat="{{ cat.id }}" data-assign-cat-name="{{ cat.name }}"><i class="fa fa-arrow-right me-1"></i>Asignar</button>{% endif %}
                     <button class="btn btn-sm btn-outline-danger" type="button" data-bs-toggle="modal" data-bs-target="#ticketUploadModal" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}"><i class="fa fa-upload me-1"></i>Subir invitaciones</button>
                     {% if cat.ticket_kind == 'PDF_NUMBERED' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary d-none" data-redetect-btn data-category-id="{{ cat.id }}" title="Re-leer los PDF y actualizar butacas"><i class="fa fa-wand-magic-sparkles me-1"></i>Re-detectar butacas</button>{% endif %}
                   </div>
@@ -775,8 +775,9 @@
                             <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
                           </div>
                         </div>
-                        <div class="invitation-sector-rows">
-                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% set stg = sector.stage %}
+                        <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
+                        {% if stg %}<div class="invitation-stage" style="left:{{ stg.x }}%;top:{{ stg.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row">
                             <div class="invitation-row-label">Fila {{ row.row_label }}</div>
@@ -1068,13 +1069,23 @@
                   </div>
                   <div class="assignment-source-list" data-source-list>
                     {% for src in pending_assignments.get(cat.id, []) %}
-                      <div class="assignment-source{% if src.pending_approval %} assignment-source--pending-approval{% endif %}" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}" data-qty-total="{{ src.qty_total }}">
-                        {% if src.pending_approval %}<span class="assignment-source-flag"><i class="fa fa-clock me-1"></i>Pendiente de aprobar</span>{% endif %}
-                        {# Fila 1: invitado (foto/logo + nombre) + nº de invitaciones #}
+                      <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}" data-qty-total="{{ src.qty_total }}" data-assigned="{{ src.assigned }}">
+                        {# Fila 1: invitado (foto/logo + nombre) + columna de etiquetas a la derecha:
+                           «Pendiente de aprobar» ARRIBA (si procede) y el nº de invitaciones DEBAJO,
+                           centrado — nunca se solapan. #}
                         <div class="assign-src-head">
                           <img src="{{ src.guest_photo or DEFAULT_PHOTO_URL }}" class="assign-src-photo" alt="" data-default-photo="1">
                           <span class="assign-src-name">{{ src.name }}</span>
-                          <span class="badge inv-qty-badge assign-src-qty"><i class="fa fa-ticket me-1"></i>{{ src.qty_total }}</span>
+                          <span class="assign-src-tags">
+                            {% if src.pending_approval %}<span class="assignment-source-flag"><i class="fa fa-clock me-1"></i>Pendiente de aprobar</span>{% endif %}
+                            <span class="badge inv-qty-badge assign-src-qty"><i class="fa fa-ticket me-1"></i>{{ src.qty_total }}</span>
+                            {# Etiqueta «Asignadas X/X» SIEMPRE visible (gris a 0, amarilla parcial, verde completa);
+                               la ✕ desasigna todo (lo del proceso y lo ya guardado sin enviar). #}
+                            <span class="assign-src-progress" data-assigned-badge>
+                              <span class="assign-src-progress-txt">Asignadas <span data-assigned-count>{{ src.assigned }}</span>/<span data-qty-target>{{ src.qty_total }}</span></span>
+                              <button type="button" class="assign-src-cancel" data-cancel-assign title="Desasignar todas las invitaciones de esta solicitud"><i class="fa fa-xmark"></i></button>
+                            </span>
+                          </span>
                         </div>
                         {# Fila 2: vínculo (foto/logo + relación) #}
                         {% if src.guest_link_text %}<div class="invitation-linked-mini assign-src-link"><img class="{{ 'is-photo' if src.guest_link_type in ['artist','venue'] else 'is-logo' }}" src="{{ src.guest_link_logo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><span>{{ src.guest_link_text }}</span></div>{% endif %}
@@ -1082,11 +1093,6 @@
                         {% if src.requester_name %}<div class="assign-src-requester">Pedidas por: <img src="{{ src.requester_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><span>{{ src.requester_name }}</span></div>{% endif %}
                         {# Fila 4: nota #}
                         {% if src.note %}<div class="assign-src-note"><i class="fa fa-note-sticky me-1"></i>{{ src.note }}</div>{% endif %}
-                        {# Etiqueta «asignado x/x» (la gestiona el JS; naranja mientras hay asignaciones en el proceso). #}
-                        <div class="assign-src-progress d-none" data-assigned-badge>
-                          <span class="assign-src-progress-txt">asignado <span data-assigned-count>0</span>/<span data-qty-target>{{ src.qty }}</span></span>
-                          <button type="button" class="assign-src-cancel" data-cancel-assign title="Anular toda la selección de esta solicitud"><i class="fa fa-xmark"></i></button>
-                        </div>
                         {% if cat.ticket_kind == 'PDF_UNNUMBERED' %}<button type="button" class="btn btn-sm btn-outline-danger mt-2" data-auto-source><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar automáticamente</button>{% endif %}
                       </div>
                     {% else %}
@@ -1107,12 +1113,13 @@
                     {% if cat.ticket_kind == 'PDF_NUMBERED' %}
                       {% for sector in ticket_groups_by_category.get(cat.id, []) %}
                         <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div></div>
-                        <div class="invitation-sector-rows">
-                        {% if sector.stage %}<div class="invitation-stage" style="left:{{ sector.stage.x }}%;top:{{ sector.stage.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ sector.stage.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+                        {% set stg = sector.stage %}
+                        <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
+                        {% if stg %}<div class="invitation-stage" style="left:{{ stg.x }}%;top:{{ stg.y }}%"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
                         {% for row in sector.rows %}
                           <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
                           {% for cell in row.visual %}
-                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}" title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                            {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}"><span class="invitation-seat-num">{{ t.seat_number or t.location }}</span>{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}</button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
                           {% endfor %}
                           </div></div>
                         {% endfor %}
@@ -1128,7 +1135,8 @@
                       {% endif %}
                       <div class="assignment-unnumbered-pool {% if cat.ticket_kind != 'GUEST_LIST' %}d-none{% endif %}">
                         {% for t in cat_tickets %}
-                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                          {% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}
+                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %}><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
                         {% endfor %}
                       </div>
                     {% endif %}
@@ -2622,12 +2630,14 @@
 
   // ============================================================================================
   // ASIGNADOR (modal #assignAllModal). Modelo de STAGING: lo que asignas aquí queda «en proceso»
-  // (butacas AMARILLAS, badge «asignado x/x» naranja) y NO se persiste hasta pulsar «Guardar
-  // asignaciones». Las butacas ya asignadas ANTES de abrir el modal se muestran con el color y la
-  // foto del invitado; al guardar se recarga y todo pasa al aspecto normal (bloques nombre+línea+logo).
-  //   · Marcar una solicitud (clic) → pintar el plano: clic = una butaca; arrastrar = varias.
-  //   · Arrastrar la TARJETA sobre el plano → bloque del nº pedido que sigue al cursor; soltar asigna.
-  //   · Badge «asignado x/x» con una ✕ para anular toda la selección de esa solicitud.
+  // (butacas AMARILLAS) y NO se persiste hasta pulsar «Guardar asignaciones». La etiqueta
+  // «Asignadas X/T» de cada tarjeta suma lo YA GUARDADO (data-assigned, butacas con data-src) y lo
+  // staged; a 0 va gris, parcial AMARILLA (tarjeta amarilla), completa VERDE (tarjeta verde). La ✕
+  // desasigna TODO de golpe (staged + guardadas sin enviar). Interacciones sobre el plano:
+  //   · Marcar una solicitud (clic) → pintar: clic = una butaca; arrastrar = varias.
+  //   · Arrastrar la TARJETA sobre el plano → bloque del nº pendiente que sigue al cursor.
+  //   · Arrastrar EMPEZANDO en una butaca amarilla → va DESELECCIONANDO las que pases.
+  //   · Clic en butaca ya guardada → la libera (confirmación).
   var invAssignForms = [];   // registro de formularios, para el botón global «Guardar».
   document.querySelectorAll('.invitation-assignment-form').forEach(form => {
     const isGuestList = (form.dataset.ticketKind || '').toUpperCase() === 'GUEST_LIST';
@@ -2642,21 +2652,24 @@
     const stage = new Map();            // seatEl -> sourceEl (butacas elegidas EN ESTA SESIÓN, sin guardar)
     const guestListStaged = new Set();  // fuentes guest-list marcadas (sin butacas)
 
-    const pending = (src) => parseInt(src.dataset.qty || '0', 10) || 0;   // nº por asignar (categoría)
+    const srcKey = (src) => (src.dataset.sourceType || '') + ':' + (src.dataset.sourceId || '');
+    const qtyTotal = (src) => parseInt(src.dataset.qtyTotal || src.dataset.qty || '0', 10) || 0;
+    const persisted = (src) => parseInt(src.dataset.assigned || '0', 10) || 0;
     const stagedCount = (src) => { let n = 0; stage.forEach(v => { if (v === src) n++; }); return n; };
-    const need = (src) => src ? Math.max(pending(src) - stagedCount(src), 0) : 0;
+    const assignedX = (src) => persisted(src) + stagedCount(src);
+    const need = (src) => src ? Math.max(qtyTotal(src) - assignedX(src), 0) : 0;
     const markStaged = (seat, on) => { seat.classList.toggle('is-staged', on); };
 
     const updateSource = (src) => {
+      const T = qtyTotal(src);
+      const X = isGuestList ? (guestListStaged.has(src) ? T : persisted(src)) : assignedX(src);
       const badge = src.querySelector('[data-assigned-badge]');
-      const cnt = isGuestList ? (guestListStaged.has(src) ? pending(src) : 0) : stagedCount(src);
       if (badge) {
-        badge.classList.toggle('d-none', cnt <= 0);
-        const c = badge.querySelector('[data-assigned-count]'); if (c) c.textContent = cnt;
-        const t = badge.querySelector('[data-qty-target]'); if (t) t.textContent = pending(src);
-        badge.classList.toggle('is-active', cnt > 0);   // naranja durante el proceso
+        const c = badge.querySelector('[data-assigned-count]'); if (c) c.textContent = X;
+        const t = badge.querySelector('[data-qty-target]'); if (t) t.textContent = T;
       }
-      src.classList.toggle('assignment-source--done', pending(src) > 0 && cnt >= pending(src));
+      src.classList.toggle('assign-state-partial', X > 0 && X < T);
+      src.classList.toggle('assign-state-full', T > 0 && X >= T);
     };
     const updateAllSources = () => sources().forEach(updateSource);
 
@@ -2696,43 +2709,56 @@
       stage.delete(seat); markStaged(seat, false);
       updateSource(src); setRemaining();
     };
-    const clearSource = (src) => {
-      Array.from(stage.keys()).forEach(seat => { if (stage.get(seat) === src) { stage.delete(seat); markStaged(seat, false); } });
-      updateSource(src); setRemaining();
-    };
 
-    // Liberar una butaca YA asignada (persistida): confirma y llama al servidor al momento.
+    // Liberar una butaca YA guardada: llama al servidor al momento y actualiza contadores.
     const postRelease = async (ticketId) => {
       if (!releaseTpl) return false;
       const fd = new FormData(); fd.append('ajax', '1');
       try { const res = await fetch(releaseTpl.replace('RELEASE_TICKET_ID', encodeURIComponent(ticketId)), { method: 'POST', body: fd }); const d = await res.json().catch(() => null); const ok = !!(res.ok && d && d.ok); if (ok) window.__invAssignChanged = true; return ok; } catch (e) { return false; }
     };
-    const releaseAssignedSeat = async (seat) => {
-      if (busy) return;
-      if (!confirm('¿Desasignar esta butaca? Volverá a estar disponible.')) return;
+    const ownerOf = (seat) => {
+      const key = seat.dataset.src || '';
+      return key ? sources().find(s => srcKey(s) === key) || null : null;
+    };
+    const resetSeatVisual = (seat) => {
       const numEl = seat.querySelector('.invitation-seat-num, span');
       const label = numEl ? numEl.textContent : '';
+      seat.dataset.ticketStatus = 'AVAILABLE';
+      seat.classList.remove('invitation-seat--assigned', 'invitation-seat--sent', 'invitation-seat--printed', 'invitation-seat--owned', 'invitation-seat--photo');
+      seat.classList.add('invitation-seat--available');
+      seat.style.removeProperty('--asg');
+      seat.removeAttribute('data-src');
+      seat.innerHTML = '<i class="fa fa-couch"></i><span>' + label + '</span>';
+    };
+    const releaseAssignedSeat = async (seat, skipConfirm) => {
+      if (busy) return false;
+      if (!skipConfirm && !confirm('¿Desasignar esta butaca? Volverá a estar disponible.')) return false;
+      const owner = ownerOf(seat);
       busy = true; seat.classList.add('is-pending');
       const ok = await postRelease(seat.dataset.ticketId);
       seat.classList.remove('is-pending'); busy = false;
       if (ok) {
-        seat.dataset.ticketStatus = 'AVAILABLE';
-        seat.classList.remove('invitation-seat--assigned', 'invitation-seat--sent', 'invitation-seat--printed', 'invitation-seat--owned', 'invitation-seat--photo');
-        seat.classList.add('invitation-seat--available');
-        seat.style.removeProperty('--asg');
-        seat.innerHTML = '<i class="fa fa-couch"></i><span>' + label + '</span>';
+        resetSeatVisual(seat);
+        if (owner) { owner.dataset.assigned = String(Math.max(persisted(owner) - 1, 0)); updateSource(owner); }
+        setRemaining();
       } else { alert('No se pudo desasignar la butaca.'); }
+      return ok;
     };
 
-    // clic en butaca: staged→quitar; disponible→añadir una; ya-asignada→liberar.
-    const clickSeat = (seat) => {
-      if (busy || !seat) return;
-      if (stage.get(seat)) { unstageSeat(seat); return; }
-      if (seatStatus(seat) === 'AVAILABLE') {
-        if (!activeSource) { alert('Marca primero a quién asignar (una solicitud a la izquierda).'); return; }
-        if (need(activeSource) <= 0) { alert('Ya has seleccionado todas las invitaciones de esta solicitud.'); return; }
-        stageSeat(seat);
-      } else { releaseAssignedSeat(seat); }
+    // ✕ de la etiqueta «Asignadas X/T»: desasigna TODO de golpe (staged + guardadas sin enviar).
+    const clearSource = async (src) => {
+      if (isGuestList) { guestListStaged.delete(src); updateSource(src); return; }
+      const key = srcKey(src);
+      const persistedSeats = seatEls().filter(s => (s.dataset.src || '') === key && seatStatus(s) === 'ASSIGNED');
+      const stagedSeats = Array.from(stage.keys()).filter(seat => stage.get(seat) === src);
+      if (!persistedSeats.length && !stagedSeats.length) return;
+      if (persistedSeats.length && !confirm('¿Desasignar TODAS las invitaciones de esta solicitud? Las ' + persistedSeats.length + ' ya guardadas volverán a estar disponibles.')) return;
+      stagedSeats.forEach(seat => { stage.delete(seat); markStaged(seat, false); });
+      for (const seat of persistedSeats) {
+        // eslint-disable-next-line no-await-in-loop
+        await releaseAssignedSeat(seat, true);
+      }
+      updateSource(src); setRemaining();
     };
 
     // Bloque de N butacas AVAILABLE consecutivas desde una (sin cruzar escaleras dentro de la fila).
@@ -2752,8 +2778,10 @@
 
     const zone = form.querySelector('[data-drop-zone]');
     if (zone) {
-      // ---- pintar con el ratón sobre el plano (clic = una; arrastrar = varias) ----
-      let paint = null;                       // { moved, start }
+      // ---- pintar con el ratón sobre el plano ----
+      // clic = una; arrastrar sobre libres = seleccionar varias; arrastrar EMPEZANDO en una amarilla
+      // (staged) = ir DESELECCIONANDO las amarillas que pases sin soltar.
+      let paint = null;                       // { mode:'add'|'erase', moved, start }
       const preview = new Set();
       const clearPreview = () => { preview.forEach(s => s.classList.remove('is-drag-sel')); preview.clear(); };
       const addPreview = (seat) => {
@@ -2764,23 +2792,26 @@
       zone.addEventListener('mousedown', (ev) => {
         if (isGuestList || busy) return;
         const seat = ev.target.closest('[data-ticket-id]'); if (!seat) return;
-        if (stage.get(seat) || seatStatus(seat) !== 'AVAILABLE') { ev.preventDefault(); clickSeat(seat); return; }
+        if (stage.get(seat)) { ev.preventDefault(); paint = { mode: 'erase', moved: false, start: seat }; unstageSeat(seat); return; }
+        if (seatStatus(seat) !== 'AVAILABLE') { ev.preventDefault(); releaseAssignedSeat(seat); return; }
         if (!activeSource) { alert('Marca primero a quién asignar (una solicitud a la izquierda).'); return; }
         ev.preventDefault();
-        paint = { moved: false, start: seat }; clearPreview(); addPreview(seat);
+        paint = { mode: 'add', moved: false, start: seat }; clearPreview(); addPreview(seat);
       });
       zone.addEventListener('mouseover', (ev) => {
         if (!paint) return;
         const seat = ev.target.closest('[data-ticket-id]');
         if (seat && seat !== paint.start) paint.moved = true;
+        if (paint.mode === 'erase') { if (seat && stage.get(seat)) unstageSeat(seat); return; }
         addPreview(seat);
       });
       document.addEventListener('mouseup', () => {
         if (!paint) return;
+        const mode = paint.mode;
         const seats = Array.from(preview); clearPreview();
         const multi = paint.moved && seats.length > 1; paint = null;
-        if (!seats.length) return;
-        if (multi) { seats.forEach(stageSeat); } else { clickSeat(seats[0]); }
+        if (mode === 'erase' || !seats.length) return;
+        if (multi) { seats.forEach(stageSeat); } else { const s = seats[0]; if (stage.get(s)) { unstageSeat(s); } else { stageSeat(s); } }
       });
 
       // ---- arrastrar la TARJETA sobre el plano: bloque de N que sigue al cursor ----
@@ -2810,7 +2841,7 @@
         if (ev.dataTransfer) { ev.dataTransfer.effectAllowed = 'copy'; try { ev.dataTransfer.setData('text/plain', 'src'); } catch (e) {} }
       });
       const cancel = src.querySelector('[data-cancel-assign]');
-      if (cancel) cancel.addEventListener('click', (ev) => { ev.stopPropagation(); if (isGuestList) { guestListStaged.delete(src); updateSource(src); } else clearSource(src); });
+      if (cancel) cancel.addEventListener('click', (ev) => { ev.stopPropagation(); clearSource(src); });
     });
 
     // «Asignar automáticamente» (sin numerar) por solicitud: stagea las que falten.
@@ -2845,7 +2876,7 @@
         return false;
       };
       for (const [src, ticketIds] of bySrc.entries()) { if (!(await post(src, ticketIds, 0))) okAll = false; }
-      for (const src of Array.from(guestListStaged)) { if (!(await post(src, [], pending(src)))) okAll = false; }
+      for (const src of Array.from(guestListStaged)) { if (!(await post(src, [], qtyTotal(src) || 1))) okAll = false; }
       return okAll;
     };
     const hasStaged = () => stage.size > 0 || guestListStaged.size > 0;
@@ -2875,20 +2906,27 @@
     });
   })();
 
-  // Modal ÚNICO de asignación con TODAS las categorías apiladas (#assignAllModal). Desde el menú de
-  // 3 puntos (compromiso/petición) se abre filtrado a esa fuente: muestra solo sus categorías con
-  // pendientes y la activa en cada una (en listados NO la auto-activa para no confirmar el listado
-  // sin querer). Desde el botón "Asignar" de una categoría se abre entero y hace scroll a ella.
+  // APERTURA FILTRADA del modal (#assignAllModal):
+  //  · «Asignar» de una CATEGORÍA → solo esa categoría (todas sus solicitudes).
+  //  · «Asignar todo» de un COMPROMISO → todas sus categorías, solo sus tarjetas.
+  //  · «Asignar» de una categoría DENTRO de un compromiso → solo esa categoría y esa tarjeta.
+  //  · «Asignar invitaciones» de una SOLICITUD → solo esa solicitud (sus categorías).
+  // «Ver todas» quita el filtro.
   (function(){
     var modal = document.getElementById('assignAllModal');
     if (!modal) return;  // Bootstrap puede cargarse DESPUÉS de este script; se usa dentro de los handlers (clic), no aquí.
     var banner = modal.querySelector('[data-assign-all-banner]');
     var whoEl = modal.querySelector('[data-assign-all-who]');
     var clearBtn = modal.querySelector('[data-assign-all-clear]');
-    var pending = null;     // {stype, sid, name}
-    var pendingCat = null;  // category_id al abrir desde el botón de una categoría
+    var pending = null;        // {stype, sid, name, cat}
+    var pendingCat = null;     // category_id al abrir desde el botón de una categoría
+    var pendingCatName = '';
     function blocks(){ return Array.prototype.slice.call(modal.querySelectorAll('.invitation-assignment-form')); }
     function srcSel(stype, sid){ return '.assignment-source[data-source-type="' + stype + '"][data-source-id="' + sid + '"]'; }
+    function showBanner(name){
+      if (banner){ banner.classList.remove('d-none'); if (whoEl) whoEl.textContent = name || ''; }
+      if (clearBtn) clearBtn.classList.remove('d-none');
+    }
     function clearFilter(){
       blocks().forEach(function(b){
         b.classList.remove('d-none');
@@ -2898,11 +2936,18 @@
       if (banner) banner.classList.add('d-none');
       if (clearBtn) clearBtn.classList.add('d-none');
     }
-    function applyFilter(stype, sid, name){
+    // Solo una categoría (todas sus solicitudes).
+    function applyCatFilter(catId, name){
+      blocks().forEach(function(b){ b.classList.toggle('d-none', (b.getAttribute('data-category-id') || '') !== catId); });
+      showBanner(name || 'esta categoría');
+    }
+    // Solo una fuente (compromiso/solicitud); con catId, además solo esa categoría.
+    function applyFilter(stype, sid, name, catId){
       var first = null;
       blocks().forEach(function(b){
+        var okCat = !catId || (b.getAttribute('data-category-id') || '') === catId;
         var list = b.querySelector('[data-source-list]'); var has = false;
-        if (list){ list.querySelectorAll('.assignment-source').forEach(function(s){
+        if (okCat && list){ list.querySelectorAll('.assignment-source').forEach(function(s){
           var m = s.getAttribute('data-source-type') === stype && s.getAttribute('data-source-id') === sid;
           s.style.display = m ? '' : 'none'; if (m) has = true;
         }); }
@@ -2912,18 +2957,15 @@
           if ((b.getAttribute('data-ticket-kind') || '') !== 'GUEST_LIST'){ var sEl = b.querySelector(srcSel(stype, sid)); if (sEl) sEl.click(); }
         }
       });
-      if (banner){ banner.classList.remove('d-none'); if (whoEl) whoEl.textContent = name || ''; }
-      if (clearBtn) clearBtn.classList.remove('d-none');
+      showBanner(name);
       if (first) first.scrollIntoView({ block: 'start' });
     }
     modal.addEventListener('shown.bs.modal', function(){
       if (pending){
-        // Al abrir desde un compromiso/petición se muestran TODAS sus categorías apiladas (una debajo
-        // de otra) desde arriba; applyFilter ya hace scroll a la primera. No saltamos a una sola.
-        applyFilter(pending.stype, pending.sid, pending.name);
+        applyFilter(pending.stype, pending.sid, pending.name, pending.cat || '');
         pending = null; pendingCat = null;
       }
-      else if (pendingCat){ var b = modal.querySelector('.invitation-assignment-form[data-category-id="' + pendingCat + '"]'); if (b) b.scrollIntoView({ block: 'start' }); pendingCat = null; }
+      else if (pendingCat){ applyCatFilter(pendingCat, pendingCatName); pendingCat = null; pendingCatName = ''; }
     });
     if (clearBtn) clearBtn.addEventListener('click', clearFilter);
     modal.querySelectorAll('[data-assign-filter-clear]').forEach(function(cb){ cb.addEventListener('click', clearFilter); });
@@ -2939,9 +2981,9 @@
         var sel = srcSel(src.getAttribute('data-source-type'), src.getAttribute('data-source-id'));
         var catAttr = src.getAttribute('data-assign-cat') || '';
         if (!modal.querySelector(sel)){
-          // Sin pendientes (ya asignada): si venimos de una categoría concreta, abrimos ahí para gestionarla.
-          if (catAttr){ pending = null; pendingCat = catAttr; clearFilter(); bootstrap.Modal.getOrCreateInstance(modal).show(); return; }
-          alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén asignadas).'); return;
+          // Sin tarjeta en el modal (p. ej. ya enviada): si venimos de una categoría concreta, abrimos ahí.
+          if (catAttr){ pending = null; pendingCat = catAttr; pendingCatName = src.getAttribute('data-source-name') || ''; clearFilter(); bootstrap.Modal.getOrCreateInstance(modal).show(); return; }
+          alert('No hay invitaciones pendientes de asignar para esta selección (puede que ya estén enviadas).'); return;
         }
         clearFilter();
         pending = { stype: src.getAttribute('data-source-type'), sid: src.getAttribute('data-source-id'), name: src.getAttribute('data-source-name') || '', cat: catAttr };
@@ -2950,7 +2992,7 @@
         return;
       }
       var catBtn = ev.target.closest('[data-assign-cat]');
-      if (catBtn){ pending = null; pendingCat = catBtn.getAttribute('data-assign-cat'); clearFilter(); }
+      if (catBtn){ pending = null; pendingCat = catBtn.getAttribute('data-assign-cat'); pendingCatName = catBtn.getAttribute('data-assign-cat-name') || ''; clearFilter(); }
     });
   })();
 })();

@@ -1037,6 +1037,13 @@ img.img-error-pending{ visibility: hidden; }
 /* Etiqueta de ESCENARIO: se coloca en un punto libre del marco del sector (left/top en % por estilo
    en línea). Negra, texto/icono en blanco. */
 .invitation-stage { position: absolute; z-index: 3; transform: translate(-50%,-50%); background: #111; color: #fff; font-size: .6rem; font-weight: 800; letter-spacing: .06em; padding: .2rem .6rem; border-radius: .45rem; display: inline-flex; align-items: center; box-shadow: 0 2px 6px rgba(0,0,0,.25); white-space: nowrap; pointer-events: none; }
+/* Cuando la etiqueta de ESCENARIO cae en un borde del mapa, se reserva sitio en ese borde
+   (la viñeta del sector crece un poco y el plano se desplaza) para que la etiqueta quede SIEMPRE
+   dentro del fondo gris, pegada al plano y sin tapar butacas ni chocar con la rueda de ajustes. */
+.invitation-sector-rows.stage-pad-top { padding-top: 2.2rem; }
+.invitation-sector-rows.stage-pad-bottom { padding-bottom: 2.2rem; }
+.invitation-sector-rows.stage-pad-left { padding-left: 3.6rem; }
+.invitation-sector-rows.stage-pad-right { padding-right: 3.6rem; }
 .invitation-stage i { color: #fff; }
 .invitation-stage-arrow { margin-right: .35rem; display: inline-block; }
 .invitation-stage-dir i:first-child { display: inline-block; }
@@ -1084,23 +1091,36 @@ img.img-error-pending{ visibility: hidden; }
 .assignment-source { position: relative; border: 1px solid #e1e6ed; border-radius: 1rem; padding: .75rem; background: #fff; cursor: grab; }
 .assignment-source.is-selected, .assignment-source:hover { border-color: #e83b4b; box-shadow: 0 0 0 .16rem rgba(232,59,75,.1); }
 .assignment-source.is-active { border-color: #e83b4b; box-shadow: 0 0 0 .2rem rgba(232,59,75,.18); }
-.assignment-source--done { border-color: #16803a; box-shadow: 0 0 0 .2rem rgba(22,128,58,.14); }
-/* Tarjeta de solicitud del asignador (invitado con foto+nombre+nº, vínculo, «pedidas por», nota). */
-.assignment-source-flag { position: absolute; top: .45rem; right: .5rem; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; }
-.assign-src-head { display: flex; align-items: center; gap: .5rem; }
+/* Estado de asignación de la tarjeta según «Asignadas X/T»: parcial = AMARILLO, completa = VERDE.
+   (A 0: etiqueta gris y fondo blanco, sin clase.) */
+.assignment-source.assign-state-partial { border-color: #ffc107; background: #fff9e6; }
+.assignment-source.assign-state-partial .assign-src-progress { background: #ffc107; color: #3a2f00; border-color: #e0a800; }
+.assignment-source.assign-state-full { border-color: #16803a; background: #effaf3; }
+.assignment-source.assign-state-full .assign-src-progress { background: #d7f2df; color: #116330; border-color: #a9dcb9; }
+/* Tarjeta de solicitud del asignador (invitado con foto+nombre, vínculo, «pedidas por», nota).
+   Columna de etiquetas a la derecha: «Pendiente de aprobar» ARRIBA y el nº de invitaciones DEBAJO,
+   centrado (nunca se solapan); bajo ellas, la etiqueta «Asignadas X/T». */
+.assignment-source-flag { display: inline-flex; align-items: center; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; white-space: nowrap; }
+.assign-src-tags { display: flex; flex-direction: column; align-items: center; gap: .3rem; margin-left: auto; flex: 0 0 auto; }
+.assign-src-head { display: flex; align-items: flex-start; gap: .5rem; }
 .assign-src-photo { width: 34px; height: 34px; border-radius: 9px; object-fit: contain; flex: 0 0 auto; background: transparent; border: 0; }
-.assign-src-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.assign-src-qty { margin-left: auto; flex: 0 0 auto; }
+.assign-src-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: .3rem; }
+.assign-src-qty { flex: 0 0 auto; }
 .assign-src-link { margin-top: .35rem; }
 .assign-src-requester { display: flex; align-items: center; gap: .35rem; margin-top: .3rem; font-size: .74rem; color: #6b7280; min-width: 0; }
 .assign-src-requester img { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; background: #eef0f3; }
 .assign-src-requester span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .assign-src-note { margin-top: .3rem; font-size: .74rem; color: #555; }
-/* «asignado x/x» durante el proceso: verde por defecto, NARANJA mientras hay asignaciones en curso. */
-.assign-src-progress { display: inline-flex; align-items: center; gap: .3rem; margin-top: .45rem; padding: .12rem .2rem .12rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; background: #e7f6ec; color: #16803a; border: 1px solid #bfe6cd; }
-.assign-src-progress.is-active { background: #fff0dd; color: #b5560c; border-color: #ffca80; }
+/* «Asignadas X/T»: SIEMPRE visible. Gris a 0 (fondo de tarjeta blanco); el color llega con las
+   clases de estado de la tarjeta (parcial amarillo / completa verde). La ✕ desasigna todo. */
+.assign-src-progress { display: inline-flex; align-items: center; gap: .3rem; padding: .12rem .2rem .12rem .55rem; border-radius: 999px; font-size: .72rem; font-weight: 700; background: #eef0f3; color: #6b7280; border: 1px solid #e1e6ed; white-space: nowrap; }
 .assign-src-cancel { border: 0; background: transparent; color: inherit; line-height: 1; padding: .05rem .32rem; border-radius: 50%; cursor: pointer; }
 .assign-src-cancel:hover { background: rgba(0,0,0,.1); }
+/* Columnas del asignador con SCROLL INDEPENDIENTE: la lista de solicitudes (izquierda) llega hasta
+   el final de la pantalla y se desliza por dentro; el área de planos (derecha) igual. Así, al
+   moverte por el plano, la solicitud que estás asignando sigue visible con su contador. */
+#assignAllModal .assignment-source-list { max-height: calc(100vh - 250px); }
+#assignAllModal .assignment-drop-zone { max-height: calc(100vh - 250px); overflow-y: auto; }
 .invitation-remaining { min-height: 1.2rem; }
 .assignment-drop-zone { min-height: 260px; border: 1px dashed #cfd6df; border-radius: 1rem; padding: .9rem; background: #fafbfc; }
 .assignment-unnumbered-pool { display: flex; flex-wrap: wrap; gap: .45rem; }
@@ -1695,7 +1715,8 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .fotos-list .fotos-tile__badge{ position:static; margin-left:auto; margin-right:.5rem; }
 
 /* invitaciones · fuente pendiente de aprobar en el modal de asignación */
-.assignment-source--pending-approval{ border-color:#ffc107; background:#fff9e6; }
+/* «Pendiente de aprobar» ya NO tiñe la tarjeta (solo lleva su etiqueta); el amarillo/verde de fondo
+   lo dan ahora los estados de asignación (.assign-state-partial / .assign-state-full). */
 
 /* Invitaciones · etiquetas de estado (pendientes / taquilla / enviadas) delante de los contadores */
 .invitation-status-and-counts{ display:flex; align-items:center; gap:.85rem; flex-wrap:wrap; justify-content:flex-end; }

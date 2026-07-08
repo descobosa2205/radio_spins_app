@@ -38575,8 +38575,14 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 continue
             assigned = _invitation_assigned_qty_for_source(session_db, cat.id, "commitment", commitment.id)
             pending = max(_safe_int(qty) - assigned, 0)
+            # Sin pendientes: sigue apareciendo si tiene entradas ASIGNADAS sin enviar (editable).
             if pending <= 0:
-                continue
+                unsent = int(session_db.query(func.count(InvitationTicket.id)).filter(
+                    InvitationTicket.category_id == cat.id,
+                    InvitationTicket.assigned_commitment_id == commitment.id,
+                    InvitationTicket.status == 'ASSIGNED').scalar() or 0)
+                if unsent <= 0:
+                    continue
             payload[str(cat.id)].append({
                 "source_type": "commitment",
                 "source_id": str(commitment.id),
@@ -38614,7 +38620,8 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
                 continue
             assigned = _invitation_assigned_qty_for_source(session_db, cat.id, "request", row.id)
             pending = max(_safe_int(qty) - assigned, 0)
-            if pending <= 0:
+            # Sin pendientes: sigue apareciendo si está ASIGNADA (no enviada) para poder modificarla.
+            if pending <= 0 and not (assigned > 0 and (row.status or "") == "ASIGNADAS"):
                 continue
             payload[str(cat.id)].append({
                 "source_type": "request",

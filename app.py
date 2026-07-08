@@ -398,38 +398,11 @@ def _safe_ensure(fn, name: str):
         # No interrumpir el arranque por DDL idempotente.
         print(f"[schema] Aviso: no se pudo ejecutar {name}: {e}")
 
-# Primero creamos las tablas base conocidas por SQLAlchemy.
-# Esto evita que las migraciones ligeras posteriores fallen por depender
-# de tablas que aún no existían (por ejemplo `promoters`).
-_safe_ensure(init_db, "init_db")
-
-for _fn, _name in [
-    (ensure_artist_feature_schema, "ensure_artist_feature_schema"),
-    (ensure_discografica_schema, "ensure_discografica_schema"),
-    (ensure_isrc_and_song_detail_schema, "ensure_isrc_and_song_detail_schema"),
-    (ensure_song_delivery_schema, "ensure_song_delivery_schema"),
-    (ensure_song_royalties_schema, "ensure_song_royalties_schema"),
-    (ensure_editorial_schema, "ensure_editorial_schema"),
-    (ensure_ingresos_schema, "ensure_ingresos_schema"),
-    (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
-    (ensure_album_schema, "ensure_album_schema"),
-    (ensure_concerts_schema_enhancements, "ensure_concerts_schema_enhancements"),
-    (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
-    (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
-    (ensure_invitation_schema, "ensure_invitation_schema"),
-    (ensure_entity_links_schema, "ensure_entity_links_schema"),
-    (ensure_radio_import_schema, "ensure_radio_import_schema"),
-    (ensure_simulations_schema, "ensure_simulations_schema"),
-    (ensure_fotos_schema, "ensure_fotos_schema"),
-    (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
-]:
-    _safe_ensure(_fn, _name)
-
-# Índices de rendimiento (claves foráneas sin índice). En segundo plano para no retrasar
-# el arranque del servidor: es idempotente y solo crea los índices que falten.
-def _ensure_perf_indexes_bg():
-    _safe_ensure(ensure_performance_indexes, "ensure_performance_indexes")
-threading.Thread(target=_ensure_perf_indexes_bg, daemon=True).start()
+# NOTA: el arranque del esquema (crear tablas base + migraciones ligeras idempotentes + índices) se
+# ejecuta CONSOLIDADO y EN SEGUNDO PLANO más abajo (función `_bootstrap_schema_bg`), una vez que ya
+# están importadas TODAS las funciones `ensure_*`. Se hace así —y no de forma síncrona aquí— porque
+# contra la BD real y con varios workers bloqueaba el arranque (contención de locks DDL) y Render no
+# detectaba el puerto a tiempo ("No open ports detected"). El detalle está en esa función.
 
 
 CONCERT_SALE_TYPE_LABELS = {
@@ -26635,13 +26608,55 @@ from models import (
     ensure_roadmap_onesheet_schema,
 )
 
-_safe_ensure(ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema")
-_safe_ensure(ensure_bag_expense_schema, "ensure_bag_expense_schema")
-_safe_ensure(ensure_marketing_country_schema, "ensure_marketing_country_schema")
-_safe_ensure(ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema")
-_safe_ensure(ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema")
-_safe_ensure(ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema")
-_safe_ensure(ensure_chartmetric_schema, "ensure_chartmetric_schema")
+# Arranque del esquema COMPLETO en SEGUNDO PLANO (ver nota más arriba). En este punto ya están
+# importadas TODAS las funciones `ensure_*`, así que un único hilo las ejecuta en orden y UNA sola
+# vez (cerrojo de fichero: solo un worker del contenedor lo aplica; los demás sirven de inmediato).
+# Antes esto se hacía de forma SÍNCRONA al importar el módulo, en cada worker; contra la BD real y
+# con varios workers provocaba contención de locks DDL y el arranque tardaba tanto que Render no
+# detectaba el puerto ("No open ports detected") y el deploy fallaba. Todo es idempotente y
+# best-effort, así que el hilo nunca rompe el arranque; el servidor abre el puerto al instante.
+def _bootstrap_schema_bg():
+    import tempfile
+    lock_path = os.path.join(tempfile.gettempdir(), "app33_schema_bootstrap.lock")
+    try:
+        os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return  # otro worker de este contenedor ya está aplicando el esquema
+    except Exception:
+        pass  # si el cerrojo falla, seguimos igualmente (best-effort)
+    _safe_ensure(init_db, "init_db")  # tablas base (el resto de migraciones dependen de ellas)
+    for _fn, _name in [
+        (ensure_artist_feature_schema, "ensure_artist_feature_schema"),
+        (ensure_discografica_schema, "ensure_discografica_schema"),
+        (ensure_isrc_and_song_detail_schema, "ensure_isrc_and_song_detail_schema"),
+        (ensure_song_delivery_schema, "ensure_song_delivery_schema"),
+        (ensure_song_royalties_schema, "ensure_song_royalties_schema"),
+        (ensure_editorial_schema, "ensure_editorial_schema"),
+        (ensure_ingresos_schema, "ensure_ingresos_schema"),
+        (ensure_royalty_liquidations_schema, "ensure_royalty_liquidations_schema"),
+        (ensure_album_schema, "ensure_album_schema"),
+        (ensure_concerts_schema_enhancements, "ensure_concerts_schema_enhancements"),
+        (ensure_third_party_and_contract_sheet_schema, "ensure_third_party_and_contract_sheet_schema"),
+        (ensure_concert_artwork_schema, "ensure_concert_artwork_schema"),
+        (ensure_invitation_schema, "ensure_invitation_schema"),
+        (ensure_entity_links_schema, "ensure_entity_links_schema"),
+        (ensure_radio_import_schema, "ensure_radio_import_schema"),
+        (ensure_simulations_schema, "ensure_simulations_schema"),
+        (ensure_fotos_schema, "ensure_fotos_schema"),
+        (ensure_artist_calendar_schema, "ensure_artist_calendar_schema"),
+        (ensure_personnel_and_operations_schema, "ensure_personnel_and_operations_schema"),
+        (ensure_bag_expense_schema, "ensure_bag_expense_schema"),
+        (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
+        (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
+        (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
+        (ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema"),
+        (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
+    ]:
+        _safe_ensure(_fn, _name)
+    # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
+    _safe_ensure(ensure_performance_indexes, "ensure_performance_indexes")
+
+threading.Thread(target=_bootstrap_schema_bg, daemon=True).start()
 
 # =========================================================
 # Hoja de ruta avanzada + redes sociales + one-sheet

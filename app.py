@@ -41339,6 +41339,12 @@ def invitation_event_detail(concert_id):
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
         ticket_counts = _invitation_ticket_counts_by_category(session_db, concert)
         cat_payloads = [_invitation_category_payload(c, ticket_counts.get(str(c.id))) for c in categories]
+        # Asignadas SIN enviar por categoría: para el botón «Enviar todas las asignadas» de la
+        # cabecera de cada categoría (solo se muestra si hay algo que enviar).
+        assigned_pending_by_category = {str(cid): int(n or 0) for cid, n in (
+            session_db.query(InvitationTicket.category_id, func.count(InvitationTicket.id))
+            .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.status == 'ASSIGNED')
+            .group_by(InvitationTicket.category_id).all())}
         for _i, _cp in enumerate(cat_payloads):
             _cp['color'] = INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)]
         # Meta por categoría (color/zona/aforo) para pintar las categorías del compromiso con la MISMA
@@ -41563,6 +41569,7 @@ def invitation_event_detail(concert_id):
             commitments=commitments,
             requests=requests,
             grouped_requests=_invitation_grouped(requests, categories, locked_labels=committed_palco_labels),
+            assigned_pending_by_category=assigned_pending_by_category,
             denied_count=denied_count,
             show_denied=show_denied,
             guest_list_rows_complete=guest_list_rows_complete,

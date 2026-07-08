@@ -38341,7 +38341,13 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
         _int_all = list(int_positions) + [int(p) for p in insert_positions if float(p) == int(p)]
         mn = mx = 0
         if _int_all:
-            mn, mx = min(_int_all), max(_int_all)
+            # La rejilla base (mín→máx por paso) se deduce SOLO de las butacas reales: un hueco/
+            # apagado insertado FUERA del rango añade su columna pero no debe redefinir la base
+            # (cambiaba mn y, con paso 2, la paridad — aparecían butacas grises fantasma).
+            if all_nums:
+                mn, mx = min(all_nums), max(all_nums)
+            else:
+                mn, mx = min(_int_all), max(_int_all)
             _parity = list(all_nums) or _int_all
             sector_step = 2 if (len(_parity) >= 2 and len({int(n) % 2 for n in _parity}) == 1 and (mx - mn) >= 2) else 1
             base = list(range(mn, mx + 1, sector_step))
@@ -38368,6 +38374,12 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                     non_numbered.append(s)
             visual = []
             if columns is not None:
+                # Escaleras en el BORDE inicial (antes de la primera columna): el bucle solo las pinta
+                # ENTRE columnas y las de los extremos se perdían en el mapa (el configurador sí las ve).
+                if stairs_after and columns:
+                    for sa in sorted(stairs_after):
+                        if sa < columns[0]:
+                            visual.append({"type": "stair", "label": "Escalera"})
                 prev_pos = None
                 for pos in columns:
                     if prev_pos is not None and stairs_after:
@@ -38388,8 +38400,17 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                         # Columna de inserción de OTRA fila → espaciador vacío (mantiene la alineación).
                         visual.append({"type": "spacer"})
                     prev_pos = pos
+                if stairs_after and columns:
+                    for sa in sorted(stairs_after):
+                        if sa >= columns[-1]:
+                            visual.append({"type": "stair", "label": "Escalera"})
             else:
                 # Sin rejilla (sin numerar, o demasiadas columnas): butacas seguidas + escaleras entre nº.
+                _first_num = next((int(s.get("seat_number")) for s in seats if str(s.get("seat_number") or "").isdigit()), None)
+                if stairs_after and _first_num is not None:
+                    for sa in sorted(stairs_after):
+                        if sa < _first_num:
+                            visual.append({"type": "stair", "label": "Escalera"})
                 prev_num = None
                 for s in seats:
                     sv = s.get("seat_number")
@@ -38401,6 +38422,10 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                     visual.append({"type": "seat", "seat": s})
                     if cur is not None:
                         prev_num = cur
+                if stairs_after and prev_num is not None:
+                    for sa in sorted(stairs_after):
+                        if sa >= prev_num:
+                            visual.append({"type": "stair", "label": "Escalera"})
                 non_numbered = []
             for seat in non_numbered:
                 visual.append({"type": "seat", "seat": seat})

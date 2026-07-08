@@ -3560,8 +3560,39 @@
         ok = !!(res.ok && d && d.ok);
       } catch (e) { ok = false; }
       if (ok) {
-        // Guardado OK: los planos de las categorías TOCADAS se refrescan YA con el partial ligero
-        // (casi inmediato); el resto (badges de invitados/listados) va en 2º plano sin overlay.
+        // Guardado OK — feedback INSTANTÁNEO: las butacas recién asignadas se pintan YA en el plano
+        // de la pestaña (amarillo + foto del invitado), con los datos que este modal ya tiene, sin
+        // esperar al servidor. Así al salir del asignador el cambio se ve hecho al momento; el
+        // partial de abajo trae enseguida el markup canónico (franjas de propietario, títulos…).
+        try {
+          entries.forEach(function(en){
+            var srcEl = document.querySelector('#assignAllModal .assignment-source[data-source-type="' + en.source_type + '"][data-source-id="' + en.source_id + '"]');
+            var photo = '', name = '';
+            if (srcEl){
+              name = ((srcEl.querySelector('.assign-src-name') || {}).textContent || '').trim();
+              var own = srcEl.querySelector('.assign-src-photo');
+              var lnk = srcEl.querySelector('.assign-src-link img');
+              var ownSrc = own ? (own.getAttribute('src') || '') : '';
+              photo = (ownSrc && ownSrc.indexOf('placeholder_photo') < 0) ? ownSrc : (lnk ? (lnk.getAttribute('src') || '') : '');
+            }
+            (en.ticket_ids || []).forEach(function(tid){
+              var seat = document.querySelector('#inv-tab-tickets [data-ticket-id="' + tid + '"]');
+              if (!seat) return;
+              seat.classList.remove('invitation-seat--available');
+              seat.classList.add('invitation-seat--assigned', 'invitation-seat--owned');
+              if (name) seat.title = name;
+              if (photo && !seat.querySelector('img')){
+                var img = document.createElement('img');
+                img.className = 'invitation-seat-photo';
+                img.src = photo; img.alt = '';
+                seat.insertBefore(img, seat.firstChild);
+                seat.classList.add('invitation-seat--photo');
+              }
+            });
+          });
+        } catch (e) {}
+        // Los planos de las categorías TOCADAS se refrescan YA con el partial ligero (casi
+        // inmediato); el resto (badges de invitados/listados) va en 2º plano sin overlay.
         try {
           var catsTouched = {};
           entries.forEach(function(en){ if (en.category_id) catsTouched[en.category_id] = 1; });

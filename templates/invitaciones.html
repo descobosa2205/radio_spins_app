@@ -2707,7 +2707,17 @@
       };
     };
     const escHtmlInv = (s) => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+    // «Disponibles» EN VIVO: solo las completamente libres — las marcadas en amarillo (en proceso de
+    // asignación) descuentan aunque aún no se haya guardado.
+    const updateCounters = () => {
+      if (isGuestList) return;
+      const all = seatEls();
+      const avail = all.filter(st => seatStatus(st) === 'AVAILABLE' && !stage.has(st)).length;
+      form.querySelectorAll('[data-available-counter]').forEach(el => { el.textContent = avail; });
+      form.querySelectorAll('[data-assigned-counter]').forEach(el => { el.textContent = all.length - avail; });
+    };
     const refreshStagedVisuals = () => {
+      updateCounters();
       // limpiar franjas y decoraciones anteriores
       form.querySelectorAll('.seat-owner-strip').forEach(el => el.remove());
       seatEls().forEach(seat => {
@@ -2862,7 +2872,7 @@
       if (ok) {
         resetSeatVisual(seat);
         if (owner) { owner.dataset.assigned = String(Math.max(persisted(owner) - 1, 0)); updateSource(owner); }
-        setRemaining();
+        setRemaining(); refreshStagedVisuals();
       } else { alert('No se pudo desasignar la butaca.'); }
       return ok;
     };

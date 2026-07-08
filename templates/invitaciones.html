@@ -733,6 +733,16 @@
                   <div>
                     <h5 class="mb-0">{{ cat.name }}</h5>
                     <div class="small text-muted">Configuradas: {{ cat.configured }} · Subidas: {{ cat.uploaded }} · Disponibles: {{ cat.available_configured }}</div>
+                    {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                      <form method="post" action="{{ url_for('invitation_category_auto_assign', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Asignar automáticamente todas las PENDIENTES de «{{ cat.name }}»? Las ya asignadas o enviadas no se tocan.');">
+                        <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar todas automáticamente</button>
+                      </form>
+                      <form method="post" action="{{ url_for('invitation_category_send_all', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Enviar por email todas las ASIGNADAS (aún no enviadas) de «{{ cat.name }}»? Taquilla y las que no tengan el cupo completo se saltan.');">
+                        <button class="btn btn-sm btn-outline-success" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar todas</button>
+                      </form>
+                    </div>
+                    {% endif %}
                   </div>
                   <div class="d-flex gap-2 flex-wrap">
                     {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}<button type="button" class="btn btn-sm btn-outline-secondary" data-select-toggle><i class="fa fa-square-check me-1"></i>Seleccionar varias</button>{% endif %}

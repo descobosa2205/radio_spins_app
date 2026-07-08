@@ -43056,6 +43056,206 @@ def invitation_request_mark_sent(request_id):
         session_db.close()
 
 
+@app.post('/invitaciones/evento/<concert_id>/categoria/<category_id>/asignar-todas', endpoint='invitation_category_auto_assign')
+@admin_required
+def invitation_category_auto_assign(concert_id, category_id):
+    """Asigna automáticamente TODAS las pendientes de UNA categoría (solicitudes y compromisos con
+    cantidad por asignar; las ya asignadas/enviadas no se tocan), agrupando butacas contiguas.
+    Si no llegan las disponibles, asigna lo posible y avisa de lo que faltó."""
+    session_db = db()
+    _cid = None
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        _cid = str(concert.id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        if (cat.ticket_kind or '').upper() == 'GUEST_LIST':
+            raise ValueError('Las categorías de listado no requieren asignación de PDFs.')
+        pend = [x for x in _invitation_pending_assignment_payloads(session_db, concert, categories).get(str(cat.id), [])
+                if _safe_int(x.get('qty')) > 0]
+        if not pend:
+            flash(f'No hay nada pendiente de asignar en «{cat.name}».', 'info')
+            return redirect(url_for('invitation_event_detail', concert_id=_cid))
+        remaining = (
+            session_db.query(InvitationTicket)
+            .filter(InvitationTicket.category_id == cat.id, InvitationTicket.status == 'AVAILABLE')
+            .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
+            .all()
+        )
+        now = _now_madrid()
+        assigned_total = 0
+        short = 0
+        for src in pend:
+            need = min(_safe_int(src.get('qty')), len(remaining))
+            if _safe_int(src.get('qty')) > len(remaining):
+                short += _safe_int(src.get('qty')) - len(remaining)
+            if need <= 0:
+                continue
+            request_row = None
+            commitment_row = None
+            if src.get('source_type') == 'request':
+                request_row = session_db.get(InvitationRequest, _safe_uuid(src.get('source_id')))
+                if not request_row:
+                    continue
+                label = request_row.guest_name or 'Invitado'
+            else:
+                commitment_row = session_db.get(InvitationCommitment, _safe_uuid(src.get('source_id')))
+                if not commitment_row:
+                    continue
+                label = commitment_row.name or 'Compromiso'
+            picked = _invitation_pick_grouped_seats(remaining, need, category=cat, concert=concert)
+            for ticket in picked:
+                ticket.assigned_request_id = request_row.id if request_row else None
+                ticket.assigned_commitment_id = commitment_row.id if commitment_row else None
+                ticket.assigned_label = label
+                ticket.status = 'ASSIGNED'
+                ticket.assigned_at = now
+                ticket.updated_at = now
+            _picked_ids = {t.id for t in picked}
+            remaining = [t for t in remaining if t.id not in _picked_ids]
+            assigned_total += len(picked)
+            if request_row:
+                request_row.status = 'ASIGNADAS'
+                request_row.assigned_at = now
+                request_row.updated_at = now
+            if commitment_row:
+                commitment_row.status = 'ASIGNADAS'
+                commitment_row.updated_at = now
+        session_db.commit()
+        msg = f'{assigned_total} invitación(es) de «{cat.name}» asignadas automáticamente.'
+        if short > 0:
+            msg += f' Faltaron {short} por falta de disponibles.'
+        flash(msg, 'success' if assigned_total else 'warning')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo asignar automáticamente: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid) if _cid else url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/categoria/<category_id>/enviar-todas', endpoint='invitation_category_send_all')
+@admin_required
+def invitation_category_send_all(concert_id, category_id):
+    """Envía por email todas las ASIGNADAS y no enviadas de UNA categoría: solicitudes (completas,
+    con la regla de cupo completo) y compromisos (solo las categorías completas, filtrando el correo
+    a esta categoría). Recogida en taquilla y sin email se saltan con aviso."""
+    session_db = db()
+    _cid = None
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        _cid = str(concert.id)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        now = _now_madrid()
+        sent_n = 0
+        skipped_box = 0
+        no_email = 0
+        failed = 0
+        not_complete = 0
+        # --- SOLICITUDES con entradas ASIGNADAS (sin enviar) en esta categoría ---
+        _req_ids = {t.assigned_request_id for t in session_db.query(InvitationTicket).filter(
+            InvitationTicket.category_id == cat.id, InvitationTicket.status == 'ASSIGNED',
+            InvitationTicket.assigned_request_id.isnot(None)).all()}
+        for row in (session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(_req_ids))).all() if _req_ids else []):
+            if (row.status or '') != 'ASIGNADAS':
+                continue
+            if (row.receiver_mode or '').strip().upper() == 'BOX_OFFICE':
+                skipped_box += 1
+                continue
+            flags = _invitation_request_kind_flags(session_db, row, categories)
+            if not flags.get('can_send'):
+                not_complete += 1
+                continue
+            row.delivery_token = row.delivery_token or _invitation_token()
+            subject, html_body, text_body = _invitation_email_body(session_db, row, None)
+            recipients = _dedupe_valid_email_addresses(_invitation_delivery_recipients(session_db, row))
+            if not recipients:
+                no_email += 1
+                continue
+            reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
+            try:
+                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+            except Exception:
+                ok = False
+            if ok:
+                row.status = 'ENVIADAS'
+                row.sent_at = now
+                for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+                    ticket.status = 'SENT'
+                    ticket.sent_at = now
+                    ticket.updated_at = now
+                session_db.commit()
+                sent_n += 1
+            else:
+                session_db.rollback()
+                failed += 1
+        # --- COMPROMISOS con entradas ASIGNADAS (sin enviar) en esta categoría, categoría COMPLETA ---
+        _cmt_rows = session_db.query(InvitationCommitment).join(
+            InvitationTicket, InvitationTicket.assigned_commitment_id == InvitationCommitment.id).filter(
+            InvitationTicket.category_id == cat.id, InvitationTicket.status == 'ASSIGNED').distinct().all()
+        for row in _cmt_rows:
+            _q = _safe_int(_json_dict(row.quantities_json).get(str(cat.id)))
+            _tks = session_db.query(InvitationTicket).filter(
+                InvitationTicket.assigned_commitment_id == row.id,
+                InvitationTicket.category_id == cat.id).all()
+            _unsent = [t for t in _tks if (t.status or '') == 'ASSIGNED']
+            if not _unsent:
+                continue
+            if _q > 0 and len(_tks) < _q:
+                not_complete += 1
+                continue
+            recipients = _dedupe_valid_email_addresses(_invitation_guest_live_emails(session_db, row))
+            if not recipients:
+                no_email += 1
+                continue
+            row.delivery_token = row.delivery_token or _invitation_token()
+            subject, html_body, text_body = _invitation_commitment_email_body(session_db, row, category_id=cat.id)
+            reply_to = _invitation_commitment_reply_to(session_db, row) or _current_user_email()
+            try:
+                ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+            except Exception:
+                ok = False
+            if ok:
+                for t in _unsent:
+                    t.status = 'SENT'
+                    t.sent_at = now
+                    t.updated_at = now
+                session_db.commit()
+                sent_n += 1
+            else:
+                session_db.rollback()
+                failed += 1
+        parts = [f'{sent_n} envío(s) realizados de «{cat.name}»']
+        if skipped_box:
+            parts.append(f'{skipped_box} de taquilla (no se envían)')
+        if not_complete:
+            parts.append(f'{not_complete} sin el cupo completo (no se envían)')
+        if no_email:
+            parts.append(f'{no_email} sin email')
+        if failed:
+            parts.append(f'{failed} fallidos')
+        flash(' · '.join(parts) + '.', 'success' if sent_n and not failed else 'warning')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo enviar: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=_cid) if _cid else url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/evento/<concert_id>/enviar-asignadas', endpoint='invitation_event_send_all')
 @admin_required
 def invitation_event_send_all(concert_id):

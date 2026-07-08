@@ -38667,6 +38667,78 @@ def _invitation_pending_assignment_payloads(session_db, concert: Concert, catego
     return payload
 
 
+def _invitation_assign_context(session_db, concert, categories) -> dict:
+    """Todo lo que necesita el ASIGNADOR (modal): entradas, planos por categoría y tarjetas de
+    pendientes. Lo comparten la página de invitaciones y el PARCIAL ligero que refresca el modal
+    al abrirlo (abrir el asignador ya no paga el render de la página completa)."""
+    name_map = _invitation_category_name_map(categories)
+    ticket_rows = (
+        session_db.query(InvitationTicket)
+        .filter(InvitationTicket.concert_id == concert.id)
+        .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
+        .limit(1000)
+        .all()
+    )
+    # Estado de envío/descarga (y tercero/artista invitado) de las solicitudes a las que están
+    # asignadas las entradas, para mostrarlo al pinchar una invitación numerada y decidir si se
+    # puede recuperar/desvincular.
+    ticket_request_ids = {t.assigned_request_id for t in ticket_rows if getattr(t, 'assigned_request_id', None)}
+    ticket_commitment_ids = {t.assigned_commitment_id for t in ticket_rows if getattr(t, 'assigned_commitment_id', None)}
+    request_map: dict[str, dict] = {}
+    if ticket_request_ids:
+        _sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
+        for r in session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(ticket_request_ids))).all():
+            _ai = _invitation_assignee_visual(session_db, r)
+            request_map[str(r.id)] = {
+                'sent': bool(r.sent_at) or (r.status or '') in _sent_statuses,
+                'downloaded': bool(r.downloaded_at) or _safe_int(r.downloaded_count) > 0,
+                'guest_name': _ai['name'] or (r.guest_name or ''),
+                'promoter_id': str(r.guest_promoter_id) if getattr(r, 'guest_promoter_id', None) else '',
+                'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
+                'photo': _ai['photo'],
+                'link': _ai['link'],
+                'link_logo': _ai['link_logo'],
+                'link_type': _ai['link_type'],
+                'total': _invitation_total_qty(_json_dict(r.quantities_json)),
+            }
+    commitment_map: dict[str, dict] = {}
+    if ticket_commitment_ids:
+        for c in session_db.query(InvitationCommitment).filter(InvitationCommitment.id.in_(list(ticket_commitment_ids))).all():
+            _ai = _invitation_assignee_visual(session_db, c)
+            commitment_map[str(c.id)] = {
+                # Nombre = del COMPROMISO (no del destinatario); vínculo/foto del destinatario.
+                'guest_name': (c.name or _ai['name'] or ''),
+                'photo': _ai['photo'],
+                'link': _ai['link'],
+                'link_logo': _ai['link_logo'],
+                'link_type': _ai['link_type'],
+                'total': _invitation_total_qty(_json_dict(c.quantities_json)),
+            }
+    tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
+    tickets_by_category = {str(c.id): [] for c in categories}
+    for item in tickets:
+        tickets_by_category.setdefault(str(item['category_id']), []).append(item)
+    uncategorized_tickets = tickets_by_category.get('None', [])
+    _cat_by_id = {str(c.id): c for c in categories}
+    ticket_groups_by_category = {
+        cid: _invitation_ticket_groups(rows, category=_cat_by_id.get(cid), concert=concert)
+        for cid, rows in tickets_by_category.items()
+    }
+    availability_by_category = {
+        cid: _invitation_availability_breakdown(rows)
+        for cid, rows in tickets_by_category.items()
+    }
+    pending_assignments = _invitation_pending_assignment_payloads(session_db, concert, categories)
+    return {
+        'tickets': tickets,
+        'tickets_by_category': tickets_by_category,
+        'uncategorized_tickets': uncategorized_tickets,
+        'ticket_groups_by_category': ticket_groups_by_category,
+        'availability_by_category': availability_by_category,
+        'pending_assignments': pending_assignments,
+    }
+
+
 def _invitation_request_uses_only_guest_list(session_db, row: InvitationRequest) -> bool:
     quantities = _json_dict(row.quantities_json)
     if not quantities:
@@ -41380,63 +41452,13 @@ def invitation_event_detail(concert_id):
                 except Exception:
                     pass
                 flash('No se pudo cargar un enlace generado (' + type(_linkexc).__name__ + ': ' + str(_linkexc)[:180] + ').', 'warning')
-        ticket_rows = (
-            session_db.query(InvitationTicket)
-            .filter(InvitationTicket.concert_id == concert.id)
-            .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
-            .limit(1000)
-            .all()
-        )
-        # Estado de envío/descarga (y tercero/artista invitado) de las solicitudes a las que están
-        # asignadas las entradas, para mostrarlo al pinchar una invitación numerada y decidir si se
-        # puede recuperar/desvincular.
-        ticket_request_ids = {t.assigned_request_id for t in ticket_rows if getattr(t, 'assigned_request_id', None)}
-        ticket_commitment_ids = {t.assigned_commitment_id for t in ticket_rows if getattr(t, 'assigned_commitment_id', None)}
-        request_map: dict[str, dict] = {}
-        if ticket_request_ids:
-            _sent_statuses = {'ENVIADAS', 'ENTREGADAS_MANO', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA'}
-            for r in session_db.query(InvitationRequest).filter(InvitationRequest.id.in_(list(ticket_request_ids))).all():
-                _ai = _invitation_assignee_visual(session_db, r)
-                request_map[str(r.id)] = {
-                    'sent': bool(r.sent_at) or (r.status or '') in _sent_statuses,
-                    'downloaded': bool(r.downloaded_at) or _safe_int(r.downloaded_count) > 0,
-                    'guest_name': _ai['name'] or (r.guest_name or ''),
-                    'promoter_id': str(r.guest_promoter_id) if getattr(r, 'guest_promoter_id', None) else '',
-                    'artist_id': str(r.guest_artist_id) if getattr(r, 'guest_artist_id', None) else '',
-                    'photo': _ai['photo'],
-                    'link': _ai['link'],
-                    'link_logo': _ai['link_logo'],
-                    'link_type': _ai['link_type'],
-                    'total': _invitation_total_qty(_json_dict(r.quantities_json)),
-                }
-        commitment_map: dict[str, dict] = {}
-        if ticket_commitment_ids:
-            for c in session_db.query(InvitationCommitment).filter(InvitationCommitment.id.in_(list(ticket_commitment_ids))).all():
-                _ai = _invitation_assignee_visual(session_db, c)
-                commitment_map[str(c.id)] = {
-                    # Nombre = del COMPROMISO (no del destinatario); vínculo/foto del destinatario.
-                    'guest_name': (c.name or _ai['name'] or ''),
-                    'photo': _ai['photo'],
-                    'link': _ai['link'],
-                    'link_logo': _ai['link_logo'],
-                    'link_type': _ai['link_type'],
-                    'total': _invitation_total_qty(_json_dict(c.quantities_json)),
-                }
-        tickets = [_invitation_ticket_payload(t, name_map, request_map, commitment_map) for t in ticket_rows]
-        tickets_by_category = {str(c.id): [] for c in categories}
-        for item in tickets:
-            tickets_by_category.setdefault(str(item['category_id']), []).append(item)
-        uncategorized_tickets = tickets_by_category.get('None', [])
-        _cat_by_id = {str(c.id): c for c in categories}
-        ticket_groups_by_category = {
-            cid: _invitation_ticket_groups(rows, category=_cat_by_id.get(cid), concert=concert)
-            for cid, rows in tickets_by_category.items()
-        }
-        availability_by_category = {
-            cid: _invitation_availability_breakdown(rows)
-            for cid, rows in tickets_by_category.items()
-        }
-        pending_assignments = _invitation_pending_assignment_payloads(session_db, concert, categories)
+        _assign_ctx = _invitation_assign_context(session_db, concert, categories)
+        tickets = _assign_ctx['tickets']
+        tickets_by_category = _assign_ctx['tickets_by_category']
+        uncategorized_tickets = _assign_ctx['uncategorized_tickets']
+        ticket_groups_by_category = _assign_ctx['ticket_groups_by_category']
+        availability_by_category = _assign_ctx['availability_by_category']
+        pending_assignments = _assign_ctx['pending_assignments']
         current_state = _current_user_state()
         return render_template(
             'invitaciones.html',
@@ -44013,6 +44035,36 @@ def invitation_tickets_bulk_send(concert_id):
     except Exception as exc:
         session_db.rollback()
         return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/evento/<concert_id>/asignador-parcial', endpoint='invitation_assign_partial')
+@admin_required
+def invitation_assign_partial(concert_id):
+    """Contenido del modal de asignación (parcial LIGERO): lo pide el asignador al abrirse para
+    tener la lista de peticiones y los planos al día SIN re-renderizar la página completa de
+    invitaciones (abrir el asignador era lento porque descargaba toda la página)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        ctx = _invitation_assign_context(session_db, concert, categories)
+        cat_payloads = [{
+            'id': str(c.id),
+            'name': c.name,
+            'ticket_kind': (c.ticket_kind or 'PDF_UNNUMBERED'),
+            'guest_list_mode': (c.guest_list_mode or ''),
+        } for c in categories]
+        return render_template('_invitation_assign_body.html',
+                               categories=cat_payloads,
+                               event={'id': str(concert.id)},
+                               tickets_by_category=ctx['tickets_by_category'],
+                               ticket_groups_by_category=ctx['ticket_groups_by_category'],
+                               pending_assignments=ctx['pending_assignments'])
     finally:
         session_db.close()
 

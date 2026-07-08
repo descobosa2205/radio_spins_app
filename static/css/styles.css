@@ -1120,8 +1120,15 @@ img.img-error-pending{ visibility: hidden; }
 /* Tarjeta de solicitud del asignador (invitado con foto+nombre, vínculo, «pedidas por», nota).
    Columna de etiquetas a la derecha: «Pendiente de aprobar» ARRIBA y el nº de invitaciones DEBAJO,
    centrado (nunca se solapan); bajo ellas, la etiqueta «Asignadas X/T». */
-.assignment-source-flag { display: inline-flex; align-items: center; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; white-space: nowrap; }
-.assign-src-tags { display: flex; flex-direction: column; align-items: center; gap: .3rem; margin-left: auto; flex: 0 0 auto; }
+/* La flag va ABSOLUTA en la esquina y TODAS las tarjetas reservan la misma banda superior en la
+   columna de etiquetas: así el nº de invitaciones y «Asignadas X/X» quedan ALINEADOS entre tarjetas,
+   tengan o no «Pendiente de aprobar». */
+.assignment-source-flag { position: absolute; top: .5rem; right: .6rem; display: inline-flex; align-items: center; font-size: .6rem; font-weight: 800; letter-spacing: .02em; text-transform: uppercase; background: #ffc107; color: #3a2f00; border-radius: .4rem; padding: .12rem .4rem; white-space: nowrap; }
+.assign-src-tags { display: flex; flex-direction: column; align-items: center; gap: .3rem; margin-left: auto; flex: 0 0 auto; padding-top: 1.15rem; }
+.assign-src-progress-row { display: inline-flex; align-items: center; gap: .3rem; }
+/* Botón VERDE de asignación automática, al lado de «Asignadas X/X». */
+.assign-src-auto { border: 1px solid #16803a; background: #e7f6ec; color: #16803a; border-radius: 50%; width: 1.55rem; height: 1.55rem; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; cursor: pointer; flex: 0 0 auto; }
+.assign-src-auto:hover { background: #16803a; color: #fff; }
 .assign-src-head { display: flex; align-items: flex-start; gap: .5rem; }
 .assign-src-photo { width: 34px; height: 34px; border-radius: 9px; object-fit: contain; flex: 0 0 auto; background: transparent; border: 0; }
 .assign-src-name { font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding-top: .3rem; }

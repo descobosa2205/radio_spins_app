@@ -1,0 +1,96 @@
+{# Cuerpo del ASIGNADOR (modal #assignAllModal). Lo incluye invitaciones.html y lo sirve
+   también el parcial ligero invitation_assign_partial para refrescar el modal al abrirlo
+   sin pagar el render de la página completa. Requiere: categories (dicts con id/name/
+   ticket_kind/guest_list_mode), event.id, tickets_by_category, ticket_groups_by_category,
+   pending_assignments, DEFAULT_PHOTO_URL. #}
+{% for cat in categories %}
+  {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
+  <form class="invitation-assignment-form assign-cat-block border rounded p-3 mb-3" method="post" action="{{ url_for('invitation_assignment_save', concert_id=event.id) }}" data-release-url="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}" data-category-id="{{ cat.id }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}">
+    <input type="hidden" name="assignments_json" value="[]" data-assignments-json>
+    <input type="hidden" name="accept_warnings" value="1">
+    {% set pend_appr = pending_assignments.get(cat.id, [])|selectattr('pending_approval')|list|length %}
+    <div class="fw-bold mb-2 pb-2 border-bottom"><i class="fa fa-layer-group me-1 text-danger"></i>{{ cat.name }}{% if pend_appr %}<span class="badge text-bg-warning text-dark ms-2"><i class="fa fa-clock me-1"></i>{{ pend_appr }} pendiente{{ '' if pend_appr == 1 else 's' }} de aprobar</span>{% endif %}</div>
+    <div class="row g-3">
+      <div class="col-12 col-lg-4">
+        <h6>Compromisos y peticiones</h6>
+        {% if cat.ticket_kind != 'GUEST_LIST' and pending_assignments.get(cat.id, []) %}
+        <button type="button" class="btn btn-sm btn-success w-100 mb-2" data-auto-all-smart title="Asigna todas las pendientes aprovechando los huecos e intentando no separar a cada grupo"><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar automáticamente las pendientes</button>
+        {% endif %}
+        <div class="alert alert-info py-2 px-3 small d-none justify-content-between align-items-center gap-2" data-assign-filter-banner>
+          <span><i class="fa fa-filter me-1"></i>Mostrando solo la selección elegida.</span>
+          <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-assign-filter-clear>Ver todas</button>
+        </div>
+        <div class="assignment-source-list" data-source-list>
+          {% for src in pending_assignments.get(cat.id, []) %}
+            <div class="assignment-source" draggable="true" data-source-type="{{ src.source_type }}" data-source-id="{{ src.source_id }}" data-category-id="{{ cat.id }}" data-qty="{{ src.qty }}" data-qty-total="{{ src.qty_total }}" data-assigned="{{ src.assigned }}">
+              {# Fila 1: invitado (foto/logo + nombre) + columna de etiquetas a la derecha:
+                 «Pendiente de aprobar» ARRIBA (si procede) y el nº de invitaciones DEBAJO,
+                 centrado — nunca se solapan. #}
+              <div class="assign-src-head">
+                <img src="{{ src.guest_photo or DEFAULT_PHOTO_URL }}" class="assign-src-photo" alt="" data-default-photo="1">
+                <span class="assign-src-name">{{ src.name }}</span>
+                <span class="assign-src-tags">
+                  {% if src.pending_approval %}<span class="assignment-source-flag"><i class="fa fa-clock me-1"></i>Pendiente de aprobar</span>{% endif %}
+                  <span class="badge inv-qty-badge assign-src-qty"><i class="fa fa-ticket me-1"></i>{{ src.qty_total }}</span>
+                  {# Etiqueta «Asignadas X/X» SIEMPRE visible (gris a 0, amarilla parcial, verde completa);
+                     la ✕ desasigna todo (lo del proceso y lo ya guardado sin enviar). #}
+                  <span class="assign-src-progress-row">
+                    <span class="assign-src-progress" data-assigned-badge>
+                      <span class="assign-src-progress-txt">Asignadas <span data-assigned-count>{{ src.assigned }}</span>/<span data-qty-target>{{ src.qty_total }}</span></span>
+                      <button type="button" class="assign-src-cancel" data-cancel-assign title="Desasignar todas las invitaciones de esta solicitud"><i class="fa fa-xmark"></i></button>
+                    </span>
+                    <button type="button" class="assign-src-auto" data-auto-source title="Asignar automáticamente (aprovechando huecos, sin separar al grupo si es posible)"><i class="fa fa-wand-magic-sparkles"></i></button>
+                  </span>
+                </span>
+              </div>
+              {# Fila 2: vínculo (foto/logo + relación) #}
+              {% if src.guest_link_text %}<div class="invitation-linked-mini assign-src-link"><img class="{{ 'is-photo' if src.guest_link_type in ['artist','venue'] else 'is-logo' }}" src="{{ src.guest_link_logo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><span>{{ src.guest_link_text }}</span></div>{% endif %}
+              {# Fila 3: pedidas por (foto + nombre) #}
+              {% if src.requester_name %}<div class="assign-src-requester">Pedidas por: <img src="{{ src.requester_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1"><span>{{ src.requester_name }}</span></div>{% endif %}
+              {# Fila 4: nota #}
+              {% if src.note %}<div class="assign-src-note"><i class="fa fa-note-sticky me-1"></i>{{ src.note }}</div>{% endif %}
+            </div>
+          {% else %}
+            <div class="alert alert-light border">No hay compromisos ni peticiones aprobadas pendientes de asignar en esta categoría.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="col-12 col-lg-8">
+        <h6 class="mb-2">Disponibles <span class="badge text-bg-success ms-1" data-available-counter>{% if cat.ticket_kind == 'GUEST_LIST' %}Lista{% else %}{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}{% endif %}</span></h6>
+        <div class="small mb-2 invitation-remaining" data-remaining-indicator></div>
+        <div class="assignment-drop-zone" data-drop-zone>
+          {% if cat.ticket_kind == 'PDF_NUMBERED' %}
+            {% for sector in ticket_groups_by_category.get(cat.id, []) %}
+              <div class="invitation-sector invitation-sector--plan mb-3{% if sector.stage %} has-stage{% endif %}"><div class="d-flex justify-content-between align-items-center mb-2 gap-2 invitation-sector-head"><div class="fw-bold">Sector {{ sector.sector }}</div></div>
+              {% set stg = sector.stage %}
+              <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
+              {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
+              {% for row in sector.rows %}
+                <div class="invitation-seat-row"><div class="invitation-row-label">Fila {{ row.row_label }}</div><div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
+                {% for cell in row.visual %}
+                  {% if cell.type == 'seat' %}{% set t = cell.seat %}{% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}{% if t.status != 'AVAILABLE' %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if t.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ t.assignee_color }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}" data-an="{{ t.assignee_name|e }}" data-alk="{{ t.assignee_link|e }}" data-alo="{{ t.assignee_link_logo|e }}" data-alt="{{ t.assignee_link_type }}"{% endif %} title="{{ t.seat_number or t.location }}{% if t.assignee_name %} · {{ t.assignee_name }}{% endif %}{% if t.assignee_link %} · {{ t.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}">{% if t.assignee_photo %}<img class="invitation-seat-photo" src="{{ t.assignee_photo }}" alt="">{% else %}<i class="fa fa-couch"></i>{% endif %}<span class="invitation-seat-num">{{ t.seat_number or t.location }}</span></button>{% else %}<button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>{% endif %}{% elif cell.type == 'missing' %}<span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>{% elif cell.type == 'gap' %}<span class="invitation-seat invitation-seat--hole"></span>{% elif cell.type == 'spacer' %}<span class="invitation-seat invitation-seat--spacer"></span>{% elif cell.type == 'stair' %}<span class="invitation-stair" title="Escalera"><i class="fa fa-stairs"></i><span>{{ cell.label or 'Escalera' }}</span></span>{% endif %}
+                {% endfor %}
+                </div></div>
+              {% endfor %}
+              </div></div>
+            {% endfor %}
+          {% else %}
+            {% if cat.ticket_kind != 'GUEST_LIST' %}
+            <div class="d-flex gap-3 align-items-stretch mb-2">
+              <div class="text-center border rounded px-3 py-2 flex-fill"><div class="fs-4 fw-bold"><i class="fa fa-ticket-alt text-success me-1"></i><span data-available-counter>{{ cat_tickets|selectattr('status','equalto','AVAILABLE')|list|length }}</span></div><div class="small text-muted">disponibles</div></div>
+              <div class="text-center border rounded px-3 py-2 flex-fill"><div class="fs-4 fw-bold"><i class="fa fa-ticket-alt text-secondary me-1"></i><span data-assigned-counter>{{ cat_tickets|rejectattr('status','equalto','AVAILABLE')|list|length }}</span></div><div class="small text-muted">asignadas</div></div>
+            </div>
+            {% endif %}
+            <div class="assignment-unnumbered-pool {% if cat.ticket_kind != 'GUEST_LIST' %}d-none{% endif %}">
+              {% for t in cat_tickets %}
+                {% set tsrc = ('request:' ~ t.assigned_request_id) if t.assigned_request_id else (('commitment:' ~ t.assigned_commitment_id) if t.assigned_commitment_id else '') %}
+                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" data-ticket-status="{{ t.status }}"{% if tsrc %} data-src="{{ tsrc }}"{% endif %}><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+        <div class="assignment-result-list mt-3" data-assignment-results></div>
+      </div>
+    </div>
+  </form>
+{% endfor %}

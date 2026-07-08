@@ -158,7 +158,16 @@
         fetch(st.action, { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
           .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
           .then(function(d){
-            if (d && d.ok){ location.reload(); return; }
+            if (d && d.ok){
+              // En la gestión del evento hay refresco EN SITIO (sin recargar la página); en el
+              // resto de páginas se mantiene la recarga de siempre.
+              if (window.invRefreshStatuses){
+                try { bootstrap.Modal.getOrCreateInstance(modalEl).hide(); } catch(e){}
+                mainBtn.disabled = false; lostBtn.disabled = false;
+                window.invRefreshStatuses();
+              } else { location.reload(); }
+              return;
+            }
             if (d && d.needs_confirm){ st.sent = !!d.sent; st.downloaded = !!d.downloaded; render(); return; }
             alert((d && d.error) || 'No se pudo eliminar la petición.'); mainBtn.disabled = false; lostBtn.disabled = false;
           })

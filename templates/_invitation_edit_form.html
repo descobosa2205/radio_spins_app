@@ -6,7 +6,9 @@
 {% if not can_edit %}
   <div class="alert alert-warning mb-0">Esta solicitud ya está asignada. Solo puede editarla quien gestiona las invitaciones.</div>
 {% else %}
-<form method="post" action="{{ action_url }}">
+{# data-inv-refresh: en la gestión del evento el guardado refresca los estados EN SITIO (sin
+   recargar); en páginas sin ese handler el form se envía de forma normal. #}
+<form method="post" action="{{ action_url }}" data-inv-refresh>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   {% if guest_is_linked %}<div class="alert alert-light border small py-2 mb-3"><i class="fa fa-circle-info me-1 text-primary"></i>El nombre y los datos de contacto se toman siempre de la <strong>ficha</strong> del invitado (tercero/artista/persona), para trabajar sobre lo más actualizado. Edítalos en su ficha.</div>{% endif %}
   <div class="row g-3">

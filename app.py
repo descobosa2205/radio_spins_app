@@ -42216,6 +42216,11 @@ def invitation_commitment_save(concert_id):
 @app.post('/invitaciones/compromisos/<commitment_id>/eliminar', endpoint='invitation_commitment_delete')
 @admin_required
 def invitation_commitment_delete(commitment_id):
+    """Elimina un compromiso liberando sus entradas ASIGNADAS (vuelven a disponibles con aviso).
+    Si tiene entradas ya enviadas/entregadas se rechaza: hay que recuperarlas antes (igual que al
+    eliminar una petición del compromiso). Sin esto, el FK ON DELETE SET NULL dejaba las entradas
+    en ASSIGNED sin dueño: ni disponibles ni asignadas a nadie."""
+    cid = None
     session_db = db()
     try:
         row = session_db.get(InvitationCommitment, to_uuid(commitment_id))
@@ -42223,10 +42228,30 @@ def invitation_commitment_delete(commitment_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, row.concert)
         cid = row.concert_id
+        tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
+        _sent = [t for t in tickets if (t.status or '') != 'ASSIGNED']
+        if _sent:
+            flash(f'No se puede eliminar el compromiso «{row.name or ""}»: tiene {len(_sent)} entrada(s) ya enviadas/entregadas. Recupéralas antes de eliminarlo.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid))
+        now = _now_madrid()
+        for t in tickets:
+            t.status = 'AVAILABLE'
+            t.assigned_commitment_id = None
+            t.assigned_request_id = None
+            t.assigned_label = None
+            t.previous_assignment_warning = f'Recuperada al eliminar el compromiso {row.name}.'
+            t.updated_at = now
         session_db.delete(row)
         session_db.commit()
-        flash('Compromiso eliminado.', 'success')
+        if tickets:
+            flash(f'Compromiso eliminado. {len(tickets)} entrada(s) vuelven a estar disponibles.', 'success')
+        else:
+            flash('Compromiso eliminado.', 'success')
         return redirect(url_for('invitation_event_detail', concert_id=cid))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo eliminar el compromiso: {exc}', 'danger')
+        return redirect(url_for('invitation_event_detail', concert_id=cid) if cid else url_for('invitations_view', tab='gestionar'))
     finally:
         session_db.close()
 
@@ -42503,6 +42528,15 @@ def invitation_request_status(request_id):
             row.status = 'RECHAZADAS'
             row.rejected_at = _now_madrid()
             row.rejection_reason = reason
+            # Liberar las entradas asignadas (no enviadas): al rechazar, vuelven a disponibles.
+            for t in session_db.query(InvitationTicket).filter(
+                    InvitationTicket.assigned_request_id == row.id,
+                    InvitationTicket.status == 'ASSIGNED').all():
+                t.previous_assignment_warning = f"Recuperada al rechazar la solicitud de {row.guest_name}."
+                t.assigned_request_id = None
+                t.assigned_label = None
+                t.status = 'AVAILABLE'
+                t.updated_at = _now_madrid()
             subject, html_body, text_body = _invitation_rejection_email_body(session_db, row, reason)
             recipients = _dedupe_valid_email_addresses([row.requester_email, row.guest_email])
             if recipients:

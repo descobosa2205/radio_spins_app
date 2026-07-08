@@ -8,6 +8,20 @@
       <div class="fw-bold">Sector {{ sector.sector }}</div>
       <div class="d-flex align-items-center gap-2">
         <button type="button" class="btn btn-sm btn-outline-secondary invitation-sector-config-btn" data-sector-config data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-sector="{{ sector.sector }}" title="Configurar el plano del sector"><i class="fa fa-gear"></i></button>
+        {% set _pdfu = url_for('invitation_sector_plan_pdf_view', concert_id=event.id, category_id=cat.id, sector=sector.sector) %}
+        {% set _share = invitation_plan_share_url(event.id, cat.id, sector.sector) %}
+        {% set _sharetext = 'Reparto de invitados · Sector ' ~ sector.sector ~ ' — ' ~ _share %}
+        <div class="dropdown">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" title="Acciones del plano"><i class="fa fa-ellipsis"></i></button>
+          <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
+            <li><a class="dropdown-item" data-no-loader href="{{ _pdfu }}&dl=1"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+            <li><a class="dropdown-item" data-no-loader href="{{ _pdfu }}" target="_blank" rel="noopener"><i class="fa fa-print fa-fw me-1"></i>Imprimir</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" data-no-loader href="mailto:?subject={{ ('Reparto de invitados · Sector ' ~ sector.sector)|urlencode }}&body={{ _sharetext|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</a></li>
+            <li><a class="dropdown-item" data-no-loader href="https://wa.me/?text={{ _sharetext|urlencode }}" target="_blank" rel="noopener"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
+            <li><a class="dropdown-item" data-no-loader href="sms:?&body={{ _sharetext|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>
+          </ul>
+        </div>
       </div>
     </div>
     {% set stg = sector.stage %}

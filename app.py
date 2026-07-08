@@ -1,5 +1,6 @@
 from datetime import date, timedelta, datetime
 import os
+import io
 import threading
 import smtplib
 from uuid import UUID
@@ -28316,7 +28317,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -44406,6 +44407,385 @@ def invitation_commitment_category_delete(commitment_id):
     return redirect(url_for('invitation_event_detail', concert_id=_cid_concert) if _cid_concert else url_for('invitations_view', tab='gestionar'))
 
 
+def _plan_pdf_image(url: str, _cache: dict = {}):
+    """ImageReader de una URL (con caché y timeout); None si no carga (el PDF sigue sin la foto)."""
+    if not url or not str(url).startswith('http'):
+        return None
+    if url in _cache:
+        return _cache[url]
+    img = None
+    try:
+        import urllib.request as _ur
+        from reportlab.lib.utils import ImageReader
+        data = _ur.urlopen(url, timeout=4).read()
+        img = ImageReader(io.BytesIO(data))
+        img.getSize()
+    except Exception:
+        img = None
+    _cache[url] = img
+    return img
+
+
+def _invitation_plan_pdf_build(*, logo_url: str, header_title: str, header_meta: str,
+                               sector_title: str, sector: dict, cards: list) -> bytes:
+    """PDF A3 APAISADO del plano de un sector: logo de la empresa arriba-izquierda, cabecera del
+    evento, título «Reparto Invitados <sector>», el plano completo (lo más grande posible sin
+    cortarse) y, abajo, tarjetas con los pendientes de asignar (una fila; el resto pasa a páginas
+    siguientes empezando arriba). Función PURA sobre payloads (testeable sin BD)."""
+    from reportlab.lib.pagesizes import A3, landscape
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.colors import HexColor
+
+    PAGE_W, PAGE_H = landscape(A3)
+    M = 26.0
+    buf = io.BytesIO()
+    c = _canvas.Canvas(buf, pagesize=(PAGE_W, PAGE_H))
+
+    def _tx(t):
+        return '' if t is None else str(t)
+
+    def _trunc(text, font, size, max_w):
+        text = _tx(text)
+        if c.stringWidth(text, font, size) <= max_w:
+            return text
+        while text and c.stringWidth(text + '…', font, size) > max_w:
+            text = text[:-1]
+        return (text + '…') if text else ''
+
+    def _circle_img(img, x, y, d):
+        c.saveState()
+        pth = c.beginPath()
+        pth.circle(x + d / 2.0, y + d / 2.0, d / 2.0)
+        c.clipPath(pth, stroke=0, fill=0)
+        c.drawImage(img, x, y, d, d, preserveAspectRatio=True, anchor='c', mask='auto')
+        c.restoreState()
+
+    GREY = HexColor('#6b7280')
+    INK = HexColor('#1f2430')
+    LINE = HexColor('#e1e6ed')
+    GREEN = HexColor('#16803a')
+    GREEN_BG = HexColor('#eef7f0')
+    RED = HexColor('#b3261e')
+    RED_BG = HexColor('#fdecea')
+    MISS_BG = HexColor('#e5e8ee')
+    OFF_BG = HexColor('#cdd3dd')
+    AMBER = HexColor('#ffc107')
+
+    # ---------- cabecera (página 1) ----------
+    top = PAGE_H - M
+    logo = _plan_pdf_image(logo_url)
+    lx = M
+    if logo:
+        try:
+            iw, ih = logo.getSize()
+            lh = 40.0
+            lw = lh * (iw / float(ih or 1))
+            lw = min(lw, 170.0)
+            c.drawImage(logo, M, top - lh, lw, lh, preserveAspectRatio=True, anchor='sw', mask='auto')
+            lx = M + lw + 16
+        except Exception:
+            pass
+    c.setFillColor(INK)
+    c.setFont('Helvetica-Bold', 15)
+    c.drawString(lx, top - 18, _trunc(header_title, 'Helvetica-Bold', 15, PAGE_W - lx - M))
+    c.setFillColor(GREY)
+    c.setFont('Helvetica', 10)
+    c.drawString(lx, top - 34, _trunc(header_meta, 'Helvetica', 10, PAGE_W - lx - M))
+    y = top - 52
+    c.setStrokeColor(LINE)
+    c.setLineWidth(0.8)
+    c.line(M, y, PAGE_W - M, y)
+
+    # ---------- título ----------
+    y -= 24
+    c.setFillColor(INK)
+    c.setFont('Helvetica-Bold', 17)
+    c.drawCentredString(PAGE_W / 2.0, y, _tx(sector_title))
+    y -= 12
+
+    # ---------- geometría de tarjetas ----------
+    CARD_H, CARD_GAP = 108.0, 8.0
+    content_w = PAGE_W - 2 * M
+    per_row = max(int((content_w + CARD_GAP) // (150.0 + CARD_GAP)), 1)
+    card_w = (content_w - (per_row - 1) * CARD_GAP) / per_row
+    cards = list(cards or [])
+    first_row = cards[:per_row]
+    rest = cards[per_row:]
+    cards_band = (CARD_H + 14.0) if first_row else 0.0
+
+    # ---------- plano ----------
+    rows = list((sector or {}).get('rows') or [])
+    plan_top = y - 6
+    plan_bottom = M + cards_band
+    plan_h = max(plan_top - plan_bottom, 60.0)
+    LABEL_W = 52.0
+    STRIP_H = 13.0
+    ROW_GAP = 5.0
+
+    def _units(cell):
+        t = cell.get('type')
+        if t == 'stair':
+            return 0.6
+        if t == 'block':
+            return float(len(cell.get('seats') or []))
+        return 1.0
+
+    max_units = 1.0
+    for r in rows:
+        u = sum(_units(cl) for cl in (r.get('layout') or []))
+        max_units = max(max_units, u)
+    n_rows = max(len(rows), 1)
+    # Lo MÁS GRANDE posible sin cortarse: la celda solo la limitan el ancho y el alto disponibles
+    # (tope 52pt para que un sector pequeño no salga desproporcionado).
+    cell = min(52.0, (content_w - LABEL_W) / max_units,
+               (plan_h - n_rows * (STRIP_H + ROW_GAP)) / n_rows)
+    cell = max(cell, 7.0)
+    row_h = cell + STRIP_H + ROW_GAP
+    plan_w_real = LABEL_W + max_units * cell
+    x0 = M + max((content_w - plan_w_real) / 2.0, 0)
+    yy = plan_top
+
+    def _seat_colors(status, color_hex):
+        st = (status or '').upper()
+        if st == 'AVAILABLE':
+            return GREEN, GREEN_BG, GREEN
+        if st in ('SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA', 'ENTREGADAS_MANO', 'LOST'):
+            base = HexColor(color_hex) if color_hex else RED
+            return base, RED_BG, RED
+        base = HexColor(color_hex) if color_hex else GREY
+        return base, HexColor('#ffffff'), INK
+
+    num_size = max(min(cell * 0.34, 8.0), 4.5)
+    for r in rows:
+        yy -= row_h
+        c.setFillColor(GREY)
+        c.setFont('Helvetica-Bold', 8)
+        c.drawString(x0, yy + cell / 2.0 - 3, _trunc('Fila ' + _tx(r.get('row_label')), 'Helvetica-Bold', 8, LABEL_W - 6))
+        xx = x0 + LABEL_W
+        for cl in (r.get('layout') or []):
+            t = cl.get('type')
+            if t == 'block':
+                seats = cl.get('seats') or []
+                bw = len(seats) * cell
+                col = cl.get('color') or '#999999'
+                try:
+                    bcol = HexColor(col)
+                except Exception:
+                    bcol = GREY
+                name = _tx(cl.get('name') or 'Asignada')
+                if cl.get('link'):
+                    name += ' · ' + _tx(cl.get('link'))
+                c.setFillColor(bcol)
+                c.setFont('Helvetica-Bold', 6.5)
+                c.drawCentredString(xx + bw / 2.0, yy + cell + 5.5, _trunc(name, 'Helvetica-Bold', 6.5, bw + 26))
+                c.setStrokeColor(bcol)
+                c.setLineWidth(1.6)
+                c.line(xx + 1, yy + cell + 2.2, xx + bw - 1, yy + cell + 2.2)
+                for st_ in seats:
+                    stroke, fill, numcol = _seat_colors(st_.get('status'), col)
+                    c.setStrokeColor(stroke)
+                    c.setFillColor(fill)
+                    c.setLineWidth(1.1)
+                    c.roundRect(xx + 1, yy + 1, cell - 2, cell - 2, 2.5, stroke=1, fill=1)
+                    c.setFillColor(numcol)
+                    c.setFont('Helvetica-Bold', num_size)
+                    c.drawCentredString(xx + cell / 2.0, yy + cell / 2.0 - num_size / 2.8, _tx(st_.get('seat_number') or st_.get('location') or ''))
+                    xx += cell
+            elif t == 'seat':
+                st_ = cl.get('seat') or {}
+                stroke, fill, numcol = _seat_colors(st_.get('status'), st_.get('assignee_color'))
+                c.setStrokeColor(stroke)
+                c.setFillColor(fill)
+                c.setLineWidth(1.1)
+                c.roundRect(xx + 1, yy + 1, cell - 2, cell - 2, 2.5, stroke=1, fill=1)
+                c.setFillColor(numcol)
+                c.setFont('Helvetica-Bold', num_size)
+                c.drawCentredString(xx + cell / 2.0, yy + cell / 2.0 - num_size / 2.8, _tx(st_.get('seat_number') or st_.get('location') or ''))
+                xx += cell
+            elif t in ('missing',):
+                c.setFillColor(OFF_BG if cl.get('off') else MISS_BG)
+                c.roundRect(xx + 1, yy + 1, cell - 2, cell - 2, 2.5, stroke=0, fill=1)
+                xx += cell
+            elif t == 'gap':
+                c.setStrokeColor(LINE)
+                c.setLineWidth(0.8)
+                c.setDash(2, 2)
+                c.roundRect(xx + 1, yy + 1, cell - 2, cell - 2, 2.5, stroke=1, fill=0)
+                c.setDash()
+                xx += cell
+            elif t == 'stair':
+                sw = 0.6 * cell
+                c.setStrokeColor(HexColor('#007ca2'))
+                c.setLineWidth(0.9)
+                c.setDash(2, 2)
+                c.line(xx + 1.5, yy + 1, xx + 1.5, yy + cell - 1)
+                c.line(xx + sw - 1.5, yy + 1, xx + sw - 1.5, yy + cell - 1)
+                c.setDash()
+                step = (cell - 6) / 3.0
+                for i_ in range(3):
+                    sy = yy + 3 + i_ * step
+                    c.line(xx + 3, sy, xx + sw - 3, sy)
+                xx += sw
+            else:   # spacer
+                xx += cell
+
+    # ---------- tarjetas de pendientes ----------
+    def _draw_card(x, y_, it):
+        c.setStrokeColor(LINE)
+        c.setFillColor(HexColor('#ffffff'))
+        c.setLineWidth(1)
+        c.roundRect(x, y_, card_w, CARD_H, 7, stroke=1, fill=1)
+        pad = 7.0
+        ph = 26.0
+        img = _plan_pdf_image(_tx(it.get('guest_photo')))
+        tx0 = x + pad
+        if img:
+            _circle_img(img, x + pad, y_ + CARD_H - pad - ph, ph)
+            tx0 = x + pad + ph + 6
+        c.setFillColor(INK)
+        c.setFont('Helvetica-Bold', 8.5)
+        c.drawString(tx0, y_ + CARD_H - pad - 10, _trunc(it.get('name'), 'Helvetica-Bold', 8.5, x + card_w - pad - tx0))
+        yline = y_ + CARD_H - pad - 24
+        if it.get('guest_link_text'):
+            lx2 = x + pad
+            limg = _plan_pdf_image(_tx(it.get('guest_link_logo')))
+            if limg:
+                try:
+                    iw, ih = limg.getSize()
+                    lw2 = min(10.0 * (iw / float(ih or 1)), 22.0)
+                    c.drawImage(limg, lx2, yline - 2, lw2, 10, preserveAspectRatio=True, anchor='sw', mask='auto')
+                    lx2 += lw2 + 4
+                except Exception:
+                    pass
+            c.setFillColor(GREY)
+            c.setFont('Helvetica', 7)
+            c.drawString(lx2, yline, _trunc(it.get('guest_link_text'), 'Helvetica', 7, x + card_w - pad - lx2))
+            yline -= 13
+        if it.get('requester_name'):
+            lx2 = x + pad
+            c.setFillColor(GREY)
+            c.setFont('Helvetica', 7)
+            c.drawString(lx2, yline, 'Pedido por:')
+            lx2 += c.stringWidth('Pedido por:', 'Helvetica', 7) + 4
+            rimg = _plan_pdf_image(_tx(it.get('requester_photo')))
+            if rimg:
+                _circle_img(rimg, lx2, yline - 2, 10)
+                lx2 += 14
+            c.drawString(lx2, yline, _trunc(it.get('requester_name'), 'Helvetica', 7, x + card_w - pad - lx2))
+        asg = _safe_int(it.get('assigned'))
+        tot = _safe_int(it.get('qty_total'))
+        if asg <= 0:
+            bbg, bfg = HexColor('#eef0f3'), GREY
+        elif asg < tot:
+            bbg, bfg = AMBER, HexColor('#3a2f00')
+        else:
+            bbg, bfg = HexColor('#d7f2df'), HexColor('#116330')
+        btxt = f'Asignadas {asg}/{tot}'
+        bw2 = c.stringWidth(btxt, 'Helvetica-Bold', 7.5) + 12
+        c.setFillColor(bbg)
+        c.roundRect(x + pad, y_ + pad, bw2, 14, 7, stroke=0, fill=1)
+        c.setFillColor(bfg)
+        c.setFont('Helvetica-Bold', 7.5)
+        c.drawString(x + pad + 6, y_ + pad + 4, btxt)
+
+    if first_row:
+        cx = M
+        for it in first_row:
+            _draw_card(cx, M, it)
+            cx += card_w + CARD_GAP
+    # páginas siguientes: filas desde ARRIBA
+    while rest:
+        c.showPage()
+        yy2 = PAGE_H - M - CARD_H
+        while rest and yy2 >= M:
+            cx = M
+            for it in rest[:per_row]:
+                _draw_card(cx, yy2, it)
+                cx += card_w + CARD_GAP
+            rest = rest[per_row:]
+            yy2 -= CARD_H + CARD_GAP
+    c.showPage()
+    c.save()
+    return buf.getvalue()
+
+
+def _invitation_plan_share_token(concert_id, category_id, sector_name) -> str:
+    from itsdangerous import URLSafeSerializer
+    return URLSafeSerializer(app.secret_key, salt='inv-plan-share').dumps([str(concert_id), str(category_id), str(sector_name or '')])
+
+
+app.jinja_env.globals['invitation_plan_share_url'] = (
+    lambda concert_id, category_id, sector: _external_url_for(
+        'public_invitation_plan_pdf', token=_invitation_plan_share_token(concert_id, category_id, sector)))
+
+
+def _invitation_plan_pdf_response(session_db, concert, category, sector_name, dl: bool):
+    ctx = _invitation_assign_context(session_db, concert, _invitation_get_categories(session_db, concert, ensure_defaults=False))
+    groups = ctx['ticket_groups_by_category'].get(str(category.id), [])
+    sector = next((g for g in groups if str(g.get('sector')) == str(sector_name)), None) or (groups[0] if groups else {'rows': [], 'sector': sector_name})
+    cards = [x for x in ctx['pending_assignments'].get(str(category.id), []) if _safe_int(x.get('qty')) > 0]
+    event = _invitation_event_payload(session_db, concert)
+    header_title = ' · '.join([x for x in [(event.get('artist_names') or '').strip(), ((getattr(concert, 'festival_name', None) or '') or '').strip()] if x]) or 'Invitaciones'
+    header_meta = ' · '.join([x for x in [
+        (event.get('city') or '').strip(),
+        (event.get('venue') or '').strip(),
+        (event.get('date_label') or '').strip(),
+        (('Hora: ' + event.get('show_time')) if (event.get('show_time') or '').strip() else ''),
+    ] if x])
+    pdf = _invitation_plan_pdf_build(
+        logo_url=_invitation_event_logo_url(session_db, concert, external=True),
+        header_title=header_title,
+        header_meta=header_meta,
+        sector_title=f"Reparto Invitados {sector.get('sector') or ''}".strip(),
+        sector=sector,
+        cards=cards,
+    )
+    fname = f"Reparto Invitados {sector.get('sector') or category.name}.pdf"
+    resp = send_file(io.BytesIO(pdf), mimetype='application/pdf', as_attachment=bool(dl), download_name=fname)
+    return resp
+
+
+@app.get('/invitaciones/evento/<concert_id>/plano/<category_id>/pdf', endpoint='invitation_sector_plan_pdf_view')
+@admin_required
+def invitation_sector_plan_pdf_view(concert_id, category_id):
+    """PDF A3 apaisado del plano de un sector (menú de 3 puntos junto a la rueda)."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(category_id))), None)
+        if not cat:
+            abort(404)
+        return _invitation_plan_pdf_response(session_db, concert, cat, request.args.get('sector') or '', _truthy(request.args.get('dl')))
+    finally:
+        session_db.close()
+
+
+@app.get('/invitaciones/plano-compartido/<token>', endpoint='public_invitation_plan_pdf')
+def public_invitation_plan_pdf(token):
+    """Versión PÚBLICA (enlace firmado) del PDF del plano, para compartir por email/WhatsApp/SMS."""
+    from itsdangerous import URLSafeSerializer
+    try:
+        cid, katid, sector = URLSafeSerializer(app.secret_key, salt='inv-plan-share').loads(token)
+    except Exception:
+        abort(404)
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if not concert:
+            abort(404)
+        categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+        cat = next((c for c in categories if str(c.id) == str(_safe_uuid(katid))), None)
+        if not cat:
+            abort(404)
+        return _invitation_plan_pdf_response(session_db, concert, cat, sector, False)
+    finally:
+        session_db.close()
+
+
 @app.get('/invitaciones/evento/<concert_id>/asignador-parcial', endpoint='invitation_assign_partial')
 @admin_required
 def invitation_assign_partial(concert_id):
@@ -44455,6 +44835,7 @@ def invitation_category_plans_partial(concert_id, category_id):
         ctx = _invitation_assign_context(session_db, concert, categories)
         return render_template('_invitation_sector_plans.html',
                                cat={'id': str(cat.id), 'name': cat.name},
+                               event={'id': str(concert.id)},
                                cat_groups=ctx['ticket_groups_by_category'].get(str(cat.id), []))
     finally:
         session_db.close()

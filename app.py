@@ -48173,5 +48173,10 @@ def cron_chartmetric_refresh():
 
 
 if __name__ == "__main__":
-    init_db()
-    app.run(debug=True)
+    # El esquema ya se inicializa en segundo plano al importar el módulo (ver _bootstrap_schema_bg),
+    # así que aquí NO lo repetimos de forma síncrona (bloquearía el arranque). Enlazamos a 0.0.0.0 y
+    # al PORT asignado para que, si el proveedor arranca con `python app.py`, la app escuche en el
+    # interfaz EXTERNO (no en 127.0.0.1:5000, que el proveedor no puede detectar -> "No open ports").
+    # `debug` SIEMPRE desactivado salvo FLASK_DEBUG=1 (el depurador de Werkzeug en producción es un
+    # agujero de seguridad). En producción lo normal es Gunicorn: `gunicorn -c gunicorn.conf.py app:app`.
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=(os.getenv("FLASK_DEBUG") == "1"))

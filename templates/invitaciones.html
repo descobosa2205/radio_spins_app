@@ -2911,7 +2911,9 @@
     var inflight = null;
     window.invRefreshStatuses = function(){
       if (inflight) return inflight;
-      inflight = fetch(window.location.href, { cache: 'no-store' })
+      // noLoader: refresco en 2º plano — sin el overlay gris que tapaba la página (y los planos)
+      // durante los segundos que tarda el render completo en el servidor.
+      inflight = fetch(window.location.href, { cache: 'no-store', noLoader: true })
         .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
         .then(function(html){
           var doc = new DOMParser().parseFromString(html, 'text/html');
@@ -3558,9 +3560,26 @@
         ok = !!(res.ok && d && d.ok);
       } catch (e) { ok = false; }
       if (ok) {
-        // Guardado OK: se lanza YA el refresco EN SITIO de los estados (sin recargar la página) y
-        // se CIERRA el asignador: al volver, las etiquetas de compromisos/solicitudes están al día
-        // y se conserva la posición del scroll.
+        // Guardado OK: los planos de las categorías TOCADAS se refrescan YA con el partial ligero
+        // (casi inmediato); el resto (badges de invitados/listados) va en 2º plano sin overlay.
+        try {
+          var catsTouched = {};
+          entries.forEach(function(en){ if (en.category_id) catsTouched[en.category_id] = 1; });
+          var partialEl = document.querySelector('[data-plans-partial-base]');
+          var partialBase = partialEl ? (partialEl.getAttribute('data-plans-partial-base') || '') : '';
+          if (partialBase) Object.keys(catsTouched).forEach(function(cid){
+            fetch(partialBase.replace('CID', cid), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, noLoader: true })
+              .then(function(r){ return r.ok ? r.text() : ''; })
+              .then(function(html){
+                if (!html) return;
+                var tpl = document.createElement('template');
+                tpl.innerHTML = html;
+                var fresh = Array.prototype.slice.call(tpl.content.querySelectorAll('[data-sector-plan][data-category-id="' + cid + '"]'));
+                var cur = Array.prototype.slice.call(document.querySelectorAll('#inv-tab-tickets [data-sector-plan][data-category-id="' + cid + '"]'));
+                if (fresh.length && cur.length){ cur[0].before.apply(cur[0], fresh); cur.forEach(function(el){ el.remove(); }); }
+              }).catch(function(){});
+          });
+        } catch (e) {}
         if (window.invRefreshStatuses) { window.__invAssignChanged = false; window.invRefreshStatuses(); }
         else { window.__invAssignChanged = true; }
         invAssignForms.forEach(function(f){ if (f.reset) f.reset(); });   // sin staging → cierre sin avisos

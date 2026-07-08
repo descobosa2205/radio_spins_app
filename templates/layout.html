@@ -245,7 +245,10 @@
   // supera ~300 ms (así las llamadas rápidas de autocompletado no lo activan).
   if(window.fetch){
     var _fetch=window.fetch, active=0, t=null;
-    window.fetch=function(){
+    window.fetch=function(input, init){
+      // Peticiones en 2º PLANO (init.noLoader): sin overlay — la página sigue usable y no se ve
+      // "en gris" mientras se refrescan datos que el usuario no está esperando activamente.
+      if(init && init.noLoader) return _fetch.apply(this, arguments);
       active++;
       if(!t) t=setTimeout(function(){ t=null; if(active>0) show(); }, 300);
       function done(){ active=Math.max(0,active-1); if(active===0){ if(t){clearTimeout(t);t=null;} hide(); } }

@@ -3,19 +3,28 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reparto de invitados</title>
-  {# Solo visionado y SIEMPRE al día: la página se recarga sola cada minuto. #}
-  {% if not revoked %}<meta http-equiv="refresh" content="60">{% endif %}
+  <title>Visionado plano asientos{% if sector_name %} · {{ sector_name }}{% endif %}</title>
+  {# Respaldo sin JS: recarga cada 5 min. Con JS, el mapa se refresca solo cada 10 s (abajo). #}
+  {% if not revoked %}<meta http-equiv="refresh" content="300">{% endif %}
   <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
   <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet">
   <style>
     body{ background:#fafafa; }
-    .pp-wrap{ max-width:1500px; margin:0 auto; padding:1.2rem; }
-    .pp-header{ display:flex; align-items:center; gap:1rem; flex-wrap:wrap; border-bottom:1px solid #e1e6ed; padding-bottom:.8rem; margin-bottom:1rem; }
-    .pp-logo{ max-height:52px; max-width:190px; object-fit:contain; }
-    .pp-updated{ margin-left:auto; display:inline-flex; align-items:center; gap:.4rem; background:#eef7f0; color:#16803a; border:1px solid #bfe6cd; border-radius:999px; padding:.3rem .8rem; font-size:.8rem; font-weight:700; white-space:nowrap; }
-    .pp-title{ text-align:center; font-weight:800; margin:0 0 1rem; }
+    /* El mapa debe ocupar el MAYOR espacio posible: contenedor a todo el ancho de la pantalla. */
+    .pp-wrap{ max-width:none; margin:0 auto; padding:1rem 1.2rem 1.6rem; }
+    .pp-logo-row{ display:flex; justify-content:flex-end; margin-bottom:.4rem; }
+    .pp-logo{ max-height:56px; max-width:200px; object-fit:contain; }
+    /* Bocadillo de cabecera del evento (misma pastilla que correos/páginas de invitaciones). */
+    .pp-hero{ background:#f6f7f9; border:1px solid #eceef1; border-radius:14px; padding:.8rem 1rem; display:flex; align-items:center; gap:.8rem; max-width:860px; margin:0 auto .9rem; }
+    .pp-hero img.ava{ width:52px; height:52px; border-radius:50%; object-fit:cover; border:1px solid #eceef1; background:#fff; flex:0 0 auto; }
+    .pp-hero .nm{ font-weight:700; color:#111; }
+    .pp-hero .mt{ font-size:.82rem; color:#444; }
+    .pp-title{ text-align:center; font-weight:800; margin:0 0 .8rem; }
+    .pp-subrow{ display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; margin-bottom:.7rem; }
+    .pp-updated{ display:inline-flex; align-items:center; gap:.4rem; background:#eef7f0; color:#16803a; border:1px solid #bfe6cd; border-radius:999px; padding:.3rem .8rem; font-size:.8rem; font-weight:700; white-space:nowrap; }
+    .pp-sec{ margin-left:auto; font-weight:800; font-size:1.05rem; color:#111; text-align:right; }
+    .pp-sec .sn{ color:#E33D48; }
     .pp-cards{ display:flex; flex-wrap:wrap; gap:.6rem; margin-top:1.2rem; }
     .pp-card{ border:1px solid #e1e6ed; border-radius:1rem; background:#fff; padding:.6rem .7rem; width:230px; }
     .pp-card .nm{ display:flex; align-items:center; gap:.45rem; font-weight:700; font-size:.86rem; }
@@ -34,21 +43,33 @@
   <div class="pp-revoked">
     <i class="fa fa-link-slash fa-2x text-muted mb-3"></i>
     <h4>Enlace anulado</h4>
-    <p class="text-muted mb-0">Este enlace del reparto de invitados ya no está disponible. Pide uno nuevo a la organización.</p>
+    <p class="text-muted mb-0">Este enlace del plano de asientos ya no está disponible. Pide uno nuevo a la organización.</p>
   </div>
 {% else %}
 <div class="pp-wrap">
-  <div class="pp-header">
-    {% if logo_url %}<img class="pp-logo" src="{{ logo_url }}" alt="Logo" onerror="this.style.display='none'">{% endif %}
+  {# 1. Logo de la empresa del grupo, solo, arriba a la DERECHA. #}
+  <div class="pp-logo-row">{% if logo_url %}<img class="pp-logo" src="{{ logo_url }}" alt="Logo" onerror="this.style.display='none'">{% endif %}</div>
+
+  {# 2. Bocadillo con la cabecera del evento (pastilla gris de la casa). #}
+  <div class="pp-hero">
+    {% if event_photo %}<img class="ava" src="{{ event_photo }}" alt="" onerror="this.style.display='none'">{% endif %}
     <div class="min-w-0">
-      <div class="fw-bold fs-5">{{ header_title }}</div>
-      <div class="text-muted small">{{ header_meta }}</div>
+      <div class="nm">{{ header_title }}</div>
+      <div class="mt">{{ header_meta }}</div>
     </div>
-    <span class="pp-updated"><i class="fa fa-rotate"></i>Actualizado {{ updated_label }}</span>
   </div>
 
-  <h4 class="pp-title">{{ sector_title }}</h4>
+  {# 3. Título centrado de Invitaciones con su icono (igual que el resto de páginas). #}
+  <h1 class="pp-title h3"><i class="fa fa-ticket me-2 text-danger"></i>Invitaciones</h1>
 
+  {# 4. Debajo, a la derecha: título del plano con el nombre del sector (+ chip de actualizado). #}
+  <div class="pp-subrow">
+    <span class="pp-updated"><i class="fa fa-rotate"></i>Actualizado <span data-pp-updated>{{ updated_label }}</span></span>
+    <div class="pp-sec">Plano asientos <span class="sn">{{ sector_name }}</span></div>
+  </div>
+
+  {# 5. Mapa EN TIEMPO REAL a máximo ancho (+ pendientes). Zona viva que se refresca sola. #}
+  <div data-pp-live>
   <div class="invitation-sector invitation-sector--plan mb-3">
     <div class="invitation-sector-rows">
       {% for row in sector.rows %}
@@ -99,7 +120,35 @@
       {% endfor %}
     </div>
   {% endif %}
+  </div>
 </div>
+
+<script>
+  // TIEMPO REAL: cada 10 s se pide esta misma página en 2º plano y se reemplaza SOLO la zona viva
+  // (mapa + pendientes) y el chip de actualizado — así se ve cómo se van ubicando las asignaciones
+  // sin recargas ni parpadeos. Si el enlace se anula, se recarga para mostrar el aviso.
+  (function(){
+    var busy = false;
+    setInterval(function(){
+      if (busy || document.hidden) return;
+      busy = true;
+      fetch(window.location.href, { cache: 'no-store' })
+        .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function(html){
+          var doc = new DOMParser().parseFromString(html, 'text/html');
+          if (doc.querySelector('.pp-revoked')){ window.location.reload(); return; }
+          var fresh = doc.querySelector('[data-pp-live]');
+          var cur = document.querySelector('[data-pp-live]');
+          if (fresh && cur) cur.replaceWith(fresh);
+          var fu = doc.querySelector('[data-pp-updated]');
+          var cu = document.querySelector('[data-pp-updated]');
+          if (fu && cu) cu.textContent = fu.textContent;
+        })
+        .catch(function(){})
+        .finally(function(){ busy = false; });
+    }, 10000);
+  })();
+</script>
 {% endif %}
 </body>
 </html>

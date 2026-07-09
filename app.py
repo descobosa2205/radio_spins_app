@@ -223,6 +223,9 @@ from models import (
     SimulationProductionItem,
     VenueTicketCategory,
     VenueTicketExtra,
+    AppEvent,
+    ExpenseTemplate,
+    ExpenseTemplateItem,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -965,6 +968,9 @@ def inject_globals():
         artist_chip=artist_chip,
         artist_avatar=artist_avatar,
         linked_mini=linked_mini,
+        SIM_EXPENSE_CATEGORIES=SIM_EXPENSE_CATEGORIES,
+        SIM_EXPENSE_CATEGORY_LABELS=SIM_EXPENSE_CATEGORY_LABELS,
+        SIM_EXPENSE_CATEGORY_ICONS=SIM_EXPENSE_CATEGORY_ICONS,
         ROLE=current_role(),
         ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
         CAN_VIEW_ECON=can_view_economics(),
@@ -17739,7 +17745,7 @@ def venue_ticketing_save(vid):
             if not isinstance(row, dict):
                 continue
             zone = str(row.get("zone") or "PISTA").upper()
-            if zone not in ("PISTA", "GRADA"):
+            if zone not in ("PISTA", "GRADA", "PALCO"):
                 zone = "PISTA"
             cat = VenueTicketCategory(
                 venue_id=venue.id, zone=zone,
@@ -18467,6 +18473,261 @@ def contracting_view():
         session_db.close()
 
 
+
+# ============================ EVENTOS (Bases de datos) ============================
+# Un EVENTO funciona como un "artista" para Simulaciones (galas, ciclos propios,
+# actividades sin artista concreto), pero vive en su propia base de datos y solo
+# aparece en las búsquedas de eventos (nunca en las de artistas).
+
+def _expense_templates_for(s, owner_type, owner_id):
+    """Plantillas de gastos de una ficha (artista/evento/recinto), recientes primero."""
+    if not owner_id:
+        return []
+    return (
+        s.query(ExpenseTemplate)
+        .options(selectinload(ExpenseTemplate.items))
+        .filter(ExpenseTemplate.owner_type == owner_type, ExpenseTemplate.owner_id == owner_id)
+        .order_by(ExpenseTemplate.updated_at.desc().nullslast(), ExpenseTemplate.created_at.desc())
+        .all()
+    )
+
+
+def _expense_template_item_payload(it):
+    return {
+        "category": (it.category or "OTROS"),
+        "concept": (it.concept or ""),
+        "amount_net": float(_sim_d(it.amount_net)),
+        "iva_pct": float(_sim_d(it.iva_pct)),
+        "includes_iva": bool(it.includes_iva),
+        "iva_exempt": bool(it.iva_exempt),
+        "is_variable": bool(it.is_variable),
+        "var_type": (it.var_type or ""),
+        "var_value": float(_sim_d(it.var_value)),
+        "var_threshold_type": (it.var_threshold_type or ""),
+        "var_threshold_value": float(_sim_d(it.var_threshold_value)),
+        "cond_under_tickets": (float(_sim_d(it.cond_under_tickets)) if it.cond_under_tickets is not None else None),
+    }
+
+
+def _expense_template_payload(t, owner_kind, owner_label):
+    return {
+        "id": str(t.id),
+        "name": (t.name or "Plantilla"),
+        "owner": owner_kind,            # VENUE | ARTIST | EVENT
+        "owner_label": owner_label,
+        "updated_label": (t.updated_at or t.created_at).strftime("%d/%m/%Y") if (t.updated_at or t.created_at) else "",
+        "updated_ts": ((t.updated_at or t.created_at).isoformat() if (t.updated_at or t.created_at) else ""),
+        "items": [_expense_template_item_payload(it) for it in sorted(t.items or [], key=lambda x: x.sort_order or 0)],
+    }
+
+
+@app.get("/eventos", endpoint="events_view")
+@admin_required
+def events_view():
+    s = db()
+    try:
+        q = (request.args.get("q") or "").strip()
+        events = s.query(AppEvent).order_by(AppEvent.name.asc()).all()
+        if q:
+            qn = _norm_text_key(q)
+            events = [e for e in events if qn in _norm_text_key(e.name or "")]
+        counts = {
+            str(k): v
+            for k, v in s.query(Simulation.event_id, func.count(Simulation.id))
+            .filter(Simulation.event_id.isnot(None)).group_by(Simulation.event_id).all()
+        }
+        return render_template("eventos_list.html", events=events, query_text=q,
+                               sim_counts=counts, CAN_EDIT=can_edit_catalogs())
+    finally:
+        s.close()
+
+
+@app.post("/eventos/crear", endpoint="event_create")
+@admin_required
+def event_create():
+    s = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            flash("El nombre del evento es obligatorio.", "warning")
+            return redirect(url_for("events_view"))
+        logo = request.files.get("logo")
+        logo_url = upload_image(logo, "events") if logo and getattr(logo, "filename", "") else None
+        ev = AppEvent(name=name, logo_url=logo_url, notes=(request.form.get("notes") or "").strip() or None)
+        s.add(ev)
+        s.commit()
+        flash("Evento creado.", "success")
+        return redirect(url_for("event_detail_view", eid=ev.id))
+    except Exception as e:
+        s.rollback()
+        flash(f"Error creando el evento: {e}", "danger")
+        return redirect(url_for("events_view"))
+    finally:
+        s.close()
+
+
+@app.get("/eventos/<eid>", endpoint="event_detail_view")
+@admin_required
+def event_detail_view(eid):
+    s = db()
+    try:
+        ev = s.get(AppEvent, _sim_safe_uuid(eid))
+        if not ev:
+            flash("Evento no encontrado.", "warning")
+            return redirect(url_for("events_view"))
+        sims = (
+            s.query(Simulation)
+            .options(joinedload(Simulation.managing_company),
+                     selectinload(Simulation.activities).joinedload(SimulationActivity.venue))
+            .filter(Simulation.event_id == ev.id)
+            .order_by(Simulation.created_at.desc())
+            .all()
+        )
+        return render_template(
+            "evento_detail.html", event=ev, sims=sims,
+            expense_templates=_expense_templates_for(s, "EVENT", ev.id),
+            CAN_EDIT=can_edit_catalogs(),
+        )
+    finally:
+        s.close()
+
+
+@app.post("/eventos/<eid>/actualizar", endpoint="event_update")
+@admin_required
+def event_update(eid):
+    s = db()
+    try:
+        ev = s.get(AppEvent, _sim_safe_uuid(eid))
+        if not ev:
+            flash("Evento no encontrado.", "warning")
+            return redirect(url_for("events_view"))
+        ev.name = (request.form.get("name") or ev.name or "").strip() or ev.name
+        ev.notes = (request.form.get("notes") or "").strip() or None
+        logo = request.files.get("logo")
+        if logo and getattr(logo, "filename", ""):
+            ev.logo_url = upload_image(logo, "events")
+        ev.updated_at = datetime.utcnow()
+        s.commit()
+        flash("Evento actualizado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error actualizando el evento: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("event_detail_view", eid=eid))
+
+
+@app.post("/eventos/<eid>/eliminar", endpoint="event_delete")
+@admin_required
+def event_delete(eid):
+    s = db()
+    try:
+        ev = s.get(AppEvent, _sim_safe_uuid(eid))
+        if ev:
+            n_sims = s.query(func.count(Simulation.id)).filter(Simulation.event_id == ev.id).scalar() or 0
+            if n_sims:
+                flash(f"No se puede eliminar: el evento tiene {n_sims} simulación(es). Elimínalas antes.", "warning")
+                return redirect(url_for("event_detail_view", eid=eid))
+            s.delete(ev)
+            s.commit()
+            flash("Evento eliminado.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando el evento: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("events_view"))
+
+
+@app.get("/api/search/events", endpoint="api_search_events")
+@admin_required
+def api_search_events():
+    """Buscador de EVENTOS (solo eventos; los artistas tienen su propio buscador)."""
+    q = (request.args.get("q") or "").strip()
+    s = db()
+    try:
+        query = s.query(AppEvent)
+        if q:
+            query = query.filter(_sa_contains_text(AppEvent.name, q))
+        rows = query.order_by(AppEvent.name.asc()).limit(25).all()
+        return jsonify([
+            {"id": str(e.id), "label": (e.name or "").strip(), "logo_url": (e.logo_url or "").strip()}
+            for e in rows
+        ])
+    finally:
+        s.close()
+
+
+@app.post("/api/events/create", endpoint="api_create_event")
+@admin_required
+def api_create_event():
+    """Alta rápida de evento (quick_create.js): nombre + logo opcional, con aviso de similares."""
+    s = db()
+    try:
+        name = (request.form.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "El nombre del evento es obligatorio."}), 400
+        force_new = _truthy(request.form.get("force_new"))
+        rows = [
+            {"id": str(e.id), "label": (e.name or "").strip(), "logo_url": (e.logo_url or "").strip()}
+            for e in s.query(AppEvent).order_by(AppEvent.name.asc()).all()
+        ]
+        exact = s.query(AppEvent).filter(func.lower(AppEvent.name) == name.lower()).first()
+        similar = _build_similarity_rows(name, rows, threshold=0.78)
+        if exact and not force_new:
+            similar = [{"id": str(exact.id), "label": (exact.name or "").strip(), "score": 1.0, "logo_url": (exact.logo_url or "").strip()}]
+        if similar and not force_new:
+            return jsonify({"error": "Ya existe un evento similar.", "similar": similar}), 409
+        logo = request.files.get("logo")
+        logo_url = upload_image(logo, "events") if logo and getattr(logo, "filename", "") else None
+        ev = AppEvent(name=name, logo_url=logo_url)
+        s.add(ev)
+        s.commit()
+        return jsonify({"id": str(ev.id), "label": ev.name, "text": ev.name, "name": ev.name, "logo_url": ev.logo_url})
+    except Exception as e:
+        s.rollback()
+        return jsonify({"error": str(e)}), 400
+    finally:
+        s.close()
+
+
+@app.post("/plantillas-gastos/<tid>/renombrar", endpoint="expense_template_rename")
+@admin_required
+def expense_template_rename(tid):
+    s = db()
+    try:
+        t = s.get(ExpenseTemplate, _sim_safe_uuid(tid))
+        if t:
+            t.name = (request.form.get("name") or t.name or "").strip() or t.name
+            t.updated_at = datetime.utcnow()
+            s.commit()
+            flash("Plantilla renombrada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error renombrando la plantilla: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+@app.post("/plantillas-gastos/<tid>/eliminar", endpoint="expense_template_delete")
+@admin_required
+def expense_template_delete(tid):
+    s = db()
+    try:
+        t = s.get(ExpenseTemplate, _sim_safe_uuid(tid))
+        if t:
+            s.delete(t)
+            s.commit()
+            flash("Plantilla eliminada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando la plantilla: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
 # ============================ SIMULACIONES (Contratación) ============================
 
 def _sim_safe_uuid(v):
@@ -18496,6 +18757,29 @@ def _sim_parse_date(v):
 # --- Constantes de cálculo de simulaciones ---
 SIM_IVA_TICKET = Decimal("0.10")     # IVA de las entradas (10%)
 SIM_SGAE_RATE = Decimal("0.0765")    # SGAE: 7,65% sobre el precio sin IVA
+
+# Categorías de GASTOS del simulador (tarjetas «bocadillo», orden fijo) + icono FA.
+SIM_EXPENSE_CATEGORIES = [
+    ("RECINTO", "Gastos del recinto", "fa-building"),
+    ("RIDER", "Rider", "fa-list-check"),
+    ("SONIDO_LUCES", "Producción técnica e infraestructuras", "fa-sliders"),
+    ("PERSONAL", "Personal", "fa-users-gear"),
+    ("MUSICOS", "Músicos", "fa-guitar"),
+    ("LOGISTICA", "Logística", "fa-truck"),
+    ("ALOJAMIENTO", "Alojamiento", "fa-bed"),
+    ("MARKETING", "Marketing y promoción", "fa-bullhorn"),
+    ("OTROS", "Otros gastos", "fa-shapes"),
+]
+SIM_EXPENSE_CATEGORY_LABELS = {k: l for k, l, _ic in SIM_EXPENSE_CATEGORIES}
+SIM_EXPENSE_CATEGORY_ICONS = {k: ic for k, _l, ic in SIM_EXPENSE_CATEGORIES}
+# Datos antiguos guardados con claves de bolsas: se reubican en su categoría nueva.
+SIM_EXPENSE_LEGACY_MAP = {"TRANSPORTE": "LOGISTICA", "HOTELES": "ALOJAMIENTO", "PRORRATEOS": "OTROS"}
+
+
+def _sim_expense_cat(key):
+    k = (key or "OTROS").upper()
+    k = SIM_EXPENSE_LEGACY_MAP.get(k, k)
+    return k if k in SIM_EXPENSE_CATEGORY_LABELS else "OTROS"
 
 
 def _sim_d(v):
@@ -18529,6 +18813,7 @@ def _sim_ticketing_summary(activity):
         "zones": {
             "PISTA": {"label": "Pista", "qty": 0, "invitations": 0, "sellable": 0},
             "GRADA": {"label": "Grada", "qty": 0, "invitations": 0, "sellable": 0},
+            "PALCO": {"label": "Palcos", "qty": 0, "invitations": 0, "sellable": 0},
         },
         "aforo_total": 0, "invitations": 0, "sellable": 0,
         "ticket_sin_iva": Decimal("0"),   # sin IVA (incluye SGAE)
@@ -18632,17 +18917,30 @@ def _sim_build_calc_data(sim, activity, artist_intl=None):
     for p in (activity.production_items or []):
         d = _sim_cost_cfg(p)
         d.update({
-            "category": p.category, "amount_net": float(_sim_d(p.amount_net)),
+            "category": _sim_expense_cat(p.category), "amount_net": float(_sim_d(p.amount_net)),
             "iva_pct": float(_sim_d(p.iva_pct)), "is_variable": bool(p.is_variable),
+            "includes_iva": bool(getattr(p, "includes_iva", False)),
+            "iva_exempt": bool(getattr(p, "iva_exempt", False)),
+            "cond_under_tickets": (float(_sim_d(p.cond_under_tickets)) if p.cond_under_tickets is not None else None),
         })
         production.append(d)
-    subventions = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "SUBVENCION"]
-    sponsorships = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "PATROCINIO"]
+
+    def _active(i):
+        return (getattr(i, "status", None) or "ACTIVE").upper() not in ("OMIT", "NA")
+
+    subventions = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "SUBVENCION" and _active(i)]
+    sponsorships = [float(_sim_d(i.amount_net)) for i in (activity.income_items or []) if (i.kind or "").upper() == "PATROCINIO" and _active(i)]
+    overrides = {}
+    try:
+        overrides = dict((activity.settings or {}).get("income_overrides") or {})
+    except Exception:
+        overrides = {}
     return {
         "is_international": act_intl,
         "allows_bars": bool(activity.venue.allows_bars) if activity.venue else False,
         "categories": cats, "caches": caches, "commissions": commissions,
         "production": production, "subventions": subventions, "sponsorships": sponsorships,
+        "income_overrides": overrides,
     }
 
 
@@ -18749,8 +19047,11 @@ def _sim_expenses_payload(activity):
     for p in sorted(activity.production_items or [], key=lambda x: x.sort_order or 0):
         d = cfg(p)
         d.update({
-            "category": (p.category or "OTROS"), "concept": (p.concept or ""),
+            "category": _sim_expense_cat(p.category), "concept": (p.concept or ""),
             "amount_net": float(_sim_d(p.amount_net)), "iva_pct": float(_sim_d(p.iva_pct)),
+            "includes_iva": bool(getattr(p, "includes_iva", False)),
+            "iva_exempt": bool(getattr(p, "iva_exempt", False)),
+            "cond_under_tickets": (float(_sim_d(p.cond_under_tickets)) if p.cond_under_tickets is not None else None),
             "is_variable": bool(p.is_variable),
         })
         production.append(d)
@@ -18773,7 +19074,8 @@ def _venue_ticketing_payload(cats):
 def _venue_ticketing_summary(cats):
     """Aforo total / a la venta / invitaciones del recinto (desde su plantilla)."""
     zones = {"PISTA": {"label": "Pista", "qty": 0, "inv": 0, "sellable": 0},
-             "GRADA": {"label": "Grada", "qty": 0, "inv": 0, "sellable": 0}}
+             "GRADA": {"label": "Grada", "qty": 0, "inv": 0, "sellable": 0},
+             "PALCO": {"label": "Palcos", "qty": 0, "inv": 0, "sellable": 0}}
     tq = ti = ts = 0
     for c in (cats or []):
         zone = (c.zone or "PISTA").upper()
@@ -18808,6 +19110,90 @@ def _sim_autoload_venue_ticketing(s, act):
             s.add(SimulationTicketExtra(category=sc, name=ve.name, amount_gross=ve.amount_gross, sort_order=j))
 
 
+def _sim_subject(sim):
+    """Nombre y foto/logo del sujeto de la simulación (artista o evento)."""
+    if sim.artist:
+        return {"name": sim.artist.name, "photo": sim.artist.photo_url, "is_event": False}
+    if sim.event:
+        return {"name": sim.event.name, "photo": sim.event.logo_url, "is_event": True}
+    return {"name": "Simulación", "photo": None, "is_event": False}
+
+
+def _sim_global_partners(sim):
+    return [p for p in sorted(sim.partners or [], key=lambda x: x.sort_order or 0) if not p.activity_id]
+
+
+def _sim_partners_for_activity(sim, activity):
+    """Socios efectivos de una fecha: los PROPIOS de la fecha si existen; si no, los comunes."""
+    allp = sorted(sim.partners or [], key=lambda x: x.sort_order or 0)
+    if activity is not None:
+        own = [p for p in allp if p.activity_id and str(p.activity_id) == str(activity.id)]
+        if own:
+            return own
+    return [p for p in allp if not p.activity_id]
+
+
+def _sim_partner_row_payload(p):
+    name = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or "Socio")))
+    logo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None))
+    return {
+        "name": name, "logo": (logo or ""), "pct": float(_sim_d(p.pct)),
+        "company_id": (str(p.company_id) if p.company_id else ""),
+        "promoter_id": (str(p.promoter_id) if p.promoter_id else ""),
+        "label": (p.name or ""),
+    }
+
+
+def _sim_partner_module_payload(sim, activity, calc, extra_fixed_cost=0.0, label=None):
+    """Datos de UNA fecha para el módulo de socios (beneficio/riesgo con slider 0–100%).
+
+    extra_fixed_cost: gastos generales del ciclo repartidos a esta fecha (fijos, no
+    escalan con la venta): se suman a los gastos y se restan del resultado en cada punto.
+    """
+    fine = []
+    for pt in (calc.get("series_fine") or []):
+        fine.append({
+            "pct": pt["pct"], "tickets": pt["tickets"],
+            "ingresos": pt["ingresos"],
+            "gastos": round(pt["gastos"] + extra_fixed_cost, 2),
+            "resultado": round(pt["resultado"] - extra_fixed_cost, 2),
+        })
+    be_pct = None
+    be_tickets = None
+    for pt in fine:
+        if pt["resultado"] >= 0:
+            be_pct = pt["pct"]
+            be_tickets = pt["tickets"]
+            break
+    return {
+        "label": label or "",
+        "partners": [_sim_partner_row_payload(p) for p in _sim_partners_for_activity(sim, activity)],
+        "series": fine,
+        "sellable": calc["ticketing"]["sellable"] if calc else 0,
+        "break_even_pct": be_pct,
+        "break_even_tickets": be_tickets,
+    }
+
+
+def _sim_expense_templates_payload(s, sim, activity):
+    """Plantillas de gastos aplicables a esta actividad (recinto + artista/evento), recientes primero."""
+    out = []
+    if activity is not None and activity.venue_id:
+        vname = activity.venue.name if activity.venue else "Recinto"
+        for t in _expense_templates_for(s, "VENUE", activity.venue_id):
+            out.append(_expense_template_payload(t, "VENUE", vname))
+    art_id = (activity.artist_id if (activity is not None and activity.artist_id) else sim.artist_id)
+    if art_id:
+        a = s.get(Artist, art_id)
+        for t in _expense_templates_for(s, "ARTIST", art_id):
+            out.append(_expense_template_payload(t, "ARTIST", a.name if a else "Artista"))
+    if sim.event_id:
+        for t in _expense_templates_for(s, "EVENT", sim.event_id):
+            out.append(_expense_template_payload(t, "EVENT", sim.event.name if sim.event else "Evento"))
+    out.sort(key=lambda x: x.get("updated_ts") or "", reverse=True)
+    return out
+
+
 def _render_simulations_list():
     """Listado de simulaciones agrupadas por artista (solo artistas con simulaciones)."""
     s = db()
@@ -18816,6 +19202,7 @@ def _render_simulations_list():
             s.query(Simulation)
             .options(
                 joinedload(Simulation.artist),
+                joinedload(Simulation.event),
                 joinedload(Simulation.managing_company),
                 selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
             )
@@ -18825,16 +19212,22 @@ def _render_simulations_list():
         groups = {}
         for sim in sims:
             a = sim.artist
-            key = str(a.id) if a else "__none__"
+            ev = sim.event if not a else None
+            key = ("a:" + str(a.id)) if a else (("e:" + str(ev.id)) if ev else "__none__")
             g = groups.get(key)
             if not g:
-                g = {"artist": a, "sims": []}
+                g = {"artist": a, "event": ev, "sims": []}
                 groups[key] = g
             g["sims"].append(sim)
-        groups_list = sorted(
-            groups.values(),
-            key=lambda gr: ((gr["artist"].name or "").lower() if gr["artist"] else "zzz"),
-        )
+
+        def _group_sort_name(gr):
+            if gr["artist"]:
+                return (gr["artist"].name or "").lower()
+            if gr["event"]:
+                return (gr["event"].name or "").lower()
+            return "zzz"
+
+        groups_list = sorted(groups.values(), key=_group_sort_name)
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
         return render_template(
@@ -18882,15 +19275,26 @@ def simulation_create():
         return redirect(url_for("contracting_view", section="simulaciones"))
     s = db()
     try:
+        # Sujeto de la simulación: un ARTISTA o un EVENTO (uno de los dos).
         artist_id = _sim_safe_uuid(request.form.get("artist_id"))
-        if not artist_id or not s.get(Artist, artist_id):
-            flash("Debes seleccionar un artista para la simulación.", "warning")
-            return redirect(url_for("contracting_view", section="simulaciones"))
+        event_id = _sim_safe_uuid(request.form.get("event_id"))
+        subject_kind = (request.form.get("subject_kind") or ("EVENT" if (event_id and not artist_id) else "ARTIST")).strip().upper()
+        if subject_kind == "EVENT":
+            artist_id = None
+            if not event_id or not s.get(AppEvent, event_id):
+                flash("Debes seleccionar (o crear) un evento para la simulación.", "warning")
+                return redirect(url_for("contracting_view", section="simulaciones"))
+        else:
+            event_id = None
+            if not artist_id or not s.get(Artist, artist_id):
+                flash("Debes seleccionar un artista para la simulación.", "warning")
+                return redirect(url_for("contracting_view", section="simulaciones"))
         kind = (request.form.get("kind") or "CONCERT").strip().upper()
         if kind not in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL"):
             kind = "CONCERT"
         sim = Simulation(
             artist_id=artist_id,
+            event_id=event_id,
             managing_company_id=_sim_safe_uuid(request.form.get("managing_company_id")),
             kind=kind,
             status="ACTIVE",
@@ -18903,26 +19307,32 @@ def simulation_create():
         # Primera actividad (fecha + recinto). En gira se añaden más desde la ficha.
         date_unknown = _truthy(request.form.get("date_unknown"))
         venue_unknown = _truthy(request.form.get("venue_unknown"))
+        venue_id = None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id"))
+        label = (request.form.get("activity_label") or "").strip() or None
+        if not label and venue_id and kind in ("TOUR", "CYCLE"):
+            # Con más de una fecha, el nombre por defecto es el municipio del recinto.
+            _v = s.get(Venue, venue_id)
+            label = ((_v.municipality or "").strip() or None) if _v else None
         act = SimulationActivity(
             simulation_id=sim.id,
             sort_order=0,
-            label=(request.form.get("activity_label") or "").strip() or None,
+            label=label,
             event_date=None if date_unknown else _sim_parse_date(request.form.get("event_date")),
             date_unknown=date_unknown,
-            venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
+            venue_id=venue_id,
             venue_unknown=venue_unknown,
         )
         if kind == "CYCLE":
-            act.artist_id = artist_id  # la primera fecha del ciclo es de este artista
+            act.artist_id = artist_id  # la primera fecha del ciclo es de este artista (si hay artista)
         s.add(act)
 
-        # Autocarga de la plantilla de ticketing del recinto (precios en blanco).
-        _sim_autoload_venue_ticketing(s, act)
+        # NOTA: la plantilla de ticketing del recinto ya NO se autocarga: al abrir la pestaña
+        # Ticketing se ofrece aplicarla (aviso «¿quieres aplicarla?»).
 
         if kind == "CYCLE":
             # Contenedor de gastos generales del ciclo (sin ticketing ni artista).
             s.add(SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales"))
-        if kind == "FESTIVAL":
+        if kind == "FESTIVAL" and artist_id:
             # El artista principal entra en el lineup del festival.
             s.add(SimulationArtist(simulation_id=sim.id, artist_id=artist_id, sort_order=0))
 
@@ -18955,8 +19365,10 @@ def simulation_detail_view(sid):
             s.query(Simulation)
             .options(
                 joinedload(Simulation.artist),
+                joinedload(Simulation.event),
                 joinedload(Simulation.managing_company),
                 selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+                selectinload(Simulation.activities).joinedload(SimulationActivity.artist),
                 selectinload(Simulation.activities)
                     .selectinload(SimulationActivity.ticket_categories)
                     .selectinload(SimulationTicketCategory.extras),
@@ -18975,7 +19387,7 @@ def simulation_detail_view(sid):
             flash("Simulación no encontrada.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
         tab = (request.args.get("tab") or "resumen").strip().lower()
-        if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado"):
+        if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado", "socios"):
             tab = "resumen"
         all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
         kind = (sim.kind or "").upper()
@@ -18997,34 +19409,62 @@ def simulation_detail_view(sid):
         else:
             active_activity = activities[0] if activities else None
         show_general = is_multi and active_activity is None
+
+        # Gastos generales del ciclo (fijos, repartidos entre los conciertos): se
+        # necesitan tanto en la vista general como en la de cada fecha.
+        general_net = 0.0
+        if is_cycle and shared_activity is not None:
+            general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
+        general_share = (general_net / (len(activities) or 1)) if is_cycle else 0.0
+
         tour_rows = []
         tour_totals = None
         tour_points = []
-        general_net = 0.0
+        partner_module_payload = None
         if show_general:
-            if shared_activity is not None:
-                general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
-            general_share = general_net / (len(activities) or 1)
             ti = tg = tr = 0.0
             tsell = 0
+            gen_acts = []
             for idx, a in enumerate(activities, start=1):
                 c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))
                 ing = c["at_100"]["ingresos"]["total"]
-                gas = c["at_100"]["gastos"]["total"] + (general_share if is_cycle else 0.0)
-                tour_rows.append({"activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas})
+                gas = c["at_100"]["gastos"]["total"] + general_share
+                row_label = a.label or (("Concierto " if is_cycle else "Fecha ") + str(idx))
+                tour_rows.append({
+                    "activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas,
+                    "n": idx,
+                })
                 ti += ing; tg += gas; tr += (ing - gas)
                 tsell += c["ticketing"]["sellable"]
-                v = a.venue
-                if v and (v.municipality or "").strip():
-                    tour_points.append({
-                        "n": idx, "name": (v.name or ""),
-                        "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
-                    })
+                gen_acts.append(_sim_partner_module_payload(sim, a, c, extra_fixed_cost=general_share, label=row_label))
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
+            partner_module_payload = {"mode": "general", "activities": gen_acts}
+            # Chinchetas del mapa numeradas por ORDEN DE FECHA (fechas sin definir al final).
+            dated = sorted(
+                tour_rows,
+                key=lambda r: (r["activity"].date_unknown or not r["activity"].event_date,
+                               r["activity"].event_date or date.max,
+                               r["activity"].sort_order or 0),
+            )
+            n = 0
+            for r in dated:
+                v = r["activity"].venue
+                if v and (v.municipality or "").strip():
+                    n += 1
+                    tour_points.append({
+                        "n": n, "name": (v.name or ""),
+                        "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
+                        "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
+                    })
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map)) if active_activity else None
         artist_breakdown = _sim_festival_breakdown(active_activity, calc, artist_intl_map, lineup) if is_festival else None
+        if active_activity is not None and calc and not active_activity.is_shared:
+            partner_module_payload = {
+                "mode": "activity",
+                "activities": [_sim_partner_module_payload(sim, active_activity, calc, extra_fixed_cost=general_share)],
+            }
         venue_tpl = []
         if active_activity and active_activity.venue_id:
             _vtc = (
@@ -19036,11 +19476,48 @@ def simulation_detail_view(sid):
             )
             venue_tpl = _venue_ticketing_payload(_vtc)
         expenses_payload = _sim_expenses_payload(active_activity)
-        bag_categories = [(k, l) for k, l in BAG_EXPENSE_CATEGORIES if k != "PRORRATEOS"]
-        bag_labels = dict(BAG_EXPENSE_CATEGORIES)
+
+        # Retención del 24%: solo tiene sentido con artista extranjero (por actividad).
+        if is_festival:
+            retention_relevant = any(artist_intl_map.get(str(la.artist_id), False) for la in lineup)
+        elif active_activity is not None and active_activity.artist_id:
+            retention_relevant = artist_intl_map.get(str(active_activity.artist_id), bool(sim.artist and sim.artist.is_international))
+        else:
+            retention_relevant = bool(sim.artist and sim.artist.is_international)
+
+        # Ingresos: estado actual de omitidos/no aplica (líneas calculadas).
+        income_overrides = {}
+        if active_activity is not None:
+            try:
+                income_overrides = dict((active_activity.settings or {}).get("income_overrides") or {})
+            except Exception:
+                income_overrides = {}
+
+        # Plantillas de gastos aplicables (recinto / artista / evento) + aviso de primera vez.
+        expense_templates_payload = _sim_expense_templates_payload(s, sim, active_activity) if active_activity else []
+        show_expense_tpl_prompt = bool(
+            tab == "gastos" and active_activity is not None and expense_templates_payload
+            and not (active_activity.production_items or [])
+        )
+        show_venue_tpl_prompt = bool(
+            tab == "ticketing" and active_activity is not None and venue_tpl
+            and not (active_activity.ticket_categories or [])
+        )
+
+        subject = _sim_subject(sim)
+        global_partners = _sim_global_partners(sim)
+        activity_partners_own = []
+        if active_activity is not None:
+            activity_partners_own = [
+                p for p in sorted(sim.partners or [], key=lambda x: x.sort_order or 0)
+                if p.activity_id and str(p.activity_id) == str(active_activity.id)
+            ]
+        effective_partners = _sim_partners_for_activity(sim, active_activity) if active_activity else global_partners
+
         return render_template(
             "simulacion_detail.html",
             sim=sim,
+            subject=subject,
             activities=activities,
             active_activity=active_activity,
             is_tour=is_tour,
@@ -19061,9 +19538,18 @@ def simulation_detail_view(sid):
             ticketing_payload=ticketing_payload,
             calc=calc,
             venue_tpl=venue_tpl,
+            show_venue_tpl_prompt=show_venue_tpl_prompt,
             expenses_payload=expenses_payload,
-            bag_categories=bag_categories,
-            bag_labels=bag_labels,
+            expense_templates_payload=expense_templates_payload,
+            show_expense_tpl_prompt=show_expense_tpl_prompt,
+            retention_relevant=retention_relevant,
+            income_overrides=income_overrides,
+            general_share=general_share,
+            partner_module_payload=partner_module_payload,
+            global_partners=global_partners,
+            activity_partners_own=activity_partners_own,
+            effective_partners=effective_partners,
+            group_companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -19180,18 +19666,24 @@ def simulation_activity_add(sid):
         next_order = max([a.sort_order or 0 for a in (sim.activities or []) if not a.is_shared] or [-1]) + 1
         date_unknown = _truthy(request.form.get("date_unknown"))
         venue_unknown = _truthy(request.form.get("venue_unknown"))
+        venue_id = None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id"))
+        label = (request.form.get("activity_label") or request.form.get("label") or "").strip() or None
+        if not label and venue_id:
+            # Por defecto, el nombre de la fecha es el municipio del recinto.
+            _v = s.get(Venue, venue_id)
+            label = ((_v.municipality or "").strip() or None) if _v else None
         act = SimulationActivity(
             simulation_id=sim.id, sort_order=next_order,
-            label=(request.form.get("activity_label") or request.form.get("label") or "").strip() or None,
+            label=label,
             event_date=None if date_unknown else _sim_parse_date(request.form.get("event_date")),
             date_unknown=date_unknown,
-            venue_id=None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id")),
+            venue_id=venue_id,
             venue_unknown=venue_unknown,
             artist_id=_sim_safe_uuid(request.form.get("cycle_artist_id")),  # ciclo: artista del concierto
         )
         s.add(act)
         s.flush()
-        _sim_autoload_venue_ticketing(s, act)
+        # La plantilla de ticketing del recinto se ofrece al abrir la pestaña Ticketing (no se autocarga).
         s.commit()
         flash("Fecha añadida.", "success")
         return redirect(url_for("simulation_detail_view", sid=sid, act=act.id, tab="resumen"))
@@ -19336,7 +19828,7 @@ def simulation_ticketing_save(sid):
             if not isinstance(row, dict):
                 continue
             zone = str(row.get("zone") or "PISTA").upper()
-            if zone not in ("PISTA", "GRADA"):
+            if zone not in ("PISTA", "GRADA", "PALCO"):
                 zone = "PISTA"
             cat = SimulationTicketCategory(
                 activity_id=act.id,
@@ -19368,7 +19860,7 @@ def simulation_ticketing_save(sid):
                 if not isinstance(row, dict):
                     continue
                 zone = str(row.get("zone") or "PISTA").upper()
-                if zone not in ("PISTA", "GRADA"):
+                if zone not in ("PISTA", "GRADA", "PALCO"):
                     zone = "PISTA"
                 vcat = VenueTicketCategory(
                     venue_id=act.venue_id, zone=zone,
@@ -28325,6 +28817,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "databases.media", "label": "Medios", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 275, "description": "Medios de comunicación: alta, contactos y edición."},
     {"key": "databases.bags", "label": "Bolsas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 276, "description": "Bolsas: flujos de gasto/aprobación (workflow bags)."},
     {"key": "databases.invoices", "label": "Facturas", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": True, "sort_order": 277, "description": "Facturas: registro y consulta (importes)."},
+    {"key": "databases.events", "label": "Eventos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 278, "description": "Eventos (sujetos de simulaciones sin artista): alta y edición."},
 
     # Cajón para funciones nuevas aún sin clasificar: entran aquí DESACTIVADAS hasta que dirección
     # las asigne. Garantiza que nada quede accesible solo para dirección de forma silenciosa.
@@ -28614,6 +29107,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "personal.usuarios"
     if endpoint in {"personnel_detail_view", "personnel_bulk_access"}:
         return "personal.usuarios.accesos"
+    if endpoint == "events_view" or endpoint.startswith("event_"):
+        return "databases.events"
     if endpoint.startswith("media_"):
         return "databases.media"
     if endpoint.startswith("bag_") or endpoint == "bags_view":
@@ -28998,6 +29493,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/editoriales", "databases.publishing_companies"),
         ("/empresas", "databases.group_companies"),
         ("/medios", "databases.media"),
+        ("/eventos", "databases.events"),
         ("/bolsas", "databases.bags"),
         ("/facturas", "databases.invoices"),
         ("/personal", "personal"),
@@ -29375,6 +29871,7 @@ def _resource_default_url(key: str) -> str:
         "contratacion.cuadrantes": url_for("quadrantes_view"),
         "contratacion.facturacion": url_for("concerts_view", tab="facturacion"),
         "contratacion.simulaciones": url_for("contracting_view", section="simulaciones"),
+        "databases.events": url_for("events_view"),
         "playlisting": url_for("playlisting_view"),
         "promocion": url_for("marketing_view"),
         "acciones": url_for("acciones_view", tab="inicio"),
@@ -29562,6 +30059,7 @@ def _build_nav_menu() -> list[dict]:
             {"key": "databases.publishing_companies", "label": "Editoriales", "url": _resource_default_url("databases.publishing_companies")},
             {"key": "databases.group_companies", "label": "Empresas del grupo", "url": _resource_default_url("databases.group_companies")},
             {"key": "databases.media", "label": "Medios", "url": _resource_default_url("databases.media")},
+            {"key": "databases.events", "label": "Eventos", "url": _resource_default_url("databases.events")},
             {"key": "databases.bags", "label": "Bolsas", "url": _resource_default_url("databases.bags")},
             {"key": "databases.invoices", "label": "Facturas", "url": _resource_default_url("databases.invoices")},
         ]},
@@ -29853,6 +30351,9 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Alta rápida de entidades (modales superpuestos: quick_create.js)
     "api_create_artist", "api_create_promoter", "api_create_venue", "api_create_ticketer",
     "api_create_publishing_company", "api_create_media_outlet", "api_media_contact_create",
+    "api_create_event",
+    # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
+    "expense_template_rename", "expense_template_delete",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)
@@ -29872,7 +30373,7 @@ SUPPORT_ACTION_ENDPOINTS = {
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
-    "api_search_venues", "api_entity_link_search", "api_search_commission_entities",
+    "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",
@@ -45140,6 +45641,7 @@ def _invitation_plan_view_context(session_db, concert, category, sector_name) ->
         (event.get('date_label') or '').strip(),
         (('Hora: ' + event.get('show_time')) if (event.get('show_time') or '').strip() else ''),
     ] if x])
+    arts = event.get('artists') or []
     return {
         'sector': sector,
         'cards': cards,
@@ -45147,6 +45649,9 @@ def _invitation_plan_view_context(session_db, concert, category, sector_name) ->
         'header_meta': header_meta,
         'logo_url': _invitation_event_logo_url(session_db, concert, external=True),
         'sector_title': f"Reparto Invitados {sector.get('sector') or ''}".strip(),
+        'sector_name': str(sector.get('sector') or sector_name or ''),
+        # Foto para el bocadillo de cabecera de la página en vivo: cartel del evento o foto del artista.
+        'event_photo': (event.get('poster_url') or '').strip() or ((arts[0].get('photo_url') or '').strip() if arts else ''),
     }
 
 
@@ -45157,7 +45662,7 @@ def _invitation_plan_email_body(session_db, concert, category, sector_name, url,
     esc = lambda x: html.escape(str(x or ''))
     artist_name = (event.get('artist_names') or '').strip()
     event_name = ((getattr(concert, 'festival_name', None) or '') or '').strip()
-    subject = 'Reparto de invitados · Sector ' + str(sector_name or '') + (' · ' + artist_name if artist_name else '')
+    subject = 'Visionado plano asientos · Sector ' + str(sector_name or '') + (' · ' + artist_name if artist_name else '')
     logo = _invitation_event_logo_url(session_db, concert, external=True)
     meta_rows = [(k, v) for k, v in [('Evento', event_name), ('Ciudad', (event.get('city') or '').strip()),
                                      ('Recinto', (event.get('venue') or '').strip()),
@@ -45172,14 +45677,14 @@ def _invitation_plan_email_body(session_db, concert, category, sector_name, url,
     <div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:0 auto;color:#111">
       {f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:58px;max-width:200px" alt="Logo"></div>' if logo else ''}
       <h2 style="margin:0 0 4px">{esc(artist_name or 'Invitaciones')}</h2>
-      <div style="font-size:15px;font-weight:bold;margin:0 0 10px;color:#333">Reparto Invitados · Sector {esc(sector_name)}</div>
+      <div style="font-size:15px;font-weight:bold;margin:0 0 10px;color:#333">Visionado plano asientos · Sector {esc(sector_name)}</div>
       <table style="border-collapse:collapse;font-size:13px;margin:0 0 14px">{meta_html}</table>
       {body_paras}
       <div style="margin:18px 0"><a href="{esc(url)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:12px 22px;border-radius:10px;font-weight:bold;display:inline-block">Ver el reparto actualizado</a></div>
       <p style="color:#6b7280;font-size:12px">Si el botón no funciona, copia este enlace: {esc(url)}</p>
     </div>
     """
-    text_body = f"Reparto de invitados · Sector {sector_name}\n\nEnlace (siempre actualizado): {url}"
+    text_body = f"Visionado plano asientos · Sector {sector_name}\n\nEnlace (siempre actualizado): {url}"
     return subject, html_body, text_body
 
 
@@ -45203,7 +45708,7 @@ def invitation_plan_share_link(concert_id, category_id):
         channel = (request.form.get('channel') or '').strip().lower()
         event = _invitation_event_payload(session_db, concert)
         artist_name = (event.get('artist_names') or '').strip()
-        msg = f"Reparto de invitados · Sector {sector}" + (f" · {artist_name}" if artist_name else '') + "\n\n" + link
+        msg = f"Visionado plano asientos · Sector {sector}" + (f" · {artist_name}" if artist_name else '') + "\n\n" + link
         if channel == 'whatsapp':
             url = 'https://wa.me/?text=' + quote_plus(msg)
         elif channel == 'sms':

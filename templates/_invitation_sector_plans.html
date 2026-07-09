@@ -15,13 +15,14 @@
             <li><a class="dropdown-item" data-no-loader href="{{ _pdfu }}&dl=1"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
             <li><a class="dropdown-item" data-no-loader href="{{ _pdfu }}" target="_blank" rel="noopener"><i class="fa fa-print fa-fw me-1"></i>Imprimir</a></li>
             <li><hr class="dropdown-divider"></li>
-            {# Compartir = enlace a la página EN VIVO (siempre actualizada); email con vista previa
-               como el envío de invitaciones (el campo category_id del modal transporta el SECTOR). #}
-            <li><button type="button" class="dropdown-item" data-send-open data-send-kind="plan" data-send-id="{{ cat.id }}" data-send-category="{{ sector.sector }}" data-send-action="{{ url_for('invitation_plan_share_send', concert_id=event.id, category_id=cat.id) }}" data-send-name="Reparto · Sector {{ sector.sector }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por email</button></li>
-            <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_plan_share_link', concert_id=event.id, category_id=cat.id, sector=sector.sector) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</button></li>
-            <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_plan_share_link', concert_id=event.id, category_id=cat.id, sector=sector.sector) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</button></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><form method="post" action="{{ url_for('invitation_plan_share_revoke', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Anular el enlace compartido del reparto de «{{ sector.sector }}»? Dejará de funcionar para quien lo tenga.');"><input type="hidden" name="sector" value="{{ sector.sector }}"><button class="dropdown-item text-danger"><i class="fa fa-link-slash fa-fw me-1"></i>Anular enlace compartido</button></form></li>
+            {# LINK DE VISIONADO: enlace a la página EN VIVO del plano (se actualiza sola durante la
+               asignación). Abre el modal con Copiar / Email / WhatsApp / SMS / Anular link. #}
+            <li><button type="button" class="dropdown-item" data-plan-link
+                        data-pll-sector="{{ sector.sector }}"
+                        data-pll-cat="{{ cat.id }}"
+                        data-pll-link-action="{{ url_for('invitation_plan_share_link', concert_id=event.id, category_id=cat.id, sector=sector.sector) }}"
+                        data-pll-send-action="{{ url_for('invitation_plan_share_send', concert_id=event.id, category_id=cat.id) }}"
+                        data-pll-revoke-action="{{ url_for('invitation_plan_share_revoke', concert_id=event.id, category_id=cat.id) }}"><i class="fa fa-link fa-fw me-1"></i>Link de visionado</button></li>
           </ul>
         </div>
       </div>

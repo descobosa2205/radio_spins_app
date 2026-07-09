@@ -29502,11 +29502,17 @@ def _bootstrap_access_and_personnel():
 
 
 def _do_bootstrap_access_and_personnel():
+    # IMPORTANTE: transacciones CORTAS (commit tras los recursos y tras CADA usuario). Antes toda la
+    # siembra iba en UNA transacción de minutos: mantenía locks sobre grants/perfiles y cualquier
+    # página que sincronizara los grants de SU usuario (mismas filas) se quedaba ESPERANDO esa
+    # transacción -> threads del servidor agotados -> timeouts aleatorios (hasta en estáticos) ->
+    # Render reiniciaba la instancia -> la siembra volvía a empezar -> bucle de caída perpetuo.
     global _ACCESS_BOOTSTRAP_DONE
     ensure_personnel_and_operations_schema()
     session_db = db()
     try:
         _sync_access_resources(session_db)
+        session_db.commit()  # libera cuanto antes los locks del catálogo de recursos
         txt_users = load_users_from_txt()
         for email, rec in txt_users.items():
             email = (email or "").strip().lower()
@@ -29528,12 +29534,18 @@ def _do_bootstrap_access_and_personnel():
                     pass
             _ensure_user_profile(session_db, user, legacy_full_seed=True, nick=_email_to_nick(email))
             _ensure_user_security(session_db, user)
+            session_db.commit()  # por usuario: locks brevísimos
         users = session_db.query(User).all()
         for user in users:
-            profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
-            _ensure_user_security(session_db, user)
-            _sync_user_access_grants(session_db, user, profile)
-        session_db.commit()
+            try:
+                profile = _ensure_user_profile(session_db, user, legacy_full_seed=True)
+                _ensure_user_security(session_db, user)
+                _sync_user_access_grants(session_db, user, profile)
+                session_db.commit()  # por usuario: locks brevísimos
+            except Exception:
+                # Carrera con la petición de ese mismo usuario (insertando sus propios grants):
+                # rollback y seguimos con el resto — lo que falte se completa en la siguiente pasada.
+                session_db.rollback()
         _ACCESS_BOOTSTRAP_DONE = True
     finally:
         session_db.close()
@@ -29896,8 +29908,14 @@ def _current_user_state() -> dict:
             return state
         profile = _ensure_user_profile(session_db, user, legacy_full_seed=False)
         security = _ensure_user_security(session_db, user)
-        _sync_user_access_grants(session_db, user, profile)
-        session_db.commit()
+        try:
+            _sync_user_access_grants(session_db, user, profile)
+            session_db.commit()
+        except Exception:
+            # Carrera con la siembra en 2º plano (insertando los MISMOS grants de este usuario):
+            # rollback y seguimos leyendo los grants existentes — la página no se cae ni espera;
+            # los grants que falten aparecen en la siguiente petición.
+            session_db.rollback()
         grants = {}
         for grant in session_db.query(UserAccessGrant).filter(UserAccessGrant.user_id == user.id).all():
             grants[grant.resource_key] = {

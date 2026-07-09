@@ -38717,6 +38717,7 @@ def _invitation_category_payload(cat: InvitationCategory, counts: dict | None = 
         "is_active": bool(cat.is_active),
         "requests_blocked": bool(getattr(cat, "requests_blocked", False)),
         "requests_over_quota_blocked": bool(getattr(cat, "requests_over_quota_blocked", False)),
+        "is_pmr": bool(getattr(cat, "is_pmr", False)),
         "stairs_spec": (getattr(cat, "stairs_spec", None) or ""),
         "zone": _invitation_category_zone(cat),
         "zone_label": INVITATION_ZONE_LABELS.get(_invitation_category_zone(cat), "Pista"),
@@ -40387,23 +40388,24 @@ def _invitation_tickets_to_merged_pdf(tickets) -> tuple[bytes | None, int]:
     una entrada o pypdf no está disponible, devuelve ese PDF tal cual."""
     blobs = []
     for t in tickets or []:
-        url = (getattr(t, "pdf_url", None) or "").strip()
-        if not url:
-            continue
-        content = None
-        for _attempt in range(3):
-            try:
-                content, _ct = _download_remote_content(url)
-                break
-            except Exception:
-                content = None
-        if content is None:
-            try:
-                app.logger.warning("Invitación PDF único: no se pudo bajar %s (%s)", getattr(t, "id", "?"), url)
-            except Exception:
-                pass
-            continue
-        blobs.append(content)
+        # Entrada principal + (PMR) su acompañante justo detrás: la de acompañante viaja siempre con ella.
+        for url in [(getattr(t, "pdf_url", None) or "").strip(), (getattr(t, "companion_pdf_url", None) or "").strip()]:
+            if not url:
+                continue
+            content = None
+            for _attempt in range(3):
+                try:
+                    content, _ct = _download_remote_content(url)
+                    break
+                except Exception:
+                    content = None
+            if content is None:
+                try:
+                    app.logger.warning("Invitación PDF único: no se pudo bajar %s (%s)", getattr(t, "id", "?"), url)
+                except Exception:
+                    pass
+                continue
+            blobs.append(content)
     if not blobs:
         return None, 0
     if len(blobs) == 1 or not PYPDF_AVAILABLE or PdfWriter is None or PdfReader is None:
@@ -42376,6 +42378,7 @@ def invitation_category_save(concert_id):
             guest_modes = request.form.getlist('guest_list_mode[]')
             blocked_ids = set(request.form.getlist('block_requests_cat'))  # categorías con peticiones bloqueadas
             over_quota_ids = set(request.form.getlist('block_over_quota_cat'))  # no aceptar por encima de cupo
+            pmr_ids = set(request.form.getlist('pmr_cat'))  # categorías PMR (con entrada de acompañante)
             zone_vals = request.form.getlist('zone[]')  # zona (PISTA/GRADA/PALCO) por categoría
             stairs_specs = request.form.getlist('stairs_spec[]')  # escaleras (opcional) por categoría
             for idx, name_raw in enumerate(row_names):
@@ -42400,6 +42403,7 @@ def invitation_category_save(concert_id):
                 row.is_active = True
                 row.requests_blocked = bool(category_id and str(category_id) in blocked_ids)
                 row.requests_over_quota_blocked = bool(category_id and str(category_id) in over_quota_ids)
+                row.is_pmr = bool(category_id and str(category_id) in pmr_ids)
                 _zone_raw = (zone_vals[idx] if idx < len(zone_vals) else '').strip().upper()
                 row.zone = _zone_raw if _zone_raw in ('PISTA', 'GRADA', 'PALCO') else None
                 _stairs_raw = (stairs_specs[idx] if idx < len(stairs_specs) else '').strip()
@@ -44426,6 +44430,20 @@ def _invitation_tickets_to_zip(tickets, archive_label: str = "invitaciones") -> 
             member = _safe_zip_member_name(stem + ".pdf", used, f"invitacion_{idx}.pdf")
             zf.writestr(member, content)
             added += 1
+            # PMR: entrada de ACOMPAÑANTE, empaquetada justo tras su entrada principal.
+            comp_url = (getattr(t, "companion_pdf_url", None) or "").strip()
+            if comp_url:
+                comp_content = None
+                for _attempt in range(3):
+                    try:
+                        comp_content, _ct = _download_remote_content(comp_url)
+                        break
+                    except Exception:
+                        comp_content = None
+                if comp_content is not None:
+                    comp_member = _safe_zip_member_name(stem + " (acompañante).pdf", used, f"invitacion_{idx}_acompanante.pdf")
+                    zf.writestr(comp_member, comp_content)
+                    added += 1
     root = (archive_label or "invitaciones").strip().replace("/", "-").replace("\\", "-") or "invitaciones"
     return buf.getvalue(), f"{root}.zip", added
 
@@ -44548,6 +44566,7 @@ def invitation_tickets_upload(concert_id):
         discarded = []       # páginas SIN código: no son invitaciones (se avisan, no se suben)
         created = 0
         created_rows = []    # butacas creadas (numeradas) para el popup de revisión tras subir
+        created_tickets = []  # objetos InvitationTicket creados EN ORDEN (para vincular acompañantes PMR)
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
         seen_butacas = set() # butacas (sector+fila+asiento) ya vistas en este lote (numeradas)
@@ -44658,11 +44677,41 @@ def invitation_tickets_upload(concert_id):
                 )
                 session_db.add(ticket)
                 created += 1
+                created_tickets.append(ticket)
                 if is_numbered:
                     created_rows.append({
                         "sector": sector_val or "", "row_label": row_val or "",
                         "seat_number": seat_val or "", "pdf_name": ticket.pdf_name or "",
                     })
+        # PMR: entradas de ACOMPAÑANTE. Se suben en el mismo envío como companions[] y se vinculan
+        # 1:1, POR ORDEN, con las entradas principales recién creadas (1º acompañante → 1ª entrada).
+        # Cada acompañante viaja siempre con su entrada (se incluye en la fusión/ZIP/descarga al enviar).
+        companions_linked = 0
+        if category is not None and getattr(category, 'is_pmr', False):
+            comp_files = request.files.getlist('companions[]')
+            comp_pages = []   # (bytes, nombre) de cada página de acompañante, en orden
+            for cf in comp_files:
+                if not cf or not getattr(cf, 'filename', ''):
+                    continue
+                cname = (cf.filename or 'acompanante.pdf').strip()
+                if not cname.lower().endswith('.pdf'):
+                    errors.append(f'{cname}: el acompañante debe ser PDF')
+                    continue
+                craw = cf.read()
+                try: cf.stream.seek(0)
+                except Exception: pass
+                for cp in _invitation_split_pdf_pages(craw):
+                    comp_pages.append((cp, Path(cname).stem or 'acompanante'))
+            for i, comp in enumerate(comp_pages):
+                if i >= len(created_tickets):
+                    break   # más acompañantes que entradas: se ignora el sobrante
+                try:
+                    curl = upload_pdf_bytes(comp[0], folder)
+                except Exception:
+                    continue
+                created_tickets[i].companion_pdf_url = curl
+                created_tickets[i].companion_pdf_name = f'{comp[1]}.pdf'
+                companions_linked += 1
         if category is not None:
             category.updated_at = _now_madrid()
         session_db.commit()
@@ -44676,11 +44725,12 @@ def invitation_tickets_upload(concert_id):
                 "created": created,
                 "duplicates": len(duplicates),
                 "discarded": len(discarded),
+                "companions": companions_linked,
                 "errors": errors[:8],
                 "tickets": created_rows,
             })
         if created:
-            flash(f'{created} invitaciones subidas.', 'success')
+            flash(f'{created} invitaciones subidas.' + (f' {companions_linked} con entrada de acompañante.' if companions_linked else ''), 'success')
         if duplicates:
             extra = f' (+{len(duplicates) - 8} más)' if len(duplicates) > 8 else ''
             flash(f'⚠️ {len(duplicates)} invitación(es) duplicada(s): solo se mantiene una de cada. No subidas: ' + ' · '.join(duplicates[:8]) + extra, 'warning')

@@ -189,6 +189,23 @@ Existen dos vías (actualmente coexisten):
 
 ## 8. Registro de cambios (CHANGELOG)
 
+### 2026-07-09 — Invitaciones: PMR con acompañante, desplegable de tipos agrupado y botón «Asignar todas»
+
+- **Categoría PMR con entrada de acompañante.** Nueva casilla **PMR** al configurar categorías
+  (`InvitationCategory.is_pmr`). En una categoría PMR, el modal de subir invitaciones muestra un
+  campo extra para subir **entradas de acompañante** (`companions[]`), que se emparejan **1:1 por
+  orden** con las invitaciones subidas y se guardan en la propia entrada
+  (`InvitationTicket.companion_pdf_url` / `companion_pdf_name`) — no son entradas sueltas ni cuentan
+  como invitación aparte. Al **enviar** (email «Descargar invitaciones», WhatsApp/SMS y página
+  pública de descarga) el PDF único fusionado y el ZIP **incluyen siempre el acompañante detrás de
+  su entrada** (`_invitation_tickets_to_merged_pdf` / `_invitation_tickets_to_zip`). ALTERs
+  idempotentes en `ensure_invitation_schema` (`is_pmr`, `companion_pdf_url`, `companion_pdf_name`).
+- **Desplegable de tipos de entrada agrupado** al añadir una petición a un compromiso
+  (`cmtCategoryModal`): Select2 agrupado por zona (nombre + icono Pista/Grada/Palcos) y cada opción
+  con su **borde izquierdo del color** de la categoría; en modo edición la categoría sigue fija.
+- **Botón «Asignar todas»** (pestaña Invitaciones): misma estética que «Enviar todas»
+  (`btn-outline-success`) y texto reducido a icono + «Asignar todas».
+
 ### 2026-06-22 — Invitaciones: permisos de «pedir/gestionar» + peticiones sin tope de cupo
 
 Dos fallos corregidos en `app.py` (`_resolve_request_resource_key`, `_enforce_role_permissions_v2`,

@@ -2141,6 +2141,9 @@ class InvitationCategory(Base):
     # «No aceptar peticiones por encima del cupo»: si está activo, pedir/modificar esta categoría se
     # rechaza cuando la cantidad supera el aforo disponible del evento (por defecto NO se limita).
     requests_over_quota_blocked = Column(Boolean, nullable=False, server_default=text("false"))
+    # Categoría PMR (movilidad reducida): cada entrada puede llevar una entrada de ACOMPAÑANTE
+    # vinculada (segundo PDF); al enviar la invitación se mandan siempre las dos juntas.
+    is_pmr = Column(Boolean, nullable=False, server_default=text("false"))
     # Enlaces de «reparto en vivo» por sector: {sector: {token, created_at}} (se borra al anular).
     plan_share_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     zone = Column(Text)  # PISTA / GRADA / PALCO (si vacío se infiere del nombre)
@@ -2335,6 +2338,10 @@ class InvitationTicket(Base):
     sector = Column(Text)
     row_label = Column(Text)
     seat_number = Column(Text)
+    # PMR: PDF de la entrada de ACOMPAÑANTE adjunta a esta entrada. No es una entrada suelta ni cuenta
+    # como invitación aparte: viaja SIEMPRE con esta (se incluye en la fusión/ZIP/descarga al enviar).
+    companion_pdf_url = Column(Text)
+    companion_pdf_name = Column(Text)
     status = Column(Text, nullable=False, server_default=text("'AVAILABLE'"))
     assigned_request_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_requests.id", ondelete="SET NULL"))
     assigned_commitment_id = Column(PGUUID(as_uuid=True), ForeignKey("invitation_commitments.id", ondelete="SET NULL"))
@@ -5775,6 +5782,7 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_blocked boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS requests_over_quota_blocked boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS is_pmr boolean NOT NULL DEFAULT false;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS plan_share_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS sent_via text;",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS sent_to text;",
@@ -5929,6 +5937,8 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_tickets ALTER COLUMN category_id DROP NOT NULL;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS printed_at timestamptz;",
         "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS print_reason text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS companion_pdf_url text;",
+        "ALTER TABLE invitation_tickets ADD COLUMN IF NOT EXISTS companion_pdf_name text;",
         """
         INSERT INTO user_access_resources(key, parent_key, section_key, label, level, economic_capable, sort_order)
         VALUES

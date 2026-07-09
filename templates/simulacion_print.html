@@ -5,33 +5,62 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Simulación · {{ sim.title or (sim.artist.name if sim.artist else '') }}</title>
 <style>
+  /* ESTÉTICA COMÚN de los PDFs de la casa (invitaciones): logo del grupo arriba a la DERECHA,
+     título centrado con línea de contexto gris, "pastilla" de cabecera (tarjeta gris redondeada
+     con foto en círculo + datos), tablas con cabecera gris #f3f4f6, rejilla #d9dee6 y zebra, y
+     acento rojo corporativo #E33D48. */
   @page { size: A4; margin: 13mm; }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:#222; margin:0; background:#f1f3f5; }
-  .toolbar { position:sticky; top:0; background:#fff; border-bottom:1px solid #ddd; padding:10px 16px; display:flex; gap:8px; justify-content:flex-end; }
-  .toolbar a, .toolbar button { font:inherit; padding:.4rem .8rem; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer; text-decoration:none; color:#222; }
-  .toolbar button.primary { background:#E33D48; color:#fff; border-color:#E33D48; }
+  body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color:#111; margin:0; background:#f1f3f5; }
+  .toolbar { position:sticky; top:0; z-index:5; background:#fff; border-bottom:1px solid #ddd; padding:10px 16px; display:flex; gap:8px; justify-content:flex-end; }
+  .toolbar a, .toolbar button { font:inherit; padding:.4rem .8rem; border-radius:10px; border:1px solid #ccc; background:#fff; cursor:pointer; text-decoration:none; color:#222; }
+  .toolbar button.primary { background:#E33D48; color:#fff; border-color:#E33D48; font-weight:700; }
   .doc { max-width:210mm; margin:16px auto; }
-  .sheet { background:#fff; padding:16mm 14mm; margin:0 auto 16px; box-shadow:0 1px 6px rgba(0,0,0,.15); }
-  .sheet-header { display:flex; align-items:center; gap:16px; border-bottom:3px solid #E33D48; padding-bottom:10px; margin-bottom:6px; }
-  .sheet-header img { max-height:56px; max-width:190px; object-fit:contain; }
-  .sheet-header .co { font-size:.8rem; color:#666; }
-  .cab { font-size:.82rem; color:#444; margin:8px 0 4px; }
-  .cab b { color:#222; }
-  .sec-title { font-size:1.05rem; font-weight:700; margin:16px 0 8px; color:#007CA2; border-bottom:1px solid #e9ecef; padding-bottom:4px; }
-  h1 { font-size:1.4rem; margin:.2rem 0; }
-  table { width:100%; border-collapse:collapse; font-size:.84rem; }
-  td, th { padding:4px 8px; border-bottom:1px solid #eee; text-align:left; vertical-align:top; }
-  th { color:#666; font-weight:600; }
+  .sheet { background:#fff; padding:14mm 13mm; margin:0 auto 16px; box-shadow:0 1px 6px rgba(0,0,0,.15); position:relative; }
+
+  /* Cabecera de hoja: logo esquina superior derecha + título centrado + contexto gris. */
+  .ph-logo { position:absolute; top:10mm; right:13mm; max-height:46px; max-width:130px; object-fit:contain; }
+  .ph-title { text-align:center; font-size:1.25rem; font-weight:800; color:#111; margin:2px 0 2px; }
+  .ph-sub { text-align:center; font-size:.78rem; color:#444; margin-bottom:10px; }
+
+  /* Pastilla de cabecera (como el correo/página de invitaciones): tarjeta gris redondeada con la
+     foto del artista en círculo y los datos del evento en filas pequeñas. */
+  .hero { background:#f6f7f9; border:1px solid #eceef1; border-radius:14px; padding:12px 14px; display:flex; align-items:center; gap:12px; margin:6px 0 14px; }
+  .hero img.ava { width:52px; height:52px; border-radius:50%; object-fit:cover; border:1px solid #eceef1; background:#fff; flex:0 0 auto; }
+  .hero .nm { font-size:1.02rem; font-weight:700; color:#111; }
+  .hero .mt { font-size:.78rem; color:#444; }
+  .hero .mt b { color:#111; }
+
+  /* Títulos de sección: banda suave con topo rojo (misma familia que las barras de categoría). */
+  .sec-title { display:flex; align-items:center; gap:8px; background:#f3f4f6; border-radius:8px; padding:6px 10px; font-size:.92rem; font-weight:700; color:#111; margin:14px 0 8px; }
+  .sec-title::before { content:''; width:10px; height:10px; border-radius:50%; background:#E33D48; flex:0 0 auto; }
+
+  /* Tablas: cabecera gris, rejilla suave y zebra (idéntico a los PDFs de invitaciones). */
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  td, th { padding:4px 8px; border:0.25pt solid #d9dee6; text-align:left; vertical-align:top; }
+  th { color:#333; font-weight:700; background:#f3f4f6; }
+  tbody tr:nth-child(even) td { background:#fbfcfd; }
   .text-end { text-align:right; }
-  .tot td { font-weight:700; border-top:2px solid #333; }
+  .tot td { font-weight:700; border-top:1.5pt solid #333; background:#fff !important; }
   .muted { color:#888; }
   .pos { color:#0f7d3d; } .neg { color:#c0392b; }
-  .stats { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; }
-  .stat { border:1px solid #e9ecef; border-radius:10px; padding:.4rem .8rem; }
-  .stat b { display:block; font-size:1.1rem; }
-  .stat span { font-size:.7rem; text-transform:uppercase; color:#777; }
-  @media print { body { background:#fff; } .toolbar { display:none; } .doc { margin:0; max-width:none; } .sheet { box-shadow:none; margin:0; padding:0; } .sheet + .sheet { page-break-before: always; } }
+
+  /* Módulos de cifras (stats): rejilla uniforme para que queden CUADRADOS y alineados. */
+  .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:8px 0 10px; }
+  .stats.cols-3 { grid-template-columns:repeat(3, 1fr); }
+  .stat { border:1px solid #eceef1; background:#fff; border-radius:12px; padding:.55rem .8rem; text-align:center; }
+  .stat b { display:block; font-size:1.06rem; color:#111; }
+  .stat span { font-size:.66rem; text-transform:uppercase; letter-spacing:.02em; color:#777; }
+  .stat.hl b { color:#E33D48; }
+
+  @media print {
+    body { background:#fff; }
+    .toolbar { display:none; }
+    .doc { margin:0; max-width:none; }
+    .sheet { box-shadow:none; margin:0; padding:0 0 8mm; }
+    .ph-logo { top:0; right:0; }
+    .sheet + .sheet { page-break-before: always; }
+  }
 </style>
 </head>
 <body>
@@ -40,24 +69,26 @@
   <button class="primary" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
 </div>
 
-{% macro hdr() %}
-<div class="sheet-header">
-  {% if company and company.logo_url %}<img src="{{ company.logo_url }}" alt="{{ company.name }}">{% endif %}
-  <div>
-    <div class="co">{{ company.name if company else 'Simulación' }}</div>
-    <h1>{{ sim.title or (sim.artist.name if sim.artist else 'Simulación') }} <span class="muted" style="font-size:.9rem;">· {{ kind_label }}</span></h1>
+{% macro hdr(section_label) %}
+  {% if company and company.logo_url %}<img class="ph-logo" src="{{ company.logo_url }}" alt="{{ company.name }}">{% endif %}
+  <div class="ph-title">Simulación</div>
+  <div class="ph-sub">{{ [kind_label, (company.name if company else None)]|select|join(' · ') }}</div>
+  <div class="hero">
+    {% if sim.artist and sim.artist.photo_url %}<img class="ava" src="{{ sim.artist.photo_url }}" alt="">{% endif %}
+    <div>
+      <div class="nm">{{ sim.title or (sim.artist.name if sim.artist else 'Simulación') }}</div>
+      <div class="mt"><b>Artista:</b> {{ sim.artist.name if sim.artist else '—' }} &nbsp;·&nbsp; <b>Empresa:</b> {{ company.name if company else 'Sin asignar' }}</div>
+      {% if not is_multi and blocks %}
+        {% set a = blocks[0].activity %}
+        <div class="mt">
+          <b>Fecha:</b> {% if a.date_unknown or not a.event_date %}Por definir{% else %}{{ a.event_date.strftime('%d/%m/%Y') }}{% endif %}
+          &nbsp;·&nbsp; <b>Recinto:</b> {% if a.venue %}{{ a.venue.name }}{% else %}Por definir{% endif %}
+        </div>
+      {% endif %}
+      {% if is_festival and lineup %}<div class="mt"><b>Artistas:</b> {% for la in lineup %}{{ la.artist.name if la.artist else '' }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+      {% if section_label %}<div class="mt"><b>{{ section_label }}</b></div>{% endif %}
+    </div>
   </div>
-</div>
-<div class="cab">
-  <b>Artista:</b> {{ sim.artist.name if sim.artist else '—' }}
-  &nbsp;·&nbsp; <b>Empresa:</b> {{ company.name if company else 'Sin asignar' }}
-  {% if not is_multi and blocks %}
-    {% set a = blocks[0].activity %}
-    &nbsp;·&nbsp; <b>Fecha:</b> {% if a.date_unknown or not a.event_date %}Por definir{% else %}{{ a.event_date.strftime('%d/%m/%Y') }}{% endif %}
-    &nbsp;·&nbsp; <b>Recinto:</b> {% if a.venue %}{{ a.venue.name }}{% else %}Por definir{% endif %}
-  {% endif %}
-  {% if is_festival and lineup %}&nbsp;·&nbsp; <b>Artistas:</b> {% for la in lineup %}{{ la.artist.name if la.artist else '' }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
-</div>
 {% endmacro %}
 
 {% macro money(v) %}{{ v|eur }}{% endmacro %}
@@ -101,13 +132,13 @@
 {# ===== HOJA DE PORTADA / RESUMEN ===== #}
 <div class="doc">
 <div class="sheet">
-  {{ hdr() }}
+  {{ hdr(none) }}
   <div class="sec-title">Resumen{{ ' del ' + ('ciclo' if is_cycle else 'festival') if (is_cycle or is_festival) else (' de la gira' if is_multi else '') }}</div>
   <div class="stats">
     <div class="stat"><b>{{ totals.sellable }}</b><span>Entradas a la venta</span></div>
     <div class="stat"><b>{{ totals.ingresos|eur }}</b><span>Ingresos @100%</span></div>
     <div class="stat"><b>{{ totals.gastos|eur }}</b><span>Gastos @100%</span></div>
-    <div class="stat"><b class="{{ 'pos' if totals.resultado >= 0 else 'neg' }}">{{ totals.resultado|eur }}</b><span>Resultado @100%</span></div>
+    <div class="stat hl"><b class="{{ 'pos' if totals.resultado >= 0 else 'neg' }}">{{ totals.resultado|eur }}</b><span>Resultado @100%</span></div>
   </div>
   {% if is_multi %}
   <div class="sec-title">{{ 'Conciertos del ciclo' if is_cycle else 'Fechas de la gira' }}</div>
@@ -147,21 +178,20 @@
 {# ===== UNA HOJA POR ACTIVIDAD ===== #}
 {% for b in blocks %}
 <div class="sheet">
-  {{ hdr() }}
-  <div class="sec-title">
-    {% if is_multi %}{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or ('Fecha ' ~ loop.index) }}{% endif %}{% if b.activity.event_date and not b.activity.date_unknown %} · {{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if b.activity.venue %} · {{ b.activity.venue.name }}{% endif %}{% else %}Detalle económico{% endif %}
-  </div>
+  {% set _sec %}{% if is_multi %}{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or ('Fecha ' ~ loop.index) }}{% endif %}{% if b.activity.event_date and not b.activity.date_unknown %} · {{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if b.activity.venue %} · {{ b.activity.venue.name }}{% endif %}{% else %}Detalle económico{% endif %}{% endset %}
+  {{ hdr(_sec) }}
+  <div class="sec-title">Ticketing</div>
   {{ ticketing_tbl(b.calc) }}
   <div class="sec-title">Ingresos (al 100%)</div>
   {{ ingresos_tbl(b.calc) }}
   <div class="sec-title">Gastos (al 100%)</div>
   {{ gastos_tbl(b.calc, (general_share if is_cycle else 0)) }}
   <div class="sec-title">Resultado</div>
-  <table>
-    <tr><td>Punto de empate</td><td class="text-end">{% if b.calc.break_even_tickets is none %}No se alcanza{% else %}{{ b.calc.break_even_tickets }} entradas{% if b.calc.break_even_pct is not none %} ({{ b.calc.break_even_pct }}%){% endif %}{% endif %}</td></tr>
-    <tr><td>Precio medio</td><td class="text-end">{{ b.calc.avg_price_sin_iva|eur }} sin IVA · {{ b.calc.avg_price_gross|eur }} con IVA</td></tr>
-    <tr class="tot"><td>Resultado @100%</td><td class="text-end {{ 'pos' if b.resultado >= 0 else 'neg' }}">{{ b.resultado|eur }}</td></tr>
-  </table>
+  <div class="stats cols-3">
+    <div class="stat"><b>{% if b.calc.break_even_tickets is none %}No se alcanza{% else %}{{ b.calc.break_even_tickets }}{% if b.calc.break_even_pct is not none %} · {{ b.calc.break_even_pct }}%{% endif %}{% endif %}</b><span>Punto de empate</span></div>
+    <div class="stat"><b>{{ b.calc.avg_price_sin_iva|eur }}</b><span>Precio medio sin IVA · {{ b.calc.avg_price_gross|eur }} con IVA</span></div>
+    <div class="stat hl"><b class="{{ 'pos' if b.resultado >= 0 else 'neg' }}">{{ b.resultado|eur }}</b><span>Resultado @100%</span></div>
+  </div>
 </div>
 {% endfor %}
 </div>

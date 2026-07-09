@@ -1168,7 +1168,7 @@ def artists_view():
             artist = Artist(
                 name=name, photo_url=photo_url,  # id lo genera la BD
                 is_group=_truthy(request.form.get("is_group")),
-                birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""),
+                birth_date=parse_optional_date(request.form.get("birth_date")),
             )
             session_db.add(artist)
             session_db.commit()
@@ -1426,7 +1426,7 @@ def artist_update(artist_id):
     if "is_group" in request.form:
         a.is_group = _truthy(request.form.get("is_group"))
     if "birth_date" in request.form:
-        a.birth_date = parse_date((request.form.get("birth_date") or "").strip() or "")
+        a.birth_date = parse_optional_date(request.form.get("birth_date"))
     photo = request.files.get("photo")
     try:
         if photo and photo.filename:
@@ -1557,7 +1557,7 @@ def artist_person_add(artist_id):
             return redirect(safe_next_or(url_for("artist_detail_view", artist_id=a.id, tab="datos")))
 
         p = ArtistPerson(artist_id=a.id, first_name=first_name, last_name=last_name or "",
-                         birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""))
+                         birth_date=parse_optional_date(request.form.get("birth_date")))
         session_db.add(p)
         session_db.commit()
         flash("Persona añadida.", "success")
@@ -1589,7 +1589,7 @@ def artist_person_update(person_id):
         p.first_name = first_name
         p.last_name = last_name or ""
         if "birth_date" in request.form:
-            p.birth_date = parse_date((request.form.get("birth_date") or "").strip() or "")
+            p.birth_date = parse_optional_date(request.form.get("birth_date"))
         session_db.commit()
         flash("Persona actualizada.", "success")
         return redirect(safe_next_or(url_for("artist_detail_view", artist_id=p.artist_id, tab="datos")))
@@ -20866,7 +20866,7 @@ def api_create_artist():
             name=name, photo_url=photo_url,
             is_international=_truthy(request.form.get("is_international")),
             is_group=_truthy(request.form.get("is_group")),
-            birth_date=parse_date((request.form.get("birth_date") or "").strip() or ""),
+            birth_date=parse_optional_date(request.form.get("birth_date")),
         )
         session.add(a)
         session.commit()

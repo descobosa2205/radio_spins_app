@@ -29309,6 +29309,21 @@ LEGACY_REMOVED_ACCESS_KEYS = {
 
 
 def _sync_access_resources(session_db):
+    # Carrera entre WORKERS (procesos): en un deploy con recursos de permisos NUEVOS, varios workers
+    # pueden intentar INSERTARLOS a la vez; el segundo espera el lock del índice único y acaba en
+    # UniqueViolation ("duplicate key ... user_access_resources_pkey") -> antes eso tumbaba la
+    # petición (500 incluso en /static/... -> web en blanco). Un lock de threading NO protege entre
+    # procesos, así que se reintenta una vez sobre el estado ya confirmado: en la segunda pasada las
+    # claves ya existen y pasan por la rama de UPDATE en vez de INSERT.
+    from sqlalchemy.exc import IntegrityError
+    try:
+        return _sync_access_resources_once(session_db)
+    except IntegrityError:
+        session_db.rollback()
+        return _sync_access_resources_once(session_db)
+
+
+def _sync_access_resources_once(session_db):
     resource_rows = _build_access_resources_from_app()
     _rebuild_resource_caches(resource_rows)
     desired = {row["key"] for row in resource_rows}
@@ -29828,7 +29843,13 @@ def _current_user_state() -> dict:
     if not uid:
         g._current_user_state = state
         return state
-    _bootstrap_access_and_personnel()
+    # El bootstrap de accesos/personal es best-effort: si falla (p. ej. carrera entre workers en un
+    # deploy), NO tumbamos la petición con un 500 — seguimos con el catálogo/grants que ya existen
+    # en BD (de arranques anteriores) y se reintentará en la siguiente petición.
+    try:
+        _bootstrap_access_and_personnel()
+    except Exception:
+        app.logger.exception("[accesos] bootstrap falló; se continúa con el estado ya existente en BD")
     session_db = db()
     try:
         user = session_db.get(User, to_uuid(uid))
@@ -30377,7 +30398,14 @@ def inject_personnel_globals():
 
 @app.before_request
 def ensure_personnel_bootstrap():
-    _bootstrap_access_and_personnel()
+    # Estáticos fuera (no tocan BD) y best-effort: un fallo del bootstrap (p. ej. carrera entre
+    # workers durante un deploy) no debe devolver 500 — se reintenta en la siguiente petición.
+    if request.endpoint == "static":
+        return
+    try:
+        _bootstrap_access_and_personnel()
+    except Exception:
+        app.logger.exception("[accesos] bootstrap falló en before_request; se reintentará")
 
 
 @app.after_request
@@ -30578,6 +30606,12 @@ def _audit_access_coverage() -> dict:
 
 
 def _enforce_role_permissions_v2():
+    # Ficheros estáticos (CSS/JS/IMG): fuera del enforcement. Sin esto, CADA estático con sesión
+    # ejecutaba _current_user_state() (bootstrap de accesos + sync de perfil + commit) y, si el
+    # bootstrap fallaba (p. ej. carrera entre workers), el CSS devolvía 500/se colgaba y la web
+    # entera se veía EN BLANCO (el navegador bloquea el render esperando la hoja de estilos).
+    if request.endpoint == "static":
+        return
     if not session.get("user_id"):
         return
     # Salir del modo «Ver como» debe estar siempre disponible, aunque el usuario impersonado

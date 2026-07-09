@@ -752,7 +752,7 @@
                     {% if cat.ticket_kind != 'GUEST_LIST' and cat.uploaded %}
                     <div class="d-flex gap-2 mt-2 flex-wrap">
                       <form method="post" data-inv-refresh action="{{ url_for('invitation_category_auto_assign', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Asignar automáticamente todas las PENDIENTES de «{{ cat.name }}»? Las ya asignadas o enviadas no se tocan.');">
-                        <button class="btn btn-sm btn-success" type="submit"><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar todas automáticamente</button>
+                        <button class="btn btn-sm btn-outline-success" type="submit" title="Asignar automáticamente todas las pendientes de esta categoría"><i class="fa fa-wand-magic-sparkles me-1"></i>Asignar todas</button>
                       </form>
                       <form method="post" data-inv-refresh action="{{ url_for('invitation_category_send_all', concert_id=event.id, category_id=cat.id) }}" onsubmit="return confirm('¿Enviar por email todas las ASIGNADAS (aún no enviadas) de «{{ cat.name }}»? Taquilla y las que no tengan el cupo completo se saltan.');">
                         <button class="btn btn-sm btn-outline-success" type="submit"><i class="fa fa-paper-plane me-1"></i>Enviar todas</button>
@@ -1778,6 +1778,32 @@
     form.querySelectorAll('[data-cmt-user-id]').forEach(function(btn){ btn.addEventListener('click', function(){ pickEntity(btn, 'guest_user_id'); }); });
     // --- Modal de PETICIÓN del compromiso (añadir/editar UNA categoría sin tocar las demás) ---
     var catModalEl = document.getElementById('cmtCategoryModal');
+    function escHtml(v){ return (v == null ? '' : String(v)).replace(/[&<>"']/g, function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
+    // Select2 del tipo de entrada: grupos por zona (con su icono) y cada opción con el borde
+    // izquierdo del color de la categoría. Re-inicializable cada vez que se reabre el modal.
+    function initCmtCatSelect2(){
+      var sel = catModalEl.querySelector('[data-cmt-cat-select]');
+      if(!sel || !window.jQuery || !jQuery.fn.select2) return;
+      var $sel = jQuery(sel);
+      if($sel.hasClass('select2-hidden-accessible')){ try { $sel.select2('destroy'); } catch(e){} }
+      function tpl(data){
+        if(!data.id){
+          // Cabecera de grupo (zona): icono de la zona + nombre.
+          var gi = data.element ? (jQuery(data.element).data('zone-icon') || '') : '';
+          return jQuery('<span class="fw-semibold text-muted">' + (gi ? '<i class="fa ' + gi + ' me-1"></i>' : '') + escHtml(data.text) + '</span>');
+        }
+        var color = data.element ? (jQuery(data.element).data('color') || '#9ca3af') : '#9ca3af';
+        return jQuery('<span style="display:inline-block;border-left:4px solid ' + color + ';padding-left:8px">' + escHtml(data.text) + '</span>');
+      }
+      $sel.select2({
+        width: '100%',
+        dropdownParent: jQuery(catModalEl),
+        templateResult: tpl,
+        templateSelection: tpl,
+        escapeMarkup: function(m){ return m; }
+      });
+      $sel.off('change.cmtcat').on('change.cmtcat', function(){ var f = catModalEl.__setAvail; if(f) f(sel.value); });
+    }
     function openCatModal(opts){
       if(!catModalEl) return;
       var f = catModalEl.querySelector('form');
@@ -1793,9 +1819,11 @@
         var c = (_cmtCats || []).find(function(x){ return String(x.id) === String(cid); });
         avail.textContent = c ? ('Disponibles: ' + (c.available_real != null ? c.available_real : (c.configured || 0))) : '';
       };
+      catModalEl.__setAvail = setAvail;   // el handler de Select2 (initCmtCatSelect2) lo usa al cambiar
       var fill = function(cats){
         if(opts.mode === 'edit'){
           // categoría FIJA (se edita solo su número); el select oculto conserva el value que se envía
+          if(window.jQuery && jQuery.fn.select2 && jQuery(sel).hasClass('select2-hidden-accessible')){ try { jQuery(sel).select2('destroy'); } catch(e){} }
           selWrap.classList.add('d-none');
           sel.innerHTML = '<option value="' + opts.categoryId + '" selected></option>';
           fixed.classList.remove('d-none'); fixed.textContent = 'Categoría: ' + (opts.categoryName || '');
@@ -1803,10 +1831,25 @@
           setAvail(opts.categoryId);
         } else {
           selWrap.classList.remove('d-none'); fixed.classList.add('d-none');
-          sel.innerHTML = (cats || []).map(function(c){ return '<option value="' + c.id + '">' + (c.name || '') + '</option>'; }).join('');
+          // Tipos de entrada AGRUPADOS por zona (nombre + icono de la zona) y cada categoría con su
+          // borde izquierdo del color correspondiente (mismo criterio de color que el listado).
+          var byZone = {};   // zone_label -> {icon, items:[]}
+          var zoneOrder = [];
+          (cats || []).forEach(function(c){
+            var zl = c.zone_label || 'Pista';
+            if(!byZone[zl]){ byZone[zl] = { icon: c.zone_icon || 'fa-people-group', items: [] }; zoneOrder.push(zl); }
+            byZone[zl].items.push(c);
+          });
+          sel.innerHTML = zoneOrder.map(function(zl){
+            var g = byZone[zl];
+            var opts = g.items.map(function(c){
+              return '<option value="' + c.id + '" data-color="' + (c.color || '#9ca3af') + '">' + escHtml(c.name || '') + '</option>';
+            }).join('');
+            return '<optgroup label="' + escHtml(zl) + '" data-zone-icon="' + g.icon + '">' + opts + '</optgroup>';
+          }).join('');
           qty.value = 1;
-          if(cats && cats.length) setAvail(cats[0].id);
-          sel.onchange = function(){ setAvail(sel.value); };
+          initCmtCatSelect2();
+          if(cats && cats.length) setAvail(sel.value || cats[0].id);
         }
         if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(catModalEl).show();
       };

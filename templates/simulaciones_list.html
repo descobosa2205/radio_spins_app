@@ -47,9 +47,17 @@
     <div class="card mb-3">
       <div class="card-header bg-white d-flex align-items-center justify-content-between gap-2">
         <div class="d-flex align-items-center gap-2 flex-wrap">
-          {{ artist_chip(g.artist.name if g.artist else 'Sin artista', g.artist.photo_url if g.artist else None, artist_id=(g.artist.id if g.artist else None)) }}
-          {% if g.artist %}{{ linked_mini('artist', g.artist.id) }}{% endif %}
-          {% if g.artist and g.artist.is_international %}<span class="badge text-bg-light border"><i class="fa fa-globe me-1"></i>Internacional</span>{% endif %}
+          {% if g.event %}
+            <a href="{{ url_for('event_detail_view', eid=g.event.id) }}" class="text-decoration-none text-reset d-inline-flex align-items-center gap-2">
+              {% if g.event.logo_url %}<img src="{{ g.event.logo_url }}" alt="" style="width:30px;height:30px;border-radius:8px;object-fit:contain;background:#fff;border:1px solid #eee;">{% else %}<i class="fa fa-masks-theater text-muted"></i>{% endif %}
+              <span class="fw-semibold">{{ g.event.name }}</span>
+            </a>
+            <span class="badge text-bg-light border"><i class="fa fa-masks-theater me-1"></i>Evento</span>
+          {% else %}
+            {{ artist_chip(g.artist.name if g.artist else 'Sin artista', g.artist.photo_url if g.artist else None, artist_id=(g.artist.id if g.artist else None)) }}
+            {% if g.artist %}{{ linked_mini('artist', g.artist.id) }}{% endif %}
+            {% if g.artist and g.artist.is_international %}<span class="badge text-bg-light border"><i class="fa fa-globe me-1"></i>Internacional</span>{% endif %}
+          {% endif %}
         </div>
         <span class="badge text-bg-light border">{{ g.sims|length }} {{ 'simulación' if g.sims|length == 1 else 'simulaciones' }}</span>
       </div>
@@ -57,14 +65,15 @@
         {% for sim in g.sims %}
           {% set act = sim.activities[0] if sim.activities else None %}
           <a href="{{ url_for('simulation_detail_view', sid=sim.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
-            <span class="sim-kind-badge badge {{ 'text-bg-info' if sim.kind == 'TOUR' else 'text-bg-secondary' }}">
-              <i class="fa {{ 'fa-route' if sim.kind == 'TOUR' else 'fa-microphone-lines' }}"></i>
-              {{ 'Gira' if sim.kind == 'TOUR' else 'Concierto' }}
+            {% set kmeta = {'CONCERT':('Concierto','fa-microphone-lines','text-bg-secondary'),'TOUR':('Gira','fa-route','text-bg-info'),'CYCLE':('Ciclo','fa-calendar-days','text-bg-primary'),'FESTIVAL':('Festival','fa-people-group','text-bg-warning text-dark')}.get(sim.kind, ('Concierto','fa-microphone-lines','text-bg-secondary')) %}
+            <span class="sim-kind-badge badge {{ kmeta[2] }}">
+              <i class="fa {{ kmeta[1] }}"></i>
+              {{ kmeta[0] }}
             </span>
             <div class="flex-grow-1" style="min-width:0;">
-              <div class="fw-semibold text-truncate">{{ sim.title or (sim.artist.name if sim.artist else 'Simulación') }}</div>
+              <div class="fw-semibold text-truncate">{{ sim.title or (sim.artist.name if sim.artist else (sim.event.name if sim.event else 'Simulación')) }}</div>
               <div class="small text-muted text-truncate">
-                {% if sim.kind == 'TOUR' %}
+                {% if sim.kind in ('TOUR', 'CYCLE') %}
                   {{ sim.activities|length }} {{ 'fecha' if sim.activities|length == 1 else 'fechas' }}
                 {% elif act %}
                   {% if act.date_unknown or not act.event_date %}Fecha por definir{% else %}{{ act.event_date.strftime('%d/%m/%Y') }}{% endif %}
@@ -115,8 +124,8 @@
                     <input type="radio" name="managing_company_id" value="{{ c.id }}" class="d-none wiz-company-radio"
                            data-name="{{ c.name }}" data-logo="{{ c.logo_url or '' }}">
                     <span class="sim-pick__box">
-                      {% if c.logo_url %}<img src="{{ c.logo_url }}" alt="{{ c.name }}">{% else %}<i class="fa fa-building" style="font-size:1.9rem;color:#adb5bd;height:64px;display:flex;align-items:center;"></i>{% endif %}
-                      <span class="sim-pick__name">{{ c.name }}</span>
+                      {# Con logo, el logo basta (sin repetir el nombre debajo). #}
+                      {% if c.logo_url %}<img src="{{ c.logo_url }}" alt="{{ c.name }}" title="{{ c.name }}">{% else %}<i class="fa fa-building" style="font-size:1.9rem;color:#adb5bd;height:64px;display:flex;align-items:center;"></i><span class="sim-pick__name">{{ c.name }}</span>{% endif %}
                     </span>
                   </label>
                 {% endfor %}
@@ -124,6 +133,34 @@
             {% else %}
               <div class="alert alert-warning">No hay empresas del grupo configuradas. Puedes continuar y añadirla después.</div>
             {% endif %}
+          </section>
+
+          {# Paso: ¿artista o evento? #}
+          <section class="wizard-step d-none" data-step="6">
+            <h6 class="wiz-title">¿La simulación es de un artista o de un evento?</h6>
+            <div class="sim-card-grid sim-card-grid--2">
+              <label class="sim-pick">
+                <input type="radio" name="subject_kind" value="ARTIST" class="d-none wiz-subject-radio">
+                <span class="sim-pick__box sim-pick__box--icon"><i class="fa fa-users"></i><span class="sim-pick__name">Artista</span><span class="sim-pick__sub">Un artista de la casa o externo</span></span>
+              </label>
+              <label class="sim-pick">
+                <input type="radio" name="subject_kind" value="EVENT" class="d-none wiz-subject-radio">
+                <span class="sim-pick__box sim-pick__box--icon"><i class="fa fa-masks-theater"></i><span class="sim-pick__name">Evento</span><span class="sim-pick__sub">Gala, ciclo propio… sin artista concreto</span></span>
+              </label>
+            </div>
+          </section>
+
+          {# Paso: evento (buscar o crear) #}
+          <section class="wizard-step d-none" data-step="7">
+            <h6 class="wiz-title">¿De qué evento es la simulación?</h6>
+            <div class="d-flex gap-2 align-items-end">
+              <div class="flex-grow-1">
+                <label class="form-label">Evento</label>
+                <select name="event_id" id="wizEvent" class="form-select"></select>
+              </div>
+              <button type="button" class="btn btn-outline-secondary" data-quick-create="event" data-target="wizEvent" title="Crear evento nuevo"><i class="fa fa-plus"></i></button>
+            </div>
+            <div class="form-text">Busca un evento existente o crea uno nuevo con el botón <i class="fa fa-plus"></i> (nombre + logo opcional).</div>
           </section>
 
           {# Paso 3: artista #}
@@ -235,19 +272,23 @@
   if(!modalEl) return;
   var form = document.getElementById('simWizardForm');
   var steps = Array.prototype.slice.call(form.querySelectorAll('.wizard-step'));
-  var SEQ = [1,2,3,4,5];
   var current = 1;
   var prevBtn = document.getElementById('wizPrev');
   var nextBtn = document.getElementById('wizNext');
   var submitBtn = document.getElementById('wizSubmit');
   var stepLabel = document.getElementById('simStepLabel');
-  var dots = Array.prototype.slice.call(document.querySelectorAll('#simStepDots span'));
+  var dotsHost = document.getElementById('simStepDots');
   var $ = window.jQuery;
   var hasSelect2 = !!($ && $.fn && $.fn.select2);
-  var partnerSearchReady = false, venueReady = false;
+  var partnerSearchReady = false, venueReady = false, eventReady = false;
+
+  // La secuencia depende del sujeto elegido: artista (paso 3) o evento (paso 7).
+  function subjectKind(){ var r = form.querySelector('.wiz-subject-radio:checked'); return r ? r.value : ''; }
+  function seq(){ return [1,2,6].concat(subjectKind() === 'EVENT' ? [7] : [3]).concat([4,5]); }
 
   function showStep(n){
     current = n;
+    var SEQ = seq();
     steps.forEach(function(sec){ sec.classList.toggle('d-none', Number(sec.dataset.step) !== n); });
     var idx = SEQ.indexOf(n);
     prevBtn.classList.toggle('d-none', idx <= 0);
@@ -255,9 +296,11 @@
     nextBtn.classList.toggle('d-none', last);
     submitBtn.classList.toggle('d-none', !last);
     stepLabel.textContent = 'Paso ' + (idx+1) + ' de ' + SEQ.length;
-    dots.forEach(function(d,i){ d.classList.toggle('active', i <= idx); });
+    dotsHost.innerHTML = '';
+    SEQ.forEach(function(_s, i){ var sp = document.createElement('span'); if(i <= idx) sp.className = 'active'; dotsHost.appendChild(sp); });
     if(n === 5){ ensureCompanyPartner(); initPartnerSearch(); }
     if(n === 4){ initVenueSearch(); }
+    if(n === 7){ initEventSearch(); }
   }
 
   function validate(n){
@@ -268,33 +311,45 @@
     if(n === 2){
       if(!form.querySelector('.wiz-kind-radio:checked')){ alert('Indica qué quieres simular.'); return false; }
     }
+    if(n === 6){
+      if(!subjectKind()){ alert('Indica si la simulación es de un artista o de un evento.'); return false; }
+    }
     if(n === 3){
       if(!(form.querySelector('#wizArtist').value || '').trim()){ alert('Selecciona (o crea) un artista.'); return false; }
+    }
+    if(n === 7){
+      if(!(form.querySelector('#wizEvent').value || '').trim()){ alert('Selecciona (o crea) un evento.'); return false; }
     }
     return true;
   }
 
   nextBtn.addEventListener('click', function(){
     if(!validate(current)) return;
+    var SEQ = seq();
     var i = SEQ.indexOf(current);
     if(i < SEQ.length - 1) showStep(SEQ[i+1]);
   });
   prevBtn.addEventListener('click', function(){
+    var SEQ = seq();
     var i = SEQ.indexOf(current);
     if(i > 0) showStep(SEQ[i-1]);
   });
 
-  // Auto-avance en pasos de un solo dato (empresa, artista, tipo)
+  // Auto-avance en pasos de un solo dato (empresa, tipo, sujeto, artista, evento)
+  function advanceFrom(n){ var SEQ = seq(); var i = SEQ.indexOf(n); if(current === n && i > -1 && i < SEQ.length - 1) showStep(SEQ[i+1]); }
   form.querySelectorAll('.wiz-company-radio').forEach(function(r){
-    r.addEventListener('change', function(){ if(current === 1) showStep(2); });
+    r.addEventListener('change', function(){ advanceFrom(1); });
   });
   form.querySelectorAll('.wiz-kind-radio').forEach(function(r){
-    r.addEventListener('change', function(){ updateStep4Note(); if(current === 2) showStep(3); });
+    r.addEventListener('change', function(){ updateStep4Note(); advanceFrom(2); });
+  });
+  form.querySelectorAll('.wiz-subject-radio').forEach(function(r){
+    r.addEventListener('change', function(){ advanceFrom(6); });
   });
   var artistSel = document.getElementById('wizArtist');
   if(artistSel){
-    if(hasSelect2){ $(artistSel).on('change', function(){ if(current === 3 && (this.value||'').trim()) showStep(4); }); }
-    else { artistSel.addEventListener('change', function(){ if(current === 3 && this.value) showStep(4); }); }
+    if(hasSelect2){ $(artistSel).on('change', function(){ if(current === 3 && (this.value||'').trim()) advanceFrom(3); }); }
+    else { artistSel.addEventListener('change', function(){ if(current === 3 && this.value) advanceFrom(3); }); }
   }
 
   function updateStep4Note(){
@@ -332,6 +387,12 @@
   function initVenueSearch(){
     if(venueReady || !hasSelect2) return; venueReady = true;
     initEntitySearch('#wizVenue', "{{ url_for('api_search_venues') }}", 'Buscar recinto…');
+  }
+  function initEventSearch(){
+    if(eventReady || !hasSelect2) return; eventReady = true;
+    initEntitySearch('#wizEvent', "{{ url_for('api_search_events') }}", 'Buscar evento…');
+    // 'change' cubre la búsqueda (select2) y el alta rápida (programática): auto-avanza.
+    $('#wizEvent').on('change', function(){ if(current === 7 && (this.value||'').trim()) advanceFrom(7); });
   }
   function initPartnerSearch(){
     if(partnerSearchReady || !hasSelect2) return; partnerSearchReady = true;
@@ -418,6 +479,14 @@
 
   // Validación final
   form.addEventListener('submit', function(e){
+    // El sujeto es artista O evento: se limpia el que no aplica.
+    if(subjectKind() === 'EVENT'){
+      if(hasSelect2){ try{ $('#wizArtist').val('').trigger('change.select2'); }catch(err){} }
+      form.querySelector('#wizArtist').value = '';
+    } else {
+      if(hasSelect2){ try{ $('#wizEvent').val(null).trigger('change.select2'); }catch(err){} }
+      form.querySelector('#wizEvent').value = '';
+    }
     var rows = form.querySelectorAll('.sim-partner-row');
     if(rows.length){
       var sum = 0; form.querySelectorAll('.wiz-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; });
@@ -437,7 +506,7 @@
   modalEl.addEventListener('hidden.bs.modal', function(){
     form.reset();
     document.getElementById('wizPartnersList').innerHTML = '';
-    if(hasSelect2){ try{ $('#wizVenue').val(null).trigger('change'); $('#wizArtist').val('').trigger('change'); }catch(err){} }
+    if(hasSelect2){ try{ $('#wizVenue').val(null).trigger('change'); $('#wizArtist').val('').trigger('change'); $('#wizEvent').val(null).trigger('change'); }catch(err){} }
     updateTotal();
   });
 })();

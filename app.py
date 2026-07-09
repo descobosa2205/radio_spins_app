@@ -1227,6 +1227,7 @@ def artist_detail_view(artist_id):
             "vinculaciones",
             "playlisting",
             "fotos",
+            "plantilla-gastos",
         }
         if tab not in allowed_tabs:
             tab = "datos"
@@ -1375,6 +1376,7 @@ def artist_detail_view(artist_id):
             "artist_detail.html",
             artist=artist,
             tab=tab,
+            expense_templates=_expense_templates_for(session_db, "ARTIST", artist.id),
             agenda_data=agenda_data,
             calendar_links=calendar_links,
             caldav_server=caldav_server,
@@ -19089,27 +19091,6 @@ def _venue_ticketing_summary(cats):
     return {"zones": zones, "aforo_total": tq, "invitations": ti, "sellable": ts, "has": bool(cats)}
 
 
-def _sim_autoload_venue_ticketing(s, act):
-    """Copia la plantilla de ticketing del recinto en la actividad (precios en blanco)."""
-    if not act.venue_id:
-        return
-    vcats = (
-        s.query(VenueTicketCategory)
-        .options(selectinload(VenueTicketCategory.extras))
-        .filter(VenueTicketCategory.venue_id == act.venue_id)
-        .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-        .all()
-    )
-    for i, vc in enumerate(vcats):
-        sc = SimulationTicketCategory(
-            activity=act, zone=vc.zone, name=vc.name, price_net=0,
-            quantity=vc.quantity, invitations=vc.invitations, sort_order=i,
-        )
-        s.add(sc)
-        for j, ve in enumerate(vc.extras or []):
-            s.add(SimulationTicketExtra(category=sc, name=ve.name, amount_gross=ve.amount_gross, sort_order=j))
-
-
 def _sim_subject(sim):
     """Nombre y foto/logo del sujeto de la simulación (artista o evento)."""
     if sim.artist:
@@ -19565,6 +19546,7 @@ def simulation_print(sid):
             s.query(Simulation)
             .options(
                 joinedload(Simulation.artist),
+                joinedload(Simulation.event),
                 joinedload(Simulation.managing_company),
                 selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
                 selectinload(Simulation.activities).joinedload(SimulationActivity.artist),
@@ -19613,7 +19595,7 @@ def simulation_print(sid):
         festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
         return render_template(
             "simulacion_print.html",
-            sim=sim, kind=kind, kind_label=kind_label,
+            sim=sim, subject=_sim_subject(sim), kind=kind, kind_label=kind_label,
             is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
             blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
             lineup=lineup_sorted,
@@ -19714,6 +19696,57 @@ def simulation_activity_delete(sid, aid):
     finally:
         s.close()
     return redirect(url_for("simulation_detail_view", sid=sid))
+
+
+@app.post("/contratacion/simulaciones/<sid>/socios", endpoint="simulation_partners_save")
+@admin_required
+def simulation_partners_save(sid):
+    """Guarda los socios COMUNES (sin activity_id) o los PROPIOS de una fecha (con activity_id).
+
+    Con use_common=1 en una fecha, se borran sus filas propias y vuelve a heredar los comunes.
+    """
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        sim = (
+            s.query(Simulation)
+            .options(selectinload(Simulation.partners))
+            .filter(Simulation.id == _sim_safe_uuid(sid))
+            .first()
+        )
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        act_id = _sim_safe_uuid(request.form.get("activity_id"))
+        use_common = _truthy(request.form.get("use_common"))
+        for pr in list(sim.partners or []):
+            in_scope = (str(pr.activity_id) == str(act_id)) if act_id else (pr.activity_id is None)
+            if in_scope:
+                s.delete(pr)
+        s.flush()
+        if not (act_id and use_common):
+            for idx, pr in enumerate(_simulation_partners_from_form(request.form)):
+                s.add(SimulationPartner(
+                    simulation_id=sim.id,
+                    activity_id=act_id,
+                    company_id=pr["company_id"],
+                    promoter_id=pr["promoter_id"],
+                    name=pr["name"],
+                    pct=pr["pct"],
+                    sort_order=idx,
+                ))
+        s.commit()
+        flash("Esta fecha vuelve a usar los socios comunes." if (act_id and use_common) else "Socios guardados.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando los socios: {e}", "danger")
+    finally:
+        s.close()
+    if act_id:
+        return redirect(url_for("simulation_detail_view", sid=sid, act=str(act_id), tab="socios"))
+    return redirect(url_for("simulation_detail_view", sid=sid, tab=(request.form.get("back_tab") or "resumen")))
 
 
 @app.post("/contratacion/simulaciones/<sid>/lineup/crear", endpoint="simulation_lineup_add")
@@ -19915,19 +19948,37 @@ def simulation_income_save(sid):
             s.delete(it)
         s.flush()
 
-        def _add(kind, names, amounts):
+        def _add(kind, names, amounts, statuses):
             for i, nm in enumerate(names):
                 nm = (nm or "").strip()
                 amt = _sim_d(amounts[i]) if i < len(amounts) else Decimal("0")
                 if not nm and amt == 0:
                     continue
+                st = ((statuses[i] if i < len(statuses) else "") or "ACTIVE").strip().upper()
+                if st not in ("ACTIVE", "OMIT", "NA"):
+                    st = "ACTIVE"
                 s.add(SimulationIncomeItem(
                     activity_id=act.id, kind=kind,
                     name=nm or ("Subvención" if kind == "SUBVENCION" else "Patrocinio"),
-                    amount_net=amt, sort_order=i,
+                    amount_net=amt, status=st, sort_order=i,
                 ))
-        _add("SUBVENCION", request.form.getlist("subv_name[]"), request.form.getlist("subv_amount[]"))
-        _add("PATROCINIO", request.form.getlist("patro_name[]"), request.form.getlist("patro_amount[]"))
+        _add("SUBVENCION", request.form.getlist("subv_name[]"), request.form.getlist("subv_amount[]"), request.form.getlist("subv_status[]"))
+        _add("PATROCINIO", request.form.getlist("patro_name[]"), request.form.getlist("patro_amount[]"), request.form.getlist("patro_status[]"))
+
+        # Omitir / no aplica en las líneas CALCULADAS (ticketing, rebate, barras…): en settings.
+        try:
+            ov = json.loads(request.form.get("income_overrides_json") or "{}")
+        except Exception:
+            ov = {}
+        if isinstance(ov, dict):
+            clean = {
+                k: str(v).upper() for k, v in ov.items()
+                if str(v).upper() in ("OMIT", "NA")
+                and k in ("ticketing", "complementos", "rebate", "barras", "incentivos")
+            }
+            settings_d = dict(act.settings or {})
+            settings_d["income_overrides"] = clean
+            act.settings = settings_d
         s.commit()
         flash("Ingresos guardados.", "success")
     except Exception as e:
@@ -20016,24 +20067,83 @@ def simulation_expenses_save(sid):
                 sort_order=i, **common,
             ))
 
-        for i, row in enumerate(_json("production_json")):
-            if not isinstance(row, dict):
-                continue
-            cat = str(row.get("category") or "OTROS").upper()
+        production_rows = [r for r in _json("production_json") if isinstance(r, dict)]
+        for i, row in enumerate(production_rows):
             s.add(SimulationProductionItem(
-                activity_id=act.id, category=cat,
+                activity_id=act.id, category=_sim_expense_cat(row.get("category")),
                 concept=str(row.get("concept") or "").strip(),
                 amount_net=_sim_d(row.get("amount_net")),
                 iva_pct=_sim_d(row.get("iva_pct") if row.get("iva_pct") not in (None, "") else 21),
+                includes_iva=bool(row.get("includes_iva")),
+                iva_exempt=bool(row.get("iva_exempt")),
                 is_variable=bool(row.get("is_variable")),
                 var_type=(row.get("var_type") or None),
                 var_value=_sim_d(row.get("var_value")),
                 var_threshold_type=(row.get("var_threshold_type") or None),
                 var_threshold_value=_sim_d(row.get("var_threshold_value")),
+                cond_under_tickets=(_sim_d(row.get("cond_under_tickets")) if row.get("cond_under_tickets") not in (None, "") else None),
                 sort_order=i,
             ))
+
+        # «Vincular gastos» como PLANTILLA del recinto / artista / evento (con nombre y categorías).
+        tpl_msg = ""
+        tpl_raw = (request.form.get("template_save_json") or "").strip()
+        if tpl_raw:
+            try:
+                tpl_cfg = json.loads(tpl_raw)
+            except Exception:
+                tpl_cfg = None
+            if isinstance(tpl_cfg, dict) and (tpl_cfg.get("name") or "").strip():
+                owner_kind = str(tpl_cfg.get("owner") or "").strip().upper()
+                owner_id = None
+                if owner_kind == "VENUE":
+                    owner_id = act.venue_id
+                elif owner_kind == "ARTIST":
+                    owner_id = act.artist_id or sim.artist_id
+                elif owner_kind == "EVENT":
+                    owner_id = sim.event_id
+                cats = {_sim_expense_cat(c) for c in (tpl_cfg.get("categories") or [])}
+                if owner_id:
+                    rows_tpl = [
+                        r for r in production_rows
+                        if (not cats) or (_sim_expense_cat(r.get("category")) in cats)
+                    ]
+                    name = str(tpl_cfg.get("name")).strip()
+                    tpl = (
+                        s.query(ExpenseTemplate)
+                        .filter(ExpenseTemplate.owner_type == owner_kind,
+                                ExpenseTemplate.owner_id == owner_id,
+                                func.lower(ExpenseTemplate.name) == name.lower())
+                        .first()
+                    )
+                    if tpl:
+                        for it in list(tpl.items or []):
+                            s.delete(it)
+                        tpl.updated_at = datetime.utcnow()
+                    else:
+                        tpl = ExpenseTemplate(owner_type=owner_kind, owner_id=owner_id, name=name)
+                        s.add(tpl)
+                    s.flush()
+                    for j, r in enumerate(rows_tpl):
+                        s.add(ExpenseTemplateItem(
+                            template_id=tpl.id,
+                            category=_sim_expense_cat(r.get("category")),
+                            concept=str(r.get("concept") or "").strip(),
+                            amount_net=_sim_d(r.get("amount_net")),
+                            iva_pct=_sim_d(r.get("iva_pct") if r.get("iva_pct") not in (None, "") else 21),
+                            includes_iva=bool(r.get("includes_iva")),
+                            iva_exempt=bool(r.get("iva_exempt")),
+                            is_variable=bool(r.get("is_variable")),
+                            var_type=(r.get("var_type") or None),
+                            var_value=_sim_d(r.get("var_value")),
+                            var_threshold_type=(r.get("var_threshold_type") or None),
+                            var_threshold_value=_sim_d(r.get("var_threshold_value")),
+                            cond_under_tickets=(_sim_d(r.get("cond_under_tickets")) if r.get("cond_under_tickets") not in (None, "") else None),
+                            sort_order=j,
+                        ))
+                    tpl_msg = f" Plantilla «{name}» guardada ({len(rows_tpl)} líneas)."
         s.commit()
-        flash("Gastos guardados.", "success")
+        flash("Gastos guardados." + tpl_msg, "success")
     except Exception as e:
         s.rollback()
         flash(f"Error guardando los gastos: {e}", "danger")
@@ -29608,6 +29718,8 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.cuadrantes"
     if endpoint.startswith("simulation_") or endpoint.startswith("api_simulation_"):
         return "contratacion.simulaciones"
+    if endpoint == "events_view" or endpoint.startswith("event_"):
+        return "databases.events"
     if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
@@ -36099,6 +36211,7 @@ def venue_detail_view(vid):
             tab=(request.args.get('tab') or 'actividad').strip().lower(),
             venue_ticketing_payload=_venue_ticketing_payload(venue_cats),
             venue_tk_summary=_venue_ticketing_summary(venue_cats),
+            expense_templates=_expense_templates_for(session_db, "VENUE", venue.id),
             entity_links=_entity_link_rows(session_db, 'venue', venue.id),
             entity_link_context={'type': 'venue', 'id': str(venue.id), 'label': venue.name or 'recinto'},
             entity_link_types=APP33_ENTITY_LINK_TYPES,

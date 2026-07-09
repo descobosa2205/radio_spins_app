@@ -1,4 +1,67 @@
 {% extends "layout.html" %}
+
+{# ============ Macro: importe con aclaración fiscal al pasar el ratón ============ #}
+{% macro amt(v, note) %}<span class="sim-amt" title="{{ note }}">{{ v|eur }}</span>{% endmacro %}
+
+{# ============ Macro: fila de socio del editor (kind: company|promoter|label) ============ #}
+{% macro partner_row(kind, ref, label, logo, pct) %}
+<div class="sim-partner-row d-flex align-items-center gap-2 mb-2" data-kind="{{ kind }}">
+  {% if logo %}<img src="{{ logo }}" class="sim-partner-img">{% else %}<span class="sim-partner-img sim-partner-img--ph"><i class="fa {{ 'fa-building' if kind == 'company' else 'fa-user' }}"></i></span>{% endif %}
+  <span class="sim-partner-name flex-grow-1 text-truncate">{{ label }}</span>
+  <div class="input-group input-group-sm" style="width:130px;">
+    <input type="number" step="0.01" min="0" max="100" class="form-control pe-pct" name="partner_pct[]" value="{{ pct }}">
+    <span class="input-group-text">%</span>
+  </div>
+  <button type="button" class="btn btn-sm btn-outline-danger pe-del" title="Quitar socio"><i class="fa fa-trash"></i></button>
+  <input type="hidden" name="partner_kind[]" value="{{ kind }}">
+  <input type="hidden" name="partner_ref[]" value="{{ ref }}">
+  <input type="hidden" name="partner_label[]" value="{{ label }}">
+</div>
+{% endmacro %}
+
+{# ============ Macro: editor de socios (comunes o de una fecha) ============ #}
+{% macro partners_editor(form_id, activity_id, rows, show_use_common, back_tab) %}
+<form id="{{ form_id }}" method="post" action="{{ url_for('simulation_partners_save', sid=sim.id) }}" class="sim-partners-editor">
+  <input type="hidden" name="activity_id" value="{{ activity_id or '' }}">
+  <input type="hidden" name="back_tab" value="{{ back_tab }}">
+  <div class="row g-2 align-items-end mb-2">
+    <div class="col-12 col-md-4">
+      <label class="form-label small mb-0">Empresa del grupo</label>
+      <select class="form-select form-select-sm pe-company">
+        <option value="">— Añadir empresa —</option>
+        {% for c in group_companies %}<option value="{{ c.id }}" data-name="{{ c.name }}" data-logo="{{ c.logo_url or '' }}">{{ c.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="col">
+      <label class="form-label small mb-0">Tercero</label>
+      <select class="form-select form-select-sm pe-promoter" id="{{ form_id }}Prom"></select>
+    </div>
+    <div class="col-auto"><button type="button" class="btn btn-sm btn-outline-secondary" data-quick-create="promoter" data-target="{{ form_id }}Prom" title="Crear tercero"><i class="fa fa-plus"></i></button></div>
+    <div class="col-auto"><button type="button" class="btn btn-sm btn-outline-primary pe-equal" title="Repartir a partes iguales"><i class="fa fa-scale-balanced"></i></button></div>
+  </div>
+  <div class="pe-list">
+    {% for p in rows %}
+      {% if p.company_id %}
+        {{ partner_row('company', p.company_id, p.company.name if p.company else (p.name or 'Empresa'), p.company.logo_url if p.company else None, p.pct or 0) }}
+      {% elif p.promoter_id %}
+        {{ partner_row('promoter', p.promoter_id, p.promoter.nick if p.promoter else (p.name or 'Tercero'), p.promoter.logo_url if p.promoter else None, p.pct or 0) }}
+      {% else %}
+        {{ partner_row('label', '', p.name or 'Socio', None, p.pct or 0) }}
+      {% endif %}
+    {% endfor %}
+  </div>
+  <div class="d-flex justify-content-between align-items-center border-top pt-2 mt-2 flex-wrap gap-2">
+    <span class="badge text-bg-light border fs-6 pe-total">0%</span>
+    <div class="d-flex gap-2">
+      {% if show_use_common %}
+        <button class="btn btn-sm btn-outline-secondary" type="submit" name="use_common" value="1" data-pe-common onclick="return confirm('¿Quitar los socios propios de esta fecha y volver a los comunes de la simulación?');"><i class="fa fa-rotate-left me-1"></i>Usar socios comunes</button>
+      {% endif %}
+      <button class="btn btn-sm btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar socios</button>
+    </div>
+  </div>
+</form>
+{% endmacro %}
+
 {% block content %}
 {% set first_act = active_activity %}
 <style>
@@ -15,6 +78,35 @@
   .sim-cal{ display:inline-flex; flex-direction:column; align-items:center; justify-content:center; width:46px; height:46px; border:1px solid #e9ecef; border-radius:10px; background:#fff; line-height:1; flex:0 0 auto; }
   .sim-cal__d{ font-size:1.1rem; font-weight:700; }
   .sim-cal__m{ font-size:.62rem; text-transform:uppercase; color:#E33D48; font-weight:700; }
+  /* Importes con aclaración fiscal (hover) */
+  .sim-amt{ border-bottom:1px dotted #b9c0c6; cursor:help; }
+  /* Cabecera de la fecha (tarjetas) */
+  .sim-date-cards{ display:flex; flex-wrap:wrap; gap:.6rem; }
+  .sim-date-card{ display:flex; align-items:center; gap:.65rem; background:#fff; border:1px solid #e9ecef; border-radius:14px; padding:.5rem .85rem; min-width:150px; }
+  .sim-date-card i{ color:var(--brand-accent,#007CA2); font-size:1.1rem; }
+  .sim-date-card__t{ font-weight:600; line-height:1.15; }
+  .sim-date-card__s{ font-size:.78rem; color:#6c757d; line-height:1.15; }
+  /* Etiquetas por fecha (general gira) */
+  .sim-tag{ display:inline-flex; align-items:center; gap:.3rem; border:1px solid #e9ecef; background:#f8f9fa; border-radius:999px; padding:.1rem .6rem; font-size:.78rem; white-space:nowrap; }
+  .sim-tag i{ color:var(--brand-accent,#007CA2); }
+  /* Categorías de gastos («bocadillos») */
+  .sim-cat-card{ border:1px solid #dcefe6; border-radius:16px; overflow:hidden; margin-bottom:1rem; background:#fff; }
+  .sim-cat-card__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .9rem; background:#eaf6f0; color:#0e6b46; font-weight:700; }
+  .sim-cat-card__head i{ width:1.3rem; text-align:center; }
+  .sim-cat-card__body{ padding:.75rem .9rem; }
+  .sim-cat-card__foot{ display:flex; justify-content:space-between; align-items:center; padding:.45rem .9rem; border-top:1px dashed #dcefe6; background:#fbfdfc; font-size:.85rem; }
+  .sim-row-off{ opacity:.55; }
+  .sim-row-off .sim-amt, .sim-row-off td:first-child{ text-decoration:line-through; }
+  /* Slider de socios */
+  .simp-slider-wrap{ position:relative; padding-top:34px; }
+  .simp-range{ -webkit-appearance:none; appearance:none; width:100%; height:14px; border-radius:8px; outline:none; }
+  .simp-range::-webkit-slider-thumb{ -webkit-appearance:none; appearance:none; width:22px; height:22px; border-radius:50%; background:#fff; border:3px solid #212529; cursor:pointer; box-shadow:0 1px 4px rgba(0,0,0,.25); }
+  .simp-range::-moz-range-thumb{ width:22px; height:22px; border-radius:50%; background:#fff; border:3px solid #212529; cursor:pointer; }
+  .simp-be{ position:absolute; top:0; transform:translateX(-50%); text-align:center; z-index:2; pointer-events:none; }
+  .simp-be__label{ display:inline-block; background:#212529; color:#fff; border-radius:6px; font-size:.68rem; padding:.1rem .4rem; white-space:nowrap; }
+  .simp-be__arrow{ display:block; width:0; height:0; margin:0 auto; border-left:6px solid transparent; border-right:6px solid transparent; border-top:7px solid #212529; }
+  .sim-partner-img{ height:30px; max-width:100px; object-fit:contain; background:transparent; }
+  .sim-partner-img--ph{ display:inline-flex; align-items:center; justify-content:center; width:30px; color:#adb5bd; }
 </style>
 
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -38,10 +130,10 @@
 
 {% set kind_label = {'CONCERT':'Concierto','TOUR':'Gira','CYCLE':'Ciclo','FESTIVAL':'Festival'}.get(sim.kind, 'Concierto') %}
 <div class="ficha-hero">
-  <img class="ficha-hero__media ficha-hero__media--round" src="{{ (sim.artist.photo_url if sim.artist else None) or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">
+  <img class="ficha-hero__media {{ 'ficha-hero__media--round' if not subject.is_event }}" src="{{ subject.photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" {% if subject.is_event %}style="object-fit:contain;background:#fff;"{% endif %}>
   <div class="ficha-hero__body">
-    <div class="ficha-hero__eyebrow">Simulación · {{ kind_label }}</div>
-    <h1 class="ficha-hero__title">{{ sim.title or (sim.artist.name if sim.artist else 'Simulación') }}</h1>
+    <div class="ficha-hero__eyebrow">Simulación · {{ kind_label }}{% if subject.is_event %} · Evento{% endif %}</div>
+    <h1 class="ficha-hero__title">{{ sim.title or subject.name }}</h1>
     <div class="ficha-hero__facts">
       {% if sim.managing_company %}<span><i class="fa fa-building"></i>{{ sim.managing_company.name }}</span>{% endif %}
       {% if is_multi %}
@@ -52,9 +144,10 @@
       {% endif %}
       {% if is_festival %}<span><i class="fa fa-people-group"></i>{{ lineup|length }} {{ 'artista' if lineup|length == 1 else 'artistas' }}</span>{% endif %}
       {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total }} · {{ summary.sellable }} a la venta{% if summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</span>{% endif %}
-      {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Resultado @100% {{ calc.at_100.resultado|eur }}</span>{% endif %}
+      {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Beneficio potencial @100% {{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</span>{% endif %}
       {% if sim.artist and sim.artist.is_international %}<span><i class="fa fa-globe"></i>Artista internacional</span>{% endif %}
       {% if sim.artist %}{{ linked_mini('artist', sim.artist.id) }}{% endif %}
+      {% if sim.event %}<a class="text-reset small" href="{{ url_for('event_detail_view', eid=sim.event.id) }}" style="text-decoration:underline;"><i class="fa fa-masks-theater me-1"></i>Ficha del evento</a>{% endif %}
     </div>
   </div>
   <div class="ficha-hero__actions">
@@ -66,7 +159,14 @@
 <ul class="nav nav-pills mb-2 gap-1 flex-wrap">
   <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id) }}"><i class="fa fa-layer-group me-1"></i>{{ 'General ciclo' if is_cycle else 'General gira' }}</a></li>
   {% for a in activities %}
-    <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == a.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=a.id, tab='resumen') }}">{% if is_cycle and a.artist %}{{ a.artist.name }}{% else %}{{ a.label or (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index) }}{% endif %}{% if a.event_date and not a.date_unknown %} · {{ a.event_date.strftime('%d/%m') }}{% endif %}</a></li>
+    <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == a.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=a.id, tab='resumen') }}">
+      {%- if is_cycle and a.artist -%}
+        {{ loop.index }} · {{ a.artist.name }}
+      {%- else -%}
+        {{ loop.index }} · {{ a.label or (a.venue.municipality if (a.venue and a.venue.municipality) else ('Concierto' if is_cycle else 'Fecha')) }}
+      {%- endif -%}
+      {%- if a.event_date and not a.date_unknown %} · {{ a.event_date.strftime('%d/%m') }}{% endif -%}
+    </a></li>
   {% endfor %}
   {% if is_cycle and shared_activity %}
     <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == shared_activity.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=shared_activity.id, tab='gastos') }}"><i class="fa fa-layer-group me-1"></i>Gastos generales</a></li>
@@ -76,13 +176,13 @@
 {% endif %}
 
 {% if show_general %}
-{# ===================== GENERAL GIRA ===================== #}
+{# ===================== GENERAL GIRA / CICLO ===================== #}
 <div class="d-flex flex-wrap gap-3 mb-3">
   <div class="sim-stat"><div class="sim-stat__n">{{ activities|length }}</div><div class="sim-stat__l">{{ 'Conciertos' if is_cycle else 'Fechas' }}</div></div>
   <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.sellable }}</div><div class="sim-stat__l">A la venta (total)</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.ingresos|eur }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.gastos|eur }}</div><div class="sim-stat__l">Gastos @100%{% if is_cycle and tour_totals.general %} (incl. generales){% endif %}</div></div>
-  <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ tour_totals.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.ingresos, 'Sin IVA') }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if is_cycle and tour_totals.general %} (incl. generales){% endif %}</div></div>
+  <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ amt(tour_totals.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
 </div>
 <div class="row g-3">
   <div class="col-12 col-lg-7">
@@ -91,29 +191,19 @@
       <div class="ficha-section__body">
         <div id="tourMap" style="height:300px;border-radius:12px;border:1px solid #eee;"></div>
         <div id="tourMapEmpty" class="text-muted small mt-2 d-none">No hay recintos con municipio para dibujar el mapa.</div>
+        <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Las chinchetas van numeradas por orden de fecha.</div>
       </div>
     </div>
   </div>
   <div class="col-12 col-lg-5">
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios y reparto</h6></div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6>
+        {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios comunes"><i class="fa fa-pen"></i></button>{% endif %}
+      </div>
       <div class="ficha-section__body">
-        {% if sim.partners %}
-          {% set ns = namespace(total=0) %}
-          <div class="list-group list-group-flush">
-            {% for p in sim.partners %}
-              {% set ns.total = ns.total + (p.pct or 0) %}
-              {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
-              {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
-              <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
-                <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}{% if p.promoter %}{{ linked_mini('promoter', p.promoter.id) }}{% endif %}</span>
-                <span class="fw-semibold">{{ p.pct or 0 }}%</span>
-              </div>
-            {% endfor %}
-          </div>
-          <div class="d-flex justify-content-between border-top pt-2 mt-1"><span class="text-muted small">Total</span><span class="fw-semibold">{{ ns.total }}%</span></div>
-        {% else %}<div class="text-muted">Sin socios.</div>{% endif %}
+        {% if not global_partners %}<div class="text-muted small mb-2">Sin socios comunes. {% if CAN_EDIT %}Añádelos con el lápiz.{% endif %}</div>{% endif %}
+        <div data-sim-partners="simPartnersData"></div>
+        <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Si una fecha tiene socios propios (pestaña «Socios» de la fecha), el reparto de esa fecha usa sus porcentajes.</div>
       </div>
     </div>
   </div>
@@ -155,37 +245,83 @@
       {% for r in tour_rows %}
       <a href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
         <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
-        {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ r.activity.label or (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index) }}</span>{% endif %}
-        <span class="text-muted small flex-grow-1">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable }} a la venta</span>
-        <span class="text-end"><div class="small text-muted">Resultado</div><div class="fw-semibold {{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</div></span>
+        <span style="min-width:170px;">
+          {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
+          <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable }} a la venta</div>
+        </span>
+        <span class="d-flex flex-wrap gap-1 flex-grow-1">
+          <span class="sim-tag" title="Precio medio de entrada: sin IVA, incluye SGAE"><i class="fa fa-ticket"></i>Precio medio {{ r.calc.avg_price_sin_iva|eur }}</span>
+          <span class="sim-tag" title="Punto de empate (entradas a vender y % del aforo a la venta)"><i class="fa fa-scale-balanced"></i>Empate {% if r.calc.break_even_tickets is none %}—{% else %}{{ r.calc.break_even_tickets }} ent · {{ r.calc.break_even_pct }}%{% endif %}</span>
+          <span class="sim-tag" title="Beneficio potencial @100%: neto, sin IVA y sin SGAE"><i class="fa fa-flag-checkered"></i>Beneficio <span class="{{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</span></span>
+        </span>
+        <span class="text-end"><div class="small text-muted">Beneficio potencial</div><div class="fw-semibold {{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ amt(r.resultado, 'Neto: sin IVA y sin SGAE') }}</div></span>
       </a>
       {% else %}
       <div class="text-muted">Aún no hay {{ 'conciertos' if is_cycle else 'fechas' }}. Pulsa «{{ 'Añadir concierto' if is_cycle else 'Añadir fecha' }}».</div>
       {% endfor %}
     </div>
     {% if is_cycle and tour_totals.general %}
-      <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales del ciclo (repartidos ÷ {{ activities|length }} entre los conciertos)</span><span class="fw-semibold">{{ tour_totals.general|eur }}</span></div>
+      <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales del ciclo (repartidos ÷ {{ activities|length }} entre los conciertos)</span><span class="fw-semibold">{{ amt(tour_totals.general, 'Sin IVA') }}</span></div>
     {% endif %}
   </div>
 </div>
-{% else %}
-{% if is_multi and active_activity %}
-<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
-  <div class="fw-semibold">
-    {% if active_activity.is_shared %}
-      <i class="fa fa-layer-group me-1 text-muted"></i>Gastos generales{{ ' del ciclo' if is_cycle else '' }}
-    {% else %}
-      <i class="fa fa-calendar-day me-1 text-muted"></i>{% if is_cycle and active_activity.artist %}{{ active_activity.artist.name }}{% else %}{{ active_activity.label or ('Concierto' if is_cycle else 'Fecha') }}{% endif %}{% if active_activity.event_date and not active_activity.date_unknown %} · {{ active_activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if active_activity.venue %} · {{ active_activity.venue.name }}{% endif %}
-    {% endif %}
-  </div>
-  {% if CAN_EDIT and not active_activity.is_shared %}<form method="post" action="{{ url_for('simulation_activity_delete', sid=sim.id, aid=active_activity.id) }}" onsubmit="return confirm('¿Eliminar {{ 'este concierto' if is_cycle else 'esta fecha' }}?');"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar {{ 'concierto' if is_cycle else 'fecha' }}</button></form>{% endif %}
+
+{% if CAN_EDIT %}
+<div class="modal fade" id="partnersCommonModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Socios comunes de la simulación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="text-muted small mb-2"><i class="fa fa-circle-info me-1"></i>Se aplican a todas las fechas salvo a las que tengan socios propios en su pestaña «Socios».</div>
+      {{ partners_editor('partnersCommonForm', None, global_partners, False, 'resumen') }}
+    </div>
+  </div></div>
 </div>
 {% endif %}
+
+{% else %}
+{# ===================== VISTA DE UNA FECHA / ACTIVIDAD ===================== #}
+{% if active_activity and not active_activity.is_shared %}
+{# --- Cabecera de la fecha: tarjetas (recinto · ubicación · fecha · aforo) --- #}
+<div class="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
+  <div class="sim-date-cards">
+    <div class="sim-date-card">
+      <i class="fa fa-location-dot"></i>
+      <div>
+        <div class="sim-date-card__t">{% if active_activity.venue_unknown or not active_activity.venue %}Recinto por definir{% else %}{{ active_activity.venue.name }}{% endif %}</div>
+        <div class="sim-date-card__s">{% if active_activity.venue %}{{ active_activity.venue.municipality or '' }}{% if active_activity.venue.province %}{% if active_activity.venue.municipality %} · {% endif %}{{ active_activity.venue.province }}{% endif %}{% else %}&nbsp;{% endif %}</div>
+      </div>
+    </div>
+    <div class="sim-date-card">
+      <span class="sim-cal">{% if active_activity.event_date and not active_activity.date_unknown %}<span class="sim-cal__d">{{ active_activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ active_activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
+      <div>
+        <div class="sim-date-card__t">{% if active_activity.event_date and not active_activity.date_unknown %}{{ active_activity.event_date.strftime('%d/%m/%Y') }}{% else %}Fecha por definir{% endif %}</div>
+        <div class="sim-date-card__s">{% if is_cycle and active_activity.artist %}{{ active_activity.artist.name }}{% else %}{{ active_activity.label or subject.name }}{% endif %}</div>
+      </div>
+    </div>
+    <div class="sim-date-card">
+      <i class="fa fa-users"></i>
+      <div>
+        <div class="sim-date-card__t">{{ summary.aforo_total if summary else 0 }} <span class="fw-normal text-muted">aforo</span></div>
+        <div class="sim-date-card__s">{{ summary.sellable if summary else 0 }} a la venta{% if summary and summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</div>
+      </div>
+    </div>
+  </div>
+  {% if CAN_EDIT and is_multi %}<form method="post" action="{{ url_for('simulation_activity_delete', sid=sim.id, aid=active_activity.id) }}" onsubmit="return confirm('¿Eliminar {{ 'este concierto' if is_cycle else 'esta fecha' }}?');"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar {{ 'concierto' if is_cycle else 'fecha' }}</button></form>{% endif %}
+</div>
+{% elif is_multi and active_activity and active_activity.is_shared %}
+<div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+  <div class="fw-semibold"><i class="fa fa-layer-group me-1 text-muted"></i>Gastos generales{{ ' del ciclo' if is_cycle else '' }}</div>
+</div>
+{% endif %}
+
 <ul class="nav nav-tabs ficha-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'resumen' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resumen', act=(active_activity.id if is_multi else none)) }}">Resumen</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos', act=(active_activity.id if is_multi else none)) }}">Ingresos</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos', act=(active_activity.id if is_multi else none)) }}">Gastos</a></li>
+  {% if is_multi and active_activity and not active_activity.is_shared %}
+  <li class="nav-item"><a class="nav-link {% if tab == 'socios' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}">Socios</a></li>
+  {% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resultado', act=(active_activity.id if is_multi else none)) }}">Resultado</a></li>
 </ul>
 
@@ -198,7 +334,7 @@
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Datos de la simulación</h6></div>
         <div class="ficha-section__body">
           <div class="ficha-fields">
-            <div><div class="ficha-field__label">Artista</div><div class="ficha-field__value">{{ sim.artist.name if sim.artist else '—' }}{% if sim.artist and sim.artist.is_international %} <span class="badge text-bg-light border ms-1">Internacional</span>{% endif %}</div></div>
+            <div><div class="ficha-field__label">{{ 'Evento' if subject.is_event else 'Artista' }}</div><div class="ficha-field__value">{{ subject.name }}{% if sim.artist and sim.artist.is_international %} <span class="badge text-bg-light border ms-1">Internacional</span>{% endif %}</div></div>
             <div><div class="ficha-field__label">Empresa que gestiona</div><div class="ficha-field__value">{{ sim.managing_company.name if sim.managing_company else 'Sin asignar' }}</div></div>
             <div><div class="ficha-field__label">Tipo</div><div class="ficha-field__value">{{ kind_label }}</div></div>
             {% if sim.kind != 'TOUR' and first_act %}
@@ -219,13 +355,15 @@
             <div class="sim-stat"><div class="sim-stat__n">{{ summary.aforo_total }}</div><div class="sim-stat__l">Aforo total</div></div>
             <div class="sim-stat"><div class="sim-stat__n">{{ summary.sellable }}</div><div class="sim-stat__l">A la venta</div></div>
             <div class="sim-stat"><div class="sim-stat__n">{{ summary.invitations }}</div><div class="sim-stat__l">Invitaciones</div></div>
-            <div class="sim-stat"><div class="sim-stat__n">{{ summary.ticket_net|eur }}</div><div class="sim-stat__l">Neto sin IVA y sin SGAE</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ amt(summary.ticket_net, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Neto sin IVA y sin SGAE</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ amt(summary.avg_price_sin_iva, 'Sin IVA · incluye SGAE') }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
           </div>
           <div class="small text-muted">
             Pista: {{ summary.zones.PISTA.sellable }} a la venta de {{ summary.zones.PISTA.qty }} ·
             Grada: {{ summary.zones.GRADA.sellable }} a la venta de {{ summary.zones.GRADA.qty }} ·
-            Precio medio: {{ summary.avg_price_sin_iva|eur }} sin IVA{% if calc %} · {{ calc.avg_price_gross|eur }} con IVA{% endif %}
-            {% if summary.extras_gross %} · Complementos (IVA inc.): {{ summary.extras_gross|eur }}{% endif %}
+            Palcos: {{ summary.zones.PALCO.sellable }} a la venta de {{ summary.zones.PALCO.qty }}
+            {% if calc %} · Precio medio con IVA: {{ amt(calc.avg_price_gross, 'IVA incluido · incluye SGAE') }}{% endif %}
+            {% if summary.extras_gross %} · Complementos: {{ amt(summary.extras_gross, 'IVA incluido') }}{% endif %}
           </div>
         </div>
       </div>
@@ -238,10 +376,66 @@
       </div>
       {% endif %}
 
-      {# Las fechas de la gira se gestionan en la pestaña «General gira». #}
+      {% if calc and calc.ticketing.sellable %}
+      {# --- Resultado con gráfica --- #}
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
+        <div class="ficha-section__body">
+          <div class="d-flex flex-wrap gap-3 mb-2">
+            <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
+            <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
+          </div>
+          <canvas id="simResumenChart" height="110"></canvas>
+        </div>
+      </div>
+
+      {# --- Resumen de ingresos --- #}
+      {% set ing = calc.at_100.ingresos %}
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-arrow-trend-up"></i>Resumen de ingresos <span class="text-muted small fw-normal">@100%</span></h6>
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
+        </div>
+        <div class="ficha-section__body">
+          <table class="table table-sm align-middle mb-0">
+            <tbody>
+              <tr class="{{ 'sim-row-off' if income_overrides.get('ticketing') }}"><td>Ticketing{% if income_overrides.get('ticketing') %} <span class="badge text-bg-secondary">{{ 'Omitido' if income_overrides.get('ticketing') == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.ticketing, 'Neto: sin IVA y sin SGAE') }}</td></tr>
+              {% if ing.complementos or income_overrides.get('complementos') %}<tr class="{{ 'sim-row-off' if income_overrides.get('complementos') }}"><td>Complementos</td><td class="text-end">{{ amt(ing.complementos, 'Sin IVA') }}</td></tr>{% endif %}
+              <tr class="{{ 'sim-row-off' if income_overrides.get('rebate') }}"><td>Rebate</td><td class="text-end">{{ amt(ing.rebate, 'Sin IVA') }}</td></tr>
+              <tr class="{{ 'sim-row-off' if income_overrides.get('barras') }}"><td>Barras</td><td class="text-end">{{ amt(ing.barras, 'Sin IVA') }}</td></tr>
+              <tr class="{{ 'sim-row-off' if income_overrides.get('incentivos') }}"><td>Incentivos fiscales</td><td class="text-end">{{ amt(ing.incentivos, 'Sin IVA') }}</td></tr>
+              {% if ing.subvenciones %}<tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if ing.patrocinios %}<tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td></tr>{% endif %}
+            </tbody>
+            <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ amt(ing.total, 'Sin IVA') }}</th></tr></tfoot>
+          </table>
+        </div>
+      </div>
+
+      {# --- Resumen de gastos por categorías --- #}
+      {% set g = calc.at_100.gastos %}
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-arrow-trend-down"></i>Resumen de gastos <span class="text-muted small fw-normal">@100% · por categorías</span></h6>
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
+        </div>
+        <div class="ficha-section__body">
+          <table class="table table-sm align-middle mb-0">
+            <tbody>
+              {% if g.caches %}<tr><td><i class="fa fa-microphone-lines me-1 text-muted"></i>Cachés</td><td class="text-end">{{ amt(g.caches, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if g.retenciones %}<tr><td><i class="fa fa-percent me-1 text-muted"></i>Retenciones (24%)</td><td class="text-end">{{ amt(g.retenciones, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if g.comisiones %}<tr><td><i class="fa fa-user-tie me-1 text-muted"></i>Comisiones</td><td class="text-end">{{ amt(g.comisiones, 'Sin IVA') }}</td></tr>{% endif %}
+              {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+                {% if g.produccion_por_categoria.get(ckey) %}
+                  <tr><td><i class="fa {{ cicon }} me-1 text-muted"></i>{{ clabel }}</td><td class="text-end">{{ amt(g.produccion_por_categoria.get(ckey), 'Sin IVA') }}</td></tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+            <tfoot><tr class="border-top"><th>Total gastos</th><th class="text-end">{{ amt(g.total, 'Sin IVA') }}</th></tr></tfoot>
+          </table>
+        </div>
+      </div>
+      {% endif %}
     </div>
 
-    {% if not is_multi %}
     <div class="col-12 col-lg-5">
       {% if is_festival %}
       <div class="ficha-section">
@@ -265,34 +459,31 @@
       </div>
       {% endif %}
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios y reparto</h6></div>
-        <div class="ficha-section__body">
-          {% if sim.partners %}
-            {% set ns = namespace(total=0) %}
-            <div class="list-group list-group-flush">
-              {% for p in sim.partners %}
-                {% set ns.total = ns.total + (p.pct or 0) %}
-                {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
-                {% set plogo = (p.company.logo_url if p.company else (p.promoter.logo_url if p.promoter else None)) %}
-                <div class="list-group-item d-flex align-items-center gap-2 px-0">
-                  {% if plogo %}<img src="{{ plogo }}" alt="{{ pname }}" style="height:34px;max-width:96px;object-fit:contain;background:transparent;">{% else %}<span class="text-muted d-inline-flex align-items-center justify-content-center" style="width:34px;height:34px;"><i class="fa {{ 'fa-building' if p.company else 'fa-user' }}"></i></span>{% endif %}
-                  <span class="flex-grow-1 text-truncate">{{ pname }}{% if p.company %} <span class="badge text-bg-light border ms-1">Grupo</span>{% endif %}{% if p.promoter %}{{ linked_mini('promoter', p.promoter.id) }}{% endif %}</span>
-                  <span class="fw-semibold">{{ p.pct or 0 }}%</span>
-                </div>
-              {% endfor %}
-            </div>
-            <div class="d-flex justify-content-between border-top pt-2 mt-1">
-              <span class="text-muted small">Total</span>
-              <span class="fw-semibold {{ 'text-success' if (ns.total|round(2)) == 100 else 'text-warning' }}">{{ ns.total }}%</span>
-            </div>
-          {% else %}
-            <div class="text-muted">Sin socios registrados.</div>
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6>
+          {% if CAN_EDIT %}
+            {% if is_multi and active_activity and not active_activity.is_shared %}
+              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}" title="Editar socios de esta fecha"><i class="fa fa-pen"></i></a>
+            {% else %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios"><i class="fa fa-pen"></i></button>
+            {% endif %}
           {% endif %}
+        </div>
+        <div class="ficha-section__body">
+          {% if is_multi and activity_partners_own %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Esta fecha usa <strong>socios propios</strong> (no los comunes).</div>{% endif %}
+          <div data-sim-partners="simPartnersData"></div>
         </div>
       </div>
     </div>
-    {% endif %}
   </div>
+
+  {% if CAN_EDIT and not (is_multi and active_activity and not active_activity.is_shared) %}
+  <div class="modal fade" id="partnersCommonModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title">Socios de la simulación</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">{{ partners_editor('partnersCommonForm', None, global_partners, False, 'resumen') }}</div>
+    </div></div>
+  </div>
+  {% endif %}
 
 {# ===================== TICKETING ===================== #}
 {% elif tab == 'ticketing' %}
@@ -314,10 +505,10 @@
       <div class="sim-stat"><div class="sim-stat__n" id="tkAforo">0</div><div class="sim-stat__l">Aforo total</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="tkSell">0</div><div class="sim-stat__l">A la venta</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="tkInv">0</div><div class="sim-stat__l">Invitaciones</div></div>
-      <div class="sim-stat"><div class="sim-stat__n" id="tkNet">0 €</div><div class="sim-stat__l">Neto @100% (sin IVA/SGAE)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n"><span class="sim-amt" title="Neto: sin IVA y sin SGAE" id="tkNet">0 €</span></div><div class="sim-stat__l">Neto @100% (sin IVA/SGAE)</div></div>
     </div>
 
-    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-person-walking'),('GRADA','Grada','fa-chair')] %}
+    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
     <div class="card mb-3 sim-zone-card">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</span>
@@ -336,6 +527,21 @@
   </form>
   <script type="application/json" id="ticketingData">{{ ticketing_payload|tojson }}</script>
   <script type="application/json" id="venueTplData">{{ venue_tpl|tojson }}</script>
+  {% if show_venue_tpl_prompt and active_activity and active_activity.venue %}
+  {# Aviso de primera vez: el recinto tiene plantilla de ticketing guardada #}
+  <div class="modal fade" id="tkTplModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <div class="modal-header"><h5 class="modal-title"><i class="fa fa-wand-magic-sparkles me-2 text-primary"></i>Plantilla de ticketing disponible</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <p class="mb-0">El recinto <strong>{{ active_activity.venue.name }}</strong> tiene una plantilla de ticketing guardada (categorías, aforos e invitaciones). ¿Quieres aplicarla? Los precios se rellenan aquí.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No aplicar</button>
+        <button type="button" class="btn btn-primary" id="tkTplApply"><i class="fa fa-check me-1"></i>Aplicar plantilla</button>
+      </div>
+    </div></div>
+  </div>
+  {% endif %}
   {% if active_activity and active_activity.venue %}
   <div class="modal fade" id="tkSyncModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
@@ -358,9 +564,9 @@
         <tbody>
           {% for c in active_activity.ticket_categories %}
             <tr>
-              <td>{{ 'Pista' if (c.zone or 'PISTA')|upper == 'PISTA' else 'Grada' }}</td>
+              <td>{{ {'PISTA':'Pista','GRADA':'Grada','PALCO':'Palcos'}.get((c.zone or 'PISTA')|upper, 'Pista') }}</td>
               <td>{{ c.name or '—' }}</td>
-              <td class="text-end">{{ c.price_net|eur }}</td>
+              <td class="text-end">{{ amt(c.price_net, 'Sin IVA · incluye SGAE') }}</td>
               <td class="text-end">{{ c.quantity or 0 }}</td>
               <td class="text-end">{{ c.invitations or 0 }}</td>
               <td class="text-end">{{ (c.quantity or 0) - (c.invitations or 0) }}</td>
@@ -379,6 +585,7 @@
     <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
   {% else %}
     {% set ing = calc.at_100.ingresos %}
+    {% set ov = income_overrides %}
     <div class="row g-3">
       <div class="col-12 col-lg-7">
         <div class="ficha-section">
@@ -386,18 +593,46 @@
           <div class="ficha-section__body">
             <table class="table table-sm align-middle mb-0">
               <tbody>
-                <tr><td>Ticketing <span class="text-muted small">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>
-                {% if ing.complementos %}<tr><td>Complementos <span class="text-muted small">(neto sin IVA)</span></td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
-                <tr><td>Rebate <span class="text-muted small">(10% taquilla − 0,5 €/entrada)</span></td><td class="text-end">{{ ing.rebate|eur }}</td></tr>
-                <tr><td>Barras
-                  {% if not active_activity.venue %}<span class="text-muted small">(sin recinto)</span>{% elif not active_activity.venue.allows_bars %}<span class="text-muted small">(el recinto no permite)</span>{% else %}<span class="text-muted small">(6 €/entrada)</span>{% endif %}
-                </td><td class="text-end">{{ ing.barras|eur }}</td></tr>
-                <tr><td>Incentivos fiscales <span class="text-muted small">(14% caché + producción)</span></td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>
-                <tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>
-                <tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>
+                {% for key, klabel, knote, ksub in [
+                  ('ticketing', 'Ticketing', 'Neto: sin IVA y sin SGAE', 'neto sin IVA y sin SGAE'),
+                  ('complementos', 'Complementos', 'Sin IVA', 'neto sin IVA'),
+                  ('rebate', 'Rebate', 'Sin IVA', '10% taquilla − 0,5 €/entrada'),
+                  ('barras', 'Barras', 'Sin IVA', None),
+                  ('incentivos', 'Incentivos fiscales', 'Sin IVA', '14% caché + producción'),
+                ] %}
+                {% if key != 'complementos' or ing.complementos or ov.get('complementos') %}
+                <tr class="{{ 'sim-row-off' if ov.get(key) }}">
+                  <td>
+                    {{ klabel }}
+                    {% if key == 'barras' %}
+                      {% if not active_activity.venue %}<span class="text-muted small">(sin recinto)</span>{% elif not active_activity.venue.allows_bars %}<span class="text-muted small">(el recinto no permite)</span>{% else %}<span class="text-muted small">(6 €/entrada)</span>{% endif %}
+                    {% elif ksub %}<span class="text-muted small">({{ ksub }})</span>{% endif %}
+                    {% if ov.get(key) %}<span class="badge text-bg-secondary ms-1">{{ 'Omitido' if ov.get(key) == 'OMIT' else 'No aplica' }}</span>{% endif %}
+                  </td>
+                  <td class="text-end">{{ amt(ing[key], knote) }}</td>
+                  <td class="text-end" style="width:44px;">
+                    {% if CAN_EDIT %}
+                    <div class="dropdown">
+                      <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        {% if ov.get(key) %}
+                          <li><button type="button" class="dropdown-item" data-inc-ov="{{ key }}" data-val=""><i class="fa fa-rotate-left me-2"></i>Volver a incluir</button></li>
+                        {% endif %}
+                        {% if ov.get(key) != 'OMIT' %}<li><button type="button" class="dropdown-item" data-inc-ov="{{ key }}" data-val="OMIT"><i class="fa fa-eye-slash me-2"></i>Omitir ingreso</button></li>{% endif %}
+                        {% if ov.get(key) != 'NA' %}<li><button type="button" class="dropdown-item" data-inc-ov="{{ key }}" data-val="NA"><i class="fa fa-ban me-2"></i>No aplica</button></li>{% endif %}
+                      </ul>
+                    </div>
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+                <tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td><td></td></tr>
+                <tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td><td></td></tr>
               </tbody>
-              <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ ing.total|eur }}</th></tr></tfoot>
+              <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ amt(ing.total, 'Sin IVA') }}</th><th></th></tr></tfoot>
             </table>
+            <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Con el menú <i class="fa fa-ellipsis-vertical"></i> puedes <strong>omitir</strong> un ingreso o marcarlo como <strong>no aplica</strong>: deja de contar en el total.</div>
           </div>
         </div>
       </div>
@@ -405,16 +640,29 @@
         {% if CAN_EDIT %}
         <form method="post" action="{{ url_for('simulation_income_save', sid=sim.id) }}" id="incomeForm">
           <input type="hidden" name="activity_id" value="{{ active_activity.id }}">
+          <input type="hidden" name="income_overrides_json" id="incomeOverridesJson" value='{{ ov|tojson }}'>
           {% for gkey, glabel, gicon, gkind in [('subv','Subvenciones','fa-hand-holding-dollar','SUBVENCION'),('patro','Patrocinios','fa-rectangle-ad','PATROCINIO')] %}
           <div class="ficha-section">
             <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa {{ gicon }}"></i>{{ glabel }} <span class="text-muted small fw-normal">(sin IVA)</span></h6></div>
             <div class="ficha-section__body">
               <div data-income-rows="{{ gkey }}">
                 {% for it in active_activity.income_items if (it.kind or '')|upper == gkind %}
-                  <div class="d-flex gap-2 mb-2 income-row">
+                  {% set st = (it.status or 'ACTIVE')|upper %}
+                  <div class="d-flex gap-2 mb-2 income-row align-items-center {{ 'sim-row-off' if st != 'ACTIVE' }}">
+                    <input type="hidden" name="{{ gkey }}_status[]" class="income-status" value="{{ st }}">
                     <input type="text" class="form-control form-control-sm" name="{{ gkey }}_name[]" value="{{ it.name }}" placeholder="Concepto">
                     <div class="input-group input-group-sm" style="width:140px;"><input type="number" step="0.01" min="0" class="form-control" name="{{ gkey }}_amount[]" value="{{ it.amount_net }}"><span class="input-group-text">€</span></div>
-                    <button type="button" class="btn btn-sm btn-outline-danger income-del" title="Quitar"><i class="fa fa-xmark"></i></button>
+                    <span class="badge text-bg-secondary income-badge {{ '' if st != 'ACTIVE' else 'd-none' }}">{{ 'Omitido' if st == 'OMIT' else 'No aplica' }}</span>
+                    <div class="dropdown">
+                      <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                      <ul class="dropdown-menu dropdown-menu-end">
+                        <li><button type="button" class="dropdown-item income-set" data-st="ACTIVE"><i class="fa fa-rotate-left me-2"></i>Volver a incluir</button></li>
+                        <li><button type="button" class="dropdown-item income-set" data-st="OMIT"><i class="fa fa-eye-slash me-2"></i>Omitir ingreso</button></li>
+                        <li><button type="button" class="dropdown-item income-set" data-st="NA"><i class="fa fa-ban me-2"></i>No aplica</button></li>
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button type="button" class="dropdown-item text-danger income-del"><i class="fa fa-trash me-2"></i>Quitar</button></li>
+                      </ul>
+                    </div>
                   </div>
                 {% endfor %}
               </div>
@@ -439,17 +687,12 @@
     {% set g = (calc.at_100.gastos if calc else None) %}
     {% if g %}
     <div class="d-flex flex-wrap gap-3 mb-3">
-      <div class="sim-stat"><div class="sim-stat__n">{{ g.caches|eur }}</div><div class="sim-stat__l">Cachés (neto)</div></div>
-      {% if sim.artist and sim.artist.is_international %}<div class="sim-stat"><div class="sim-stat__n">{{ g.retenciones|eur }}</div><div class="sim-stat__l">Retenciones (24%)</div></div>{% endif %}
-      <div class="sim-stat"><div class="sim-stat__n">{{ g.comisiones|eur }}</div><div class="sim-stat__l">Comisiones (neto)</div></div>
-      <div class="sim-stat"><div class="sim-stat__n">{{ g.produccion|eur }}</div><div class="sim-stat__l">Producción (neto)</div></div>
-      <div class="sim-stat"><div class="sim-stat__n fw-bold">{{ g.total|eur }}</div><div class="sim-stat__l">Total gastos (neto)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.caches, 'Sin IVA') }}</div><div class="sim-stat__l">Cachés (neto)</div></div>
+      {% if retention_relevant %}<div class="sim-stat"><div class="sim-stat__n">{{ amt(g.retenciones, 'Sin IVA') }}</div><div class="sim-stat__l">Retenciones (24%)</div></div>{% endif %}
+      <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.comisiones, 'Sin IVA') }}</div><div class="sim-stat__l">Comisiones (neto)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.produccion, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos por categorías (neto)</div></div>
+      <div class="sim-stat"><div class="sim-stat__n fw-bold">{{ amt(g.total, 'Sin IVA') }}</div><div class="sim-stat__l">Total gastos (neto)</div></div>
     </div>
-    {% if g.produccion_por_categoria %}
-      <div class="small text-muted mb-3">Producción por categoría:
-        {% for k, v in g.produccion_por_categoria.items() %}{{ bag_labels.get(k, k) }}: {{ v|eur }}{% if not loop.last %} · {% endif %}{% endfor %}
-      </div>
-    {% endif %}
     {% endif %}
 
     {% if is_festival and artist_breakdown %}
@@ -464,15 +707,15 @@
               {% set bd.c = bd.c + r.caches %}{% set bd.m = bd.m + r.commissions %}{% set bd.t = bd.t + r.total %}
               <tr>
                 <td>{% if r.photo %}<img src="{{ r.photo }}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" class="me-1">{% endif %}{{ r.name }}</td>
-                <td class="text-end">{{ r.caches|eur }}</td>
-                <td class="text-end">{{ r.commissions|eur }}</td>
-                <td class="text-end fw-semibold">{{ r.total|eur }}</td>
+                <td class="text-end">{{ amt(r.caches, 'Sin IVA') }}</td>
+                <td class="text-end">{{ amt(r.commissions, 'Sin IVA') }}</td>
+                <td class="text-end fw-semibold">{{ amt(r.total, 'Sin IVA') }}</td>
               </tr>
             {% endfor %}
           </tbody>
-          <tfoot><tr class="border-top"><th>Total</th><th class="text-end">{{ bd.c|eur }}</th><th class="text-end">{{ bd.m|eur }}</th><th class="text-end">{{ bd.t|eur }}</th></tr></tfoot>
+          <tfoot><tr class="border-top"><th>Total</th><th class="text-end">{{ amt(bd.c, 'Sin IVA') }}</th><th class="text-end">{{ amt(bd.m, 'Sin IVA') }}</th><th class="text-end">{{ amt(bd.t, 'Sin IVA') }}</th></tr></tfoot>
         </table></div>
-        <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos compartidos se reparten a partes iguales entre los artistas vinculados. Producción y recinto son generales (no se reparten).</div>
+        <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos compartidos se reparten a partes iguales entre los artistas vinculados. Los gastos por categorías son generales (no se reparten).</div>
       </div>
     </div>
     {% endif %}
@@ -483,17 +726,24 @@
       <input type="hidden" name="caches_json" id="cachesJson">
       <input type="hidden" name="commissions_json" id="commissionsJson">
       <input type="hidden" name="production_json" id="productionJson">
+      <input type="hidden" name="template_save_json" id="templateSaveJson">
 
       {% if is_festival %}
-      <div class="alert alert-light border small mb-3"><i class="fa fa-circle-info me-1"></i><strong>Festival:</strong> los <strong>cachés y comisiones</strong> se asignan a cada artista (pulsa los chips; si marcas varios, el gasto se reparte a partes iguales). La <strong>producción</strong> y el <strong>recinto</strong> son gastos <strong>generales</strong> del festival.</div>
+      <div class="alert alert-light border small mb-3"><i class="fa fa-circle-info me-1"></i><strong>Festival:</strong> los <strong>cachés y comisiones</strong> se asignan a cada artista (pulsa los chips; si marcas varios, el gasto se reparte a partes iguales). Los <strong>gastos por categorías</strong> son <strong>generales</strong> del festival.</div>
       {% elif active_activity and active_activity.is_shared %}
       <div class="alert alert-light border small mb-3"><i class="fa fa-layer-group me-1"></i>Estás en los <strong>gastos generales del ciclo</strong>: lo que añadas aquí se reparte entre todos los conciertos (÷ nº de conciertos) en el resultado de cada uno.</div>
       {% endif %}
 
+      {% if expense_templates_payload %}
+      <div class="d-flex justify-content-end mb-2">
+        <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#gastosTplModal"><i class="fa fa-file-import me-1"></i>Cargar plantilla de gastos</button>
+      </div>
+      {% endif %}
+
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés{{ ' por artista' if is_festival else ' del artista' }}</h6></div>
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés{{ ' por artista' if is_festival else (' del artista' if sim.artist else '') }}</h6></div>
         <div class="ficha-section__body">
-          {% if not (sim.artist and sim.artist.is_international) %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>La retención del 24% solo aplica a artistas internacionales.</div>{% endif %}
+          {% if not retention_relevant %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>La retención del 24% solo aplica a artistas extranjeros (aquí no se muestra).</div>{% endif %}
           <div id="cachesList"></div>
           <button type="button" class="btn btn-sm btn-outline-primary" id="addCache"><i class="fa fa-plus me-1"></i>Añadir caché</button>
         </div>
@@ -510,26 +760,138 @@
         </div>
       </div>
 
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-screwdriver-wrench"></i>{{ 'Producción (general del festival)' if is_festival else 'Gastos de producción' }} <span class="text-muted small fw-normal">(presupuesto, IVA 21% por defecto)</span></h6></div>
-        <div class="ficha-section__body">
-          <div id="productionList"></div>
-          <button type="button" class="btn btn-sm btn-outline-primary" id="addProd"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
-          <div class="d-flex justify-content-end gap-3 mt-2 small text-muted">
-            <span>Producción (líneas fijas): neto <strong id="prodNet">0,00 €</strong> · con IVA <strong id="prodGross">0,00 €</strong></span>
-          </div>
+      {# --- Gastos por categorías (bocadillos) --- #}
+      <h6 class="mt-4 mb-2"><i class="fa fa-receipt me-1"></i>Gastos por categorías <span class="text-muted small fw-normal">(añade cada gasto en su categoría; con la rueda <i class="fa fa-gear"></i> configuras el IVA)</span></h6>
+      {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+      <div class="sim-cat-card" data-cat-card="{{ ckey }}">
+        <div class="sim-cat-card__head">
+          <span><i class="fa {{ cicon }} me-1"></i>{{ clabel }}</span>
+          <button type="button" class="btn btn-sm btn-light border" data-cat-add="{{ ckey }}"><i class="fa fa-plus me-1"></i>Añadir gasto</button>
         </div>
+        <div class="sim-cat-card__body">
+          <div data-cat-rows="{{ ckey }}"></div>
+          <div class="text-muted small d-none" data-cat-empty="{{ ckey }}">Sin gastos en esta categoría.</div>
+          {% if ckey == 'RECINTO' %}
+            <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Los gastos del recinto pueden ser <strong>fijos o variables</strong> (botón <i class="fa fa-chart-line"></i>); los variables admiten el condicionante «solo si se venden menos de X entradas» y no llevan retención.</div>
+          {% endif %}
+        </div>
+        <div class="sim-cat-card__foot">
+          <span class="text-muted">Total {{ clabel|lower }}</span>
+          <span class="fw-semibold"><span class="sim-amt" title="Sin IVA" data-cat-total="{{ ckey }}">0,00 €</span><span class="text-muted small ms-1" data-cat-var-note="{{ ckey }}"></span></span>
+        </div>
+      </div>
+      {% endfor %}
+      <div class="d-flex justify-content-between align-items-center border-top pt-2 mb-3">
+        <span class="fw-semibold">Total de todos los gastos por categorías <span class="text-muted small fw-normal">(líneas fijas)</span></span>
+        <span class="fs-5 fw-bold"><span class="sim-amt" title="Sin IVA" id="gastosGrandTotal">0,00 €</span></span>
       </div>
 
       <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar gastos</button></div>
     </form>
     <script type="application/json" id="expensesData">{{ expenses_payload|tojson }}</script>
-    <script type="application/json" id="bagCats">{{ bag_categories|tojson }}</script>
     <script type="application/json" id="festivalArtists">{{ festival_artists|tojson }}</script>
+    <script type="application/json" id="expenseTemplatesData">{{ expense_templates_payload|tojson }}</script>
+
+    {# --- Modal: cargar plantilla de gastos (aviso de primera vez o manual) --- #}
+    {% if expense_templates_payload %}
+    <div class="modal fade" id="gastosTplModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-file-import me-2 text-primary"></i>Plantillas de gastos disponibles</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted mb-2">{% if show_expense_tpl_prompt %}El recinto{% if sim.artist %}, el artista{% elif sim.event %} o el evento{% endif %} de esta fecha tiene plantillas de gastos guardadas. ¿Quieres cargar una?{% else %}Elige la plantilla que quieres cargar (de la más reciente a la más antigua).{% endif %}</p>
+          <div class="list-group">
+            {% for t in expense_templates_payload %}
+              <label class="list-group-item d-flex align-items-center gap-2">
+                <input class="form-check-input me-1" type="radio" name="gastosTplPick" value="{{ loop.index0 }}" {% if loop.first %}checked{% endif %}>
+                <span class="flex-grow-1">
+                  <span class="fw-semibold">{{ t.name }}</span>
+                  <span class="badge text-bg-light border ms-1">{{ {'VENUE':'Recinto','ARTIST':'Artista','EVENT':'Evento'}.get(t.owner, t.owner) }} · {{ t.owner_label }}</span>
+                  <div class="small text-muted">Modificada el {{ t.updated_label or '—' }} · {{ t.items|length }} líneas</div>
+                </span>
+              </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">No aplicar</button>
+          <button type="button" class="btn btn-primary" id="gastosTplApply"><i class="fa fa-check me-1"></i>Cargar plantilla</button>
+        </div>
+      </div></div>
+    </div>
+    {% endif %}
+
+    {# --- Modal: al guardar, vincular gastos como plantilla --- #}
+    {% set tpl_owner_options = [] %}
+    {% if active_activity.venue %}{% set _ = tpl_owner_options.append(('VENUE', 'Recinto · ' ~ active_activity.venue.name)) %}{% endif %}
+    {% if is_cycle and active_activity.artist %}{% set _ = tpl_owner_options.append(('ARTIST', 'Artista · ' ~ active_activity.artist.name)) %}{% elif sim.artist %}{% set _ = tpl_owner_options.append(('ARTIST', 'Artista · ' ~ sim.artist.name)) %}{% endif %}
+    {% if sim.event %}{% set _ = tpl_owner_options.append(('EVENT', 'Evento · ' ~ sim.event.name)) %}{% endif %}
+    {% if tpl_owner_options %}
+    <div class="modal fade" id="gastosSaveModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+        <div class="modal-header"><h5 class="modal-title"><i class="fa fa-link me-2 text-primary"></i>¿Vincular gastos como plantilla?</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <p class="small text-muted">Además de guardarse en esta simulación, los gastos pueden quedar vinculados como <strong>plantilla</strong> para reutilizarlos en simulaciones futuras.</p>
+          <div class="mb-2"><label class="form-label small mb-1">Vincular a</label>
+            {% for okey, olabel in tpl_owner_options %}
+              <div class="form-check"><input class="form-check-input" type="radio" name="gastosTplOwner" id="tplOwner{{ okey }}" value="{{ okey }}" {% if loop.first %}checked{% endif %}><label class="form-check-label" for="tplOwner{{ okey }}">{{ olabel }}</label></div>
+            {% endfor %}
+          </div>
+          <div class="mb-2"><label class="form-label small mb-1">Nombre de la plantilla *</label><input type="text" class="form-control form-control-sm" id="gastosTplName" placeholder="Ej: Gastos estándar sala grande"></div>
+          <div><label class="form-label small mb-1">Categorías a vincular</label>
+            <div class="row g-1">
+              {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+                <div class="col-6"><label class="form-check small"><input class="form-check-input gastos-tpl-cat" type="checkbox" value="{{ ckey }}" checked> <i class="fa {{ cicon }} me-1 text-muted"></i>{{ clabel }}</label></div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" id="gastosSaveOnly">Guardar sin vincular</button>
+          <button type="button" class="btn btn-primary" id="gastosSaveAndLink"><i class="fa fa-link me-1"></i>Guardar y vincular</button>
+        </div>
+      </div></div>
+    </div>
+    {% endif %}
     {% else %}
       <div class="text-muted">Sin permiso de edición.</div>
     {% endif %}
   {% endif %}
+
+{# ===================== SOCIOS (por fecha) ===================== #}
+{% elif tab == 'socios' %}
+  <div class="row g-3">
+    <div class="col-12 col-lg-6">
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios de esta fecha</h6></div>
+        <div class="ficha-section__body">
+          {% if activity_partners_own %}
+            <div class="alert alert-light border small py-2"><i class="fa fa-circle-info me-1"></i>Esta fecha tiene <strong>socios propios</strong>: no usa los comunes de la simulación.</div>
+          {% else %}
+            <div class="alert alert-light border small py-2"><i class="fa fa-circle-info me-1"></i>Esta fecha usa los <strong>socios comunes</strong> de la simulación. Si guardas cambios aquí, pasará a tener socios propios (los comunes de las demás fechas no cambian).</div>
+          {% endif %}
+          {% if CAN_EDIT %}
+            {{ partners_editor('partnersActivityForm', active_activity.id, effective_partners, activity_partners_own|length > 0, 'socios') }}
+          {% else %}
+            <div class="list-group list-group-flush">
+              {% for p in effective_partners %}
+                {% set pname = (p.company.name if p.company else (p.promoter.nick if p.promoter else (p.name or 'Socio'))) %}
+                <div class="list-group-item d-flex align-items-center gap-2 px-0"><span class="flex-grow-1">{{ pname }}</span><span class="fw-semibold">{{ p.pct or 0 }}%</span></div>
+              {% endfor %}
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-6">
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-scale-balanced"></i>Beneficio y riesgo por socio (esta fecha)</h6></div>
+        <div class="ficha-section__body">
+          <div data-sim-partners="simPartnersData"></div>
+          {% if is_cycle and general_share %}<div class="text-muted small mt-2"><i class="fa fa-layer-group me-1"></i>Incluye {{ amt(general_share, 'Sin IVA') }} de gastos generales del ciclo repartidos a esta fecha.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
 
 {# ===================== RESULTADO ===================== #}
 {% elif tab == 'resultado' %}
@@ -538,8 +900,8 @@
   {% else %}
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
-      <div class="sim-stat"><div class="sim-stat__n">{{ calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio sin IVA · {{ calc.avg_price_gross|eur }} con IVA</div></div>
-      <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{{ amt(calc.avg_price_sin_iva, 'Sin IVA · incluye SGAE') }}</div><div class="sim-stat__l">Precio medio sin IVA · {{ amt(calc.avg_price_gross, 'IVA incluido · incluye SGAE') }} con IVA</div></div>
+      <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
     </div>
     {% if calc.break_even_tickets is none %}<div class="alert alert-warning py-2"><i class="fa fa-triangle-exclamation me-1"></i>Con estos datos no se alcanza el punto de empate ni al 100% del aforo.</div>{% endif %}
     <div class="table-responsive">
@@ -555,20 +917,33 @@
             <tr class="{{ 'table-warning' if is_be else '' }}">
               <td class="fw-semibold">{{ row.pct }}%{% if is_be %} <span class="badge text-bg-warning text-dark ms-1">empate</span>{% endif %}</td>
               <td class="text-end">{{ row.tickets }}</td>
-              <td class="text-end">{{ row.ingresos|eur }}</td>
-              <td class="text-end">{{ row.gastos|eur }}</td>
-              <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ row.resultado|eur }}</td>
+              <td class="text-end">{{ amt(row.ingresos, 'Sin IVA') }}</td>
+              <td class="text-end">{{ amt(row.gastos, 'Sin IVA') }}</td>
+              <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ amt(row.resultado, 'Neto: sin IVA y sin SGAE') }}</td>
               <td><div class="sim-bar"><div class="sim-bar__fill {{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%;"></div></div></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Resultado en neto sin IVA. Configura la pestaña <strong>Gastos</strong> para un resultado realista.</div>
+    <div class="text-muted small mb-3"><i class="fa fa-circle-info me-1"></i>Resultado en neto sin IVA. Configura la pestaña <strong>Gastos</strong> para un resultado realista.</div>
+
+    {# --- Reparto por socios con slider --- #}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Qué puede quedar a cada socio · riesgo de cada socio</h6></div>
+      <div class="ficha-section__body">
+        <div data-sim-partners="simPartnersData"></div>
+        {% if is_cycle and general_share %}<div class="text-muted small mt-2"><i class="fa fa-layer-group me-1"></i>Incluye {{ amt(general_share, 'Sin IVA') }} de gastos generales del ciclo repartidos a esta fecha.</div>{% endif %}
+      </div>
+    </div>
   {% endif %}
 {% endif %}
 </div>
 {% endif %}{# /show_general #}
+
+{% if partner_module_payload %}
+<script type="application/json" id="simPartnersData">{{ partner_module_payload|tojson }}</script>
+{% endif %}
 
 {% if is_multi and CAN_EDIT %}
 {% set cycle_venue = (activities[0].venue if activities else None) %}
@@ -582,7 +957,7 @@
           <div class="d-flex gap-2"><select name="cycle_artist_id" id="afArtist" class="form-select select-artists" style="flex:1;min-width:0;"><option value="">— Selecciona —</option>{% for a in all_artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}">{{ a.name }}</option>{% endfor %}</select><button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="artist" data-target="afArtist" title="Crear artista"><i class="fa fa-plus"></i></button></div>
         </div>
         {% endif %}
-        <div class="mb-2"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="activity_label" placeholder="Ej: Madrid…"></div>
+        <div class="mb-2"><label class="form-label">Nombre (opcional)</label><input class="form-control" name="activity_label" placeholder="Por defecto, el municipio del recinto"></div>
         <div class="mb-2"><label class="form-label">Fecha</label><input type="date" class="form-control" name="event_date">
           <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="date_unknown" value="1"><label class="form-check-label">No sé la fecha todavía</label></div>
         </div>
@@ -619,6 +994,8 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ url_for('static', filename='js/sim_partners.js') }}"></script>
+
 {% if tab == 'ticketing' and CAN_EDIT %}
 <script>
 (function(){
@@ -635,7 +1012,7 @@
     ex = ex || {};
     return '<div class="sim-extra-row d-flex gap-2 align-items-center mb-1">'+
       '<input type="text" class="form-control form-control-sm sim-extra-name" placeholder="Complemento (p. ej. Early Access)" value="'+esc(ex.name)+'">'+
-      '<div class="input-group input-group-sm" style="width:160px;"><input type="number" step="0.01" min="0" class="form-control sim-extra-amount" placeholder="Importe" value="'+(ex.amount!=null?ex.amount:'')+'"><span class="input-group-text">€ IVA inc.</span></div>'+
+      '<div class="input-group input-group-sm" style="width:160px;"><input type="number" step="0.01" min="0" class="form-control sim-extra-amount" placeholder="Importe" value="'+(ex.amount!=null?ex.amount:'')+'"><span class="input-group-text" title="IVA incluido">€ IVA inc.</span></div>'+
       '<button type="button" class="btn btn-sm btn-outline-danger sim-extra-del" title="Quitar"><i class="fa fa-xmark"></i></button>'+
     '</div>';
   }
@@ -644,7 +1021,7 @@
     return '<div class="sim-cat-row card card-body p-2 mb-2">'+
       '<div class="row g-2 align-items-end">'+
         '<div class="col-12 col-md-4"><label class="form-label small mb-0">Categoría</label><input type="text" class="form-control form-control-sm sim-cat-name" placeholder="General, VIP…" value="'+esc(c.name)+'"></div>'+
-        '<div class="col-6 col-md-3"><label class="form-label small mb-0">Precio (sin IVA, con SGAE)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control sim-cat-price" value="'+(c.price!=null?c.price:'')+'"><span class="input-group-text">€</span></div></div>'+
+        '<div class="col-6 col-md-3"><label class="form-label small mb-0" title="Sin IVA · incluye SGAE">Precio (sin IVA, con SGAE)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control sim-cat-price" value="'+(c.price!=null?c.price:'')+'"><span class="input-group-text">€</span></div></div>'+
         '<div class="col-4 col-md-2"><label class="form-label small mb-0">Aforo</label><input type="number" min="0" class="form-control form-control-sm sim-cat-qty" value="'+(c.qty!=null?c.qty:'')+'"></div>'+
         '<div class="col-4 col-md-2"><label class="form-label small mb-0">Invitaciones</label><input type="number" min="0" class="form-control form-control-sm sim-cat-inv" value="'+(c.inv!=null?c.inv:'')+'"></div>'+
         '<div class="col-4 col-md-1 d-grid"><label class="form-label small mb-0">&nbsp;</label><button type="button" class="btn btn-sm btn-outline-danger sim-cat-del" title="Quitar categoría"><i class="fa fa-trash"></i></button></div>'+
@@ -703,7 +1080,7 @@
   function recompute(){
     var data = collect();
     var tot = {qty:0, inv:0, sell:0, net:0};
-    var byZone = { PISTA:{qty:0,sell:0}, GRADA:{qty:0,sell:0} };
+    var byZone = { PISTA:{qty:0,sell:0}, GRADA:{qty:0,sell:0}, PALCO:{qty:0,sell:0} };
     data.forEach(function(r){
       var sell = Math.max(r.qty - r.inv, 0);
       tot.qty += r.qty; tot.inv += r.inv; tot.sell += sell;
@@ -740,18 +1117,46 @@
 
   initial.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), c); });
   recompute();
+
+  // Primera vez con recinto que tiene plantilla: ofrecer aplicarla.
+  var tplModal = document.getElementById('tkTplModal');
+  if(tplModal){
+    document.addEventListener('DOMContentLoaded', function(){
+      if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(tplModal).show();
+    });
+    if(document.readyState !== 'loading' && window.bootstrap){ bootstrap.Modal.getOrCreateInstance(tplModal).show(); }
+    var applyBtn = document.getElementById('tkTplApply');
+    if(applyBtn) applyBtn.addEventListener('click', function(){
+      form.querySelectorAll('[data-zone-rows]').forEach(function(w){ w.innerHTML=''; });
+      venueTpl.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), {zone:c.zone, name:c.name, qty:c.qty, inv:c.inv, extras:c.extras, price:null}); });
+      recompute();
+      if(window.bootstrap) bootstrap.Modal.getInstance(tplModal).hide();
+    });
+  }
 })();
 </script>
 {% endif %}
-{% if tab == 'ingresos' and CAN_EDIT %}
+
+{% if tab == 'ingresos' and CAN_EDIT and calc and active_activity %}
 <script>
 (function(){
   var form = document.getElementById('incomeForm');
   if(!form) return;
   function rowHtml(k){
-    return '<input type="text" class="form-control form-control-sm" name="'+k+'_name[]" placeholder="Concepto">'+
+    return '<input type="hidden" name="'+k+'_status[]" class="income-status" value="ACTIVE">'+
+      '<input type="text" class="form-control form-control-sm" name="'+k+'_name[]" placeholder="Concepto">'+
       '<div class="input-group input-group-sm" style="width:140px;"><input type="number" step="0.01" min="0" class="form-control" name="'+k+'_amount[]" placeholder="Importe"><span class="input-group-text">€</span></div>'+
-      '<button type="button" class="btn btn-sm btn-outline-danger income-del" title="Quitar"><i class="fa fa-xmark"></i></button>';
+      '<span class="badge text-bg-secondary income-badge d-none"></span>'+
+      '<div class="dropdown">'+
+        '<button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Opciones"><i class="fa fa-ellipsis-vertical"></i></button>'+
+        '<ul class="dropdown-menu dropdown-menu-end">'+
+          '<li><button type="button" class="dropdown-item income-set" data-st="ACTIVE"><i class="fa fa-rotate-left me-2"></i>Volver a incluir</button></li>'+
+          '<li><button type="button" class="dropdown-item income-set" data-st="OMIT"><i class="fa fa-eye-slash me-2"></i>Omitir ingreso</button></li>'+
+          '<li><button type="button" class="dropdown-item income-set" data-st="NA"><i class="fa fa-ban me-2"></i>No aplica</button></li>'+
+          '<li><hr class="dropdown-divider"></li>'+
+          '<li><button type="button" class="dropdown-item text-danger income-del"><i class="fa fa-trash me-2"></i>Quitar</button></li>'+
+        '</ul>'+
+      '</div>';
   }
   form.addEventListener('click', function(e){
     var add = e.target.closest('[data-income-add]');
@@ -759,29 +1164,57 @@
       var k = add.getAttribute('data-income-add');
       var wrap = form.querySelector('[data-income-rows="'+k+'"]');
       var d = document.createElement('div');
-      d.className = 'd-flex gap-2 mb-2 income-row';
+      d.className = 'd-flex gap-2 mb-2 income-row align-items-center';
       d.innerHTML = rowHtml(k);
       wrap.appendChild(d);
+      return;
+    }
+    var st = e.target.closest('.income-set');
+    if(st){
+      var row = st.closest('.income-row');
+      var val = st.getAttribute('data-st');
+      row.querySelector('.income-status').value = val;
+      row.classList.toggle('sim-row-off', val !== 'ACTIVE');
+      var badge = row.querySelector('.income-badge');
+      if(badge){
+        badge.classList.toggle('d-none', val === 'ACTIVE');
+        badge.textContent = val === 'OMIT' ? 'Omitido' : (val === 'NA' ? 'No aplica' : '');
+      }
       return;
     }
     var del = e.target.closest('.income-del');
     if(del){ del.closest('.income-row').remove(); }
   });
+
+  // Omitir / no aplica en las líneas calculadas: guarda y recarga (totales al momento).
+  var ovInput = document.getElementById('incomeOverridesJson');
+  var overrides = {};
+  try { overrides = JSON.parse(ovInput.value || '{}') || {}; } catch(e){ overrides = {}; }
+  document.addEventListener('click', function(e){
+    var b = e.target.closest('[data-inc-ov]');
+    if(!b) return;
+    var key = b.getAttribute('data-inc-ov'), val = b.getAttribute('data-val');
+    if(val) overrides[key] = val; else delete overrides[key];
+    ovInput.value = JSON.stringify(overrides);
+    if(form.requestSubmit) form.requestSubmit(); else form.submit();
+  });
 })();
 </script>
 {% endif %}
-{% if tab == 'gastos' and CAN_EDIT %}
+
+{% if tab == 'gastos' and CAN_EDIT and active_activity %}
 <script>
 (function(){
   var form = document.getElementById('expensesForm');
   if(!form) return;
   var data = {caches:[],commissions:[],production:[]};
   try { data = JSON.parse(document.getElementById('expensesData').textContent||'{}'); } catch(e){}
-  var bagCats = [];
-  try { bagCats = JSON.parse(document.getElementById('bagCats').textContent||'[]'); } catch(e){}
   var festArtists = [];
   try { festArtists = JSON.parse((document.getElementById('festivalArtists')||{}).textContent||'[]'); } catch(e){}
+  var tplData = [];
+  try { tplData = JSON.parse((document.getElementById('expenseTemplatesData')||{}).textContent||'[]'); } catch(e){}
   var $ = window.jQuery; var hasS2 = !!($ && $.fn && $.fn.select2);
+  var RETENTION = {{ 'true' if retention_relevant else 'false' }};
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
   function artistChips(selected){
@@ -794,25 +1227,31 @@
     return '<div class="cost-artists mt-2 pt-2 border-top"><div class="small text-muted mb-1"><i class="fa fa-people-group me-1"></i>Artista(s) — si marcas varios, se reparte a partes iguales <span class="cost-art-note fw-semibold"></span></div><div class="d-flex flex-wrap gap-1">'+chips+'</div></div>';
   }
   function val(v){ return (v!=null && v!=='')? v : ''; }
-  function sel(a,b){ return String(a).toUpperCase()===b ? 'selected' : ''; }
+  function sel(a,b){ return String(a==null?'':a).toUpperCase()===b ? 'selected' : ''; }
   function eur(v){ var n=Number(v)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' €'; }
 
-  function varFrag(o){
-    o=o||{}; var vt=(o.var_type||'PER_TICKET'); var tt=(o.var_threshold_type||'NONE');
-    return '<div class="row g-2 align-items-end">'+
+  // El umbral no se muestra hasta elegir el tipo de variable. condUnder añade el
+  // condicionante «solo si se venden menos de X entradas» (gastos del recinto).
+  function varFrag(o, opts){
+    o=o||{}; opts=opts||{};
+    var vt=(o.var_type||''); var tt=(o.var_threshold_type||'NONE');
+    var more = vt ? '' : 'd-none';
+    return '<div class="row g-2 align-items-end cv-wrap">'+
       '<div class="col-md-6"><label class="form-label small mb-0">Variable por</label>'+
         '<select class="form-select form-select-sm cv-type">'+
+          '<option value="" '+sel(vt,'')+'>— Elige tipo de variable —</option>'+
           '<option value="PER_TICKET" '+sel(vt,'PER_TICKET')+'>Por entrada (€)</option>'+
           '<option value="PERCENT" '+sel(vt,'PERCENT')+'>Porcentaje (% taquilla)</option>'+
         '</select></div>'+
-      '<div class="col-md-6"><label class="form-label small mb-0">Valor</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-value" value="'+val(o.var_value)+'"></div>'+
-      '<div class="col-md-6"><label class="form-label small mb-0">Umbral</label>'+
+      '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Valor</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-value" value="'+val(o.var_value)+'"></div>'+
+      '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Umbral</label>'+
         '<select class="form-select form-select-sm cv-tt">'+
           '<option value="NONE" '+sel(tt,'NONE')+'>Sin umbral</option>'+
           '<option value="TICKETS" '+sel(tt,'TICKETS')+'>A partir de nº de entradas</option>'+
           '<option value="AMOUNT" '+sel(tt,'AMOUNT')+'>A partir de importe (€)</option>'+
         '</select></div>'+
-      '<div class="col-md-6"><label class="form-label small mb-0">Umbral (valor)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-tv" value="'+val(o.var_threshold_value)+'"></div>'+
+      '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Umbral (valor)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-tv" value="'+val(o.var_threshold_value)+'"></div>'+
+      (opts.condUnder ? '<div class="col-12 cv-more '+more+'"><label class="form-label small mb-0">Solo si se venden <strong>menos de</strong>… entradas (vacío = aplica siempre)</label><input type="number" min="0" class="form-control form-control-sm cv-cond" style="max-width:220px;" value="'+val(o.cond_under_tickets)+'"></div>' : '')+
     '</div>';
   }
   function modeToggle(mode){
@@ -827,7 +1266,7 @@
       '<div class="col-md-4"><label class="form-label small mb-0">Importe</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control cf-amount" value="'+val(o.amount)+'"><span class="input-group-text">€</span></div></div>'+
       '<div class="col-md-8 d-flex flex-wrap gap-3 align-items-center pt-3">'+
         '<div class="form-check"><input type="checkbox" class="form-check-input cf-iva" '+(o.includes_iva?'checked':'')+'><label class="form-check-label small">Incluye IVA</label></div>'+
-        '<div class="form-check"><input type="checkbox" class="form-check-input cf-ret" '+(o.includes_retention?'checked':'')+'><label class="form-check-label small">Incluye retención</label></div>'+
+        (RETENTION ? '<div class="form-check"><input type="checkbox" class="form-check-input cf-ret" '+(o.includes_retention?'checked':'')+'><label class="form-check-label small">Incluye retención</label></div>' : '')+
       '</div></div>';
   }
   function cacheCard(o){
@@ -837,7 +1276,7 @@
         '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
       '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
       '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+'</div>'+
-      '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+      (RETENTION ? '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>' : '<input type="hidden" class="c-exempt-hidden">')+
       artistChips(o.artist_ids)+
     '</div>';
   }
@@ -852,36 +1291,60 @@
       '<div class="mb-2">'+modeToggle(mode)+'</div>'+
       '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
       '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+
-        '<div class="row g-2 mt-1"><div class="col-md-6"><label class="form-label small mb-0">Importe exento de comisiones (€)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cc-exempt-amount" value="'+val(o.exempt_amount)+'"></div></div>'+
+        '<div class="row g-2 mt-1 cv-more '+((o.var_type)?'':'d-none')+'"><div class="col-md-6"><label class="form-label small mb-0">Importe exento de comisiones (€)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cc-exempt-amount" value="'+val(o.exempt_amount)+'"></div></div>'+
       '</div>'+
-      '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>'+
+      (RETENTION ? '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>' : '')+
       artistChips(o.artist_ids)+
     '</div>';
   }
-  function prodRow(o){
+
+  // --- Gasto de una categoría (sin selector de categoría: la da su tarjeta) ---
+  function prodRow(o, catKey){
     o=o||{};
-    var opts = bagCats.map(function(kv){ return '<option value="'+kv[0]+'" '+sel(o.category||'OTROS',kv[0])+'>'+esc(kv[1])+'</option>'; }).join('');
     var isVar=!!o.is_variable;
-    return '<div class="card card-body p-2 mb-2 prod-row">'+
+    var iva=(o.iva_pct!=null&&o.iva_pct!=='')?o.iva_pct:21;
+    return '<div class="card card-body p-2 mb-2 prod-row" data-cat="'+esc(catKey)+'">'+
       '<div class="row g-2 align-items-end">'+
-        '<div class="col-md-3"><label class="form-label small mb-0">Categoría</label><select class="form-select form-select-sm pr-cat">'+opts+'</select></div>'+
-        '<div class="col-md-4"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
-        '<div class="col-6 col-md-2"><label class="form-label small mb-0">Importe (sin IVA)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
-        '<div class="col-3 col-md-1"><label class="form-label small mb-0">IVA</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-iva" value="'+(o.iva_pct!=null&&o.iva_pct!==''?o.iva_pct:21)+'"><span class="input-group-text">%</span></div></div>'+
-        '<div class="col-3 col-md-2 d-flex gap-1 justify-content-end">'+
-          '<button type="button" class="btn btn-sm '+(isVar?'btn-primary':'btn-outline-secondary')+' pr-var-toggle" title="Importe variable (como cachés)"><i class="fa fa-chart-line"></i></button>'+
+        '<div class="col-12 col-md-5"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
+        '<div class="col-7 col-md-3"><label class="form-label small mb-0">Importe</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
+        '<div class="col-5 col-md-4 d-flex gap-1 justify-content-end align-items-center">'+
+          '<span class="badge text-bg-light border pr-iva-badge me-auto" title="Configura el IVA con la rueda"></span>'+
+          '<button type="button" class="btn btn-sm '+(isVar?'btn-primary':'btn-outline-secondary')+' pr-var-toggle" title="Importe variable"><i class="fa fa-chart-line"></i></button>'+
+          '<button type="button" class="btn btn-sm btn-outline-secondary pr-cfg-toggle" title="Configurar gasto (IVA)"><i class="fa fa-gear"></i></button>'+
           '<button type="button" class="btn btn-sm btn-outline-danger prod-del" title="Quitar"><i class="fa fa-trash"></i></button>'+
         '</div>'+
       '</div>'+
-      '<div class="prod-var mt-2 '+(isVar?'':'d-none')+'">'+varFrag(o)+'</div>'+
+      '<div class="pr-cfg mt-2 d-none"><div class="d-flex flex-wrap gap-3 align-items-end border rounded p-2 bg-light">'+
+        '<div><label class="form-label small mb-0">IVA</label><div class="input-group input-group-sm" style="width:110px;"><input type="number" step="0.01" min="0" class="form-control pr-iva" value="'+iva+'"><span class="input-group-text">%</span></div></div>'+
+        '<label class="form-check small mb-1"><input type="checkbox" class="form-check-input pr-inciva" '+(o.includes_iva?'checked':'')+'> El importe incluye IVA</label>'+
+        '<label class="form-check small mb-1"><input type="checkbox" class="form-check-input pr-exempt" '+(o.iva_exempt?'checked':'')+'> Exento de IVA</label>'+
+      '</div></div>'+
+      '<div class="prod-var mt-2 '+(isVar?'':'d-none')+'">'+varFrag(o,{condUnder: catKey==='RECINTO'})+'</div>'+
     '</div>';
+  }
+  function ivaBadge(row){
+    var b=row.querySelector('.pr-iva-badge'); if(!b) return;
+    var exempt=row.querySelector('.pr-exempt').checked;
+    var inc=row.querySelector('.pr-inciva').checked;
+    var iva=parseFloat(row.querySelector('.pr-iva').value||'21')||0;
+    b.textContent = exempt ? 'Exento de IVA' : (inc ? ('IVA '+iva+'% incluido') : ('+ IVA '+iva+'%'));
   }
 
   function appendHtml(c, html){ var d=document.createElement('div'); d.innerHTML=html; var el=d.firstElementChild; c.appendChild(el); return el; }
   var addCacheBtn=document.getElementById('addCache'); if(addCacheBtn) addCacheBtn.addEventListener('click', function(){ appendHtml(document.getElementById('cachesList'), cacheCard(null)); });
-  var addProdBtn=document.getElementById('addProd'); if(addProdBtn) addProdBtn.addEventListener('click', function(){ appendHtml(document.getElementById('productionList'), prodRow(null)); recompute(); });
+
+  function addProd(catKey, o){
+    var wrap=form.querySelector('[data-cat-rows="'+catKey+'"]');
+    if(!wrap) return null;
+    var el=appendHtml(wrap, prodRow(o, catKey));
+    ivaBadge(el);
+    recompute();
+    return el;
+  }
 
   form.addEventListener('click', function(e){
+    var ca=e.target.closest('[data-cat-add]');
+    if(ca){ addProd(ca.getAttribute('data-cat-add'), null); return; }
     var mb=e.target.closest('.mode-btn');
     if(mb){
       var grp=mb.closest('.cost-mode'); grp.querySelectorAll('.mode-btn').forEach(function(b){ b.classList.toggle('active', b===mb); });
@@ -893,39 +1356,67 @@
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); return; }
     var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
+    var pc=e.target.closest('.pr-cfg-toggle'); if(pc){ pc.closest('.prod-row').querySelector('.pr-cfg').classList.toggle('d-none'); return; }
     var ch=e.target.closest('.cost-art-chip'); if(ch){ ch.classList.toggle('btn-primary'); ch.classList.toggle('btn-outline-secondary'); var cc=ch.closest('.cost-card'); var nn=cc.querySelectorAll('.cost-art-chip.btn-primary').length; var note=cc.querySelector('.cost-art-note'); if(note) note.textContent = nn>1 ? ('· compartido entre '+nn+' (÷'+nn+')') : ''; return; }
   });
-  form.addEventListener('input', function(e){ if(e.target.matches('.pr-net,.pr-iva')) recompute(); });
+  form.addEventListener('input', function(e){
+    if(e.target.matches('.pr-net,.pr-iva')) { var r=e.target.closest('.prod-row'); if(r) ivaBadge(r); recompute(); }
+  });
+  form.addEventListener('change', function(e){
+    if(e.target.matches('.cv-type')){
+      var wrap=e.target.closest('.cost-var, .prod-var');
+      var show=!!e.target.value;
+      (wrap||e.target.closest('.cv-wrap').parentNode).querySelectorAll('.cv-more').forEach(function(el){ el.classList.toggle('d-none', !show); });
+      return;
+    }
+    if(e.target.matches('.pr-inciva,.pr-exempt')){ var r=e.target.closest('.prod-row'); if(r){ ivaBadge(r); } recompute(); }
+  });
 
+  function rowNet(row){
+    var n=parseFloat(row.querySelector('.pr-net').value||'0')||0;
+    var exempt=row.querySelector('.pr-exempt').checked;
+    var inc=row.querySelector('.pr-inciva').checked;
+    var iva=parseFloat(row.querySelector('.pr-iva').value||'21')||0;
+    if(!exempt && inc && iva>0) n = n/(1+iva/100);
+    return n;
+  }
   function recompute(){
-    var net=0, gross=0;
-    document.querySelectorAll('#productionList .prod-row').forEach(function(row){
-      if(!row.querySelector('.prod-var').classList.contains('d-none')) return;
-      var n=parseFloat(row.querySelector('.pr-net').value||'0')||0;
-      var iva=parseFloat(row.querySelector('.pr-iva').value||'0')||0;
-      net+=n; gross+=n*(1+iva/100);
+    var grand=0;
+    form.querySelectorAll('[data-cat-rows]').forEach(function(wrap){
+      var key=wrap.getAttribute('data-cat-rows');
+      var net=0, vars=0;
+      wrap.querySelectorAll('.prod-row').forEach(function(row){
+        if(row.querySelector('.prod-var').classList.contains('d-none')){ net+=rowNet(row); }
+        else { vars++; }
+      });
+      grand+=net;
+      var t=form.querySelector('[data-cat-total="'+key+'"]'); if(t) t.textContent=eur(net);
+      var vn=form.querySelector('[data-cat-var-note="'+key+'"]'); if(vn) vn.textContent = vars ? ('+ '+vars+' variable'+(vars>1?'s':'')) : '';
+      var empty=form.querySelector('[data-cat-empty="'+key+'"]'); if(empty) empty.classList.toggle('d-none', wrap.children.length>0);
     });
-    var en=document.getElementById('prodNet'); if(en) en.textContent=eur(net);
-    var eg=document.getElementById('prodGross'); if(eg) eg.textContent=eur(gross);
+    var g=document.getElementById('gastosGrandTotal'); if(g) g.textContent=eur(grand);
   }
 
   function readVar(c){
+    var cond=c.querySelector('.cv-cond');
     return {
-      var_type: c.querySelector('.cv-type') ? c.querySelector('.cv-type').value : null,
+      var_type: c.querySelector('.cv-type') ? (c.querySelector('.cv-type').value || null) : null,
       var_value: c.querySelector('.cv-value') ? (parseFloat(c.querySelector('.cv-value').value||'0')||0) : 0,
       var_threshold_type: c.querySelector('.cv-tt') ? c.querySelector('.cv-tt').value : null,
-      var_threshold_value: c.querySelector('.cv-tv') ? (parseFloat(c.querySelector('.cv-tv').value||'0')||0) : 0
+      var_threshold_value: c.querySelector('.cv-tv') ? (parseFloat(c.querySelector('.cv-tv').value||'0')||0) : 0,
+      cond_under_tickets: (cond && cond.value !== '') ? (parseFloat(cond.value)||0) : null
     };
   }
   function activeMode(c){ var b=c.querySelector('.mode-btn.active'); return b?b.getAttribute('data-mode'):'FIXED'; }
   function cardArtistIds(c){ return Array.prototype.map.call(c.querySelectorAll('.cost-art-chip.btn-primary'), function(b){ return b.getAttribute('data-aid'); }); }
+  function exemptChecked(c){ var e=c.querySelector('.c-exempt'); return e ? e.checked : false; }
 
   function collectCaches(){
     var out=[];
     document.querySelectorAll('#cachesList .cost-card').forEach(function(c){
-      var mode=activeMode(c); var row={mode:mode, retention_exempt:c.querySelector('.c-exempt').checked};
+      var mode=activeMode(c); var row={mode:mode, retention_exempt:exemptChecked(c)};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); }
-      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
       row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
@@ -935,9 +1426,9 @@
     var out=[];
     document.querySelectorAll('#commissionsList .cost-card').forEach(function(c){
       var mode=activeMode(c);
-      var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', media_outlet_id:c.getAttribute('data-media-outlet-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:c.querySelector('.c-exempt').checked};
+      var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', media_outlet_id:c.getAttribute('data-media-outlet-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:exemptChecked(c)};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=parseFloat(c.querySelector('.cc-exempt-amount').value||'0')||0; }
-      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
+      else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; var ret=c.querySelector('.cf-ret'); row.includes_retention=ret?ret.checked:false; }
       row.artist_ids=cardArtistIds(c);
       out.push(row);
     });
@@ -945,19 +1436,74 @@
   }
   function collectProduction(){
     var out=[];
-    document.querySelectorAll('#productionList .prod-row').forEach(function(row){
-      var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
-      var o={ category:row.querySelector('.pr-cat').value, concept:row.querySelector('.pr-concept').value||'', amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0, iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0, is_variable:isVar };
-      if(isVar) Object.assign(o, readVar(row));
-      out.push(o);
+    form.querySelectorAll('[data-cat-rows]').forEach(function(wrap){
+      var key=wrap.getAttribute('data-cat-rows');
+      wrap.querySelectorAll('.prod-row').forEach(function(row){
+        var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
+        var o={ category:key, concept:row.querySelector('.pr-concept').value||'',
+                amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0,
+                iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0,
+                includes_iva:row.querySelector('.pr-inciva').checked,
+                iva_exempt:row.querySelector('.pr-exempt').checked,
+                is_variable:isVar };
+        if(isVar) Object.assign(o, readVar(row.querySelector('.prod-var')));
+        out.push(o);
+      });
     });
     return out;
   }
-  form.addEventListener('submit', function(){
+  function fillPayload(){
     document.getElementById('cachesJson').value=JSON.stringify(collectCaches());
     document.getElementById('commissionsJson').value=JSON.stringify(collectCommissions());
     document.getElementById('productionJson').value=JSON.stringify(collectProduction());
+  }
+
+  // Al guardar: ofrecer vincular como plantilla (si hay recinto/artista/evento).
+  var saveModalEl = document.getElementById('gastosSaveModal');
+  var skipModal = false;
+  form.addEventListener('submit', function(e){
+    fillPayload();
+    if(saveModalEl && window.bootstrap && !skipModal){
+      e.preventDefault();
+      bootstrap.Modal.getOrCreateInstance(saveModalEl).show();
+    }
   });
+  var saveOnly=document.getElementById('gastosSaveOnly');
+  if(saveOnly) saveOnly.addEventListener('click', function(){
+    document.getElementById('templateSaveJson').value='';
+    skipModal=true; fillPayload(); form.submit();
+  });
+  var saveLink=document.getElementById('gastosSaveAndLink');
+  if(saveLink) saveLink.addEventListener('click', function(){
+    var name=(document.getElementById('gastosTplName').value||'').trim();
+    if(!name){ alert('Pon un nombre a la plantilla.'); return; }
+    var owner=(document.querySelector('input[name="gastosTplOwner"]:checked')||{}).value||'';
+    var cats=Array.prototype.filter.call(document.querySelectorAll('.gastos-tpl-cat'), function(c){ return c.checked; }).map(function(c){ return c.value; });
+    document.getElementById('templateSaveJson').value=JSON.stringify({owner:owner, name:name, categories:cats});
+    skipModal=true; fillPayload(); form.submit();
+  });
+
+  // Cargar plantilla (aviso de primera vez o botón).
+  var tplModalEl=document.getElementById('gastosTplModal');
+  var tplApply=document.getElementById('gastosTplApply');
+  if(tplApply) tplApply.addEventListener('click', function(){
+    var pick=document.querySelector('input[name="gastosTplPick"]:checked');
+    if(!pick) return;
+    var tpl=tplData[parseInt(pick.value,10)];
+    if(!tpl) return;
+    var existing=form.querySelectorAll('.prod-row').length;
+    if(existing && !confirm('Ya hay gastos en esta fecha. ¿Sustituirlos por los de la plantilla «'+tpl.name+'»?')) return;
+    form.querySelectorAll('[data-cat-rows]').forEach(function(w){ w.innerHTML=''; });
+    (tpl.items||[]).forEach(function(it){ addProd(it.category||'OTROS', it); });
+    recompute();
+    if(window.bootstrap && tplModalEl) bootstrap.Modal.getInstance(tplModalEl).hide();
+  });
+  {% if show_expense_tpl_prompt %}
+  if(tplModalEl){
+    var showTpl=function(){ if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(tplModalEl).show(); };
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', showTpl); else showTpl();
+  }
+  {% endif %}
 
   function entityFmt(d){ if(!d.id) return d.text; var p=d.photo||(d.element&&$(d.element).data('photo'))||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-user-tie"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
   if(hasS2){
@@ -975,7 +1521,7 @@
       appendHtml(document.getElementById('commissionsList'), commissionCard({
         promoter_id: d.kind === 'media' ? '' : d.id,
         media_outlet_id: d.kind === 'media' ? d.id : '',
-        name: (d.text || 'Comisionista').replace(/ \u00b7 medio$/, ''),
+        name: (d.text || 'Comisionista').replace(/ · medio$/, ''),
         logo: d.photo || '', mode: 'FIXED'
       }));
       $(this).val(null).trigger('change');
@@ -984,11 +1530,130 @@
 
   (data.caches||[]).forEach(function(o){ appendHtml(document.getElementById('cachesList'), cacheCard(o)); });
   (data.commissions||[]).forEach(function(o){ appendHtml(document.getElementById('commissionsList'), commissionCard(o)); });
-  (data.production||[]).forEach(function(o){ appendHtml(document.getElementById('productionList'), prodRow(o)); });
+  (data.production||[]).forEach(function(o){ addProd(o.category||'OTROS', o); });
   recompute();
 })();
 </script>
 {% endif %}
+
+{# --- Editor de socios (comunes o por fecha): filas, partes iguales, total --- #}
+{% if CAN_EDIT %}
+<script>
+(function(){
+  var editors = document.querySelectorAll('.sim-partners-editor');
+  if(!editors.length) return;
+  var $ = window.jQuery; var hasS2 = !!($ && $.fn && $.fn.select2);
+
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function rowHtml(kind, ref, label, logo, pct){
+    var img = logo ? '<img src="'+esc(logo)+'" class="sim-partner-img">' : '<span class="sim-partner-img sim-partner-img--ph"><i class="fa '+(kind==='company'?'fa-building':'fa-user')+'"></i></span>';
+    return '<div class="sim-partner-row d-flex align-items-center gap-2 mb-2" data-kind="'+kind+'">'+img+
+      '<span class="sim-partner-name flex-grow-1 text-truncate">'+esc(label)+'</span>'+
+      '<div class="input-group input-group-sm" style="width:130px;"><input type="number" step="0.01" min="0" max="100" class="form-control pe-pct" name="partner_pct[]" value="'+(pct||0)+'"><span class="input-group-text">%</span></div>'+
+      '<button type="button" class="btn btn-sm btn-outline-danger pe-del" title="Quitar socio"><i class="fa fa-trash"></i></button>'+
+      '<input type="hidden" name="partner_kind[]" value="'+kind+'">'+
+      '<input type="hidden" name="partner_ref[]" value="'+esc(ref||'')+'">'+
+      '<input type="hidden" name="partner_label[]" value="'+esc(label||'')+'">'+
+    '</div>';
+  }
+  function updateTotal(ed){
+    var sum=0;
+    ed.querySelectorAll('.pe-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; });
+    sum = Math.round(sum*100)/100;
+    var el=ed.querySelector('.pe-total');
+    if(el){ el.textContent = sum+'%'; el.className = 'badge fs-6 pe-total ' + (Math.abs(sum-100) < 0.5 ? 'text-bg-success' : 'text-bg-warning text-dark'); }
+  }
+  function addRow(ed, kind, ref, label, logo, pct){
+    var list=ed.querySelector('.pe-list');
+    var d=document.createElement('div'); d.innerHTML=rowHtml(kind, ref, label, logo, pct);
+    list.appendChild(d.firstElementChild);
+    updateTotal(ed);
+  }
+
+  editors.forEach(function(ed){
+    updateTotal(ed);
+    ed.addEventListener('input', function(e){ if(e.target.classList.contains('pe-pct')) updateTotal(ed); });
+    ed.addEventListener('click', function(e){
+      var del=e.target.closest('.pe-del');
+      if(del){ del.closest('.sim-partner-row').remove(); updateTotal(ed); return; }
+      var eq=e.target.closest('.pe-equal');
+      if(eq){
+        var rows=ed.querySelectorAll('.sim-partner-row'); var n=rows.length; if(!n) return;
+        var each=Math.floor((100/n)*100)/100, acc=0;
+        rows.forEach(function(r,i){ var inp=r.querySelector('.pe-pct'); var v=(i===n-1)?Math.round((100-acc)*100)/100:each; acc+=each; inp.value=v; });
+        updateTotal(ed);
+        return;
+      }
+    });
+    var companySel=ed.querySelector('.pe-company');
+    if(companySel) companySel.addEventListener('change', function(){
+      if(!this.value) return;
+      var opt=this.options[this.selectedIndex];
+      addRow(ed, 'company', this.value, opt.getAttribute('data-name')||opt.text, opt.getAttribute('data-logo')||'', 0);
+      this.value='';
+    });
+    var promSel=ed.querySelector('.pe-promoter');
+    if(promSel && hasS2){
+      $(promSel).select2({
+        width:'100%', dropdownParent:$(ed.closest('.modal') || document.body), placeholder:'Buscar tercero…', allowClear:true, minimumInputLength:1,
+        ajax:{ url:"{{ url_for('api_search_promoters') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
+          processResults:function(data){ return { results:(data||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.photo_url||it.logo_url||''}; }) }; } },
+        templateResult:function(d){ if(!d.id) return d.text; var img=d.photo?'<img class="thumb" src="'+d.photo+'">':'<span class="me-2"><i class="fa fa-circle-user"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); },
+        templateSelection:function(d){ return d.text||''; }, escapeMarkup:function(m){return m;}
+      });
+      $(promSel).on('change', function(){
+        var id=this.value; if(!id) return;
+        var opt=this.options[this.selectedIndex];
+        addRow(ed, 'promoter', id, opt?opt.text:'Tercero', opt?(opt.getAttribute('data-photo')||''):'', 0);
+        $(this).val(null).trigger('change.select2');
+      });
+    }
+    ed.addEventListener('submit', function(e){
+      if(e.submitter && e.submitter.hasAttribute('data-pe-common')) return; // volver a comunes: sin validación de suma
+      var rows=ed.querySelectorAll('.sim-partner-row');
+      if(rows.length){
+        var sum=0; ed.querySelectorAll('.pe-pct').forEach(function(i){ sum+=parseFloat(i.value||'0')||0; });
+        if(Math.abs(Math.round(sum*100)/100 - 100) >= 0.5){
+          e.preventDefault();
+          alert('El reparto entre socios debe sumar 100% (ahora suma '+(Math.round(sum*100)/100)+'%).');
+        }
+      }
+    });
+  });
+})();
+</script>
+{% endif %}
+
+{% if tab == 'resumen' and calc and calc.ticketing.sellable %}
+<script>
+(function(){
+  var el = document.getElementById('simResumenChart');
+  if(!el || !window.Chart) return;
+  var series = {{ calc.series|tojson }};
+  var labels = series.map(function(r){ return r.pct + '%'; });
+  new Chart(el, {
+    data: {
+      labels: labels,
+      datasets: [
+        { type:'bar', label:'Resultado', data: series.map(function(r){ return r.resultado; }),
+          backgroundColor: series.map(function(r){ return r.resultado >= 0 ? 'rgba(22,163,74,.55)' : 'rgba(220,38,38,.55)'; }),
+          borderRadius: 4 },
+        { type:'line', label:'Ingresos', data: series.map(function(r){ return r.ingresos; }), borderColor:'#007CA2', backgroundColor:'transparent', tension:.25, pointRadius:2 },
+        { type:'line', label:'Gastos', data: series.map(function(r){ return r.gastos; }), borderColor:'#E33D48', backgroundColor:'transparent', tension:.25, pointRadius:2 }
+      ]
+    },
+    options: {
+      responsive:true,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ legend:{ labels:{ boxWidth:12 } },
+        tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+(Number(ctx.parsed.y)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' € (sin IVA)'; } } } },
+      scales:{ y:{ ticks:{ callback:function(v){ return Number(v).toLocaleString('es-ES')+' €'; } } } }
+    }
+  });
+})();
+</script>
+{% endif %}
+
 {% if show_general %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -1009,7 +1674,7 @@
       if(d && d.ok){
         var ll=[d.lat, d.lng];
         var icon=L.divIcon({className:'', html:'<div style="background:#E33D48;color:#fff;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;">'+p.n+'</div>', iconSize:[26,26], iconAnchor:[13,13]});
-        L.marker(ll,{icon:icon}).addTo(map).bindPopup('<strong>'+p.n+'. '+(p.name||'')+'</strong><br>'+p.city);
+        L.marker(ll,{icon:icon}).addTo(map).bindPopup('<strong>'+p.n+'. '+(p.name||'')+'</strong><br>'+p.city+(p.date?('<br>'+p.date):''));
         coords.push({n:p.n, ll:ll});
       }
     }).catch(function(){}).then(step);

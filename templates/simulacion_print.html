@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Simulación · {{ sim.title or (sim.artist.name if sim.artist else '') }}</title>
+<title>Simulación · {{ sim.title or subject.name }}</title>
 <style>
   /* ESTÉTICA COMÚN de los PDFs de la casa (invitaciones): logo del grupo arriba a la DERECHA,
      título centrado con línea de contexto gris, "pastilla" de cabecera (tarjeta gris redondeada
@@ -74,10 +74,10 @@
   <div class="ph-title">Simulación</div>
   <div class="ph-sub">{{ [kind_label, (company.name if company else None)]|select|join(' · ') }}</div>
   <div class="hero">
-    {% if sim.artist and sim.artist.photo_url %}<img class="ava" src="{{ sim.artist.photo_url }}" alt="">{% endif %}
+    {% if subject.photo %}<img class="ava" src="{{ subject.photo }}" alt="">{% endif %}
     <div>
-      <div class="nm">{{ sim.title or (sim.artist.name if sim.artist else 'Simulación') }}</div>
-      <div class="mt"><b>Artista:</b> {{ sim.artist.name if sim.artist else '—' }} &nbsp;·&nbsp; <b>Empresa:</b> {{ company.name if company else 'Sin asignar' }}</div>
+      <div class="nm">{{ sim.title or subject.name }}</div>
+      <div class="mt"><b>{{ 'Evento' if subject.is_event else 'Artista' }}:</b> {{ subject.name }} &nbsp;·&nbsp; <b>Empresa:</b> {{ company.name if company else 'Sin asignar' }}</div>
       {% if not is_multi and blocks %}
         {% set a = blocks[0].activity %}
         <div class="mt">

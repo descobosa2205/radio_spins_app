@@ -2953,11 +2953,29 @@ class EmbargoOrder(Base):
 # Los socios (% que suman 100) viven a nivel de simulación.
 # ============================================================================
 
+class AppEvent(Base):
+    """Evento (base de datos propia, sección Bases de datos → Eventos).
+
+    Funciona como un "artista" en Simulaciones (una simulación puede ser de un
+    artista O de un evento), pero NO aparece en las búsquedas de artistas: solo
+    en las de eventos. Se crea con nombre y, opcionalmente, logo.
+    """
+    __tablename__ = "app_events"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    logo_url = Column(Text)
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class Simulation(Base):
     """Simulación económica de un concierto o de una gira."""
     __tablename__ = "simulations"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
-    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Sujeto: un ARTISTA o un EVENTO (uno de los dos).
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="CASCADE"), nullable=True, index=True)
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("app_events.id", ondelete="CASCADE"), nullable=True, index=True)
     managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"), index=True)
     kind = Column(Text, nullable=False, server_default=text("'CONCERT'"))   # CONCERT | TOUR | CYCLE | FESTIVAL
     title = Column(Text)
@@ -2970,6 +2988,7 @@ class Simulation(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
     artist = relationship("Artist")
+    event = relationship("AppEvent")
     managing_company = relationship("GroupCompany")
     activities = relationship(
         "SimulationActivity", back_populates="simulation",
@@ -3029,10 +3048,16 @@ class SimulationActivity(Base):
 
 
 class SimulationPartner(Base):
-    """Socio de la simulación (empresa del grupo o tercero). Los % suman 100."""
+    """Socio de la simulación (empresa del grupo o tercero). Los % suman 100.
+
+    activity_id NULL = socio COMÚN de toda la simulación. Con activity_id = reparto
+    PROPIO de esa fecha (giras/ciclos con socios distintos por fecha): si una fecha
+    tiene filas propias, estas sustituyen a las comunes para esa fecha.
+    """
     __tablename__ = "simulation_partners"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     simulation_id = Column(PGUUID(as_uuid=True), ForeignKey("simulations.id", ondelete="CASCADE"), nullable=False, index=True)
+    activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=True, index=True)
     company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"), index=True)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
     name = Column(Text)  # etiqueta/snapshot (socio sin ficha o para preservar el nombre)
@@ -3095,6 +3120,7 @@ class SimulationIncomeItem(Base):
     kind = Column(Text, nullable=False, server_default=text("'SUBVENCION'"))  # SUBVENCION | PATROCINIO
     name = Column(Text, nullable=False, server_default=text("''"))
     amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA
+    status = Column(Text, nullable=False, server_default=text("'ACTIVE'"))    # ACTIVE | OMIT | NA
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     activity = relationship("SimulationActivity", back_populates="income_items")
@@ -3157,16 +3183,20 @@ class SimulationProductionItem(Base):
     __tablename__ = "simulation_production_items"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
-    category = Column(Text, nullable=False, server_default=text("'OTROS'"))   # claves de BAG_EXPENSE_CATEGORIES
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))   # claves de SIM_EXPENSE_CATEGORIES
     concept = Column(Text, nullable=False, server_default=text("''"))
-    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA (o con IVA si includes_iva)
     iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
+    includes_iva = Column(Boolean, nullable=False, server_default=text("false"))  # el importe tecleado lleva el IVA dentro
+    iva_exempt = Column(Boolean, nullable=False, server_default=text("false"))    # gasto exento de IVA
     # Variable (p. ej. alquiler de recinto variable; se configura como los cachés)
     is_variable = Column(Boolean, nullable=False, server_default=text("false"))
     var_type = Column(Text)              # PER_TICKET | PERCENT
     var_value = Column(Numeric, nullable=False, server_default=text("0"))
     var_threshold_type = Column(Text)
     var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    # Condicionante (gastos del recinto): el variable solo aplica si se venden MENOS de X entradas.
+    cond_under_tickets = Column(Numeric)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     activity = relationship("SimulationActivity", back_populates="production_items")
@@ -3202,6 +3232,55 @@ class VenueTicketExtra(Base):
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     category = relationship("VenueTicketCategory", back_populates="extras")
+
+
+# ----- Plantillas de GASTOS (vinculadas a artista, evento o recinto) -----
+
+class ExpenseTemplate(Base):
+    """Plantilla de gastos reutilizable en Simulaciones.
+
+    Pertenece a un artista, un evento o un recinto (owner polimórfico). Se crea al
+    guardar los gastos de una simulación («vincular gastos a…» con nombre) y se
+    ofrece al abrir la pestaña de gastos de una simulación nueva.
+    """
+    __tablename__ = "expense_templates"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)   # ARTIST | EVENT | VENUE
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    name = Column(Text, nullable=False, server_default=text("''"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    items = relationship(
+        "ExpenseTemplateItem", back_populates="template",
+        cascade="all, delete-orphan", order_by="ExpenseTemplateItem.sort_order",
+    )
+
+    __table_args__ = (
+        Index("idx_expense_templates_owner", "owner_type", "owner_id"),
+    )
+
+
+class ExpenseTemplateItem(Base):
+    """Línea de una plantilla de gastos (mismos campos que SimulationProductionItem)."""
+    __tablename__ = "expense_template_items"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    template_id = Column(PGUUID(as_uuid=True), ForeignKey("expense_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    category = Column(Text, nullable=False, server_default=text("'OTROS'"))
+    concept = Column(Text, nullable=False, server_default=text("''"))
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))
+    iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
+    includes_iva = Column(Boolean, nullable=False, server_default=text("false"))
+    iva_exempt = Column(Boolean, nullable=False, server_default=text("false"))
+    is_variable = Column(Boolean, nullable=False, server_default=text("false"))
+    var_type = Column(Text)
+    var_value = Column(Numeric, nullable=False, server_default=text("0"))
+    var_threshold_type = Column(Text)
+    var_threshold_value = Column(Numeric, nullable=False, server_default=text("0"))
+    cond_under_tickets = Column(Numeric)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    template = relationship("ExpenseTemplate", back_populates="items")
 
 
 # ---------------------------------------------------------------------------
@@ -3572,6 +3651,61 @@ def ensure_simulations_schema():
         "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS media_outlet_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS idx_sim_activities_artist ON simulation_activities(artist_id);",
+        # --- Eventos (Bases de datos → Eventos): sujeto alternativo de una simulación ---
+        """
+        CREATE TABLE IF NOT EXISTS app_events (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            logo_url text,
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "ALTER TABLE IF EXISTS simulations ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
+        "ALTER TABLE IF EXISTS simulations ALTER COLUMN artist_id DROP NOT NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_simulations_event ON simulations(event_id);",
+        # --- Socios por fecha (gira/ciclo): NULL = socio común de toda la simulación ---
+        "ALTER TABLE IF EXISTS simulation_partners ADD COLUMN IF NOT EXISTS activity_id uuid REFERENCES simulation_activities(id) ON DELETE CASCADE;",
+        "CREATE INDEX IF NOT EXISTS idx_sim_partners_activity ON simulation_partners(activity_id);",
+        # --- Ingresos: omitir / no aplica ---
+        "ALTER TABLE IF EXISTS simulation_income_items ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ACTIVE';",
+        # --- Gastos: IVA configurable (rueda) y condicionante de venta mínima ---
+        "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS includes_iva boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS iva_exempt boolean NOT NULL DEFAULT false;",
+        "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS cond_under_tickets numeric;",
+        # --- Plantillas de gastos (artista / evento / recinto) ---
+        """
+        CREATE TABLE IF NOT EXISTS expense_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            name text NOT NULL DEFAULT '',
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_expense_templates_owner ON expense_templates(owner_type, owner_id);",
+        """
+        CREATE TABLE IF NOT EXISTS expense_template_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            template_id uuid NOT NULL REFERENCES expense_templates(id) ON DELETE CASCADE,
+            category text NOT NULL DEFAULT 'OTROS',
+            concept text NOT NULL DEFAULT '',
+            amount_net numeric NOT NULL DEFAULT 0,
+            iva_pct numeric NOT NULL DEFAULT 21,
+            includes_iva boolean NOT NULL DEFAULT false,
+            iva_exempt boolean NOT NULL DEFAULT false,
+            is_variable boolean NOT NULL DEFAULT false,
+            var_type text,
+            var_value numeric NOT NULL DEFAULT 0,
+            var_threshold_type text,
+            var_threshold_value numeric NOT NULL DEFAULT 0,
+            cond_under_tickets numeric,
+            sort_order integer NOT NULL DEFAULT 0
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_expense_template_items_tpl ON expense_template_items(template_id);",
     ]
     _exec_ddl_statements(stmts, "simulations")
 

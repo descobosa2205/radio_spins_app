@@ -214,6 +214,26 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   ni mover el scroll; si no localiza la zona, hace recarga normal (fallback seguro). NO usarlo en
   borrados ni acciones que navegan a otra página. Ya AJAX nativo aparte: `concert_quick_status`,
   `setRoyaltyLiquidationStatus`.
+- **Simulaciones (Contratación) — rediseño jul 2026**: el sujeto puede ser un **artista o un EVENTO**
+  (`AppEvent`, Bases de datos → Eventos, `/eventos`; alta rápida `data-quick-create="event"` y
+  buscador `api_search_events`; NO sale en búsquedas de artistas). Motor puro en `sim_calc.py`
+  (zona **PALCO** además de PISTA/GRADA —iconos de invitaciones fa-people-group/fa-chair/fa-crown—,
+  overrides de ingresos OMIT/NA por línea, IVA incluido/exento por gasto, condición
+  `cond_under_tickets` «solo si se venden menos de X entradas», `series_fine` 0–100% para los
+  sliders). Gastos agrupados en **9 categorías fijas** `SIM_EXPENSE_CATEGORIES` (app.py, inyectadas
+  a plantillas; TRANSPORTE/HOTELES legacy se remapean con `_sim_expense_cat`) en tarjetas
+  «bocadillo» con rueda de IVA por gasto y subtotales. **Plantillas de gastos**
+  `ExpenseTemplate(+items)` por ARTIST/EVENT/VENUE: se crean al guardar gastos (modal «vincular»),
+  se ofrecen al abrir gastos vacíos (recientes primero) y se listan en la pestaña «Plantilla de
+  gastos» de las fichas (panel `_expense_templates_panel.html`). El ticketing del recinto ya **NO se
+  autocarga**: se ofrece con un aviso al abrir la pestaña Ticketing. **Socios por fecha**:
+  `SimulationPartner.activity_id` (NULL = comunes; con id = propios de esa fecha, pestaña «Socios»);
+  módulo reutilizable de beneficio/riesgo por socio con **slider 0–100%** (paso 1%, gradiente
+  rojo→verde, flecha de empate) en `static/js/sim_partners.js` (`[data-sim-partners]` + JSON de
+  `_sim_partner_module_payload`, agrega varias fechas en la vista general). Importes con aclaración
+  fiscal al hover (`.sim-amt`, macro `amt()` de `simulacion_detail.html`). En General gira: etiquetas
+  por fecha (precio medio · empate · beneficio potencial) y chinchetas del mapa numeradas por orden
+  de fecha; el nombre por defecto de cada fecha es el municipio del recinto.
 - **Asistentes por pasos (UX)**: cuando se pincha una opción de un paso que **no requiere más datos**,
   **auto-avanzar** al siguiente paso sin pulsar "Siguiente" (menos clics). Implementado en el asistente
   de invitaciones (`invitaciones.html`, helpers `goStep`/`getStep`): pasos de artista, evento,

@@ -108,9 +108,13 @@
 </div>
 
 <ul class="nav nav-tabs mb-0">
-  <li class="nav-item"><a class="nav-link {% if tab not in ['vinculaciones','ticketing'] %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='actividad') }}">Actividad</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab not in ['vinculaciones','ticketing','plantilla-gastos'] %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='actividad') }}">Actividad</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='ticketing') }}">Ticketing</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'vinculaciones' %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='vinculaciones') }}">Vinculaciones</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'plantilla-gastos' %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='plantilla-gastos') }}">Plantilla de gastos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'plantilla-gastos' %}
+  {% set expense_templates_can_edit = CAN_EDIT_CATALOGS %}
+  {% include '_expense_templates_panel.html' %}
+{% elif tab == 'vinculaciones' %}active{% endif %}" href="{{ url_for('venue_detail_view', vid=venue.id, tab='vinculaciones') }}">Vinculaciones</a></li>
 </ul>
 <div class="bg-white border border-top-0 rounded-bottom p-3">
 {% if tab == 'vinculaciones' %}
@@ -125,7 +129,7 @@
   <div class="d-flex justify-content-between align-items-start mb-3 flex-wrap gap-2">
     <div>
       <h5 class="mb-0">Ticketing del recinto</h5>
-      <div class="text-muted small">Categorías y aforos que se <strong>autocargan</strong> al crear una simulación en este recinto (los precios se ponen en cada simulación).</div>
+      <div class="text-muted small">Categorías y aforos que se <strong>ofrecen como plantilla</strong> al configurar el ticketing de una simulación en este recinto (los precios se ponen en cada simulación).</div>
     </div>
   </div>
   {% if CAN_EDIT_CATALOGS %}
@@ -136,7 +140,7 @@
       <div class="sim-stat"><div class="sim-stat__n" id="vtkSell">0</div><div class="sim-stat__l">A la venta</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="vtkInv">0</div><div class="sim-stat__l">Invitaciones reservadas</div></div>
     </div>
-    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-person-walking'),('GRADA','Grada','fa-chair')] %}
+    {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
     <div class="card mb-3">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <span><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</span>
@@ -257,7 +261,7 @@
   }
   function setText(id,v){ var e=document.getElementById(id); if(e) e.textContent=v; }
   function recompute(){
-    var data=collect(); var tot={qty:0,inv:0,sell:0}; var bz={PISTA:{qty:0,sell:0},GRADA:{qty:0,sell:0}};
+    var data=collect(); var tot={qty:0,inv:0,sell:0}; var bz={PISTA:{qty:0,sell:0},GRADA:{qty:0,sell:0},PALCO:{qty:0,sell:0}};
     data.forEach(function(r){ var s=Math.max(r.qty-r.inv,0); tot.qty+=r.qty; tot.inv+=r.inv; tot.sell+=s; if(bz[r.zone]){bz[r.zone].qty+=r.qty;bz[r.zone].sell+=s;} });
     setText('vtkAforo',tot.qty); setText('vtkSell',tot.sell); setText('vtkInv',tot.inv);
     Object.keys(bz).forEach(function(z){ var a=form.querySelector('[data-vzone-qty="'+z+'"]'); if(a)a.textContent=bz[z].qty; var b=form.querySelector('[data-vzone-sellable="'+z+'"]'); if(b)b.textContent=bz[z].sell; });

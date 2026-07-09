@@ -129,11 +129,22 @@
       Fotos / Vídeos
     </a>
   </li>
+  <li class="nav-item">
+    <a class="nav-link {% if tab=='plantilla-gastos' %}active{% endif %}"
+       href="{{ url_for('artist_detail_view', artist_id=artist.id, tab='plantilla-gastos') }}">
+      Plantilla de gastos
+    </a>
+  </li>
 </ul>
 
 <div class="ficha-tabpane">
 
 {# ===================== TAB: VINCULACIONES ===================== #}
+{% if tab == 'plantilla-gastos' %}
+  {% set expense_templates_can_edit = CAN_EDIT_ARTISTS_STATIONS %}
+  {% include '_expense_templates_panel.html' %}
+{% endif %}
+
 {% if tab == 'vinculaciones' %}
   {% include '_entity_links_panel.html' %}
 {% endif %}

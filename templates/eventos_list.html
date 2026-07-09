@@ -1,0 +1,70 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  .event-card{ border:1px solid #e9ecef; border-radius:16px; padding:1rem; height:100%; display:flex; flex-direction:column; align-items:center; gap:.5rem; text-align:center; transition:box-shadow .15s, border-color .15s; background:#fff; }
+  .event-card:hover{ border-color:var(--brand-accent,#007CA2); box-shadow:0 .25rem .9rem rgba(0,0,0,.06); }
+  .event-card__logo{ width:84px; height:84px; border-radius:18px; object-fit:contain; background:#f8f9fa; border:1px solid #eef0f2; }
+  .event-card__logo--ph{ display:flex; align-items:center; justify-content:center; color:#adb5bd; font-size:1.9rem; }
+  .event-card__name{ font-weight:600; }
+</style>
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Bases de datos · Eventos</h4>
+    <div class="text-muted">Eventos propios (galas, ciclos, actividades sin artista concreto). Se usan como sujeto de las simulaciones.</div>
+  </div>
+  {% if CAN_EDIT %}
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#newEventModal"><i class="fa fa-plus me-1"></i>Nuevo evento</button>
+  {% endif %}
+</div>
+
+<form method="get" class="mb-3" style="max-width:420px;">
+  <div class="input-group">
+    <span class="input-group-text"><i class="fa fa-magnifying-glass"></i></span>
+    <input type="search" class="form-control" name="q" value="{{ query_text }}" placeholder="Buscar evento…">
+    <button class="btn btn-outline-secondary" type="submit">Buscar</button>
+  </div>
+</form>
+
+{% if events %}
+  <div class="row g-3">
+    {% for e in events %}
+      <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+        <a href="{{ url_for('event_detail_view', eid=e.id) }}" class="text-decoration-none text-reset d-block h-100">
+          <div class="event-card">
+            {% if e.logo_url %}
+              <img src="{{ e.logo_url }}" alt="{{ e.name }}" class="event-card__logo">
+            {% else %}
+              <span class="event-card__logo event-card__logo--ph"><i class="fa fa-masks-theater"></i></span>
+            {% endif %}
+            <div class="event-card__name">{{ e.name }}</div>
+            <span class="badge text-bg-light border">{{ sim_counts.get(e.id|string, 0) }} {{ 'simulación' if sim_counts.get(e.id|string, 0) == 1 else 'simulaciones' }}</span>
+          </div>
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="card"><div class="card-body text-center text-muted py-5">
+    <div class="mb-2"><i class="fa fa-masks-theater fa-2x text-muted"></i></div>
+    <div class="fw-semibold">{% if query_text %}Sin resultados para «{{ query_text }}»{% else %}Aún no hay eventos{% endif %}</div>
+    <div class="small">{% if CAN_EDIT %}Pulsa «Nuevo evento» para crear el primero.{% endif %}</div>
+  </div></div>
+{% endif %}
+
+{% if CAN_EDIT %}
+<div class="modal fade" id="newEventModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('event_create') }}" enctype="multipart/form-data">
+      <div class="modal-header"><h5 class="modal-title">Nuevo evento</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" required placeholder="Ej: Gala benéfica, Ciclo de verano…"></div>
+        <div class="mb-2"><label class="form-label">Logo (opcional)</label><input type="file" class="form-control" name="logo" accept="image/*"></div>
+        <div><label class="form-label">Notas (opcional)</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-plus me-1"></i>Crear evento</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}

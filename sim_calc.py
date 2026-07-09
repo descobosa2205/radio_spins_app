@@ -52,6 +52,11 @@ def variable_amount(cfg, tickets_sold, taquilla_net, avg_price):
     taquilla_net: recaudación sin IVA (base para porcentajes) en este punto.
     avg_price: precio medio sin IVA por entrada (para convertir umbral en € a entradas).
     """
+    # Condicionante (gastos del recinto): solo aplica si se venden MENOS de X entradas.
+    cond_under = _f(cfg.get("cond_under_tickets"))
+    if cond_under > 0 and tickets_sold >= cond_under:
+        return 0.0
+
     vt = (cfg.get("var_type") or "").upper()
     value = _f(cfg.get("var_value"))
     tt = (cfg.get("var_threshold_type") or "").upper()
@@ -85,7 +90,8 @@ def ticketing_aggregates(categories):
     total_qty = total_inv = total_sellable = 0
     taquilla = sgae = iva = extras_net = 0.0
     zones = {"PISTA": {"qty": 0, "inv": 0, "sellable": 0},
-             "GRADA": {"qty": 0, "inv": 0, "sellable": 0}}
+             "GRADA": {"qty": 0, "inv": 0, "sellable": 0},
+             "PALCO": {"qty": 0, "inv": 0, "sellable": 0}}
     for c in categories or []:
         zone = (c.get("zone") or "PISTA").upper()
         if zone not in zones:
@@ -156,7 +162,12 @@ def _prepare(data):
     for p in data.get("production") or []:
         is_var = bool(p.get("is_variable"))
         item = {"is_variable": is_var, "cfg": p, "category": (p.get("category") or "OTROS")}
-        item["fixed_net"] = None if is_var else _f(p.get("amount_net"))
+        # El importe tecleado puede llevar el IVA dentro (rueda de configuración del gasto):
+        # para el resultado (todo en neto sin IVA) se le quita el IVA salvo si está exento.
+        iva_rate = 0.0 if p.get("iva_exempt") else (_f(p.get("iva_pct", 21)) / 100.0)
+        includes_iva = bool(p.get("includes_iva")) and iva_rate > 0
+        item["iva_divisor"] = (1.0 + iva_rate) if includes_iva else 1.0
+        item["fixed_net"] = None if is_var else (_f(p.get("amount_net")) / item["iva_divisor"])
         production.append(item)
 
     return {
@@ -169,6 +180,8 @@ def _prepare(data):
         "caches": caches,
         "commissions": commissions,
         "production": production,
+        # Ingresos omitidos / no aplican (clave -> 'OMIT'|'NA'): se calculan pero no suman.
+        "income_overrides": dict(data.get("income_overrides") or {}),
     }
 
 
@@ -218,7 +231,7 @@ def evaluate(prep, tickets_sold):
     prod_by_cat = {}
     for p in prep["production"]:
         if p["is_variable"]:
-            net = variable_amount(p["cfg"], tickets_sold, taquilla, avg)
+            net = variable_amount(p["cfg"], tickets_sold, taquilla, avg) / p["iva_divisor"]
         else:
             net = p["fixed_net"]
         prod_net_total += net
@@ -230,18 +243,21 @@ def evaluate(prep, tickets_sold):
     incentivos = INCENTIVE_PCT * (cache_net_total + prod_net_total)
     subv = prep["subventions"]
     patro = prep["sponsorships"]
-    ingresos_total = ticket_net + extras_net + rebate + subv + patro + barras + incentivos
+    ingresos = {
+        "ticketing": ticket_net, "complementos": extras_net, "rebate": rebate,
+        "subvenciones": subv, "patrocinios": patro, "barras": barras,
+        "incentivos": incentivos,
+    }
+    overrides = prep.get("income_overrides") or {}
+    ingresos_total = sum(v for k, v in ingresos.items() if (overrides.get(k) or "").upper() not in ("OMIT", "NA"))
+    ingresos["total"] = ingresos_total
 
     gastos_total = cache_net_total + retention_added + com_net_total + prod_net_total
     resultado = ingresos_total - gastos_total
 
     return {
         "tickets": tickets_sold,
-        "ingresos": {
-            "ticketing": ticket_net, "complementos": extras_net, "rebate": rebate,
-            "subvenciones": subv, "patrocinios": patro, "barras": barras,
-            "incentivos": incentivos, "total": ingresos_total,
-        },
+        "ingresos": ingresos,
         "gastos": {
             "caches": cache_net_total, "retenciones": retention_added,
             "retenciones_total": retention_total, "comisiones": com_net_total,
@@ -283,6 +299,22 @@ def series(prep, steps=10):
     return out
 
 
+def series_fine(prep):
+    """Serie fina 0..100% (paso 1%) para los sliders de socios (beneficio/riesgo)."""
+    sellable = prep["sellable"]
+    out = []
+    for pct in range(0, 101):
+        n = int(round(sellable * pct / 100.0))
+        ev = evaluate(prep, n)
+        out.append({
+            "pct": pct, "tickets": n,
+            "ingresos": round(ev["ingresos"]["total"], 2),
+            "gastos": round(ev["gastos"]["total"], 2),
+            "resultado": round(ev["resultado"], 2),
+        })
+    return out
+
+
 def compute(data):
     """Cálculo completo de una actividad. Devuelve cifras al 100%, serie y punto de empate."""
     prep = _prepare(data)
@@ -290,6 +322,7 @@ def compute(data):
     at_100 = evaluate(prep, prep["sellable"])
     be = break_even(prep)
     ser = series(prep, 10)
+    fine = series_fine(prep)
     max_abs = max((abs(r["resultado"]) for r in ser), default=0.0)
     return {
         "ticketing": {
@@ -304,6 +337,7 @@ def compute(data):
         "break_even_tickets": be,
         "break_even_pct": (round(be * 100.0 / agg["sellable"], 1) if (be is not None and agg["sellable"]) else None),
         "series": ser,
+        "series_fine": fine,
         "series_max_abs": max_abs,
         "avg_price_sin_iva": agg["avg_price_sin_iva"],
         "avg_price_gross": agg["avg_price_gross"],

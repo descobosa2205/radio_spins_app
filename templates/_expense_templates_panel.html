@@ -1,0 +1,45 @@
+{# Panel reutilizable: PLANTILLAS DE GASTOS de una ficha (artista / evento / recinto).
+   Contexto esperado:
+     - expense_templates: filas ExpenseTemplate (con items), recientes primero
+     - expense_templates_can_edit: bool #}
+<div class="ficha-section">
+  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-receipt"></i>Plantillas de gastos</h6></div>
+  <div class="ficha-section__body">
+    {% if expense_templates %}
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Nombre</th><th>Última modificación</th><th class="text-end">Líneas</th><th>Categorías</th>{% if expense_templates_can_edit %}<th></th>{% endif %}</tr></thead>
+        <tbody>
+          {% for t in expense_templates %}
+            <tr>
+              <td class="fw-semibold">{{ t.name or 'Plantilla' }}</td>
+              <td>{{ (t.updated_at or t.created_at).strftime('%d/%m/%Y') if (t.updated_at or t.created_at) else '—' }}</td>
+              <td class="text-end">{{ t.items|length }}</td>
+              <td>
+                {% for c in t.items|map(attribute='category')|unique|list %}
+                  <span class="badge text-bg-light border me-1"><i class="fa {{ SIM_EXPENSE_CATEGORY_ICONS.get(c, 'fa-shapes') }} me-1"></i>{{ SIM_EXPENSE_CATEGORY_LABELS.get(c, c) }}</span>
+                {% endfor %}
+              </td>
+              {% if expense_templates_can_edit %}
+              <td class="text-end text-nowrap">
+                <form method="post" action="{{ url_for('expense_template_rename', tid=t.id) }}" class="d-inline"
+                      onsubmit="var n=prompt('Nuevo nombre de la plantilla', this.querySelector('[name=name]').value); if(!n) return false; this.querySelector('[name=name]').value=n; return true;">
+                  <input type="hidden" name="name" value="{{ t.name }}">
+                  <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                  <button class="btn btn-sm btn-outline-secondary" title="Renombrar"><i class="fa fa-pen"></i></button>
+                </form>
+                <form method="post" action="{{ url_for('expense_template_delete', tid=t.id) }}" class="d-inline" onsubmit="return confirm('¿Eliminar esta plantilla de gastos? No se puede deshacer.');">
+                  <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                  <button class="btn btn-sm btn-outline-danger" title="Eliminar"><i class="fa fa-trash"></i></button>
+                </form>
+              </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table></div>
+      <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Las plantillas se ofrecen automáticamente al abrir la pestaña de gastos de una simulación nueva.</div>
+    {% else %}
+      <div class="text-muted">Aún no hay plantillas de gastos. Se crean desde una simulación: al guardar los gastos, «Guardar como plantilla».</div>
+    {% endif %}
+  </div>
+</div>

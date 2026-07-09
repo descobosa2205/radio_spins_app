@@ -3612,35 +3612,58 @@ def _group_certifications(rows, media_kind: str = "SONG") -> list[dict]:
 
 
 
-def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name: str = '', fallback_static_filename: str = '') -> dict:
-    """Devuelve nombre/logo de una empresa del grupo, priorizando el logo configurado en BBDD."""
+# Caché en memoria de las empresas del grupo (nombre+logo) para los context processors de marca.
+# Los logos salen en TODAS las páginas: sin caché, CADA render hacía una consulta a BD (sesión
+# nueva incluida) y, con la BD lenta o bloqueada, hasta la página de login se colgaba (probes del
+# escáner de Render incluidas). TTL corto; si la BD falla se sirve el último valor conocido.
+_GROUP_BRAND_CACHE: dict = {"rows": None, "ts": 0.0}
+_GROUP_BRAND_TTL_SECONDS = 300.0
+
+
+def _group_company_brand_rows(session_db=None) -> list[dict]:
+    import time as _time
+    now = _time.monotonic()
+    cached = _GROUP_BRAND_CACHE["rows"]
+    if cached is not None and (now - _GROUP_BRAND_CACHE["ts"]) < _GROUP_BRAND_TTL_SECONDS:
+        return cached
     own_session = False
-    if session_db is None:
-        try:
+    rows_out = list(cached or [])
+    try:
+        if session_db is None:
             session_db = db()
             own_session = True
-        except Exception:
-            session_db = None
+        rows = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        rows_out = [
+            {"name": (getattr(r, "name", None) or ""), "logo_url": (getattr(r, "logo_url", None) or "")}
+            for r in rows
+        ]
+        _GROUP_BRAND_CACHE["rows"] = rows_out
+        _GROUP_BRAND_CACHE["ts"] = now
+    except Exception:
+        # BD no disponible: no bloquear la página. Se congela el último valor conocido (o vacío)
+        # durante el TTL para no reintentar la consulta en cada render mientras dura el problema.
+        _GROUP_BRAND_CACHE["rows"] = rows_out
+        _GROUP_BRAND_CACHE["ts"] = now
+    finally:
+        if own_session and session_db is not None:
+            try:
+                session_db.close()
+            except Exception:
+                pass
+    return rows_out
 
+
+def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name: str = '', fallback_static_filename: str = '') -> dict:
+    """Devuelve nombre/logo de una empresa del grupo, priorizando el logo configurado en BBDD.
+    Lee del caché en memoria (_group_company_brand_rows): nada de consultas por render."""
     group_company = None
-    if session_db is not None:
-        try:
-            rows = session_db.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
-            for row in rows:
-                key = _norm_text_key(getattr(row, 'name', None) or '')
-                if matcher and matcher(key, row):
-                    group_company = row
-                    break
-        except Exception:
-            group_company = None
-        finally:
-            if own_session:
-                try:
-                    session_db.close()
-                except Exception:
-                    pass
+    for row in _group_company_brand_rows(session_db):
+        key = _norm_text_key(row.get('name') or '')
+        if matcher and matcher(key, row):
+            group_company = row
+            break
 
-    logo_url = (getattr(group_company, 'logo_url', None) or '').strip().rstrip('?')
+    logo_url = ((group_company or {}).get('logo_url') or '').strip().rstrip('?')
     if not logo_url and fallback_static_filename:
         try:
             logo_url = url_for('static', filename=fallback_static_filename, _external=True)
@@ -3651,7 +3674,7 @@ def _group_company_brand_assets(session_db=None, *, matcher=None, fallback_name:
                 logo_url = ''
 
     return {
-        'company_name': (getattr(group_company, 'name', None) or fallback_name or '').strip(),
+        'company_name': ((group_company or {}).get('name') or fallback_name or '').strip(),
         'logo_url': logo_url,
     }
 
@@ -29444,14 +29467,31 @@ def _sync_user_access_grants(session_db, user: User, profile: UserProfile):
 
 
 _ACCESS_BOOTSTRAP_LOCK = threading.Lock()
+_ACCESS_CACHES_BUILT = False
+
+
+def _ensure_access_caches():
+    """Construye UNA VEZ POR PROCESO los caches en memoria del catálogo de permisos
+    (_ACCESS_RESOURCE_MAP/_ACCESS_CHILDREN) por introspección de la app — SIN tocar la BD.
+    Es lo único que necesita cada worker para resolver permisos en las peticiones. La SIEMBRA
+    en BD (recursos/usuarios/grants) es aparte: corre una vez por contenedor en 2º plano
+    (_bootstrap_personnel_bg). Antes la siembra completa corría en la PRIMERA PETICIÓN de cada
+    worker (~10 s con la BD real): las peticiones se encolaban, el escáner de puertos de Render
+    veía probes lentísimas y tumbaba la instancia -> web caída/en blanco."""
+    global _ACCESS_CACHES_BUILT
+    if _ACCESS_CACHES_BUILT:
+        return
+    with _ACCESS_BOOTSTRAP_LOCK:
+        if _ACCESS_CACHES_BUILT:
+            return
+        _rebuild_resource_caches(_build_access_resources_from_app())
+        _ACCESS_CACHES_BUILT = True
 
 
 def _bootstrap_access_and_personnel():
-    # Serializa el arranque de accesos/personal: si varias peticiones (before_request) entran a la vez,
-    # SOLO UNA ejecuta el DDL + la siembra de accesos/usuarios; las demás esperan y salen. Antes, dos
-    # hilos ejecutando a la vez el MISMO DDL (ensure_personnel_and_operations_schema) se interbloqueaban
-    # y las peticiones se quedaban colgadas (pantalla en blanco). Este DDL YA NO se ejecuta también en
-    # el hilo de arranque en 2º plano (se retiró de su lista), para que no haya dos ejecutándolo a la vez.
+    # SIEMBRA PESADA (DDL de personal + recursos en BD + usuarios de users.txt + grants + auditoría).
+    # La ejecuta SOLO el hilo de 2º plano _bootstrap_personnel_bg (una vez por contenedor, con cerrojo
+    # de fichero) — NUNCA el camino de las peticiones, que usa _ensure_access_caches() (sin BD).
     global _ACCESS_BOOTSTRAP_DONE
     if _ACCESS_BOOTSTRAP_DONE:
         return
@@ -29843,13 +29883,11 @@ def _current_user_state() -> dict:
     if not uid:
         g._current_user_state = state
         return state
-    # El bootstrap de accesos/personal es best-effort: si falla (p. ej. carrera entre workers en un
-    # deploy), NO tumbamos la petición con un 500 — seguimos con el catálogo/grants que ya existen
-    # en BD (de arranques anteriores) y se reintentará en la siguiente petición.
+    # Solo caches en memoria (sin BD): la siembra pesada corre en 2º plano (_bootstrap_personnel_bg).
     try:
-        _bootstrap_access_and_personnel()
+        _ensure_access_caches()
     except Exception:
-        app.logger.exception("[accesos] bootstrap falló; se continúa con el estado ya existente en BD")
+        app.logger.exception("[accesos] no se pudieron construir los caches de permisos")
     session_db = db()
     try:
         user = session_db.get(User, to_uuid(uid))
@@ -30398,14 +30436,16 @@ def inject_personnel_globals():
 
 @app.before_request
 def ensure_personnel_bootstrap():
-    # Estáticos fuera (no tocan BD) y best-effort: un fallo del bootstrap (p. ej. carrera entre
-    # workers durante un deploy) no debe devolver 500 — se reintenta en la siguiente petición.
+    # Solo garantiza los caches EN MEMORIA del catálogo de permisos (baratísimo, sin BD).
+    # La siembra pesada en BD corre una vez por contenedor en 2º plano (_bootstrap_personnel_bg):
+    # aquí NO se toca la BD para que ninguna petición (ni las probes del escáner de puertos de
+    # Render) se quede esperando un arranque de varios segundos.
     if request.endpoint == "static":
         return
     try:
-        _bootstrap_access_and_personnel()
+        _ensure_access_caches()
     except Exception:
-        app.logger.exception("[accesos] bootstrap falló en before_request; se reintentará")
+        app.logger.exception("[accesos] no se pudieron construir los caches de permisos")
 
 
 @app.after_request
@@ -49259,6 +49299,33 @@ def cron_chartmetric_refresh():
         return ("chartmetric no configurado", 200)
     threading.Thread(target=_chartmetric_refresh_all_bg, daemon=True).start()
     return ("refresco en marcha", 200)
+
+
+# Siembra de accesos/personal EN SEGUNDO PLANO, al FINAL del módulo (todas las rutas ya están
+# registradas, así la introspección del catálogo es completa). Cerrojo de fichero = un solo
+# ejecutor por contenedor; el resto de workers sirven peticiones de inmediato usando los caches
+# en memoria (_ensure_access_caches) y el estado que ya hay en BD. Antes esta siembra corría en
+# la PRIMERA PETICIÓN de cada worker (~10 s con la BD real): encolaba las peticiones y el escáner
+# de puertos de Render acababa matando la instancia por probes lentas ("No open ports") -> web
+# caída/en blanco aunque el código estaba bien.
+def _bootstrap_personnel_bg():
+    import tempfile
+    lock_path = os.path.join(tempfile.gettempdir(), "app33_personnel_bootstrap.lock")
+    try:
+        os.close(os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+    except FileExistsError:
+        return  # otro worker de este contenedor ya la está ejecutando
+    except Exception:
+        pass
+    try:
+        _ensure_access_caches()
+        _bootstrap_access_and_personnel()
+        app.logger.info("[accesos] siembra de accesos/personal completada en segundo plano")
+    except Exception:
+        app.logger.exception("[accesos] la siembra en segundo plano falló; la web sigue con el estado ya existente en BD (se aplicará en el próximo arranque)")
+
+
+threading.Thread(target=_bootstrap_personnel_bg, daemon=True).start()
 
 
 if __name__ == "__main__":

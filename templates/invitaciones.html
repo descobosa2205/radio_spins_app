@@ -399,12 +399,12 @@
                         <div class="d-flex align-items-center gap-2 flex-wrap">
                           <strong>{{ row.name }}</strong>
                           {% if row.reason %}<span class="text-muted small">· {{ row.reason }}</span>{% endif %}
-                          {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
+                          {% if row.created_by_nick %}<span class="inv-person-sep">|</span><span class="inv-person text-muted small">Añadido por: <img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.created_by_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.created_by_nick }}</span>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): enviar a (foto/logo + nombre) + vínculo (logos/fotos). #}
                         {% if row.recipient_name %}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
-                          <span class="inv-person"><i class="fa fa-paper-plane"></i>Enviar a: {% if row.recipient_photo %}<img class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}{{ row.recipient_name }}</span>
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>Enviar a: {% if row.recipient_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-photo' if row.guest_type in ['ARTIST','EMPLOYEE'] else 'is-logo' }}" src="{{ row.recipient_photo }}" alt="">{% endif %}{{ row.recipient_name }}</span>
                           {% if row.recipient_link_summary_text %}<span class="invitation-linked-mini">{% if row.recipient_link_summary.logo_url %}<img class="{{ 'is-photo' if row.recipient_link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.recipient_link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.recipient_link_summary_text }}</span></span>{% endif %}
                         </div>
                         {% endif %}
@@ -531,7 +531,7 @@
                         {# Línea 1: invitado (foto + nombre) · vínculo (logo) · nº entradas (gris) · ubicación · descargada. #}
                         <div class="d-flex align-items-center gap-2 flex-wrap inv-name-line">
                           <span class="inv-person">
-                            {% if row.guest_photo %}<img class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}
+                            {% if row.guest_photo %}<img loading="lazy" decoding="async" class="inv-person-ava {{ 'is-logo' if row.guest_promoter_id else 'is-photo' }}" src="{{ row.guest_photo }}" alt="">{% endif %}
                             {% if row.guest_promoter_id %}<a class="fw-semibold text-reset text-decoration-none" href="{{ url_for('promoter_detail_view', pid=row.guest_promoter_id, tab='invitaciones') }}" title="Ver ficha del tercero">{{ row.guest_name }}</a>{% else %}<strong>{{ row.guest_name }}</strong>{% endif %}
                           </span>
                           {% if row.guest_title %}<span class="text-muted small">· {{ row.guest_title }}</span>{% endif %}
@@ -542,9 +542,9 @@
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
                         <div class="d-flex align-items-center gap-2 flex-wrap small text-muted mt-1">
-                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}<img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}</span>
+                          <span class="inv-person"><i class="fa fa-paper-plane"></i>{% if row.receiver_mode == 'BOX_OFFICE' %}Taquilla{% elif row.receiver_mode == 'ME' %}<img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}{% elif row.receiver_mode == 'EMPLOYEE' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or 'Empresa' }}{% elif row.receiver_mode == 'OTHER' %}{{ (row.receiver_payload.name if row.receiver_payload else '') or '—' }}{% else %}Invitado{% endif %}</span>
                           <span class="inv-person-sep">|</span>
-                          <span class="inv-person">Pedidas por: <img class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
+                          <span class="inv-person">Pedidas por: <img loading="lazy" decoding="async" class="inv-person-ava is-photo" src="{{ row.requester_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1">{{ row.requester_nick }}</span>
                         </div>
                         {% if row.note %}<div class="small mt-1"><i class="fa fa-note-sticky me-1"></i>{{ row.note }}</div>{% endif %}
                       </div>
@@ -780,11 +780,11 @@
                         {% for key, group in items|groupby('assignee_key') %}
                           {% set g0 = group|first %}
                           <div class="invitation-seat-block" style="--asg:{{ g0.assignee_color or '#999' }}">
-                            <div class="invitation-seat-block-name" title="{{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}">{{ g0.assignee_name or 'Asignada' }}{% if g0.assignee_link %} · {% if g0.assignee_link_logo %}<img class="inv-seat-block-linklogo {{ 'is-photo' if g0.assignee_link_type in ['artist','venue'] else 'is-logo' }}" src="{{ g0.assignee_link_logo }}" alt="">{% endif %}{{ g0.assignee_link }}{% endif %}</div>
+                            <div class="invitation-seat-block-name" title="{{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}">{{ g0.assignee_name or 'Asignada' }}{% if g0.assignee_link %} · {% if g0.assignee_link_logo %}<img loading="lazy" decoding="async" class="inv-seat-block-linklogo {{ 'is-photo' if g0.assignee_link_type in ['artist','venue'] else 'is-logo' }}" src="{{ g0.assignee_link_logo }}" alt="">{% endif %}{{ g0.assignee_link }}{% endif %}</div>
                             <div class="invitation-seat-block-line"></div>
                             <div class="invitation-seat-block-seats">
                               {% for t in group %}
-                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
+                                <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }} invitation-seat--owned{% if g0.assignee_photo %} invitation-seat--photo{% endif %}" style="--asg:{{ g0.assignee_color or '#999' }}" data-ticket-id="{{ t.id }}" title="{{ t.code }} · {{ g0.assignee_name }}{% if g0.assignee_link %} · {{ g0.assignee_link }}{% endif %}{% if t.assignee_total %} · {{ t.assignee_total }} invitación{{ '' if t.assignee_total == 1 else 'es' }}{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}">{% if g0.assignee_photo %}<img class="invitation-seat-photo" loading="lazy" decoding="async" src="{{ g0.assignee_photo }}" alt="">{% else %}<i class="fa fa-ticket-alt"></i>{% endif %}<span class="invitation-seat-num">{{ loop.index }}</span></button>
                               {% endfor %}
                             </div>
                           </div>
@@ -2805,6 +2805,13 @@
   (function(){
     function applyDoc(doc){
       var searchVal = (document.getElementById('invGuestSearch') || {}).value || '';
+      // Si el usuario está ESCRIBIENDO en un campo de la zona (p. ej. el buscador de invitados),
+      // el reemplazo le quitaba el foco a mitad de teclada y parecía que «no dejaba escribir»:
+      // se recuerda el campo activo y su cursor para restaurarlos tras el swap.
+      var act = document.activeElement;
+      var actId = (act && act.id && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA')) ? act.id : '';
+      var actStart = null, actEnd = null;
+      if (actId){ try { actStart = act.selectionStart; actEnd = act.selectionEnd; } catch (e) {} }
       // Pestañas con badges de estado: se sustituye el panel entero conservando sus clases
       // (show/active) para no cambiar la pestaña visible. Los botones/menús usan delegación a
       // nivel de documento, así que siguen funcionando tras el reemplazo.
@@ -2834,6 +2841,17 @@
       var input = document.getElementById('invGuestSearch');
       if (input) input.value = searchVal;
       if (window.__invGuestSearchInit) window.__invGuestSearchInit();
+      // Restaurar el foco y el cursor si el campo activo fue reemplazado por el swap: así se puede
+      // seguir escribiendo sin interrupción aunque el refresco llegue a mitad de teclada.
+      if (actId && document.activeElement !== act){
+        var actFresh = document.getElementById(actId);
+        if (actFresh){
+          try {
+            actFresh.focus({ preventScroll: true });
+            if (actStart != null && actFresh.setSelectionRange) actFresh.setSelectionRange(actStart, actEnd != null ? actEnd : actStart);
+          } catch (e) {}
+        }
+      }
       // Arrastre de solicitudes entre categorías: re-enganchar el contenedor nuevo.
       if (window.initInvitationDnd) try { window.initInvitationDnd(); } catch(e){}
       // Flashes del servidor (éxito/aviso), igual que hace ajax_inline.js.
@@ -2848,8 +2866,12 @@
     }
     window.invApplyFreshDoc = applyDoc;
     var inflight = null;
+    var queued = false;
     window.invRefreshStatuses = function(){
-      if (inflight) return inflight;
+      // Si YA hay un refresco en vuelo, sus datos pueden ser ANTERIORES al cambio que acaba de
+      // pedirse: se encola OTRO refresco al terminar (si no, el plano/badges podían quedar con el
+      // estado viejo hasta la siguiente acción).
+      if (inflight){ queued = true; return inflight; }
       // noLoader: refresco en 2º plano — sin el overlay gris que tapaba la página (y los planos)
       // durante los segundos que tarda el render completo en el servidor.
       inflight = fetch(window.location.href, { cache: 'no-store', noLoader: true })
@@ -2860,7 +2882,10 @@
           applyDoc(doc);
         })
         .catch(function(){ window.location.reload(); })
-        .finally(function(){ inflight = null; });
+        .finally(function(){
+          inflight = null;
+          if (queued){ queued = false; window.invRefreshStatuses(); }
+        });
       return inflight;
     };
     // Formularios normales de esta página (aprobar, marcar enviadas, recuperar, eliminar, enviar…)
@@ -3033,7 +3058,7 @@
         strip.style.top = (first.offsetTop - 17) + 'px';
         strip.style.setProperty('--asg', own.color);
         let nameHtml = escHtmlInv(own.name || 'Asignada');
-        if (own.link) nameHtml += ' · ' + (own.logo ? '<img class="inv-seat-block-linklogo ' + (own.logoPhoto ? 'is-photo' : 'is-logo') + '" src="' + escHtmlInv(own.logo) + '" alt="">' : '') + escHtmlInv(own.link);
+        if (own.link) nameHtml += ' · ' + (own.logo ? '<img loading="lazy" decoding="async" class="inv-seat-block-linklogo ' + (own.logoPhoto ? 'is-photo' : 'is-logo') + '" src="' + escHtmlInv(own.logo) + '" alt="">' : '') + escHtmlInv(own.link);
         strip.innerHTML = '<div class="invitation-seat-block-name" title="' + escHtmlInv(own.name + (own.link ? ' · ' + own.link : '')) + '">' + nameHtml + '</div><div class="invitation-seat-block-line"></div>';
         grid.appendChild(strip);
       };
@@ -3533,15 +3558,17 @@
             });
           });
         } catch (e) {}
-        // Los planos de las categorías TOCADAS se refrescan YA con el partial ligero (casi
-        // inmediato); el resto (badges de invitados/listados) va en 2º plano sin overlay.
+        // Los planos de las categorías TOCADAS se refrescan con el partial ligero y se ESPERA a
+        // que estén puestos ANTES de cerrar el modal (con tope de 4 s): al cerrarse, el mapa de
+        // butacas ya está actualizado de verdad — no «al rato». El resto (badges de invitados/
+        // listados) sigue en 2º plano sin overlay.
         try {
           var catsTouched = {};
           entries.forEach(function(en){ if (en.category_id) catsTouched[en.category_id] = 1; });
           var partialEl = document.querySelector('[data-plans-partial-base]');
           var partialBase = partialEl ? (partialEl.getAttribute('data-plans-partial-base') || '') : '';
-          if (partialBase) Object.keys(catsTouched).forEach(function(cid){
-            fetch(partialBase.replace('CID', cid), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, noLoader: true })
+          var swaps = !partialBase ? [] : Object.keys(catsTouched).map(function(cid){
+            return fetch(partialBase.replace('CID', cid), { headers: { 'X-Requested-With': 'XMLHttpRequest' }, noLoader: true })
               .then(function(r){ return r.ok ? r.text() : ''; })
               .then(function(html){
                 if (!html) return;
@@ -3552,6 +3579,7 @@
                 if (fresh.length && cur.length){ cur[0].before.apply(cur[0], fresh); cur.forEach(function(el){ el.remove(); }); }
               }).catch(function(){});
           });
+          if (swaps.length) await Promise.race([Promise.all(swaps), new Promise(function(res){ setTimeout(res, 4000); })]);
         } catch (e) {}
         if (window.invRefreshStatuses) { window.__invAssignChanged = false; window.invRefreshStatuses(); }
         else { window.__invAssignChanged = true; }

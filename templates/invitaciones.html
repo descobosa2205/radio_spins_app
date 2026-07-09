@@ -3988,4 +3988,15 @@
   });
 })();
 </script>
+
+{% if request.args.get('open_wizard') %}
+<script>
+  // Auto-apertura del asistente de PEDIR invitaciones (botón «Pedir invitaciones» de Inicio,
+  // ?open_wizard=1). En DOMContentLoaded porque Bootstrap se carga después del contenido.
+  document.addEventListener('DOMContentLoaded', function(){
+    var el = document.getElementById('invitationRequestModal');
+    if (el && window.bootstrap) bootstrap.Modal.getOrCreateInstance(el).show();
+  });
+</script>
+{% endif %}
 {% endblock %}

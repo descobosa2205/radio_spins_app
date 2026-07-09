@@ -73,7 +73,11 @@
       <div>
         <h5 class="mb-0">Mis invitaciones solicitadas</h5>
       </div>
-      <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
+      <div class="d-flex gap-2 flex-wrap">
+        {# Abre directamente el asistente de pedir (auto-apertura con ?open_wizard=1, como el de conciertos). #}
+        <a href="{{ url_for('invitations_view', tab='pedir', open_wizard=1) }}" class="btn btn-sm btn-danger"><i class="fa fa-plus me-1"></i>Pedir invitaciones</a>
+        <a href="{{ url_for('invitations_view', tab='mis') }}" class="btn btn-sm btn-outline-danger">Ver todas</a>
+      </div>
     </div>
     <div class="row g-3">
       {% for row in HOME_INVITATIONS[:6] %}

@@ -971,6 +971,7 @@ def inject_globals():
         SIM_EXPENSE_CATEGORIES=SIM_EXPENSE_CATEGORIES,
         SIM_EXPENSE_CATEGORY_LABELS=SIM_EXPENSE_CATEGORY_LABELS,
         SIM_EXPENSE_CATEGORY_ICONS=SIM_EXPENSE_CATEGORY_ICONS,
+        SIM_EXPENSE_QTY_CATEGORIES=SIM_EXPENSE_QTY_CATEGORIES,
         ROLE=current_role(),
         ROLE_LABEL=ROLE_LABELS.get(current_role(), str(current_role())),
         CAN_VIEW_ECON=can_view_economics(),
@@ -18522,6 +18523,7 @@ def _expense_template_item_payload(it):
         "category": (it.category or "OTROS"),
         "concept": (it.concept or ""),
         "amount_net": float(_sim_d(it.amount_net)),
+        "quantity": float(_sim_d(getattr(it, "quantity", 1) or 1)),
         "iva_pct": float(_sim_d(it.iva_pct)),
         "includes_iva": bool(it.includes_iva),
         "iva_exempt": bool(it.iva_exempt),
@@ -18793,8 +18795,11 @@ SIM_EXPENSE_CATEGORIES = [
     ("LOGISTICA", "Logística", "fa-truck"),
     ("ALOJAMIENTO", "Alojamiento", "fa-bed"),
     ("MARKETING", "Marketing y promoción", "fa-bullhorn"),
+    ("PERMISOS", "Permisos y licencias", "fa-stamp"),
     ("OTROS", "Otros gastos", "fa-shapes"),
 ]
+# Categorías cuyos gastos se introducen por CANTIDAD (importe unitario × cantidad).
+SIM_EXPENSE_QTY_CATEGORIES = ["ALOJAMIENTO", "LOGISTICA", "PERSONAL", "MUSICOS"]
 SIM_EXPENSE_CATEGORY_LABELS = {k: l for k, l, _ic in SIM_EXPENSE_CATEGORIES}
 SIM_EXPENSE_CATEGORY_ICONS = {k: ic for k, _l, ic in SIM_EXPENSE_CATEGORIES}
 # Datos antiguos guardados con claves de bolsas: se reubican en su categoría nueva.
@@ -18943,6 +18948,7 @@ def _sim_build_calc_data(sim, activity, artist_intl=None):
         d = _sim_cost_cfg(p)
         d.update({
             "category": _sim_expense_cat(p.category), "amount_net": float(_sim_d(p.amount_net)),
+            "quantity": float(_sim_d(getattr(p, "quantity", 1) or 1)),
             "iva_pct": float(_sim_d(p.iva_pct)), "is_variable": bool(p.is_variable),
             "includes_iva": bool(getattr(p, "includes_iva", False)),
             "iva_exempt": bool(getattr(p, "iva_exempt", False)),
@@ -19074,6 +19080,7 @@ def _sim_expenses_payload(activity):
         d.update({
             "category": _sim_expense_cat(p.category), "concept": (p.concept or ""),
             "amount_net": float(_sim_d(p.amount_net)), "iva_pct": float(_sim_d(p.iva_pct)),
+            "quantity": float(_sim_d(getattr(p, "quantity", 1) or 1)),
             "includes_iva": bool(getattr(p, "includes_iva", False)),
             "iva_exempt": bool(getattr(p, "iva_exempt", False)),
             "cond_under_tickets": (float(_sim_d(p.cond_under_tickets)) if p.cond_under_tickets is not None else None),
@@ -20096,6 +20103,7 @@ def simulation_expenses_save(sid):
                 activity_id=act.id, category=_sim_expense_cat(row.get("category")),
                 concept=str(row.get("concept") or "").strip(),
                 amount_net=_sim_d(row.get("amount_net")),
+                quantity=(_sim_d(row.get("quantity")) if row.get("quantity") not in (None, "") else Decimal("1")),
                 iva_pct=_sim_d(row.get("iva_pct") if row.get("iva_pct") not in (None, "") else 21),
                 includes_iva=bool(row.get("includes_iva")),
                 iva_exempt=bool(row.get("iva_exempt")),
@@ -20153,6 +20161,7 @@ def simulation_expenses_save(sid):
                             category=_sim_expense_cat(r.get("category")),
                             concept=str(r.get("concept") or "").strip(),
                             amount_net=_sim_d(r.get("amount_net")),
+                            quantity=(_sim_d(r.get("quantity")) if r.get("quantity") not in (None, "") else Decimal("1")),
                             iva_pct=_sim_d(r.get("iva_pct") if r.get("iva_pct") not in (None, "") else 21),
                             includes_iva=bool(r.get("includes_iva")),
                             iva_exempt=bool(r.get("iva_exempt")),

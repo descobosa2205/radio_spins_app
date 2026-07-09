@@ -3192,7 +3192,8 @@ class SimulationProductionItem(Base):
     activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
     category = Column(Text, nullable=False, server_default=text("'OTROS'"))   # claves de SIM_EXPENSE_CATEGORIES
     concept = Column(Text, nullable=False, server_default=text("''"))
-    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # sin IVA (o con IVA si includes_iva)
+    amount_net = Column(Numeric, nullable=False, server_default=text("0"))    # importe (unitario si quantity>1); sin IVA (o con IVA si includes_iva)
+    quantity = Column(Numeric, nullable=False, server_default=text("1"))      # cantidad (total = amount_net · quantity)
     iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
     includes_iva = Column(Boolean, nullable=False, server_default=text("false"))  # el importe tecleado lleva el IVA dentro
     iva_exempt = Column(Boolean, nullable=False, server_default=text("false"))    # gasto exento de IVA
@@ -3276,6 +3277,7 @@ class ExpenseTemplateItem(Base):
     category = Column(Text, nullable=False, server_default=text("'OTROS'"))
     concept = Column(Text, nullable=False, server_default=text("''"))
     amount_net = Column(Numeric, nullable=False, server_default=text("0"))
+    quantity = Column(Numeric, nullable=False, server_default=text("1"))
     iva_pct = Column(Numeric, nullable=False, server_default=text("21"))
     includes_iva = Column(Boolean, nullable=False, server_default=text("false"))
     iva_exempt = Column(Boolean, nullable=False, server_default=text("false"))
@@ -3681,6 +3683,8 @@ def ensure_simulations_schema():
         "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS includes_iva boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS iva_exempt boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS cond_under_tickets numeric;",
+        "ALTER TABLE IF EXISTS simulation_production_items ADD COLUMN IF NOT EXISTS quantity numeric NOT NULL DEFAULT 1;",
+        "ALTER TABLE IF EXISTS expense_template_items      ADD COLUMN IF NOT EXISTS quantity numeric NOT NULL DEFAULT 1;",
         # --- Plantillas de gastos (artista / evento / recinto) ---
         """
         CREATE TABLE IF NOT EXISTS expense_templates (
@@ -3700,6 +3704,7 @@ def ensure_simulations_schema():
             category text NOT NULL DEFAULT 'OTROS',
             concept text NOT NULL DEFAULT '',
             amount_net numeric NOT NULL DEFAULT 0,
+            quantity numeric NOT NULL DEFAULT 1,
             iva_pct numeric NOT NULL DEFAULT 21,
             includes_iva boolean NOT NULL DEFAULT false,
             iva_exempt boolean NOT NULL DEFAULT false,

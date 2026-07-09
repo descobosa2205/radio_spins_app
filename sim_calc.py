@@ -167,7 +167,11 @@ def _prepare(data):
         iva_rate = 0.0 if p.get("iva_exempt") else (_f(p.get("iva_pct", 21)) / 100.0)
         includes_iva = bool(p.get("includes_iva")) and iva_rate > 0
         item["iva_divisor"] = (1.0 + iva_rate) if includes_iva else 1.0
-        item["fixed_net"] = None if is_var else (_f(p.get("amount_net")) / item["iva_divisor"])
+        # Cantidad: el importe es unitario y el total = importe · cantidad (categorías con cantidad).
+        qty = _f(p.get("quantity"))
+        if qty <= 0:
+            qty = 1.0
+        item["fixed_net"] = None if is_var else (_f(p.get("amount_net")) * qty / item["iva_divisor"])
         production.append(item)
 
     return {

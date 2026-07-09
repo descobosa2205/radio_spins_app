@@ -111,9 +111,13 @@
     if (!be) html += '<div class="small text-warning mt-1"><i class="fa fa-triangle-exclamation me-1"></i>No se alcanza el punto de empate ni al 100% de la venta.</div>';
     html += '<div class="d-flex flex-wrap gap-3 my-2" data-simp-totals></div>';
     if (hasPartners) {
-      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr>' +
-        '<th>Socio</th><th class="text-end">Beneficio potencial <span class="text-muted fw-normal">(neto, sin IVA y sin SGAE)</span></th>' +
-        '<th class="text-end">Riesgo asumido <span class="text-muted fw-normal">(gastos, sin IVA)</span></th></tr></thead><tbody data-simp-rows></tbody></table></div>';
+      // Cabeceras a dos líneas (la aclaración entre paréntesis va debajo del título) y filas altas.
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0 simp-table"><thead><tr>' +
+        '<th class="align-bottom">Socio</th>' +
+        '<th class="text-end align-bottom">Participación</th>' +
+        '<th class="text-end">Beneficio potencial<br><span class="text-muted fw-normal small">(neto, sin IVA y sin SGAE)</span></th>' +
+        '<th class="text-end">Riesgo asumido<br><span class="text-muted fw-normal small">(gastos, sin IVA)</span></th>' +
+        '</tr></thead><tbody data-simp-rows></tbody></table></div>';
     } else {
       html += '<div class="text-muted small">Sin socios configurados: añade socios para ver el reparto.</div>';
     }
@@ -141,8 +145,9 @@
             : '<i class="fa fa-user text-muted"></i>';
           var pcts = v.pcts.length ? Array.from(new Set(v.pcts)).join('% / ') + '%' : '—';
           return '<tr>' +
-            '<td><span class="d-inline-flex align-items-center gap-2">' + img + '<span>' + esc(pr.name) +
-            ' <span class="text-muted small">(' + pcts + ')</span></span></span></td>' +
+            '<td><span class="d-inline-flex align-items-center gap-2"><span class="simp-logo">' + img + '</span>' +
+            '<span class="fw-medium simp-name">' + esc(pr.name) + '</span></span></td>' +
+            '<td class="text-end fw-semibold">' + pcts + '</td>' +
             '<td class="text-end fw-semibold ' + (v.beneficio >= 0 ? 'text-success' : 'text-danger') + '"><span class="sim-amt" title="Neto: sin IVA y sin SGAE">' + fmtEur(v.beneficio) + '</span></td>' +
             '<td class="text-end"><span class="sim-amt" title="Sin IVA">' + fmtEur(v.riesgo) + '</span></td>' +
             '</tr>';

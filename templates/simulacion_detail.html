@@ -90,11 +90,17 @@
   .sim-tag{ display:inline-flex; align-items:center; gap:.3rem; border:1px solid #e9ecef; background:#f8f9fa; border-radius:999px; padding:.1rem .6rem; font-size:.78rem; white-space:nowrap; }
   .sim-tag i{ color:var(--brand-accent,#007CA2); }
   /* Categorías de gastos («bocadillos») */
-  .sim-cat-card{ border:1px solid #dcefe6; border-radius:16px; overflow:hidden; margin-bottom:1rem; background:#fff; }
-  .sim-cat-card__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .9rem; background:#eaf6f0; color:#0e6b46; font-weight:700; }
+  .sim-cat-card{ border:1px solid #f3d3d6; border-radius:16px; overflow:hidden; margin-bottom:1rem; background:#fff; }
+  .sim-cat-card__head{ display:flex; align-items:center; justify-content:space-between; gap:.5rem; padding:.55rem .9rem; background:#fdECED; color:#E33D48; font-weight:700; }
   .sim-cat-card__head i{ width:1.3rem; text-align:center; }
   .sim-cat-card__body{ padding:.75rem .9rem; }
-  .sim-cat-card__foot{ display:flex; justify-content:space-between; align-items:center; padding:.45rem .9rem; border-top:1px dashed #dcefe6; background:#fbfdfc; font-size:.85rem; }
+  .sim-cat-card__foot{ display:flex; justify-content:space-between; align-items:center; padding:.45rem .9rem; border-top:1px dashed #f3d3d6; background:#fffafa; font-size:.85rem; }
+  .sim-cat-card.drag-over{ border-color:#E33D48; box-shadow:0 0 0 .15rem rgba(227,61,72,.15); }
+  .prod-row[draggable="true"]{ cursor:grab; }
+  .prod-row.dragging{ opacity:.5; }
+  .prod-drag-handle{ cursor:grab; color:#adb5bd; }
+  .sim-gasto-total{ font-size:1.05rem; }
+  .sim-gasto-total .sim-amt{ font-size:1.25rem; font-weight:800; }
   .sim-row-off{ opacity:.55; }
   .sim-row-off .sim-amt, .sim-row-off td:first-child{ text-decoration:line-through; }
   /* Slider de socios */
@@ -107,6 +113,10 @@
   .simp-be__arrow{ display:block; width:0; height:0; margin:0 auto; border-left:6px solid transparent; border-right:6px solid transparent; border-top:7px solid #212529; }
   .sim-partner-img{ height:30px; max-width:100px; object-fit:contain; background:transparent; }
   .sim-partner-img--ph{ display:inline-flex; align-items:center; justify-content:center; width:30px; color:#adb5bd; }
+  /* Módulo de socios: nombre completo (sin cortar) y filas altas bien alineadas */
+  .simp-table th, .simp-table td{ padding-top:.55rem; padding-bottom:.55rem; vertical-align:middle; }
+  .simp-table .simp-name{ white-space:normal; word-break:break-word; }
+  .simp-table .simp-logo{ flex:0 0 auto; display:inline-flex; align-items:center; }
 </style>
 
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
@@ -143,7 +153,7 @@
         <span><i class="fa fa-location-dot"></i>{% if first_act.venue_unknown or not first_act.venue %}Recinto por definir{% else %}<a href="{{ url_for('venue_detail_view', vid=first_act.venue.id) }}" class="text-reset" style="text-decoration:underline;">{{ first_act.venue.name }}</a>{% endif %}</span>
       {% endif %}
       {% if is_festival %}<span><i class="fa fa-people-group"></i>{{ lineup|length }} {{ 'artista' if lineup|length == 1 else 'artistas' }}</span>{% endif %}
-      {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total }} · {{ summary.sellable }} a la venta{% if summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</span>{% endif %}
+      {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total|k }} · {{ summary.sellable|k }} a la venta{% if summary.invitations %} · {{ summary.invitations|k }} inv.{% endif %}</span>{% endif %}
       {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Beneficio potencial @100% {{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</span>{% endif %}
       {% if sim.artist and sim.artist.is_international %}<span><i class="fa fa-globe"></i>Artista internacional</span>{% endif %}
       {% if sim.artist %}{{ linked_mini('artist', sim.artist.id) }}{% endif %}
@@ -179,7 +189,7 @@
 {# ===================== GENERAL GIRA / CICLO ===================== #}
 <div class="d-flex flex-wrap gap-3 mb-3">
   <div class="sim-stat"><div class="sim-stat__n">{{ activities|length }}</div><div class="sim-stat__l">{{ 'Conciertos' if is_cycle else 'Fechas' }}</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.sellable }}</div><div class="sim-stat__l">A la venta (total)</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.sellable|k }}</div><div class="sim-stat__l">A la venta (total)</div></div>
   <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.ingresos, 'Sin IVA') }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
   <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if is_cycle and tour_totals.general %} (incl. generales){% endif %}</div></div>
   <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ amt(tour_totals.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
@@ -247,11 +257,11 @@
         <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
         <span style="min-width:170px;">
           {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
-          <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable }} a la venta</div>
+          <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable|k }} a la venta</div>
         </span>
         <span class="d-flex flex-wrap gap-1 flex-grow-1">
           <span class="sim-tag" title="Precio medio de entrada: sin IVA, incluye SGAE"><i class="fa fa-ticket"></i>Precio medio {{ r.calc.avg_price_sin_iva|eur }}</span>
-          <span class="sim-tag" title="Punto de empate (entradas a vender y % del aforo a la venta)"><i class="fa fa-scale-balanced"></i>Empate {% if r.calc.break_even_tickets is none %}—{% else %}{{ r.calc.break_even_tickets }} ent · {{ r.calc.break_even_pct }}%{% endif %}</span>
+          <span class="sim-tag" title="Punto de empate (entradas a vender y % del aforo a la venta)"><i class="fa fa-scale-balanced"></i>Empate {% if r.calc.break_even_tickets is none %}—{% else %}{{ r.calc.break_even_tickets|k }} ent · {{ r.calc.break_even_pct }}%{% endif %}</span>
           <span class="sim-tag" title="Beneficio potencial @100%: neto, sin IVA y sin SGAE"><i class="fa fa-flag-checkered"></i>Beneficio <span class="{{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</span></span>
         </span>
         <span class="text-end"><div class="small text-muted">Beneficio potencial</div><div class="fw-semibold {{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ amt(r.resultado, 'Neto: sin IVA y sin SGAE') }}</div></span>
@@ -295,14 +305,13 @@
       <span class="sim-cal">{% if active_activity.event_date and not active_activity.date_unknown %}<span class="sim-cal__d">{{ active_activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ active_activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
       <div>
         <div class="sim-date-card__t">{% if active_activity.event_date and not active_activity.date_unknown %}{{ active_activity.event_date.strftime('%d/%m/%Y') }}{% else %}Fecha por definir{% endif %}</div>
-        <div class="sim-date-card__s">{% if is_cycle and active_activity.artist %}{{ active_activity.artist.name }}{% else %}{{ active_activity.label or subject.name }}{% endif %}</div>
       </div>
     </div>
     <div class="sim-date-card">
       <i class="fa fa-users"></i>
       <div>
-        <div class="sim-date-card__t">{{ summary.aforo_total if summary else 0 }} <span class="fw-normal text-muted">aforo</span></div>
-        <div class="sim-date-card__s">{{ summary.sellable if summary else 0 }} a la venta{% if summary and summary.invitations %} · {{ summary.invitations }} inv.{% endif %}</div>
+        <div class="sim-date-card__t">{{ (summary.aforo_total if summary else 0)|k }} <span class="fw-normal text-muted">aforo</span></div>
+        <div class="sim-date-card__s">{{ (summary.sellable if summary else 0)|k }} a la venta{% if summary and summary.invitations %} · {{ summary.invitations|k }} inv.{% endif %}</div>
       </div>
     </div>
   </div>
@@ -352,16 +361,16 @@
         </div>
         <div class="ficha-section__body">
           <div class="d-flex flex-wrap gap-3 mb-3">
-            <div class="sim-stat"><div class="sim-stat__n">{{ summary.aforo_total }}</div><div class="sim-stat__l">Aforo total</div></div>
-            <div class="sim-stat"><div class="sim-stat__n">{{ summary.sellable }}</div><div class="sim-stat__l">A la venta</div></div>
-            <div class="sim-stat"><div class="sim-stat__n">{{ summary.invitations }}</div><div class="sim-stat__l">Invitaciones</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ summary.aforo_total|k }}</div><div class="sim-stat__l">Aforo total</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ summary.sellable|k }}</div><div class="sim-stat__l">A la venta</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ summary.invitations|k }}</div><div class="sim-stat__l">Invitaciones</div></div>
             <div class="sim-stat"><div class="sim-stat__n">{{ amt(summary.ticket_net, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Neto sin IVA y sin SGAE</div></div>
             <div class="sim-stat"><div class="sim-stat__n">{{ amt(summary.avg_price_sin_iva, 'Sin IVA · incluye SGAE') }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
           </div>
           <div class="small text-muted">
-            Pista: {{ summary.zones.PISTA.sellable }} a la venta de {{ summary.zones.PISTA.qty }} ·
-            Grada: {{ summary.zones.GRADA.sellable }} a la venta de {{ summary.zones.GRADA.qty }} ·
-            Palcos: {{ summary.zones.PALCO.sellable }} a la venta de {{ summary.zones.PALCO.qty }}
+            Pista: {{ summary.zones.PISTA.sellable|k }} a la venta de {{ summary.zones.PISTA.qty|k }} ·
+            Grada: {{ summary.zones.GRADA.sellable|k }} a la venta de {{ summary.zones.GRADA.qty|k }} ·
+            Palcos: {{ summary.zones.PALCO.sellable|k }} a la venta de {{ summary.zones.PALCO.qty|k }}
             {% if calc %} · Precio medio con IVA: {{ amt(calc.avg_price_gross, 'IVA incluido · incluye SGAE') }}{% endif %}
             {% if summary.extras_gross %} · Complementos: {{ amt(summary.extras_gross, 'IVA incluido') }}{% endif %}
           </div>
@@ -382,7 +391,7 @@
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
         <div class="ficha-section__body">
           <div class="d-flex flex-wrap gap-3 mb-2">
-            <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
             <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
           </div>
           <canvas id="simResumenChart" height="110"></canvas>
@@ -686,12 +695,11 @@
   {% else %}
     {% set g = (calc.at_100.gastos if calc else None) %}
     {% if g %}
-    <div class="d-flex flex-wrap gap-3 mb-3">
+    <div class="d-flex flex-wrap gap-3 mb-3 justify-content-end align-items-center">
       <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.caches, 'Sin IVA') }}</div><div class="sim-stat__l">Cachés (neto)</div></div>
       {% if retention_relevant %}<div class="sim-stat"><div class="sim-stat__n">{{ amt(g.retenciones, 'Sin IVA') }}</div><div class="sim-stat__l">Retenciones (24%)</div></div>{% endif %}
       <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.comisiones, 'Sin IVA') }}</div><div class="sim-stat__l">Comisiones (neto)</div></div>
-      <div class="sim-stat"><div class="sim-stat__n">{{ amt(g.produccion, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos por categorías (neto)</div></div>
-      <div class="sim-stat"><div class="sim-stat__n fw-bold">{{ amt(g.total, 'Sin IVA') }}</div><div class="sim-stat__l">Total gastos (neto)</div></div>
+      <div class="sim-gasto-total d-flex align-items-baseline gap-2"><span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>{{ amt(g.total, 'Sin IVA') }}</div>
     </div>
     {% endif %}
 
@@ -761,7 +769,7 @@
       </div>
 
       {# --- Gastos por categorías (bocadillos) --- #}
-      <h6 class="mt-4 mb-2"><i class="fa fa-receipt me-1"></i>Gastos por categorías <span class="text-muted small fw-normal">(añade cada gasto en su categoría; con la rueda <i class="fa fa-gear"></i> configuras el IVA)</span></h6>
+      <h6 class="mt-4 mb-2"><i class="fa fa-receipt me-1"></i>Gastos por categorías</h6>
       {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
       <div class="sim-cat-card" data-cat-card="{{ ckey }}">
         <div class="sim-cat-card__head">
@@ -781,9 +789,9 @@
         </div>
       </div>
       {% endfor %}
-      <div class="d-flex justify-content-between align-items-center border-top pt-2 mb-3">
-        <span class="fw-semibold">Total de todos los gastos por categorías <span class="text-muted small fw-normal">(líneas fijas)</span></span>
-        <span class="fs-5 fw-bold"><span class="sim-amt" title="Sin IVA" id="gastosGrandTotal">0,00 €</span></span>
+      <div class="d-flex justify-content-end align-items-baseline gap-2 border-top pt-2 mb-3 sim-gasto-total">
+        <span class="fw-bold text-uppercase text-muted" style="letter-spacing:.02em;">Gasto Total:</span>
+        <span class="sim-amt" title="Sin IVA" id="gastosGrandTotal">0,00 €</span>
       </div>
 
       <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit"><i class="fa fa-save me-1"></i>Guardar gastos</button></div>
@@ -866,8 +874,6 @@
         <div class="ficha-section__body">
           {% if activity_partners_own %}
             <div class="alert alert-light border small py-2"><i class="fa fa-circle-info me-1"></i>Esta fecha tiene <strong>socios propios</strong>: no usa los comunes de la simulación.</div>
-          {% else %}
-            <div class="alert alert-light border small py-2"><i class="fa fa-circle-info me-1"></i>Esta fecha usa los <strong>socios comunes</strong> de la simulación. Si guardas cambios aquí, pasará a tener socios propios (los comunes de las demás fechas no cambian).</div>
           {% endif %}
           {% if CAN_EDIT %}
             {{ partners_editor('partnersActivityForm', active_activity.id, effective_partners, activity_partners_own|length > 0, 'socios') }}
@@ -899,7 +905,7 @@
     <div class="text-muted">Configura el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a> para ver el resultado.</div>
   {% else %}
     <div class="d-flex flex-wrap gap-3 mb-3">
-      <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
+      <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
       <div class="sim-stat"><div class="sim-stat__n">{{ amt(calc.avg_price_sin_iva, 'Sin IVA · incluye SGAE') }}</div><div class="sim-stat__l">Precio medio sin IVA · {{ amt(calc.avg_price_gross, 'IVA incluido · incluye SGAE') }} con IVA</div></div>
       <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
     </div>
@@ -916,7 +922,7 @@
             {% set w = (absval / calc.series_max_abs * 100) if calc.series_max_abs else 0 %}
             <tr class="{{ 'table-warning' if is_be else '' }}">
               <td class="fw-semibold">{{ row.pct }}%{% if is_be %} <span class="badge text-bg-warning text-dark ms-1">empate</span>{% endif %}</td>
-              <td class="text-end">{{ row.tickets }}</td>
+              <td class="text-end">{{ row.tickets|k }}</td>
               <td class="text-end">{{ amt(row.ingresos, 'Sin IVA') }}</td>
               <td class="text-end">{{ amt(row.gastos, 'Sin IVA') }}</td>
               <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ amt(row.resultado, 'Neto: sin IVA y sin SGAE') }}</td>
@@ -930,7 +936,7 @@
 
     {# --- Reparto por socios con slider --- #}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Qué puede quedar a cada socio · riesgo de cada socio</h6></div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6></div>
       <div class="ficha-section__body">
         <div data-sim-partners="simPartnersData"></div>
         {% if is_cycle and general_share %}<div class="text-muted small mt-2"><i class="fa fa-layer-group me-1"></i>Incluye {{ amt(general_share, 'Sin IVA') }} de gastos generales del ciclo repartidos a esta fecha.</div>{% endif %}
@@ -1007,6 +1013,7 @@
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
   function fmtEur(n){ n = Number(n)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
+  function fmtInt(n){ return (Number(n)||0).toLocaleString('es-ES'); }
 
   function extraHtml(ex){
     ex = ex || {};
@@ -1087,11 +1094,11 @@
       tot.net += sell * r.price * (1 - SGAE);
       if(byZone[r.zone]){ byZone[r.zone].qty += r.qty; byZone[r.zone].sell += sell; }
     });
-    setText('tkAforo', tot.qty); setText('tkSell', tot.sell); setText('tkInv', tot.inv);
+    setText('tkAforo', fmtInt(tot.qty)); setText('tkSell', fmtInt(tot.sell)); setText('tkInv', fmtInt(tot.inv));
     var net = document.getElementById('tkNet'); if(net) net.textContent = fmtEur(tot.net);
     Object.keys(byZone).forEach(function(z){
-      var a = form.querySelector('[data-zone-qty="'+z+'"]'); if(a) a.textContent = byZone[z].qty;
-      var b = form.querySelector('[data-zone-sellable="'+z+'"]'); if(b) b.textContent = byZone[z].sell;
+      var a = form.querySelector('[data-zone-qty="'+z+'"]'); if(a) a.textContent = fmtInt(byZone[z].qty);
+      var b = form.querySelector('[data-zone-sellable="'+z+'"]'); if(b) b.textContent = fmtInt(byZone[z].sell);
     });
   }
 
@@ -1298,21 +1305,36 @@
     '</div>';
   }
 
+  // Categorías cuyo gasto se introduce por CANTIDAD (importe unitario × cantidad).
+  var QTY_CATS = {{ SIM_EXPENSE_QTY_CATEGORIES|tojson }};
+  function isQtyCat(k){ return QTY_CATS.indexOf(k) > -1; }
+
   // --- Gasto de una categoría (sin selector de categoría: la da su tarjeta) ---
   function prodRow(o, catKey){
     o=o||{};
     var isVar=!!o.is_variable;
     var iva=(o.iva_pct!=null&&o.iva_pct!=='')?o.iva_pct:21;
-    return '<div class="card card-body p-2 mb-2 prod-row" data-cat="'+esc(catKey)+'">'+
+    var qty=(o.quantity!=null&&o.quantity!=='')?o.quantity:1;
+    var qtyCat=isQtyCat(catKey);
+    var qtyCol = qtyCat
+      ? '<div class="col-4 col-md-2"><label class="form-label small mb-0">Cantidad</label><input type="number" step="1" min="0" class="form-control form-control-sm pr-qty" value="'+val(qty)+'"></div>'
+      : '';
+    var totalCol = qtyCat
+      ? '<div class="col-12 mt-1"><span class="small text-muted">Total: </span><span class="fw-semibold sim-amt pr-row-total" title="Importe × cantidad (sin IVA)">0,00 €</span></div>'
+      : '';
+    return '<div class="card card-body p-2 mb-2 prod-row" data-cat="'+esc(catKey)+'" draggable="true">'+
       '<div class="row g-2 align-items-end">'+
-        '<div class="col-12 col-md-5"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
-        '<div class="col-7 col-md-3"><label class="form-label small mb-0">Importe</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
-        '<div class="col-5 col-md-4 d-flex gap-1 justify-content-end align-items-center">'+
+        '<div class="col-auto d-flex align-items-end pb-1"><span class="prod-drag-handle" title="Arrastra para cambiar de categoría"><i class="fa fa-grip-vertical"></i></span></div>'+
+        '<div class="col '+(qtyCat?'col-md-4':'col-md-5')+'"><label class="form-label small mb-0">Concepto</label><input type="text" class="form-control form-control-sm pr-concept" value="'+esc(o.concept)+'"></div>'+
+        '<div class="col-'+(qtyCat?'4':'7')+' col-md-'+(qtyCat?'2':'3')+'"><label class="form-label small mb-0">'+(qtyCat?'Importe/ud.':'Importe')+'</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control pr-net" value="'+val(o.amount_net)+'"><span class="input-group-text">€</span></div></div>'+
+        qtyCol+
+        '<div class="col-12 col-md-'+(qtyCat?'3':'4')+' d-flex gap-1 justify-content-end align-items-center">'+
           '<span class="badge text-bg-light border pr-iva-badge me-auto" title="Configura el IVA con la rueda"></span>'+
           '<button type="button" class="btn btn-sm '+(isVar?'btn-primary':'btn-outline-secondary')+' pr-var-toggle" title="Importe variable"><i class="fa fa-chart-line"></i></button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary pr-cfg-toggle" title="Configurar gasto (IVA)"><i class="fa fa-gear"></i></button>'+
           '<button type="button" class="btn btn-sm btn-outline-danger prod-del" title="Quitar"><i class="fa fa-trash"></i></button>'+
         '</div>'+
+        totalCol+
       '</div>'+
       '<div class="pr-cfg mt-2 d-none"><div class="d-flex flex-wrap gap-3 align-items-end border rounded p-2 bg-light">'+
         '<div><label class="form-label small mb-0">IVA</label><div class="input-group input-group-sm" style="width:110px;"><input type="number" step="0.01" min="0" class="form-control pr-iva" value="'+iva+'"><span class="input-group-text">%</span></div></div>'+
@@ -1341,6 +1363,20 @@
     recompute();
     return el;
   }
+  // Lee los valores actuales de una fila (para re-crearla al cambiar de categoría por arrastre).
+  function readProdRow(row){
+    var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
+    var q=row.querySelector('.pr-qty');
+    var o={ concept:row.querySelector('.pr-concept').value||'',
+            amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0,
+            quantity:(q?(parseFloat(q.value||'1')||1):1),
+            iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0,
+            includes_iva:row.querySelector('.pr-inciva').checked,
+            iva_exempt:row.querySelector('.pr-exempt').checked,
+            is_variable:isVar };
+    if(isVar) Object.assign(o, readVar(row.querySelector('.prod-var')));
+    return o;
+  }
 
   form.addEventListener('click', function(e){
     var ca=e.target.closest('[data-cat-add]');
@@ -1360,7 +1396,40 @@
     var ch=e.target.closest('.cost-art-chip'); if(ch){ ch.classList.toggle('btn-primary'); ch.classList.toggle('btn-outline-secondary'); var cc=ch.closest('.cost-card'); var nn=cc.querySelectorAll('.cost-art-chip.btn-primary').length; var note=cc.querySelector('.cost-art-note'); if(note) note.textContent = nn>1 ? ('· compartido entre '+nn+' (÷'+nn+')') : ''; return; }
   });
   form.addEventListener('input', function(e){
-    if(e.target.matches('.pr-net,.pr-iva')) { var r=e.target.closest('.prod-row'); if(r) ivaBadge(r); recompute(); }
+    if(e.target.matches('.pr-net,.pr-iva,.pr-qty')) { var r=e.target.closest('.prod-row'); if(r) ivaBadge(r); recompute(); }
+  });
+
+  // --- Arrastrar gastos entre categorías ---
+  var dragRow = null;
+  form.addEventListener('dragstart', function(e){
+    var row = e.target.closest('.prod-row'); if(!row) return;
+    dragRow = row; row.classList.add('dragging');
+    try{ e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain','row'); }catch(_){}
+  });
+  form.addEventListener('dragend', function(){
+    if(dragRow) dragRow.classList.remove('dragging');
+    form.querySelectorAll('.sim-cat-card.drag-over').forEach(function(c){ c.classList.remove('drag-over'); });
+    dragRow = null;
+  });
+  form.addEventListener('dragover', function(e){
+    if(!dragRow) return;
+    var card = e.target.closest('[data-cat-card]'); if(!card) return;
+    e.preventDefault();
+    form.querySelectorAll('.sim-cat-card.drag-over').forEach(function(c){ if(c!==card) c.classList.remove('drag-over'); });
+    card.classList.add('drag-over');
+  });
+  form.addEventListener('drop', function(e){
+    if(!dragRow) return;
+    var card = e.target.closest('[data-cat-card]'); if(!card) return;
+    e.preventDefault();
+    var newCat = card.getAttribute('data-cat-card');
+    var oldCat = dragRow.getAttribute('data-cat');
+    card.classList.remove('drag-over');
+    if(newCat === oldCat){ return; }
+    // Re-crear la fila en la categoría destino (el layout depende de si lleva cantidad).
+    var vals = readProdRow(dragRow);
+    dragRow.remove();
+    addProd(newCat, vals);
   });
   form.addEventListener('change', function(e){
     if(e.target.matches('.cv-type')){
@@ -1374,6 +1443,9 @@
 
   function rowNet(row){
     var n=parseFloat(row.querySelector('.pr-net').value||'0')||0;
+    var q=row.querySelector('.pr-qty');
+    var qty=q ? (parseFloat(q.value||'1')||0) : 1;
+    n = n * qty;
     var exempt=row.querySelector('.pr-exempt').checked;
     var inc=row.querySelector('.pr-inciva').checked;
     var iva=parseFloat(row.querySelector('.pr-iva').value||'21')||0;
@@ -1386,7 +1458,10 @@
       var key=wrap.getAttribute('data-cat-rows');
       var net=0, vars=0;
       wrap.querySelectorAll('.prod-row').forEach(function(row){
-        if(row.querySelector('.prod-var').classList.contains('d-none')){ net+=rowNet(row); }
+        if(row.querySelector('.prod-var').classList.contains('d-none')){
+          var rn=rowNet(row); net+=rn;
+          var rt=row.querySelector('.pr-row-total'); if(rt) rt.textContent=eur(rn);
+        }
         else { vars++; }
       });
       grand+=net;
@@ -1440,8 +1515,10 @@
       var key=wrap.getAttribute('data-cat-rows');
       wrap.querySelectorAll('.prod-row').forEach(function(row){
         var isVar=!row.querySelector('.prod-var').classList.contains('d-none');
+        var q=row.querySelector('.pr-qty');
         var o={ category:key, concept:row.querySelector('.pr-concept').value||'',
                 amount_net:parseFloat(row.querySelector('.pr-net').value||'0')||0,
+                quantity:(q?(parseFloat(q.value||'1')||1):1),
                 iva_pct:parseFloat(row.querySelector('.pr-iva').value||'21')||0,
                 includes_iva:row.querySelector('.pr-inciva').checked,
                 iva_exempt:row.querySelector('.pr-exempt').checked,

@@ -18735,8 +18735,9 @@ def _sim_expenses_payload(activity):
         d.update({
             "mode": (c.mode or "FIXED"),
             "promoter_id": (str(c.promoter_id) if c.promoter_id else ""),
-            "name": (c.name or (c.promoter.nick if c.promoter else "")),
-            "logo": (c.promoter.logo_url if c.promoter else ""),
+            "media_outlet_id": (str(c.media_outlet_id) if getattr(c, "media_outlet_id", None) else ""),
+            "name": (c.name or (c.promoter.nick if c.promoter else "") or (c.media_outlet.name if getattr(c, "media_outlet", None) else "")),
+            "logo": ((c.promoter.logo_url if c.promoter else "") or (c.media_outlet.logo_url if getattr(c, "media_outlet", None) else "")),
             "amount": float(_sim_d(c.amount)),
             "includes_iva": bool(c.includes_iva), "includes_retention": bool(c.includes_retention),
             "retention_exempt": bool(c.retention_exempt), "exempt_amount": float(_sim_d(c.exempt_amount)),
@@ -18961,6 +18962,7 @@ def simulation_detail_view(sid):
                     .selectinload(SimulationTicketCategory.extras),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.commissions).joinedload(SimulationCommission.promoter),
+                selectinload(Simulation.activities).selectinload(SimulationActivity.commissions).joinedload(SimulationCommission.media_outlet),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
                 selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
                 selectinload(Simulation.partners).joinedload(SimulationPartner.company),
@@ -19516,6 +19518,7 @@ def simulation_expenses_save(sid):
             s.add(SimulationCommission(
                 activity_id=act.id,
                 promoter_id=_sim_safe_uuid(row.get("promoter_id")),
+                media_outlet_id=_sim_safe_uuid(row.get("media_outlet_id")),
                 name=(row.get("name") or None),
                 exempt_amount=_sim_d(row.get("exempt_amount")),
                 sort_order=i, **common,
@@ -24111,6 +24114,32 @@ def _promoter_search_clause(session_db, q: str):
             self_c = self_c | Promoter.id.in_(list(linked))
         per_token.append(self_c)
     return and_(*per_token)
+
+
+@app.get("/api/search/comisionistas", endpoint="api_search_commission_entities")
+@admin_required
+def api_search_commission_entities():
+    """Buscador de COMISIONISTAS (simulador): cualquier TERCERO y también los MEDIOS. Devuelve una
+    lista mixta con `kind` (promoter|media) para que el front guarde el id en el campo correcto."""
+    q = (request.args.get("q") or request.args.get("term") or "").strip()
+    session = db()
+    try:
+        out = []
+        pq = session.query(Promoter)
+        clause = _promoter_search_clause(session, q)
+        if clause is not None:
+            pq = pq.filter(clause)
+        for p in pq.order_by(Promoter.nick.asc()).limit(15).all():
+            label = (p.nick or "").strip() or "Sin nombre"
+            out.append({"id": str(p.id), "kind": "promoter", "label": label, "logo_url": (p.logo_url or "")})
+        mq = session.query(MediaOutlet)
+        if q:
+            mq = mq.filter(_sa_contains_text(MediaOutlet.name, q))
+        for m_ in mq.order_by(MediaOutlet.name.asc()).limit(10).all():
+            out.append({"id": str(m_.id), "kind": "media", "label": ((m_.name or "").strip() or "Medio") + " · medio", "logo_url": (m_.logo_url or "")})
+        return jsonify(out)
+    finally:
+        session.close()
 
 
 @app.get("/api/search/promoters", endpoint="api_search_promoters")
@@ -29843,7 +29872,7 @@ SUPPORT_ACTION_ENDPOINTS = {
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
-    "api_search_venues", "api_entity_link_search",
+    "api_search_venues", "api_entity_link_search", "api_search_commission_entities",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
     "api_concert_meta", "api_song_meta", "api_album_song_search",
     "api_concert_artist_conflicts", "api_embargo_check_third_party", "api_geocode",

@@ -503,7 +503,7 @@
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-user-tie"></i>Comisiones</h6></div>
         <div class="ficha-section__body">
           <div class="row g-2 align-items-end mb-2">
-            <div class="col"><label class="form-label small mb-0">Añadir comisionista (tercero)</label><select id="commissionSearch" class="form-select"></select></div>
+            <div class="col"><label class="form-label small mb-0">Añadir comisionista (tercero o medio)</label><select id="commissionSearch" class="form-select"></select></div>
             <div class="col-auto"><button type="button" class="btn btn-outline-secondary" data-quick-create="promoter" data-target="commissionSearch" title="Crear tercero"><i class="fa fa-plus"></i></button></div>
           </div>
           <div id="commissionsList"></div>
@@ -844,7 +844,7 @@
   function commissionCard(o){
     o=o||{}; var mode=(o.mode||'FIXED').toUpperCase();
     var logo=o.logo?('<img src="'+esc(o.logo)+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #eee;">'):'<span class="me-1"><i class="fa fa-user-tie"></i></span>';
-    return '<div class="card card-body p-2 mb-2 cost-card" data-kind="commission" data-promoter-id="'+esc(o.promoter_id||'')+'">'+
+    return '<div class="card card-body p-2 mb-2 cost-card" data-kind="commission" data-promoter-id="'+esc(o.promoter_id||'')+'" data-media-outlet-id="'+esc(o.media_outlet_id||'')+'">'+
       '<div class="d-flex justify-content-between align-items-center mb-2">'+
         '<div class="d-flex align-items-center gap-2">'+logo+'<strong>'+esc(o.name||'Comisionista')+'</strong></div>'+
         '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
@@ -935,7 +935,7 @@
     var out=[];
     document.querySelectorAll('#commissionsList .cost-card').forEach(function(c){
       var mode=activeMode(c);
-      var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:c.querySelector('.c-exempt').checked};
+      var row={mode:mode, promoter_id:c.getAttribute('data-promoter-id')||'', media_outlet_id:c.getAttribute('data-media-outlet-id')||'', name:c.querySelector('.cc-name').value||'', retention_exempt:c.querySelector('.c-exempt').checked};
       if(mode==='VARIABLE'){ Object.assign(row, readVar(c)); row.exempt_amount=parseFloat(c.querySelector('.cc-exempt-amount').value||'0')||0; }
       else { row.amount=parseFloat(c.querySelector('.cf-amount').value||'0')||0; row.includes_iva=c.querySelector('.cf-iva').checked; row.includes_retention=c.querySelector('.cf-ret').checked; }
       row.artist_ids=cardArtistIds(c);
@@ -961,16 +961,23 @@
 
   function entityFmt(d){ if(!d.id) return d.text; var p=d.photo||(d.element&&$(d.element).data('photo'))||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-user-tie"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
   if(hasS2){
+    // El comisionista puede ser cualquier TERCERO o un MEDIO: buscador mixto con `kind` para
+    // guardar el id en el campo correcto (promoter_id o media_outlet_id).
     $('#commissionSearch').select2({
-      width:'100%', placeholder:'Buscar tercero…', allowClear:true, minimumInputLength:1,
-      ajax:{ url:"{{ url_for('api_search_promoters') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
-        processResults:function(d){ return { results:(d||[]).map(function(it){return {id:it.id, text:it.label||it.nick||it.text, photo:it.logo_url||it.photo_url||''};}) }; } },
+      width:'100%', placeholder:'Buscar tercero o medio…', allowClear:true, minimumInputLength:1,
+      ajax:{ url:"{{ url_for('api_search_commission_entities') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
+        processResults:function(d){ return { results:(d||[]).map(function(it){return {id:it.id, text:it.label||it.nick||it.text, photo:it.logo_url||it.photo_url||'', kind:it.kind||'promoter'};}) }; } },
       templateResult:entityFmt, templateSelection:entityFmt, escapeMarkup:function(m){return m;}
     });
-    $('#commissionSearch').on('change', function(){
-      var id=this.value; if(!id) return;
-      var opt=this.options[this.selectedIndex]; var label=opt?opt.text:'Comisionista'; var photo=opt?(opt.getAttribute('data-photo')||''):'';
-      appendHtml(document.getElementById('commissionsList'), commissionCard({promoter_id:id, name:label, logo:photo, mode:'FIXED'}));
+    $('#commissionSearch').on('select2:select', function(e){
+      var d = (e.params && e.params.data) || {};
+      if(!d.id) return;
+      appendHtml(document.getElementById('commissionsList'), commissionCard({
+        promoter_id: d.kind === 'media' ? '' : d.id,
+        media_outlet_id: d.kind === 'media' ? d.id : '',
+        name: (d.text || 'Comisionista').replace(/ \u00b7 medio$/, ''),
+        logo: d.photo || '', mode: 'FIXED'
+      }));
       $(this).val(null).trigger('change');
     });
   }

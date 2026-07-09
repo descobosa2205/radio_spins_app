@@ -3130,6 +3130,8 @@ class SimulationCommission(Base):
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     activity_id = Column(PGUUID(as_uuid=True), ForeignKey("simulation_activities.id", ondelete="CASCADE"), nullable=False, index=True)
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
+    # El comisionista también puede ser un MEDIO (o cualquier tercero); solo uno de los dos ids.
+    media_outlet_id = Column(PGUUID(as_uuid=True), ForeignKey("media_outlets.id", ondelete="SET NULL"), index=True)
     name = Column(Text)
     mode = Column(Text, nullable=False, server_default=text("'FIXED'"))    # FIXED | VARIABLE
     amount = Column(Numeric, nullable=False, server_default=text("0"))
@@ -3147,6 +3149,7 @@ class SimulationCommission(Base):
 
     activity = relationship("SimulationActivity", back_populates="commissions")
     promoter = relationship("Promoter")
+    media_outlet = relationship("MediaOutlet")
 
 
 class SimulationProductionItem(Base):
@@ -3567,6 +3570,7 @@ def ensure_simulations_schema():
         "ALTER TABLE IF EXISTS simulation_activities ADD COLUMN IF NOT EXISTS is_shared boolean NOT NULL DEFAULT false;",
         "ALTER TABLE IF EXISTS simulation_caches      ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb;",
+        "ALTER TABLE IF EXISTS simulation_commissions ADD COLUMN IF NOT EXISTS media_outlet_id uuid REFERENCES media_outlets(id) ON DELETE SET NULL;",
         "CREATE INDEX IF NOT EXISTS idx_sim_activities_artist ON simulation_activities(artist_id);",
     ]
     _exec_ddl_statements(stmts, "simulations")

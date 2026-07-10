@@ -76,11 +76,21 @@
       partnersOrder.forEach(function (k) { out[k] = { beneficio: 0, riesgo: 0, pcts: [] }; });
       acts.forEach(function (a) {
         var pt = a.series[pct] || a.series[a.series.length - 1];
+        // Riesgo: los socios que «no soportan pérdidas» no asumen gasto; su parte se reparte entre
+        // el resto proporcional a su %. Así los que sí soportan pérdidas se reparten TODO el gasto.
+        var lossPctSum = 0;
+        (a.partners || []).forEach(function (pr) { if (!pr.no_loss) lossPctSum += (Number(pr.pct) || 0); });
         (a.partners || []).forEach(function (pr) {
-          var k = partnerKey(pr), share = (Number(pr.pct) || 0) / 100.0;
+          var k = partnerKey(pr), pct2 = (Number(pr.pct) || 0), share = pct2 / 100.0;
           out[k].beneficio += pt.resultado * share;
-          out[k].riesgo += pt.gastos * share;
-          out[k].pcts.push(Number(pr.pct) || 0);
+          if (pr.no_loss) {
+            // sin riesgo
+          } else if (lossPctSum > 0) {
+            out[k].riesgo += pt.gastos * (pct2 / lossPctSum);
+          } else {
+            out[k].riesgo += pt.gastos * share;
+          }
+          out[k].pcts.push(pct2);
         });
       });
       return out;

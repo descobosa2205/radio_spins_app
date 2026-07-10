@@ -3072,6 +3072,9 @@ class SimulationPartner(Base):
     promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"), index=True)
     name = Column(Text)  # etiqueta/snapshot (socio sin ficha o para preservar el nombre)
     pct = Column(Numeric, nullable=False, server_default=text("0"))
+    # No soporta pérdidas: participa del beneficio pero no asume riesgo; su parte de gasto se
+    # reparte entre el resto de socios proporcionalmente a su %.
+    no_loss = Column(Boolean, nullable=False, server_default=text("false"))
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     simulation = relationship("Simulation", back_populates="partners")
@@ -3680,6 +3683,7 @@ def ensure_simulations_schema():
         # --- Socios por fecha (gira/ciclo): NULL = socio común de toda la simulación ---
         "ALTER TABLE IF EXISTS simulation_partners ADD COLUMN IF NOT EXISTS activity_id uuid REFERENCES simulation_activities(id) ON DELETE CASCADE;",
         "CREATE INDEX IF NOT EXISTS idx_sim_partners_activity ON simulation_partners(activity_id);",
+        "ALTER TABLE IF EXISTS simulation_partners ADD COLUMN IF NOT EXISTS no_loss boolean NOT NULL DEFAULT false;",
         # --- Ingresos: omitir / no aplica ---
         "ALTER TABLE IF EXISTS simulation_income_items ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'ACTIVE';",
         # --- Gastos: IVA configurable (rueda) y condicionante de venta mínima ---

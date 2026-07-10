@@ -19187,6 +19187,7 @@ def _sim_partner_row_payload(p):
         "company_id": (str(p.company_id) if p.company_id else ""),
         "promoter_id": (str(p.promoter_id) if p.promoter_id else ""),
         "label": (p.name or ""),
+        "no_loss": bool(getattr(p, "no_loss", False)),
     }
 
 
@@ -19295,6 +19296,7 @@ def _simulation_partners_from_form(form):
     refs = form.getlist("partner_ref[]")
     labels = form.getlist("partner_label[]")
     pcts = form.getlist("partner_pct[]")
+    no_losses = form.getlist("partner_no_loss[]")
     rows = []
     n = max(len(kinds), len(refs), len(labels), len(pcts)) if (kinds or refs or labels or pcts) else 0
     for i in range(n):
@@ -19302,6 +19304,7 @@ def _simulation_partners_from_form(form):
         ref = (refs[i] if i < len(refs) else "").strip()
         label = (labels[i] if i < len(labels) else "").strip()
         pct = _money_or_zero(pcts[i] if i < len(pcts) else "0")
+        no_loss = _truthy(no_losses[i]) if i < len(no_losses) else False
         company_id = promoter_id = None
         if kind == "company":
             company_id = _sim_safe_uuid(ref)
@@ -19309,7 +19312,7 @@ def _simulation_partners_from_form(form):
             promoter_id = _sim_safe_uuid(ref)
         if not company_id and not promoter_id and not label:
             continue
-        rows.append({"company_id": company_id, "promoter_id": promoter_id, "name": label or None, "pct": pct})
+        rows.append({"company_id": company_id, "promoter_id": promoter_id, "name": label or None, "pct": pct, "no_loss": no_loss})
     return rows
 
 
@@ -19389,6 +19392,7 @@ def simulation_create():
                 promoter_id=pr["promoter_id"],
                 name=pr["name"],
                 pct=pr["pct"],
+                no_loss=bool(pr.get("no_loss")),
                 sort_order=idx,
             ))
         s.commit()
@@ -19891,6 +19895,7 @@ def simulation_partners_save(sid):
                     promoter_id=pr["promoter_id"],
                     name=pr["name"],
                     pct=pr["pct"],
+                    no_loss=bool(pr.get("no_loss")),
                     sort_order=idx,
                 ))
         s.commit()

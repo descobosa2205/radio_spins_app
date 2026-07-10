@@ -227,8 +227,14 @@ def evaluate(prep, tickets_sold):
                 retention_added += ret
 
     # --- Comisiones ---
+    # Las de tipo «% sobre el beneficio» se calculan en una 2ª pasada (necesitan el beneficio
+    # antes de comisiones), tras conocer ingresos y el resto de gastos.
     com_net_total = 0.0
+    commissions_on_profit = []
     for c in prep["commissions"]:
+        if c["mode"] == "VARIABLE" and (c["cfg"].get("var_type") or "").upper() == "PERCENT_PROFIT":
+            commissions_on_profit.append(c)
+            continue
         if c["mode"] == "VARIABLE":
             base_taquilla = max(taquilla - c["exempt_amount"], 0.0)
             net = variable_amount(c["cfg"], tickets_sold, base_taquilla, avg)
@@ -263,6 +269,16 @@ def evaluate(prep, tickets_sold):
     overrides = prep.get("income_overrides") or {}
     ingresos_total = sum(v for k, v in ingresos.items() if (overrides.get(k) or "").upper() not in ("OMIT", "NA"))
     ingresos["total"] = ingresos_total
+
+    # 2ª pasada: comisiones «% sobre el beneficio» = % del resultado ANTES de estas comisiones.
+    if commissions_on_profit:
+        profit_base = max(ingresos_total - (cache_net_total + retention_added + com_net_total + prod_net_total), 0.0)
+        for c in commissions_on_profit:
+            pct = _f(c["cfg"].get("var_value")) / 100.0
+            net = pct * profit_base
+            if c["includes_iva"]:
+                net = net / (1.0 + IVA_GENERAL)
+            com_net_total += net
 
     gastos_total = cache_net_total + retention_added + com_net_total + prod_net_total
     resultado = ingresos_total - gastos_total

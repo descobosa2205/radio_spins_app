@@ -4,18 +4,25 @@
 {% macro amt(v, note) %}<span class="sim-amt" title="{{ note }}">{{ v|eur }}</span>{% endmacro %}
 
 {# ============ Macro: fila de socio del editor (kind: company|promoter|label) ============ #}
-{% macro partner_row(kind, ref, label, logo, pct) %}
-<div class="sim-partner-row d-flex align-items-center gap-2 mb-2" data-kind="{{ kind }}">
+{% macro partner_row(kind, ref, label, logo, pct, no_loss=False) %}
+<div class="sim-partner-row d-flex align-items-center gap-2 mb-2 {{ 'pe-noloss' if no_loss }}" data-kind="{{ kind }}">
   {% if logo %}<img src="{{ logo }}" class="sim-partner-img">{% else %}<span class="sim-partner-img sim-partner-img--ph"><i class="fa {{ 'fa-building' if kind == 'company' else 'fa-user' }}"></i></span>{% endif %}
-  <span class="sim-partner-name flex-grow-1 text-truncate">{{ label }}</span>
+  <span class="sim-partner-name flex-grow-1 text-truncate">{{ label }}{% if no_loss %} <span class="badge text-bg-light border pe-noloss-badge"><i class="fa fa-shield-halved me-1"></i>No soporta pérdidas</span>{% endif %}</span>
   <div class="input-group input-group-sm" style="width:130px;">
     <input type="number" step="0.01" min="0" max="100" class="form-control pe-pct" name="partner_pct[]" value="{{ pct }}">
     <span class="input-group-text">%</span>
   </div>
-  <button type="button" class="btn btn-sm btn-outline-danger pe-del" title="Quitar socio"><i class="fa fa-trash"></i></button>
+  <div class="dropdown">
+    <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Acciones del socio"><i class="fa fa-ellipsis-vertical"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><button type="button" class="dropdown-item pe-noloss-toggle"><i class="fa fa-shield-halved fa-fw me-2"></i><span class="pe-noloss-label">{{ 'Sí soporta pérdidas' if no_loss else 'No soporta pérdidas' }}</span></button></li>
+      <li><button type="button" class="dropdown-item text-danger pe-del"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></li>
+    </ul>
+  </div>
   <input type="hidden" name="partner_kind[]" value="{{ kind }}">
   <input type="hidden" name="partner_ref[]" value="{{ ref }}">
   <input type="hidden" name="partner_label[]" value="{{ label }}">
+  <input type="hidden" name="partner_no_loss[]" class="pe-noloss-input" value="{{ 1 if no_loss else 0 }}">
 </div>
 {% endmacro %}
 
@@ -42,11 +49,11 @@
   <div class="pe-list">
     {% for p in rows %}
       {% if p.company_id %}
-        {{ partner_row('company', p.company_id, p.company.name if p.company else (p.name or 'Empresa'), p.company.logo_url if p.company else None, p.pct or 0) }}
+        {{ partner_row('company', p.company_id, p.company.name if p.company else (p.name or 'Empresa'), p.company.logo_url if p.company else None, p.pct or 0, p.no_loss) }}
       {% elif p.promoter_id %}
-        {{ partner_row('promoter', p.promoter_id, p.promoter.nick if p.promoter else (p.name or 'Tercero'), p.promoter.logo_url if p.promoter else None, p.pct or 0) }}
+        {{ partner_row('promoter', p.promoter_id, p.promoter.nick if p.promoter else (p.name or 'Tercero'), p.promoter.logo_url if p.promoter else None, p.pct or 0, p.no_loss) }}
       {% else %}
-        {{ partner_row('label', '', p.name or 'Socio', None, p.pct or 0) }}
+        {{ partner_row('label', '', p.name or 'Socio', None, p.pct or 0, p.no_loss) }}
       {% endif %}
     {% endfor %}
   </div>
@@ -1379,12 +1386,15 @@
     o=o||{}; opts=opts||{};
     var vt=(o.var_type||''); var tt=(o.var_threshold_type||'NONE');
     var more = vt ? '' : 'd-none';
+    var thrHidden = (tt==='NONE') ? 'd-none' : '';   // el valor del umbral solo si hay umbral
+    var profitOpt = opts.profit ? ('<option value="PERCENT_PROFIT" '+sel(vt,'PERCENT_PROFIT')+'>Porcentaje sobre el beneficio (%)</option>') : '';
     return '<div class="row g-2 align-items-end cv-wrap">'+
       '<div class="col-md-6"><label class="form-label small mb-0">Variable por</label>'+
         '<select class="form-select form-select-sm cv-type">'+
           '<option value="" '+sel(vt,'')+'>— Elige tipo de variable —</option>'+
           '<option value="PER_TICKET" '+sel(vt,'PER_TICKET')+'>Por entrada (€)</option>'+
           '<option value="PERCENT" '+sel(vt,'PERCENT')+'>Porcentaje (% taquilla)</option>'+
+          profitOpt+
         '</select></div>'+
       '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Valor</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-value" value="'+val(o.var_value)+'"></div>'+
       '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Umbral</label>'+
@@ -1393,7 +1403,7 @@
           '<option value="TICKETS" '+sel(tt,'TICKETS')+'>A partir de nº de entradas</option>'+
           '<option value="AMOUNT" '+sel(tt,'AMOUNT')+'>A partir de importe (€)</option>'+
         '</select></div>'+
-      '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Umbral (valor)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-tv" value="'+val(o.var_threshold_value)+'"></div>'+
+      '<div class="col-md-6 cv-more cv-thr '+more+' '+thrHidden+'"><label class="form-label small mb-0">Umbral (valor)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-tv" value="'+val(o.var_threshold_value)+'"></div>'+
       (opts.condUnder ? '<div class="col-12 cv-more '+more+'"><label class="form-label small mb-0">Solo si se venden <strong>menos de</strong>… entradas (vacío = aplica siempre)</label><input type="number" min="0" class="form-control form-control-sm cv-cond" style="max-width:220px;" value="'+val(o.cond_under_tickets)+'"></div>' : '')+
     '</div>';
   }
@@ -1412,32 +1422,59 @@
         (RETENTION ? '<div class="form-check"><input type="checkbox" class="form-check-input cf-ret" '+(o.includes_retention?'checked':'')+'><label class="form-check-label small">Incluye retención</label></div>' : '')+
       '</div></div>';
   }
-  function cacheCard(o){
+  // Cabecera de una tarjeta de coste: resumen + menú ⋮ (Editar / Eliminar). El cuerpo (.cost-edit)
+  // va colapsado; «Editar» lo abre. `expanded` fuerza abierto (edición manual).
+  function costHead(summaryHtml){
+    return '<div class="d-flex justify-content-between align-items-center cost-head">'+
+      '<div class="cost-summary small flex-grow-1 text-truncate">'+summaryHtml+'</div>'+
+      '<div class="dropdown flex-shrink-0">'+
+        '<button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>'+
+        '<ul class="dropdown-menu dropdown-menu-end">'+
+          '<li><button type="button" class="dropdown-item cost-edit-toggle"><i class="fa fa-pen fa-fw me-2"></i>Editar</button></li>'+
+          '<li><button type="button" class="dropdown-item text-danger cost-del"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></li>'+
+        '</ul>'+
+      '</div>'+
+    '</div>';
+  }
+  function costSummaryFromCard(card){
+    var kind=card.getAttribute('data-kind');
+    var name = kind==='commission' ? ((card.querySelector('.cc-name')||{}).value || 'Comisionista') : 'Caché';
+    var mb=card.querySelector('.mode-btn.active'); var mode=mb?mb.getAttribute('data-mode'):'FIXED';
+    var extra='';
+    if(mode==='VARIABLE'){ extra=' · Variable'; }
+    else { var a=card.querySelector('.cf-amount'); extra=' · '+eur(a?a.value:0); }
+    return '<strong>'+esc(name)+'</strong><span class="text-muted">'+extra+'</span>';
+  }
+  function cacheCard(o, expanded){
     o=o||{}; var mode=(o.mode||'FIXED').toUpperCase();
+    var summary='<strong>Caché</strong><span class="text-muted"> · '+(mode==='VARIABLE'?'Variable':eur(o.amount))+'</span>';
     return '<div class="card card-body p-2 mb-2 cost-card" data-kind="cache">'+
-      '<div class="d-flex justify-content-between align-items-center mb-2">'+modeToggle(mode)+
-        '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
+      costHead(summary)+
+      '<div class="cost-edit '+(expanded?'':'d-none')+' mt-2">'+
+      '<div class="d-flex justify-content-between align-items-center mb-2">'+modeToggle(mode)+'</div>'+
       '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
       '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+'</div>'+
       (RETENTION ? '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>' : '<input type="hidden" class="c-exempt-hidden">')+
       artistChips(o.artist_ids)+
+      '</div>'+
     '</div>';
   }
-  function commissionCard(o){
+  function commissionCard(o, expanded){
     o=o||{}; var mode=(o.mode||'FIXED').toUpperCase();
-    var logo=o.logo?('<img src="'+esc(o.logo)+'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #eee;">'):'<span class="me-1"><i class="fa fa-user-tie"></i></span>';
+    var logo=o.logo?('<img src="'+esc(o.logo)+'" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid #eee;vertical-align:middle;margin-right:5px;">'):'<i class="fa fa-user-tie me-1 text-muted"></i>';
+    var summary=logo+'<strong>'+esc(o.name||'Comisionista')+'</strong><span class="text-muted"> · '+(mode==='VARIABLE'?'Variable':eur(o.amount))+'</span>';
     return '<div class="card card-body p-2 mb-2 cost-card" data-kind="commission" data-promoter-id="'+esc(o.promoter_id||'')+'" data-media-outlet-id="'+esc(o.media_outlet_id||'')+'">'+
-      '<div class="d-flex justify-content-between align-items-center mb-2">'+
-        '<div class="d-flex align-items-center gap-2">'+logo+'<strong>'+esc(o.name||'Comisionista')+'</strong></div>'+
-        '<button type="button" class="btn btn-sm btn-outline-danger cost-del" title="Quitar"><i class="fa fa-trash"></i></button></div>'+
+      costHead(summary)+
       '<input type="hidden" class="cc-name" value="'+esc(o.name||'')+'">'+
+      '<div class="cost-edit '+(expanded?'':'d-none')+' mt-2">'+
       '<div class="mb-2">'+modeToggle(mode)+'</div>'+
       '<div class="cost-fixed '+(mode==='VARIABLE'?'d-none':'')+'">'+fixedFields(o)+'</div>'+
-      '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o)+
+      '<div class="cost-var '+(mode==='VARIABLE'?'':'d-none')+'">'+varFrag(o, {profit:true})+
         '<div class="row g-2 mt-1 cv-more '+((o.var_type)?'':'d-none')+'"><div class="col-md-6"><label class="form-label small mb-0">Importe exento de comisiones (€)</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cc-exempt-amount" value="'+val(o.exempt_amount)+'"></div></div>'+
       '</div>'+
       (RETENTION ? '<div class="form-check mt-2"><input type="checkbox" class="form-check-input c-exempt" '+(o.retention_exempt?'checked':'')+'><label class="form-check-label small">Exento de retención</label></div>' : '')+
       artistChips(o.artist_ids)+
+      '</div>'+
     '</div>';
   }
 
@@ -1489,7 +1526,7 @@
   }
 
   function appendHtml(c, html){ var d=document.createElement('div'); d.innerHTML=html; var el=d.firstElementChild; c.appendChild(el); return el; }
-  var addCacheBtn=document.getElementById('addCache'); if(addCacheBtn) addCacheBtn.addEventListener('click', function(){ appendHtml(document.getElementById('cachesList'), cacheCard(null)); });
+  var addCacheBtn=document.getElementById('addCache'); if(addCacheBtn) addCacheBtn.addEventListener('click', function(){ appendHtml(document.getElementById('cachesList'), cacheCard(null, true)); });
 
   function addProd(catKey, o){
     var wrap=form.querySelector('[data-cat-rows="'+catKey+'"]');
@@ -1525,6 +1562,7 @@
       card.querySelector('.cost-var').classList.toggle('d-none', !isVar);
       return;
     }
+    var cet=e.target.closest('.cost-edit-toggle'); if(cet){ var cc0=cet.closest('.cost-card'); var ed=cc0.querySelector('.cost-edit'); var wasHidden=ed.classList.contains('d-none'); ed.classList.toggle('d-none'); if(!wasHidden){ var sm=cc0.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(cc0); } return; }
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); return; }
     var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
@@ -1570,8 +1608,17 @@
   form.addEventListener('change', function(e){
     if(e.target.matches('.cv-type')){
       var wrap=e.target.closest('.cost-var, .prod-var');
+      var scope=(wrap||e.target.closest('.cv-wrap').parentNode);
       var show=!!e.target.value;
-      (wrap||e.target.closest('.cv-wrap').parentNode).querySelectorAll('.cv-more').forEach(function(el){ el.classList.toggle('d-none', !show); });
+      scope.querySelectorAll('.cv-more').forEach(function(el){ el.classList.toggle('d-none', !show); });
+      // El valor del umbral solo si hay tipo de umbral distinto de «Sin umbral».
+      var tt=scope.querySelector('.cv-tt'); var thr=scope.querySelector('.cv-thr');
+      if(thr) thr.classList.toggle('d-none', !show || !tt || tt.value==='NONE');
+      return;
+    }
+    if(e.target.matches('.cv-tt')){
+      var w2=e.target.closest('.cv-wrap'); var thr2=w2?w2.querySelector('.cv-thr'):null;
+      if(thr2) thr2.classList.toggle('d-none', e.target.value==='NONE');
       return;
     }
     if(e.target.matches('.pr-inciva,.pr-exempt')){ var r=e.target.closest('.prod-row'); if(r){ ivaBadge(r); } recompute(); }
@@ -1763,18 +1810,27 @@
     return '<div class="sim-partner-row d-flex align-items-center gap-2 mb-2" data-kind="'+kind+'">'+img+
       '<span class="sim-partner-name flex-grow-1 text-truncate">'+esc(label)+'</span>'+
       '<div class="input-group input-group-sm" style="width:130px;"><input type="number" step="0.01" min="0" max="100" class="form-control pe-pct" name="partner_pct[]" value="'+(pct||0)+'"><span class="input-group-text">%</span></div>'+
-      '<button type="button" class="btn btn-sm btn-outline-danger pe-del" title="Quitar socio"><i class="fa fa-trash"></i></button>'+
+      '<div class="dropdown">'+
+        '<button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-toggle="dropdown" aria-label="Acciones del socio"><i class="fa fa-ellipsis-vertical"></i></button>'+
+        '<ul class="dropdown-menu dropdown-menu-end">'+
+          '<li><button type="button" class="dropdown-item pe-noloss-toggle"><i class="fa fa-shield-halved fa-fw me-2"></i><span class="pe-noloss-label">No soporta pérdidas</span></button></li>'+
+          '<li><button type="button" class="dropdown-item text-danger pe-del"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></li>'+
+        '</ul>'+
+      '</div>'+
       '<input type="hidden" name="partner_kind[]" value="'+kind+'">'+
       '<input type="hidden" name="partner_ref[]" value="'+esc(ref||'')+'">'+
       '<input type="hidden" name="partner_label[]" value="'+esc(label||'')+'">'+
+      '<input type="hidden" name="partner_no_loss[]" class="pe-noloss-input" value="0">'+
     '</div>';
   }
+  // Tolerancia de redondeo: 3 socios al 33% suman 99 y se acepta. tol = max(1, nº socios × 0,5).
+  function pctTolerance(n){ return Math.max(1.0, (n||0) * 0.5); }
   function updateTotal(ed){
-    var sum=0;
-    ed.querySelectorAll('.pe-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; });
+    var sum=0, n=0;
+    ed.querySelectorAll('.pe-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; n++; });
     sum = Math.round(sum*100)/100;
     var el=ed.querySelector('.pe-total');
-    if(el){ el.textContent = sum+'%'; el.className = 'badge fs-6 pe-total ' + (Math.abs(sum-100) < 0.5 ? 'text-bg-success' : 'text-bg-warning text-dark'); }
+    if(el){ el.textContent = sum+'%'; el.className = 'badge fs-6 pe-total ' + (Math.abs(sum-100) <= pctTolerance(n) ? 'text-bg-success' : 'text-bg-warning text-dark'); }
   }
   function addRow(ed, kind, ref, label, logo, pct){
     var list=ed.querySelector('.pe-list');
@@ -1789,6 +1845,17 @@
     ed.addEventListener('click', function(e){
       var del=e.target.closest('.pe-del');
       if(del){ del.closest('.sim-partner-row').remove(); updateTotal(ed); return; }
+      var nl=e.target.closest('.pe-noloss-toggle');
+      if(nl){
+        var row=nl.closest('.sim-partner-row'); var inp=row.querySelector('.pe-noloss-input');
+        var on = inp.value !== '1'; inp.value = on ? '1' : '0';
+        row.classList.toggle('pe-noloss', on);
+        var lbl=nl.querySelector('.pe-noloss-label'); if(lbl) lbl.textContent = on ? 'Sí soporta pérdidas' : 'No soporta pérdidas';
+        var nameEl=row.querySelector('.sim-partner-name'); var badge=nameEl?nameEl.querySelector('.pe-noloss-badge'):null;
+        if(on && !badge && nameEl){ nameEl.insertAdjacentHTML('beforeend', ' <span class="badge text-bg-light border pe-noloss-badge"><i class="fa fa-shield-halved me-1"></i>No soporta pérdidas</span>'); }
+        else if(!on && badge){ badge.remove(); }
+        return;
+      }
       var eq=e.target.closest('.pe-equal');
       if(eq){
         var rows=ed.querySelectorAll('.sim-partner-row'); var n=rows.length; if(!n) return;
@@ -1826,7 +1893,7 @@
       var rows=ed.querySelectorAll('.sim-partner-row');
       if(rows.length){
         var sum=0; ed.querySelectorAll('.pe-pct').forEach(function(i){ sum+=parseFloat(i.value||'0')||0; });
-        if(Math.abs(Math.round(sum*100)/100 - 100) >= 0.5){
+        if(Math.abs(Math.round(sum*100)/100 - 100) > pctTolerance(rows.length)){
           e.preventDefault();
           alert('El reparto entre socios debe sumar 100% (ahora suma '+(Math.round(sum*100)/100)+'%).');
         }
@@ -1900,10 +1967,31 @@
       }
     }).catch(function(){}).then(step);
   }
+  var routeLine = null, routeVisible = true;
   function finish(){
     if(!coords.length){ if(empty) empty.classList.remove('d-none'); return; }
     coords.sort(function(a,b){ return a.n-b.n; });
-    if(coords.length>1){ L.polyline(coords.map(function(c){return c.ll;}), {color:'#E33D48', weight:3, opacity:.6}).addTo(map); }
+    if(coords.length>1){
+      routeLine = L.polyline(coords.map(function(c){return c.ll;}), {color:'#E33D48', weight:3, opacity:.6}).addTo(map);
+      // Botón discreto (ojo + línea) para mostrar/ocultar la línea del recorrido.
+      var ToggleCtl = L.Control.extend({
+        options: {position: 'topright'},
+        onAdd: function(){
+          var b = L.DomUtil.create('a', '');
+          b.href = '#'; b.title = 'Mostrar/ocultar la línea del recorrido';
+          b.style.cssText = 'background:#fff;width:30px;height:30px;line-height:30px;text-align:center;border-radius:6px;box-shadow:0 1px 4px rgba(0,0,0,.3);color:#E33D48;font-size:15px;display:block;';
+          b.innerHTML = '<i class="fa fa-eye"></i>';
+          L.DomEvent.on(b, 'click', function(e){
+            L.DomEvent.stop(e);
+            routeVisible = !routeVisible;
+            if(routeVisible){ routeLine.addTo(map); b.innerHTML = '<i class="fa fa-eye"></i>'; }
+            else { map.removeLayer(routeLine); b.innerHTML = '<i class="fa fa-eye-slash"></i>'; }
+          });
+          return b;
+        }
+      });
+      map.addControl(new ToggleCtl());
+    }
     try { map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); } catch(e){}
   }
   step();

@@ -471,7 +471,8 @@
     sum = Math.round(sum * 100) / 100;
     var el = document.getElementById('wizPartnersTotal');
     el.textContent = sum + '%';
-    el.className = 'badge fs-6 ' + (Math.abs(sum - 100) < 0.5 ? 'text-bg-success' : 'text-bg-warning text-dark');
+    var n = form.querySelectorAll('.wiz-pct').length;
+    el.className = 'badge fs-6 ' + (Math.abs(sum - 100) <= Math.max(1.0, n*0.5) ? 'text-bg-success' : 'text-bg-warning text-dark');
   }
 
   document.getElementById('wizPartnersList').addEventListener('input', function(e){ if(e.target.classList.contains('wiz-pct')) updateTotal(); });
@@ -505,7 +506,7 @@
     var rows = form.querySelectorAll('.sim-partner-row');
     if(rows.length){
       var sum = 0; form.querySelectorAll('.wiz-pct').forEach(function(i){ sum += parseFloat(i.value||'0')||0; });
-      if(Math.abs(Math.round(sum*100)/100 - 100) >= 0.5){
+      if(Math.abs(Math.round(sum*100)/100 - 100) > Math.max(1.0, rows.length*0.5)){
         e.preventDefault();
         alert('El reparto entre socios debe sumar 100% (ahora suma ' + (Math.round(sum*100)/100) + '%). Usa «Partes iguales» o ajusta los porcentajes.');
         showStep(5);

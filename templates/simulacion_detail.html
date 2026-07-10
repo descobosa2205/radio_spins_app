@@ -127,6 +127,8 @@
     <div class="dropdown">
       <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" aria-label="Acciones"><i class="fa fa-ellipsis-vertical"></i></button>
       <ul class="dropdown-menu dropdown-menu-end">
+        <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#simConfigModal"><i class="fa fa-pen me-2"></i>Editar configuración</button></li>
+        <li><hr class="dropdown-divider"></li>
         <li>
           <form method="post" action="{{ url_for('simulation_delete', sid=sim.id) }}" onsubmit="return confirm('¿Eliminar esta simulación? No se puede deshacer.');">
             <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash me-2"></i>Eliminar simulación</button>
@@ -194,6 +196,13 @@
   <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if is_cycle and tour_totals.general %} (incl. generales){% endif %}</div></div>
   <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ amt(tour_totals.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
 </div>
+{% if tour_series %}
+<div class="ficha-section">
+  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} (agregado)</h6></div>
+  <div class="ficha-section__body"><canvas class="sim-result-chart" data-series-src="simTourSeriesData" height="90"></canvas></div>
+</div>
+<script type="application/json" id="simTourSeriesData">{{ tour_series|tojson }}</script>
+{% endif %}
 <div class="row g-3">
   <div class="col-12 col-lg-7">
     <div class="ficha-section">
@@ -315,7 +324,29 @@
       </div>
     </div>
   </div>
-  {% if CAN_EDIT and is_multi %}<form method="post" action="{{ url_for('simulation_activity_delete', sid=sim.id, aid=active_activity.id) }}" onsubmit="return confirm('¿Eliminar {{ 'este concierto' if is_cycle else 'esta fecha' }}?');"><button class="btn btn-sm btn-outline-danger"><i class="fa fa-trash me-1"></i>Eliminar {{ 'concierto' if is_cycle else 'fecha' }}</button></form>{% endif %}
+  {% if CAN_EDIT %}
+  <div class="dropdown">
+    <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-label="Acciones de la fecha"><i class="fa fa-ellipsis-vertical"></i></button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#simActEditModal"><i class="fa fa-pen fa-fw me-2"></i>Editar {{ 'concierto' if is_cycle else 'fecha' }}</button></li>
+      <li>
+        <form method="post" action="{{ url_for('simulation_activity_update', sid=sim.id, aid=active_activity.id) }}" onsubmit="var n=prompt('Nuevo nombre de {{ 'este concierto' if is_cycle else 'esta fecha' }}', this.querySelector('[name=activity_label]').value); if(n===null) return false; this.querySelector('[name=activity_label]').value=n; return true;">
+          <input type="hidden" name="activity_label" value="{{ active_activity.label or '' }}">
+          <input type="hidden" name="back_tab" value="{{ tab }}">
+          <button class="dropdown-item" type="submit"><i class="fa fa-i-cursor fa-fw me-2"></i>Renombrar</button>
+        </form>
+      </li>
+      {% if is_multi %}
+      <li><hr class="dropdown-divider"></li>
+      <li>
+        <form method="post" action="{{ url_for('simulation_activity_delete', sid=sim.id, aid=active_activity.id) }}" onsubmit="return confirm('¿Eliminar {{ 'este concierto' if is_cycle else 'esta fecha' }}?');">
+          <button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar {{ 'concierto' if is_cycle else 'fecha' }}</button>
+        </form>
+      </li>
+      {% endif %}
+    </ul>
+  </div>
+  {% endif %}
 </div>
 {% elif is_multi and active_activity and active_activity.is_shared %}
 <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
@@ -394,7 +425,7 @@
             <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
             <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
           </div>
-          <canvas id="simResumenChart" height="110"></canvas>
+          <canvas class="sim-result-chart" data-series-src="simSeriesData" height="110"></canvas>
         </div>
       </div>
 
@@ -509,21 +540,36 @@
     <input type="hidden" name="activity_id" value="{{ active_activity.id if active_activity else '' }}">
     <input type="hidden" name="ticketing_json" id="ticketingJson">
     <input type="hidden" name="apply_to_venue" id="applyToVenue" value="0">
+    <input type="hidden" name="tax_json" id="ticketingTaxJson">
 
-    <div class="d-flex flex-wrap gap-3 mb-3">
+    <div class="d-flex flex-wrap gap-3 mb-3 align-items-center">
       <div class="sim-stat"><div class="sim-stat__n" id="tkAforo">0</div><div class="sim-stat__l">Aforo total</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="tkSell">0</div><div class="sim-stat__l">A la venta</div></div>
       <div class="sim-stat"><div class="sim-stat__n" id="tkInv">0</div><div class="sim-stat__l">Invitaciones</div></div>
       <div class="sim-stat"><div class="sim-stat__n"><span class="sim-amt" title="Neto: sin IVA y sin SGAE" id="tkNet">0 €</span></div><div class="sim-stat__l">Neto @100% (sin IVA/SGAE)</div></div>
+      <div class="ms-auto">
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="tkCfgToggle" title="Configurar IVA y SGAE"><i class="fa fa-gear me-1"></i>IVA / SGAE</button>
+      </div>
     </div>
 
+    {# Rueda de configuración fiscal: IVA de entradas, IVA de complementos y SGAE (por defecto los actuales). #}
+    <div id="tkCfgPanel" class="card card-body p-3 mb-3 d-none bg-light">
+      <div class="row g-3 align-items-end">
+        <div class="col-6 col-md-4"><label class="form-label small mb-0">IVA de entradas</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control" id="tkIvaTicket" value="{{ tax_cfg.iva_ticket_pct }}"><span class="input-group-text">%</span></div></div>
+        <div class="col-6 col-md-4"><label class="form-label small mb-0">IVA de complementos</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control" id="tkIvaExtra" value="{{ tax_cfg.iva_extra_pct }}"><span class="input-group-text">%</span></div></div>
+        <div class="col-6 col-md-4"><label class="form-label small mb-0">SGAE (sobre precio sin IVA)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control" id="tkSgae" value="{{ tax_cfg.sgae_pct }}"><span class="input-group-text">%</span></div></div>
+      </div>
+      <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Por defecto: IVA entradas 10%, IVA complementos 10%, SGAE 7,65%. Al cambiarlos, todos los cálculos de esta fecha los usan.</div>
+    </div>
+
+    {% set zone_colors = {'PISTA':'#E33D48','GRADA':'#007CA2','PALCO':'#F59E0B'} %}
     {% for zkey, zlabel, zicon in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palcos','fa-crown')] %}
-    <div class="card mb-3 sim-zone-card">
+    <div class="card mb-3 sim-zone-card" style="border-left:4px solid {{ zone_colors[zkey] }};">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <span><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</span>
+        <span class="fw-semibold" style="color:{{ zone_colors[zkey] }};"><i class="fa {{ zicon }} me-1"></i>{{ zlabel }}</span>
         <span class="small text-muted">A la venta: <strong data-zone-sellable="{{ zkey }}">0</strong> · Aforo: <strong data-zone-qty="{{ zkey }}">0</strong></span>
       </div>
-      <div class="card-body">
+      <div class="card-body" data-zone-color="{{ zone_colors[zkey] }}">
         <div data-zone-rows="{{ zkey }}"></div>
         <button type="button" class="btn btn-sm btn-outline-primary" data-add-cat="{{ zkey }}"><i class="fa fa-plus me-1"></i>Añadir categoría</button>
       </div>
@@ -910,6 +956,10 @@
       <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
     </div>
     {% if calc.break_even_tickets is none %}<div class="alert alert-warning py-2"><i class="fa fa-triangle-exclamation me-1"></i>Con estos datos no se alcanza el punto de empate ni al 100% del aforo.</div>{% endif %}
+    <div class="ficha-section">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
+      <div class="ficha-section__body"><canvas class="sim-result-chart" data-series-src="simSeriesData" height="110"></canvas></div>
+    </div>
     <div class="table-responsive">
       <table class="table table-sm align-middle sim-result-table">
         <thead><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:32%;">&nbsp;</th></tr></thead>
@@ -997,6 +1047,81 @@
   </div></div>
 </div>
 {% endif %}
+
+{% if CAN_EDIT %}
+{# ===== Editar configuración de la simulación ===== #}
+<div class="modal fade" id="simConfigModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('simulation_config_update', sid=sim.id) }}">
+      <div class="modal-header"><h5 class="modal-title">Editar configuración</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Título (opcional)</label><input class="form-control" name="title" value="{{ sim.title or '' }}"></div>
+        <div class="mb-2"><label class="form-label">Empresa que gestiona</label>
+          <select name="managing_company_id" class="form-select">
+            <option value="">— Sin asignar —</option>
+            {% for c in group_companies %}<option value="{{ c.id }}" {% if sim.managing_company_id and sim.managing_company_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="mb-2"><label class="form-label">Tipo</label>
+          <select name="kind" class="form-select">
+            {% for kk, kl in [('CONCERT','Concierto'),('TOUR','Gira'),('CYCLE','Ciclo'),('FESTIVAL','Festival')] %}<option value="{{ kk }}" {% if sim.kind == kk %}selected{% endif %}>{{ kl }}</option>{% endfor %}
+          </select>
+          <div class="form-text">Cambiar el tipo no reorganiza las fechas ya creadas.</div>
+        </div>
+        <div class="mb-2"><label class="form-label">Sujeto</label>
+          <div class="d-flex gap-3 mb-2">
+            <div class="form-check"><input class="form-check-input" type="radio" name="subject_kind" id="scfgArtist" value="ARTIST" {% if not subject.is_event %}checked{% endif %}><label class="form-check-label" for="scfgArtist">Artista</label></div>
+            <div class="form-check"><input class="form-check-input" type="radio" name="subject_kind" id="scfgEvent" value="EVENT" {% if subject.is_event %}checked{% endif %}><label class="form-check-label" for="scfgEvent">Evento</label></div>
+          </div>
+          <div data-scfg-artist class="{{ 'd-none' if subject.is_event }}">
+            <select name="artist_id" class="form-select select-artists">
+              <option value="">— Selecciona artista —</option>
+              {% for a in edit_artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" {% if sim.artist_id and sim.artist_id|string == a.id|string %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div data-scfg-event class="{{ '' if subject.is_event else 'd-none' }}">
+            <div class="d-flex gap-2">
+              <select name="event_id" id="scfgEventSel" class="form-select" style="flex:1;min-width:0;">{% if sim.event %}<option value="{{ sim.event.id }}" selected>{{ sim.event.name }}</option>{% endif %}</select>
+              <button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="event" data-target="scfgEventSel"><i class="fa fa-plus"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+
+{# ===== Editar fecha (dentro de una fecha) ===== #}
+{% if active_activity and not active_activity.is_shared %}
+<div class="modal fade" id="simActEditModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+    <form method="post" action="{{ url_for('simulation_activity_update', sid=sim.id, aid=active_activity.id) }}">
+      <input type="hidden" name="back_tab" value="{{ tab }}">
+      <div class="modal-header"><h5 class="modal-title">Editar {{ 'concierto' if is_cycle else 'fecha' }}</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        {% if is_cycle %}
+        <div class="mb-2"><label class="form-label">Artista</label>
+          <div class="d-flex gap-2"><select name="cycle_artist_id" id="saeArtist" class="form-select select-artists" style="flex:1;min-width:0;"><option value="">— Selecciona —</option>{% for a in edit_artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}" {% if active_activity.artist_id and active_activity.artist_id|string == a.id|string %}selected{% endif %}>{{ a.name }}</option>{% endfor %}</select><button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="artist" data-target="saeArtist"><i class="fa fa-plus"></i></button></div>
+        </div>
+        {% endif %}
+        <div class="mb-2"><label class="form-label">Nombre</label><input class="form-control" name="activity_label" value="{{ active_activity.label or '' }}" placeholder="Por defecto, el municipio del recinto"></div>
+        <div class="mb-2"><label class="form-label">Fecha</label><input type="date" class="form-control" name="event_date" value="{{ active_activity.event_date.strftime('%Y-%m-%d') if (active_activity.event_date and not active_activity.date_unknown) else '' }}">
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="date_unknown" value="1" {% if active_activity.date_unknown %}checked{% endif %}><label class="form-check-label">No sé la fecha todavía</label></div>
+        </div>
+        {% if not is_cycle %}
+        <div class="mb-2"><label class="form-label">Recinto</label>
+          <div class="d-flex gap-2"><select name="venue_id" id="saeVenue" class="form-select" style="flex:1;min-width:0;">{% if active_activity.venue %}<option value="{{ active_activity.venue.id }}" selected>{{ active_activity.venue.name }}</option>{% endif %}</select><button type="button" class="btn btn-outline-secondary flex-shrink-0" data-quick-create="venue" data-target="saeVenue"><i class="fa fa-plus"></i></button></div>
+          <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="venue_unknown" value="1" {% if active_activity.venue_unknown %}checked{% endif %}><label class="form-check-label">No sé el recinto todavía</label></div>
+        </div>
+        {% endif %}
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+{% endif %}
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
@@ -1007,9 +1132,13 @@
 (function(){
   var form = document.getElementById('ticketingForm');
   if(!form) return;
-  var SGAE = 0.0765;
   var initial = [];
   try { initial = JSON.parse(document.getElementById('ticketingData').textContent || '[]'); } catch(e){}
+
+  // Config fiscal (rueda): SGAE % configurable para la previsualización del neto.
+  function sgaeRate(){ var el=document.getElementById('tkSgae'); return el ? ((parseFloat(el.value||'0')||0)/100) : 0.0765; }
+  var cfgToggle=document.getElementById('tkCfgToggle');
+  if(cfgToggle) cfgToggle.addEventListener('click', function(){ var p=document.getElementById('tkCfgPanel'); if(p) p.classList.toggle('d-none'); });
 
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
   function fmtEur(n){ n = Number(n)||0; return n.toLocaleString('es-ES',{minimumFractionDigits:2, maximumFractionDigits:2}) + ' €'; }
@@ -1023,11 +1152,11 @@
       '<button type="button" class="btn btn-sm btn-outline-danger sim-extra-del" title="Quitar"><i class="fa fa-xmark"></i></button>'+
     '</div>';
   }
-  function catHtml(c){
-    c = c || {};
-    return '<div class="sim-cat-row card card-body p-2 mb-2">'+
+  function catHtml(c, color){
+    c = c || {}; color = color || '#adb5bd';
+    return '<div class="sim-cat-row card card-body p-2 mb-2" style="border-left:4px solid '+color+';">'+
       '<div class="row g-2 align-items-end">'+
-        '<div class="col-12 col-md-4"><label class="form-label small mb-0">Categoría</label><input type="text" class="form-control form-control-sm sim-cat-name" placeholder="General, VIP…" value="'+esc(c.name)+'"></div>'+
+        '<div class="col-12 col-md-4"><label class="form-label small mb-0"><span class="inv-cat-swatch d-inline-block me-1" style="width:11px;height:11px;border-radius:3px;background:'+color+';vertical-align:middle;"></span>Categoría</label><input type="text" class="form-control form-control-sm sim-cat-name" placeholder="General, VIP…" value="'+esc(c.name)+'"></div>'+
         '<div class="col-6 col-md-3"><label class="form-label small mb-0" title="Sin IVA · incluye SGAE">Precio (sin IVA, con SGAE)</label><div class="input-group input-group-sm"><input type="number" step="0.01" min="0" class="form-control sim-cat-price" value="'+(c.price!=null?c.price:'')+'"><span class="input-group-text">€</span></div></div>'+
         '<div class="col-4 col-md-2"><label class="form-label small mb-0">Aforo</label><input type="number" min="0" class="form-control form-control-sm sim-cat-qty" value="'+(c.qty!=null?c.qty:'')+'"></div>'+
         '<div class="col-4 col-md-2"><label class="form-label small mb-0">Invitaciones</label><input type="number" min="0" class="form-control form-control-sm sim-cat-inv" value="'+(c.inv!=null?c.inv:'')+'"></div>'+
@@ -1057,7 +1186,12 @@
     var ae = e.target.closest('.sim-extra-add'); if(ae){ var ew=ae.closest('.sim-cat-row').querySelector('.sim-extras'); var h=document.createElement('div'); h.innerHTML=extraHtml(null); ew.appendChild(h.firstElementChild); return; }
     var de = e.target.closest('.sim-extra-del'); if(de){ de.closest('.sim-extra-row').remove(); return; }
   });
-  form.addEventListener('input', function(e){ if(e.target.matches('.sim-cat-qty,.sim-cat-inv,.sim-cat-price')) recompute(); });
+  form.addEventListener('input', function(e){ if(e.target.matches('.sim-cat-qty,.sim-cat-inv,.sim-cat-price,#tkSgae')) recompute(); });
+
+  function collectTax(){
+    function v(id, def){ var el=document.getElementById(id); var n=el?parseFloat(el.value):NaN; return isNaN(n)?def:n; }
+    return { iva_ticket: v('tkIvaTicket', 10), iva_extra: v('tkIvaExtra', 10), sgae: v('tkSgae', 7.65) };
+  }
 
   function collect(){
     var rows = [];
@@ -1091,7 +1225,7 @@
     data.forEach(function(r){
       var sell = Math.max(r.qty - r.inv, 0);
       tot.qty += r.qty; tot.inv += r.inv; tot.sell += sell;
-      tot.net += sell * r.price * (1 - SGAE);
+      tot.net += sell * r.price * (1 - sgaeRate());
       if(byZone[r.zone]){ byZone[r.zone].qty += r.qty; byZone[r.zone].sell += sell; }
     });
     setText('tkAforo', fmtInt(tot.qty)); setText('tkSell', fmtInt(tot.sell)); setText('tkInv', fmtInt(tot.inv));
@@ -1112,6 +1246,7 @@
   }
   form.addEventListener('submit', function(e){
     document.getElementById('ticketingJson').value = JSON.stringify(collect());
+    document.getElementById('ticketingTaxJson').value = JSON.stringify(collectTax());
     if(!hasVenue) return;
     var modal = document.getElementById('tkSyncModal');
     if(modal && window.bootstrap && sig(collect()) !== sig(venueTpl)){
@@ -1119,8 +1254,9 @@
       bootstrap.Modal.getOrCreateInstance(modal).show();
     }
   });
-  var bh=document.getElementById('tkApplyHere'); if(bh) bh.addEventListener('click', function(){ document.getElementById('applyToVenue').value='0'; form.submit(); });
-  var bv=document.getElementById('tkApplyVenue'); if(bv) bv.addEventListener('click', function(){ document.getElementById('applyToVenue').value='1'; form.submit(); });
+  function fillHidden(){ document.getElementById('ticketingJson').value = JSON.stringify(collect()); document.getElementById('ticketingTaxJson').value = JSON.stringify(collectTax()); }
+  var bh=document.getElementById('tkApplyHere'); if(bh) bh.addEventListener('click', function(){ document.getElementById('applyToVenue').value='0'; fillHidden(); form.submit(); });
+  var bv=document.getElementById('tkApplyVenue'); if(bv) bv.addEventListener('click', function(){ document.getElementById('applyToVenue').value='1'; fillHidden(); form.submit(); });
 
   initial.forEach(function(c){ addCat((c.zone||'PISTA').toUpperCase(), c); });
   recompute();
@@ -1701,35 +1837,43 @@
 </script>
 {% endif %}
 
-{% if tab == 'resumen' and calc and calc.ticketing.sellable %}
+{% if calc and calc.ticketing.sellable %}
+<script type="application/json" id="simSeriesData">{{ calc.series|tojson }}</script>
+{% endif %}
 <script>
+/* Gráfico de resultado REUTILIZABLE: mismo en Resumen (fecha), Resultado (fecha) y General (gira).
+   Cada <canvas class="sim-result-chart" data-series-src="<idJSON>"> lee su serie del <script> JSON. */
 (function(){
-  var el = document.getElementById('simResumenChart');
-  if(!el || !window.Chart) return;
-  var series = {{ calc.series|tojson }};
-  var labels = series.map(function(r){ return r.pct + '%'; });
-  new Chart(el, {
-    data: {
-      labels: labels,
-      datasets: [
-        { type:'bar', label:'Resultado', data: series.map(function(r){ return r.resultado; }),
-          backgroundColor: series.map(function(r){ return r.resultado >= 0 ? 'rgba(22,163,74,.55)' : 'rgba(220,38,38,.55)'; }),
-          borderRadius: 4 },
-        { type:'line', label:'Ingresos', data: series.map(function(r){ return r.ingresos; }), borderColor:'#007CA2', backgroundColor:'transparent', tension:.25, pointRadius:2 },
-        { type:'line', label:'Gastos', data: series.map(function(r){ return r.gastos; }), borderColor:'#E33D48', backgroundColor:'transparent', tension:.25, pointRadius:2 }
-      ]
-    },
-    options: {
-      responsive:true,
-      interaction:{ mode:'index', intersect:false },
-      plugins:{ legend:{ labels:{ boxWidth:12 } },
-        tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+(Number(ctx.parsed.y)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' € (sin IVA)'; } } } },
-      scales:{ y:{ ticks:{ callback:function(v){ return Number(v).toLocaleString('es-ES')+' €'; } } } }
-    }
-  });
+  if(!window.Chart) return;
+  function draw(el){
+    var src = document.getElementById(el.getAttribute('data-series-src'));
+    if(!src) return;
+    var series = []; try { series = JSON.parse(src.textContent || '[]'); } catch(e){ return; }
+    if(!series.length) return;
+    var labels = series.map(function(r){ return r.pct + '%'; });
+    new Chart(el, {
+      data: {
+        labels: labels,
+        datasets: [
+          { type:'bar', label:'Resultado', data: series.map(function(r){ return r.resultado; }),
+            backgroundColor: series.map(function(r){ return r.resultado >= 0 ? 'rgba(22,163,74,.55)' : 'rgba(220,38,38,.55)'; }),
+            borderRadius: 4 },
+          { type:'line', label:'Ingresos', data: series.map(function(r){ return r.ingresos; }), borderColor:'#007CA2', backgroundColor:'transparent', tension:.25, pointRadius:2 },
+          { type:'line', label:'Gastos', data: series.map(function(r){ return r.gastos; }), borderColor:'#E33D48', backgroundColor:'transparent', tension:.25, pointRadius:2 }
+        ]
+      },
+      options: {
+        responsive:true,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{ legend:{ labels:{ boxWidth:12 } },
+          tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+(Number(ctx.parsed.y)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' € (sin IVA)'; } } } },
+        scales:{ y:{ ticks:{ callback:function(v){ return Number(v).toLocaleString('es-ES')+' €'; } } } }
+      }
+    });
+  }
+  document.querySelectorAll('.sim-result-chart').forEach(draw);
 })();
 </script>
-{% endif %}
 
 {% if show_general %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -1778,6 +1922,40 @@
       processResults:function(data){ return { results:(data||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.photo_url||it.logo_url||''}; }) }; } },
     templateResult:fmt, templateSelection:fmt, escapeMarkup:function(m){ return m; }
   });
+})();
+</script>
+{% endif %}
+{% if CAN_EDIT %}
+<script>
+(function(){
+  // Modal «Editar configuración»: alternar Artista / Evento y buscador select2 del evento.
+  var cfg=document.getElementById('simConfigModal');
+  if(cfg){
+    cfg.addEventListener('change', function(e){
+      if(e.target.name==='subject_kind'){
+        var isEv=e.target.value==='EVENT';
+        var a=cfg.querySelector('[data-scfg-artist]'), ev=cfg.querySelector('[data-scfg-event]');
+        if(a) a.classList.toggle('d-none', isEv);
+        if(ev) ev.classList.toggle('d-none', !isEv);
+      }
+    });
+  }
+  var $=window.jQuery; if(!($ && $.fn && $.fn.select2)) return;
+  function evFmt(d){ if(!d.id) return d.text; var p=d.photo||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-masks-theater"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
+  function vFmt(d){ if(!d.id) return d.text; var p=d.photo||''; var img=p?'<img class="thumb" src="'+p+'">':'<span class="me-2"><i class="fa fa-location-dot"></i></span>'; return $('<span>'+img+(d.text||'')+'</span>'); }
+  if(cfg && document.getElementById('scfgEventSel')){
+    $('#scfgEventSel').select2({ width:'100%', dropdownParent:$(cfg), placeholder:'Buscar evento…', allowClear:true, minimumInputLength:1,
+      ajax:{ url:"{{ url_for('api_search_events') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
+        processResults:function(d){ return { results:(d||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.logo_url||''}; }) }; } },
+      templateResult:evFmt, templateSelection:evFmt, escapeMarkup:function(m){return m;} });
+  }
+  var saeModal=document.getElementById('simActEditModal');
+  if(saeModal && document.getElementById('saeVenue')){
+    $('#saeVenue').select2({ width:'100%', dropdownParent:$(saeModal), placeholder:'Buscar recinto…', allowClear:true, minimumInputLength:1,
+      ajax:{ url:"{{ url_for('api_search_venues') }}", dataType:'json', delay:200, data:function(p){return {q:p.term||''};},
+        processResults:function(d){ return { results:(d||[]).map(function(it){ return {id:it.id, text:it.label||it.name||it.text, photo:it.photo_url||it.logo_url||''}; }) }; } },
+      templateResult:vFmt, templateSelection:vFmt, escapeMarkup:function(m){return m;} });
+  }
 })();
 </script>
 {% endif %}

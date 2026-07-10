@@ -18782,8 +18782,35 @@ def _sim_parse_date(v):
 
 
 # --- Constantes de cálculo de simulaciones ---
-SIM_IVA_TICKET = Decimal("0.10")     # IVA de las entradas (10%)
-SIM_SGAE_RATE = Decimal("0.0765")    # SGAE: 7,65% sobre el precio sin IVA
+SIM_IVA_TICKET = Decimal("0.10")     # IVA de las entradas (10%) — por defecto
+SIM_SGAE_RATE = Decimal("0.0765")    # SGAE: 7,65% sobre el precio sin IVA — por defecto
+SIM_IVA_EXTRA = Decimal("0.10")      # IVA de complementos (10%) — por defecto
+
+
+def _sim_tax_cfg(activity):
+    """Tasas fiscales del ticketing (IVA entradas/complementos y SGAE) configurables por la rueda.
+
+    Se guardan en activity.settings['tax'] como PORCENTAJES (10 = 10%). Si no hay nada,
+    devuelve las de la casa. Devuelve porcentajes (Decimal) para mostrar y fracciones para el motor.
+    """
+    tax = {}
+    try:
+        tax = dict((activity.settings or {}).get("tax") or {}) if activity is not None else {}
+    except Exception:
+        tax = {}
+    def _pct(key, default_frac):
+        v = tax.get(key)
+        if v is None or v == "":
+            return default_frac * Decimal("100")
+        try:
+            return Decimal(str(v))
+        except Exception:
+            return default_frac * Decimal("100")
+    return {
+        "iva_ticket_pct": _pct("iva_ticket", SIM_IVA_TICKET),
+        "iva_extra_pct": _pct("iva_extra", SIM_IVA_EXTRA),
+        "sgae_pct": _pct("sgae", SIM_SGAE_RATE),
+    }
 
 # Categorías de GASTOS del simulador (tarjetas «bocadillo», orden fijo) + icono FA.
 SIM_EXPENSE_CATEGORIES = [
@@ -18853,6 +18880,9 @@ def _sim_ticketing_summary(activity):
         "extras_gross": Decimal("0"),     # complementos (IVA incl.), informativo en 2a
         "n_categories": 0,
     }
+    _tax = _sim_tax_cfg(activity)
+    _sgae_rate = _tax["sgae_pct"] / Decimal("100")
+    _iva_rate = _tax["iva_ticket_pct"] / Decimal("100")
     for c in (activity.ticket_categories or []):
         zone = (c.zone or "PISTA").upper()
         if zone not in out["zones"]:
@@ -18862,8 +18892,8 @@ def _sim_ticketing_summary(activity):
         sellable = max(q - inv, 0)
         price = _sim_d(c.price_net)
         sin_iva = price * sellable
-        sgae = price * SIM_SGAE_RATE * sellable
-        iva = price * SIM_IVA_TICKET * sellable
+        sgae = price * _sgae_rate * sellable
+        iva = price * _iva_rate * sellable
         extra_per = sum((_sim_d(e.amount_gross) for e in (c.extras or [])), Decimal("0"))
         z = out["zones"][zone]
         z["qty"] += q; z["invitations"] += inv; z["sellable"] += sellable
@@ -18966,12 +18996,17 @@ def _sim_build_calc_data(sim, activity, artist_intl=None):
         overrides = dict((activity.settings or {}).get("income_overrides") or {})
     except Exception:
         overrides = {}
+    _tax = _sim_tax_cfg(activity)
     return {
         "is_international": act_intl,
         "allows_bars": bool(activity.venue.allows_bars) if activity.venue else False,
         "categories": cats, "caches": caches, "commissions": commissions,
         "production": production, "subventions": subventions, "sponsorships": sponsorships,
         "income_overrides": overrides,
+        # Tasas fiscales configurables (fracciones) para el motor.
+        "iva_ticket": float(_tax["iva_ticket_pct"]) / 100.0,
+        "iva_extra": float(_tax["iva_extra_pct"]) / 100.0,
+        "sgae_rate": float(_tax["sgae_pct"]) / 100.0,
     }
 
 
@@ -19432,10 +19467,12 @@ def simulation_detail_view(sid):
         tour_totals = None
         tour_points = []
         partner_module_payload = None
+        tour_series = []
         if show_general:
             ti = tg = tr = 0.0
             tsell = 0
             gen_acts = []
+            series_acc = {}  # pct -> {ingresos, gastos, resultado} agregado de todas las fechas
             for idx, a in enumerate(activities, start=1):
                 c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))
                 ing = c["at_100"]["ingresos"]["total"]
@@ -19448,8 +19485,18 @@ def simulation_detail_view(sid):
                 ti += ing; tg += gas; tr += (ing - gas)
                 tsell += c["ticketing"]["sellable"]
                 gen_acts.append(_sim_partner_module_payload(sim, a, c, extra_fixed_cost=general_share, label=row_label))
+                # Serie agregada (mismo % de venta en todas las fechas) para el gráfico general.
+                for pt in (c.get("series") or []):
+                    acc = series_acc.setdefault(pt["pct"], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
+                    acc["ingresos"] += pt["ingresos"]
+                    acc["gastos"] += pt["gastos"] + general_share
+                    acc["resultado"] += pt["resultado"] - general_share
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
             partner_module_payload = {"mode": "general", "activities": gen_acts}
+            tour_series = [
+                {"pct": pct, "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
+                for pct, v in sorted(series_acc.items())
+            ]
             # Chinchetas del mapa numeradas por ORDEN DE FECHA (fechas sin definir al final).
             dated = sorted(
                 tour_rows,
@@ -19544,10 +19591,12 @@ def simulation_detail_view(sid):
             tour_rows=tour_rows,
             tour_totals=tour_totals,
             tour_points=tour_points,
+            tour_series=tour_series,
             tab=tab,
             summary=summary,
             ticketing_payload=ticketing_payload,
             calc=calc,
+            tax_cfg=(_sim_tax_cfg(active_activity) if active_activity else _sim_tax_cfg(None)),
             venue_tpl=venue_tpl,
             show_venue_tpl_prompt=show_venue_tpl_prompt,
             expenses_payload=expenses_payload,
@@ -19561,6 +19610,7 @@ def simulation_detail_view(sid):
             activity_partners_own=activity_partners_own,
             effective_partners=effective_partners,
             group_companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+            edit_artists=s.query(Artist).order_by(Artist.name.asc()).all(),
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -19635,6 +19685,82 @@ def simulation_print(sid):
         )
     finally:
         s.close()
+
+
+@app.post("/contratacion/simulaciones/<sid>/config", endpoint="simulation_config_update")
+@admin_required
+def simulation_config_update(sid):
+    """Edita la configuración inicial del conjunto: título, empresa, tipo y sujeto (artista/evento)."""
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        sim = s.get(Simulation, _sim_safe_uuid(sid))
+        if not sim:
+            flash("Simulación no encontrada.", "warning")
+            return redirect(url_for("contracting_view", section="simulaciones"))
+        sim.title = (request.form.get("title") or "").strip() or None
+        sim.managing_company_id = _sim_safe_uuid(request.form.get("managing_company_id"))
+        kind = (request.form.get("kind") or sim.kind or "CONCERT").strip().upper()
+        if kind in ("CONCERT", "TOUR", "CYCLE", "FESTIVAL"):
+            sim.kind = kind
+        subject_kind = (request.form.get("subject_kind") or "").strip().upper()
+        if subject_kind == "EVENT":
+            eid = _sim_safe_uuid(request.form.get("event_id"))
+            if eid and s.get(AppEvent, eid):
+                sim.event_id = eid
+                sim.artist_id = None
+        elif subject_kind == "ARTIST":
+            aid = _sim_safe_uuid(request.form.get("artist_id"))
+            if aid and s.get(Artist, aid):
+                sim.artist_id = aid
+                sim.event_id = None
+        sim.updated_at = datetime.utcnow()
+        s.commit()
+        flash("Configuración de la simulación actualizada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error actualizando la simulación: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid))
+
+
+@app.post("/contratacion/simulaciones/<sid>/fechas/<aid>/editar", endpoint="simulation_activity_update")
+@admin_required
+def simulation_activity_update(sid, aid):
+    """Edita/renombra una fecha: label, fecha, recinto y (ciclo) artista."""
+    if not can_edit_simulations():
+        flash("No tienes permisos para editar la simulación.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    s = db()
+    try:
+        act = s.get(SimulationActivity, _sim_safe_uuid(aid))
+        if not act or str(act.simulation_id) != str(_sim_safe_uuid(sid)):
+            flash("Fecha no encontrada.", "warning")
+            return redirect(url_for("simulation_detail_view", sid=sid))
+        # Renombrar (solo label) o edición completa según los campos presentes.
+        if "activity_label" in request.form or "label" in request.form:
+            act.label = (request.form.get("activity_label") or request.form.get("label") or "").strip() or None
+        if "event_date" in request.form or request.form.get("date_unknown") is not None:
+            date_unknown = _truthy(request.form.get("date_unknown"))
+            act.date_unknown = date_unknown
+            act.event_date = None if date_unknown else _sim_parse_date(request.form.get("event_date"))
+        if "venue_id" in request.form or request.form.get("venue_unknown") is not None:
+            venue_unknown = _truthy(request.form.get("venue_unknown"))
+            act.venue_unknown = venue_unknown
+            act.venue_id = None if venue_unknown else _sim_safe_uuid(request.form.get("venue_id"))
+        if request.form.get("cycle_artist_id"):
+            act.artist_id = _sim_safe_uuid(request.form.get("cycle_artist_id"))
+        s.commit()
+        flash("Fecha actualizada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error actualizando la fecha: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("simulation_detail_view", sid=sid, act=aid, tab=(request.form.get("back_tab") or "resumen")))
 
 
 @app.post("/contratacion/simulaciones/<sid>/eliminar", endpoint="simulation_delete")
@@ -19883,6 +20009,26 @@ def simulation_ticketing_save(sid):
             data = []
         if not isinstance(data, list):
             data = []
+        # Config fiscal (rueda): IVA entradas / IVA complementos / SGAE (porcentajes).
+        try:
+            tax = json.loads(request.form.get("tax_json") or "{}")
+        except Exception:
+            tax = {}
+        if isinstance(tax, dict):
+            clean_tax = {}
+            for k in ("iva_ticket", "iva_extra", "sgae"):
+                v = tax.get(k)
+                if v not in (None, ""):
+                    try:
+                        clean_tax[k] = float(v)
+                    except Exception:
+                        pass
+            settings_d = dict(act.settings or {})
+            if clean_tax:
+                settings_d["tax"] = clean_tax
+            else:
+                settings_d.pop("tax", None)
+            act.settings = settings_d
         # Reemplazo total de las categorías de esta actividad (cascade borra extras).
         for c in list(act.ticket_categories or []):
             s.delete(c)
@@ -40081,6 +40227,61 @@ def _invitation_request_assigned_total(session_db, row) -> int:
     return m.get(str(row.id), 0)
 
 
+_INVITATION_TICKET_SENT_STATUSES = {"SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA"}
+# Estados de solicitud "finales/manuales" que NO se recalculan automáticamente desde las entradas.
+_INVITATION_MANUAL_REQUEST_STATUSES = {"RECHAZADAS", "ANULADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}
+
+
+def _invitation_sync_request_status(session_db, row) -> None:
+    """Recalcula el status de una SOLICITUD desde sus entradas (fuente de verdad).
+
+    Evita el desajuste "en el mapa asignadas/enviadas pero la solicitud sigue pendiente":
+      - alguna entrada enviada -> ENVIADAS
+      - alguna asignada (no enviada) -> ASIGNADAS
+      - ninguna -> vuelve a APROBADAS si venía de ASIGNADAS/ENVIADAS
+    No toca estados manuales (rechazada/anulada/entregada en mano/taquilla).
+    """
+    if row is None:
+        return
+    cur = (row.status or "").upper()
+    if cur in _INVITATION_MANUAL_REQUEST_STATUSES:
+        return
+    tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
+    assigned = len(tickets)
+    sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
+    if sent > 0:
+        if cur not in INVITATION_SENT_STATUSES:
+            row.status = "ENVIADAS"
+            if not row.sent_at:
+                row.sent_at = _now_madrid()
+    elif assigned > 0:
+        row.status = "ASIGNADAS"
+        if not row.assigned_at:
+            row.assigned_at = _now_madrid()
+    else:
+        if cur in ("ASIGNADAS", "ENVIADAS"):
+            row.status = "APROBADAS"
+
+
+def _invitation_sync_commitment_status(session_db, row) -> None:
+    """Igual que la de solicitudes pero para un COMPROMISO."""
+    if row is None:
+        return
+    cur = (row.status or "").upper()
+    if cur in {"ANULADAS"}:
+        return
+    tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
+    assigned = len(tickets)
+    sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
+    if sent > 0:
+        row.status = "ENVIADAS"
+    elif assigned > 0:
+        row.status = "ASIGNADAS"
+    else:
+        if cur in ("ASIGNADAS", "ENVIADAS"):
+            row.status = "COMPROMETIDAS"
+
+
 def _invitation_request_kind_flags(session_db, row: InvitationRequest, categories: list[InvitationCategory]) -> dict:
     quantities = _json_dict(getattr(row, "quantities_json", None))
     cat_map = {str(c.id): c for c in (categories or [])}
@@ -40141,8 +40342,11 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
     total_uploaded = sum(uploaded_by_cat.values())
     if categories:
         known_ids = {str(c.id) for c in categories}
+        # DISPONIBLES: si una categoría TIENE subidas, cuentan SOLO las subidas (lo real); si NO tiene
+        # nada subido, cuenta lo configurado (contrato + extra). Así al subir manda lo subido.
         category_total = sum(
-            max(_safe_int(c.qty_contract) + _safe_int(c.qty_extra), uploaded_by_cat.get(str(c.id), 0))
+            (uploaded_by_cat.get(str(c.id), 0) if uploaded_by_cat.get(str(c.id), 0) > 0
+             else (_safe_int(c.qty_contract) + _safe_int(c.qty_extra)))
             for c in categories
         )
         # Entradas subidas sin categoría conocida (sin asignar / categorías legacy) también suman.
@@ -40163,7 +40367,8 @@ def _invitation_event_counts(session_db, concert: Concert) -> dict:
         "requested": requested,
         "requested_all": requested_all,
         "assigned": assigned,
-        "result": category_total - committed - requested - assigned,
+        # RESULTADO = Disponibles − Compromisos − (todas las) Invitaciones solicitadas.
+        "result": category_total - committed - requested_all,
     }
 
 
@@ -46253,6 +46458,8 @@ def invitation_assignment_save(concert_id):
         categories = _invitation_get_categories(session_db, concert, ensure_defaults=True)
         cat_map = {str(c.id): c for c in categories}
         changes = 0
+        touched_requests = {}      # id -> InvitationRequest (para recalcular su estado al final)
+        touched_commitments = {}
         for item in payload:
             if not isinstance(item, dict):
                 continue
@@ -46326,9 +46533,18 @@ def invitation_assignment_save(concert_id):
                 request_row.status = 'ASIGNADAS'
                 request_row.assigned_at = _now_madrid()
                 request_row.updated_at = _now_madrid()
+                touched_requests[str(request_row.id)] = request_row
             elif commitment_row:
                 commitment_row.status = 'ASIGNADAS'
                 commitment_row.updated_at = _now_madrid()
+                touched_commitments[str(commitment_row.id)] = commitment_row
+        # Recalcular el estado desde las entradas (fuente de verdad): corrige el desajuste
+        # "asignadas/enviadas en el mapa pero pendiente en el listado".
+        session_db.flush()
+        for _r in touched_requests.values():
+            _invitation_sync_request_status(session_db, _r)
+        for _c in touched_commitments.values():
+            _invitation_sync_commitment_status(session_db, _c)
         session_db.commit()
         if _ajax:
             return jsonify({'ok': True, 'changes': changes})

@@ -168,8 +168,8 @@
                 </div>
                 <div class="invitation-counts">
                   <div><span>{{ item.counts.configured }}</span><small>Disponibles</small></div>
-                  <div><span>{{ item.counts.committed }}</span><small>Comprometidas</small></div>
-                  <div><span>{{ item.counts.requested_all if item.counts.requested_all is defined else item.counts.requested }}</span><small>Solicitudes</small></div>
+                  <div><span>{{ item.counts.committed }}</span><small>Compromisos</small></div>
+                  <div><span>{{ item.counts.requested_all if item.counts.requested_all is defined else item.counts.requested }}</span><small>Invitaciones solicitadas</small></div>
                   <div class="{% if item.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ item.counts.result }}</span><small>Resultado</small></div>
                 </div>
               </div>
@@ -353,8 +353,8 @@
         </div>
         <div class="invitation-counts invitation-counts--large">
           <div><span>{{ event.counts.configured }}</span><small>Disponibles</small></div>
-          <div><span>{{ event.counts.committed }}</span><small>Comprometidas</small></div>
-          <div><span>{{ event.counts.requested_all if event.counts.requested_all is defined else event.counts.requested }}</span><small>Solicitudes</small></div>
+          <div><span>{{ event.counts.committed }}</span><small>Compromisos</small></div>
+          <div><span>{{ event.counts.requested_all if event.counts.requested_all is defined else event.counts.requested }}</span><small>Invitaciones solicitadas</small></div>
           <div class="{% if event.counts.result < 0 %}text-danger{% else %}text-success{% endif %}"><span>{{ event.counts.result }}</span><small>Resultado</small></div>
         </div>
       </div>

@@ -85,8 +85,12 @@ def variable_amount(cfg, tickets_sold, taquilla_net, avg_price):
     return 0.0
 
 
-def ticketing_aggregates(categories):
-    """Agrega el ticketing al 100% del aforo a la venta."""
+def ticketing_aggregates(categories, iva_ticket=IVA_TICKET, sgae_rate=SGAE_RATE, iva_extra=IVA_EXTRA):
+    """Agrega el ticketing al 100% del aforo a la venta.
+
+    Las tasas IVA de entradas, SGAE e IVA de complementos son configurables por
+    simulación (rueda del Ticketing); por defecto las de la casa (10% / 7,65% / 10%).
+    """
     total_qty = total_inv = total_sellable = 0
     taquilla = sgae = iva = extras_net = 0.0
     zones = {"PISTA": {"qty": 0, "inv": 0, "sellable": 0},
@@ -101,10 +105,10 @@ def ticketing_aggregates(categories):
         sellable = max(q - inv, 0)
         price = _f(c.get("price_net"))
         taquilla += price * sellable
-        sgae += price * SGAE_RATE * sellable
-        iva += price * IVA_TICKET * sellable
+        sgae += price * sgae_rate * sellable
+        iva += price * iva_ticket * sellable
         extra_per = sum(_f(e.get("amount_gross")) for e in (c.get("extras") or []))
-        extras_net += (extra_per / (1.0 + IVA_EXTRA)) * sellable
+        extras_net += (extra_per / (1.0 + iva_extra)) * sellable
         total_qty += q
         total_inv += inv
         total_sellable += sellable
@@ -125,7 +129,11 @@ def ticketing_aggregates(categories):
 
 def _prepare(data):
     """Pre-calcula partes fijas y normaliza componentes de coste."""
-    agg = ticketing_aggregates(data.get("categories"))
+    # Tasas configurables por simulación (rueda del Ticketing); por defecto las de la casa.
+    iva_ticket = _f(data.get("iva_ticket")) if data.get("iva_ticket") not in (None, "") else IVA_TICKET
+    sgae_rate = _f(data.get("sgae_rate")) if data.get("sgae_rate") not in (None, "") else SGAE_RATE
+    iva_extra = _f(data.get("iva_extra")) if data.get("iva_extra") not in (None, "") else IVA_EXTRA
+    agg = ticketing_aggregates(data.get("categories"), iva_ticket=iva_ticket, sgae_rate=sgae_rate, iva_extra=iva_extra)
     sellable = agg["sellable"]
 
     caches = []

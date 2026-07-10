@@ -187,7 +187,7 @@
       {%- if a.event_date and not a.date_unknown %} · {{ a.event_date.strftime('%d/%m') }}{% endif -%}
     </a></li>
   {% endfor %}
-  {% if is_cycle and shared_activity %}
+  {% if is_multi and shared_activity %}
     <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == shared_activity.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=shared_activity.id, tab='gastos') }}"><i class="fa fa-layer-group me-1"></i>Gastos generales</a></li>
   {% endif %}
   {% if CAN_EDIT %}<li class="nav-item"><button type="button" class="btn btn-sm btn-outline-primary ms-1" data-bs-toggle="modal" data-bs-target="#addFechaModal"><i class="fa fa-plus me-1"></i>{{ 'Añadir concierto' if is_cycle else 'Añadir fecha' }}</button></li>{% endif %}
@@ -200,7 +200,7 @@
   <div class="sim-stat"><div class="sim-stat__n">{{ activities|length }}</div><div class="sim-stat__l">{{ 'Conciertos' if is_cycle else 'Fechas' }}</div></div>
   <div class="sim-stat"><div class="sim-stat__n">{{ tour_totals.sellable|k }}</div><div class="sim-stat__l">A la venta (total)</div></div>
   <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.ingresos, 'Sin IVA') }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if is_cycle and tour_totals.general %} (incl. generales){% endif %}</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if tour_totals.general %} (incl. generales){% endif %}</div></div>
   <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ amt(tour_totals.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
 </div>
 {% if tour_series %}
@@ -286,8 +286,8 @@
       <div class="text-muted">Aún no hay {{ 'conciertos' if is_cycle else 'fechas' }}. Pulsa «{{ 'Añadir concierto' if is_cycle else 'Añadir fecha' }}».</div>
       {% endfor %}
     </div>
-    {% if is_cycle and tour_totals.general %}
-      <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales del ciclo (repartidos ÷ {{ activities|length }} entre los conciertos)</span><span class="fw-semibold">{{ amt(tour_totals.general, 'Sin IVA') }}</span></div>
+    {% if tour_totals.general %}
+      <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales (repartidos ÷ {{ activities|length }} como «Prorrateo» en cada {{ 'concierto' if is_cycle else 'fecha' }})</span><span class="fw-semibold">{{ amt(tour_totals.general, 'Sin IVA') }}</span></div>
     {% endif %}
   </div>
 </div>
@@ -475,6 +475,9 @@
                   <tr><td><i class="fa {{ cicon }} me-1 text-muted"></i>{{ clabel }}</td><td class="text-end">{{ amt(g.produccion_por_categoria.get(ckey), 'Sin IVA') }}</td></tr>
                 {% endif %}
               {% endfor %}
+              {% if g.produccion_por_categoria.get('PRORRATEO') %}
+                <tr><td><i class="fa {{ SIM_EXPENSE_CATEGORY_ICONS.get('PRORRATEO') }} me-1 text-muted"></i>{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO') }}</td><td class="text-end">{{ amt(g.produccion_por_categoria.get('PRORRATEO'), 'Sin IVA') }}</td></tr>
+              {% endif %}
             </tbody>
             <tfoot><tr class="border-top"><th>Total gastos</th><th class="text-end">{{ amt(g.total, 'Sin IVA') }}</th></tr></tfoot>
           </table>

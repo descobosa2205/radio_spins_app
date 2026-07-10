@@ -18829,6 +18829,10 @@ SIM_EXPENSE_CATEGORIES = [
 SIM_EXPENSE_QTY_CATEGORIES = ["ALOJAMIENTO", "LOGISTICA", "PERSONAL", "MUSICOS"]
 SIM_EXPENSE_CATEGORY_LABELS = {k: l for k, l, _ic in SIM_EXPENSE_CATEGORIES}
 SIM_EXPENSE_CATEGORY_ICONS = {k: ic for k, _l, ic in SIM_EXPENSE_CATEGORIES}
+# PRORRATEO: categoría CALCULADA (no editable) que reparte los gastos generales del ciclo/gira en
+# cada fecha. Solo etiqueta/icono para mostrarla; nunca entra en el editor de gastos.
+SIM_EXPENSE_CATEGORY_LABELS["PRORRATEO"] = "Prorrateo (gastos generales)"
+SIM_EXPENSE_CATEGORY_ICONS["PRORRATEO"] = "fa-layer-group"
 # Datos antiguos guardados con claves de bolsas: se reubican en su categoría nueva.
 SIM_EXPENSE_LEGACY_MAP = {"TRANSPORTE": "LOGISTICA", "HOTELES": "ALOJAMIENTO", "PRORRATEOS": "OTROS"}
 
@@ -18935,7 +18939,7 @@ def _sim_cost_cfg(o):
     }
 
 
-def _sim_build_calc_data(sim, activity, artist_intl=None):
+def _sim_build_calc_data(sim, activity, artist_intl=None, prorateo=0.0):
     """Convierte los modelos ORM de una actividad al dict plano que espera sim_calc.
 
     artist_intl: mapa {artist_id(str): is_international} para resolver la retención por
@@ -18985,6 +18989,15 @@ def _sim_build_calc_data(sim, activity, artist_intl=None):
             "cond_under_tickets": (float(_sim_d(p.cond_under_tickets)) if p.cond_under_tickets is not None else None),
         })
         production.append(d)
+
+    # Prorrateo de gastos generales (ciclo/gira/festival): línea CALCULADA en cada fecha, ya en neto
+    # (sin IVA). No se edita; el total de la gira es la suma de las fechas (no se suma aparte).
+    if prorateo and float(prorateo) != 0.0:
+        production.append({
+            "category": "PRORRATEO", "amount_net": float(prorateo), "quantity": 1,
+            "iva_pct": 0, "is_variable": False, "includes_iva": False, "iva_exempt": True,
+            "cond_under_tickets": None,
+        })
 
     def _active(i):
         return (getattr(i, "status", None) or "ACTIVE").upper() not in ("OMIT", "NA")
@@ -19378,8 +19391,9 @@ def simulation_create():
         # NOTA: la plantilla de ticketing del recinto ya NO se autocarga: al abrir la pestaña
         # Ticketing se ofrece aplicarla (aviso «¿quieres aplicarla?»).
 
-        if kind == "CYCLE":
-            # Contenedor de gastos generales del ciclo (sin ticketing ni artista).
+        if kind in ("CYCLE", "TOUR"):
+            # Contenedor de gastos generales del ciclo/gira (sin ticketing ni artista): se prorratean
+            # entre las fechas mediante la categoría PRORRATEO.
             s.add(SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales"))
         if kind == "FESTIVAL" and artist_id:
             # El artista principal entra en el lineup del festival.
@@ -19446,6 +19460,16 @@ def simulation_detail_view(sid):
         is_festival = kind == "FESTIVAL"
         is_multi = is_tour or is_cycle           # navegación por actividades (fechas/conciertos)
         shared_activity = next((a for a in all_activities if a.is_shared), None)
+        # Gira/ciclo sin contenedor de gastos generales (creadas antes de esta función): se crea aquí.
+        if is_multi and shared_activity is None:
+            try:
+                shared_activity = SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales")
+                s.add(shared_activity)
+                s.commit()
+                all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+            except Exception:
+                s.rollback()
+                shared_activity = next((a for a in all_activities if a.is_shared), None)
         activities = [a for a in all_activities if not a.is_shared]   # fechas/conciertos (o el evento)
         lineup = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
         all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
@@ -19460,12 +19484,13 @@ def simulation_detail_view(sid):
             active_activity = activities[0] if activities else None
         show_general = is_multi and active_activity is None
 
-        # Gastos generales del ciclo (fijos, repartidos entre los conciertos): se
-        # necesitan tanto en la vista general como en la de cada fecha.
+        # Gastos generales del ciclo/gira (fijos, repartidos entre las fechas mediante la categoría
+        # PRORRATEO en cada fecha). El total de la gira es la SUMA de las fechas (el prorrateo ya
+        # está dentro del cálculo de cada una), así no se duplica.
         general_net = 0.0
-        if is_cycle and shared_activity is not None:
+        if is_multi and shared_activity is not None:
             general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
-        general_share = (general_net / (len(activities) or 1)) if is_cycle else 0.0
+        general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
 
         tour_rows = []
         tour_totals = None
@@ -19478,9 +19503,9 @@ def simulation_detail_view(sid):
             gen_acts = []
             series_acc = {}  # pct -> {ingresos, gastos, resultado} agregado de todas las fechas
             for idx, a in enumerate(activities, start=1):
-                c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))
+                c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))
                 ing = c["at_100"]["ingresos"]["total"]
-                gas = c["at_100"]["gastos"]["total"] + general_share
+                gas = c["at_100"]["gastos"]["total"]   # ya incluye el prorrateo
                 row_label = a.label or (("Concierto " if is_cycle else "Fecha ") + str(idx))
                 tour_rows.append({
                     "activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas,
@@ -19488,13 +19513,13 @@ def simulation_detail_view(sid):
                 })
                 ti += ing; tg += gas; tr += (ing - gas)
                 tsell += c["ticketing"]["sellable"]
-                gen_acts.append(_sim_partner_module_payload(sim, a, c, extra_fixed_cost=general_share, label=row_label))
+                gen_acts.append(_sim_partner_module_payload(sim, a, c, label=row_label))
                 # Serie agregada (mismo % de venta en todas las fechas) para el gráfico general.
                 for pt in (c.get("series") or []):
                     acc = series_acc.setdefault(pt["pct"], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
                     acc["ingresos"] += pt["ingresos"]
-                    acc["gastos"] += pt["gastos"] + general_share
-                    acc["resultado"] += pt["resultado"] - general_share
+                    acc["gastos"] += pt["gastos"]
+                    acc["resultado"] += pt["resultado"]
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
             partner_module_payload = {"mode": "general", "activities": gen_acts}
             tour_series = [
@@ -19520,12 +19545,14 @@ def simulation_detail_view(sid):
                     })
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
-        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map)) if active_activity else None
+        # En una fecha concreta (no el contenedor de generales) se aplica el prorrateo.
+        _act_prorateo = general_share if (active_activity is not None and not active_activity.is_shared) else 0.0
+        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map, prorateo=_act_prorateo)) if active_activity else None
         artist_breakdown = _sim_festival_breakdown(active_activity, calc, artist_intl_map, lineup) if is_festival else None
         if active_activity is not None and calc and not active_activity.is_shared:
             partner_module_payload = {
                 "mode": "activity",
-                "activities": [_sim_partner_module_payload(sim, active_activity, calc, extra_fixed_cost=general_share)],
+                "activities": [_sim_partner_module_payload(sim, active_activity, calc)],
             }
         venue_tpl = []
         if active_activity and active_activity.venue_id:
@@ -19658,15 +19685,16 @@ def simulation_print(sid):
         activities = [a for a in all_activities if not a.is_shared]
         all_artists = s.query(Artist).all() if (is_multi or is_festival) else []
         artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
-        blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map))} for a in activities]
         general_net = 0.0
-        if is_cycle and shared_activity is not None:
+        if is_multi and shared_activity is not None:
             general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
-        general_share = general_net / (len(activities) or 1)
+        general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
+        # El prorrateo va DENTRO del cálculo de cada fecha (categoría PRORRATEO); el total no lo suma aparte.
+        blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))} for a in activities]
         totals = {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0, "general": general_net}
         for b in blocks:
             ing = b["calc"]["at_100"]["ingresos"]["total"]
-            gas = b["calc"]["at_100"]["gastos"]["total"] + (general_share if is_cycle else 0.0)
+            gas = b["calc"]["at_100"]["gastos"]["total"]
             b["ingresos"] = ing
             b["gastos"] = gas
             b["resultado"] = ing - gas

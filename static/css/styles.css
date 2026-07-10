@@ -1111,6 +1111,19 @@ img.img-error-pending{ visibility: hidden; }
 .plan-cell-boundary.is-drop-stair{ background:rgba(0,124,162,.28); border-left:2px dashed var(--brand-accent); border-right:2px dashed var(--brand-accent); box-shadow:0 0 0 2px rgba(0,124,162,.25); }
 .plan-cell.is-drop-hint, .plan-cell-boundary.is-drop-hint{ outline:2px dashed var(--brand-accent); outline-offset:1px; background:rgba(0,124,162,.14); }
 .plan-stage-marker.is-preview{ opacity:.65; pointer-events:none; }
+/* Filas-separadoras (pasillos entre filas) + zona de drop «Entre filas». La banda solo se ve al
+   arrastrar una herramienta (clase is-tooldrag en el mapa); al pasar por encima se resalta. */
+.plan-editor-gap{ height:.5rem; margin:-.06rem 0; border-radius:.4rem; display:flex; align-items:center; justify-content:center; font-size:.62rem; font-weight:700; color:transparent; border:1px dashed transparent; transition:height .1s, background-color .1s, color .1s; }
+.plan-editor-gap span{ opacity:0; pointer-events:none; }
+.plan-editor-map.is-tooldrag .plan-editor-gap{ height:1.05rem; border-color:#c7cfd9; color:#9aa3af; }
+.plan-editor-map.is-tooldrag .plan-editor-gap span{ opacity:1; }
+.plan-editor-gap.is-drop-gap{ height:1.5rem; background:rgba(0,124,162,.14); border-color:var(--brand-accent); color:var(--brand-accent); box-shadow:0 0 0 2px rgba(0,124,162,.2); }
+.plan-editor-gap.is-drop-gap span{ opacity:1; }
+.plan-editor-row--sep .plan-editor-label{ color:#aeb6c0; font-weight:700; }
+.plan-editor-row--sep .plan-cell{ border-color:transparent; background:transparent; }
+.plan-editor-row--sep .plan-cell.is-hole{ border-style:dashed; border-color:#c3ccd6; }
+/* En el mapa (visión/asignación) la fila-separadora es un pasillo fino, sin tarjeta. */
+.invitation-seat-row--sep{ background:transparent; border-color:transparent; box-shadow:none; padding-top:.12rem; padding-bottom:.12rem; margin-bottom:.2rem; }
 .plan-editor-stage-pick { display: flex; gap: .4rem; flex-wrap: wrap; }
 .plan-editor-mode.active { box-shadow: 0 0 0 .16rem rgba(232,59,75,.2) inset; }
 /* Popup de acciones de la selección múltiple (junto a la selección). */

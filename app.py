@@ -39699,8 +39699,22 @@ def _invitation_sector_layout(category, sector: str, concert=None, default_stair
                 "off": _invitation_num_set(rc.get("off")),
             }
     orientation = (sec.get("orientation") or "ltr").strip().lower()
+    # Filas-separadoras (PASILLOS entre filas): filas SIN butacas que llevan sus propios
+    # elementos (escaleras/huecos/apagados) y se colocan ENTRE dos filas (ancla `after` = la
+    # fila tras la que van; vacío = antes de la primera). Se ven igual en configurador/visión/asignación.
+    separators = []
+    for sp in (sec.get("separators") if isinstance(sec.get("separators"), list) else []):
+        if not isinstance(sp, dict):
+            continue
+        separators.append({
+            "after": str(sp.get("after") or ""),
+            "stairs": _invitation_int_set(sp.get("stairs")),
+            "gaps": _invitation_num_set(sp.get("gaps")),
+            "off": _invitation_num_set(sp.get("off")),
+        })
     return {
         "rows_cfg": rows_cfg,
+        "separators": separators,
         "legacy_stairs": legacy_stairs,
         "legacy_gaps": _invitation_num_set(sec.get("gaps")),
         "legacy_off": _invitation_num_set(sec.get("off")),
@@ -39775,6 +39789,9 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
         insert_positions = set(cfg.get("legacy_gaps") or ()) | set(cfg.get("legacy_off") or ())
         for _rc in (cfg.get("rows_cfg") or {}).values():
             insert_positions |= set(_rc.get("gaps") or ()) | set(_rc.get("off") or ())
+        # Las filas-separadoras (pasillos) también aportan columnas para que TODO el sector alinee.
+        for _sp in (cfg.get("separators") or []):
+            insert_positions |= set(_sp.get("gaps") or ()) | set(_sp.get("off") or ())
         sector_step = 1
         columns = None
         _int_all = list(int_positions) + [int(p) for p in insert_positions if float(p) == int(p)]
@@ -39897,6 +39914,54 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
                     block = None
                     layout.append(cell)
             rows.append({"row_label": row_label, "seats": seats, "visual": visual, "layout": layout, "step": sector_step})
+        # Filas-separadoras (pasillos ENTRE filas): filas sin butacas con sus propios elementos
+        # (escaleras/huecos/apagados). Se intercalan según su ancla `after` (vacío = arriba del todo;
+        # ancla a fila inexistente = al final). Solo con rejilla (sector numerado alineado).
+        separators = cfg.get("separators") or []
+        if separators and columns is not None:
+            def _sep_row(sp):
+                st = sp.get("stairs") or set(); gp = sp.get("gaps") or set(); of = sp.get("off") or set()
+                vis = []
+                if st:
+                    for sa in sorted(st):
+                        if sa < columns[0]:
+                            vis.append({"type": "stair", "label": "Escalera"})
+                prev = None
+                for pos in columns:
+                    if prev is not None and st:
+                        for sa in sorted(st):
+                            if prev <= sa < pos:
+                                vis.append({"type": "stair", "label": "Escalera"})
+                    ipos = int(pos) if float(pos) == int(pos) else None
+                    if pos in gp:
+                        vis.append({"type": "gap", "seat": pos})
+                    elif pos in of:
+                        vis.append({"type": "missing", "seat": ipos if ipos is not None else "", "off": True})
+                    else:
+                        vis.append({"type": "spacer"})
+                    prev = pos
+                if st:
+                    for sa in sorted(st):
+                        if sa >= columns[-1]:
+                            vis.append({"type": "stair", "label": "Escalera"})
+                if cfg.get("orientation") == "rtl":
+                    vis = list(reversed(vis))
+                return {"row_label": "", "separator": True, "seats": [], "visual": vis, "layout": list(vis), "step": sector_step}
+            seat_labels = {r["row_label"] for r in rows}
+            interleaved = []
+            for sp in separators:
+                if not sp.get("after"):
+                    interleaved.append(_sep_row(sp))
+            for r in rows:
+                interleaved.append(r)
+                for sp in separators:
+                    if sp.get("after") and sp.get("after") == r["row_label"]:
+                        interleaved.append(_sep_row(sp))
+            for sp in separators:
+                a = sp.get("after")
+                if a and a not in seat_labels:
+                    interleaved.append(_sep_row(sp))
+            rows = interleaved
         out.append({"sector": sector, "rows": rows, "stage": cfg["stage"]})
     return out
 
@@ -45482,7 +45547,9 @@ def invitation_tickets_upload(concert_id):
         discarded = []       # páginas SIN código: no son invitaciones (se avisan, no se suben)
         created = 0
         created_rows = []    # butacas creadas (numeradas) para el popup de revisión tras subir
-        created_tickets = []  # objetos InvitationTicket creados EN ORDEN (para vincular acompañantes PMR)
+        created_tickets = []  # objetos InvitationTicket creados EN ORDEN
+        companions_linked = 0  # PMR: entradas con acompañante adjunto (2ª página del PDF)
+        is_pmr_cat = category is not None and bool(getattr(category, 'is_pmr', False))
         seen_codes = set()   # códigos ya usados en este lote (para garantizar unicidad)
         seen_shas = set()    # páginas idénticas ya vistas en este lote
         seen_butacas = set() # butacas (sector+fila+asiento) ya vistas en este lote (numeradas)
@@ -45508,9 +45575,19 @@ def invitation_tickets_upload(concert_id):
             stem = Path(fname).stem or f'invitacion_{idx+1}'
             # Un PDF puede traer varias entradas: lo dividimos en una entrada por página.
             page_blobs = _invitation_split_pdf_pages(raw)
-            multi = len(page_blobs) > 1
+            # PMR (movilidad reducida): la invitación PUEDE llevar acompañante. Un PDF de 2 páginas =
+            # UNA invitación (pág. 1) + la de su ACOMPAÑANTE (pág. 2), que van SIEMPRE unidas y cuentan
+            # como UNA sola petición (no se dividen en dos). Una sola página = PMR sin acompañante. Se
+            # emparejan de dos en dos por si el PDF trae varias juntas (1ª+2ª, 3ª+4ª…; impar suelta = sin
+            # acompañante). Fuera de PMR, una entrada por página como siempre.
+            if is_pmr_cat:
+                page_pairs = [(page_blobs[i], page_blobs[i + 1] if i + 1 < len(page_blobs) else None)
+                              for i in range(0, len(page_blobs), 2)]
+            else:
+                page_pairs = [(pb, None) for pb in page_blobs]
+            multi = len(page_pairs) > 1
             form_code_single = (request.form.get(f'ticket_code_{idx}') or '').strip()
-            for pidx, page_bytes in enumerate(page_blobs):
+            for pidx, (page_bytes, companion_bytes) in enumerate(page_pairs):
                 page_sha = hashlib.sha256(page_bytes).hexdigest()
                 page_label = f'{stem} (pág. {pidx + 1})' if multi else stem
                 # Duplicado real = misma página (SHA): se salta e informa; el resto del lote sí se sube.
@@ -45594,40 +45671,21 @@ def invitation_tickets_upload(concert_id):
                 session_db.add(ticket)
                 created += 1
                 created_tickets.append(ticket)
+                # PMR: adjuntar la 2ª página como entrada de ACOMPAÑANTE de esta misma invitación.
+                # Viaja siempre con ella (fusión/ZIP/descarga al enviar); no es una entrada aparte.
+                if companion_bytes is not None:
+                    try:
+                        ticket.companion_pdf_url = upload_pdf_bytes(companion_bytes, folder)
+                        ticket.companion_pdf_name = f'{stem} (acompañante).pdf'
+                        companions_linked += 1
+                    except Exception as _cexc:
+                        errors.append(f'{page_label}: no se pudo subir el acompañante ({_cexc})')
                 if is_numbered:
                     created_rows.append({
                         "sector": sector_val or "", "row_label": row_val or "",
                         "seat_number": seat_val or "", "pdf_name": ticket.pdf_name or "",
                     })
-        # PMR: entradas de ACOMPAÑANTE. Se suben en el mismo envío como companions[] y se vinculan
-        # 1:1, POR ORDEN, con las entradas principales recién creadas (1º acompañante → 1ª entrada).
-        # Cada acompañante viaja siempre con su entrada (se incluye en la fusión/ZIP/descarga al enviar).
-        companions_linked = 0
-        if category is not None and getattr(category, 'is_pmr', False):
-            comp_files = request.files.getlist('companions[]')
-            comp_pages = []   # (bytes, nombre) de cada página de acompañante, en orden
-            for cf in comp_files:
-                if not cf or not getattr(cf, 'filename', ''):
-                    continue
-                cname = (cf.filename or 'acompanante.pdf').strip()
-                if not cname.lower().endswith('.pdf'):
-                    errors.append(f'{cname}: el acompañante debe ser PDF')
-                    continue
-                craw = cf.read()
-                try: cf.stream.seek(0)
-                except Exception: pass
-                for cp in _invitation_split_pdf_pages(craw):
-                    comp_pages.append((cp, Path(cname).stem or 'acompanante'))
-            for i, comp in enumerate(comp_pages):
-                if i >= len(created_tickets):
-                    break   # más acompañantes que entradas: se ignora el sobrante
-                try:
-                    curl = upload_pdf_bytes(comp[0], folder)
-                except Exception:
-                    continue
-                created_tickets[i].companion_pdf_url = curl
-                created_tickets[i].companion_pdf_name = f'{comp[1]}.pdf'
-                companions_linked += 1
+        # (PMR: la entrada de ACOMPAÑANTE ya se adjunta arriba desde la 2ª página del propio PDF.)
         if category is not None:
             category.updated_at = _now_madrid()
         session_db.commit()
@@ -46021,14 +46079,20 @@ def invitation_sector_plan(concert_id, category_id):
         step = 2 if (len(all_nums) >= 2 and len({n % 2 for n in all_nums}) == 1 and (all_nums[-1] - all_nums[0]) >= 2) else 1
         mn = min(int_vals) if int_vals else 0
         mx = max(int_vals) if int_vals else 0
-        rows = [{'label': rl, 'seats': sorted(by_row[rl])} for rl in sorted(by_row.keys(), key=lambda x: str(x).casefold())]
+        # Orden NATURAL de filas (Fila 1,2,…,10,11), IGUAL que la visión y la asignación
+        # (_invitation_ticket_groups): el plano se ve idéntico en el configurador y en el mapa.
+        rows = [{'label': rl, 'seats': sorted(by_row[rl])} for rl in sorted(by_row.keys(), key=_invitation_natural_key)]
         rows_cfg = {rl: {'stairs': sorted(rc.get('stairs') or ()), 'gaps': sorted(rc.get('gaps') or ()), 'off': sorted(rc.get('off') or ())}
                     for rl, rc in (cfg.get('rows_cfg') or {}).items()}
+        separators = [{'after': sp.get('after') or '', 'stairs': sorted(sp.get('stairs') or ()),
+                       'gaps': sorted(sp.get('gaps') or ()), 'off': sorted(sp.get('off') or ())}
+                      for sp in (cfg.get('separators') or [])]
         return jsonify({
             'ok': True, 'sector': sector, 'step': step, 'min': mn, 'max': mx,
             'rows': rows,
             'config': {
                 'rows': rows_cfg,
+                'separators': separators,
                 'legacy': {'stairs': sorted(cfg.get('legacy_stairs') or ()), 'gaps': sorted(cfg.get('legacy_gaps') or ()), 'off': sorted(cfg.get('legacy_off') or ())},
                 'stage': cfg['stage'], 'orientation': cfg.get('orientation', 'ltr'),
             },
@@ -46082,6 +46146,15 @@ def invitation_sector_layout_save(concert_id, category_id):
             st, gp, of = _as_ints(rc.get('stairs')), _as_nums(rc.get('gaps')), _as_nums(rc.get('off'))
             if st or gp or of:
                 rows_out[str(rl)] = {'stairs': st, 'gaps': gp, 'off': of}
+        # Filas-separadoras (pasillos entre filas): lista de {after, stairs, gaps, off}. `after` = la
+        # fila tras la que va (vacío = arriba del todo). Se descartan las vacías.
+        seps_out = []
+        for sp in (data.get('separators') if isinstance(data.get('separators'), list) else []):
+            if not isinstance(sp, dict):
+                continue
+            st, gp, of = _as_ints(sp.get('stairs')), _as_nums(sp.get('gaps')), _as_nums(sp.get('off'))
+            if st or gp or of:
+                seps_out.append({'after': str(sp.get('after') or ''), 'stairs': st, 'gaps': gp, 'off': of})
         # Escenario: punto {x,y} en % sobre el marco (o null).
         stage_raw = data.get('stage')
         stage_out = None
@@ -46092,6 +46165,7 @@ def invitation_sector_layout_save(concert_id, category_id):
                 stage_out = None
         sec_cfg = {
             'rows': rows_out,
+            'separators': seps_out,
             'stage': stage_out,
             'orientation': 'rtl' if orientation == 'rtl' else 'ltr',
         }

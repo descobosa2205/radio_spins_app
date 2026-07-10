@@ -654,7 +654,7 @@
                 <span class="plan-tool" draggable="true" data-tool="off" title="Asiento apagado (butaca que no ofrecemos)"><i class="fa fa-couch me-1"></i>Apagado</span>
                 <span class="plan-tool plan-tool--stage" draggable="true" data-tool="stage" title="Escenario (arrástralo al borde del mapa)"><i class="fa fa-music me-1"></i>Escenario</span>
               </div>
-              <div class="small text-muted mb-2" data-plan-hint><b>Arrastra</b> un icono al plano: la <b>escalera</b> entre dos butacas; <b>hueco</b>/<b>apagado</b> entre butacas o a los lados (alarga la fila). <b>Pincha encima</b> de cualquier elemento colocado (incluido el escenario) para <b>quitarlo</b>. El <b>escenario</b> se arrastra a cualquier punto del borde del mapa.</div>
+              <div class="small text-muted mb-2" data-plan-hint><b>Arrastra</b> un icono al plano: la <b>escalera</b> entre dos butacas; <b>hueco</b>/<b>apagado</b> entre butacas o a los lados (alarga la fila). Suéltalo en la banda <b>«Entre filas»</b> para crear un <b>pasillo</b> con ese elemento. <b>Pincha encima</b> de cualquier elemento colocado (incluido el escenario) para <b>quitarlo</b>. El <b>escenario</b> se arrastra a cualquier punto del borde del mapa.</div>
               <div class="mb-2">
                 <span class="small fw-semibold me-2">Sentido de numeración:</span>
                 <span class="btn-group btn-group-sm" role="group" data-plan-orient>
@@ -1467,12 +1467,11 @@
           <div class="small text-muted mt-2" data-file-summary>Puedes subir <strong>varios PDFs a la vez</strong> o un <strong>PDF con varias páginas</strong> (se separa en una entrada por página). En numeradas se detecta sector, fila y asiento del texto del PDF.</div>
           <div class="list-group mt-2 small" data-file-list></div>
         </div>
-        {# Categoría PMR: entrada de ACOMPAÑANTE. Se emparejan 1:1 POR ORDEN con las de arriba
-           (1ª de acompañante → 1ª invitación) y se envían siempre juntas. Solo visible en PMR. #}
-        <div class="mt-3 d-none" data-companion-panel>
-          <label class="form-label"><i class="fa fa-wheelchair me-1 text-danger"></i>Entradas de acompañante <span class="text-muted small">(PMR, opcional)</span></label>
-          <input type="file" name="companions[]" accept="application/pdf" multiple class="form-control">
-          <div class="small text-muted mt-2">Sube una entrada de acompañante por cada invitación PMR, <strong>en el mismo orden</strong>. Cada acompañante queda vinculado a su entrada y se envía siempre con ella.</div>
+        {# Categoría PMR: la invitación puede llevar acompañante. Un PDF de 2 páginas = una invitación
+           (pág. 1) + su acompañante (pág. 2), que van SIEMPRE unidas y cuentan como UNA petición. Una
+           sola página = PMR sin acompañante. Solo se avisa en categorías PMR. #}
+        <div class="alert alert-info py-2 small mt-3 d-none" data-companion-panel>
+          <i class="fa fa-wheelchair me-1 text-danger"></i>Categoría <strong>PMR</strong>: si el PDF de una invitación tiene <strong>2 páginas</strong>, la 2ª se toma como <strong>entrada de acompañante</strong> y va siempre unida a la invitación (cuenta como una sola). Si tiene <strong>1 página</strong>, es PMR sin acompañante.
         </div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Subir</button></div>
@@ -2649,8 +2648,71 @@
       const rc = state.rows[row]; const hasStair = (bl !== '' && isInt(bl) && has(rc.stairs, bl) !== null);
       return '<div class="plan-cell-boundary'+(hasStair?' has-stair':'')+'" data-boundary="1" data-row="'+enc(row)+'" data-bl="'+bl+'" data-br="'+br+'"></div>';
     }
+    // ¿Es una fila-separadora (pasillo)? Su clave sintética empieza por __sep_ y vive en state.rows
+    // igual que una fila normal, así el arrastre/clic de elementos la tratan sin código aparte.
+    function isSepKey(k){ return typeof k === 'string' && k.indexOf('__sep_') === 0; }
+    function cleanupSeparators(){
+      // Quita las separadoras que se han quedado SIN elementos (p. ej. tras borrar el último).
+      state.separators = (state.separators || []).filter(function(sp){
+        const rc = state.rows[sp.key];
+        if(rc && (rc.stairs.size || rc.gaps.size || rc.off.size)) return true;
+        delete state.rows[sp.key];
+        return false;
+      });
+    }
+    // Orden de pintado: separadoras ancladas «arriba» (after vacío) → cada fila con sus separadoras
+    // (after == etiqueta) → separadoras huérfanas (ancla a fila inexistente) al final.
+    function orderedItems(){
+      const items = [];
+      const seps = state.separators || [];
+      seps.forEach(function(sp){ if(!sp.after) items.push({sep: sp}); });
+      const labels = new Set(state.rowsData.map(function(r){ return r.label; }));
+      state.rowsData.forEach(function(rd){
+        items.push({row: rd});
+        seps.forEach(function(sp){ if(sp.after && sp.after === rd.label) items.push({sep: sp}); });
+      });
+      seps.forEach(function(sp){ if(sp.after && !labels.has(sp.after)) items.push({sep: sp}); });
+      return items;
+    }
+    function buildRowHtml(rd, cols, step){
+      const rc = rowCfg(rd.label); const cells = [];
+      cells.push(boundaryHtml(rd.label, '', cols.length ? cols[0] : ''));
+      cols.forEach(function(col, i){
+        let cls, inner = '';
+        if(rd.seats.has(col)){ cls = 'is-seat'; inner = '<i class="fa fa-couch"></i>'; }
+        else if(has(rc.gaps, col) !== null){ cls = 'is-hole'; }
+        else if(has(rc.off, col) !== null){ cls = 'is-off'; inner = '<i class="fa fa-couch"></i>'; }
+        else if(isInt(col) && col >= state.min && col <= state.max && ((col - state.min) % step === 0)){ cls = 'is-missing'; inner = '<i class="fa fa-couch"></i>'; }
+        else { cls = 'is-spacer'; }
+        const num = isInt(col) ? ('<span class="plan-cell-num">'+col+'</span>') : '';
+        cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(rd.label)+'" data-pos="'+col+'">'+inner+num+'</div>');
+        cells.push(boundaryHtml(rd.label, col, (i+1 < cols.length) ? cols[i+1] : ''));
+      });
+      const ordered = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
+      return '<div class="plan-editor-row"><div class="plan-editor-label">'+ escLbl(rd.label) +'</div>'+ ordered.join('') +'</div>';
+    }
+    // Fila-separadora: sin butacas ni numeración; solo pinta huecos/apagados/escaleras colocados.
+    function buildSepHtml(sp, cols, step){
+      const label = sp.key; const rc = rowCfg(label); const cells = [];
+      cells.push(boundaryHtml(label, '', cols.length ? cols[0] : ''));
+      cols.forEach(function(col, i){
+        let cls, inner = '';
+        if(has(rc.gaps, col) !== null){ cls = 'is-hole'; }
+        else if(has(rc.off, col) !== null){ cls = 'is-off'; inner = '<i class="fa fa-couch"></i>'; }
+        else { cls = 'is-spacer'; }
+        cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(label)+'" data-pos="'+col+'">'+inner+'</div>');
+        cells.push(boundaryHtml(label, col, (i+1 < cols.length) ? cols[i+1] : ''));
+      });
+      const ordered = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
+      return '<div class="plan-editor-row plan-editor-row--sep"><div class="plan-editor-label" title="Pasillo entre filas"><i class="fa fa-ellipsis"></i></div>'+ ordered.join('') +'</div>';
+    }
+    // Zona fina «entre filas»: al soltar un elemento aquí se crea/rellena una fila-separadora.
+    function gapZoneHtml(anchor){
+      return '<div class="plan-editor-gap" data-sep-gap="'+enc(anchor)+'"><span><i class="fa fa-plus me-1"></i>Entre filas</span></div>';
+    }
     function render(){
       if(!state) return;
+      cleanupSeparators();
       // Conservar el SCROLL del plano entre re-dibujados: al soltar/quitar un elemento se
       // reconstruye el HTML y sin esto el mapa saltaba al comienzo (había que volver a desplazarse
       // para seguir colocando elementos).
@@ -2659,29 +2721,49 @@
       const _sy = _prevRows ? _prevRows.scrollTop : 0;
       const _gx = gridEl.scrollLeft, _gy = gridEl.scrollTop;
       const cols = columnsOf(); const step = state.step || 1;
-      let html = '';
-      state.rowsData.forEach(function(rd){
-        const rc = rowCfg(rd.label); const cells = [];
-        cells.push(boundaryHtml(rd.label, '', cols.length ? cols[0] : ''));
-        cols.forEach(function(col, i){
-          let cls, inner = '';
-          if(rd.seats.has(col)){ cls = 'is-seat'; inner = '<i class="fa fa-couch"></i>'; }
-          else if(has(rc.gaps, col) !== null){ cls = 'is-hole'; }
-          else if(has(rc.off, col) !== null){ cls = 'is-off'; inner = '<i class="fa fa-couch"></i>'; }
-          else if(isInt(col) && col >= state.min && col <= state.max && ((col - state.min) % step === 0)){ cls = 'is-missing'; inner = '<i class="fa fa-couch"></i>'; }
-          else { cls = 'is-spacer'; }
-          const num = isInt(col) ? ('<span class="plan-cell-num">'+col+'</span>') : '';
-          cells.push('<div class="plan-cell '+cls+'" data-row="'+enc(rd.label)+'" data-pos="'+col+'">'+inner+num+'</div>');
-          cells.push(boundaryHtml(rd.label, col, (i+1 < cols.length) ? cols[i+1] : ''));
-        });
-        const ordered = (state.orientation === 'rtl') ? cells.slice().reverse() : cells;
-        html += '<div class="plan-editor-row"><div class="plan-editor-label">'+ escLbl(rd.label) +'</div>'+ ordered.join('') +'</div>';
+      let html = gapZoneHtml('');
+      orderedItems().forEach(function(it){
+        if(it.row){ html += buildRowHtml(it.row, cols, step); html += gapZoneHtml(it.row.label); }
+        else { html += buildSepHtml(it.sep, cols, step); }
       });
       const stageHtml = state.stage ? ('<div class="invitation-stage plan-stage-marker" data-plan-stage-marker style="left:'+state.stage.x+'%;top:'+state.stage.y+'%;pointer-events:auto;cursor:pointer" title="Pincha para quitar el escenario"><i class="fa fa-music me-1"></i>ESCENARIO</div>') : '';
       gridEl.innerHTML = '<div class="plan-editor-rows">'+html+'</div>'+stageHtml;
       const _newRows = gridEl.querySelector('.plan-editor-rows');
       if (_newRows){ _newRows.scrollLeft = _sx; _newRows.scrollTop = _sy; }
       gridEl.scrollLeft = _gx; gridEl.scrollTop = _gy;
+    }
+    // Coloca un elemento en una fila-separadora al soltarlo en la zona «entre filas». Busca la
+    // separadora del ancla (o la crea) y sitúa el elemento en la columna bajo el cursor (usa la
+    // geometría de una fila real para alinear a la misma rejilla).
+    function nearestColumnTarget(clientX, wantStair){
+      const row = gridEl.querySelector('.plan-editor-row:not(.plan-editor-row--sep)');
+      if(!row) return null;
+      const sel = wantStair ? '[data-boundary]' : '.plan-cell';
+      let best = null;
+      row.querySelectorAll(sel).forEach(function(el){ const r = el.getBoundingClientRect(); const cx = r.left + r.width/2; const d = Math.abs(clientX - cx); if(!best || d < best.d) best = {el: el, d: d}; });
+      return best ? best.el : null;
+    }
+    function dropOnSepGap(gap, t, clientX){
+      if(!state || t === 'stage') return;
+      const anchor = dec(gap.dataset.sepGap || '');
+      let sp = (state.separators || []).find(function(s){ return (s.after || '') === anchor; });
+      if(!sp){ const key = '__sep_' + (state.sepSeq++); state.rows[key] = {stairs:new Set(), gaps:new Set(), off:new Set()}; sp = {key: key, after: anchor}; state.separators.push(sp); }
+      const rc = rowCfg(sp.key);
+      const el = nearestColumnTarget(clientX, t === 'stair');
+      if(!el){ render(); return; }
+      if(t === 'stair'){
+        const bl = el.dataset.bl; let at = null;
+        if(bl !== '' && bl !== undefined && isInt(parseFloat(bl))) at = parseFloat(bl);
+        else { const p = parseFloat(el.dataset.pos); if(isInt(p)) at = p; }
+        if(at !== null) toggleNum(rc.stairs, at);
+      } else {
+        let pos = parseFloat(el.dataset.pos);
+        if(isNaN(pos)) { render(); return; }
+        pos = Math.round(pos * 100) / 100;
+        if(t === 'off'){ if(has(rc.off,pos)!==null) toggleNum(rc.off,pos); else { toggleNum(rc.off,pos); const g=has(rc.gaps,pos); if(g!==null) rc.gaps.delete(g); } }
+        else if(t === 'hole'){ if(has(rc.gaps,pos)!==null) toggleNum(rc.gaps,pos); else { toggleNum(rc.gaps,pos); const o=has(rc.off,pos); if(o!==null) rc.off.delete(o); } }
+      }
+      render();
     }
     // Colocar (por ARRASTRE) una herramienta en el objetivo del drop.
     function dropTool(target, t){
@@ -2729,9 +2811,10 @@
     // punto EXACTO donde caerá (el candidato se calcula por geometría —borde/celda más cercano al
     // cursor dentro de la fila—, no por el elemento bajo el ratón: los bordes de escalera son muy
     // finos y el drop era impreciso). Al soltar se usa ese candidato resaltado. ----
-    let dragGhostEl = null, dropHintEl = null, stagePrevEl = null;
-    function clearDropHint(){ if(dropHintEl){ dropHintEl.classList.remove('is-drop-stair','is-drop-hint'); dropHintEl = null; } }
-    function removeDragGhost(){ if(dragGhostEl){ dragGhostEl.remove(); dragGhostEl = null; } if(stagePrevEl){ stagePrevEl.remove(); stagePrevEl = null; } clearDropHint(); }
+    let dragGhostEl = null, dropHintEl = null, stagePrevEl = null, gapHintEl = null;
+    function clearGapHint(){ if(gapHintEl){ gapHintEl.classList.remove('is-drop-gap'); gapHintEl = null; } }
+    function clearDropHint(){ if(dropHintEl){ dropHintEl.classList.remove('is-drop-stair','is-drop-hint'); dropHintEl = null; } clearGapHint(); }
+    function removeDragGhost(){ if(dragGhostEl){ dragGhostEl.remove(); dragGhostEl = null; } if(stagePrevEl){ stagePrevEl.remove(); stagePrevEl = null; } gridEl.classList.remove('is-tooldrag'); clearDropHint(); }
     function moveDragGhost(x, y){
       if(!dragGhostEl){
         const src = modalEl.querySelector('.plan-tool[data-tool="' + dragTool + '"]');
@@ -2755,6 +2838,7 @@
     modalEl.querySelectorAll('.plan-tool[data-tool]').forEach(function(el){
       el.addEventListener('dragstart', function(e){
         dragTool = el.dataset.tool;
+        if(dragTool !== 'stage') gridEl.classList.add('is-tooldrag');
         try{
           e.dataTransfer.setData('text/plain', dragTool); e.dataTransfer.effectAllowed = 'copy';
           // Anular la imagen fantasma nativa: la sustituye nuestro fantasma pegado al cursor.
@@ -2780,6 +2864,10 @@
         clearDropHint();
         return;
       }
+      // ¿Sobre una zona «entre filas»? Se resalta esa banda (crea/rellena una separadora al soltar).
+      const gap = e.target.closest('[data-sep-gap]');
+      if(gap){ if(gap !== gapHintEl){ clearDropHint(); gapHintEl = gap; gap.classList.add('is-drop-gap'); } return; }
+      if(gapHintEl) clearGapHint();
       const cand = dropCandidate(e.clientX, e.clientY);
       if(cand !== dropHintEl){ clearDropHint(); if(cand){ dropHintEl = cand; cand.classList.add(dragTool === 'stair' ? 'is-drop-stair' : 'is-drop-hint'); } }
     });
@@ -2787,8 +2875,10 @@
     gridEl.addEventListener('drop', function(e){
       if(!state || !dragTool) return; e.preventDefault();
       const t = dragTool; const cand = dropHintEl;
+      const gap = gapHintEl || e.target.closest('[data-sep-gap]');
       removeDragGhost();
       if(t === 'stage'){ placeStageAt(e.clientX, e.clientY); return; }
+      if(gap){ dropOnSepGap(gap, t, e.clientX); return; }   // «entre filas» → fila-separadora
       dropTool(cand || e.target, t);   // el candidato RESALTADO es lo que se ve = lo que se coloca
     });
     // CLIC = quitar el elemento colocado (no hay selección de herramienta).
@@ -2823,7 +2913,16 @@
         const src = hasOwn ? rc : legacy;  // migra el legado de sector a por-fila
         rows[rd.label] = { stairs:new Set(src.stairs || []), gaps:new Set(src.gaps || []), off:new Set(src.off || []) };
       });
+      // Filas-separadoras (pasillos entre filas): cada una es una clave sintética __sep_N en `rows`
+      // + una entrada en `separators` con su ancla `after`.
+      const separators = [];
+      (cfg.separators || []).forEach(function(sp, i){
+        const key = '__sep_' + i;
+        rows[key] = { stairs:new Set(sp.stairs || []), gaps:new Set(sp.gaps || []), off:new Set(sp.off || []) };
+        separators.push({ key: key, after: sp.after || '' });
+      });
       state = { catId, sector, step: j.step || 1, min: j.min || 0, max: j.max || 0, rowsData, rows,
+                separators: separators, sepSeq: separators.length,
                 stage: (cfg.stage && typeof cfg.stage.x === 'number') ? {x: cfg.stage.x, y: cfg.stage.y} : null,
                 orientation: (cfg.orientation === 'rtl' ? 'rtl' : 'ltr') };
       modalEl.querySelectorAll('[data-plan-orient] [data-orient-val]').forEach(x => x.classList.toggle('active', x.dataset.orientVal === state.orientation));
@@ -2834,8 +2933,11 @@
       if(!state) return;
       const url = root.dataset.saveUrlBase.replace('CID', state.catId);
       const rowsPayload = {};
-      Object.keys(state.rows).forEach(function(rl){ const rc = state.rows[rl]; if(rc.stairs.size || rc.gaps.size || rc.off.size){ rowsPayload[rl] = {stairs:Array.from(rc.stairs), gaps:Array.from(rc.gaps), off:Array.from(rc.off)}; } });
-      const payload = { sector: state.sector, rows: rowsPayload, stage: state.stage, orientation: state.orientation || 'ltr' };
+      Object.keys(state.rows).forEach(function(rl){ if(isSepKey(rl)) return; const rc = state.rows[rl]; if(rc.stairs.size || rc.gaps.size || rc.off.size){ rowsPayload[rl] = {stairs:Array.from(rc.stairs), gaps:Array.from(rc.gaps), off:Array.from(rc.off)}; } });
+      // Filas-separadoras: {after, stairs, gaps, off} (se descartan las vacías).
+      const sepPayload = [];
+      (state.separators || []).forEach(function(sp){ const rc = state.rows[sp.key]; if(rc && (rc.stairs.size || rc.gaps.size || rc.off.size)) sepPayload.push({ after: sp.after || '', stairs:Array.from(rc.stairs), gaps:Array.from(rc.gaps), off:Array.from(rc.off) }); });
+      const payload = { sector: state.sector, rows: rowsPayload, separators: sepPayload, stage: state.stage, orientation: state.orientation || 'ltr' };
       const res = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'XMLHttpRequest'}, body: JSON.stringify(payload)});
       const j = await res.json().catch(() => ({}));
       if(!j.ok){ alert(j.error || 'No se pudo guardar el plano.'); return; }

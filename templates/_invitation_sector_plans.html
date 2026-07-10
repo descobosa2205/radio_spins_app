@@ -31,8 +31,8 @@
     <div class="invitation-sector-rows{% if stg %}{% if stg.y <= 22 %} stage-pad-top{% elif stg.y >= 78 %} stage-pad-bottom{% endif %}{% if stg.x <= 8 %} stage-pad-left{% elif stg.x >= 92 %} stage-pad-right{% endif %}{% endif %}">
     {% if stg %}<div class="invitation-stage" style="left:clamp(3.9rem, {{ stg.x }}%, calc(100% - 3.9rem));top:clamp(0.95rem, {{ stg.y }}%, calc(100% - 0.95rem))"><i class="fa fa-arrow-right invitation-stage-arrow" style="transform:rotate({{ stg.angle }}deg)"></i><i class="fa fa-music me-1"></i>ESCENARIO</div>{% endif %}
     {% for row in sector.rows %}
-      <div class="invitation-seat-row">
-        <div class="invitation-row-label">Fila {{ row.row_label }}</div>
+      <div class="invitation-seat-row{% if row.separator %} invitation-seat-row--sep{% endif %}">
+        <div class="invitation-row-label">{% if not row.separator %}Fila {{ row.row_label }}{% endif %}</div>
         <div class="invitation-seat-grid invitation-seat-grid--numbered invitation-seat-grid--line">
           {% for cell in row.layout %}
             {% if cell.type == 'block' %}

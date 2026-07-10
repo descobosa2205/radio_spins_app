@@ -1813,3 +1813,8 @@ img[style*="width:"] { height: auto; }
 
 /* Utilidad usada en varias plantillas para permitir encoger/truncar dentro de flex. */
 .min-w-0 { min-width: 0 !important; }
+
+/* iOS/iPad: sin un cursor "clicable" en el body, Safari NO dispara el click fuera de un
+   dropdown y el menú de los tres puntos se queda abierto/superpuesto. Con cursor:pointer en
+   táctiles, Bootstrap recibe el click y cierra el menú al tocar fuera. (Invisible en táctil.) */
+@media (pointer: coarse) { body { cursor: pointer; } }

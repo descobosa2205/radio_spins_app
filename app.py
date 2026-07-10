@@ -40715,10 +40715,15 @@ def _invitation_sync_request_status(session_db, row) -> None:
     cur = (row.status or "").upper()
     if cur in _INVITATION_MANUAL_REQUEST_STATUSES:
         return
+    qty_total = _invitation_total_qty(_json_dict(getattr(row, "quantities_json", None)))
     tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all()
     assigned = len(tickets)
     sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
-    if sent > 0:
+    if qty_total > 0 and assigned < qty_total:
+        # Ampliada / parcial: quedan invitaciones por asignar -> vuelve a PENDIENTE (aparece en el
+        # asignador), aunque algunas ya esten asignadas o enviadas (se conservan como tales).
+        row.status = "APROBADAS"
+    elif sent > 0:
         if cur not in INVITATION_SENT_STATUSES:
             row.status = "ENVIADAS"
             if not row.sent_at:
@@ -40739,10 +40744,13 @@ def _invitation_sync_commitment_status(session_db, row) -> None:
     cur = (row.status or "").upper()
     if cur in {"ANULADAS"}:
         return
+    qty_total = _invitation_total_qty(_json_dict(getattr(row, "quantities_json", None)))
     tickets = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_commitment_id == row.id).all()
     assigned = len(tickets)
     sent = sum(1 for t in tickets if (t.status or "").upper() in _INVITATION_TICKET_SENT_STATUSES)
-    if sent > 0:
+    if qty_total > 0 and assigned < qty_total:
+        row.status = "COMPROMETIDAS"
+    elif sent > 0:
         row.status = "ENVIADAS"
     elif assigned > 0:
         row.status = "ASIGNADAS"
@@ -43810,7 +43818,10 @@ def invitation_commitment_save(concert_id):
         row.guest_phone = g_phone or None
         row.quantities_json = new_quantities
         row.note = (request.form.get('note') or '').strip()
-        row.status = 'COMPROMETIDAS'
+        # Recalcular desde entradas + cupo: si al ampliar quedan por asignar, vuelve a COMPROMETIDAS
+        # (aparece en el asignador); las asignadas/enviadas se conservan.
+        session_db.flush()
+        _invitation_sync_commitment_status(session_db, row)
         row.updated_at = _now_madrid()
         session_db.commit()
         if new_qty > _inv_available:
@@ -44540,14 +44551,9 @@ def invitation_request_update(request_id):
                 if _over:
                     raise ValueError('No se aceptan peticiones por encima del cupo en: ' + ', '.join(_over) + '.')
             row.quantities_json = new_quantities
-            remaining = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).count()
-            if remaining > 0 and (row.status or '') not in sent_statuses:
-                row.status = 'ASIGNADAS'
-            elif remaining == 0 and (row.status or '') == 'ASIGNADAS':
-                row.status = 'APROBADAS'
         else:
             new_total = _safe_int(request.form.get('qty_total'))
-            if new_total > 0 and (row.status or '') in {'SOLICITADAS', 'APROBADAS'}:
+            if new_total > 0:
                 quantities = _json_dict(row.quantities_json)
                 positive = {k: _safe_int(v) for k, v in quantities.items() if _safe_int(v) > 0}
                 if len(positive) == 1:
@@ -44556,6 +44562,11 @@ def invitation_request_update(request_id):
                 elif not positive:
                     row.quantities_json = {'TOTAL': new_total}
 
+        # Recalcular estado desde entradas + nuevo cupo: si al ampliar quedan invitaciones por asignar,
+        # vuelve a PENDIENTE (aparece en el asignador) aunque hubiera enviadas; las enviadas/asignadas
+        # se conservan como tales. Luego «enviar» preguntará todas / solo las nuevas.
+        session_db.flush()
+        _invitation_sync_request_status(session_db, row)
         row.updated_at = _now_madrid()
         session_db.commit()
         flash('Solicitud actualizada.', 'success')

@@ -2047,3 +2047,22 @@ async function setRoyaltyLiquidationStatus(kind, bid, semesterKey, status){
     }
   } catch (e) {}
 })();
+
+/* Red de seguridad para táctiles (iPad/iOS): cerrar los menús desplegables (⋮) al tocar fuera.
+   En iOS el `click` fuera a veces no llega a Bootstrap y el menú se queda abierto/superpuesto. */
+(function () {
+  'use strict';
+  document.addEventListener('touchend', function (e) {
+    var openMenus = document.querySelectorAll('.dropdown-menu.show');
+    if (!openMenus.length || !window.bootstrap || !bootstrap.Dropdown) return;
+    // Si el toque es sobre un toggle o dentro de un menú abierto, no cerramos (deja actuar a Bootstrap).
+    if (e.target.closest('[data-bs-toggle="dropdown"]')) return;
+    if (e.target.closest('.dropdown-menu.show')) return;
+    openMenus.forEach(function (menu) {
+      var toggle = menu.parentElement ? menu.parentElement.querySelector('[data-bs-toggle="dropdown"]') : null;
+      if (!toggle) return;
+      var inst = bootstrap.Dropdown.getInstance(toggle);
+      if (inst) { try { inst.hide(); } catch (err) {} }
+    });
+  }, true);
+})();

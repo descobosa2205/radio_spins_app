@@ -29368,6 +29368,7 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "integraciones", "label": "Integraciones", "section_key": "integraciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 260, "description": "Integraciones con servicios externos (p. ej. Chartmetric)."},
 
+    {"key": "fotos", "label": "Fotos / Vídeos", "section_key": "fotos", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 265, "description": "Galería global de fotos y vídeos de artistas y actividades."},
     {"key": "databases", "label": "Bases de datos", "section_key": "databases", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 270, "description": "Bases de datos maestras del sistema."},
     {"key": "databases.venues", "label": "Recintos", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 271, "description": "Recintos (venues): alta y edición."},
     {"key": "databases.ticketers", "label": "Ticketeras", "section_key": "databases", "parent_key": "databases", "level": "TAB", "economic_capable": False, "sort_order": 272, "description": "Ticketeras: alta y edición."},
@@ -29642,6 +29643,8 @@ def _coarse_endpoint_resource(endpoint: str, path: str) -> str | None:
         return "artists"
     if endpoint in {"registros_view", "registros_concert_declare", "registros_repertoire_link"}:
         return "registros.pendiente"
+    if endpoint in {"media_gallery_view", "media_panel_view", "api_media_artist_activities"}:
+        return "fotos"
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
         return "third_parties"
     if endpoint == "venues_view" or endpoint.startswith("venue_"):
@@ -30175,6 +30178,8 @@ def _resolve_request_resource_key() -> str | None:
             "marketing": "promocion",
         }
         return mapping.get(tab, "discografica.canciones")
+    if endpoint in {"media_gallery_view", "media_panel_view", "api_media_artist_activities"}:
+        return "fotos"
     if endpoint == "promoters_view" or endpoint.startswith("promoter_"):
         return "third_parties"
     if endpoint == "venues_view" or endpoint.startswith("venue_"):
@@ -30478,6 +30483,7 @@ def _resource_default_url(key: str) -> str:
         "registros.pendiente": url_for("registros_view", tab="pendiente"),
         "registros.sgae": url_for("registros_view", tab="sgae"),
         "third_parties": url_for("promoters_view"),
+        "fotos": url_for("media_gallery_view"),
         "contratacion": url_for("contracting_view", section="conciertos"),
         "contratacion.conciertos": url_for("concerts_view", tab="vista"),
         "contratacion.giras": url_for("contracting_view", section="giras-compradas"),
@@ -30647,6 +30653,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "discografica", "label": "Discográfica", "url": _resource_default_url("discografica")},
         {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
+        {"type": "link", "key": "fotos", "label": "Fotos / Vídeos", "url": _resource_default_url("fotos")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "link", "key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
@@ -31020,6 +31027,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "artist_calendar_link_create", "artist_calendar_link_cancel",
 }
 SUPPORT_READ_ENDPOINTS = {
+    "api_media_artist_activities",
     "api_search_promoters", "api_search_publishing_companies", "api_search_ticketers",
     "api_search_venues", "api_search_events", "api_entity_link_search", "api_search_commission_entities",
     "api_get_promoter", "api_promoter_detail", "api_promoter_emails", "api_media_contacts",
@@ -36964,7 +36972,7 @@ def action_detail_view(action_id):
 # ===========================================================================
 # Fotos / vídeos — galería transversal (conciertos y acciones)
 # ===========================================================================
-PHOTO_OWNER_TYPES = {"CONCERT", "ACTION"}
+PHOTO_OWNER_TYPES = {"CONCERT", "ACTION", "ARTIST", "EVENT"}
 PHOTO_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif", ".bmp", ".tif", ".tiff"}
 PHOTO_VIDEO_EXTS = {".mp4", ".mov", ".webm", ".m4v", ".avi", ".mkv", ".mpeg", ".mpg"}
 
@@ -36995,14 +37003,28 @@ def _photo_resolve_owner(session_db, owner_type, owner_id):
         ids = [to_uuid(x) for x in (getattr(a, "artist_ids", None) or []) if to_uuid(x)]
         artist_id = ids[0] if ids else None
         return (a, artist_id, (getattr(a, "title", None) or "Acción").strip())
+    if owner_type == "ARTIST":
+        # Fotos «sueltas» ligadas al artista (sin actividad concreta).
+        art = session_db.get(Artist, oid)
+        if not art:
+            return (None, None, "")
+        return (art, oid, (getattr(art, "name", None) or "Artista").strip())
+    if owner_type == "EVENT":
+        ev = session_db.get(AppEvent, oid)
+        if not ev:
+            return (None, None, "")
+        return (ev, None, (getattr(ev, "name", None) or "Evento").strip())
     return (None, None, "")
 
 
 def _photo_owner_url(owner_type, owner_id):
     # owner_type puede llegar en minúsculas (los llamadores pasan .lower()); normalizar para no
     # tratar los CONCIERTOS como ACCIONES (bug de "Abrir en la ficha").
-    if (owner_type or "").upper() == "CONCERT":
+    ot = (owner_type or "").upper()
+    if ot == "CONCERT":
         return url_for("concert_detail_view", cid=owner_id, tab="fotos")
+    if ot in ("ARTIST", "EVENT"):
+        return url_for("media_panel_view", owner_type=ot.lower(), owner_id=owner_id)
     return url_for("action_detail_view", action_id=owner_id, tab="fotos")
 
 
@@ -37251,6 +37273,150 @@ def _build_artist_fotos_groups(session_db, artist_id):
             "artist": artist_payload,
         })
     return out
+
+
+@app.get("/fotos-videos", endpoint="media_gallery_view")
+@admin_required
+def media_gallery_view():
+    """Sección GLOBAL de Fotos/Vídeos: todas las fotos agrupadas por artista, con filtros y buscador.
+    La subida real se hace en el panel por dueño (mismo componente que las fichas)."""
+    s = db()
+    try:
+        photos = (
+            s.query(Photo)
+            .filter(Photo.discarded.is_(False))
+            .order_by(Photo.created_at.desc())
+            .limit(1500)
+            .all()
+        )
+        promo_map = _photo_promoter_map(s, photos)
+        appr_map = _photo_approval_map(s, photos)
+        # Agrupar por artista (o «Sin artista»); dentro, por dueño (actividad).
+        artists_by_id = {}
+        groups = {}   # artist_key -> {artist, owners: {(ot,oid): {title,type_label,type_icon,url,date,photos[]}}}
+        for p in photos:
+            akey = str(p.artist_id) if p.artist_id else "__none__"
+            if akey not in artists_by_id and p.artist_id:
+                artists_by_id[akey] = s.get(Artist, p.artist_id)
+            g = groups.setdefault(akey, {})
+            ok = (p.owner_type, str(p.owner_id))
+            og = g.get(ok)
+            if og is None:
+                owner, _art, title = _photo_resolve_owner(s, p.owner_type, p.owner_id)
+                if p.owner_type == "CONCERT":
+                    tl = _invitation_event_type_label(owner) if owner else "Concierto"; ti = _concert_activity_icon(owner) if owner else "fa-guitar"
+                    dval = getattr(owner, "date", None) if owner else None
+                elif p.owner_type == "ACTION":
+                    ak = (getattr(owner, "action_type", None) or "").upper() if owner else ""
+                    tl = ACTION_TYPE_LABELS.get(ak, "Acción"); ti = ACTION_TYPE_ICONS.get(ak, "fa-bullhorn")
+                    dval = getattr(owner, "start_date", None) if owner else None
+                else:
+                    tl = "Suelto"; ti = "fa-images"; dval = None
+                og = {"title": title or "—", "type_label": tl, "type_icon": ti,
+                      "url": _photo_owner_url(p.owner_type, str(p.owner_id)),
+                      "date": (dval.isoformat() if dval else ""), "photos": []}
+                g[ok] = og
+            og["photos"].append(_photo_payload(p, promo_map.get(p.photographer_promoter_id), appr_map.get(str(p.id))))
+        # Serializar en orden: artistas con más fotos primero.
+        gallery = []
+        for akey, owners in groups.items():
+            art = artists_by_id.get(akey)
+            total = sum(len(o["photos"]) for o in owners.values())
+            gallery.append({
+                "artist_id": (akey if akey != "__none__" else ""),
+                "artist_name": (getattr(art, "name", None) or "Sin artista") if art else "Sin artista",
+                "artist_photo": (getattr(art, "photo_url", None) or "") if art else "",
+                "total": total,
+                "owners": sorted(owners.values(), key=lambda o: o["date"], reverse=True),
+            })
+        gallery.sort(key=lambda gr: (-gr["total"], gr["artist_name"].lower()))
+        # Chips de filtro por artista (con foto).
+        artist_filter = [{"id": g["artist_id"], "name": g["artist_name"], "photo": g["artist_photo"], "total": g["total"]} for g in gallery if g["artist_id"]]
+        all_artists = [{"id": str(a.id), "name": a.name, "photo": (a.photo_url or "")}
+                       for a in s.query(Artist).order_by(Artist.name.asc()).all()]
+        return render_template("media_gallery.html", gallery=gallery, artist_filter=artist_filter,
+                               active_owners=_media_active_targets(s), all_artists=all_artists,
+                               can_edit=bool(is_master() or _user_is_actor()))
+    finally:
+        s.close()
+
+
+def _media_active_targets(s):
+    """Artistas/eventos «activos»: con lanzamiento o actividad en los próximos días o en los últimos 10.
+    Para el asistente de subida (paso 1)."""
+    today = date.today()
+    lo = today - timedelta(days=10)
+    active = {}   # artist_id -> name/photo
+    try:
+        # Álbumes/canciones recientes o próximos
+        for a in s.query(Album).filter(Album.release_date.isnot(None), Album.release_date >= lo).all():
+            if a.artist_id:
+                active.setdefault(str(a.artist_id), True)
+        # Conciertos/acciones recientes o próximas
+        for c in s.query(Concert).filter(Concert.date.isnot(None), Concert.date >= lo).limit(400).all():
+            if c.artist_id:
+                active.setdefault(str(c.artist_id), True)
+        for a in s.query(CompanyAction).filter(CompanyAction.start_date.isnot(None), CompanyAction.start_date >= lo).limit(400).all():
+            for x in (a.artist_ids or []):
+                active.setdefault(str(x), True)
+    except Exception:
+        pass
+    rows = []
+    if active:
+        for art in s.query(Artist).filter(Artist.id.in_([to_uuid(k) for k in active.keys() if to_uuid(k)])).all():
+            rows.append({"id": str(art.id), "name": art.name, "photo": (art.photo_url or "")})
+    rows.sort(key=lambda r: (r["name"] or "").lower())
+    return rows
+
+
+@app.get("/api/media/artist-activities/<artist_id>", endpoint="api_media_artist_activities")
+@admin_required
+def api_media_artist_activities(artist_id):
+    """Actividades del artista en orden cronológico (para vincular fotos): conciertos + acciones."""
+    s = db()
+    try:
+        aid = to_uuid(artist_id)
+        if not aid:
+            return jsonify([])
+        out = []
+        for c in s.query(Concert).filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([str(aid)]))).all():
+            if (c.status or "").upper() == "BORRADOR":
+                continue
+            out.append({"owner_type": "CONCERT", "owner_id": str(c.id),
+                        "label": (c.festival_name or "").strip() or "Concierto",
+                        "type_label": _invitation_event_type_label(c), "icon": _concert_activity_icon(c),
+                        "date": (c.date.isoformat() if c.date else ""),
+                        "url": url_for("media_panel_view", owner_type="concert", owner_id=str(c.id))})
+        for a in s.query(CompanyAction).filter(CompanyAction.artist_ids.contains([str(aid)])).all():
+            ak = (a.action_type or "").upper()
+            out.append({"owner_type": "ACTION", "owner_id": str(a.id),
+                        "label": (a.title or "Acción").strip(),
+                        "type_label": ACTION_TYPE_LABELS.get(ak, "Acción"), "icon": ACTION_TYPE_ICONS.get(ak, "fa-bullhorn"),
+                        "date": (a.start_date.isoformat() if a.start_date else ""),
+                        "url": url_for("media_panel_view", owner_type="action", owner_id=str(a.id))})
+        out.sort(key=lambda x: x["date"] or "0000", reverse=True)
+        return jsonify(out)
+    finally:
+        s.close()
+
+
+@app.get("/fotos-videos/<owner_type>/<owner_id>", endpoint="media_panel_view")
+@admin_required
+def media_panel_view(owner_type, owner_id):
+    """Panel de fotos/vídeos de un dueño cualquiera (concierto/acción/artista «suelto»/evento):
+    MISMO componente editable que las fichas (subida compartida)."""
+    ot = _photo_owner_type_norm(owner_type)
+    s = db()
+    try:
+        if not ot:
+            abort(404)
+        owner, _art, title = _photo_resolve_owner(s, ot, owner_id)
+        if not owner:
+            abort(404)
+        fotos_ctx = _build_fotos_context(s, ot, owner_id)
+        return render_template("media_panel.html", fotos_ctx=fotos_ctx, panel_title=title, owner_type=ot)
+    finally:
+        s.close()
 
 
 @app.get("/fotos/<owner_type>/<owner_id>/list", endpoint="fotos_list_json")

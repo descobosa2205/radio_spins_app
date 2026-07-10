@@ -1,0 +1,184 @@
+{% extends "layout.html" %}
+{% block content %}
+<style>
+  .mg-artist-head{ display:flex; align-items:center; gap:.6rem; margin:1.2rem 0 .5rem; }
+  .mg-artist-head img{ width:38px; height:38px; border-radius:50%; object-fit:cover; }
+  .mg-owner{ border-left:4px solid #E33D48; padding-left:.7rem; margin:.4rem 0 1rem; }
+  .mg-owner__head{ font-weight:600; font-size:.9rem; color:#495057; display:flex; align-items:center; gap:.4rem; }
+  .mg-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:.5rem; margin-top:.4rem; }
+  .mg-thumb{ position:relative; aspect-ratio:1/1; border-radius:10px; overflow:hidden; background:#f1f3f5; display:block; }
+  .mg-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .mg-thumb .mg-vid{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; background:rgba(0,0,0,.25); font-size:1.4rem; }
+  .mg-filter-chip{ cursor:pointer; }
+  .mg-filter-chip img{ width:22px; height:22px; border-radius:50%; object-fit:cover; margin-right:4px; }
+  .mg-filter-chip.active{ background:var(--brand-primary,#E33D48); color:#fff; border-color:var(--brand-primary,#E33D48); }
+  .mg-act-row{ border-left:4px solid #ced4da; }
+</style>
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1"><i class="fa fa-images me-2"></i>Fotos / Vídeos</h4>
+    <div class="text-muted">Galería global agrupada por artista. Pincha una foto para abrir su actividad (misma vista y subida que en las fichas).</div>
+  </div>
+  {% if can_edit %}<button class="btn btn-primary" id="mgAddBtn"><i class="fa fa-plus me-1"></i>Añadir Fotos / Vídeo</button>{% endif %}
+</div>
+
+{# ---- Filtros ---- #}
+<div class="card mb-3"><div class="card-body">
+  <div class="mb-2 d-flex flex-wrap gap-1" id="mgArtistFilter">
+    <span class="badge text-bg-light border mg-filter-chip active" data-artist="">Todos</span>
+    {% for a in artist_filter %}
+      <span class="badge text-bg-light border mg-filter-chip" data-artist="{{ a.id }}">{% if a.photo %}<img src="{{ a.photo }}" alt="">{% endif %}{{ a.name }} <span class="text-muted">({{ a.total }})</span></span>
+    {% endfor %}
+  </div>
+  <div class="row g-2 align-items-end">
+    <div class="col-6 col-md-3"><label class="form-label small mb-0">Desde</label><input type="date" class="form-control form-control-sm" id="mgFrom"></div>
+    <div class="col-6 col-md-3"><label class="form-label small mb-0">Hasta</label><input type="date" class="form-control form-control-sm" id="mgTo"></div>
+    <div class="col-12 col-md-6"><label class="form-label small mb-0">Buscar</label><input type="search" class="form-control form-control-sm" id="mgSearch" placeholder="Artista, actividad, título, fotógrafo…"></div>
+  </div>
+</div></div>
+
+<div id="mgResults">
+  {% for g in gallery %}
+    <div class="mg-artist-block" data-artist="{{ g.artist_id }}" data-name="{{ g.artist_name|lower }}">
+      <div class="mg-artist-head">
+        {% if g.artist_photo %}<img src="{{ g.artist_photo }}" alt="">{% else %}<span class="text-muted"><i class="fa fa-user-circle fa-2x"></i></span>{% endif %}
+        <h5 class="mb-0">{{ g.artist_name }}</h5>
+        <span class="badge text-bg-light border">{{ g.total }}</span>
+      </div>
+      {% for o in g.owners %}
+        <div class="mg-owner" data-date="{{ o.date }}" data-text="{{ (g.artist_name ~ ' ' ~ o.title ~ ' ' ~ o.type_label)|lower }}">
+          <div class="mg-owner__head"><i class="fa {{ o.type_icon }}"></i>{{ o.type_label }} · <a href="{{ o.url }}" class="text-reset">{{ o.title }}</a>{% if o.date %} · <span class="text-muted">{{ o.date }}</span>{% endif %}</div>
+          <div class="mg-grid">
+            {% for p in o.photos %}
+              <a class="mg-thumb" href="{{ o.url }}" title="{{ p.title }}" data-ph="{{ (p.title ~ ' ' ~ (p.photographer.name if p.photographer else ''))|lower }}">
+                <img src="{{ p.file_url }}" alt="" data-default-photo="0" loading="lazy">
+                {% if p.is_video %}<span class="mg-vid"><i class="fa fa-play"></i></span>{% endif %}
+              </a>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="card"><div class="card-body text-center text-muted py-5"><i class="fa fa-images fa-2x mb-2"></i><div class="fw-semibold">Aún no hay fotos ni vídeos</div></div></div>
+  {% endfor %}
+  <div class="text-muted text-center py-4 d-none" id="mgEmpty">No hay resultados con esos filtros.</div>
+</div>
+
+{% if can_edit %}
+{# ---- Asistente de subida ---- #}
+<div class="modal fade" id="mgWizard" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <div class="modal-header"><h5 class="modal-title">Añadir Fotos / Vídeo</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      {# Paso 1: artista #}
+      <section data-mg-step="1">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">¿De qué artista?</h6>
+          <button type="button" class="btn btn-sm btn-outline-secondary" id="mgSeeMore"><i class="fa fa-ellipsis me-1"></i>Ver más</button>
+        </div>
+        <div class="text-muted small mb-2">Artistas con lanzamientos o actividades próximas o de los últimos 10 días.</div>
+        <div class="row g-2" id="mgActiveList">
+          {% for a in active_owners %}
+            <div class="col-6 col-md-4"><button type="button" class="btn btn-outline-secondary w-100 text-start mg-pick-artist" data-id="{{ a.id }}" data-name="{{ a.name }}">
+              {% if a.photo %}<img src="{{ a.photo }}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;" class="me-1">{% else %}<i class="fa fa-user me-1"></i>{% endif %}{{ a.name }}
+            </button></div>
+          {% else %}
+            <div class="col-12 text-muted small">No hay artistas activos ahora mismo. Pulsa «Ver más».</div>
+          {% endfor %}
+        </div>
+        <div class="mt-2 d-none" id="mgAllWrap">
+          <label class="form-label small mb-0">Todos los artistas</label>
+          <select class="form-select" id="mgAllArtists"><option value="">— Selecciona —</option>{% for a in all_artists %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}</select>
+        </div>
+      </section>
+      {# Paso 2: actividad o suelto #}
+      <section data-mg-step="2" class="d-none">
+        <div class="mb-2"><button type="button" class="btn btn-sm btn-link p-0" data-mg-back><i class="fa fa-arrow-left me-1"></i>Cambiar artista</button></div>
+        <h6 class="mb-2">¿Cómo quieres vincular las fotos de <span id="mgArtistName" class="fw-semibold"></span>?</h6>
+        <div class="row g-2">
+          <div class="col-6"><button type="button" class="btn btn-outline-primary w-100 py-3" id="mgLinkActivity"><i class="fa fa-calendar-day fa-lg d-block mb-1"></i>A una actividad</button></div>
+          <div class="col-6"><button type="button" class="btn btn-outline-secondary w-100 py-3" id="mgLinkLoose"><i class="fa fa-images fa-lg d-block mb-1"></i>Suelto (del artista)</button></div>
+        </div>
+      </section>
+      {# Paso 3: elegir actividad #}
+      <section data-mg-step="3" class="d-none">
+        <div class="mb-2"><button type="button" class="btn btn-sm btn-link p-0" data-mg-back2><i class="fa fa-arrow-left me-1"></i>Atrás</button></div>
+        <h6 class="mb-2">Elige la actividad</h6>
+        <div id="mgActivities" class="list-group"><div class="text-muted small p-2">Cargando…</div></div>
+      </section>
+    </div>
+  </div></div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  // ---- Filtros de la galería ----
+  var artistSel='', qFrom='', qTo='', qText='';
+  function apply(){
+    var anyVisible=false;
+    document.querySelectorAll('.mg-artist-block').forEach(function(block){
+      var okArtist = !artistSel || block.getAttribute('data-artist')===artistSel;
+      var ownersVisible=0;
+      block.querySelectorAll('.mg-owner').forEach(function(o){
+        var d=o.getAttribute('data-date')||''; var txt=o.getAttribute('data-text')||'';
+        var okDate=(!qFrom || (d && d>=qFrom)) && (!qTo || (d && d<=qTo));
+        var okText=!qText || txt.indexOf(qText)>-1 || Array.prototype.some.call(o.querySelectorAll('.mg-thumb'), function(t){ return (t.getAttribute('data-ph')||'').indexOf(qText)>-1; });
+        var show = okArtist && okDate && okText;
+        o.style.display = show ? '' : 'none';
+        if(show) ownersVisible++;
+      });
+      block.style.display = (okArtist && ownersVisible>0) ? '' : 'none';
+      if(okArtist && ownersVisible>0) anyVisible=true;
+    });
+    var empty=document.getElementById('mgEmpty'); if(empty) empty.classList.toggle('d-none', anyVisible);
+  }
+  document.getElementById('mgArtistFilter').addEventListener('click', function(e){
+    var c=e.target.closest('.mg-filter-chip'); if(!c) return;
+    document.querySelectorAll('#mgArtistFilter .mg-filter-chip').forEach(function(x){ x.classList.remove('active'); });
+    c.classList.add('active'); artistSel=c.getAttribute('data-artist')||''; apply();
+  });
+  var f=document.getElementById('mgFrom'), t=document.getElementById('mgTo'), q=document.getElementById('mgSearch');
+  if(f) f.addEventListener('change', function(){ qFrom=this.value; apply(); });
+  if(t) t.addEventListener('change', function(){ qTo=this.value; apply(); });
+  if(q) q.addEventListener('input', function(){ qText=(this.value||'').toLowerCase().trim(); apply(); });
+
+  // ---- Asistente ----
+  var modalEl=document.getElementById('mgWizard'); if(!modalEl) return;
+  var artistId='', artistName='';
+  function step(n){ modalEl.querySelectorAll('[data-mg-step]').forEach(function(s){ s.classList.toggle('d-none', s.getAttribute('data-mg-step')!=String(n)); }); }
+  var addBtn=document.getElementById('mgAddBtn');
+  if(addBtn) addBtn.addEventListener('click', function(){ step(1); if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show(); });
+  document.getElementById('mgSeeMore').addEventListener('click', function(){ document.getElementById('mgAllWrap').classList.toggle('d-none'); });
+  function pickArtist(id, name){ artistId=id; artistName=name||''; document.getElementById('mgArtistName').textContent=artistName; step(2); }
+  modalEl.addEventListener('click', function(e){
+    var pa=e.target.closest('.mg-pick-artist'); if(pa){ pickArtist(pa.getAttribute('data-id'), pa.getAttribute('data-name')); return; }
+    if(e.target.closest('[data-mg-back]')){ step(1); return; }
+    if(e.target.closest('[data-mg-back2]')){ step(2); return; }
+    var la=e.target.closest('#mgLinkActivity'); if(la){ loadActivities(); step(3); return; }
+    var ll=e.target.closest('#mgLinkLoose'); if(ll){ window.location.href = "{{ url_for('media_panel_view', owner_type='artist', owner_id='AID') }}".replace('AID', artistId); return; }
+  });
+  var allSel=document.getElementById('mgAllArtists');
+  if(allSel) allSel.addEventListener('change', function(){ if(this.value){ var o=this.options[this.selectedIndex]; pickArtist(this.value, o.text); } });
+  function loadActivities(){
+    var wrap=document.getElementById('mgActivities'); wrap.innerHTML='<div class="text-muted small p-2">Cargando…</div>';
+    fetch("{{ url_for('api_media_artist_activities', artist_id='AID') }}".replace('AID', artistId))
+      .then(function(r){ return r.json(); })
+      .then(function(list){
+        if(!list || !list.length){ wrap.innerHTML='<div class="text-muted small p-2">Este artista no tiene actividades. Puedes subirlas como «Suelto».</div>'; return; }
+        wrap.innerHTML='';
+        list.forEach(function(a){
+          var el=document.createElement('a'); el.className='list-group-item list-group-item-action mg-act-row d-flex align-items-center gap-2'; el.href=a.url;
+          el.innerHTML='<i class="fa '+a.icon+' text-muted"></i><span class="flex-grow-1"><span class="fw-semibold">'+(a.label||'')+'</span> <span class="text-muted small">· '+(a.type_label||'')+'</span></span>'+(a.date?('<span class="text-muted small">'+a.date+'</span>'):'');
+          wrap.appendChild(el);
+        });
+      })
+      .catch(function(){ wrap.innerHTML='<div class="text-danger small p-2">No se pudieron cargar las actividades.</div>'; });
+  }
+})();
+</script>
+{% endblock %}

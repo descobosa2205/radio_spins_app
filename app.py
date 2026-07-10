@@ -38668,6 +38668,7 @@ INVITATION_STATUS_LABELS = {
     "COMPROMETIDAS": "Comprometidas",
     "SOLICITADAS": "Solicitadas",
     "APROBADAS": "Aprobadas",
+    "PARCIAL": "Sin asignar parcialmente",
     "ASIGNADAS": "Asignadas",
     "ENVIADAS": "Enviadas",
     "ENTREGADAS_MANO": "Entregadas en mano",
@@ -38734,7 +38735,7 @@ APP33_ENTITY_LINK_TYPES = {
     "venue": {"label": "Recinto", "icon": "fa-location-dot"},
     "ticketer": {"label": "Ticketera", "icon": "fa-ticket"},
     "publishing": {"label": "Editorial", "icon": "fa-pen-nib"},
-    "personal": {"label": "Personal", "icon": "fa-user"},
+    "personal": {"label": "Alguien de la empresa", "icon": "fa-users"},
 }
 APP33_ENTITY_LINK_ALIASES = {
     "third_party": "promoter", "tercero": "promoter", "promotor": "promoter",
@@ -39724,6 +39725,22 @@ def _invitation_row_layout(cfg: dict, row_label: str) -> dict:
 _INVITATION_GRID_MAX_COLS = 260
 
 
+def _invitation_natural_key(value):
+    """Clave de orden NATURAL para filas/sectores: los números van en orden numérico
+    (Fila 1, 2, ... 10, 11) y no alfabético (1, 10, 11, 2). Mezcla texto+números de forma estable."""
+    import re as _re
+    parts = _re.split(r"(\d+)", str(value or ""))
+    key = []
+    for p in parts:
+        if p == "":
+            continue
+        if p.isdigit():
+            key.append((0, int(p), ""))
+        else:
+            key.append((1, 0, p.casefold()))
+    return key
+
+
 def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concert=None, stair_afters: set[int] | None = None) -> list[dict]:
     """Plano por sector→fila. La rejilla de cada sector se DEDUCE de las butacas que hay (rango
     mín→máx por paso) y CADA fila se alinea a esa rejilla, rellenando con «asientos apagados» (gris)
@@ -39747,7 +39764,7 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
     _assigned_states = {"ASSIGNED", "SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
     _sent_set = {"SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
     out = []
-    for sector in sorted(grouped.keys(), key=lambda x: str(x).casefold()):
+    for sector in sorted(grouped.keys(), key=_invitation_natural_key):
         cfg = _invitation_sector_layout(category, sector, concert=concert, default_stairs=stair_afters)
         # Butacas numeradas de TODO el sector para deducir la rejilla común (mín→máx por paso).
         all_nums = [int(s.get("seat_number")) for seats in grouped[sector].values()
@@ -39777,7 +39794,7 @@ def _invitation_ticket_groups(ticket_payloads: list[dict], category=None, concer
             if len(cols) <= _INVITATION_GRID_MAX_COLS:
                 columns = sorted(cols)
         rows = []
-        for row_label in sorted(grouped[sector].keys(), key=lambda x: str(x).casefold()):
+        for row_label in sorted(grouped[sector].keys(), key=_invitation_natural_key):
             _rl = _invitation_row_layout(cfg, row_label)
             stairs_after = _rl["stairs"]; gaps_cfg = _rl["gaps"]; off_cfg = _rl["off"]
             seats = sorted(grouped[sector][row_label], key=lambda x: _safe_int(x.get("seat_number")) if str(x.get("seat_number") or "").isdigit() else 999999)
@@ -40302,6 +40319,8 @@ def _invitation_status_badge(status: str | None) -> str:
         return "success"
     if s == "ASIGNADAS":
         return "warning text-dark"
+    if s == "PARCIAL":
+        return "warning text-dark"  # naranja: hay asignadas/enviadas y quedan por asignar
     if s == "APROBADAS":
         return "info text-dark"
     if s in {"RECHAZADAS", "ANULADAS"}:
@@ -40315,7 +40334,7 @@ def _invitation_requester_status(status: str | None) -> tuple[str, str]:
     s = (status or "SOLICITADAS").upper()
     if s in {"ENVIADAS", "ENTREGADAS_MANO", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA"}:
         return ("Enviadas", "success")
-    if s in {"APROBADAS", "ASIGNADAS"}:
+    if s in {"APROBADAS", "ASIGNADAS", "PARCIAL"}:
         return ("Aprobadas", "info text-dark")
     if s == "RECHAZADAS":
         return ("Rechazadas", "danger")
@@ -40387,14 +40406,24 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             _cbp = _sess.get(UserProfile, row.created_by_user_id)
             if _cbp:
                 _cb_nick = _profile_full_name(_cbp) or getattr(_cbp, "nick", "") or _cb_nick
-    # Etiqueta de estado: «Asignadas» SOLO con el cupo COMPLETO asignado; parcialmente asignada se
-    # muestra aún como «Aprobadas» (el envío también queda bloqueado hasta completarla).
+    # Etiqueta de estado por CUPO:
+    #  · cupo completo asignado → Asignadas/Enviadas (según envíos).
+    #  · algo asignado/enviado pero faltan → «Sin asignar parcialmente» (PARCIAL, naranja).
+    #  · nada asignado → Solicitadas/Aprobadas.
     _display_status = row.status or "SOLICITADAS"
-    if _display_status == "ASIGNADAS" and _sess is not None:
+    _needs_assign = False
+    _needs_send = False
+    if _sess is not None and _display_status not in _INVITATION_MANUAL_REQUEST_STATUSES:
         _qty_total = _invitation_total_qty(quantities)
         _asg_total = _invitation_request_assigned_total(_sess, row)
-        if _qty_total > 0 and _asg_total < _qty_total:
+        _sent_total = _invitation_request_sent_total(_sess, row)
+        if _qty_total > 0 and 0 < _asg_total < _qty_total:
+            _display_status = "PARCIAL"
+        elif _display_status == "ASIGNADAS" and _qty_total > 0 and _asg_total < _qty_total:
             _display_status = "APROBADAS"
+        # Para los filtros «Sin asignar» / «Sin enviar» del listado de invitados.
+        _needs_assign = bool(_qty_total > 0 and _asg_total < _qty_total)
+        _needs_send = bool(_asg_total > 0 and _sent_total < _asg_total)
     return {
         "id": str(row.id),
         "guest_name": guest_name,
@@ -40416,6 +40445,8 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status": row.status or "SOLICITADAS",
         "status_label": INVITATION_STATUS_LABELS.get(_display_status, _display_status or "Solicitadas"),
         "status_badge": _invitation_status_badge(_display_status),
+        "needs_assign": _needs_assign,
+        "needs_send": _needs_send,
         "requester_status_label": _invitation_requester_status(_display_status)[0],
         "requester_status_badge": _invitation_requester_status(_display_status)[1],
         "link_summary": link_summary,
@@ -42965,10 +42996,13 @@ def invitation_event_detail(concert_id):
                 _sts = _tk_by_cat.get(str(_cid), [])
                 _asg = len(_sts)
                 _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
-                # «Asignadas» SOLO cuando está asignado el cupo COMPLETO de la categoría; si es
-                # parcial se sigue mostrando «Sin asignar» (el badge x/y ya enseña el progreso).
-                if _lbl == "Asignadas" and _asg < _qn:
-                    _lbl, _bdg = ("Sin asignar", "secondary")
+                # Cupo COMPLETO → Asignadas/Enviadas. Parcial con algo hecho (p. ej. ampliado tras
+                # asignar/enviar) → «Sin asignar parcialmente» (naranja). Nada asignado → «Sin asignar».
+                if _asg < _qn:
+                    if _asg > 0:
+                        _lbl, _bdg = ("Sin asignar parcialmente", "warning text-dark")
+                    else:
+                        _lbl, _bdg = ("Sin asignar", "secondary")
                 # Compromiso marcado como enviado de forma directa (sin entradas asignadas): la
                 # categoría sin entradas se muestra como "Enviadas" en vez de "Sin asignar".
                 if not _sts and (getattr(row, "status", "") or "").upper() == "ENVIADAS":
@@ -43007,6 +43041,8 @@ def invitation_event_detail(concert_id):
                 if _cbp:
                     _cb_nick = _cb_nick or _profile_full_name(_cbp) or getattr(_cbp, 'nick', '') or ""
                     _cb_photo = getattr(_cbp, 'photo_url', '') or ""
+            _c_needs_assign = any(cs["assigned"] < cs["qty"] for cs in cat_status)
+            _c_needs_send = any(cs["assigned"] > 0 and cs["status_label"] not in ("Enviadas", "Recogidas en taquilla", "Disponibles en taquilla", "Entregadas en mano") for cs in cat_status)
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
@@ -43014,6 +43050,8 @@ def invitation_event_detail(concert_id):
                 "quantities": q,
                 "quantities_label": _invitation_quantities_label(q, name_map),
                 "category_status": cat_status,
+                "needs_assign": _c_needs_assign,
+                "needs_send": _c_needs_send,
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
                 "sent_via": (getattr(row, 'sent_via', None) or ''),
@@ -46240,13 +46278,24 @@ def invitation_commitment_set_category(commitment_id):
         if not cat or cat.concert_id != row.concert_id:
             raise ValueError('Selecciona una categoría válida.')
         qty = _safe_int(request.form.get('qty'))
+        mode = (request.form.get('mode') or 'add').strip().lower()
         q = _json_dict(row.quantities_json)
-        if qty > 0:
-            q[str(cat.id)] = qty
-        else:
-            q.pop(str(cat.id), None)
+        existing = _safe_int(q.get(str(cat.id)))
+        if mode == 'add':
+            # Añadir petición = ADICIONAL a lo que ya hubiera de esa categoría (aunque ya hubiera
+            # peticiones o envíos en ella): se suma al cupo de la categoría.
+            if qty > 0:
+                q[str(cat.id)] = existing + qty
+        else:  # edición: fija el número (0 la elimina)
+            if qty > 0:
+                q[str(cat.id)] = qty
+            else:
+                q.pop(str(cat.id), None)
         q.pop('TOTAL', None)
         row.quantities_json = q
+        # Recalcular estado desde entradas + nuevo cupo (si al ampliar quedan por asignar → parcial).
+        session_db.flush()
+        _invitation_sync_commitment_status(session_db, row)
         row.updated_at = _now_madrid()
         session_db.commit()
         flash(('Petición de «' + cat.name + '» guardada en el compromiso «' + (row.name or '') + '».') if qty > 0

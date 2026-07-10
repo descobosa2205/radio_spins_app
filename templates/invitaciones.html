@@ -378,6 +378,11 @@
           <button class="btn btn-outline-secondary" type="button" data-inv-search-clear title="Limpiar"><i class="fa fa-xmark"></i></button>
         </div>
         <div class="small text-muted mt-1 d-none" data-inv-search-empty>Sin resultados de invitaciones o compromisos para «<span data-inv-search-term></span>».</div>
+        <div class="d-flex gap-1 mt-2" data-inv-statefilter>
+          <span class="badge text-bg-light border mg-filter-chip active" data-inv-filter="">Todas</span>
+          <span class="badge text-bg-light border mg-filter-chip" data-inv-filter="assign"><i class="fa fa-arrow-right me-1"></i>Sin asignar</span>
+          <span class="badge text-bg-light border mg-filter-chip" data-inv-filter="send"><i class="fa fa-paper-plane me-1"></i>Sin enviar</span>
+        </div>
       </div>
       <div class="card mb-4" data-inv-search-section>
         <div class="card-body">
@@ -391,7 +396,7 @@
           {% if commitments %}
             <div class="inv-commitment-list">
               {% for row in commitments %}
-                <div class="inv-commitment-card" data-inv-search-item data-search="{{ row.name }} {{ row.reason }} {{ row.recipient_name }} {{ row.recipient_link_summary_text }} {{ row.created_by_nick }} {{ row.guest_email }} {{ row.guest_phone }} {% for cs in row.category_status %}{{ cs.name }} {% endfor %}">
+                <div class="inv-commitment-card" data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-search="{{ row.name }} {{ row.reason }} {{ row.recipient_name }} {{ row.recipient_link_summary_text }} {{ row.created_by_nick }} {{ row.guest_email }} {{ row.guest_phone }} {% for cs in row.category_status %}{{ cs.name }} {% endfor %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1 min-w-0">
                       <div class="invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -524,7 +529,7 @@
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
-                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
+                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -1611,6 +1616,7 @@
     <form class="modal-content" method="post" data-inv-refresh action="">
       <div class="modal-header"><h5 class="modal-title" data-cmt-cat-title>Añadir petición</h5><button class="btn-close" data-bs-dismiss="modal" type="button"></button></div>
       <div class="modal-body">
+        <input type="hidden" name="mode" data-cmt-cat-mode value="add">
         <div class="small text-muted mb-2" data-cmt-cat-cmt></div>
         <div data-cmt-cat-selectwrap>
           <label class="form-label">Categoría</label>
@@ -1817,6 +1823,7 @@
       if(!catModalEl) return;
       var f = catModalEl.querySelector('form');
       f.action = (catModalEl.getAttribute('data-action-base') || '').replace('CID', opts.commitmentId || '');
+      var modeInput = f.querySelector('[data-cmt-cat-mode]'); if(modeInput) modeInput.value = (opts.mode === 'edit' ? 'edit' : 'add');
       catModalEl.querySelector('[data-cmt-cat-title]').textContent = opts.mode === 'edit' ? 'Editar petición' : 'Añadir petición';
       catModalEl.querySelector('[data-cmt-cat-cmt]').textContent = 'Compromiso: ' + (opts.commitmentName || '');
       var selWrap = catModalEl.querySelector('[data-cmt-cat-selectwrap]');
@@ -2914,24 +2921,35 @@
       var clearBtn = document.querySelector('[data-inv-search-clear]');
       var emptyBox = document.querySelector('[data-inv-search-empty]');
       var termEl = document.querySelector('[data-inv-search-term]');
+      var stateFilter = '';   // '' | 'assign' | 'send' (aplica a compromisos y peticiones)
       function apply(){
         var term = norm(input.value.trim());
         var items = document.querySelectorAll('[data-inv-search-item]');
         var anyVisible = false;
         items.forEach(function(it){
-          var hit = !term || norm(it.getAttribute('data-search')).indexOf(term) !== -1;
+          var hitText = !term || norm(it.getAttribute('data-search')).indexOf(term) !== -1;
+          var hitState = !stateFilter
+            || (stateFilter === 'assign' && it.getAttribute('data-needs-assign') === '1')
+            || (stateFilter === 'send' && it.getAttribute('data-needs-send') === '1');
+          var hit = hitText && hitState;
           it.style.display = hit ? '' : 'none';
           if(hit) anyVisible = true;
         });
         // Ocultar grupos de categoría (peticiones) sin resultados visibles.
         document.querySelectorAll('[data-inv-search-group]').forEach(function(gr){
           var vis = gr.querySelector('[data-inv-search-item]:not([style*="display: none"])');
-          gr.style.display = (term && !vis) ? 'none' : '';
+          gr.style.display = ((term || stateFilter) && !vis) ? 'none' : '';
         });
-        if(emptyBox){ emptyBox.classList.toggle('d-none', !term || anyVisible); if(termEl) termEl.textContent = input.value.trim(); }
+        if(emptyBox){ emptyBox.classList.toggle('d-none', (!term && !stateFilter) || anyVisible); if(termEl) termEl.textContent = input.value.trim(); }
       }
       input.addEventListener('input', apply);
       if(clearBtn) clearBtn.addEventListener('click', function(){ input.value = ''; apply(); input.focus(); });
+      var chips = document.querySelector('[data-inv-statefilter]');
+      if(chips) chips.addEventListener('click', function(e){
+        var c = e.target.closest('[data-inv-filter]'); if(!c) return;
+        chips.querySelectorAll('[data-inv-filter]').forEach(function(x){ x.classList.remove('active'); });
+        c.classList.add('active'); stateFilter = c.getAttribute('data-inv-filter') || ''; apply();
+      });
       if(input.value.trim()) apply();
     }
     window.__invGuestSearchInit = init;   // re-enganchable tras un refresco en sitio

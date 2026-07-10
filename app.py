@@ -29138,7 +29138,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -39966,6 +39966,14 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "sent_to": (getattr(row, 'sent_to', None) or ''),
         "downloaded_at_label": _invitation_display_datetime(row.downloaded_at),
         "downloaded_count": _safe_int(row.downloaded_count),
+        "reforwarded": bool(getattr(row, "reforwarded_at", None)),
+        "reforwarded_at_label": _invitation_display_datetime(getattr(row, "reforwarded_at", None)),
+        # ¿Hay entradas enviadas Y otras nuevas sin enviar (ampliación tras envío)? → preguntar al enviar.
+        "has_partial_sent": bool(
+            _sess is not None
+            and _invitation_request_sent_total(_sess, row) > 0
+            and _invitation_request_assigned_total(_sess, row) > _invitation_request_sent_total(_sess, row)
+        ),
         "can_edit_public": (row.status or "") in {"SOLICITADAS", "APROBADAS"},
         "download_url": url_for("invitation_request_download", token=row.delivery_token) if row.delivery_token else "",
         "download_url_abs": url_for("invitation_request_download", token=row.delivery_token, _external=True) if row.delivery_token else "",
@@ -40280,6 +40288,32 @@ def _invitation_sync_commitment_status(session_db, row) -> None:
     else:
         if cur in ("ASIGNADAS", "ENVIADAS"):
             row.status = "COMPROMETIDAS"
+
+
+def _invitation_request_sent_total(session_db, row) -> int:
+    """Nº de entradas de la solicitud YA enviadas (status SENT/…), con caché por concierto en g.
+    Sirve para detectar «ampliación tras envío»: hay enviadas y también nuevas sin enviar."""
+    cid = str(getattr(row, "concert_id", "") or "")
+    cache = getattr(g, "_inv_req_sent_totals", None)
+    if cache is None:
+        cache = {}
+        try:
+            g._inv_req_sent_totals = cache
+        except Exception:
+            pass
+    m = cache.get(cid)
+    if m is None:
+        m = {}
+        try:
+            for _rq, _n in session_db.query(InvitationTicket.assigned_request_id, func.count(InvitationTicket.id)).filter(
+                    InvitationTicket.concert_id == row.concert_id,
+                    InvitationTicket.assigned_request_id.isnot(None),
+                    InvitationTicket.status.in_(list(_INVITATION_TICKET_SENT_STATUSES))).group_by(InvitationTicket.assigned_request_id).all():
+                m[str(_rq)] = int(_n or 0)
+        except Exception:
+            m = {}
+        cache[cid] = m
+    return m.get(str(row.id), 0)
 
 
 def _invitation_request_kind_flags(session_db, row: InvitationRequest, categories: list[InvitationCategory]) -> dict:
@@ -41434,7 +41468,7 @@ def _invitation_tickets_grouped_html(session_db, concert, tickets, zip_all, *, c
     return "".join(out)
 
 
-def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_text=None, only_guest_list=False, guest_name=None, receiver_mode=None, category_filter_id=None) -> tuple:
+def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_text=None, only_guest_list=False, guest_name=None, receiver_mode=None, category_filter_id=None, share_urls=None) -> tuple:
     """Construye (asunto, html, texto) del correo de invitaciones. Compartido por solicitudes y
     compromisos: recibe ya las entradas y la URL base del ZIP. Si se pasa category_filter_id, el
     botón "Descargar todas" de cabecera queda acotado a esa categoría."""
@@ -41514,8 +41548,25 @@ def _invitation_email_compose(session_db, concert, tickets, zip_all, *, custom_t
     top_zip = catzip(zip_all, category_filter_id) if category_filter_id else zip_all
     # Solo ofrecemos el botón "Descargar todas" si REALMENTE hay PDFs que descargar. Si no, el enlace
     # daría error: en su lugar avisamos. (Las listas de invitados/taquilla ya se gestionan arriba.)
+    # Botones "Compartir" (WhatsApp / SMS): permiten al invitado REENVIAR sus invitaciones desde el
+    # correo, con la misma info y visual que un envío. Van al endpoint de reenvío (registra que se
+    # reenvió y redirige a wa.me / sms:). Verde WhatsApp y azul SMS para diferenciarlos del rojo de marca.
+    def sbtn(href, label, bg, icon_svg):
+        return (f'<a href="{esc(href)}" style="background:{bg};color:#fff;text-decoration:none;padding:9px 14px;'
+                f'border-radius:10px;font-weight:700;display:inline-block;font-size:13px;margin-left:8px">{icon_svg}{esc(label)}</a>')
+    _wa_ico = '<span style="font-weight:900;margin-right:6px">✆</span>'
+    _sms_ico = '<span style="font-weight:900;margin-right:6px">✉</span>'
+    share_html = ""
+    if tickets and share_urls:
+        parts = []
+        if share_urls.get("whatsapp"):
+            parts.append(sbtn(share_urls["whatsapp"], "Compartir", "#25D366", _wa_ico))
+        if share_urls.get("sms"):
+            parts.append(sbtn(share_urls["sms"], "Compartir", "#0d6efd", _sms_ico))
+        if parts:
+            share_html = "".join(parts)
     if tickets:
-        download_html = f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar invitaciones")}</div>'
+        download_html = f'<div style="text-align:right;margin:0 0 12px">{abtn(top_zip, "Descargar invitaciones")}{share_html}</div>'
         plain = f"{_hola} aquí tienes tus invitaciones para {subject}. Descárgalas: {top_zip}"
     else:
         download_html = ('<p style="text-align:center;color:#555;margin:0 0 12px">Tus invitaciones se están '
@@ -41539,7 +41590,13 @@ def _invitation_email_body(session_db, row: InvitationRequest, download_url: str
                .filter(InvitationTicket.assigned_request_id == row.id)
                .order_by(InvitationTicket.sector.asc().nullslast(), InvitationTicket.row_label.asc().nullslast(), InvitationTicket.seat_number.asc().nullslast(), InvitationTicket.uploaded_at.asc())
                .all())
-    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, only_guest_list=only_gl, guest_name=row.guest_name, receiver_mode=row.receiver_mode)
+    share_urls = None
+    if not only_gl:
+        share_urls = {
+            "whatsapp": _external_url_for("public_invitation_reforward", token=row.delivery_token, channel="whatsapp"),
+            "sms": _external_url_for("public_invitation_reforward", token=row.delivery_token, channel="sms"),
+        }
+    return _invitation_email_compose(session_db, concert, tickets, zip_all, custom_text=custom_text, only_guest_list=only_gl, guest_name=row.guest_name, receiver_mode=row.receiver_mode, share_urls=share_urls)
 
 
 def _invitation_commitment_email_body(session_db, commitment, custom_text: str | None = None, category_id=None) -> tuple:
@@ -41571,6 +41628,38 @@ def _invitation_event_logo_url(session_db, concert: Concert | None, external: bo
         logo = (_treinta_y_tres_logo_url(session_db) if "_treinta_y_tres_logo_url" in globals() else "") \
             or url_for("static", filename="img/logo.png", _external=external)
     return _absolute_media_url(logo) if external else logo.rstrip("?")
+
+
+@app.get("/invitaciones/reenviar/<token>", endpoint="public_invitation_reforward")
+def public_invitation_reforward(token):
+    """Reenvío por el propio invitado desde el correo (botón «Compartir» WhatsApp/SMS).
+
+    Registra el reenvío (para mostrar el icono de «reenviada» en gestión) y redirige a
+    wa.me / sms: con el enlace público de descarga y el mismo texto que los envíos normales.
+    """
+    channel = (request.args.get("channel") or "whatsapp").strip().lower()
+    session_db = db()
+    try:
+        row = session_db.query(InvitationRequest).filter(InvitationRequest.delivery_token == token).first()
+        if not row:
+            abort(404)
+        concert = row.concert or session_db.get(Concert, row.concert_id)
+        try:
+            row.reforwarded_at = _now_madrid()
+            row.reforwarded_count = _safe_int(getattr(row, "reforwarded_count", 0)) + 1
+            session_db.commit()
+        except Exception:
+            session_db.rollback()
+        link = _external_url_for("public_invitation_delivery", kind="r", token=row.delivery_token)
+        msg = _invitation_share_text(session_db, concert, row.guest_name, link)
+        phone = _normalize_phone_intl(_invitation_guest_live_phone(session_db, row))
+        if channel == "sms":
+            url = ("sms:" + ("+" + phone if phone else "") + "?&body=" + quote_plus(msg))
+        else:
+            url = (("https://wa.me/" + phone + "?text=") if phone else "https://wa.me/?text=") + quote_plus(msg)
+        return redirect(url)
+    finally:
+        session_db.close()
 
 
 @app.get("/invitaciones/entrega/<kind>/<token>", endpoint="public_invitation_delivery")
@@ -44211,11 +44300,21 @@ def invitation_request_auto_assign(request_id):
         session_db.close()
 
 
-def _invitation_send_request(session_db, row, channel, *, custom_text=None, extra_recipients=None):
+def _invitation_send_tickets_query(session_db, row, send_scope):
+    """Entradas a marcar como enviadas: todas las asignadas, o solo las AÚN NO enviadas
+    (send_scope='unsent') cuando el usuario elige «enviar solo las nuevas»."""
+    q = session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id)
+    if (send_scope or 'all') == 'unsent':
+        q = q.filter(InvitationTicket.status == 'ASSIGNED')
+    return q.all()
+
+
+def _invitation_send_request(session_db, row, channel, *, custom_text=None, extra_recipients=None, send_scope='all'):
     """Envía una SOLICITUD ya asignada por email/WhatsApp/SMS y la marca ENVIADAS (+ entradas SENT).
     ÚNICA lógica de envío, reutilizada por el envío individual y por el envío de una selección de
     entradas del plano. WhatsApp/SMS marca siempre y devuelve la URL a abrir; email solo marca si el
-    correo se manda de verdad. Devuelve dict {ok, channel, url?/recipients?, error?}."""
+    correo se manda de verdad. send_scope='unsent' marca solo las entradas aún no enviadas.
+    Devuelve dict {ok, channel, url?/recipients?, error?}."""
     channel = (channel or 'email').strip().lower()
     concert = row.concert or session_db.get(Concert, row.concert_id)
     categories = _invitation_get_categories(session_db, concert, ensure_defaults=False) if row.concert_id else []
@@ -44238,7 +44337,7 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
         row.sent_at = _now_madrid()
         row.sent_via = 'WhatsApp' if channel == 'whatsapp' else 'SMS'
         row.sent_to = ('+' + phone) if phone else ''
-        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+        for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
             ticket.status = 'SENT'
             ticket.sent_at = row.sent_at
             ticket.updated_at = row.sent_at
@@ -44255,7 +44354,7 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
         row.sent_at = _now_madrid()
         row.sent_via = 'Email'
         row.sent_to = ', '.join(recipients or [])
-        for ticket in session_db.query(InvitationTicket).filter(InvitationTicket.assigned_request_id == row.id).all():
+        for ticket in _invitation_send_tickets_query(session_db, row, send_scope):
             ticket.status = 'SENT'
             ticket.sent_at = row.sent_at
             ticket.updated_at = row.sent_at
@@ -44287,7 +44386,8 @@ def invitation_request_send(request_id):
         channel = (request.form.get('channel') or 'email').strip().lower()
         wants_json = (request.form.get('as_json') == '1') or (request.headers.get('X-Requested-With') == 'XMLHttpRequest')
         extra = request.form.getlist('recipients') + request.form.getlist('extra_emails')
-        res = _invitation_send_request(session_db, row, channel, custom_text=(request.form.get('custom_text') or None), extra_recipients=extra)
+        send_scope = (request.form.get('send_scope') or 'all').strip().lower()
+        res = _invitation_send_request(session_db, row, channel, custom_text=(request.form.get('custom_text') or None), extra_recipients=extra, send_scope=send_scope)
         if channel in ('whatsapp', 'sms'):
             if wants_json:
                 return jsonify({'ok': True, 'url': res.get('url'), 'channel': channel})

@@ -381,9 +381,9 @@
       </div>
       <div class="card mb-4" data-inv-search-section>
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 inv-section-head">
             <h5 class="mb-0">Compromisos de invitaciones</h5>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 flex-wrap">
               {% if commitments %}<a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_commitments_pdf', concert_id=event.id) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Descargar PDF</a>{% endif %}
               <button class="btn btn-sm btn-outline-danger" data-commitment-add data-bs-toggle="modal" data-bs-target="#commitmentModal"><i class="fa fa-plus me-1"></i>Añadir compromiso</button>
             </div>
@@ -493,7 +493,7 @@
 
       <div class="card" data-inv-search-section>
         <div class="card-body">
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3 inv-section-head">
             <h5 class="mb-0">Peticiones de invitaciones</h5>
             <div class="d-flex gap-2 flex-wrap">
               {% if denied_count and not show_denied %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('invitation_event_detail', concert_id=event.id, show_denied=1) }}#inv-tab-guests"><i class="fa fa-eye me-1"></i>Mostrar denegadas</a>{% endif %}
@@ -538,6 +538,7 @@
                           {% if row.link_summary_text %}<span class="invitation-linked-mini">{% if row.link_summary.logo_url %}<img class="{{ 'is-photo' if row.link_summary.type in ['artist','venue'] else 'is-logo' }}" src="{{ row.link_summary.logo_url }}" alt="">{% endif %}<span>{{ row.link_summary_text }}</span></span>{% endif %}
                           <span class="badge inv-qty-badge" title="Entradas solicitadas"><i class="fa fa-ticket me-1"></i>{{ row.qty_total }} entrada{{ '' if row.qty_total == 1 else 's' }}</span>
                           {% if row.categories_label %}<span class="badge text-bg-light border" title="Ubicación / categorías"><i class="fa fa-location-dot me-1"></i>{{ row.categories_label }}</span>{% endif %}
+                          {% if row.reforwarded %}<i class="fa fa-share-from-square inv-reforwarded" title="El invitado reenvió sus invitaciones{% if row.reforwarded_at_label %} · {{ row.reforwarded_at_label }}{% endif %}"></i>{% endif %}
                           {% if row.downloaded_at_label %}<i class="fa fa-circle-down inv-dl-done" title="Descargada · {{ row.downloaded_at_label }}"></i>{% endif %}
                         </div>
                         {# Línea 2 (pequeña): a quién se envía | pedidas por (foto+nombre). #}
@@ -560,11 +561,11 @@
                         {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-source-name="{{ row.guest_name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
                         {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
-                          <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}">Enviar por email</button></li>
-                          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
-                          <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+                          <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}">Enviar por email</button></li>
+                          <li><button type="button" class="dropdown-item" data-inv-share data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+                          <li><button type="button" class="dropdown-item" data-inv-share data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                         {% endif %}
-                        {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" data-inv-refresh data-opt-status="ENVIADAS" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
+                        {% if row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}<li><form method="post" data-inv-refresh data-opt-status="ENVIADAS" data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" action="{{ url_for('invitation_request_mark_sent', request_id=row.id) }}"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Marcar como enviadas</button></form></li>{% endif %}
                         {% if row.status in ['ASIGNADAS','ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA'] %}
                         <li><button type="button" class="dropdown-item" data-inv-recover data-recover-action="{{ url_for('invitation_request_release', request_id=row.id) }}" data-recover-name="{{ row.guest_name|e }}" data-recover-confirm="¿Recuperar las invitaciones de esta solicitud? Volverán a estar disponibles y la solicitud quedará pendiente de asignar."><i class="fa fa-rotate-left fa-fw me-1"></i>Recuperar invitaciones</button></li>
                         {% endif %}
@@ -3912,6 +3913,13 @@
           <input type="hidden" name="channel" value="email">
           <input type="hidden" name="mode" id="invSendMode" value="email">
           <input type="hidden" name="category_id" id="invSendCategory" value="">
+          <div id="invSendScopeRow" class="alert alert-warning py-2 d-none">
+            <div class="small mb-1"><i class="fa fa-circle-info me-1"></i>Ya hay invitaciones enviadas y otras nuevas sin enviar. ¿Qué quieres enviar?</div>
+            <div class="d-flex gap-3 flex-wrap">
+              <label class="form-check"><input class="form-check-input" type="radio" name="send_scope" value="all" checked> Todas</label>
+              <label class="form-check"><input class="form-check-input" type="radio" name="send_scope" value="unsent"> Solo las nuevas (no enviadas)</label>
+            </div>
+          </div>
           <div class="row g-3">
             <div class="col-lg-5">
               <div class="mb-2" id="invSendRecipient"></div>
@@ -4001,6 +4009,13 @@
       } else { rcpt.innerHTML = ''; }
       if(rEmail) addChip(rEmail);
       document.getElementById('invSendBoxOffice').classList.toggle('d-none', ctx.kind !== 'commitment');
+      // Ampliación tras envío: mostrar la elección Todas / Solo nuevas.
+      var scopeRow = document.getElementById('invSendScopeRow');
+      if(scopeRow){
+        var partial = btn.getAttribute('data-partial-sent') === '1';
+        scopeRow.classList.toggle('d-none', !partial);
+        var allRadio = scopeRow.querySelector('input[value="all"]'); if(allRadio) allRadio.checked = true;
+      }
       loadPreview();
       if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
@@ -4023,6 +4038,11 @@
       var channel = btn.getAttribute('data-inv-share-channel') || 'whatsapp';
       var category = btn.getAttribute('data-inv-share-category') || '';
       if(!action || btn.hasAttribute('disabled')) return;
+      // Ampliación tras envío: hay invitaciones ya enviadas y otras nuevas. Preguntar el alcance.
+      var sendScope = 'all';
+      if(btn.getAttribute('data-partial-sent') === '1'){
+        sendScope = window.confirm('Esta solicitud ya tiene invitaciones enviadas y otras nuevas sin enviar.\n\nAceptar = enviar TODAS otra vez\nCancelar = enviar SOLO las nuevas (no enviadas)') ? 'all' : 'unsent';
+      }
       // IMPORTANTE: la pestaña de WhatsApp se abre AQUÍ, DENTRO del gesto de clic (síncrono). Si se
       // abriera dentro del .then() del fetch el navegador la bloquea o la deja EN BLANCO (no es una
       // acción del usuario). Se abre vacía y se navega a wa.me cuando el servidor devuelve la URL.
@@ -4031,6 +4051,7 @@
       var body = new FormData();
       body.append('channel', channel);
       body.append('as_json', '1');
+      body.append('send_scope', sendScope);
       if(category) body.append('category_id', category);
       fetch(action, { method:'POST', body: body, headers: { 'X-Requested-With':'XMLHttpRequest' }, noLoader: true })
         .then(function(r){ return r.json().catch(function(){ return { ok:false, error:'Respuesta no válida del servidor.' }; }); })

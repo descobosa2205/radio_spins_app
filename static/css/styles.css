@@ -961,6 +961,16 @@ img.img-error-pending{ visibility: hidden; }
 .inv-name-line { row-gap: .3rem; }
 .inv-name-line .invitation-linked-mini { margin-top: 0; }
 .inv-qty-badge { background: #495057; color: #fff; }         /* nº de entradas en gris oscuro (no rojo) */
+/* Cabeceras de sección (Compromisos / Peticiones / listado de invitaciones): mismo aspecto y tamaños,
+   y en móvil los botones ocupan el ancho para que queden alineados y no apretados. */
+.inv-section-head h5 { font-size: 1.05rem; }
+.inv-section-head .btn { white-space: nowrap; }
+@media (max-width: 575.98px) {
+  .inv-section-head { align-items: stretch; }
+  .inv-section-head > div { width: 100%; }
+  .inv-section-head .btn, .inv-section-head form { flex: 1 1 auto; }
+  .inv-section-head form .btn { width: 100%; }
+}
 /* Agrupación del listado de invitados por tipo de invitación (categoría). */
 .inv-cat-group-header { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; color:#495057; margin:.6rem 0 .1rem; padding-top:.2rem; }
 .inv-cat-group-header:first-child { margin-top:0; }
@@ -988,6 +998,7 @@ img.img-error-pending{ visibility: hidden; }
 .inv-cat-row.inv-dragging { opacity:.45; }
 .inv-cat-empty { border:1px dashed #d4d9df; border-radius:10px; }
 .inv-dl-done { color: #1c9d5b; font-size: 1rem; }            /* icono de descarga (verde) al descargarse */
+.inv-reforwarded { color: #007CA2; font-size: 1rem; margin-right: 2px; } /* invitado reenvió (azul) */
 /* Butaca con FOTO del invitado dentro: la foto ocupa el sitio del icono (ARRIBA) y el número va
    debajo — mismo orden icono→número que el resto de butacas. */
 .invitation-seat--photo { flex-direction: column; gap: .08rem; padding: .22rem .3rem; }

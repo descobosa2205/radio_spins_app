@@ -2293,6 +2293,9 @@ class InvitationRequest(Base):
     delivery_token = Column(Text, unique=True)
     downloaded_at = Column(DateTime(timezone=True))
     downloaded_count = Column(Integer, nullable=False, server_default=text("0"))
+    # Reenvío por el propio invitado desde el correo (Compartir WhatsApp/SMS).
+    reforwarded_at = Column(DateTime(timezone=True))
+    reforwarded_count = Column(Integer, nullable=False, server_default=text("0"))
     # Cómo y a quién se envió (tooltip de la etiqueta «Enviadas»): 'Email'/'WhatsApp'/'SMS'/'Manual' + destino.
     sent_via = Column(Text)
     sent_to = Column(Text)
@@ -5791,6 +5794,8 @@ def ensure_invitation_schema():
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS plan_share_json jsonb NOT NULL DEFAULT '{}'::jsonb;",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS sent_via text;",
         "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS sent_to text;",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS reforwarded_at timestamptz;",
+        "ALTER TABLE invitation_requests ADD COLUMN IF NOT EXISTS reforwarded_count integer NOT NULL DEFAULT 0;",
         "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS sent_via text;",
         "ALTER TABLE invitation_commitments ADD COLUMN IF NOT EXISTS sent_to text;",
         "ALTER TABLE invitation_categories ADD COLUMN IF NOT EXISTS zone text;",

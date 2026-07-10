@@ -32,11 +32,16 @@ engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,        # descarta conexiones muertas antes de reutilizarlas
     pool_recycle=280,          # recicla antes de que el pooler/Supabase corte por inactividad (~300s)
-    # A juego con gunicorn (2 workers × 8 hilos): con el pool antiguo (5+10) los hilos se quedaban
-    # esperando conexión bajo carga y las peticiones se encolaban unas detrás de otras.
-    pool_size=int(os.getenv("DB_POOL_SIZE", "10")),
-    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "20")),
-    pool_timeout=30,
+    # DIMENSIONADO GLOBAL, no por worker suelto: Supabase admite ~90 conexiones directas y durante
+    # un deploy conviven DOS instancias (vieja + nueva), o sea el doble de conexiones. Con 4 workers,
+    # el antiguo 10+20 permitía hasta 120 por instancia (240 en deploy) -> Supabase se quedaba sin
+    # conexiones, cada petición esperaba su conexión 30 s, los threads del servidor se agotaban y la
+    # web «se caía» a ratas. 6+6 × 4 workers = 48 por instancia (96 en el pico breve de un deploy),
+    # suficiente para 8 hilos/worker + hilos de fondo. pool_timeout corto: mejor un error puntual y
+    # reintentar que colgar el thread medio minuto (eso es lo que tumbaba la web entera).
+    pool_size=int(os.getenv("DB_POOL_SIZE", "6")),
+    max_overflow=int(os.getenv("DB_MAX_OVERFLOW", "6")),
+    pool_timeout=int(os.getenv("DB_POOL_TIMEOUT", "10")),
     connect_args={
         "connect_timeout": 10,
         "application_name": "radio_spins_app",

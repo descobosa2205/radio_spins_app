@@ -2,6 +2,7 @@ from datetime import date, timedelta, datetime
 import os
 import io
 import threading
+import queue
 import smtplib
 from uuid import UUID
 import uuid as _uuid
@@ -986,6 +987,16 @@ def inject_globals():
         CAN_EDIT_ARTISTS_STATIONS=can_edit_artists_stations(),
         IS_MASTER=is_master()
     )
+
+# ---------- health check ----------
+@app.get("/healthz")
+def healthz():
+    # Health check para Render (Settings → Health Check Path = /healthz): responde AL INSTANTE y
+    # SIN tocar la BD. Así el balanceador distingue «instancia viva» de «threads ocupados», reinicia
+    # solo instancias realmente colgadas y valida los deploys contra algo fiable (no contra páginas
+    # que dependen de la BD).
+    return ("ok", 200, {"Content-Type": "text/plain", "Cache-Control": "no-store"})
+
 
 # ---------- landing ----------
 @app.route("/")
@@ -29398,7 +29409,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:
@@ -30894,8 +30905,11 @@ def track_user_activity(response):
         key = _resolve_request_resource_key()
         if not key:
             return response
-        # Registramos la actividad en segundo plano: así no añadimos un INSERT+commit
-        # al tiempo de respuesta de cada página (antes lo hacía de forma síncrona).
+        # Registro en segundo plano vía COLA ACOTADA con UN único hilo consumidor. Antes se creaba
+        # UN HILO POR PETICIÓN, cada uno con su conexión a BD: en horas punta eso disparaba decenas
+        # de conexiones simultáneas y agotaba el pool/las conexiones de Supabase -> las peticiones
+        # reales esperaban conexión -> threads del servidor agotados -> web «caída». Si la cola se
+        # llena, el registro se descarta sin más (es telemetría de uso, no datos de negocio).
         payload = {
             "user_id": uid,
             "resource_key": key,
@@ -30903,10 +30917,30 @@ def track_user_activity(response):
             "path": request.path,
             "method": request.method,
         }
-        threading.Thread(target=_record_user_activity, args=(payload,), daemon=True).start()
+        try:
+            _ACTIVITY_QUEUE.put_nowait(payload)
+        except queue.Full:
+            pass
     except Exception:
         pass
     return response
+
+
+_ACTIVITY_QUEUE: "queue.Queue[dict]" = queue.Queue(maxsize=500)
+
+
+def _activity_queue_worker():
+    while True:
+        payload = _ACTIVITY_QUEUE.get()
+        try:
+            _record_user_activity(payload)
+        except Exception:
+            pass
+        finally:
+            _ACTIVITY_QUEUE.task_done()
+
+
+threading.Thread(target=_activity_queue_worker, daemon=True).start()
 
 
 def _record_user_activity(payload: dict):

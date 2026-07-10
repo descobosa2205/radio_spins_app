@@ -126,6 +126,7 @@ from models import (
     ensure_radio_import_schema,
     ensure_simulations_schema,
     ensure_chartmetric_schema,
+    ensure_venue_seatmap_schema,
     ensure_fotos_schema,
     ensure_artist_calendar_schema,
     ensure_performance_indexes,
@@ -224,6 +225,7 @@ from models import (
     SimulationProductionItem,
     VenueTicketCategory,
     VenueTicketExtra,
+    VenueSeatMap,
     AppEvent,
     ExpenseTemplate,
     ExpenseTemplateItem,
@@ -17815,6 +17817,73 @@ def venue_ticketing_save(vid):
     return redirect(url_for("venue_detail_view", vid=vid, tab="ticketing"))
 
 
+def _venue_seatmap_default(session_db, venue_id):
+    """Mapa de butacas por defecto del recinto (o None). La UI del lote 1 trabaja con uno solo."""
+    return (
+        session_db.query(VenueSeatMap)
+        .filter(VenueSeatMap.venue_id == venue_id)
+        .order_by(VenueSeatMap.is_default.desc(), VenueSeatMap.created_at.asc())
+        .first()
+    )
+
+
+def _venue_seatmap_payload(sm) -> dict:
+    """Payload del mapa para embeber en la ficha (id/version para el bloqueo optimista)."""
+    if not sm:
+        return {"id": None, "name": "Principal", "version": 0, "layout": {}}
+    return {
+        "id": str(sm.id),
+        "name": sm.name or "Principal",
+        "version": int(sm.version or 0),
+        "layout": sm.layout_json or {},
+    }
+
+
+@app.post("/recintos/<vid>/mapa", endpoint="venue_seatmap_save")
+@admin_required
+def venue_seatmap_save(vid):
+    """Guarda el mapa de butacas del recinto (layout paramétrico en JSONB). Upsert del mapa por
+    defecto con BLOQUEO OPTIMISTA: el cliente manda la `version` que leyó; si en BD ya hay otra,
+    se devuelve 409 y el front avisa (evita pisar en silencio la edición de otra persona)."""
+    if not can_edit_catalogs():
+        return jsonify({"ok": False, "error": "Sin permisos para editar el recinto."}), 403
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+        data = request.get_json(silent=True) or {}
+        layout = data.get("layout")
+        if not isinstance(layout, dict):
+            return jsonify({"ok": False, "error": "Layout inválido."}), 400
+        client_version = _safe_int(data.get("version"))
+        sm = _venue_seatmap_default(s, venue.id)
+        if sm is None:
+            sm = VenueSeatMap(
+                venue_id=venue.id,
+                name=(str(data.get("name") or "").strip() or "Principal"),
+                is_default=True,
+                created_by_user_id=_safe_uuid(session.get("user_id")),
+                created_by_nick=_current_user_email(),
+            )
+            s.add(sm)
+        elif int(sm.version or 0) != client_version:
+            return jsonify({
+                "ok": False, "conflict": True,
+                "error": "Otra persona ha guardado este mapa mientras lo editabas. Recarga la página para no pisar sus cambios.",
+            }), 409
+        sm.layout_json = layout
+        sm.version = int(sm.version or 0) + 1
+        sm.updated_at = _now_madrid()
+        s.commit()
+        return jsonify({"ok": True, "id": str(sm.id), "version": int(sm.version)})
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        s.close()
+
+
 # ----------- TICKETERAS ---------------
 
 
@@ -27743,6 +27812,7 @@ def _bootstrap_schema_bg():
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
         (ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema"),
         (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
+        (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
     ]:
         _safe_ensure(_fn, _name)
     # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
@@ -36752,15 +36822,17 @@ def venue_detail_view(vid):
             .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
             .all()
         )
+        _tab = (request.args.get('tab') or 'actividad').strip().lower()
         return render_template(
             'venue_detail.html',
             venue=venue,
             activities=activities,
             edit=_truthy(request.args.get('edit')) and can_edit_catalogs(),
             CAN_EDIT_CATALOGS=can_edit_catalogs(),
-            tab=(request.args.get('tab') or 'actividad').strip().lower(),
+            tab=_tab,
             venue_ticketing_payload=_venue_ticketing_payload(venue_cats),
             venue_tk_summary=_venue_ticketing_summary(venue_cats),
+            venue_seatmap_payload=(_venue_seatmap_payload(_venue_seatmap_default(session_db, venue.id)) if _tab == 'ticketing' else None),
             expense_templates=_expense_templates_for(session_db, "VENUE", venue.id),
             entity_links=_entity_link_rows(session_db, 'venue', venue.id),
             entity_link_context={'type': 'venue', 'id': str(venue.id), 'label': venue.name or 'recinto'},

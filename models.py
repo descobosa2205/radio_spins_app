@@ -3254,6 +3254,31 @@ class VenueTicketExtra(Base):
     category = relationship("VenueTicketCategory", back_populates="extras")
 
 
+class VenueSeatMap(Base):
+    """Mapa de butacas del RECINTO (plantilla, pestaña Ticketing de la ficha). Un recinto puede
+    tener varios («Formato 360», «Medio aforo»…); de momento la UI trabaja con el marcado
+    `is_default`. `layout_json` es PARAMÉTRICO (secciones por parámetros: arco/rejilla/pista,
+    numeración, elementos de pista…): NO guarda coordenadas por butaca — la geometría se deriva
+    siempre de los parámetros (JS al pintar). `assignments_json` (reservado, se usa a partir del
+    lote de categorías) guarda la asignación butaca→categoría por RANGOS comprimidos. `version`
+    da bloqueo optimista: el guardado exige la versión leída y evita pisar la edición de otro."""
+    __tablename__ = "venue_seat_maps"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="CASCADE"), nullable=False, index=True)
+    name = Column(Text, nullable=False, server_default=text("'Principal'"))
+    is_default = Column(Boolean, nullable=False, server_default=text("true"))
+    layout_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    assignments_json = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    version = Column(Integer, nullable=False, server_default=text("0"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    venue = relationship("Venue")
+    __table_args__ = (UniqueConstraint("venue_id", "name", name="uq_venue_seat_maps_venue_name"),)
+
+
 # ----- Plantillas de GASTOS (vinculadas a artista, evento o recinto) -----
 
 class ExpenseTemplate(Base):
@@ -6256,4 +6281,29 @@ def ensure_chartmetric_schema():
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_links_locked jsonb NOT NULL DEFAULT '[]'::jsonb;",
         "ALTER TABLE IF EXISTS albums ADD COLUMN IF NOT EXISTS cm_link_status text;",
     ], "chartmetric")
+
+
+def ensure_venue_seatmap_schema():
+    """Mapa de butacas por recinto (pestaña Ticketing de la ficha). Idempotente, sin Alembic."""
+    Base.metadata.create_all(bind=engine)
+    _exec_ddl_statements([
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS venue_seat_maps (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            venue_id uuid NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+            name text NOT NULL DEFAULT 'Principal',
+            is_default boolean NOT NULL DEFAULT true,
+            layout_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            assignments_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+            version integer NOT NULL DEFAULT 0,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_venue_seat_maps_venue_name UNIQUE(venue_id, name)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_venue_seat_maps_venue ON venue_seat_maps(venue_id, is_default);",
+    ], "venue_seatmap")
 

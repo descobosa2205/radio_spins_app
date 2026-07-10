@@ -3299,6 +3299,39 @@ class ExpenseTemplateItem(Base):
     template = relationship("ExpenseTemplate", back_populates="items")
 
 
+class RepertoireTemplate(Base):
+    """Plantilla de repertorio (setlist) reutilizable. Pertenece a un artista/evento/recinto."""
+    __tablename__ = "repertoire_templates"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    owner_type = Column(Text, nullable=False)   # ARTIST | EVENT | VENUE
+    owner_id = Column(PGUUID(as_uuid=True), nullable=False)
+    name = Column(Text, nullable=False, server_default=text("''"))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    items = relationship(
+        "RepertoireTemplateItem", back_populates="template",
+        cascade="all, delete-orphan", order_by="RepertoireTemplateItem.sort_order",
+    )
+
+    __table_args__ = (
+        Index("idx_repertoire_templates_owner", "owner_type", "owner_id"),
+    )
+
+
+class RepertoireTemplateItem(Base):
+    """Línea de una plantilla de repertorio (una canción/tema, en orden)."""
+    __tablename__ = "repertoire_template_items"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    template_id = Column(PGUUID(as_uuid=True), ForeignKey("repertoire_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    title = Column(Text, nullable=False, server_default=text("''"))
+    note = Column(Text)
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+
+    template = relationship("RepertoireTemplate", back_populates="items")
+
+
 # ---------------------------------------------------------------------------
 # Fotos / vídeos (galería transversal)
 # ---------------------------------------------------------------------------
@@ -3727,6 +3760,29 @@ def ensure_simulations_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_expense_template_items_tpl ON expense_template_items(template_id);",
+        # --- Plantillas de repertorio (setlist) por artista/evento/recinto ---
+        """
+        CREATE TABLE IF NOT EXISTS repertoire_templates (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            owner_type text NOT NULL,
+            owner_id uuid NOT NULL,
+            name text NOT NULL DEFAULT '',
+            notes text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_repertoire_templates_owner ON repertoire_templates(owner_type, owner_id);",
+        """
+        CREATE TABLE IF NOT EXISTS repertoire_template_items (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            template_id uuid NOT NULL REFERENCES repertoire_templates(id) ON DELETE CASCADE,
+            title text NOT NULL DEFAULT '',
+            note text,
+            sort_order integer NOT NULL DEFAULT 0
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_repertoire_template_items_tpl ON repertoire_template_items(template_id);",
     ]
     _exec_ddl_statements(stmts, "simulations")
 

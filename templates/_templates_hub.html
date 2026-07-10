@@ -1,0 +1,170 @@
+{# Hub de PLANTILLAS de una ficha (artista/evento/recinto). Contexto:
+   - expense_templates, repertoire_templates
+   - templates_owner_type ('ARTIST'|'EVENT'|'VENUE'), templates_owner_id
+   - templates_can_edit (bool)
+   Sub-pestañas: Plantillas (resumen por tipo), Gastos, Repertorio. #}
+<ul class="nav nav-pills mb-3 gap-1" id="tplHubTabs">
+  <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#tplHubOverview" type="button">Plantillas</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tplHubGastos" type="button">Gastos</button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#tplHubRepertorio" type="button">Repertorio</button></li>
+</ul>
+
+<div class="tab-content">
+  {# ---------- RESUMEN: todas las plantillas agrupadas por tipo ---------- #}
+  <div class="tab-pane fade show active" id="tplHubOverview">
+    {% for grp in [
+        {'key':'gastos','label':'Gastos','icon':'fa-receipt','rows':expense_templates,'target':'#tplHubGastos'},
+        {'key':'repertorio','label':'Repertorio','icon':'fa-music','rows':repertoire_templates,'target':'#tplHubRepertorio'}
+      ] %}
+    <div class="ficha-section">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa {{ grp.icon }}"></i>{{ grp.label }}</h6>
+        {% if templates_can_edit %}
+          {% if grp.key == 'repertorio' %}
+            <button type="button" class="btn btn-sm btn-outline-primary" data-rep-new><i class="fa fa-plus me-1"></i>Añadir</button>
+          {% else %}
+            <button type="button" class="btn btn-sm btn-outline-primary" onclick="document.querySelector('#tplHubTabs [data-bs-target=\'{{ grp.target }}\']').click()"><i class="fa fa-plus me-1"></i>Añadir</button>
+          {% endif %}
+        {% endif %}
+      </div>
+      <div class="ficha-section__body">
+        {% if grp.rows %}
+          <div class="list-group list-group-flush">
+            {% for t in grp.rows %}
+              <div class="list-group-item d-flex align-items-center gap-2 px-0">
+                <i class="fa {{ grp.icon }} text-muted"></i>
+                <span class="flex-grow-1">
+                  <span class="fw-semibold">{{ t.name or 'Plantilla' }}</span>
+                  <span class="text-muted small ms-2">{{ t.items|length }} {{ 'línea' if t.items|length == 1 else 'líneas' }} · {{ (t.updated_at or t.created_at).strftime('%d/%m/%Y') if (t.updated_at or t.created_at) else '' }}</span>
+                </span>
+                {% if templates_can_edit %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary border-0" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    {% if grp.key == 'repertorio' %}
+                      <li><button type="button" class="dropdown-item" data-rep-edit="{{ t.id }}"><i class="fa fa-pen fa-fw me-2"></i>Editar</button></li>
+                      <li><form method="post" action="{{ url_for('repertoire_template_delete', tid=t.id) }}" onsubmit="return confirm('¿Eliminar esta plantilla de repertorio?');"><input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"><button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></form></li>
+                    {% else %}
+                      <li><button type="button" class="dropdown-item" onclick="document.querySelector('#tplHubTabs [data-bs-target=\'{{ grp.target }}\']').click()"><i class="fa fa-pen fa-fw me-2"></i>Editar</button></li>
+                      <li><form method="post" action="{{ url_for('expense_template_delete', tid=t.id) }}" onsubmit="return confirm('¿Eliminar esta plantilla de gastos?');"><input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"><button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></form></li>
+                    {% endif %}
+                  </ul>
+                </div>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted small">Sin plantillas de {{ grp.label|lower }}.</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  {# ---------- GASTOS ---------- #}
+  <div class="tab-pane fade" id="tplHubGastos">
+    {% set expense_templates_can_edit = templates_can_edit %}
+    {% include '_expense_templates_panel.html' %}
+    <div class="text-muted small"><i class="fa fa-circle-info me-1"></i>Las plantillas de gastos se crean y editan por categorías desde una simulación (pestaña Gastos → «Guardar como plantilla»). Aquí se listan, se renombran y se eliminan.</div>
+  </div>
+
+  {# ---------- REPERTORIO ---------- #}
+  <div class="tab-pane fade" id="tplHubRepertorio">
+    <div class="ficha-section">
+      <div class="ficha-section__head">
+        <h6 class="ficha-section__title"><i class="fa fa-music"></i>Plantillas de repertorio</h6>
+        {% if templates_can_edit %}<button type="button" class="btn btn-sm btn-outline-primary" data-rep-new><i class="fa fa-plus me-1"></i>Añadir plantilla</button>{% endif %}
+      </div>
+      <div class="ficha-section__body">
+        {% if repertoire_templates %}
+          <div class="list-group list-group-flush">
+            {% for t in repertoire_templates %}
+              <div class="list-group-item d-flex align-items-center gap-2 px-0" data-rep-row="{{ t.id }}">
+                <i class="fa fa-music text-muted"></i>
+                <button type="button" class="btn btn-link text-reset text-decoration-none flex-grow-1 text-start p-0" data-rep-edit="{{ t.id }}">
+                  <span class="fw-semibold">{{ t.name or 'Repertorio' }}</span>
+                  <span class="text-muted small ms-2">{{ t.items|length }} {{ 'tema' if t.items|length == 1 else 'temas' }}</span>
+                </button>
+                {% if templates_can_edit %}
+                <div class="dropdown">
+                  <button class="btn btn-sm btn-outline-secondary border-0" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-vertical"></i></button>
+                  <ul class="dropdown-menu dropdown-menu-end">
+                    <li><button type="button" class="dropdown-item" data-rep-edit="{{ t.id }}"><i class="fa fa-pen fa-fw me-2"></i>Editar</button></li>
+                    <li><form method="post" action="{{ url_for('repertoire_template_delete', tid=t.id) }}" onsubmit="return confirm('¿Eliminar esta plantilla de repertorio?');"><input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}"><button class="dropdown-item text-danger" type="submit"><i class="fa fa-trash fa-fw me-2"></i>Eliminar</button></form></li>
+                  </ul>
+                </div>
+                {% endif %}
+                <script type="application/json" data-rep-data="{{ t.id }}">{{ {'id': t.id|string, 'name': t.name, 'notes': t.notes or '', 'items': (t.items|map(attribute='title')|list)}|tojson }}</script>
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="text-muted small">Sin plantillas de repertorio. {% if templates_can_edit %}Pulsa «Añadir plantilla».{% endif %}</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+{% if templates_can_edit %}
+{# Modal editor de plantilla de repertorio (crear/editar) #}
+<div class="modal fade" id="repTplModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable"><div class="modal-content">
+    <form method="post" id="repTplForm">
+      <input type="hidden" name="owner_type" value="{{ templates_owner_type }}">
+      <input type="hidden" name="owner_id" value="{{ templates_owner_id }}">
+      <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+      <div class="modal-header"><h5 class="modal-title">Plantilla de repertorio</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <div class="modal-body">
+        <div class="mb-2"><label class="form-label">Nombre *</label><input class="form-control" name="name" id="repTplName" required placeholder="Ej: Setlist gira 2026"></div>
+        <label class="form-label">Temas (uno por línea, en orden)</label>
+        <div id="repTplItems"></div>
+        <button type="button" class="btn btn-sm btn-outline-primary mt-1" id="repTplAdd"><i class="fa fa-plus me-1"></i>Añadir tema</button>
+        <div class="mt-3"><label class="form-label">Notas (opcional)</label><textarea class="form-control" name="notes" id="repTplNotes" rows="2"></textarea></div>
+      </div>
+      <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button type="submit" class="btn btn-primary"><i class="fa fa-save me-1"></i>Guardar</button></div>
+    </form>
+  </div></div>
+</div>
+<script>
+(function(){
+  var modalEl=document.getElementById('repTplModal'); if(!modalEl) return;
+  var form=document.getElementById('repTplForm');
+  var itemsWrap=document.getElementById('repTplItems');
+  var createAction="{{ url_for('repertoire_template_create') }}";
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+  function itemRow(title){
+    var d=document.createElement('div'); d.className='input-group input-group-sm mb-1';
+    d.innerHTML='<input type="text" class="form-control" name="item_title[]" value="'+esc(title)+'" placeholder="Tema"><button type="button" class="btn btn-outline-danger" data-rep-del><i class="fa fa-xmark"></i></button>';
+    return d;
+  }
+  itemsWrap.addEventListener('click', function(e){ var d=e.target.closest('[data-rep-del]'); if(d){ d.closest('.input-group').remove(); } });
+  document.getElementById('repTplAdd').addEventListener('click', function(){ itemsWrap.appendChild(itemRow('')); });
+  function openModal(data){
+    itemsWrap.innerHTML='';
+    if(data){
+      form.action="{{ url_for('repertoire_template_update', tid='TID') }}".replace('TID', data.id);
+      document.getElementById('repTplName').value=data.name||'';
+      document.getElementById('repTplNotes').value=data.notes||'';
+      (data.items||[]).forEach(function(t){ itemsWrap.appendChild(itemRow(t)); });
+      if(!(data.items||[]).length) itemsWrap.appendChild(itemRow(''));
+    } else {
+      form.action=createAction;
+      document.getElementById('repTplName').value=''; document.getElementById('repTplNotes').value='';
+      itemsWrap.appendChild(itemRow(''));
+    }
+    if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
+  }
+  document.addEventListener('click', function(e){
+    var nb=e.target.closest('[data-rep-new]'); if(nb){ openModal(null); return; }
+    var eb=e.target.closest('[data-rep-edit]'); if(eb){
+      var id=eb.getAttribute('data-rep-edit');
+      var sc=document.querySelector('[data-rep-data="'+id+'"]'); var data=null;
+      try{ data=JSON.parse(sc.textContent); }catch(_){}
+      if(data) openModal(data);
+    }
+  });
+})();
+</script>
+{% endif %}

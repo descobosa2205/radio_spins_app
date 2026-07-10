@@ -226,6 +226,8 @@ from models import (
     AppEvent,
     ExpenseTemplate,
     ExpenseTemplateItem,
+    RepertoireTemplate,
+    RepertoireTemplateItem,
     Photo,
     PhotoAlbum,
     PhotoAlbumItem,
@@ -1229,6 +1231,7 @@ def artist_detail_view(artist_id):
             "playlisting",
             "fotos",
             "plantilla-gastos",
+            "plantillas",
         }
         if tab not in allowed_tabs:
             tab = "datos"
@@ -1378,6 +1381,9 @@ def artist_detail_view(artist_id):
             artist=artist,
             tab=tab,
             expense_templates=_expense_templates_for(session_db, "ARTIST", artist.id),
+            repertoire_templates=_repertoire_templates_for(session_db, "ARTIST", artist.id),
+            templates_owner_type="ARTIST",
+            templates_owner_id=str(artist.id),
             agenda_data=agenda_data,
             calendar_links=calendar_links,
             caldav_server=caldav_server,
@@ -18755,6 +18761,101 @@ def expense_template_delete(tid):
     return redirect(safe_next_or(url_for("home")))
 
 
+# ---- Plantillas de REPERTORIO (setlist) por artista/evento/recinto ----
+
+def _repertoire_templates_for(s, owner_type, owner_id):
+    if not owner_id:
+        return []
+    return (
+        s.query(RepertoireTemplate)
+        .options(selectinload(RepertoireTemplate.items))
+        .filter(RepertoireTemplate.owner_type == owner_type, RepertoireTemplate.owner_id == owner_id)
+        .order_by(RepertoireTemplate.updated_at.desc().nullslast(), RepertoireTemplate.created_at.desc())
+        .all()
+    )
+
+
+@app.post("/plantillas-repertorio/crear", endpoint="repertoire_template_create")
+@admin_required
+def repertoire_template_create():
+    s = db()
+    try:
+        owner_type = (request.form.get("owner_type") or "ARTIST").strip().upper()
+        owner_id = _sim_safe_uuid(request.form.get("owner_id"))
+        name = (request.form.get("name") or "").strip()
+        if not owner_id or not name:
+            flash("Faltan datos para crear la plantilla de repertorio.", "warning")
+            return redirect(safe_next_or(url_for("home")))
+        t = RepertoireTemplate(owner_type=owner_type, owner_id=owner_id, name=name,
+                               notes=(request.form.get("notes") or "").strip() or None)
+        s.add(t)
+        s.flush()
+        for i, title in enumerate(request.form.getlist("item_title[]")):
+            title = (title or "").strip()
+            if not title:
+                continue
+            notes = request.form.getlist("item_note[]")
+            s.add(RepertoireTemplateItem(template_id=t.id, title=title,
+                  note=(notes[i].strip() if i < len(notes) and notes[i].strip() else None), sort_order=i))
+        s.commit()
+        flash("Plantilla de repertorio creada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error creando la plantilla: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+@app.post("/plantillas-repertorio/<tid>/guardar", endpoint="repertoire_template_update")
+@admin_required
+def repertoire_template_update(tid):
+    s = db()
+    try:
+        t = s.query(RepertoireTemplate).options(selectinload(RepertoireTemplate.items)).filter(RepertoireTemplate.id == _sim_safe_uuid(tid)).first()
+        if t:
+            t.name = (request.form.get("name") or t.name or "").strip() or t.name
+            t.notes = (request.form.get("notes") or "").strip() or None
+            t.updated_at = datetime.utcnow()
+            for it in list(t.items or []):
+                s.delete(it)
+            s.flush()
+            titles = request.form.getlist("item_title[]")
+            notes = request.form.getlist("item_note[]")
+            for i, title in enumerate(titles):
+                title = (title or "").strip()
+                if not title:
+                    continue
+                s.add(RepertoireTemplateItem(template_id=t.id, title=title,
+                      note=(notes[i].strip() if i < len(notes) and notes[i].strip() else None), sort_order=i))
+            s.commit()
+            flash("Plantilla de repertorio guardada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error guardando la plantilla: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
+@app.post("/plantillas-repertorio/<tid>/eliminar", endpoint="repertoire_template_delete")
+@admin_required
+def repertoire_template_delete(tid):
+    s = db()
+    try:
+        t = s.get(RepertoireTemplate, _sim_safe_uuid(tid))
+        if t:
+            s.delete(t)
+            s.commit()
+            flash("Plantilla de repertorio eliminada.", "success")
+    except Exception as e:
+        s.rollback()
+        flash(f"Error eliminando la plantilla: {e}", "danger")
+    finally:
+        s.close()
+    return redirect(safe_next_or(url_for("home")))
+
+
 # ============================ SIMULACIONES (Contratación) ============================
 
 def _sim_safe_uuid(v):
@@ -30866,6 +30967,7 @@ SUPPORT_ACTION_ENDPOINTS = {
     "api_create_event",
     # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
     "expense_template_rename", "expense_template_delete",
+    "repertoire_template_create", "repertoire_template_update", "repertoire_template_delete",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)

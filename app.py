@@ -19642,6 +19642,7 @@ def simulation_detail_view(sid):
             effective_partners=effective_partners,
             group_companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
             edit_artists=s.query(Artist).order_by(Artist.name.asc()).all(),
+            public_link=(_external_url_for("public_simulation_view", token=_simulation_ensure_public_token(s, sim)) if can_edit_simulations() else ""),
             CAN_EDIT=can_edit_simulations(),
         )
     finally:
@@ -19676,45 +19677,170 @@ def simulation_print(sid):
         if not sim:
             flash("Simulación no encontrada.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
-        all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
-        kind = (sim.kind or "").upper()
-        is_cycle = kind == "CYCLE"
-        is_festival = kind == "FESTIVAL"
-        is_multi = kind in ("TOUR", "CYCLE")
-        shared_activity = next((a for a in all_activities if a.is_shared), None)
-        activities = [a for a in all_activities if not a.is_shared]
-        all_artists = s.query(Artist).all() if (is_multi or is_festival) else []
-        artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
-        general_net = 0.0
-        if is_multi and shared_activity is not None:
-            general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
-        general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
-        # El prorrateo va DENTRO del cálculo de cada fecha (categoría PRORRATEO); el total no lo suma aparte.
-        blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))} for a in activities]
-        totals = {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0, "general": general_net}
-        for b in blocks:
-            ing = b["calc"]["at_100"]["ingresos"]["total"]
-            gas = b["calc"]["at_100"]["gastos"]["total"]
-            b["ingresos"] = ing
-            b["gastos"] = gas
-            b["resultado"] = ing - gas
-            totals["ingresos"] += ing
-            totals["gastos"] += gas
-            totals["resultado"] += (ing - gas)
-            totals["sellable"] += b["calc"]["ticketing"]["sellable"]
-        kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
-        lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
-        festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
-        return render_template(
-            "simulacion_print.html",
-            sim=sim, subject=_sim_subject(sim), kind=kind, kind_label=kind_label,
-            is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
-            blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
-            lineup=lineup_sorted,
-            festival_breakdown=festival_breakdown,
-            bag_labels=dict(BAG_EXPENSE_CATEGORIES),
-            company=sim.managing_company,
+        return render_template("simulacion_print.html", public=False, **_simulation_print_context(s, sim))
+    finally:
+        s.close()
+
+
+def _simulation_print_context(s, sim):
+    """Contexto de solo lectura (PDF / enlace público): bloques por fecha, totales y prorrateo.
+    Compartido por el PDF interno y la vista pública."""
+    all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+    kind = (sim.kind or "").upper()
+    is_cycle = kind == "CYCLE"
+    is_festival = kind == "FESTIVAL"
+    is_multi = kind in ("TOUR", "CYCLE")
+    shared_activity = next((a for a in all_activities if a.is_shared), None)
+    activities = [a for a in all_activities if not a.is_shared]
+    all_artists = s.query(Artist).all() if (is_multi or is_festival) else []
+    artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
+    general_net = 0.0
+    if is_multi and shared_activity is not None:
+        general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
+    general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
+    blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))} for a in activities]
+    totals = {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0, "general": general_net}
+    for b in blocks:
+        ing = b["calc"]["at_100"]["ingresos"]["total"]
+        gas = b["calc"]["at_100"]["gastos"]["total"]
+        b["ingresos"] = ing; b["gastos"] = gas; b["resultado"] = ing - gas
+        totals["ingresos"] += ing; totals["gastos"] += gas; totals["resultado"] += (ing - gas)
+        totals["sellable"] += b["calc"]["ticketing"]["sellable"]
+    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
+    lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
+    festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
+    return dict(
+        sim=sim, subject=_sim_subject(sim), kind=kind, kind_label=kind_label,
+        is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
+        blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
+        lineup=lineup_sorted, festival_breakdown=festival_breakdown,
+        bag_labels=dict(BAG_EXPENSE_CATEGORIES), company=sim.managing_company,
+    )
+
+
+def _simulation_public_load(s, token):
+    """Carga completa de una simulación por su token público (para la vista de solo lectura)."""
+    return (
+        s.query(Simulation)
+        .options(
+            joinedload(Simulation.artist), joinedload(Simulation.event), joinedload(Simulation.managing_company),
+            selectinload(Simulation.activities).joinedload(SimulationActivity.venue),
+            selectinload(Simulation.activities).joinedload(SimulationActivity.artist),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.ticket_categories).selectinload(SimulationTicketCategory.extras),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
+            selectinload(Simulation.partners).joinedload(SimulationPartner.company),
+            selectinload(Simulation.partners).joinedload(SimulationPartner.promoter),
+            selectinload(Simulation.lineup).joinedload(SimulationArtist.artist),
         )
+        .filter(Simulation.public_token == token)
+        .first()
+    )
+
+
+def _promoter_email_addresses(s, promoter_id):
+    """Correos de un tercero (principal + emails vinculados) para compartir a socios."""
+    out = []
+    try:
+        p = s.get(Promoter, to_uuid(promoter_id))
+        if not p:
+            return out
+        if getattr(p, "contact_email", None):
+            out.append(p.contact_email)
+        for e in s.query(PromoterEmail).filter(PromoterEmail.promoter_id == p.id).all():
+            if getattr(e, "email", None):
+                out.append(e.email)
+    except Exception:
+        pass
+    return out
+
+
+def _simulation_email_body(s, sim, link):
+    """Correo de compartir simulación: resumen breve + botón «Ver datos completos» al enlace público.
+    Los gráficos y el detalle viven en la página pública (el correo no ejecuta JS)."""
+    subj = _sim_subject(sim)
+    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get((sim.kind or "").upper(), "Concierto")
+    logo = _invitation_event_logo_url(s, None, external=True)
+    esc = html.escape
+    photo = ""
+    if sim.artist and getattr(sim.artist, "photo_url", None):
+        photo = _absolute_media_url(sim.artist.photo_url)
+    elif sim.event and getattr(sim.event, "logo_url", None):
+        photo = _absolute_media_url(sim.event.logo_url)
+    subject = f"Simulación · {subj['name']} ({kind_label})"
+    photo_html = (f'<img src="{esc(photo)}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid #eceef1;vertical-align:middle;margin-right:10px">' if photo else '')
+    body = (
+        f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:640px;margin:0 auto">'
+        f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:52px;max-width:180px" alt=""></div>'
+        f'<div style="background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;padding:14px 16px;margin:8px 0 16px">'
+        f'{photo_html}<span style="font-size:17px;font-weight:700">{esc(subj["name"])}</span>'
+        f'<div style="font-size:13px;color:#555;margin-top:2px">Simulación · {esc(kind_label)}</div></div>'
+        f'<p>Te comparto el resumen de esta simulación. Pulsa el botón para ver todos los datos y gráficos.</p>'
+        f'<p style="text-align:center;margin:18px 0"><a href="{esc(link)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:700;display:inline-block">Ver datos completos</a></p>'
+        f'<p style="font-size:12px;color:#888">Si el botón no funciona, copia este enlace: {esc(link)}</p>'
+        f'</div>'
+    )
+    text = f"Simulación {subj['name']} ({kind_label}). Ver datos completos: {link}"
+    return subject, body, text
+
+
+def _simulation_ensure_public_token(s, sim):
+    if not sim.public_token:
+        sim.public_token = _invitation_token()
+        s.commit()
+    return sim.public_token
+
+
+@app.get("/simulaciones/ver/<token>", endpoint="public_simulation_view")
+def public_simulation_view(token):
+    """Enlace PÚBLICO de solo lectura de una simulación (sin login): solo datos rellenos."""
+    s = db()
+    try:
+        sim = _simulation_public_load(s, token)
+        if not sim:
+            abort(404)
+        return render_template("simulacion_print.html", public=True, **_simulation_print_context(s, sim))
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/simulaciones/<sid>/compartir", endpoint="simulation_share")
+@admin_required
+def simulation_share(sid):
+    """Comparte la simulación: por correo (a destinatarios o a todos los socios). WhatsApp/SMS se
+    resuelven en el cliente con el enlace público. Devuelve JSON para el modal de vista previa."""
+    if not can_edit_simulations():
+        return jsonify({"ok": False, "error": "Sin permiso."}), 403
+    s = db()
+    try:
+        sim = s.query(Simulation).options(
+            selectinload(Simulation.partners).joinedload(SimulationPartner.promoter)
+        ).filter(Simulation.id == _sim_safe_uuid(sid)).first()
+        if not sim:
+            return jsonify({"ok": False, "error": "Simulación no encontrada."}), 404
+        token = _simulation_ensure_public_token(s, sim)
+        link = _external_url_for("public_simulation_view", token=token)
+        target = (request.form.get("target") or "email").strip().lower()
+        recipients = []
+        if target == "partners":
+            for p in (sim.partners or []):
+                if p.promoter_id:
+                    recipients += _promoter_email_addresses(s, p.promoter_id)
+        recipients += request.form.getlist("recipients") + request.form.getlist("extra_emails")
+        recipients = _dedupe_valid_email_addresses(recipients)
+        if not recipients:
+            return jsonify({"ok": False, "error": "No hay destinatarios con correo válido."}), 400
+        subject, html_body, text_body = _simulation_email_body(s, sim, link)
+        reply_to = _current_user_email()
+        ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)
+        if ok:
+            return jsonify({"ok": True, "recipients": recipients})
+        return jsonify({"ok": False, "error": err or "No se pudo enviar el correo."}), 400
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
     finally:
         s.close()
 
@@ -29171,7 +29297,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:

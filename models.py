@@ -2992,6 +2992,7 @@ class Simulation(Base):
     status = Column(Text, nullable=False, server_default=text("'DRAFT'"))   # DRAFT | ACTIVE | ARCHIVED
     notes = Column(Text)
     poster_url = Column(Text)   # cartel/logo del ciclo o festival (subido)
+    public_token = Column(Text, unique=True)   # enlace público de solo lectura (compartir)
     settings = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -3678,6 +3679,7 @@ def ensure_simulations_schema():
         );
         """,
         "ALTER TABLE IF EXISTS simulations ADD COLUMN IF NOT EXISTS event_id uuid REFERENCES app_events(id) ON DELETE CASCADE;",
+        "ALTER TABLE IF EXISTS simulations ADD COLUMN IF NOT EXISTS public_token text;",
         "ALTER TABLE IF EXISTS simulations ALTER COLUMN artist_id DROP NOT NULL;",
         "CREATE INDEX IF NOT EXISTS idx_simulations_event ON simulations(event_id);",
         # --- Socios por fecha (gira/ciclo): NULL = socio común de toda la simulación ---

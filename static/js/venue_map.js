@@ -363,28 +363,47 @@
       if(bestY!==null){ if(o.kind==='arc'){ o.cy+=bestY; } else { o.y+=bestY; } moved=true; }
       if(moved && o.kind) invalidate(o.id);
     }
-    // Franjas de las escaleras integradas de una sección (para pintarlas y poder quitarlas).
+    // Franjas de las escaleras integradas: PURAMENTE estéticas (espacio visual, no capturan clics
+    // salvo con su herramienta para quitarlas) y con la MISMA pinta que en el plano de
+    // invitaciones: fondo azul suave, bordes laterales discontinuos, PELDAÑOS regulares y el
+    // rótulo «ESCALERA» a lo largo.
     function stairBandSvg(s, scale){
       var out=[], bands = Array.isArray(s.stairs)? s.stairs : [];
+      var lblSize = s.pitch*.52;
       bands.forEach(function(b, idx){
-        var half = (b.w*s.pitch)/2, steps='', d='';
+        var half = (b.w*s.pitch)/2, steps='', sides='', d='', label='';
+        var stepEvery = s.pitch*.85;   // peldaños a distancia física constante, como una escalera real
         if(s.kind==='arc'){
           var ang = (s.dir - s.span/2 + b.at*s.span)*R;
-          var rIn = s.r0 - s.pitch*.6, rOut = s.r0 + (s.rows-1)*s.rowGap + s.pitch*.6;
+          var rIn = s.r0 - s.pitch*.6, rOut = s.r0 + (s.rows-1)*s.rowGap + totalSep(s) + s.pitch*.6;
           function pt(rr, side){ var ha = half/rr; return (s.cx+rr*Math.cos(ang+side*ha))+' '+(s.cy+rr*Math.sin(ang+side*ha)); }
           d = 'M'+pt(rIn,-1)+' L'+pt(rOut,-1)+' L'+pt(rOut,1)+' L'+pt(rIn,1)+' Z';
-          for(var k=1;k<7;k++){ var rr = rIn + (rOut-rIn)*k/7, ha2 = half/rr;
-            steps += '<line x1="'+(s.cx+rr*Math.cos(ang-ha2))+'" y1="'+(s.cy+rr*Math.sin(ang-ha2))+'" x2="'+(s.cx+rr*Math.cos(ang+ha2))+'" y2="'+(s.cy+rr*Math.sin(ang+ha2))+'" style="stroke:#007CA2;stroke-width:'+Math.max(2, s.pitch*.09)+'"/>'; }
+          sides = '<path d="M'+pt(rIn,-1)+' L'+pt(rOut,-1)+'" style="fill:none;stroke:#007CA2;stroke-width:'+Math.max(1.6/scale, s.pitch*.05)+';stroke-dasharray:'+(s.pitch*.28)+' '+(s.pitch*.2)+'"/>'+
+                  '<path d="M'+pt(rIn,1)+' L'+pt(rOut,1)+'" style="fill:none;stroke:#007CA2;stroke-width:'+Math.max(1.6/scale, s.pitch*.05)+';stroke-dasharray:'+(s.pitch*.28)+' '+(s.pitch*.2)+'"/>';
+          var nSteps = Math.max(3, Math.round((rOut-rIn)/stepEvery));
+          for(var k=1;k<nSteps;k++){ var rr = rIn + (rOut-rIn)*k/nSteps, ha2 = half/rr;
+            steps += '<line x1="'+(s.cx+rr*Math.cos(ang-ha2))+'" y1="'+(s.cy+rr*Math.sin(ang-ha2))+'" x2="'+(s.cx+rr*Math.cos(ang+ha2))+'" y2="'+(s.cy+rr*Math.sin(ang+ha2))+'" style="stroke:#007CA2;stroke-width:'+(s.pitch*.1)+';stroke-opacity:.55;stroke-linecap:round"/>'; }
+          if((rOut-rIn) > s.pitch*4.5){
+            var rMidL = (rIn+rOut)/2, lx = s.cx+rMidL*Math.cos(ang), ly = s.cy+rMidL*Math.sin(ang);
+            label = '<text x="'+lx+'" y="'+ly+'" text-anchor="middle" dominant-baseline="middle" transform="rotate('+(ang/R+90)+' '+lx+' '+ly+')" style="font:800 '+lblSize+'px system-ui;letter-spacing:.18em;fill:#007CA2;fill-opacity:.75">ESCALERA</text>';
+          }
         } else {
           var cr = Math.cos(s.rot*R), sr = Math.sin(s.rot*R), width = s.cols*s.pitch;
-          var xAt = (b.at-.5)*width, y0 = -(s.rows-1)/2*s.rowGap - s.pitch*.6, y1 = ((s.rows-1)/2)*s.rowGap + s.pitch*.6;
-          function tp(lx,ly){ return (s.x + lx*cr - ly*sr)+' '+(s.y + lx*sr + ly*cr); }
+          var xAt = (b.at-.5)*width, y0 = -(s.rows-1)/2*s.rowGap - s.pitch*.6, y1 = ((s.rows-1)/2)*s.rowGap + totalSep(s) + s.pitch*.6;
+          function tp(lx2,ly2){ return (s.x + lx2*cr - ly2*sr)+' '+(s.y + lx2*sr + ly2*cr); }
           d = 'M'+tp(xAt-half,y0)+' L'+tp(xAt-half,y1)+' L'+tp(xAt+half,y1)+' L'+tp(xAt+half,y0)+' Z';
-          for(var k2=1;k2<7;k2++){ var yy = y0 + (y1-y0)*k2/7;
-            steps += '<line x1="'+tp(xAt-half,yy).split(' ')[0]+'" y1="'+tp(xAt-half,yy).split(' ')[1]+'" x2="'+tp(xAt+half,yy).split(' ')[0]+'" y2="'+tp(xAt+half,yy).split(' ')[1]+'" style="stroke:#007CA2;stroke-width:'+Math.max(2, s.pitch*.09)+'"/>'; }
+          sides = '<path d="M'+tp(xAt-half,y0)+' L'+tp(xAt-half,y1)+'" style="fill:none;stroke:#007CA2;stroke-width:'+Math.max(1.6/scale, s.pitch*.05)+';stroke-dasharray:'+(s.pitch*.28)+' '+(s.pitch*.2)+'"/>'+
+                  '<path d="M'+tp(xAt+half,y0)+' L'+tp(xAt+half,y1)+'" style="fill:none;stroke:#007CA2;stroke-width:'+Math.max(1.6/scale, s.pitch*.05)+';stroke-dasharray:'+(s.pitch*.28)+' '+(s.pitch*.2)+'"/>';
+          var nSteps2 = Math.max(3, Math.round((y1-y0)/stepEvery));
+          for(var k2=1;k2<nSteps2;k2++){ var yy = y0 + (y1-y0)*k2/nSteps2;
+            steps += '<line x1="'+tp(xAt-half,yy).split(' ')[0]+'" y1="'+tp(xAt-half,yy).split(' ')[1]+'" x2="'+tp(xAt+half,yy).split(' ')[0]+'" y2="'+tp(xAt+half,yy).split(' ')[1]+'" style="stroke:#007CA2;stroke-width:'+(s.pitch*.1)+';stroke-opacity:.55;stroke-linecap:round"/>'; }
+          if((y1-y0) > s.pitch*4.5){
+            var mid = tp(xAt, (y0+y1)/2).split(' ');
+            label = '<text x="'+mid[0]+'" y="'+mid[1]+'" text-anchor="middle" dominant-baseline="middle" transform="rotate('+(s.rot+90)+' '+mid[0]+' '+mid[1]+')" style="font:800 '+lblSize+'px system-ui;letter-spacing:.18em;fill:#007CA2;fill-opacity:.75">ESCALERA</text>';
+          }
         }
         var stairHit = (mode==='design' && canEdit && tool==='stair');
-        out.push('<g data-stairband="'+s.id+'|'+idx+'" style="'+(stairHit?'cursor:pointer':'pointer-events:none')+'"><path d="'+d+'" style="fill:rgba(0,124,162,.08);stroke:#007CA2;stroke-width:'+(1.6/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale)+'"/>'+steps+'</g>');
+        out.push('<g data-stairband="'+s.id+'|'+idx+'" style="'+(stairHit?'cursor:pointer':'pointer-events:none')+'"><path d="'+d+'" style="fill:rgba(0,124,162,.07)"/>'+sides+steps+label+'</g>');
       });
       return out.join('');
     }

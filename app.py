@@ -17830,12 +17830,13 @@ def _venue_seatmap_default(session_db, venue_id):
 def _venue_seatmap_payload(sm) -> dict:
     """Payload del mapa para embeber en la ficha (id/version para el bloqueo optimista)."""
     if not sm:
-        return {"id": None, "name": "Principal", "version": 0, "layout": {}}
+        return {"id": None, "name": "Principal", "version": 0, "layout": {}, "assignments": {}}
     return {
         "id": str(sm.id),
         "name": sm.name or "Principal",
         "version": int(sm.version or 0),
         "layout": sm.layout_json or {},
+        "assignments": sm.assignments_json or {},
     }
 
 
@@ -17873,6 +17874,13 @@ def venue_seatmap_save(vid):
                 "error": "Otra persona ha guardado este mapa mientras lo editabas. Recarga la página para no pisar sus cambios.",
             }), 409
         sm.layout_json = layout
+        # Asignación butaca→categoría (rangos por fila). Opcional: si no viene, se conserva la
+        # actual; si viene con un tipo raro, mejor avisar que ignorarla en silencio.
+        assignments = data.get("assignments")
+        if assignments is not None and not isinstance(assignments, dict):
+            return jsonify({"ok": False, "error": "Asignaciones inválidas."}), 400
+        if isinstance(assignments, dict):
+            sm.assignments_json = assignments
         sm.version = int(sm.version or 0) + 1
         sm.updated_at = _now_madrid()
         s.commit()

@@ -1859,3 +1859,25 @@ img[style*="width:"] { height: auto; }
   .vmap-side { flex: 0 0 auto; max-height: none; }
   .vmap-canvas { height: 52vh; }
 }
+
+/* Mapa del recinto v2: modos, categorías y contador */
+.vmap-seg { display: inline-flex; border: 1px solid #e2e7ee; border-radius: .6rem; overflow: hidden; }
+.vmap-seg button { border: 0; background: transparent; padding: .32rem .8rem; cursor: pointer; font-weight: 600; font-size: .82rem; color: #1e252d; }
+.vmap-seg button.on { background: var(--brand-primary); color: #fff; }
+.vmap-seg--full { display: flex; }
+.vmap-seg--full button { flex: 1 1 0; }
+.vmap-chip { position: absolute; pointer-events: none; background: var(--brand-primary); color: #fff; font-weight: 800; font-size: .85rem; padding: .3rem .6rem; border-radius: .55rem; transform: translate(12px, -32px); display: none; z-index: 6; font-variant-numeric: tabular-nums; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+.vmap-cats { display: flex; flex-direction: column; gap: .3rem; }
+.vmap-cat { display: flex; align-items: center; gap: .5rem; border: 1px solid #e2e7ee; border-radius: .6rem; padding: .38rem .55rem; cursor: pointer; background: #fff; }
+.vmap-cat.on { border-color: var(--brand-primary); box-shadow: 0 0 0 .14rem rgba(227,61,72,.16); }
+.vmap-cat .sw { width: 1rem; height: 1rem; border-radius: .3rem; flex: 0 0 auto; border: 1px solid rgba(0,0,0,.15); }
+.vmap-cat .nm { font-size: .82rem; font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vmap-addcat { display: flex; gap: .4rem; margin-top: .45rem; align-items: center; }
+.vmap-addcat input[type=color] { width: 2.2rem; height: 1.95rem; border: 1px solid #e2e7ee; border-radius: .5rem; padding: .1rem; background: #fff; }
+.vmap-summary { border: 1px solid #e2e7ee; border-radius: .7rem; overflow: hidden; }
+/* OJO: clase propia .vmap-srow (NO "row"): la .row de Bootstrap mete flex-wrap + gutters y rompia las filas del resumen. */
+.vmap-summary .vmap-srow { display: flex; flex-wrap: nowrap; align-items: center; gap: .5rem; padding: .38rem .6rem; font-size: .8rem; border-top: 1px solid #eef1f5; margin: 0; }
+.vmap-summary .vmap-srow.head { border-top: 0; background: #f5f7fa; font-weight: 700; }
+.vmap-summary .sw { width: .75rem; height: .75rem; border-radius: .25rem; flex: 0 0 auto; }
+.vmap-summary .n { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+.vmap-numrow--2 { grid-template-columns: 7rem 1fr 1fr; }

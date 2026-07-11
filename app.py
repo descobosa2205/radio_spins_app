@@ -17841,6 +17841,56 @@ def _venue_seatmap_payload(sm) -> dict:
     }
 
 
+_VENUE_MAP_INV_SENTISH = {"SENT", "DELIVERED", "PICKED_UP", "PRINTED", "DISPONIBLES_TAQUILLA", "RECOGIDAS_TAQUILLA", "ENTREGADAS_MANO"}
+
+
+def _invitation_venue_map_payload(sm, ticket_payloads) -> dict | None:
+    """Payload del VISOR del mapa del recinto para la página del evento de invitaciones: casa las
+    entradas subidas (sector/fila/asiento del PDF) con el mapa por nombre+alias (seatmap_calc) y
+    pinta cada butaca casada con el color de su INVITADO (categorías sintéticas: el JS del mapa
+    las trata como categorías normales → tooltip con el nombre y bloques nombre+raya al acercar).
+    Devuelve {payload, matched, unmatched} o None si no hay nada que casar."""
+    layout = sm.layout_json or {}
+    if not (layout.get("sections") or []):
+        return None
+    lookup = seatmap_calc.seat_lookup(layout)
+    assigned_states = {"ASSIGNED"} | _VENUE_MAP_INV_SENTISH
+    guest_cats: dict[str, dict] = {}
+    assignments: dict = {}
+    matched = unmatched = 0
+    for t in (ticket_payloads or []):
+        if not (t.get("seat_number") or "").strip():
+            continue   # sin numerar: no se casan con el plano
+        key = seatmap_calc.match_ticket(lookup, t.get("sector"), t.get("row_label"), t.get("seat_number"))
+        if not key:
+            unmatched += 1
+            continue
+        matched += 1
+        status = (t.get("status") or "").upper()
+        if status not in assigned_states:
+            continue   # disponible: se ve como butaca libre
+        gkey = (t.get("assignee_key") or "").strip() or "__asignada"
+        if gkey not in guest_cats:
+            color = INVITATION_ASSIGNEE_COLORS[len(guest_cats) % len(INVITATION_ASSIGNEE_COLORS)] if gkey != "__asignada" else "#e0a800"
+            guest_cats[gkey] = {
+                "id": gkey,
+                "name": (t.get("assignee_name") or "").strip() or "Asignada",
+                "color": color, "kind": "guest",
+            }
+        sec, row, slot = key.split("|")
+        assignments.setdefault(sec, {}).setdefault(row, []).append([int(slot), int(slot), gkey])
+    if not matched:
+        return None
+    view_layout = dict(layout)
+    view_layout["categories"] = list(guest_cats.values())
+    return {
+        "payload": {"id": str(sm.id), "name": sm.name or "", "version": int(sm.version or 0),
+                    "layout": view_layout, "assignments": assignments},
+        "matched": matched,
+        "unmatched": unmatched,
+    }
+
+
 @app.post("/recintos/<vid>/mapa", endpoint="venue_seatmap_save")
 @admin_required
 def venue_seatmap_save(vid):
@@ -43351,10 +43401,21 @@ def invitation_event_detail(concert_id):
         ticket_groups_by_category = _assign_ctx['ticket_groups_by_category']
         availability_by_category = _assign_ctx['availability_by_category']
         pending_assignments = _assign_ctx['pending_assignments']
+        # Mapa del recinto (visor): si el recinto del concierto tiene mapa de butacas, se casan las
+        # entradas subidas (sector/fila/asiento) con él y se pinta a cada invitado con su color.
+        venue_map_inv = None
+        if concert.venue_id:
+            try:
+                _sm_inv = _venue_seatmap_default(session_db, concert.venue_id)
+                if _sm_inv is not None:
+                    venue_map_inv = _invitation_venue_map_payload(_sm_inv, tickets)
+            except Exception:
+                venue_map_inv = None
         current_state = _current_user_state()
         return render_template(
             'invitaciones.html',
             tab='evento',
+            venue_map_inv=venue_map_inv,
             back_to_ficha=back_to_ficha,
             group_promoted=_concert_is_group_promoted(session_db, concert),
             event=_invitation_event_payload(session_db, concert, include_counts=True),

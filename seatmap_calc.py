@@ -178,6 +178,104 @@ def category_counts(layout: dict, assignments: dict) -> dict:
     return {"cats": cats, "unassigned": unassigned, "seated": seated, "standing": standing, "floors": floors}
 
 
+def _alpha_label(n: int) -> str:
+    """1→A, 26→Z, 27→AA… (mismo esquema que el JS)."""
+    s = ""
+    while n > 0:
+        n -= 1
+        s = chr(65 + (n % 26)) + s
+        n //= 26
+    return s
+
+
+def _norm_label(text) -> str:
+    """Normaliza para casar textos de PDF con el mapa: minúsculas, sin acentos y solo
+    alfanumérico colapsado (« Grada-Baja  201 » ≡ «grada baja 201»)."""
+    folded = _fold(text)
+    out = []
+    prev_space = True
+    for ch in folded:
+        if ch.isalnum():
+            out.append(ch)
+            prev_space = False
+        elif not prev_space:
+            out.append(" ")
+            prev_space = True
+    return "".join(out).strip()
+
+
+def _row_numbering(sec: dict, row_idx: int, states: list) -> dict:
+    """Número IMPRESO → slot físico de una fila (réplica de la numeración del JS: inicio, paso
+    1/pares-impares, sentido, y política de hueco «salta»/«renumera»; las apagadas conservan
+    su número; los cortes de escalera no consumen)."""
+    num = sec.get("num") or {}
+    try:
+        start = int(num.get("start"))
+    except (TypeError, ValueError):
+        start = 1
+    step = _i(num.get("step"), 1) or 1
+    order = range(len(states) - 1, -1, -1) if (num.get("dir") == "rtl") else range(len(states))
+    gap_policy = (sec.get("gapPolicy") or "skip")
+    counter = start
+    out = {}
+    for i in order:
+        state = states[i]
+        if state == "stair":
+            continue
+        if state == "gap":
+            if gap_policy == "skip":
+                counter += step
+            continue
+        out[str(counter)] = i + 1
+        counter += step
+    return out
+
+
+def seat_lookup(layout: dict) -> dict:
+    """Índice para casar textos de entradas (PDF) con el mapa del recinto:
+    {nombre_o_alias_normalizado: {"sec": id, "rows": {etiqueta_norm: rowIdx},
+    "numbers": {rowIdx: {numero_impreso: slot}}}}. Las filas se indexan por su etiqueta
+    (número o letra) y también por su índice, por si el PDF y el mapa difieren de esquema."""
+    lookup = {}
+    for sec in (layout.get("sections") or []) if isinstance(layout, dict) else []:
+        if not isinstance(sec, dict) or (sec.get("kind") or "").lower() == "floor":
+            continue
+        sid = str(sec.get("id") or "")
+        n_rows = max(1, _i(sec.get("rows"), 1))
+        rows_map = {}
+        numbers = {}
+        alpha = (sec.get("rowScheme") == "alpha")
+        for r in range(1, n_rows + 1):
+            label = _alpha_label(r) if alpha else str(r)
+            rows_map[_norm_label(label)] = r
+            rows_map.setdefault(_norm_label(str(r)), r)
+            numbers[r] = _row_numbering(sec, r, _row_states(sec, r))
+        entry = {"sec": sid, "rows": rows_map, "numbers": numbers}
+        names = [sec.get("name") or ""] + [a for a in str(sec.get("aliases") or "").split(",")]
+        for nm in names:
+            key = _norm_label(nm)
+            if key:
+                lookup.setdefault(key, entry)
+    return lookup
+
+
+def match_ticket(lookup: dict, sector, row_label, seat_number):
+    """Casa (sector, fila, asiento) de una entrada con el mapa → "sec|rowIdx|slot" o None."""
+    entry = lookup.get(_norm_label(sector))
+    if not entry:
+        return None
+    row_idx = entry["rows"].get(_norm_label(row_label))
+    if not row_idx:
+        return None
+    seat_txt = _norm_label(seat_number)
+    if seat_txt.isdigit():
+        seat_txt = str(int(seat_txt))   # «07» ≡ «7»
+    slot = (entry["numbers"].get(row_idx) or {}).get(seat_txt)
+    if not slot:
+        return None
+    return "%s|%s|%s" % (entry["sec"], row_idx, slot)
+
+
 ZONE_ORDER = {"PISTA": 0, "GRADA": 1, "PALCO": 2}
 
 

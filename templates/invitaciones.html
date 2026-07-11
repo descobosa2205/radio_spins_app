@@ -604,6 +604,33 @@
       <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
         <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-bs-toggle="modal" data-bs-target="#categoryModal"><i class="fa fa-gear me-1"></i>Configurar</button>
       </div>
+      {# Mapa del RECINTO (visor): las entradas subidas casadas por sector/fila/asiento con el mapa
+         de butacas del recinto, cada invitado con su color (nombre + raya al acercar). Aditivo:
+         los planos por categoría de abajo siguen siendo la vista operativa. #}
+      {% if venue_map_inv %}
+      <details class="mb-3 border rounded p-2" data-vmap-inv>
+        <summary class="fw-semibold" style="cursor:pointer"><i class="fa fa-map me-1 text-danger"></i>Mapa del recinto
+          <span class="badge text-bg-light border ms-1">{{ venue_map_inv.matched }} casada(s)</span>
+          {% if venue_map_inv.unmatched %}<span class="badge text-bg-warning ms-1" title="Entradas numeradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas) para que casen.">{{ venue_map_inv.unmatched }} sin casar</span>{% endif %}
+        </summary>
+        <div class="mt-2" data-venue-map data-can-edit="" data-save-url=""></div>
+        <script type="application/json" id="venueMapData">{{ venue_map_inv.payload|tojson }}</script>
+        <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+        <script>
+        (function(){
+          // El visor nace dentro de un <details> cerrado (sin tamaño): al abrirlo por primera
+          // vez se reencuadra el mapa.
+          var d = document.querySelector('[data-vmap-inv]');
+          if(!d) return;
+          d.addEventListener('toggle', function(){
+            if(!d.open) return;
+            var fit = d.querySelector('[data-vm-fit]');
+            setTimeout(function(){ if(fit) fit.click(); }, 60);
+          });
+        })();
+        </script>
+      </details>
+      {% endif %}
       <form method="post" action="{{ url_for('invitation_tickets_bulk', concert_id=event.id) }}" class="invitation-bulk-bar d-none align-items-center flex-wrap gap-2 mb-3 p-2 border rounded" data-bulk-bar>
         <input type="hidden" name="action" data-bulk-action value="">
         <input type="hidden" name="ticket_ids" data-bulk-ids value="">

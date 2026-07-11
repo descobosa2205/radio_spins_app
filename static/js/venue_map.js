@@ -360,10 +360,16 @@
               else { var cr3=Math.cos(s.rot*R), sr3=Math.sin(s.rot*R); lx2 = first.x - back*cr3; ly2 = first.y - back*sr3; }
               g2.push('<text x="'+lx2+'" y="'+ly2+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(size*.42)+'px system-ui;fill:#9aa3af">'+esc(row.label)+'</text>');
             }
+            var nameRuns=[], curRun=null;   // bloques de butacas seguidas del MISMO invitado (nombre + raya)
             row.seats.forEach(function(p){
-              if(p.state==='stair') return;
-              if(p.x<vx0-size||p.x>vx1+size||p.y<vy0-size||p.y>vy1+size) return;
+              if(p.state==='stair'){ curRun=null; return; }
+              if(p.x<vx0-size||p.x>vx1+size||p.y<vy0-size||p.y>vy1+size){ curRun=null; return; }
               var key = s.id+'|'+row.rowIdx+'|'+p.slot;
+              var aCat = assign[key] ? catById[assign[key]] : null;
+              if(p.state==='seat' && aCat && aCat.kind==='guest'){
+                if(curRun && curRun.cat===aCat){ curRun.pts.push(p); }
+                else { curRun={cat:aCat, pts:[p]}; nameRuns.push(curRun); }
+              } else curRun=null;
               if(p.state==='gap'){
                 // Hueco (no hay butaca): celda discontinua; clicable para quitarlo con la herramienta.
                 g2.push('<g data-seat="'+key+'" data-kind="gap" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
@@ -380,6 +386,15 @@
                 '<use href="#vmSeatIcon" x="'+(-size*.30)+'" y="'+(-size*.34)+'" width="'+(size*.6)+'" height="'+(size*.45)+'" style="fill:'+ink+'"/>'+
                 (showNum && p.n!=null? '<text y="'+(size*.33)+'" text-anchor="middle" style="font:600 '+(size*.30)+'px system-ui;fill:'+ink+'">'+p.n+'</text>' : '')+
               '</g>');
+            });
+            // Nombre + raya sobre cada bloque de invitado (igual que el plano de invitaciones).
+            if(pitchPx>=12) nameRuns.forEach(function(run){
+              if(!run.pts.length) return;
+              var p0=run.pts[0], p1=run.pts[run.pts.length-1];
+              var midA=((p0.a+p1.a)/2+90)*R;                        // «hacia fuera» de la fila
+              var off=size*.95, ox=-Math.cos(midA)*off, oy=-Math.sin(midA)*off;
+              g2.push('<line x1="'+(p0.x+ox)+'" y1="'+(p0.y+oy)+'" x2="'+(p1.x+ox)+'" y2="'+(p1.y+oy)+'" style="stroke:'+run.cat.color+';stroke-width:'+(size*.09)+';stroke-linecap:round;pointer-events:none"/>');
+              g2.push('<text x="'+((p0.x+p1.x)/2+ox*1.55)+'" y="'+((p0.y+p1.y)/2+oy*1.55)+'" text-anchor="middle" style="font:600 '+(size*.36)+'px system-ui;fill:'+run.cat.color+';pointer-events:none">'+esc(run.cat.name)+'</text>');
             });
           });
           g2.push('</g>');

@@ -36884,6 +36884,13 @@ def venue_detail_view(vid):
         activities = [_production_concert_row(session_db, row) for row in concert_rows]
         activities.extend([_action_display_row(session_db, row) for row in action_rows])
         activities.sort(key=lambda item: (item.get('date') or date.min), reverse=True)
+        # Pestaña Actividad: PRÓXIMAS (la más cercana primero) y debajo las ANTERIORES.
+        _today = date.today()
+        activities_upcoming = sorted(
+            [a for a in activities if (a.get('date') or date.min) >= _today],
+            key=lambda item: (item.get('date') or date.min),
+        )
+        activities_past = [a for a in activities if (a.get('date') or date.min) < _today]
         venue_cats = (
             session_db.query(VenueTicketCategory)
             .options(selectinload(VenueTicketCategory.extras))
@@ -36896,6 +36903,8 @@ def venue_detail_view(vid):
             'venue_detail.html',
             venue=venue,
             activities=activities,
+            activities_upcoming=activities_upcoming,
+            activities_past=activities_past,
             edit=_truthy(request.args.get('edit')) and can_edit_catalogs(),
             CAN_EDIT_CATALOGS=can_edit_catalogs(),
             tab=_tab,
@@ -40619,6 +40628,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
     _display_status = row.status or "SOLICITADAS"
     _needs_assign = False
     _needs_send = False
+    _needs_download = False
     if _sess is not None and _display_status not in _INVITATION_MANUAL_REQUEST_STATUSES:
         _qty_total = _invitation_total_qty(quantities)
         _asg_total = _invitation_request_assigned_total(_sess, row)
@@ -40627,9 +40637,12 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
             _display_status = "PARCIAL"
         elif _display_status == "ASIGNADAS" and _qty_total > 0 and _asg_total < _qty_total:
             _display_status = "APROBADAS"
-        # Para los filtros «Sin asignar» / «Sin enviar» del listado de invitados.
+        # Para los filtros «Sin asignar» / «Sin enviar» / «Sin descargar» del listado de invitados.
         _needs_assign = bool(_qty_total > 0 and _asg_total < _qty_total)
         _needs_send = bool(_asg_total > 0 and _sent_total < _asg_total)
+        _needs_download = bool(_sent_total > 0) and not (
+            bool(getattr(row, "downloaded_at", None)) or _safe_int(getattr(row, "downloaded_count", 0)) > 0
+        )
     return {
         "id": str(row.id),
         "guest_name": guest_name,
@@ -40653,6 +40666,7 @@ def _invitation_request_payload(row: InvitationRequest, categories: list[Invitat
         "status_badge": _invitation_status_badge(_display_status),
         "needs_assign": _needs_assign,
         "needs_send": _needs_send,
+        "needs_download": _needs_download,
         "requester_status_label": _invitation_requester_status(_display_status)[0],
         "requester_status_badge": _invitation_requester_status(_display_status)[1],
         "link_summary": link_summary,
@@ -43249,6 +43263,8 @@ def invitation_event_detail(concert_id):
                     _cb_photo = getattr(_cbp, 'photo_url', '') or ""
             _c_needs_assign = any(cs["assigned"] < cs["qty"] for cs in cat_status)
             _c_needs_send = any(cs["assigned"] > 0 and cs["status_label"] not in ("Enviadas", "Recogidas en taquilla", "Disponibles en taquilla", "Entregadas en mano") for cs in cat_status)
+            # «Sin descargar»: alguna categoría ya ENVIADA cuyo PDF nadie ha descargado aún.
+            _c_needs_download = any(cs["status_label"] == "Enviadas" and not cs.get("downloaded") for cs in cat_status)
             commitments.append({
                 "id": str(row.id),
                 "name": row.name,
@@ -43258,6 +43274,7 @@ def invitation_event_detail(concert_id):
                 "category_status": cat_status,
                 "needs_assign": _c_needs_assign,
                 "needs_send": _c_needs_send,
+                "needs_download": _c_needs_download,
                 "status": row.status,
                 "status_label": INVITATION_STATUS_LABELS.get(row.status or '', row.status or ''),
                 "sent_via": (getattr(row, 'sent_via', None) or ''),

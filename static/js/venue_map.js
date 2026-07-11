@@ -411,10 +411,63 @@
     /* ================= Render con LOD ================= */
     function catColor(key){ var c=assign[key]; return c && catById[c] ? catById[c].color : null; }
 
+    // Conteo de asignadas por sección y categoría (para las etiquetas del zoom lejano).
+    function catCountsBySec(){
+      var by = {};
+      var secById = {}; sections.forEach(function(s){ secById[s.id]=s; });
+      Object.keys(assign).forEach(function(k){
+        if(!seatIsValid(secById, k)) return;
+        var sid = k.split('|')[0];
+        (by[sid] = by[sid] || {})[assign[k]] = (by[sid][assign[k]]||0)+1;
+      });
+      return by;
+    }
     function render(){
       raf = null;
       svg.setAttribute('viewBox', view.x+' '+view.y+' '+view.w+' '+view.h);
       var scale = px(), out = [], vx0=view.x, vy0=view.y, vx1=view.x+view.w, vy1=view.y+view.h;
+      var labelsA = [];     // etiquetas del zoom lejano: se pintan al FINAL, encima de los bloques
+      var lodACounts = null; // conteos por categoría (solo se calculan si hace falta)
+      // ¿Sector ENCAJADO dentro de otro (p. ej. en sus huecos)? De lejos no pinta etiqueta para
+      // no superponerse al nombre del sector grande (su nombre se ve al acercar).
+      function isNested(me, bb){
+        var area = bb.w*bb.h; if(!area) return false;
+        return sections.some(function(t){
+          if(t===me || t.id===me.id || t.kind==='floor') return false;
+          var tb = bboxOf(t); if(tb.w*tb.h <= area) return false;
+          return overlapArea(bb, tb) >= 0.6*area;
+        });
+      }
+      // Etiqueta «rica» del sector mientras NO se ven las butacas: nombre, nº de asientos y, si
+      // conviven varias categorías, el desglose por categoría. Con halo blanco para leerse sobre
+      // las filas; los sectores ENCAJADOS en otro no la pintan (su nombre se ve al acercar).
+      function pushRichLabel(s, bb){
+        if(isNested(s, bb)) return;
+        var lcx, lcy, lsz;
+        if(s.kind==='arc'){
+          var mid=(s.dir)*R, rMid=s.r0+(s.rows-1)*s.rowGap/2;
+          lcx = s.cx+rMid*Math.cos(mid); lcy = s.cy+rMid*Math.sin(mid);
+          lsz = Math.max(s.pitch*1.1, s.rows*s.rowGap*.16);
+        } else {
+          var o=gridOutline(s);
+          lcx = s.x; lcy = s.y; lsz = Math.max(s.pitch*1.1, o.h*.14);
+        }
+        var halo = ';paint-order:stroke;stroke:#fff;stroke-width:'+(lsz*.22)+';stroke-linejoin:round';
+        if(lodACounts===null) lodACounts = catCountsBySec();
+        var lines = ['<text x="'+lcx+'" y="'+lcy+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+lsz+'px system-ui;fill:#3f4956'+halo+'">'+esc(s.name||'')+'</text>'];
+        var byCat = lodACounts[s.id] || {};
+        var catIds = Object.keys(byCat).filter(function(c){ return catById[c]; });
+        var lineSz = lsz*.68, ly2 = lcy + lsz*1.05;
+        lines.push('<text x="'+lcx+'" y="'+ly2+'" text-anchor="middle" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+seatCount(s).toLocaleString('es-ES')+' asientos</text>');
+        if(catIds.length>1){
+          catIds.sort(function(a,b){ return byCat[b]-byCat[a]; }).slice(0,4).forEach(function(cid){
+            ly2 += lineSz*1.3;
+            lines.push('<circle cx="'+(lcx - lineSz*3.6)+'" cy="'+(ly2-lineSz*.34)+'" r="'+(lineSz*.36)+'" style="fill:'+catById[cid].color+'"/>'+
+              '<text x="'+(lcx - lineSz*2.9)+'" y="'+ly2+'" style="font:600 '+lineSz+'px system-ui;fill:#5b6673'+halo+'">'+byCat[cid].toLocaleString('es-ES')+' '+esc(catById[cid].name)+'</text>');
+          });
+        }
+        labelsA.push(lines.join(''));
+      }
 
       // 1) SILUETA del recinto (siempre detrás de todo).
       elements.forEach(function(el){
@@ -458,17 +511,22 @@
         }
 
         if(pitchPx < 2.6){
+          // De LEJOS: bloque del sector; la ETIQUETA (nombre, nº de asientos y desglose por
+          // categoría si hay varias) va en una PASADA FINAL para que ningún bloque la tape.
           var lbl = s.name || '';
+          var lcx, lcy, lsz;
           if(s.kind==='arc'){
             var mid=(s.dir)*R, rMid=s.r0+(s.rows-1)*s.rowGap/2;
-            out.push('<g data-sec="'+s.id+'" style="cursor:pointer"><path d="'+arcBandPath(s)+'" style="fill:#d7dee6;opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/>'+
-              '<text x="'+(s.cx+rMid*Math.cos(mid))+'" y="'+(s.cy+rMid*Math.sin(mid))+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(s.rows*s.rowGap*.36)+'px system-ui;fill:#5b6673">'+esc(lbl)+'</text></g>');
+            lcx = s.cx+rMid*Math.cos(mid); lcy = s.cy+rMid*Math.sin(mid);
+            lsz = s.rows*s.rowGap*.3;
+            out.push('<g data-sec="'+s.id+'" style="cursor:pointer"><path d="'+arcBandPath(s)+'" style="fill:#d7dee6;opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
           } else {
             var o=gridOutline(s);
+            lcx = s.x; lcy = s.y; lsz = o.h*.22;
             out.push('<g data-sec="'+s.id+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="cursor:pointer">'+
-              '<rect x="'+o.x+'" y="'+o.y+'" width="'+o.w+'" height="'+o.h+'" rx="14" style="fill:'+(isBox?'#f3e9d4':'#d7dee6')+';opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/>'+
-              '<text text-anchor="middle" dominant-baseline="middle" style="font:700 '+(o.h*.26)+'px system-ui;fill:#5b6673">'+esc(lbl)+'</text></g>');
+              '<rect x="'+o.x+'" y="'+o.y+'" width="'+o.w+'" height="'+o.h+'" rx="14" style="fill:'+(isBox?'#f3e9d4':'#d7dee6')+';opacity:.95;stroke:#fff;stroke-width:'+(2/scale)+selCss+'"/></g>');
           }
+          pushRichLabel(s, bb);
         } else if(pitchPx < 9.5){
           var sw = Math.max(s.pitch*.62, 10);
           var g = ['<g data-sec="'+s.id+'" style="cursor:pointer">'];
@@ -499,18 +557,12 @@
               g.push('<path d="'+d+'" style="fill:none;stroke:'+run.col+';stroke-width:'+sw+';stroke-linecap:round"/>');
             });
           });
-          // Nombre del sector también en el nivel MEDIO (en el cercano lo da el tooltip).
-          if(s.kind==='arc'){
-            var midB=(s.dir)*R, rOutB=s.r0+(s.rows-1)*s.rowGap+totalSep(s)+s.pitch*1.8;
-            g.push('<text x="'+(s.cx+rOutB*Math.cos(midB))+'" y="'+(s.cy+rOutB*Math.sin(midB))+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(s.pitch*1.15)+'px system-ui;fill:#5b6673;pointer-events:none">'+esc(s.name||'')+'</text>');
-          } else {
-            var goB=gridOutline(s);
-            g.push('<text transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" y="'+(goB.y - s.pitch*0.9)+'" text-anchor="middle" style="font:700 '+(s.pitch*1.15)+'px system-ui;fill:#5b6673;pointer-events:none">'+esc(s.name||'')+'</text>');
-          }
           g.push('</g>');
           out.push(g.join(''));
           out.push(stairBandSvg(s, scale));
           out.push(rowSepSvg(s, scale));
+          // Mientras no se ven las butacas: nombre + asientos + desglose por categoría.
+          pushRichLabel(s, bb);
         } else {
           var size = s.pitch*.86, half=size/2, showNum = pitchPx>=15, showRowLbl = pitchPx>=13;
           var g2=['<g data-sec="'+s.id+'">'];
@@ -574,6 +626,9 @@
           out.push(rowSepSvg(s, scale));
         }
       });
+
+      // Etiquetas del zoom lejano ENCIMA de todos los bloques (ningún sector encajado las tapa).
+      if(labelsA.length) out.push('<g style="pointer-events:none">'+labelsA.join('')+'</g>');
 
       // 3) ELEMENTOS de pista/servicios (encima de las secciones; la silueta ya fue).
       elements.forEach(function(el){
@@ -768,7 +823,8 @@
           '<button type="button" class="'+(catTool==='count'?'on':'')+'" data-cat-tool="count">☝ Contar</button>'+
           '<button type="button" class="'+(catTool==='erase'?'on':'')+'" data-cat-tool="erase">⌫ Quitar</button></div>';
         html += '<h6 class="vmap-h">Categorías</h6><div class="vmap-cats">'+cats.map(function(c){
-          return '<div class="vmap-cat '+(c.id===activeCat?'on':'')+'" data-cat="'+c.id+'"><span class="sw" style="background:'+c.color+'"></span><span class="nm">'+esc(c.name)+'</span></div>';
+          return '<div class="vmap-cat '+(c.id===activeCat?'on':'')+'" data-cat="'+c.id+'"><span class="sw" style="background:'+c.color+'"></span><span class="nm">'+esc(c.name)+'</span>'+
+                 '<button type="button" class="vmap-cat-x" data-cat-del="'+c.id+'" title="Eliminar esta categoría (sus butacas quedan sin asignar)">✕</button></div>';
         }).join('')+'</div>';
         html += '<div class="vmap-addcat"><input type="text" class="form-control form-control-sm" data-nc-name placeholder="Nueva categoría"><input type="color" data-nc-color value="#0891b2"><button type="button" class="btn btn-sm btn-outline-secondary" data-nc-add>+</button></div>'+
                 '<div class="text-danger small mt-1" data-nc-warn style="display:none">Ese color se parece demasiado a otra categoría.</div>';
@@ -876,7 +932,21 @@
       var tch=e.target.closest('[data-tool]'), ctl=e.target.closest('[data-cat-tool]'), cat=e.target.closest('[data-cat]');
       var cxw=view.x+view.w/2, cyw=view.y+view.h/2;
       if(tpl){ pushUndo('tpl'); ({plaza: tplPlaza, arena: tplArena, teatro: tplTeatro}[tpl.dataset.tpl] || tplArena)(); selId=null; invalidate(); renderSide(); fitAll(); return; }
-      if(tch){ tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); queueRender(); return; }
+      var catDel = e.target.closest('[data-cat-del]');
+      if(catDel){
+        // Eliminar la categoría: sus butacas quedan sin asignar. Con Deshacer.
+        var cidDel = catDel.dataset.catDel;
+        pushUndo('cat-del');
+        cats = cats.filter(function(c){ return c.id!==cidDel; }); delete catById[cidDel];
+        Object.keys(assign).forEach(function(k){ if(assign[k]===cidDel) delete assign[k]; });
+        Object.keys(floorCat).forEach(function(k){ if(floorCat[k]===cidDel) delete floorCat[k]; });
+        if(activeCat===cidDel) activeCat = cats.length ? cats[0].id : null;
+        markSummary(); renderSide(); return;
+      }
+      if(tch){
+        if(tch.dataset.suppressClick){ delete tch.dataset.suppressClick; return; }   // acaba de arrastrarse
+        tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); queueRender(); return;
+      }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
       if(cat){
         activeCat = cat.dataset.cat;
@@ -1055,6 +1125,57 @@
         else if(act2==='dup'){ if(copySelected()) pasteClipboard({x:(lastPtr?lastPtr.x:view.x+view.w/2)+120, y:(lastPtr?lastPtr.y:view.y+view.h/2)+60}); }
       });
     }
+
+    /* ================= Herramientas ARRASTRABLES desde el panel =================
+       Como en el editor de mapas de invitaciones: además de activar el chip y pinchar, puedes
+       ARRASTRAR el elemento (Hueco/Apagada/Escalera/Pasillo/№) desde el panel hasta el plano —
+       un fantasma sigue al puntero y se aplica donde lo sueltes (sobre una butaca, entre
+       butacas, entre filas o en los bordes). El clic corto sigue activando el modo pincel. */
+    function dropToolAt(toolKey, cx, cy){
+      var under = document.elementFromPoint(cx, cy);
+      if(!under || !under.closest) return;
+      var prevTool = tool;
+      tool = toolKey;
+      try {
+        var stairB = under.closest('[data-stairband]');
+        var sepB = under.closest('[data-rowsep]');
+        var seatB = under.closest('[data-seat]');
+        if(toolKey==='stair' && stairB){ removeStairBand(stairB); }
+        else if(toolKey==='rowsep' && sepB){ removeRowSep(sepB); }
+        else if(seatB){
+          if(toolKey==='renum'){ applyRenum([seatB.getAttribute('data-seat')]); }
+          else applyTool(seatB);
+        }
+      } finally { tool = prevTool; }
+      renderSide(); queueRender();
+    }
+    if(side) side.addEventListener('pointerdown', function(e){
+      var chipT = e.target.closest('[data-tool]');
+      if(!chipT || mode!=='design') return;
+      var toolKey = chipT.dataset.tool;
+      var sx=e.clientX, sy=e.clientY, movedT=false, ghost=null;
+      function mv(ev){
+        if(!movedT && Math.hypot(ev.clientX-sx, ev.clientY-sy) > 7){
+          movedT = true;
+          ghost = document.createElement('div');
+          ghost.className = 'vmap-toolghost';
+          ghost.textContent = chipT.textContent.trim();
+          document.body.appendChild(ghost);
+        }
+        if(ghost){ ghost.style.left = ev.clientX+'px'; ghost.style.top = ev.clientY+'px'; }
+      }
+      function up(ev){
+        document.removeEventListener('pointermove', mv);
+        document.removeEventListener('pointerup', up);
+        if(ghost) ghost.remove();
+        if(movedT){
+          chipT.dataset.suppressClick = '1';   // que el click posterior no active/desactive el modo
+          dropToolAt(toolKey, ev.clientX, ev.clientY);
+        }
+      }
+      document.addEventListener('pointermove', mv);
+      document.addEventListener('pointerup', up);
+    });
 
     /* ================= Modo (Diseñar / Categorías) ================= */
     host.querySelectorAll('[data-vm-mode]').forEach(function(b){
@@ -1270,25 +1391,34 @@
       view.w*=f; view.h*=f;
       var w1=client2world(cx,cy);
       view.x += w0.x-w1.x; view.y += w0.y-w1.y;
+      if(f>1) clampZoomOut();
       queueRender();
     }
     svg.addEventListener('wheel', function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY>0?1.13:1/1.13); }, {passive:false});
     host.querySelector('[data-vm-zin]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.35); });
     host.querySelector('[data-vm-zout]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1.35); });
     host.querySelector('[data-vm-fit]').addEventListener('click', fitAll);
-    function fitAll(){
+    function computeFit(){
       var xs=[],ys=[];
       sections.forEach(function(s){ var b=bboxOf(s); if(b.w||b.h){ xs.push(b.x,b.x+b.w); ys.push(b.y,b.y+b.h); } });
       elements.forEach(function(el){ if(el.type==='door'){ xs.push(el.x-60, el.x+60); ys.push(el.y-40, el.y+60); return; }
         xs.push(el.x-(el.w||0)/2, el.x+(el.w||0)/2); ys.push(el.y-(el.h||0)/2, el.y+(el.h||0)/2); });
-      if(!xs.length){ view={x:-1200,y:-900,w:2400,h:1800}; queueRender(); return; }
+      if(!xs.length) return null;
       var mx=Math.min.apply(null,xs), Mx=Math.max.apply(null,xs), my=Math.min.apply(null,ys), My=Math.max.apply(null,ys);
       var pad=.07*Math.max(Mx-mx, My-my, 100);
       var ar=(svg.clientWidth>0 && svg.clientHeight>0)? svg.clientWidth/svg.clientHeight : 4/3;
       var w=Mx-mx+2*pad, h=My-my+2*pad;
       if(w/h<ar) w=h*ar; else h=w/ar;
-      view={x:(mx+Mx)/2-w/2, y:(my+My)/2-h/2, w:w, h:h};
+      return {x:(mx+Mx)/2-w/2, y:(my+My)/2-h/2, w:w, h:h};
+    }
+    function fitAll(){
+      view = computeFit() || {x:-1200,y:-900,w:2400,h:1800};
       queueRender();
+    }
+    // El zoom NO deja alejarse más allá del recinto completo: si te pasas, se encaja al plano.
+    function clampZoomOut(){
+      var fv = computeFit();
+      if(fv && view.w > fv.w*1.02){ view = {x:fv.x, y:fv.y, w:fv.w, h:fv.h}; }
     }
 
     var pointers={}, pinch0=null, drag=null;
@@ -1399,6 +1529,7 @@
         var r=svg.getBoundingClientRect();
         view.x=pinch0.view.x+(pinch0.cx-r.left)/r.width*(pinch0.view.w-view.w);
         view.y=pinch0.view.y+(pinch0.cy-r.top)/r.height*(pinch0.view.h-view.h);
+        clampZoomOut();
         queueRender(); return;
       }
       var seatEl = e.target.closest && e.target.closest('[data-seat]');
@@ -1469,6 +1600,11 @@
         od.cols=Math.max(2, Math.round(Math.abs(dxd)/od.pitch)+1);
         od.rows=Math.max(1, Math.round(Math.abs(dyd)/od.rowGap)+1);
         od.x=drag.w0.x+dxd/2; od.y=drag.w0.y+dyd/2;   // crece desde el punto inicial hacia el arrastre
+        // Información del dibujo ARRIBA A LA DERECHA (como la tarjeta de selección).
+        var wrapD = svg.getBoundingClientRect();
+        chip.style.left=(wrapD.width-240)+'px'; chip.style.top='44px';
+        chip.textContent = od.rows+' filas × '+od.cols+' butacas/fila = '+(od.rows*od.cols).toLocaleString('es-ES')+' asientos';
+        chip.style.display='block';
         invalidate(od.id); queueRender();
       } else if(drag.kind==='renumdrag'){
         var underR = document.elementFromPoint(e.clientX, e.clientY);
@@ -1502,6 +1638,7 @@
       if(Object.keys(pointers).length<2) pinch0=null;
       if(drag && drag.kind==='drawsec'){
         // Fin del dibujo: si apenas se arrastró, se descarta; si no, queda seleccionada para afinar.
+        chip.style.display='none';
         var od2 = drag.obj; drag=null; drawArm=false;
         if(od2.cols<2 && od2.rows<2){ sections=sections.filter(function(x){return x.id!==od2.id;}); undoStack.pop(); selId=null; }
         renderSide(); markSummary();

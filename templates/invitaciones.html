@@ -382,6 +382,7 @@
           <span class="badge text-bg-light border mg-filter-chip active" data-inv-filter="">Todas</span>
           <span class="badge text-bg-light border mg-filter-chip" data-inv-filter="assign"><i class="fa fa-arrow-right me-1"></i>Sin asignar</span>
           <span class="badge text-bg-light border mg-filter-chip" data-inv-filter="send"><i class="fa fa-paper-plane me-1"></i>Sin enviar</span>
+          <span class="badge text-bg-light border mg-filter-chip" data-inv-filter="download"><i class="fa fa-download me-1"></i>Sin descargar</span>
         </div>
       </div>
       <div class="card mb-4" data-inv-search-section>
@@ -396,7 +397,7 @@
           {% if commitments %}
             <div class="inv-commitment-list">
               {% for row in commitments %}
-                <div class="inv-commitment-card" data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-search="{{ row.name }} {{ row.reason }} {{ row.recipient_name }} {{ row.recipient_link_summary_text }} {{ row.created_by_nick }} {{ row.guest_email }} {{ row.guest_phone }} {% for cs in row.category_status %}{{ cs.name }} {% endfor %}">
+                <div class="inv-commitment-card" data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.name }} {{ row.reason }} {{ row.recipient_name }} {{ row.recipient_link_summary_text }} {{ row.created_by_nick }} {{ row.guest_email }} {{ row.guest_phone }} {% for cs in row.category_status %}{{ cs.name }} {% endfor %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1 min-w-0">
                       <div class="invitation-people" title="Compromiso: {{ row.name }}{% if row.reason %} · {{ row.reason }}{% endif %} · Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }}{% if row.recipient_name %} · Enviar a {{ row.recipient_name }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -529,7 +530,7 @@
                 <div class="list-group inv-cat-dropzone">
                 {% for row in g.rows %}
                 {% set movable = row.status not in ['ENVIADAS','ENTREGADAS_MANO','DISPONIBLES_TAQUILLA','RECOGIDAS_TAQUILLA','RECHAZADAS','ANULADAS'] %}
-                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
+                <div class="list-group-item inv-cat-row" id="req-{{ row.id }}" data-inline-zone data-inv-search-item data-needs-assign="{{ 1 if row.needs_assign else 0 }}" data-needs-send="{{ 1 if row.needs_send else 0 }}" data-needs-download="{{ 1 if row.needs_download else 0 }}" data-search="{{ row.guest_name }} {{ row.guest_title }} {{ row.link_summary_text }} {{ row.requester_nick }} {{ row.categories_label }} {{ row.guest_email }} {{ g.name }}" data-req="{{ row.id }}" data-cat="{{ g.cat_id }}" data-qty="{{ row.qty_total }}" data-can-move="{{ 1 if movable else 0 }}" data-assigned="{{ 1 if row.status == 'ASIGNADAS' else 0 }}"{% if movable %} draggable="true"{% endif %} style="border-left:5px solid {{ g.color }};{% if movable %}cursor:grab;{% endif %}">
                   <div class="d-flex justify-content-between gap-3 flex-wrap">
                     <div class="flex-grow-1">
                       <div class="invitation-people" title="Estado: {{ row.status_label }} · Cantidad: {{ row.quantities_label }} · Pedido por {{ row.requester_nick }} el {{ row.created_at_label }}{% if row.registered_by_other %} · registrada por {{ row.created_by_nick }}{% endif %}{% if row.note %} · Nota: {{ row.note }}{% endif %}">
@@ -3055,7 +3056,8 @@
           var hitText = !term || norm(it.getAttribute('data-search')).indexOf(term) !== -1;
           var hitState = !stateFilter
             || (stateFilter === 'assign' && it.getAttribute('data-needs-assign') === '1')
-            || (stateFilter === 'send' && it.getAttribute('data-needs-send') === '1');
+            || (stateFilter === 'send' && it.getAttribute('data-needs-send') === '1')
+            || (stateFilter === 'download' && it.getAttribute('data-needs-download') === '1');
           var hit = hitText && hitState;
           it.style.display = hit ? '' : 'none';
           if(hit) anyVisible = true;

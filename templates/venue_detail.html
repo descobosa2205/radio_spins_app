@@ -180,16 +180,9 @@
        data-save-url="{{ url_for('venue_seatmap_save', vid=venue.id) }}"></div>
   <script type="application/json" id="venueMapData">{{ (venue_seatmap_payload or {})|tojson }}</script>
 {% else %}
-  <div class="d-flex justify-content-between align-items-center mb-3">
-    <div>
-      <h5 class="mb-0">Actividad en este recinto</h5>
-      <div class="text-muted small">Conciertos y acciones ordenadas de más recientes o próximas a más antiguas.</div>
-    </div>
-    <span class="badge text-bg-light border">{{ activities|length }}</span>
-  </div>
-  {% if activities %}
+  {% macro activity_list(rows) %}
     <div class="list-group">
-      {% for row in activities %}
+      {% for row in rows %}
         <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-3 flex-wrap" href="{{ row.detail_url }}">
           <div class="d-flex align-items-center gap-3">
             <img src="{{ row.artist_photo_url or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">
@@ -205,8 +198,30 @@
         </a>
       {% endfor %}
     </div>
+  {% endmacro %}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="mb-0">Próximas actividades</h5>
+      <div class="text-muted small">Conciertos y acciones pendientes en este recinto, la más cercana primero.</div>
+    </div>
+    <span class="badge text-bg-light border">{{ activities_upcoming|length }}</span>
+  </div>
+  {% if activities_upcoming %}
+    {{ activity_list(activities_upcoming) }}
   {% else %}
-    <div class="alert alert-light border mb-0">No hay actividades registradas todavía en este recinto.</div>
+    <div class="alert alert-light border mb-0">No hay actividades próximas en este recinto.</div>
+  {% endif %}
+  <div class="d-flex justify-content-between align-items-center mb-3 mt-4">
+    <div>
+      <h5 class="mb-0">Actividades anteriores</h5>
+      <div class="text-muted small">De más reciente a más antigua.</div>
+    </div>
+    <span class="badge text-bg-light border">{{ activities_past|length }}</span>
+  </div>
+  {% if activities_past %}
+    {{ activity_list(activities_past) }}
+  {% else %}
+    <div class="alert alert-light border mb-0">No hay actividades anteriores registradas en este recinto.</div>
   {% endif %}
 {% endif %}
 </div>

@@ -1854,7 +1854,7 @@ img[style*="width:"] { height: auto; }
 .vmap-stats b { color: #1e252d; font-variant-numeric: tabular-nums; }
 .vmap-zoom { display: flex; align-items: center; gap: .3rem; }
 .vmap-body { display: flex; gap: .75rem; align-items: stretch; }
-.vmap-canvas { position: relative; flex: 1 1 auto; min-width: 0; height: 68vh; min-height: 380px; }
+.vmap-canvas { position: relative; flex: 1 1 auto; min-width: 0; height: 68vh; min-height: 380px; user-select: none; -webkit-user-select: none; }
 .vmap-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; background: #f1f4f8; border: 1px solid #e2e7ee; border-radius: .8rem; touch-action: none; cursor: grab; display: block; }
 .vmap-canvas svg:active { cursor: grabbing; }
 .vmap-tip { position: absolute; left: .6rem; bottom: .6rem; pointer-events: none; background: #111; color: #fff; font-size: .74rem; padding: .3rem .6rem; border-radius: .45rem; white-space: nowrap; display: none; z-index: 5; opacity: .92; }
@@ -1880,8 +1880,8 @@ img[style*="width:"] { height: auto; }
 .vmap-seg { display: inline-flex; border: 1px solid #e2e7ee; border-radius: .6rem; overflow: hidden; }
 .vmap-seg button { border: 0; background: transparent; padding: .32rem .8rem; cursor: pointer; font-weight: 600; font-size: .82rem; color: #1e252d; }
 .vmap-seg button.on { background: var(--brand-primary); color: #fff; }
-.vmap-seg--full { display: flex; }
-.vmap-seg--full button { flex: 1 1 0; }
+.vmap-seg--full { display: grid; grid-template-columns: 1fr 1fr; }  /* 2x2: la última ya no se corta */
+.vmap-seg--full button { white-space: nowrap; }
 .vmap-chip { position: absolute; pointer-events: none; background: var(--brand-primary); color: #fff; font-weight: 800; font-size: .85rem; padding: .3rem .6rem; border-radius: .55rem; transform: translate(12px, -32px); display: none; z-index: 6; font-variant-numeric: tabular-nums; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
 .vmap-cats { display: flex; flex-direction: column; gap: .3rem; }
 .vmap-cat { display: flex; align-items: center; gap: .5rem; border: 1px solid #e2e7ee; border-radius: .6rem; padding: .38rem .55rem; cursor: pointer; background: #fff; }
@@ -1922,3 +1922,8 @@ img[style*="width:"] { height: auto; }
 .vmap-ctx button { border: 0; background: transparent; text-align: left; padding: .35rem .6rem; border-radius: .4rem; font-size: .82rem; cursor: pointer; }
 .vmap-ctx button:hover:not(:disabled) { background: #f2f5f8; }
 .vmap-ctx button:disabled { opacity: .45; cursor: default; }
+
+/* Mapa del recinto: fantasma al ARRASTRAR una herramienta desde el panel + ✕ de categoría */
+.vmap-toolghost { position: fixed; z-index: 9999; pointer-events: none; transform: translate(12px, 14px); background: #fff; border: 1px solid var(--brand-accent); border-radius: .5rem; padding: .25rem .55rem; font-size: .78rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,.22); }
+.vmap-cat .vmap-cat-x { border: 0; background: transparent; color: #a5aeb8; font-weight: 700; line-height: 1; cursor: pointer; padding: 0 .15rem; flex: 0 0 auto; }
+.vmap-cat .vmap-cat-x:hover { color: var(--brand-primary); }

@@ -945,19 +945,19 @@
     /* ===== Selección con TARJETA FLOTANTE (pop-up con el total, arrastrable a una categoría) ===== */
     var selpop = host.querySelector('[data-vm-selpop]');
     function selCount(){ return Object.keys(sel).length; }
-    function updateSelPop(nearX, nearY){
+    function updateSelPop(){
       if(!selpop) return;
       var n = selCount();
       var nEl = selpop.querySelector('[data-selpop-n]'); if(nEl) nEl.textContent = n.toLocaleString('es-ES');
+      // La tarjeta vive en su ESQUINA (superior derecha, por CSS) para no taparse con lo que
+      // estás seleccionando; solo se mueve si el usuario la arrastra (hacia una categoría).
       selpop.classList.toggle('show', n>0 && mode==='cats' && catTool==='select');
-      // La tarjeta sigue a la selección hasta que el usuario la mueva a mano.
-      if(n>0 && nearX!=null && !selpop.dataset.userMoved){
-        var wrap = selpop.parentElement.getBoundingClientRect();
-        selpop.style.left = Math.min(Math.max(nearX-wrap.left+16, 8), wrap.width-200)+'px';
-        selpop.style.top  = Math.min(Math.max(nearY-wrap.top-16, 8), wrap.height-130)+'px';
-      }
     }
-    function clearSel(){ sel={}; if(selpop) delete selpop.dataset.userMoved; updateSelPop(); queueRender(); }
+    function clearSel(){
+      sel={};
+      if(selpop){ delete selpop.dataset.userMoved; selpop.style.left=''; selpop.style.top=''; }
+      updateSelPop(); queueRender();
+    }
     function assignSelectionTo(cid){
       pushUndo('assign-sel');
       Object.keys(sel).forEach(function(k){ if(cid==null){ delete assign[k]; } else { assign[k]=cid; } });
@@ -1102,7 +1102,14 @@
           if(secEl){
             var sSel=sections.find(function(x){return x.id===secEl.getAttribute('data-sec');});
             var farSel = sSel && sSel.kind!=='floor' ? (sSel.pitch*px() < 9.5) : false;
-            drag={kind:'secmaybe', sec:(sSel?sSel.id:null), far:farSel, select:true, c0:{x:e.clientX,y:e.clientY}, w0:w};
+            if(farSel && sSel){
+              // De lejos: el sector se marca ENTERO ya, y ARRASTRANDO se van marcando enteros
+              // todos los sectores que toques (selección por zonas, tipo selector del sistema).
+              selectSection(sSel, e);
+              drag={kind:'secdrag', done:{}}; drag.done[sSel.id]=1;
+              return;
+            }
+            drag={kind:'secmaybe', sec:(sSel?sSel.id:null), far:false, select:true, c0:{x:e.clientX,y:e.clientY}, w0:w};
             return;
           }
           drag={kind:'pan', c0:{x:e.clientX,y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
@@ -1154,9 +1161,10 @@
         // El número mostrado es el IMPRESO en la butaca (data-n), no la posición física: con
         // numeración der→izq, pares/impares o huecos que renumeran, ambos difieren.
         var seatNo = seatEl.getAttribute('data-n') || parts[2];
+        // La viñeta va ANCLADA a la esquina inferior izquierda (no sigue al puntero: se
+        // superponía justo con las butacas que estabas mirando o seleccionando).
         tip.textContent=(sObj?sObj.name:'')+' · Fila '+rowLbl+' · Butaca '+seatNo+(aKey && catById[aKey] ? ' · '+catById[aKey].name : '');
-        var r2=svg.getBoundingClientRect();
-        tip.style.left=(e.clientX-r2.left)+'px'; tip.style.top=(e.clientY-r2.top)+'px'; tip.style.display='block';
+        tip.style.display='block';
       } else tip.style.display='none';
       if(!drag) return;
       if(drag.kind==='pan'){
@@ -1200,6 +1208,17 @@
         if(drag.done[k]) return;                          // una vez por butaca y gesto (sin parpadeo)
         drag.done[k] = 1;
         applyTool(se);
+      } else if(drag.kind==='secdrag'){
+        // Selección por ZONAS: cada sector que el arrastre toca se marca entero (una sola vez).
+        var underS = document.elementFromPoint(e.clientX, e.clientY);
+        var secU = underS && underS.closest ? underS.closest('[data-sec]') : null;
+        if(secU){
+          var idU = secU.getAttribute('data-sec');
+          if(!drag.done[idU]){
+            var sU = sections.find(function(x){ return x.id===idU; });
+            if(sU && sU.kind!=='floor'){ drag.done[idU]=1; selectSection(sU, e); }
+          }
+        }
       } else if(drag.kind==='secmaybe'){
         if(Math.hypot(e.clientX-drag.c0.x, e.clientY-drag.c0.y) > 8){ drag={kind:'lasso', w0:drag.w0}; }
       } else if(drag.kind==='lasso'){

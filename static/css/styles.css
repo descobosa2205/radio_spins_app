@@ -1857,7 +1857,7 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas { position: relative; flex: 1 1 auto; min-width: 0; height: 68vh; min-height: 380px; }
 .vmap-canvas svg { position: absolute; inset: 0; width: 100%; height: 100%; background: #f1f4f8; border: 1px solid #e2e7ee; border-radius: .8rem; touch-action: none; cursor: grab; display: block; }
 .vmap-canvas svg:active { cursor: grabbing; }
-.vmap-tip { position: absolute; pointer-events: none; background: #111; color: #fff; font-size: .72rem; padding: .25rem .5rem; border-radius: .4rem; transform: translate(-50%, -130%); white-space: nowrap; display: none; z-index: 5; }
+.vmap-tip { position: absolute; left: .6rem; bottom: .6rem; pointer-events: none; background: #111; color: #fff; font-size: .74rem; padding: .3rem .6rem; border-radius: .45rem; white-space: nowrap; display: none; z-index: 5; opacity: .92; }
 .vmap-side { flex: 0 0 300px; max-height: 68vh; overflow-y: auto; border: 1px solid #e2e7ee; border-radius: .8rem; padding: .7rem .8rem; background: #fff; }
 .vmap-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: #6b7683; margin: 1rem 0 .45rem; }
 .vmap-h:first-child { margin-top: 0; }
@@ -1899,7 +1899,7 @@ img[style*="width:"] { height: auto; }
 .vmap-numrow--2 { grid-template-columns: 7rem 1fr 1fr; }
 
 /* Mapa del recinto: tarjeta flotante de SELECCIÓN (total seleccionado, arrastrable a una categoría) */
-.vmap-canvas .vmap-selpop { position: absolute; z-index: 7; display: none; width: 192px; background: #fff; border: 2px solid #e0a800; border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); cursor: grab; touch-action: none; user-select: none; }
+.vmap-canvas .vmap-selpop { position: absolute; top: .55rem; right: .55rem; z-index: 7; display: none; width: 192px; background: #fff; border: 2px solid #e0a800; border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); cursor: grab; touch-action: none; user-select: none; }
 .vmap-selpop.show { display: block; }
 .vmap-selpop.dragging { cursor: grabbing; opacity: .88; }
 .vmap-selpop-head { display: flex; justify-content: space-between; align-items: center; gap: .4rem; }

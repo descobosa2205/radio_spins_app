@@ -2433,14 +2433,10 @@
       if(!pop) return;
       if(!isSelecting() || selected.size === 0){ pop.classList.remove('show'); return; }
       pop.classList.add('show');
-      const ref = (lastSeat && lastSeat.isConnected) ? lastSeat : tab.querySelector('[data-ticket-id].is-checked');
-      if(!ref) return;
-      const r = ref.getBoundingClientRect();
-      const pw = pop.offsetWidth || 220, ph = pop.offsetHeight || 220;
-      let left = r.right + 8, top = r.top;
-      if(left + pw > window.innerWidth - 8) left = Math.max(8, r.left - pw - 8);
-      if(top + ph > window.innerHeight - 8) top = Math.max(8, window.innerHeight - ph - 8);
-      pop.style.left = left + 'px'; pop.style.top = top + 'px';
+      // ESQUINA fija (inferior derecha): antes se colocaba junto a la última butaca y se
+      // superponía justo con lo que estabas seleccionando/asignando.
+      pop.style.left = 'auto'; pop.style.top = 'auto';
+      pop.style.right = '14px'; pop.style.bottom = '14px';
     }
     const update = () => { countEls.forEach(el => el.textContent = selected.size); positionPop(); };
     window.addEventListener('scroll', positionPop, true);

@@ -310,8 +310,9 @@
       var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
       if(!seps.length) return '';
       var out=[];
+      var sepHit = (mode==='design' && canEdit && tool==='rowsep');
       seps.forEach(function(sepRow, idx){
-        var css='fill:rgba(120,132,146,.10);stroke:#9aa8b5;stroke-width:'+(1.4/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale);
+        var css='fill:rgba(120,132,146,.10);stroke:#9aa8b5;stroke-width:'+(1.4/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale)+(sepHit?'':';pointer-events:none');
         if(s.kind==='arc'){
           var rIn = s.r0 + sepRow*s.rowGap + sepExtra(s, sepRow) + s.pitch*.5;
           var rOut = rIn + s.rowGap - s.pitch;
@@ -382,7 +383,8 @@
           for(var k2=1;k2<7;k2++){ var yy = y0 + (y1-y0)*k2/7;
             steps += '<line x1="'+tp(xAt-half,yy).split(' ')[0]+'" y1="'+tp(xAt-half,yy).split(' ')[1]+'" x2="'+tp(xAt+half,yy).split(' ')[0]+'" y2="'+tp(xAt+half,yy).split(' ')[1]+'" style="stroke:#007CA2;stroke-width:'+Math.max(2, s.pitch*.09)+'"/>'; }
         }
-        out.push('<g data-stairband="'+s.id+'|'+idx+'" style="cursor:pointer"><path d="'+d+'" style="fill:rgba(0,124,162,.08);stroke:#007CA2;stroke-width:'+(1.6/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale)+'"/>'+steps+'</g>');
+        var stairHit = (mode==='design' && canEdit && tool==='stair');
+        out.push('<g data-stairband="'+s.id+'|'+idx+'" style="'+(stairHit?'cursor:pointer':'pointer-events:none')+'"><path d="'+d+'" style="fill:rgba(0,124,162,.08);stroke:#007CA2;stroke-width:'+(1.6/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale)+'"/>'+steps+'</g>');
       });
       return out.join('');
     }
@@ -451,8 +453,18 @@
         } else if(pitchPx < 9.5){
           var sw = Math.max(s.pitch*.62, 10);
           var g = ['<g data-sec="'+s.id+'" style="cursor:pointer">'];
-          if(s.kind==='arc') g.push('<path d="'+arcBandPath(s)+'" style="fill:#fff;fill-opacity:0.01'+(isSel?selCss:'')+'"/>');
-          else { var go=gridOutline(s); g.push('<rect x="'+go.x+'" y="'+go.y+'" width="'+go.w+'" height="'+go.h+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="fill:#fff;fill-opacity:0.01'+(isSel?selCss:'')+'"/>'); }
+          // La CAPTURA de clics va por FRANJAS DE FILA (no por el rectángulo entero): así los
+          // huecos, pasillos y bordes vacíos del sector NO cuentan — se puede pinchar o crear
+          // otro sector justo encima de esas zonas en blanco.
+          if(isSel){
+            if(s.kind==='arc') g.push('<path d="'+arcBandPath(s)+'" style="fill:none'+selCss+'"/>');
+            else { var go=gridOutline(s); g.push('<rect x="'+go.x+'" y="'+go.y+'" width="'+go.w+'" height="'+go.h+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="fill:none'+selCss+'"/>'); }
+          }
+          geo.rows.forEach(function(row){
+            if(row.seats.length<2) return;
+            var dHit='M'+row.seats.map(function(p){ return p.x+' '+p.y; }).join(' L');
+            g.push('<path d="'+dHit+'" style="fill:none;stroke:#fff;stroke-opacity:0.01;stroke-width:'+(s.rowGap*.92)+';stroke-linecap:round"/>');
+          });
           // Filas partidas en runs por hueco/escalera; cada run coloreado por su asignación.
           geo.rows.forEach(function(row){
             var runs=[], cur=null;
@@ -507,9 +519,12 @@
                 else { curRun={cat:aCat, pts:[p]}; nameRuns.push(curRun); }
               } else curRun=null;
               if(p.state==='gap'){
-                // Hueco (no hay butaca): celda discontinua; clicable para quitarlo con la herramienta.
-                g2.push('<g data-seat="'+key+'" data-kind="gap" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
-                  '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.24)+'" style="fill:transparent;stroke:#d5dbe2;stroke-width:'+(size*.05)+';stroke-dasharray:'+(size*.16)+' '+(size*.12)+'"/></g>');
+                // Hueco (no hay butaca): celda discontinua. Solo captura el clic cuando la
+                // herramienta Hueco/Apagada está activa (para poder quitarlo); si no, el clic
+                // ATRAVIESA — lo que haya debajo (otro sector encajado ahí) responde.
+                var gapHit = (mode==='design' && canEdit && (tool==='gap' || tool==='off'));
+                g2.push('<g data-seat="'+key+'" data-kind="gap" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="'+(gapHit?'cursor:pointer':'pointer-events:none')+'">'+
+                  '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.24)+'" style="fill:'+(gapHit?'transparent':'none')+';stroke:#d5dbe2;stroke-width:'+(size*.05)+';stroke-dasharray:'+(size*.16)+' '+(size*.12)+'"/></g>');
                 return;
               }
               var col = catColor(key);
@@ -842,7 +857,7 @@
       var tch=e.target.closest('[data-tool]'), ctl=e.target.closest('[data-cat-tool]'), cat=e.target.closest('[data-cat]');
       var cxw=view.x+view.w/2, cyw=view.y+view.h/2;
       if(tpl){ pushUndo('tpl'); ({plaza: tplPlaza, arena: tplArena, teatro: tplTeatro}[tpl.dataset.tpl] || tplArena)(); selId=null; invalidate(); renderSide(); fitAll(); return; }
-      if(tch){ tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); return; }
+      if(tch){ tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); queueRender(); return; }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
       if(cat){
         activeCat = cat.dataset.cat;

@@ -205,19 +205,32 @@ def _norm_label(text) -> str:
 
 
 def _row_numbering(sec: dict, row_idx: int, states: list) -> dict:
-    """Número IMPRESO → slot físico de una fila (réplica de la numeración del JS: inicio, paso
-    1/pares-impares, sentido, y política de hueco «salta»/«renumera»; las apagadas conservan
-    su número; los cortes de escalera no consumen)."""
+    """Número IMPRESO → slot físico de una fila (réplica de la numeración del JS: inicio, modo
+    consecutivos/impares/pares, sentido, y política de hueco «salta»/«renumera»; las apagadas
+    conservan su número; los cortes de escalera no consumen; los OVERRIDES por butaca —números
+    puestos a mano con la herramienta №— sustituyen al calculado)."""
     num = sec.get("num") or {}
     try:
         start = int(num.get("start"))
     except (TypeError, ValueError):
         start = 1
-    step = _i(num.get("step"), 1) or 1
+    # Modo explícito (seq/odd/even); compat con mapas antiguos que solo guardaban step 1/2.
+    mode = num.get("mode") or ("even" if (_i(num.get("step"), 1) == 2 and start % 2 == 0)
+                               else ("odd" if _i(num.get("step"), 1) == 2 else "seq"))
+    step = 1
+    if mode == "odd":
+        step = 2
+        if start % 2 == 0:
+            start += 1
+    elif mode == "even":
+        step = 2
+        if start % 2 != 0:
+            start += 1
     order = range(len(states) - 1, -1, -1) if (num.get("dir") == "rtl") else range(len(states))
     gap_policy = (sec.get("gapPolicy") or "skip")
     counter = start
     out = {}
+    slot_number = {}
     for i in order:
         state = states[i]
         if state == "stair":
@@ -226,8 +239,14 @@ def _row_numbering(sec: dict, row_idx: int, states: list) -> dict:
             if gap_policy == "skip":
                 counter += step
             continue
-        out[str(counter)] = i + 1
+        slot_number[i + 1] = str(counter)
         counter += step
+    overrides = sec.get("numOverrides") or {}
+    for slot, number in slot_number.items():
+        ov = overrides.get("%s|%s" % (row_idx, slot))
+        if ov is not None and str(ov).strip() != "":
+            number = str(ov).strip()
+        out[_norm_label(number) if not str(number).isdigit() else str(int(number))] = slot
     return out
 
 

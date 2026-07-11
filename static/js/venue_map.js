@@ -120,7 +120,8 @@
     /* ================= Estado ================= */
     var view = {x:-1700, y:-1500, w:3400, h:3000};
     var mode = 'design';         // design | cats
-    var tool = null;             // diseño: gap | off | stair (retoques) — null = seleccionar/mover
+    var drawArm = false;         // «Dibujar grada» armado: el siguiente arrastre en el plano la crea
+    var tool = null;             // diseño: gap | off | stair | rowsep | renum — null = seleccionar/mover
     var catTool = 'select';      // categorías: select | paint | count | erase
     var sel = {};                // SELECCIÓN de butacas (keys) — popup flotante con el total
     var activeCat = cats.length ? cats[0].id : null;
@@ -176,7 +177,13 @@
     function numOf(s){
       var n = s.num || {};
       var st = parseInt(n.start,10); if(isNaN(st)) st = 1;   // 0 es válido (hay recintos que numeran desde 0)
-      return { start: st, step: parseInt(n.step||1,10)||1, dir: (n.dir==='rtl'?'rtl':'ltr') };
+      // Modo de numeración explícito: CONSECUTIVOS (1,2,3…), IMPARES (1,3,5…) o PARES (2,4,6…).
+      // Compat con mapas guardados solo con step: 2 → impares o pares según la primera butaca.
+      var mode = n.mode || ((parseInt(n.step||1,10)===2) ? ((st%2===0)?'even':'odd') : 'seq');
+      var step = 1;
+      if(mode==='odd'){ step=2; if(st%2===0) st+=1; }
+      else if(mode==='even'){ step=2; if(st%2!==0) st+=1; }
+      return { start: st, step: step, mode: mode, dir: (n.dir==='rtl'?'rtl':'ltr') };
     }
     function rowLabelOf(s, rowIdx){
       // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por letras).
@@ -188,8 +195,18 @@
       return { gaps: m.gaps || [], off: m.off || [] };
     }
 
+    // PASILLOS entre filas: desplazan la POSICIÓN de las filas siguientes (hueco físico) sin
+    // tocar conteos ni numeración (así seatmap_calc sigue en paridad exacta con el JS).
+    function sepExtra(s, rowIdx){
+      var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
+      var n = 0; seps.forEach(function(x){ if(x < rowIdx) n++; });
+      return n * s.rowGap;
+    }
+    function totalSep(s){ return (Array.isArray(s.rowSeps) ? s.rowSeps.length : 0) * s.rowGap; }
+
     // Filas de una sección con todo aplicado: escaleras integradas (cortes), huecos/apagadas por
-    // butaca, numeración (inicio/paso/sentido + política de hueco) y orientación hacia el escenario.
+    // butaca, pasillos entre filas, numeración (inicio/modo/sentido + política de hueco, con
+    // OVERRIDES por butaca) y orientación hacia el escenario.
     function secRows(s){
       if(geomCache[s.id]) return geomCache[s.id];
       var st = stageCenter();
@@ -216,19 +233,20 @@
       for(r=0;r<s.rows;r++){
         var rowIdx = r+1, mods = modsOf(s, rowIdx), slots = [];
         if(isArc){
-          var radius = s.r0 + r*s.rowGap;
+          var radius = s.r0 + r*s.rowGap;                       // radio BASE: define el nº de butacas
+          var radiusPos = radius + sepExtra(s, rowIdx);         // radio VISUAL: desplazado por pasillos
           var count = Math.max(2, Math.floor((radius * s.span * R) / s.pitch));
           for(i=0;i<count;i++){
             var frac = (i+.5)/count;
             var t = (s.dir - s.span/2 + frac*s.span) * R;
             var inStair = stairs.some(function(b){ return Math.abs(frac - b.at) * s.span * R * radius < (b.w*s.pitch)/2 + s.pitch*.5; });
-            slots.push({ slot:i+1, frac:frac, x:s.cx + radius*Math.cos(t), y:s.cy + radius*Math.sin(t),
+            slots.push({ slot:i+1, frac:frac, x:s.cx + radiusPos*Math.cos(t), y:s.cy + radiusPos*Math.sin(t),
                          a: t/R + (flip? -90 : 90), inStair:inStair });
           }
         } else {
           var cr = Math.cos(s.rot*R), sr = Math.sin(s.rot*R), width = s.cols*s.pitch;
           for(i=0;i<s.cols;i++){
-            var lx = (i-(s.cols-1)/2)*s.pitch, ly = (r-(s.rows-1)/2)*s.rowGap;
+            var lx = (i-(s.cols-1)/2)*s.pitch, ly = (r-(s.rows-1)/2)*s.rowGap + sepExtra(s, rowIdx);
             var frac2 = (i+.5)/s.cols;
             var inStair2 = stairs.some(function(b){ return Math.abs(lx - (b.at-.5)*width) < (b.w*s.pitch)/2 + s.pitch*.5; });
             slots.push({ slot:i+1, frac:frac2, x:s.x + lx*cr - ly*sr, y:s.y + lx*sr + ly*cr,
@@ -243,10 +261,16 @@
         });
         var ordered = (nm.dir==='rtl') ? slots.slice().reverse() : slots;
         var counter = nm.start;
+        var overrides = s.numOverrides || {};
         ordered.forEach(function(sl){
           if(sl.state==='stair'){ sl.n=null; return; }
           if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter += nm.step; return; }
           sl.n = counter; counter += nm.step;
+        });
+        // Números CAMBIADOS a mano por butaca (herramienta №): sustituyen al calculado.
+        slots.forEach(function(sl){
+          var ov = overrides[rowIdx+'|'+sl.slot];
+          if(ov!=null && ov!=='' && sl.state!=='stair' && sl.state!=='gap') sl.n = ov;
         });
         rows.push({ rowIdx: rowIdx, label: rowLabelOf(s, rowIdx), seats: slots });
       }
@@ -271,7 +295,7 @@
     }
     function seatCount(s){ return s.kind==='floor' ? 0 : secRows(s).count; }
     function arcBandPath(s){
-      var a0=(s.dir-s.span/2)*R, a1=(s.dir+s.span/2)*R, rIn=s.r0-s.pitch*.7, rOut=s.r0+(s.rows-1)*s.rowGap+s.pitch*.7;
+      var a0=(s.dir-s.span/2)*R, a1=(s.dir+s.span/2)*R, rIn=s.r0-s.pitch*.7, rOut=s.r0+(s.rows-1)*s.rowGap+totalSep(s)+s.pitch*.7;
       var la = s.span>180?1:0;
       function pt(rr,aa){ return (s.cx+rr*Math.cos(aa))+' '+(s.cy+rr*Math.sin(aa)); }
       return 'M'+pt(rOut,a0)+' A'+rOut+' '+rOut+' 0 '+la+' 1 '+pt(rOut,a1)+
@@ -279,7 +303,28 @@
     }
     function gridOutline(s){
       var hw=(s.cols-1)/2*s.pitch+s.pitch*.7, hh=(s.rows-1)/2*s.rowGap+s.rowGap*.6;
-      return {x:-hw, y:-hh, w:2*hw, h:2*hh};
+      return {x:-hw, y:-hh, w:2*hw, h:2*hh+totalSep(s)};   // los pasillos alargan el sector hacia atrás
+    }
+    // Franjas de los PASILLOS entre filas (para verlos y poder quitarlos pinchándolos).
+    function rowSepSvg(s, scale){
+      var seps = Array.isArray(s.rowSeps) ? s.rowSeps : [];
+      if(!seps.length) return '';
+      var out=[];
+      seps.forEach(function(sepRow, idx){
+        var css='fill:rgba(120,132,146,.10);stroke:#9aa8b5;stroke-width:'+(1.4/scale)+';stroke-dasharray:'+(6/scale)+' '+(4/scale);
+        if(s.kind==='arc'){
+          var rIn = s.r0 + sepRow*s.rowGap + sepExtra(s, sepRow) + s.pitch*.5;
+          var rOut = rIn + s.rowGap - s.pitch;
+          var a0=(s.dir-s.span/2)*R, a1=(s.dir+s.span/2)*R, la=s.span>180?1:0;
+          function pt(rr,aa){ return (s.cx+rr*Math.cos(aa))+' '+(s.cy+rr*Math.sin(aa)); }
+          out.push('<path data-rowsep="'+s.id+'|'+idx+'" d="M'+pt(rOut,a0)+' A'+rOut+' '+rOut+' 0 '+la+' 1 '+pt(rOut,a1)+' L'+pt(rIn,a1)+' A'+rIn+' '+rIn+' 0 '+la+' 0 '+pt(rIn,a0)+' Z" style="'+css+';cursor:pointer"/>');
+        } else {
+          var hw=(s.cols-1)/2*s.pitch+s.pitch*.7;
+          var yIn = (sepRow-1-(s.rows-1)/2)*s.rowGap + sepExtra(s, sepRow) + s.pitch*.5;
+          out.push('<rect data-rowsep="'+s.id+'|'+idx+'" x="'+(-hw)+'" y="'+yIn+'" width="'+(2*hw)+'" height="'+(s.rowGap - s.pitch)+'" transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" style="'+css+';cursor:pointer"/>');
+        }
+      });
+      return out.join('');
     }
     function bboxAny(o){
       if(o.kind) return bboxOf(o);
@@ -416,7 +461,7 @@
           });
           // Nombre del sector también en el nivel MEDIO (en el cercano lo da el tooltip).
           if(s.kind==='arc'){
-            var midB=(s.dir)*R, rOutB=s.r0+(s.rows-1)*s.rowGap+s.pitch*1.8;
+            var midB=(s.dir)*R, rOutB=s.r0+(s.rows-1)*s.rowGap+totalSep(s)+s.pitch*1.8;
             g.push('<text x="'+(s.cx+rOutB*Math.cos(midB))+'" y="'+(s.cy+rOutB*Math.sin(midB))+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(s.pitch*1.15)+'px system-ui;fill:#5b6673;pointer-events:none">'+esc(s.name||'')+'</text>');
           } else {
             var goB=gridOutline(s);
@@ -425,6 +470,7 @@
           g.push('</g>');
           out.push(g.join(''));
           out.push(stairBandSvg(s, scale));
+          out.push(rowSepSvg(s, scale));
         } else {
           var size = s.pitch*.86, half=size/2, showNum = pitchPx>=15, showRowLbl = pitchPx>=13;
           var g2=['<g data-sec="'+s.id+'">'];
@@ -482,6 +528,7 @@
           g2.push('</g>');
           out.push(g2.join(''));
           out.push(stairBandSvg(s, scale));
+          out.push(rowSepSvg(s, scale));
         }
       });
 
@@ -587,6 +634,7 @@
         html += '<h6 class="vmap-h">Gradas y zonas</h6><div class="vmap-tools">'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="arc">+ Grada curva</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="grid">+ Grada recta</button>'+
+          '<button type="button" class="btn btn-sm '+(drawArm?'btn-primary':'btn-outline-secondary')+'" data-add="draw" title="Actívalo y ARRASTRA en el plano: según arrastras se van añadiendo butacas y filas">✏ Dibujar grada</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="box">+ Palco</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="floor">+ Zona de pie</button></div>';
         html += '<h6 class="vmap-h">Pista</h6><div class="vmap-tools">'+
@@ -606,9 +654,9 @@
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="door">+ Puerta de acceso</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="stair">+ Escalera suelta</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="rail">+ Barandilla</button></div>';
-        html += '<h6 class="vmap-h">Retoques por butaca <i class="fa fa-circle-info text-muted" title="Activa una herramienta y pincha una butaca del plano (acércate hasta ver las butacas). Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = pasillo que parte el sector de arriba abajo. Pincha un retoque ya puesto para quitarlo."></i></h6>'+
+        html += '<h6 class="vmap-h">Retoques por butaca <i class="fa fa-circle-info text-muted" title="Activa una herramienta y pincha una butaca del plano (acércate hasta ver las butacas). Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical que parte el sector; Pasillo = hueco HORIZONTAL entre esa fila y la siguiente; № = cambiar el número de una butaca (o de varias seguidas, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
           '<div class="vmap-tools" data-tool-chips>'+
-          toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+'</div>';
+          toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
 
         var s = sections.find(function(x){return x.id===selId;});
         var el = elements.find(function(x){return x.id===selId;});
@@ -635,7 +683,7 @@
             var nm = numOf(s);
             html += '<div class="vmap-numrow"><label>Butacas</label>'+
               '<input type="number" class="form-control form-control-sm" data-p="num_start" value="'+nm.start+'" min="0" title="Primera butaca">'+
-              '<select class="form-select form-select-sm" data-p="num_step"><option value="1"'+(nm.step===1?' selected':'')+'>1,2,3…</option><option value="2"'+(nm.step===2?' selected':'')+'>pares/impares</option></select>'+
+              '<select class="form-select form-select-sm" data-p="num_mode" title="Numeración de las butacas"><option value="seq"'+(nm.mode==='seq'?' selected':'')+'>Consecutivos</option><option value="odd"'+(nm.mode==='odd'?' selected':'')+'>Impares</option><option value="even"'+(nm.mode==='even'?' selected':'')+'>Pares</option></select>'+
               '<select class="form-select form-select-sm" data-p="num_dir"><option value="ltr"'+(nm.dir==='ltr'?' selected':'')+'>Izq → der</option><option value="rtl"'+(nm.dir==='rtl'?' selected':'')+'>Der → izq</option></select></div>';
             html += '<div class="vmap-numrow"><label>Filas</label>'+
               '<select class="form-select form-select-sm" data-p="rowScheme"><option value="num"'+((s.rowScheme||'num')==='num'?' selected':'')+'>1, 2, 3…</option><option value="alpha"'+(s.rowScheme==='alpha'?' selected':'')+'>A, B, C…</option></select>'+
@@ -751,10 +799,10 @@
       var o = sections.find(function(x){return x.id===selId;}) || elements.find(function(x){return x.id===selId;});
       if(!o) return;
       pushUndo('param:'+selId+':'+p);   // una entrada por gesto de slider/campo (coalescida)
-      if(p==='num_start'||p==='num_step'||p==='num_dir'){
+      if(p==='num_start'||p==='num_mode'||p==='num_dir'){
         o.num = o.num || {};
         if(p==='num_start'){ var v0=parseInt(e.target.value,10); o.num.start = isNaN(v0)?1:v0; }  // 0 es válido
-        else if(p==='num_step') o.num.step = parseInt(e.target.value,10)||1;
+        else if(p==='num_mode'){ o.num.mode = e.target.value; o.num.step = (e.target.value==='seq'?1:2); }
         else o.num.dir = e.target.value;
       } else if(p==='rowScheme' || p==='gapPolicy'){
         o[p] = e.target.value;
@@ -801,6 +849,7 @@
         var id='c'+(nextId+=1);
         var nc={id:id, name:nm2, color:col2, kind:'otros'}; cats.push(nc); catById[id]=nc; activeCat=id; renderSide(); return;
       }
+      if(add && add.dataset.add==='draw'){ drawArm = !drawArm; tool = null; renderSide(); return; }
       if(add){
         pushUndo('add');
         var kind = add.dataset.add;
@@ -864,6 +913,34 @@
       if(delWasStage) invalidate(); else invalidate(selId);
       selId=null; renderSide(); markSummary();
     }
+    /* ================= Copiar / pegar (Ctrl+C/V y botón derecho) ================= */
+    var clipboard = null;      // {kind:'section'|'element', data:{...}} — portapapeles interno del mapa
+    var lastPtr = null;        // última posición del puntero en coordenadas de MUNDO (para pegar ahí)
+    function copySelected(){
+      if(!selId) return false;
+      var o = sections.find(function(x){return x.id===selId;});
+      if(o){ clipboard={kind:'section', data:JSON.parse(JSON.stringify(o))}; return true; }
+      var el2 = elements.find(function(x){return x.id===selId;});
+      if(el2){ clipboard={kind:'element', data:JSON.parse(JSON.stringify(el2))}; return true; }
+      return false;
+    }
+    function pasteClipboard(atW){
+      if(!clipboard) return;
+      pushUndo('paste');
+      var c = JSON.parse(JSON.stringify(clipboard.data));
+      c.id = nid(clipboard.kind==='section' ? 's' : 'e');
+      var px2 = atW || lastPtr || {x:view.x+view.w/2, y:view.y+view.h/2};
+      if(c.kind==='arc'){
+        // El arco se pega desplazando su centro para que el CENTRO DEL SECTOR caiga en el puntero.
+        var rMid = c.r0 + (c.rows-1)*c.rowGap/2, mid=(c.dir)*R;
+        var curX = c.cx + rMid*Math.cos(mid), curY = c.cy + rMid*Math.sin(mid);
+        c.cx += px2.x-curX; c.cy += px2.y-curY;
+      } else { c.x = px2.x; c.y = px2.y; }
+      (clipboard.kind==='section' ? sections : elements).push(c);
+      selId = c.id;
+      if(c.type==='stage') invalidate();
+      renderSide(); markSummary();
+    }
     if(canEdit){
       var ub = undoBtn();
       if(ub) ub.addEventListener('click', function(){ undo(); });
@@ -872,7 +949,44 @@
         var a = document.activeElement;
         if(a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA' || a.tagName==='SELECT' || a.isContentEditable)) return;
         if((e.key==='z' || e.key==='Z') && (e.ctrlKey || e.metaKey)){ e.preventDefault(); undo(); return; }
+        if((e.key==='c' || e.key==='C') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && copySelected()) e.preventDefault(); return; }
+        if((e.key==='v' || e.key==='V') && (e.ctrlKey || e.metaKey)){ if(mode==='design' && clipboard){ e.preventDefault(); pasteClipboard(); } return; }
         if((e.key==='Delete' || e.key==='Backspace') && mode==='design' && selId){ e.preventDefault(); deleteSelected(); }
+      });
+      // Menú contextual (botón derecho / pulsación larga del trackpad): Copiar / Pegar / Duplicar / Eliminar.
+      var ctx = document.createElement('div');
+      ctx.className = 'vmap-ctx';
+      host.querySelector('.vmap-canvas').appendChild(ctx);
+      function hideCtx(){ ctx.style.display='none'; }
+      document.addEventListener('pointerdown', function(ev){ if(!ctx.contains(ev.target)) hideCtx(); }, true);
+      svg.addEventListener('contextmenu', function(ev){
+        if(mode!=='design') return;
+        ev.preventDefault();
+        var secC = ev.target.closest('[data-sec]'), elC = ev.target.closest('[data-el]');
+        var hitId = secC ? secC.getAttribute('data-sec') : (elC ? elC.getAttribute('data-el') : null);
+        if(hitId){ selId = hitId; renderSide(); queueRender(); }
+        lastPtr = client2world(ev.clientX, ev.clientY);
+        var items = '';
+        if(hitId){
+          items += '<button type="button" data-ctx="copy"><i class="fa fa-copy fa-fw me-1"></i>Copiar</button>'+
+                   '<button type="button" data-ctx="dup"><i class="fa fa-clone fa-fw me-1"></i>Duplicar</button>'+
+                   '<button type="button" data-ctx="del" class="text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>';
+        }
+        items += '<button type="button" data-ctx="paste"'+(clipboard?'':' disabled')+'><i class="fa fa-paste fa-fw me-1"></i>Pegar aquí</button>';
+        ctx.innerHTML = items;
+        var wrap = host.querySelector('.vmap-canvas').getBoundingClientRect();
+        ctx.style.left = Math.min(ev.clientX-wrap.left, wrap.width-170)+'px';
+        ctx.style.top = Math.min(ev.clientY-wrap.top, wrap.height-150)+'px';
+        ctx.style.display = 'flex';
+      });
+      ctx.addEventListener('click', function(ev){
+        var b = ev.target.closest('[data-ctx]'); if(!b) return;
+        var act2 = b.getAttribute('data-ctx');
+        hideCtx();
+        if(act2==='copy'){ copySelected(); }
+        else if(act2==='paste'){ pasteClipboard(lastPtr); }
+        else if(act2==='del'){ deleteSelected(); }
+        else if(act2==='dup'){ if(copySelected()) pasteClipboard({x:(lastPtr?lastPtr.x:view.x+view.w/2)+120, y:(lastPtr?lastPtr.y:view.y+view.h/2)+60}); }
       });
     }
 
@@ -896,6 +1010,14 @@
         var frac = parseFloat(seatEl.getAttribute('data-frac')||'0.5');
         s.stairs = s.stairs || [];
         s.stairs.push({at: Math.round(frac*1000)/1000, w: 1.2});
+        invalidate(s.id); markSummary(); renderSide(); return true;
+      }
+      if(tool==='rowsep'){
+        // PASILLO horizontal: hueco entre esta fila y la siguiente (en la última fila, delante).
+        var rI = parseInt(rowIdx,10);
+        var sepAt = Math.min(rI, Math.max(1, (s.rows|0)-1));
+        s.rowSeps = s.rowSeps || [];
+        if(s.rowSeps.indexOf(sepAt)===-1){ s.rowSeps.push(sepAt); s.rowSeps.sort(function(a,b){return a-b;}); }
         invalidate(s.id); markSummary(); renderSide(); return true;
       }
       s.mods = s.mods || {};
@@ -922,6 +1044,49 @@
       pushUndo('stair-del');
       s.stairs.splice(parseInt(parts[1],10), 1);
       invalidate(s.id); markSummary(); renderSide();
+    }
+    function removeRowSep(el){
+      var parts = (el.getAttribute('data-rowsep')||'').split('|');
+      var s = sections.find(function(x){return x.id===parts[0];});
+      if(!s || !s.rowSeps) return;
+      pushUndo('rowsep-del');
+      s.rowSeps.splice(parseInt(parts[1],10), 1);
+      invalidate(s.id); markSummary(); renderSide();
+    }
+    // Números a mano tras un barrido con la herramienta №: una butaca = número exacto; varias =
+    // número inicial y se numeran SEGUIDAS en el orden del barrido (respetando pares/impares).
+    function applyRenum(seq){
+      if(!seq.length) return;
+      var p0 = seq[0].split('|'); var s = sections.find(function(x){return x.id===p0[0];});
+      if(!s) return;
+      var seatEl0 = document.querySelector('[data-seat="'+seq[0]+'"]');
+      if(seq.length===1){
+        var kOv = p0[1]+'|'+p0[2];
+        var cur = (s.numOverrides||{})[kOv];
+        if(cur==null) cur = (seatEl0 && seatEl0.getAttribute('data-n')) || '';
+        var nv = window.prompt('Número para esta butaca (vacío = volver al automático):', cur);
+        if(nv===null) return;
+        pushUndo('renum');
+        s.numOverrides = s.numOverrides || {};
+        if(String(nv).trim()==='') delete s.numOverrides[kOv]; else s.numOverrides[kOv]=String(nv).trim();
+      } else {
+        var nv2 = window.prompt('Número INICIAL para las '+seq.length+' butacas barridas (se numeran seguidas; vacío = volver al automático):', '');
+        if(nv2===null) return;
+        pushUndo('renum');
+        var empty = String(nv2).trim()==='';
+        var stepR = numOf(s).step;
+        var counter = parseInt(nv2,10);
+        seq.forEach(function(k){
+          var pp = k.split('|');
+          var sK = sections.find(function(x){return x.id===pp[0];});
+          if(!sK) return;
+          sK.numOverrides = sK.numOverrides || {};
+          if(empty || isNaN(counter)){ delete sK.numOverrides[pp[1]+'|'+pp[2]]; }
+          else { sK.numOverrides[pp[1]+'|'+pp[2]] = String(counter); counter += stepR; }
+          invalidate(sK.id);
+        });
+      }
+      invalidate(s.id); renderSide(); queueRender();
     }
 
     /* ================= Asignación de categorías ================= */
@@ -1082,11 +1247,28 @@
       if(mode==='design' && canEdit && rzEl){
         var rzId=rzEl.getAttribute('data-resize');
         var rzObj2=sections.find(function(x){return x.id===rzId;})||elements.find(function(x){return x.id===rzId;});
-        if(rzObj2){ drag={kind:'resize', obj:rzObj2, w0:w, o0:{w:rzObj2.w, h:rzObj2.h}}; return; }
+        if(rzObj2){ drag={kind:'resize', obj:rzObj2, w0:w, o0:{w:rzObj2.w, h:rzObj2.h, x:rzObj2.x, y:rzObj2.y}}; return; }
+      }
+      if(mode==='design' && canEdit && drawArm){
+        // DIBUJAR GRADA: pincha y arrastra — según arrastras se van añadiendo butacas y filas.
+        pushUndo('draw');
+        var nd={id:nid('s'), kind:'grid', name:'Grada nueva', x:w.x, y:w.y, rot:0, rows:1, cols:2, pitch:26, rowGap:30};
+        sections.push(nd); selId=nd.id;
+        drag={kind:'drawsec', obj:nd, w0:w};
+        renderSide(); queueRender();
+        return;
       }
       if(mode==='design' && canEdit && tool){
-        // Herramienta de retoque activa: pinchar butacas aplica; pinchar franja de escalera la quita.
+        // Herramienta de retoque activa: pinchar butacas aplica; pinchar un retoque puesto lo quita.
         if(tool==='stair' && stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
+        var rowsepEl=e.target.closest('[data-rowsep]');
+        if(tool==='rowsep' && rowsepEl){ removeRowSep(rowsepEl); drag={kind:'none'}; return; }
+        if(tool==='renum' && seatEl){
+          // El № se decide al SOLTAR: una butaca = número exacto; barriendo varias = seguidas.
+          var kR=seatEl.getAttribute('data-seat');
+          drag={kind:'renumdrag', seq:[kR], done:{}}; drag.done[kR]=1;
+          return;
+        }
         if(seatEl && applyTool(seatEl)){
           drag={kind:'tooldrag', done:{}};
           drag.done[seatEl.getAttribute('data-seat')]=1;   // la primera ya está aplicada
@@ -1141,6 +1323,7 @@
       }
     });
     svg.addEventListener('pointermove', function(e){
+      lastPtr = client2world(e.clientX, e.clientY);   // para «Pegar aquí» y Ctrl+V
       if(pointers[e.pointerId]) pointers[e.pointerId]={x:e.clientX,y:e.clientY};
       var ids=Object.keys(pointers);
       if(pinch0 && ids.length===2){
@@ -1173,14 +1356,19 @@
         view.y=drag.v0.y-(e.clientY-drag.c0.y)/s2;
         queueRender();
       } else if(drag.kind==='resize'){
-        // Redimensionar por la esquina: el delta del puntero se proyecta a los EJES LOCALES del
-        // objeto (por si está rotado); crece hacia ambos lados porque está centrado.
+        // Redimensionar por la esquina: SOLO crece/encoge hacia donde arrastras (el lado opuesto
+        // queda FIJO, nada de escalar desde el centro). El delta se proyecta a los ejes locales
+        // del objeto (por si está rotado) y el centro se desplaza la mitad para anclar la esquina
+        // contraria.
         var wr=client2world(e.clientX,e.clientY), o5=drag.obj;
         if(!drag.pushed){ pushUndo('resize:'+(o5.id||'')); drag.pushed=true; }
         var rr=(o5.rot||0)*R, dxr=wr.x-drag.w0.x, dyr=wr.y-drag.w0.y;
         var dxl=dxr*Math.cos(rr)+dyr*Math.sin(rr), dyl=-dxr*Math.sin(rr)+dyr*Math.cos(rr);
-        o5.w=Math.max(20, drag.o0.w+2*dxl);
-        o5.h=Math.max(8, drag.o0.h+2*dyl);
+        var nw=Math.max(20, drag.o0.w+dxl), nh=Math.max(8, drag.o0.h+dyl);
+        var gw=(nw-drag.o0.w)/2, gh=(nh-drag.o0.h)/2;   // el centro acompaña a la esquina arrastrada
+        o5.w=nw; o5.h=nh;
+        o5.x=drag.o0.x + gw*Math.cos(rr) - gh*Math.sin(rr);
+        o5.y=drag.o0.y + gw*Math.sin(rr) + gh*Math.cos(rr);
         queueRender();
       } else if(drag.kind==='move'){
         var w2=client2world(e.clientX,e.clientY), dx=w2.x-drag.w0.x, dy=w2.y-drag.w0.y, o=drag.obj;
@@ -1208,6 +1396,21 @@
         if(drag.done[k]) return;                          // una vez por butaca y gesto (sin parpadeo)
         drag.done[k] = 1;
         applyTool(se);
+      } else if(drag.kind==='drawsec'){
+        // La grada crece hacia donde arrastres: columnas y filas según la distancia recorrida.
+        var wd=client2world(e.clientX,e.clientY), od=drag.obj;
+        var dxd=wd.x-drag.w0.x, dyd=wd.y-drag.w0.y;
+        od.cols=Math.max(2, Math.round(Math.abs(dxd)/od.pitch)+1);
+        od.rows=Math.max(1, Math.round(Math.abs(dyd)/od.rowGap)+1);
+        od.x=drag.w0.x+dxd/2; od.y=drag.w0.y+dyd/2;   // crece desde el punto inicial hacia el arrastre
+        invalidate(od.id); queueRender();
+      } else if(drag.kind==='renumdrag'){
+        var underR = document.elementFromPoint(e.clientX, e.clientY);
+        var seR = underR && underR.closest ? underR.closest('[data-seat]') : null;
+        if(seR && seR.getAttribute('data-kind')==='seat'){
+          var kR2 = seR.getAttribute('data-seat');
+          if(!drag.done[kR2]){ drag.done[kR2]=1; drag.seq.push(kR2); }
+        }
       } else if(drag.kind==='secdrag'){
         // Selección por ZONAS: cada sector que el arrastre toca se marca entero (una sola vez).
         var underS = document.elementFromPoint(e.clientX, e.clientY);
@@ -1231,6 +1434,19 @@
     function endPointer(e){
       delete pointers[e.pointerId];
       if(Object.keys(pointers).length<2) pinch0=null;
+      if(drag && drag.kind==='drawsec'){
+        // Fin del dibujo: si apenas se arrastró, se descarta; si no, queda seleccionada para afinar.
+        var od2 = drag.obj; drag=null; drawArm=false;
+        if(od2.cols<2 && od2.rows<2){ sections=sections.filter(function(x){return x.id!==od2.id;}); undoStack.pop(); selId=null; }
+        renderSide(); markSummary();
+        return;
+      }
+      if(drag && drag.kind==='renumdrag'){
+        var seqR = drag.seq.slice(); drag=null;
+        applyRenum(seqR);
+        chip.style.display='none'; clearLasso(); queueRender();
+        return;
+      }
       if(drag && drag.kind==='secmaybe' && drag.sec){
         // Clic corto sobre el sector (no llegó a arrastre), solo de lejos: seleccionar o pintar entero.
         if(drag.far){

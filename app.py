@@ -37431,7 +37431,7 @@ def media_gallery_view():
             .all()
         )
         promo_map = _photo_promoter_map(s, photos)
-        appr_map = _photo_approval_map(s, photos)
+        appr_map = _photo_approval_map(s, [p.id for p in photos])
         # Agrupar por artista (o «Sin artista»); dentro, por dueño (actividad).
         artists_by_id = {}
         groups = {}   # artist_key -> {artist, owners: {(ot,oid): {title,type_label,type_icon,url,date,photos[]}}}

@@ -98,6 +98,12 @@
           '</symbol></defs><g data-vm-world></g></svg>' +
           '<div class="vmap-tip" data-vm-tip></div>' +
           '<div class="vmap-chip" data-vm-chip></div>' +
+          '<div class="vmap-selpop" data-vm-selpop>' +
+            '<div class="vmap-selpop-head"><b><span data-selpop-n>0</span> butacas</b>' +
+            '<button type="button" class="vmap-selpop-x" data-selpop-clear title="Vaciar selección">✕</button></div>' +
+            '<div class="vmap-selpop-hint">Arrastra esta tarjeta hasta una categoría (o pincha una) para asignarlas.</div>' +
+            '<button type="button" class="btn btn-sm btn-outline-secondary w-100 mt-1" data-selpop-unassign>Quitar su categoría</button>' +
+          '</div>' +
         '</div>' +
         (canEdit ? '<div class="vmap-side" data-vm-side></div>' : '') +
       '</div>' +
@@ -113,7 +119,8 @@
     var view = {x:-1700, y:-1500, w:3400, h:3000};
     var mode = 'design';         // design | cats
     var tool = null;             // diseño: gap | off | stair (retoques) — null = seleccionar/mover
-    var catTool = 'paint';       // categorías: paint | count | erase
+    var catTool = 'select';      // categorías: select | paint | count | erase
+    var sel = {};                // SELECCIÓN de butacas (keys) — popup flotante con el total
     var activeCat = cats.length ? cats[0].id : null;
     var selId = null;
     var raf = null;
@@ -332,7 +339,8 @@
             var runs=[], cur=null;
             row.seats.forEach(function(p){
               if(p.state==='stair' || p.state==='gap'){ cur=null; return; }
-              var col = (p.state==='off') ? '#d7dbe2' : (catColor(s.id+'|'+row.rowIdx+'|'+p.slot) || '#c3ccd6');
+              var kSel = s.id+'|'+row.rowIdx+'|'+p.slot;
+              var col = sel[kSel] ? '#e0a800' : ((p.state==='off') ? '#d7dbe2' : (catColor(kSel) || '#c3ccd6'));
               if(cur && cur.col===col){ cur.pts.push(p); } else { cur={col:col, pts:[p]}; runs.push(cur); }
             });
             runs.forEach(function(run){
@@ -381,6 +389,7 @@
               var fill = isOff ? '#d7dbe2' : (col ? col+'22' : '#effaf2');
               var stroke = isOff ? '#c3c9d2' : (col || '#cfe4d6');
               var ink = isOff ? '#7b838f' : (col || '#16803a');
+              if(sel[key]){ fill='#ffdf7e'; stroke='#e0a800'; ink='#7a5b00'; }   // seleccionada (staging)
               g2.push('<g data-seat="'+key+'" data-kind="'+p.state+'" data-n="'+(p.n!=null?p.n:'')+'" data-frac="'+p.frac.toFixed(4)+'" transform="translate('+p.x+' '+p.y+') rotate('+p.a.toFixed(1)+')" style="cursor:pointer">'+
                 '<rect x="'+(-half)+'" y="'+(-half)+'" width="'+size+'" height="'+size+'" rx="'+(size*.24)+'" style="fill:'+fill+';stroke:'+stroke+';stroke-width:'+(size*.05)+'"/>'+
                 '<use href="#vmSeatIcon" x="'+(-size*.30)+'" y="'+(-size*.34)+'" width="'+(size*.6)+'" height="'+(size*.45)+'" style="fill:'+ink+'"/>'+
@@ -479,7 +488,8 @@
       if(mode==='design'){
         if(!sections.length && !elements.length){
           html += '<h6 class="vmap-h">Empezar con plantilla</h6><div class="vmap-tools">'+
-            '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="arena">Arena (anillo + pista)</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="plaza">Plaza de toros</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="arena">Arena (rectangular)</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-tpl="teatro">Teatro (abanico)</button></div>';
         }
         html += '<h6 class="vmap-h">Gradas y zonas</h6><div class="vmap-tools">'+
@@ -567,6 +577,7 @@
       } else {
         /* -------- modo Categorías -------- */
         html += '<h6 class="vmap-h">Herramienta</h6><div class="vmap-seg vmap-seg--full">'+
+          '<button type="button" class="'+(catTool==='select'?'on':'')+'" data-cat-tool="select">▢ Seleccionar</button>'+
           '<button type="button" class="'+(catTool==='paint'?'on':'')+'" data-cat-tool="paint">🖌 Pintar</button>'+
           '<button type="button" class="'+(catTool==='count'?'on':'')+'" data-cat-tool="count">☝ Contar</button>'+
           '<button type="button" class="'+(catTool==='erase'?'on':'')+'" data-cat-tool="erase">⌫ Quitar</button></div>';
@@ -576,7 +587,7 @@
         html += '<div class="vmap-addcat"><input type="text" class="form-control form-control-sm" data-nc-name placeholder="Nueva categoría"><input type="color" data-nc-color value="#0891b2"><button type="button" class="btn btn-sm btn-outline-secondary" data-nc-add>+</button></div>'+
                 '<div class="text-danger small mt-1" data-nc-warn style="display:none">Ese color se parece demasiado a otra categoría.</div>';
         html += '<h6 class="vmap-h">Resumen</h6><div class="vmap-summary" data-vm-summary></div>';
-        html += '<p class="text-muted small mt-2 mb-0"><b>Pintar</b>: pincha una butaca o arrastra un recuadro; de lejos, el clic pinta el sector entero (las zonas de pie se pintan enteras). <b>Contar</b>: arrastra y verás cuántas butacas abarcas sin asignar nada. <b>Quitar</b>: igual que pintar, pero libera.</p>';
+        html += '<p class="text-muted small mt-2 mb-0"><b>Seleccionar</b>: pincha o barre butacas (de lejos, el sector entero) y verás el TOTAL en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. <b>Pintar</b>: aplica la categoría activa directamente. <b>Contar</b>: solo muestra cuántas abarcas. <b>Quitar</b>: libera.</p>';
       }
       side.innerHTML = html;
       if(mode==='cats') renderSummaryCounts();
@@ -614,17 +625,29 @@
       if(!canEdit){ h.innerHTML = 'Arrastra para desplazarte; rueda o pellizco para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       h.innerHTML = mode==='design'
         ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda o pellizco para zoom.'
-        : '<b>Categorías:</b> elige categoría y pinta butacas (clic o recuadro; de lejos, el sector entero). «Contar» muestra cuántas butacas abarcas sin tocar nada.';
+        : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
     }
 
     /* ================= Plantillas ================= */
-    function tplArena(){
+    function tplPlaza(){
+      // Plaza de toros: ruedo circular completo de tendidos alrededor de la pista.
       var i, n=11, step=28, start=-140;
-      for(i=0;i<n;i++) sections.push({id:nid('s'), kind:'arc', name:'Sector 1'+String(i+1).padStart(2,'0'), cx:0, cy:0, r0:950, span:24, dir:start+i*step, rows:10, rowGap:30, pitch:26});
-      sections.push({id:nid('s'), kind:'floor', name:'Pista', x:60, y:0, w:540, h:640, rot:0, cap:2000});
-      elements.push({id:nid('e'), type:'outline', label:'', x:0, y:0, w:3600, h:3200, corner:70, rot:0});
+      for(i=0;i<n;i++) sections.push({id:nid('s'), kind:'arc', name:'Tendido '+(i+1), cx:0, cy:0, r0:950, span:24, dir:start+i*step, rows:10, rowGap:30, pitch:26});
+      sections.push({id:nid('s'), kind:'floor', name:'Ruedo', x:60, y:0, w:540, h:640, rot:0, cap:2000});
+      elements.push({id:nid('e'), type:'outline', label:'', x:0, y:0, w:3600, h:3200, corner:100, rot:0});
       elements.push({id:nid('e'), type:'stage', label:'ESCENARIO', x:-810, y:0, w:220, h:560, rot:0});
       elements.push({id:nid('e'), type:'mix', label:'MIX', x:390, y:0, w:110, h:110, rot:0});
+    }
+    function tplArena(){
+      // Arena RECTANGULAR: gradas rectas en 3 lados (los dos largos + el ancho del fondo);
+      // el escenario ocupa el otro lado ancho y la pista queda en el centro.
+      sections.push({id:nid('s'), kind:'grid', name:'Grada Norte', x:-100, y:-760, rot:0,   rows:10, cols:44, pitch:26, rowGap:30});
+      sections.push({id:nid('s'), kind:'grid', name:'Grada Sur',   x:-100, y:760,  rot:0,   rows:10, cols:44, pitch:26, rowGap:30});
+      sections.push({id:nid('s'), kind:'grid', name:'Grada Fondo', x:900,  y:0,    rot:90,  rows:10, cols:30, pitch:26, rowGap:30});
+      sections.push({id:nid('s'), kind:'floor', name:'Pista', x:-150, y:0, w:1150, h:820, rot:0, cap:3000});
+      elements.push({id:nid('e'), type:'outline', label:'', x:0, y:0, w:3100, h:2300, corner:22, rot:0});
+      elements.push({id:nid('e'), type:'stage', label:'ESCENARIO', x:-1060, y:0, w:220, h:620, rot:0});
+      elements.push({id:nid('e'), type:'mix', label:'MIX', x:310, y:0, w:110, h:110, rot:0});
     }
     function tplTeatro(){
       sections.push({id:nid('s'), kind:'arc', name:'Patio de butacas', cx:0, cy:-620, r0:640, span:78, dir:90, rows:16, rowGap:32, pitch:26, rowScheme:'alpha'});
@@ -661,10 +684,15 @@
       var tpl=e.target.closest('[data-tpl]'), add=e.target.closest('[data-add]'), act=e.target.closest('[data-act]');
       var tch=e.target.closest('[data-tool]'), ctl=e.target.closest('[data-cat-tool]'), cat=e.target.closest('[data-cat]');
       var cxw=view.x+view.w/2, cyw=view.y+view.h/2;
-      if(tpl){ if(tpl.dataset.tpl==='arena') tplArena(); else tplTeatro(); selId=null; invalidate(); renderSide(); fitAll(); return; }
+      if(tpl){ ({plaza: tplPlaza, arena: tplArena, teatro: tplTeatro}[tpl.dataset.tpl] || tplArena)(); selId=null; invalidate(); renderSide(); fitAll(); return; }
       if(tch){ tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); return; }
-      if(ctl){ catTool = ctl.dataset.catTool; renderSide(); return; }
-      if(cat){ activeCat = cat.dataset.cat; renderSide(); return; }
+      if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
+      if(cat){
+        activeCat = cat.dataset.cat;
+        // Con selección activa, pinchar una categoría ASIGNA la selección (equivale a soltar la tarjeta).
+        if(catTool==='select' && selCount()) assignSelectionTo(activeCat);
+        renderSide(); return;
+      }
       if(e.target.closest('[data-nc-add]')){
         var nmI=side.querySelector('[data-nc-name]'), colI=side.querySelector('[data-nc-color]'), warn=side.querySelector('[data-nc-warn]');
         var nm2=(nmI.value||'').trim(), col2=colI.value;
@@ -735,7 +763,7 @@
     /* ================= Modo (Diseñar / Categorías) ================= */
     host.querySelectorAll('[data-vm-mode]').forEach(function(b){
       b.addEventListener('click', function(){
-        mode = b.dataset.vmMode; tool = null; selId = null;
+        mode = b.dataset.vmMode; tool = null; selId = null; clearSel();
         host.querySelectorAll('[data-vm-mode]').forEach(function(x){ x.classList.toggle('on', x===b); });
         setHint(); renderSide(); queueRender();
       });
@@ -794,6 +822,84 @@
       }); });
       markSummary();
     }
+    /* ===== Selección con TARJETA FLOTANTE (pop-up con el total, arrastrable a una categoría) ===== */
+    var selpop = host.querySelector('[data-vm-selpop]');
+    function selCount(){ return Object.keys(sel).length; }
+    function updateSelPop(nearX, nearY){
+      if(!selpop) return;
+      var n = selCount();
+      var nEl = selpop.querySelector('[data-selpop-n]'); if(nEl) nEl.textContent = n.toLocaleString('es-ES');
+      selpop.classList.toggle('show', n>0 && mode==='cats' && catTool==='select');
+      // La tarjeta sigue a la selección hasta que el usuario la mueva a mano.
+      if(n>0 && nearX!=null && !selpop.dataset.userMoved){
+        var wrap = selpop.parentElement.getBoundingClientRect();
+        selpop.style.left = Math.min(Math.max(nearX-wrap.left+16, 8), wrap.width-200)+'px';
+        selpop.style.top  = Math.min(Math.max(nearY-wrap.top-16, 8), wrap.height-130)+'px';
+      }
+    }
+    function clearSel(){ sel={}; if(selpop) delete selpop.dataset.userMoved; updateSelPop(); queueRender(); }
+    function assignSelectionTo(cid){
+      Object.keys(sel).forEach(function(k){ if(cid==null){ delete assign[k]; } else { assign[k]=cid; } });
+      clearSel(); markSummary();
+    }
+    function toggleSel(seatEl, e){
+      var key = seatEl.getAttribute('data-seat');
+      if(!key || seatEl.getAttribute('data-kind')!=='seat') return;
+      if(sel[key]) delete sel[key]; else sel[key]=1;
+      updateSelPop(e && e.clientX, e && e.clientY); queueRender();
+    }
+    function selectSection(s, e){
+      if(s.kind==='floor') return;   // las zonas de pie se pintan enteras con Pintar
+      secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
+        if(p.state==='seat') sel[s.id+'|'+row.rowIdx+'|'+p.slot]=1;
+      }); });
+      updateSelPop(e && e.clientX, e && e.clientY); queueRender();
+    }
+    if(selpop){
+      selpop.addEventListener('click', function(e){
+        if(e.target.closest('[data-selpop-clear]')){ clearSel(); return; }
+        if(e.target.closest('[data-selpop-unassign]')){ assignSelectionTo(null); return; }
+      });
+      // Arrastrar la tarjeta hasta una categoría del panel = asignar la selección a esa categoría.
+      var dragPop = null;
+      selpop.addEventListener('pointerdown', function(e){
+        if(e.target.closest('button')) return;
+        try{ selpop.setPointerCapture(e.pointerId); }catch(_){}
+        var r = selpop.getBoundingClientRect();
+        dragPop = {dx: e.clientX-r.left, dy: e.clientY-r.top};
+        selpop.classList.add('dragging');
+        e.preventDefault();
+      });
+      function underPop(x, y){
+        // La tarjeta va pegada al puntero: hay que apartarla un instante para ver qué hay debajo.
+        var prev = selpop.style.visibility;
+        selpop.style.visibility = 'hidden';
+        var el = document.elementFromPoint(x, y);
+        selpop.style.visibility = prev || '';
+        return el;
+      }
+      selpop.addEventListener('pointermove', function(e){
+        if(!dragPop) return;
+        var wrap = selpop.parentElement.getBoundingClientRect();
+        selpop.dataset.userMoved = '1';
+        selpop.style.left = (e.clientX-wrap.left-dragPop.dx)+'px';
+        selpop.style.top = (e.clientY-wrap.top-dragPop.dy)+'px';
+        var under = underPop(e.clientX, e.clientY);
+        var cat = under && under.closest ? under.closest('.vmap-cat') : null;
+        host.querySelectorAll('.vmap-cat').forEach(function(c){ c.classList.toggle('drop-hint', c===cat); });
+      });
+      function popUp(e){
+        if(!dragPop) return;
+        dragPop = null; selpop.classList.remove('dragging');
+        var under = underPop(e.clientX, e.clientY);
+        var cat = under && under.closest ? under.closest('.vmap-cat') : null;
+        host.querySelectorAll('.vmap-cat').forEach(function(c){ c.classList.remove('drop-hint'); });
+        if(cat && selCount()){ activeCat = cat.dataset.cat; assignSelectionTo(cat.dataset.cat); renderSide(); }
+      }
+      selpop.addEventListener('pointerup', popUp);
+      selpop.addEventListener('pointercancel', function(){ dragPop=null; selpop.classList.remove('dragging'); });
+    }
+
     function eachSeatInRect(a, b, fn){
       var x0=Math.min(a.x,b.x), x1=Math.max(a.x,b.x), y0=Math.min(a.y,b.y), y1=Math.max(a.y,b.y);
       sections.forEach(function(s){
@@ -864,6 +970,17 @@
       }
       if(mode==='cats' && canEdit){
         if(catTool==='count'){ drag={kind:'lasso', w0:w}; return; }
+        if(catTool==='select'){
+          if(seatEl){ toggleSel(seatEl, e); drag={kind:'seldrag'}; return; }
+          if(secEl){
+            var sSel=sections.find(function(x){return x.id===secEl.getAttribute('data-sec');});
+            var farSel = sSel && sSel.kind!=='floor' ? (sSel.pitch*px() < 9.5) : false;
+            drag={kind:'secmaybe', sec:(sSel?sSel.id:null), far:farSel, select:true, c0:{x:e.clientX,y:e.clientY}, w0:w};
+            return;
+          }
+          drag={kind:'pan', c0:{x:e.clientX,y:e.clientY}, v0:JSON.parse(JSON.stringify(view))};
+          return;
+        }
         if(seatEl){ paintSeat(seatEl); drag={kind:'paintdrag'}; return; }
         if(secEl){
           // Sobre un sector: CLIC corto pinta el sector ENTERO — pero solo de lejos (LOD sin
@@ -926,13 +1043,18 @@
         if(o.kind) invalidate(o.id);
         if(o.type==='stage') invalidate();
         queueRender();
-      } else if(drag.kind==='tooldrag' || drag.kind==='paintdrag'){
+      } else if(drag.kind==='tooldrag' || drag.kind==='paintdrag' || drag.kind==='seldrag'){
         // OJO: con setPointerCapture los pointermove llegan retargeteados al <svg> (e.target ya
         // no es la butaca): hay que buscar el elemento REAL bajo el dedo con elementFromPoint.
         var under = document.elementFromPoint(e.clientX, e.clientY);
         var se = under && under.closest ? under.closest('[data-seat]') : null;
         if(!se) return;
         if(drag.kind==='paintdrag'){ paintSeat(se); return; }
+        if(drag.kind==='seldrag'){
+          var kS = se.getAttribute('data-seat');
+          if(kS && se.getAttribute('data-kind')==='seat' && !sel[kS]){ sel[kS]=1; updateSelPop(e.clientX, e.clientY); queueRender(); }
+          return;
+        }
         if(tool==='stair') return;                        // la escalera se coloca de una en una
         var k = se.getAttribute('data-seat');
         drag.done = drag.done || {};
@@ -952,11 +1074,19 @@
       delete pointers[e.pointerId];
       if(Object.keys(pointers).length<2) pinch0=null;
       if(drag && drag.kind==='secmaybe' && drag.sec){
-        // Clic corto sobre el sector (no llegó a arrastre): pintar el sector entero, solo de lejos.
-        if(drag.far){ var sPS=sections.find(function(x){return x.id===drag.sec;}); if(sPS) paintSection(sPS); }
-      } else if(drag && drag.kind==='lasso' && drag.w1 && catTool!=='count' && mode==='cats'){
-        eachSeatInRect(drag.w0, drag.w1, function(key){ if(catTool==='erase') delete assign[key]; else if(activeCat) assign[key]=activeCat; });
-        markSummary();
+        // Clic corto sobre el sector (no llegó a arrastre), solo de lejos: seleccionar o pintar entero.
+        if(drag.far){
+          var sPS=sections.find(function(x){return x.id===drag.sec;});
+          if(sPS){ if(drag.select) selectSection(sPS, e); else paintSection(sPS); }
+        }
+      } else if(drag && drag.kind==='lasso' && drag.w1 && mode==='cats'){
+        if(catTool==='select'){
+          eachSeatInRect(drag.w0, drag.w1, function(key){ sel[key]=1; });
+          updateSelPop(e.clientX, e.clientY); queueRender();
+        } else if(catTool!=='count'){
+          eachSeatInRect(drag.w0, drag.w1, function(key){ if(catTool==='erase') delete assign[key]; else if(activeCat) assign[key]=activeCat; });
+          markSummary();
+        }
       }
       drag=null; chip.style.display='none'; clearLasso(); queueRender();
     }

@@ -1881,3 +1881,13 @@ img[style*="width:"] { height: auto; }
 .vmap-summary .sw { width: .75rem; height: .75rem; border-radius: .25rem; flex: 0 0 auto; }
 .vmap-summary .n { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; }
 .vmap-numrow--2 { grid-template-columns: 7rem 1fr 1fr; }
+
+/* Mapa del recinto: tarjeta flotante de SELECCIÓN (total seleccionado, arrastrable a una categoría) */
+.vmap-canvas .vmap-selpop { position: absolute; z-index: 7; display: none; width: 192px; background: #fff; border: 2px solid #e0a800; border-radius: .7rem; padding: .5rem .6rem; box-shadow: 0 8px 24px rgba(0,0,0,.18); cursor: grab; touch-action: none; user-select: none; }
+.vmap-selpop.show { display: block; }
+.vmap-selpop.dragging { cursor: grabbing; opacity: .88; }
+.vmap-selpop-head { display: flex; justify-content: space-between; align-items: center; gap: .4rem; }
+.vmap-selpop-head b { font-variant-numeric: tabular-nums; }
+.vmap-selpop-x { border: 0; background: transparent; font-weight: 700; color: #6b7683; cursor: pointer; line-height: 1; }
+.vmap-selpop-hint { font-size: .72rem; color: #6b7683; margin-top: .15rem; }
+.vmap-cat.drop-hint { border-color: #e0a800; box-shadow: 0 0 0 .18rem rgba(224,168,0,.25); background: #fff9e6; }

@@ -1912,3 +1912,7 @@ img[style*="width:"] { height: auto; }
 .vmap-canvas .vmap-undo { position: absolute; top: .55rem; left: .55rem; z-index: 6; width: 2.15rem; height: 2.15rem; border-radius: .55rem; border: 1px solid #e2e7ee; background: #fff; color: #49515d; box-shadow: 0 2px 8px rgba(16,24,40,.10); cursor: pointer; }
 .vmap-canvas .vmap-undo:hover:not(:disabled) { border-color: var(--brand-accent); color: var(--brand-accent); }
 .vmap-canvas .vmap-undo:disabled { opacity: .45; cursor: default; }
+
+/* Mapa del recinto: parámetro con slider + campo numérico editable (sin tope) */
+.vmap-param--num { grid-template-columns: 6.4rem 1fr 4.2rem; }
+.vmap-param--num .vmap-numin { padding: .18rem .3rem; font-size: .75rem; text-align: right; }

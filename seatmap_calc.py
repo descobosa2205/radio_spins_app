@@ -245,8 +245,10 @@ def seat_lookup(layout: dict) -> dict:
         rows_map = {}
         numbers = {}
         alpha = (sec.get("rowScheme") == "alpha")
+        row_start = _i(sec.get("rowStart"), 1) or 1   # «primera fila» configurable (3 → 3,4,5… / C,D,E…)
         for r in range(1, n_rows + 1):
-            label = _alpha_label(r) if alpha else str(r)
+            n_lbl = row_start - 1 + r
+            label = _alpha_label(n_lbl) if alpha else str(n_lbl)
             rows_map[_norm_label(label)] = r
             rows_map.setdefault(_norm_label(str(r)), r)
             numbers[r] = _row_numbering(sec, r, _row_states(sec, r))

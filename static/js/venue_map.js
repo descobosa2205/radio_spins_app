@@ -178,7 +178,11 @@
       var st = parseInt(n.start,10); if(isNaN(st)) st = 1;   // 0 es válido (hay recintos que numeran desde 0)
       return { start: st, step: parseInt(n.step||1,10)||1, dir: (n.dir==='rtl'?'rtl':'ltr') };
     }
-    function rowLabelOf(s, rowIdx){ return (s.rowScheme==='alpha') ? alphaLabel(rowIdx) : String(rowIdx); }
+    function rowLabelOf(s, rowIdx){
+      // «Primera fila» configurable: rowStart 3 → las filas se etiquetan 3,4,5… (o C,D,E… por letras).
+      var n = (parseInt(s.rowStart,10)||1) - 1 + rowIdx;
+      return (s.rowScheme==='alpha') ? alphaLabel(n) : String(n);
+    }
     function modsOf(s, rowIdx){
       var m = (s.mods || {})[String(rowIdx)] || {};
       return { gaps: m.gaps || [], off: m.off || [] };
@@ -276,6 +280,33 @@
     function gridOutline(s){
       var hw=(s.cols-1)/2*s.pitch+s.pitch*.7, hh=(s.rows-1)/2*s.rowGap+s.rowGap*.6;
       return {x:-hw, y:-hh, w:2*hw, h:2*hh};
+    }
+    function bboxAny(o){
+      if(o.kind) return bboxOf(o);
+      var w=o.w||0, h=o.h||0;
+      return {x:(o.x||0)-w/2, y:(o.y||0)-h/2, w:w, h:h};
+    }
+    // IMÁN al arrastrar: el sector/elemento que mueves se «enlaza» a los de al lado — bordes
+    // alineados, centros alineados o contacto directo (mi borde contra el suyo) — con una
+    // tolerancia en píxeles de PANTALLA (funciona igual desde cualquier zoom). Cada pieza sigue
+    // siendo independiente: el imán solo coloca, no agrupa.
+    function applySnap(o){
+      var tol = 12/px();
+      var bb = bboxAny(o);
+      if(!bb.w && !bb.h) return;
+      var ex=[bb.x, bb.x+bb.w, bb.x+bb.w/2], ey=[bb.y, bb.y+bb.h, bb.y+bb.h/2];
+      var bestX=null, bestY=null;
+      sections.concat(elements).forEach(function(t){
+        if(t===o || t.id===o.id || t.type==='outline') return;
+        var tb=bboxAny(t); if(!tb.w && !tb.h) return;
+        var cx2=[tb.x, tb.x+tb.w, tb.x+tb.w/2], cy2=[tb.y, tb.y+tb.h, tb.y+tb.h/2];
+        ex.forEach(function(a){ cx2.forEach(function(b){ var d=b-a; if(Math.abs(d)<tol && (bestX===null||Math.abs(d)<Math.abs(bestX))) bestX=d; }); });
+        ey.forEach(function(a){ cy2.forEach(function(b){ var d=b-a; if(Math.abs(d)<tol && (bestY===null||Math.abs(d)<Math.abs(bestY))) bestY=d; }); });
+      });
+      var moved=false;
+      if(bestX!==null){ if(o.kind==='arc'){ o.cx+=bestX; } else { o.x+=bestX; } moved=true; }
+      if(bestY!==null){ if(o.kind==='arc'){ o.cy+=bestY; } else { o.y+=bestY; } moved=true; }
+      if(moved && o.kind) invalidate(o.id);
     }
     // Franjas de las escaleras integradas de una sección (para pintarlas y poder quitarlas).
     function stairBandSvg(s, scale){
@@ -383,6 +414,14 @@
               g.push('<path d="'+d+'" style="fill:none;stroke:'+run.col+';stroke-width:'+sw+';stroke-linecap:round"/>');
             });
           });
+          // Nombre del sector también en el nivel MEDIO (en el cercano lo da el tooltip).
+          if(s.kind==='arc'){
+            var midB=(s.dir)*R, rOutB=s.r0+(s.rows-1)*s.rowGap+s.pitch*1.8;
+            g.push('<text x="'+(s.cx+rOutB*Math.cos(midB))+'" y="'+(s.cy+rOutB*Math.sin(midB))+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(s.pitch*1.15)+'px system-ui;fill:#5b6673;pointer-events:none">'+esc(s.name||'')+'</text>');
+          } else {
+            var goB=gridOutline(s);
+            g.push('<text transform="translate('+s.x+' '+s.y+') rotate('+s.rot+')" y="'+(goB.y - s.pitch*0.9)+'" text-anchor="middle" style="font:700 '+(s.pitch*1.15)+'px system-ui;fill:#5b6673;pointer-events:none">'+esc(s.name||'')+'</text>');
+          }
           g.push('</g>');
           out.push(g.join(''));
           out.push(stairBandSvg(s, scale));
@@ -486,6 +525,19 @@
         }
       });
 
+      // Asa de REDIMENSIONADO en la esquina inferior derecha del seleccionado (zonas de pie,
+      // silueta, escenario, torre mix/delay, PMR, pasarela, foso, baños, barras…): se arrastra
+      // para cambiar el tamaño. (Las gradas se dimensionan por filas/butacas, no por asa.)
+      if(mode==='design' && canEdit && selId){
+        var rzObj = sections.find(function(x){ return x.id===selId && x.kind==='floor'; }) ||
+                    elements.find(function(x){ return x.id===selId && x.type!=='door' && x.w && x.h; });
+        if(rzObj){
+          var hs = Math.max(14/scale, 10);
+          out.push('<g transform="translate('+rzObj.x+' '+rzObj.y+') rotate('+(rzObj.rot||0)+')">'+
+            '<rect data-resize="'+rzObj.id+'" x="'+(rzObj.w/2-hs/2)+'" y="'+(rzObj.h/2-hs/2)+'" width="'+hs+'" height="'+hs+'" rx="'+(hs*.2)+'" '+
+            'style="fill:#fff;stroke:#E33D48;stroke-width:'+(2.4/scale)+';cursor:nwse-resize"/></g>');
+        }
+      }
       world.innerHTML = out.join('');
       renderStats();
       // El resumen por categoría solo se recalcula cuando algo cambió (no en cada pan/zoom).
@@ -510,8 +562,14 @@
     }
 
     /* ================= Panel lateral ================= */
+    // Slider para el gesto rápido + CAMPO NUMÉRICO editable a mano y SIN tope (el rango del
+    // slider es solo comodidad; el valor real puede escribirse directamente, p. ej. 120 butacas
+    // por fila o una silueta de 8000).
     function slider(lbl,key,min,max,stepv,val,suf){
-      return '<div class="vmap-param"><label>'+lbl+'</label><input type="range" data-p="'+key+'" min="'+min+'" max="'+max+'" step="'+stepv+'" value="'+val+'"><output>'+val+(suf||'')+'</output></div>';
+      return '<div class="vmap-param vmap-param--num"><label>'+lbl+(suf?' <span class="text-muted">('+suf.replace(/[()]/g,'')+')</span>':'')+'</label>'+
+        '<input type="range" data-p="'+key+'" min="'+min+'" max="'+max+'" step="'+stepv+'" value="'+val+'">'+
+        '<input type="number" class="form-control form-control-sm vmap-numin" data-p="'+key+'" min="'+min+'" step="'+stepv+'" value="'+val+'">'+
+      '</div>';
     }
     function toolChip(key, icon, label){
       return '<button type="button" class="btn btn-sm '+(tool===key?'btn-primary':'btn-outline-secondary')+'" data-tool="'+key+'" title="Pínchalo y luego pincha en el plano (o arrástralo hasta una butaca)">'+icon+' '+label+'</button>';
@@ -560,18 +618,15 @@
           if(s.kind!=='floor'){
             html += '<div class="vmap-param"><label>Alias <i class="fa fa-circle-info text-muted" title="Otros nombres con los que las ticketeras llaman a este sector en los PDF (separados por comas)."></i></label><input type="text" class="form-control form-control-sm" data-p="aliases" value="'+esc(s.aliases||'')+'" placeholder="201, SECTOR 201"></div>';
           }
+          // El TAMAÑO de butaca es el mismo en todos los módulos (uniforme): sin sliders de paso.
           if(s.kind==='arc'){
             html += slider('Filas','rows',1,40,1,s.rows)
                   + slider('Amplitud','span',6,180,1,s.span,'°')
                   + slider('Orientación','dir',-180,180,1,s.dir,'°')
-                  + slider('Radio','r0',150,2600,10,s.r0)
-                  + slider('Paso butaca','pitch',18,44,1,s.pitch)
-                  + slider('Paso fila','rowGap',20,60,1,s.rowGap);
+                  + slider('Radio','r0',150,2600,10,s.r0);
           } else if(s.kind==='grid' || s.kind==='box'){
             html += slider('Filas','rows',1,(s.kind==='box'?4:60),1,s.rows) + slider('Butacas/fila','cols',1,(s.kind==='box'?10:80),1,s.cols)
-                  + slider('Rotación','rot',-180,180,1,s.rot,'°')
-                  + slider('Paso butaca','pitch',16,44,1,s.pitch)
-                  + slider('Paso fila','rowGap',18,60,1,s.rowGap);
+                  + slider('Rotación','rot',-180,180,1,s.rot,'°');
           } else {
             html += slider('Ancho','w',120,2400,10,s.w) + slider('Alto','h',120,2400,10,s.h)
                   + slider('Aforo de pie','cap',0,30000,50,s.cap) + slider('Rotación','rot',-180,180,1,s.rot,'°');
@@ -582,8 +637,9 @@
               '<input type="number" class="form-control form-control-sm" data-p="num_start" value="'+nm.start+'" min="0" title="Primera butaca">'+
               '<select class="form-select form-select-sm" data-p="num_step"><option value="1"'+(nm.step===1?' selected':'')+'>1,2,3…</option><option value="2"'+(nm.step===2?' selected':'')+'>pares/impares</option></select>'+
               '<select class="form-select form-select-sm" data-p="num_dir"><option value="ltr"'+(nm.dir==='ltr'?' selected':'')+'>Izq → der</option><option value="rtl"'+(nm.dir==='rtl'?' selected':'')+'>Der → izq</option></select></div>';
-            html += '<div class="vmap-numrow vmap-numrow--2"><label>Filas</label>'+
+            html += '<div class="vmap-numrow"><label>Filas</label>'+
               '<select class="form-select form-select-sm" data-p="rowScheme"><option value="num"'+((s.rowScheme||'num')==='num'?' selected':'')+'>1, 2, 3…</option><option value="alpha"'+(s.rowScheme==='alpha'?' selected':'')+'>A, B, C…</option></select>'+
+              '<input type="number" class="form-control form-control-sm" data-p="rowStart" value="'+(parseInt(s.rowStart,10)||1)+'" min="1" title="Primera fila: 3 = empieza en la fila 3 (o en la C si van por letras)">'+
               '<select class="form-select form-select-sm" data-p="gapPolicy" title="Qué pasa con la numeración al poner un HUECO"><option value="skip"'+((s.gapPolicy||'skip')==='skip'?' selected':'')+'>Hueco salta nº</option><option value="renumber"'+(s.gapPolicy==='renumber'?' selected':'')+'>Hueco renumera</option></select></div>';
             var nStairs = (s.stairs||[]).length, nMods = 0;
             Object.keys(s.mods||{}).forEach(function(k){ var m=s.mods[k]; nMods += (m.gaps||[]).length + (m.off||[]).length; });
@@ -703,12 +759,16 @@
       } else if(p==='rowScheme' || p==='gapPolicy'){
         o[p] = e.target.value;
       } else if(e.target.type==='range' || e.target.type==='number'){
-        o[p] = parseFloat(e.target.value);
+        var vNum = parseFloat(e.target.value);
+        if(isNaN(vNum)) return;   // campo a medio escribir: no aplicar todavía
+        o[p] = vNum;
       } else {
         o[p] = e.target.value;
       }
-      var outp = e.target.parentElement && e.target.parentElement.querySelector('output');
-      if(outp) outp.textContent = e.target.value + ((p==='span'||p==='dir'||p==='rot')?'°':(p==='corner'?'%':''));
+      // Slider y campo numérico van EN PAREJA: mover uno actualiza el otro.
+      var twin = e.target.parentElement && e.target.parentElement.querySelector(
+        e.target.type==='range' ? 'input[type="number"][data-p]' : 'input[type="range"][data-p]');
+      if(twin && twin!==e.target) twin.value = e.target.value;
       if(o.kind) invalidate(o.id);
       // (Los sliders del escenario no tocan su posición x/y, que es lo único que cambia la
       // orientación de las butacas: solo el ARRASTRE del escenario invalida toda la caché.)
@@ -746,7 +806,7 @@
         var kind = add.dataset.add;
         if(kind==='arc'){ var na={id:nid('s'), kind:'arc', name:'Sector nuevo', cx:cxw, cy:cyw+900, r0:900, span:24, dir:-90, rows:8, rowGap:30, pitch:26}; sections.push(na); selId=na.id; }
         else if(kind==='grid'){ var ng={id:nid('s'), kind:'grid', name:'Grada nueva', x:cxw, y:cyw, rot:0, rows:8, cols:14, pitch:26, rowGap:30}; sections.push(ng); selId=ng.id; }
-        else if(kind==='box'){ var nb={id:nid('s'), kind:'box', name:'Palco 1', x:cxw, y:cyw, rot:0, rows:2, cols:4, pitch:24, rowGap:28}; sections.push(nb); selId=nb.id; }
+        else if(kind==='box'){ var nb={id:nid('s'), kind:'box', name:'Palco 1', x:cxw, y:cyw, rot:0, rows:2, cols:4, pitch:26, rowGap:30}; sections.push(nb); selId=nb.id; }
         else if(kind==='floor'){ var nf={id:nid('s'), kind:'floor', name:'Zona de pie', x:cxw, y:cyw, w:400, h:300, rot:0, cap:500}; sections.push(nf); selId=nf.id; }
         else {
           var defs={ stage:['ESCENARIO',220,520], mix:['MIX',110,110], delay:['DELAY',95,95], pmr:['PLATAFORMA PMR',420,64],
@@ -1017,7 +1077,13 @@
       if(ids.length===2){ var a=pointers[ids[0]], b=pointers[ids[1]];
         pinch0={d:Math.hypot(a.x-b.x,a.y-b.y), view:JSON.parse(JSON.stringify(view)), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2}; drag=null; return; }
       var seatEl=e.target.closest('[data-seat]'), secEl=e.target.closest('[data-sec]'), elEl=e.target.closest('[data-el]'), stairEl=e.target.closest('[data-stairband]');
+      var rzEl=e.target.closest('[data-resize]');
       var w=client2world(e.clientX,e.clientY);
+      if(mode==='design' && canEdit && rzEl){
+        var rzId=rzEl.getAttribute('data-resize');
+        var rzObj2=sections.find(function(x){return x.id===rzId;})||elements.find(function(x){return x.id===rzId;});
+        if(rzObj2){ drag={kind:'resize', obj:rzObj2, w0:w, o0:{w:rzObj2.w, h:rzObj2.h}}; return; }
+      }
       if(mode==='design' && canEdit && tool){
         // Herramienta de retoque activa: pinchar butacas aplica; pinchar franja de escalera la quita.
         if(tool==='stair' && stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
@@ -1098,11 +1164,22 @@
         view.x=drag.v0.x-(e.clientX-drag.c0.x)/s2;
         view.y=drag.v0.y-(e.clientY-drag.c0.y)/s2;
         queueRender();
+      } else if(drag.kind==='resize'){
+        // Redimensionar por la esquina: el delta del puntero se proyecta a los EJES LOCALES del
+        // objeto (por si está rotado); crece hacia ambos lados porque está centrado.
+        var wr=client2world(e.clientX,e.clientY), o5=drag.obj;
+        if(!drag.pushed){ pushUndo('resize:'+(o5.id||'')); drag.pushed=true; }
+        var rr=(o5.rot||0)*R, dxr=wr.x-drag.w0.x, dyr=wr.y-drag.w0.y;
+        var dxl=dxr*Math.cos(rr)+dyr*Math.sin(rr), dyl=-dxr*Math.sin(rr)+dyr*Math.cos(rr);
+        o5.w=Math.max(20, drag.o0.w+2*dxl);
+        o5.h=Math.max(8, drag.o0.h+2*dyl);
+        queueRender();
       } else if(drag.kind==='move'){
         var w2=client2world(e.clientX,e.clientY), dx=w2.x-drag.w0.x, dy=w2.y-drag.w0.y, o=drag.obj;
         if(!drag.pushed){ pushUndo('move:'+(o.id||'')); drag.pushed=true; }   // una entrada por arrastre
         if(o.kind==='arc'){ o.cx=drag.o0.cx+dx; o.cy=drag.o0.cy+dy; } else { o.x=drag.o0.x+dx; o.y=drag.o0.y+dy; }
         if(o.kind) invalidate(o.id);
+        applySnap(o);   // imán: enlazar con los sectores/elementos de al lado
         if(o.type==='stage') invalidate();
         queueRender();
       } else if(drag.kind==='tooldrag' || drag.kind==='paintdrag' || drag.kind==='seldrag'){

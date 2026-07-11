@@ -41,7 +41,14 @@
   </script>
 </head>
 <body data-default-photo-url="{{ DEFAULT_PHOTO_URL }}" data-default-cover-url="{{ DEFAULT_COVER_URL }}">
-<div id="globalLoader" aria-hidden="true"><div class="gl-box"><div class="gl-spinner"></div><div class="gl-text">Cargando…</div></div></div>
+{# Loader global: iconos musicales animados (colores corporativos) + barra de carga. La barra va
+   en modo «barrido» continuo mientras se piensa y pasa a PORCENTAJE REAL en las subidas de
+   archivos (formularios multipart nativos, interceptados más abajo con XHR + progreso). #}
+<div id="globalLoader" aria-hidden="true"><div class="gl-box">
+  <div class="gl-icons" aria-hidden="true"><i class="fa fa-music"></i><i class="fa fa-guitar"></i><i class="fa fa-microphone"></i><i class="fa fa-headphones"></i><i class="fa fa-compact-disc"></i><i class="fa fa-record-vinyl"></i></div>
+  <div class="gl-bar"><div class="gl-bar-fill"></div></div>
+  <div class="gl-text">Cargando…</div>
+</div></div>
 <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
   <div class="container-fluid">
     <a class="navbar-brand d-flex align-items-center" href="{{ url_for('home') if IS_ADMIN else url_for('landing') }}">
@@ -191,11 +198,18 @@
 <script>
 (function(){
   var overlay=document.getElementById('globalLoader'); if(!overlay) return;
+  var glFill=overlay.querySelector('.gl-bar-fill'), glText=overlay.querySelector('.gl-text');
   var navSafety=null;
-  function show(){ overlay.classList.add('show'); }
-  function hide(){ overlay.classList.remove('show'); }
+  function show(){ overlay.classList.remove('determinate'); if(glFill) glFill.style.width=''; if(glText) glText.textContent='Cargando…'; overlay.classList.add('show'); }
+  function hide(){ overlay.classList.remove('show','determinate'); if(glFill) glFill.style.width=''; }
+  // Progreso REAL (subidas): la barra pasa de «barrido» a porcentaje y el texto lo acompaña.
+  function progress(pct, txt){
+    overlay.classList.add('show','determinate');
+    if(glFill) glFill.style.width=Math.max(0,Math.min(100,pct))+'%';
+    if(glText) glText.textContent=txt || ('Subiendo… '+Math.round(pct)+'%');
+  }
   function showForNav(){ show(); clearTimeout(navSafety); navSafety=setTimeout(hide, 15000); } // fallback por si la navegación no llega
-  window.appLoader={ show:show, hide:hide };  // para mostrarlo manualmente desde cualquier script
+  window.appLoader={ show:show, hide:hide, progress:progress };  // para usarlo desde cualquier script
 
   // Descargas directas por extensión (no son "carga de página"); el PDF por fetch SÍ se cubre abajo.
   var DOWNLOAD_RE=/\.(pdf|zip|csv|xlsx?|docx?|pptx?|png|jpe?g|gif|svg|wav|mp3|mp4|ics)(\?|$)/i;
@@ -243,6 +257,42 @@
     showForNav();
   }, true);
   window.addEventListener('pageshow', hide);   // oculta al cargar la página o al volver atrás (bfcache)
+
+  // SUBIDAS con progreso real: los formularios multipart CON archivos se envían por XHR para
+  // poder pintar el porcentaje en la barra (el POST clásico no da progreso). En burbujeo y
+  // respetando defaultPrevented: los formularios con flujo AJAX propio (p. ej. la subida de
+  // invitaciones con su popup de revisión) no se tocan. Al acabar se sigue el redirect normal.
+  document.addEventListener('submit', function(e){
+    var f=e.target; if(!f || e.defaultPrevented) return;
+    if(f.hasAttribute('data-no-loader')||f.classList.contains('no-loader')||f.getAttribute('target')==='_blank') return;
+    if(f.hasAttribute('data-inv-refresh')||f.hasAttribute('data-inline')||f.hasAttribute('data-native-upload')) return;
+    if(((f.getAttribute('enctype')||'').toLowerCase().indexOf('multipart')===-1)) return;
+    var hasFiles=false;
+    f.querySelectorAll('input[type="file"]').forEach(function(i){ if(i.files && i.files.length) hasFiles=true; });
+    if(!hasFiles || !window.XMLHttpRequest || !window.FormData) return;
+    e.preventDefault();
+    var xhr=new XMLHttpRequest();
+    var action=f.getAttribute('action')||location.href;
+    xhr.open((f.getAttribute('method')||'POST').toUpperCase(), action);
+    xhr.responseType='text';
+    if(xhr.upload) xhr.upload.onprogress=function(ev){
+      if(!ev.lengthComputable) return;
+      var p=Math.round(ev.loaded/ev.total*100);
+      progress(p, p>=100 ? 'Procesando…' : ('Subiendo… '+p+'%'));
+    };
+    xhr.onload=function(){
+      if(xhr.status>=200 && xhr.status<400){
+        var dest=xhr.responseURL||'';
+        var abs=action; try{ abs=new URL(action, location.href).href; }catch(_){ }
+        if(dest && dest!==abs){ location.assign(dest); return; }   // hubo redirect: seguirlo
+        try{ document.open(); document.write(xhr.responseText); document.close(); }
+        catch(_){ location.reload(); }
+      } else { hide(); alert('No se pudo completar la subida ('+xhr.status+'). Inténtalo de nuevo.'); }
+    };
+    xhr.onerror=function(){ hide(); alert('No se pudo completar la subida. Revisa la conexión e inténtalo de nuevo.'); };
+    progress(0, 'Subiendo… 0%');
+    xhr.send(new FormData(f));
+  }, false);
 
   // Acciones AJAX (fetch) que tardan, p. ej. "Generar liquidación": muestra el loader si la petición
   // supera ~300 ms (así las llamadas rápidas de autocompletado no lo activan).

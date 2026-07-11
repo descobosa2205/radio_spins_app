@@ -3092,6 +3092,20 @@
   // entrada cerrados. Las etiquetas cambian AL MOMENTO y no se pierde ni el scroll ni la pestaña.
   (function(){
     function applyDoc(doc){
+      // BUG del menú ⋮ «pegado» arriba a la izquierda: si un desplegable está abierto cuando el
+      // refresco en sitio reemplaza su zona, el menú queda huérfano (Popper pierde su referencia
+      // y lo pinta en la esquina) y ya no hay clic que lo cierre. Antes de swapear se cierran
+      // TODOS los desplegables abiertos y se neutraliza cualquier menú suelto.
+      document.querySelectorAll('.dropdown-menu.show').forEach(function(m){
+        try {
+          var dd = m.closest('.dropdown, .btn-group, .dropup, .dropend, .dropstart');
+          var t = dd && dd.querySelector('[data-bs-toggle="dropdown"]');
+          if (t && window.bootstrap && bootstrap.Dropdown) bootstrap.Dropdown.getOrCreateInstance(t).hide();
+        } catch (e) {}
+        m.classList.remove('show');
+        m.removeAttribute('data-popper-placement');
+        m.style.position = ''; m.style.inset = ''; m.style.margin = ''; m.style.transform = '';
+      });
       var searchVal = (document.getElementById('invGuestSearch') || {}).value || '';
       // Si el usuario está ESCRIBIENDO en un campo de la zona (p. ej. el buscador de invitados),
       // el reemplazo le quitaba el foco a mitad de teclada y parecía que «no dejaba escribir»:
@@ -3153,6 +3167,15 @@
       document.dispatchEvent(new CustomEvent('inv:refreshed'));
     }
     window.invApplyFreshDoc = applyDoc;
+    // Vigilante: si aun así un menú quedó huérfano (su botón ya no está en el documento tras un
+    // swap), cualquier clic lo cierra — es el menú «pegado» que no había forma de quitar.
+    document.addEventListener('click', function(){
+      document.querySelectorAll('.dropdown-menu.show').forEach(function(m){
+        var dd = m.closest('.dropdown, .btn-group, .dropup, .dropend, .dropstart');
+        var t = dd && dd.querySelector('[data-bs-toggle="dropdown"]');
+        if (!t || !document.body.contains(t)) m.classList.remove('show');
+      });
+    }, true);
     var inflight = null;
     var queued = false;
     window.invRefreshStatuses = function(){

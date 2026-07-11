@@ -1496,11 +1496,27 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
   opacity:0; visibility:hidden; pointer-events:none; transition:opacity .12s ease, visibility 0s linear .12s; }
 #globalLoader.show{ opacity:1; visibility:visible; pointer-events:auto; transition:opacity .12s ease, visibility 0s; }
 #globalLoader .gl-box{ display:flex; flex-direction:column; align-items:center; gap:14px; }
-#globalLoader .gl-spinner{ width:54px; height:54px; border-radius:50%;
-  border:5px solid rgba(0,124,162,.18); border-top-color:var(--brand-primary); border-right-color:var(--brand-accent);
-  animation:glspin .7s linear infinite; }
-@keyframes glspin{ to{ transform:rotate(360deg); } }
-#globalLoader .gl-text{ font-weight:700; color:var(--brand-accent-d); font-size:14px; letter-spacing:.3px; }
+/* Iconos musicales que «laten» en cadena con los colores corporativos (rojo/azul alternos). */
+#globalLoader .gl-icons{ display:flex; gap:16px; font-size:24px; }
+#globalLoader .gl-icons i{ color:#c9d2dc; animation:glbeat 1.5s ease-in-out infinite; }
+#globalLoader .gl-icons i:nth-child(odd){ --gl-on:var(--brand-primary); }
+#globalLoader .gl-icons i:nth-child(even){ --gl-on:var(--brand-accent); }
+#globalLoader .gl-icons i:nth-child(1){ animation-delay:0s; }
+#globalLoader .gl-icons i:nth-child(2){ animation-delay:.15s; }
+#globalLoader .gl-icons i:nth-child(3){ animation-delay:.3s; }
+#globalLoader .gl-icons i:nth-child(4){ animation-delay:.45s; }
+#globalLoader .gl-icons i:nth-child(5){ animation-delay:.6s; }
+#globalLoader .gl-icons i:nth-child(6){ animation-delay:.75s; }
+@keyframes glbeat{ 0%,55%,100%{ color:#c9d2dc; transform:translateY(0) scale(1); }
+  22%{ color:var(--gl-on, var(--brand-primary)); transform:translateY(-7px) scale(1.22); } }
+/* Barra de carga: barrido continuo mientras «piensa»; con .determinate la anchura es el % real. */
+#globalLoader .gl-bar{ width:240px; height:9px; border-radius:6px; background:#e7ecf2; overflow:hidden; position:relative; }
+#globalLoader .gl-bar-fill{ position:absolute; top:0; left:0; bottom:0; width:42%; border-radius:6px;
+  background:linear-gradient(90deg, var(--brand-primary), var(--brand-accent)); animation:glsweep 1.4s ease-in-out infinite; }
+#globalLoader.determinate .gl-bar-fill{ animation:none; left:0; transition:width .18s ease; }
+@keyframes glsweep{ 0%{ transform:translateX(-110%); } 100%{ transform:translateX(340%); } }
+#globalLoader .gl-text{ font-weight:700; color:var(--brand-accent-d); font-size:14px; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+@media (prefers-reduced-motion: reduce){ #globalLoader .gl-icons i, #globalLoader .gl-bar-fill{ animation:none; } }
 
 /* =========================================================
    Fase 2 — estética global de componentes (toda la web)
@@ -1891,3 +1907,8 @@ img[style*="width:"] { height: auto; }
 .vmap-selpop-x { border: 0; background: transparent; font-weight: 700; color: #6b7683; cursor: pointer; line-height: 1; }
 .vmap-selpop-hint { font-size: .72rem; color: #6b7683; margin-top: .15rem; }
 .vmap-cat.drop-hint { border-color: #e0a800; box-shadow: 0 0 0 .18rem rgba(224,168,0,.25); background: #fff9e6; }
+
+/* Mapa del recinto: botón Deshacer (esquina superior izquierda del plano) */
+.vmap-canvas .vmap-undo { position: absolute; top: .55rem; left: .55rem; z-index: 6; width: 2.15rem; height: 2.15rem; border-radius: .55rem; border: 1px solid #e2e7ee; background: #fff; color: #49515d; box-shadow: 0 2px 8px rgba(16,24,40,.10); cursor: pointer; }
+.vmap-canvas .vmap-undo:hover:not(:disabled) { border-color: var(--brand-accent); color: var(--brand-accent); }
+.vmap-canvas .vmap-undo:disabled { opacity: .45; cursor: default; }

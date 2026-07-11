@@ -87,7 +87,9 @@
         '</div>' +
       '</div>' +
       '<div class="vmap-body">' +
-        '<div class="vmap-canvas"><svg data-vm-svg xmlns="http://www.w3.org/2000/svg">' +
+        '<div class="vmap-canvas">' +
+        (canEdit ? '<button type="button" class="vmap-undo" data-vm-undo title="Deshacer lo último (Ctrl+Z)" disabled><i class="fa fa-rotate-left"></i></button>' : '') +
+        '<svg data-vm-svg xmlns="http://www.w3.org/2000/svg">' +
           '<defs><symbol id="vmSeatIcon" viewBox="0 0 24 18">' +
             '<rect x="4" y="0" width="16" height="9" rx="2.6"/><rect x="0" y="5.5" width="4.6" height="9" rx="2.2"/>' +
             '<rect x="19.4" y="5.5" width="4.6" height="9" rx="2.2"/><rect x="3.4" y="9.2" width="17.2" height="5.2" rx="1.7"/>' +
@@ -126,6 +128,38 @@
     var raf = null;
     var geomCache = {};          // secciones: filas+bbox derivadas (se invalida al editar)
     function invalidate(id){ if(id) delete geomCache[id]; else geomCache = {}; }
+
+    /* ================= Deshacer (pila de estados) =================
+       Antes de CADA cambio (añadir/mover/borrar secciones o elementos, retoques por butaca,
+       sliders, pintado de categorías…) se guarda una foto del estado. El botón ↶ de la esquina
+       del plano (o Ctrl+Z) restaura la última. Los gestos continuos (slider, arrastre, barrido)
+       se agrupan en UNA sola entrada por etiqueta+ventana de tiempo. */
+    var undoStack = [];
+    var undoLast = {label: '', at: 0};
+    function undoBtn(){ return host.querySelector('[data-vm-undo]'); }
+    function pushUndo(label){
+      if(!canEdit) return;
+      var now = Date.now();
+      if(label && label === undoLast.label && (now - undoLast.at) < 900){ undoLast.at = now; return; }
+      undoLast = {label: label || '', at: now};
+      undoStack.push(JSON.stringify({sections: sections, elements: elements, cats: cats,
+                                     assign: assign, floorCat: floorCat, next: nextId}));
+      if(undoStack.length > 40) undoStack.shift();
+      var b = undoBtn(); if(b) b.disabled = false;
+    }
+    function undo(){
+      if(!undoStack.length) return;
+      var snap = JSON.parse(undoStack.pop());
+      sections = snap.sections || []; elements = snap.elements || [];
+      cats = snap.cats || []; catById = {}; cats.forEach(function(c){ catById[c.id]=c; });
+      assign = snap.assign || {}; floorCat = snap.floorCat || {}; nextId = snap.next || nextId;
+      if(activeCat && !catById[activeCat]) activeCat = cats.length ? cats[0].id : null;
+      undoLast = {label: '', at: 0};
+      selId = null; sel = {};
+      invalidate();
+      var b = undoBtn(); if(b) b.disabled = !undoStack.length;
+      renderSide(); markSummary(); updateSelPop();
+    }
 
     function px(){ return (svg.clientWidth || 1) / view.w; }
     function esc(t){ return String(t==null?'':t).replace(/[<>&"]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); }
@@ -660,6 +694,7 @@
       var p = e.target.dataset.p; if(!p) return;
       var o = sections.find(function(x){return x.id===selId;}) || elements.find(function(x){return x.id===selId;});
       if(!o) return;
+      pushUndo('param:'+selId+':'+p);   // una entrada por gesto de slider/campo (coalescida)
       if(p==='num_start'||p==='num_step'||p==='num_dir'){
         o.num = o.num || {};
         if(p==='num_start'){ var v0=parseInt(e.target.value,10); o.num.start = isNaN(v0)?1:v0; }  // 0 es válido
@@ -684,7 +719,7 @@
       var tpl=e.target.closest('[data-tpl]'), add=e.target.closest('[data-add]'), act=e.target.closest('[data-act]');
       var tch=e.target.closest('[data-tool]'), ctl=e.target.closest('[data-cat-tool]'), cat=e.target.closest('[data-cat]');
       var cxw=view.x+view.w/2, cyw=view.y+view.h/2;
-      if(tpl){ ({plaza: tplPlaza, arena: tplArena, teatro: tplTeatro}[tpl.dataset.tpl] || tplArena)(); selId=null; invalidate(); renderSide(); fitAll(); return; }
+      if(tpl){ pushUndo('tpl'); ({plaza: tplPlaza, arena: tplArena, teatro: tplTeatro}[tpl.dataset.tpl] || tplArena)(); selId=null; invalidate(); renderSide(); fitAll(); return; }
       if(tch){ tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); return; }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
       if(cat){
@@ -702,10 +737,12 @@
           return (dr*dr+dg*dg+db2*db2) < 3600; });
         warn.style.display = clash?'block':'none';
         if(clash) return;
+        pushUndo('newcat');
         var id='c'+(nextId+=1);
         var nc={id:id, name:nm2, color:col2, kind:'otros'}; cats.push(nc); catById[id]=nc; activeCat=id; renderSide(); return;
       }
       if(add){
+        pushUndo('add');
         var kind = add.dataset.add;
         if(kind==='arc'){ var na={id:nid('s'), kind:'arc', name:'Sector nuevo', cx:cxw, cy:cyw+900, r0:900, span:24, dir:-90, rows:8, rowGap:30, pitch:26}; sections.push(na); selId=na.id; }
         else if(kind==='grid'){ var ng={id:nid('s'), kind:'grid', name:'Grada nueva', x:cxw, y:cyw, rot:0, rows:8, cols:14, pitch:26, rowGap:30}; sections.push(ng); selId=ng.id; }
@@ -724,15 +761,11 @@
         }
         renderSide(); markSummary(); return;
       }
-      if(act && act.dataset.act==='del'){
-        var delWasStage = elements.some(function(x){ return x.id===selId && x.type==='stage'; });
-        sections=sections.filter(function(x){return x.id!==selId;}); elements=elements.filter(function(x){return x.id!==selId;});
-        Object.keys(assign).forEach(function(k){ if(k.indexOf(selId+'|')===0) delete assign[k]; }); delete floorCat[selId];
-        if(delWasStage) invalidate(); else invalidate(selId);
-        selId=null; renderSide(); markSummary(); return; }
+      if(act && act.dataset.act==='del'){ deleteSelected(); return; }
       if(act && act.dataset.act==='dup'){
         var o2=sections.find(function(x){return x.id===selId;})||elements.find(function(x){return x.id===selId;});
         if(!o2) return;
+        pushUndo('dup');
         var c3=JSON.parse(JSON.stringify(o2)); c3.id=nid(o2.kind?'s':'e');
         if(c3.kind==='arc'){ c3.dir=(c3.dir||0)+(c3.span||24)+4; } else { c3.x=(c3.x||c3.cx||0)+120; c3.y=(c3.y||0)+60; }
         if(c3.name) c3.name=c3.name+' (copia)';
@@ -743,6 +776,7 @@
       if(act && act.dataset.act==='ring'){
         var base=sections.find(function(x){return x.id===selId;});
         if(!base || base.kind!=='arc') return;
+        pushUndo('ring');
         var nEl=side.querySelector('[data-ring-n]');
         var n2=Math.max(2, Math.min(40, parseInt(nEl && nEl.value || '12',10)||12));
         var stepDeg=360/n2;
@@ -760,6 +794,28 @@
       }
     });
 
+    /* ================= Borrar la selección (botón Eliminar o tecla Supr) ================= */
+    function deleteSelected(){
+      if(!selId) return;
+      pushUndo('del');
+      var delWasStage = elements.some(function(x){ return x.id===selId && x.type==='stage'; });
+      sections=sections.filter(function(x){return x.id!==selId;}); elements=elements.filter(function(x){return x.id!==selId;});
+      Object.keys(assign).forEach(function(k){ if(k.indexOf(selId+'|')===0) delete assign[k]; }); delete floorCat[selId];
+      if(delWasStage) invalidate(); else invalidate(selId);
+      selId=null; renderSide(); markSummary();
+    }
+    if(canEdit){
+      var ub = undoBtn();
+      if(ub) ub.addEventListener('click', function(){ undo(); });
+      document.addEventListener('keydown', function(e){
+        if(!document.body.contains(host)) return;
+        var a = document.activeElement;
+        if(a && (a.tagName==='INPUT' || a.tagName==='TEXTAREA' || a.tagName==='SELECT' || a.isContentEditable)) return;
+        if((e.key==='z' || e.key==='Z') && (e.ctrlKey || e.metaKey)){ e.preventDefault(); undo(); return; }
+        if((e.key==='Delete' || e.key==='Backspace') && mode==='design' && selId){ e.preventDefault(); deleteSelected(); }
+      });
+    }
+
     /* ================= Modo (Diseñar / Categorías) ================= */
     host.querySelectorAll('[data-vm-mode]').forEach(function(b){
       b.addEventListener('click', function(){
@@ -775,6 +831,7 @@
       var parts = key.split('|'); var s = sections.find(function(x){return x.id===parts[0];});
       if(!s || s.kind==='floor') return false;
       var rowIdx = parts[1], slot = parseInt(parts[2],10);
+      pushUndo('tool');   // el barrido con la herramienta se agrupa en una sola entrada
       if(tool==='stair'){
         var frac = parseFloat(seatEl.getAttribute('data-frac')||'0.5');
         s.stairs = s.stairs || [];
@@ -802,6 +859,7 @@
       var parts = (el.getAttribute('data-stairband')||'').split('|');
       var s = sections.find(function(x){return x.id===parts[0];});
       if(!s || !s.stairs) return;
+      pushUndo('stair-del');
       s.stairs.splice(parseInt(parts[1],10), 1);
       invalidate(s.id); markSummary(); renderSide();
     }
@@ -810,10 +868,12 @@
     function paintSeat(seatEl){
       var key = seatEl.getAttribute('data-seat');
       if(!key || seatEl.getAttribute('data-kind')!=='seat') return;
+      pushUndo('paint');
       if(catTool==='erase') delete assign[key]; else if(activeCat) assign[key] = activeCat;
       markSummary();
     }
     function paintSection(s){
+      pushUndo('paintsec');
       if(s.kind==='floor'){ if(catTool==='erase') delete floorCat[s.id]; else if(activeCat) floorCat[s.id]=activeCat; markSummary(); return; }
       secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
         if(p.state!=='seat') return;
@@ -839,6 +899,7 @@
     }
     function clearSel(){ sel={}; if(selpop) delete selpop.dataset.userMoved; updateSelPop(); queueRender(); }
     function assignSelectionTo(cid){
+      pushUndo('assign-sel');
       Object.keys(sel).forEach(function(k){ if(cid==null){ delete assign[k]; } else { assign[k]=cid; } });
       clearSel(); markSummary();
     }
@@ -1039,6 +1100,7 @@
         queueRender();
       } else if(drag.kind==='move'){
         var w2=client2world(e.clientX,e.clientY), dx=w2.x-drag.w0.x, dy=w2.y-drag.w0.y, o=drag.obj;
+        if(!drag.pushed){ pushUndo('move:'+(o.id||'')); drag.pushed=true; }   // una entrada por arrastre
         if(o.kind==='arc'){ o.cx=drag.o0.cx+dx; o.cy=drag.o0.cy+dy; } else { o.x=drag.o0.x+dx; o.y=drag.o0.y+dy; }
         if(o.kind) invalidate(o.id);
         if(o.type==='stage') invalidate();
@@ -1084,6 +1146,7 @@
           eachSeatInRect(drag.w0, drag.w1, function(key){ sel[key]=1; });
           updateSelPop(e.clientX, e.clientY); queueRender();
         } else if(catTool!=='count'){
+          pushUndo('lasso');
           eachSeatInRect(drag.w0, drag.w1, function(key){ if(catTool==='erase') delete assign[key]; else if(activeCat) assign[key]=activeCat; });
           markSummary();
         }

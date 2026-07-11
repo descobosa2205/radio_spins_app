@@ -1189,6 +1189,23 @@ function initDropdownOverflowFix(){
     activeToggles.delete(toggle);
   }
 
+  function cleanupOrphanPortals(){
+    // Menús ⋮ HUÉRFANOS: el menú se teleporta al <body> al abrirse (portalMenu) y, si un refresco
+    // en sitio reemplaza la zona con el menú abierto, su botón desaparece del DOM y el menú queda
+    // suelto pintado en la esquina superior izquierda (sin nadie que lo cierre). Aquí se detectan
+    // (toggle desconectado) y se eliminan del body al momento.
+    Array.from(activeToggles).forEach((toggle) => {
+      if (toggle && toggle.isConnected) return;
+      const state = portalState.get(toggle);
+      if (state && state.menu){
+        state.menu.classList.remove('show');
+        try { state.menu.remove(); } catch (_) {}
+      }
+      portalState.delete(toggle);
+      activeToggles.delete(toggle);
+    });
+  }
+
   function closeOtherOpenDropdowns(currentToggle){
     Array.from(activeToggles).forEach((toggle) => {
       if (toggle === currentToggle) return;
@@ -1246,13 +1263,17 @@ function initDropdownOverflowFix(){
   window.addEventListener('resize', repositionAll);
 
   const observer = new MutationObserver((mutations) => {
+    let removedAny = false;
     mutations.forEach((mutation) => {
+      if (mutation.removedNodes && mutation.removedNodes.length) removedAny = true;
       mutation.addedNodes.forEach((node) => {
         if (!node || node.nodeType !== 1) return;
         if (node.matches && node.matches(TOGGLE_SELECTOR)) prepareToggle(node);
         else if (node.querySelectorAll) prepareAll(node);
       });
     });
+    // Si el DOM ha quitado nodos con algún menú abierto, comprobar huérfanos al instante.
+    if (removedAny && activeToggles.size) cleanupOrphanPortals();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
 
@@ -1260,7 +1281,8 @@ function initDropdownOverflowFix(){
   window.__app33DropdownManager = {
     refresh: () => prepareAll(document),
     reposition: repositionAll,
-    restoreAll: () => Array.from(activeToggles).forEach(restoreMenu)
+    restoreAll: () => Array.from(activeToggles).forEach(restoreMenu),
+    cleanupOrphans: cleanupOrphanPortals
   };
 }
 

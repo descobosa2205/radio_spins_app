@@ -241,6 +241,7 @@ from models import (
     PhotoShare,
 )
 import sim_calc  # motor de cálculo puro de Simulaciones
+import seatmap_calc  # motor puro del mapa de butacas del recinto (conteos/plantillas)
 from supabase_utils import upload_png, upload_pdf, upload_image, upload_file, upload_pdf_bytes, supabase_client, _upload_bytes, StorageObjectTooLargeError
 from flask_wtf import CSRFProtect
 from flask_wtf.csrf import CSRFError
@@ -19745,14 +19746,24 @@ def simulation_detail_view(sid):
             }
         venue_tpl = []
         if active_activity and active_activity.venue_id:
-            _vtc = (
-                s.query(VenueTicketCategory)
-                .options(selectinload(VenueTicketCategory.extras))
-                .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
-                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-                .all()
-            )
-            venue_tpl = _venue_ticketing_payload(_vtc)
+            # Si el recinto tiene MAPA DE BUTACAS con reparto por categorías, la plantilla que se
+            # ofrece sale del mapa (seatmap_calc: conteos reales por categoría y zona). Si no,
+            # se ofrece el ticketing clásico del recinto (VenueTicketCategory), como siempre.
+            try:
+                _sm = _venue_seatmap_default(s, active_activity.venue_id)
+                if _sm and (_sm.layout_json or {}).get("sections"):
+                    venue_tpl = seatmap_calc.ticketing_template(_sm.layout_json or {}, _sm.assignments_json or {})
+            except Exception:
+                venue_tpl = []
+            if not venue_tpl:
+                _vtc = (
+                    s.query(VenueTicketCategory)
+                    .options(selectinload(VenueTicketCategory.extras))
+                    .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
+                    .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+                    .all()
+                )
+                venue_tpl = _venue_ticketing_payload(_vtc)
         expenses_payload = _sim_expenses_payload(active_activity)
 
         # Retención del 24%: solo tiene sentido con artista extranjero (por actividad).

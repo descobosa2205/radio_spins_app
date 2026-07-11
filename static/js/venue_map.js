@@ -334,7 +334,14 @@
     // IMÁN al arrastrar: el sector/elemento que mueves se «enlaza» a los de al lado — bordes
     // alineados, centros alineados o contacto directo (mi borde contra el suyo) — con una
     // tolerancia en píxeles de PANTALLA (funciona igual desde cualquier zoom). Cada pieza sigue
-    // siendo independiente: el imán solo coloca, no agrupa.
+    // siendo independiente: el imán solo coloca, no agrupa. Y las piezas SE PUEDEN SUPERPONER:
+    // si ya estás claramente encima de otra (p. ej. asientos sobre los huecos de otro sector,
+    // para que todo cuadre), el imán se apaga con ese objetivo y te deja colocarla libre.
+    function overlapArea(a, b){
+      var ox = Math.max(0, Math.min(a.x+a.w, b.x+b.w) - Math.max(a.x, b.x));
+      var oy = Math.max(0, Math.min(a.y+a.h, b.y+b.h) - Math.max(a.y, b.y));
+      return ox*oy;
+    }
     function applySnap(o){
       var tol = 12/px();
       var bb = bboxAny(o);
@@ -344,6 +351,8 @@
       sections.concat(elements).forEach(function(t){
         if(t===o || t.id===o.id || t.type==='outline') return;
         var tb=bboxAny(t); if(!tb.w && !tb.h) return;
+        // Superposición intencionada (>15% del área de la pieza menor): ese objetivo no imanta.
+        if(overlapArea(bb, tb) > 0.15*Math.min(bb.w*bb.h||1, tb.w*tb.h||1)) return;
         var cx2=[tb.x, tb.x+tb.w, tb.x+tb.w/2], cy2=[tb.y, tb.y+tb.h, tb.y+tb.h/2];
         ex.forEach(function(a){ cx2.forEach(function(b){ var d=b-a; if(Math.abs(d)<tol && (bestX===null||Math.abs(d)<Math.abs(bestX))) bestX=d; }); });
         ey.forEach(function(a){ cy2.forEach(function(b){ var d=b-a; if(Math.abs(d)<tol && (bestY===null||Math.abs(d)<Math.abs(bestY))) bestY=d; }); });
@@ -696,6 +705,8 @@
           html += '<div class="vmap-tools mt-2">'+
             (s.kind==='arc' ? '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="ring">⟳ Repetir en anillo</button><input type="number" class="form-control form-control-sm vmap-ringn" data-ring-n value="12" min="2" max="40" title="Nº de sectores del anillo">' : '')+
             '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="dup">Duplicar</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="front" title="Ponerlo POR ENCIMA de lo que tenga debajo (p. ej. asientos sobre los huecos de otro sector)">⬆ Al frente</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="back" title="Mandarlo detrás de las demás piezas">⬇ Al fondo</button>'+
             '<button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
           if(s.kind!=='floor') html += '<p class="text-muted small mt-2 mb-0">Butacas de esta sección: <b>'+seatCount(s).toLocaleString('es-ES')+'</b></p>';
         } else if(el){
@@ -708,9 +719,12 @@
             html += '<h6 class="vmap-h">Provocador <i class="fa fa-circle-info text-muted" title="Extensión del escenario hacia la pista. Déjalo a 0 si no hay."></i></h6>'
                   + slider('Largo','extL',0,900,5,el.extL||0) + slider('Ancho','extW',0,500,5,el.extW||0);
           }
-          html += '<div class="vmap-tools mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-act="dup">Duplicar</button><button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
+          html += '<div class="vmap-tools mt-2"><button type="button" class="btn btn-sm btn-outline-secondary" data-act="dup">Duplicar</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="front">⬆ Al frente</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-secondary" data-act="back">⬇ Al fondo</button>'+
+            '<button type="button" class="btn btn-sm btn-outline-danger" data-act="del">Eliminar</button></div>';
         } else {
-          html += '<h6 class="vmap-h">Sección</h6><p class="text-muted small mb-0">Pincha un sector o elemento del plano para editar sus parámetros. Arrástralo para moverlo.</p>';
+          html += '<h6 class="vmap-h">Sección</h6><p class="text-muted small mb-0">Pincha un sector o elemento del plano para editar sus parámetros. Arrástralo para moverlo. Los sectores se pueden SUPERPONER (el imán se apaga al solaparlos): usa «Al frente / Al fondo» para decidir cuál queda encima.</p>';
         }
       } else {
         /* -------- modo Categorías -------- */
@@ -870,6 +884,7 @@
         }
         renderSide(); markSummary(); return;
       }
+      if(act && (act.dataset.act==='front' || act.dataset.act==='back')){ reorderSelected(act.dataset.act); return; }
       if(act && act.dataset.act==='del'){ deleteSelected(); return; }
       if(act && act.dataset.act==='dup'){
         var o2=sections.find(function(x){return x.id===selId;})||elements.find(function(x){return x.id===selId;});
@@ -902,6 +917,20 @@
         renderSide(); queueRender(); return;
       }
     });
+
+    /* ================= Orden de apilado (Al frente / Al fondo) =================
+       Las piezas se pintan en el orden de su lista: la última queda ENCIMA. Así un sector de
+       asientos puede superponerse a los huecos de otro para que visualmente todo cuadre. */
+    function reorderSelected(where){
+      if(!selId) return;
+      var arr = sections.some(function(x){return x.id===selId;}) ? sections : elements;
+      var idx = arr.findIndex(function(x){return x.id===selId;});
+      if(idx===-1) return;
+      pushUndo('order');
+      var obj = arr.splice(idx,1)[0];
+      if(where==='front') arr.push(obj); else arr.unshift(obj);
+      queueRender();
+    }
 
     /* ================= Borrar la selección (botón Eliminar o tecla Supr) ================= */
     function deleteSelected(){
@@ -970,6 +999,8 @@
         if(hitId){
           items += '<button type="button" data-ctx="copy"><i class="fa fa-copy fa-fw me-1"></i>Copiar</button>'+
                    '<button type="button" data-ctx="dup"><i class="fa fa-clone fa-fw me-1"></i>Duplicar</button>'+
+                   '<button type="button" data-ctx="front"><i class="fa fa-arrow-up fa-fw me-1"></i>Traer al frente</button>'+
+                   '<button type="button" data-ctx="back"><i class="fa fa-arrow-down fa-fw me-1"></i>Enviar al fondo</button>'+
                    '<button type="button" data-ctx="del" class="text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button>';
         }
         items += '<button type="button" data-ctx="paste"'+(clipboard?'':' disabled')+'><i class="fa fa-paste fa-fw me-1"></i>Pegar aquí</button>';
@@ -986,6 +1017,7 @@
         if(act2==='copy'){ copySelected(); }
         else if(act2==='paste'){ pasteClipboard(lastPtr); }
         else if(act2==='del'){ deleteSelected(); }
+        else if(act2==='front' || act2==='back'){ reorderSelected(act2); }
         else if(act2==='dup'){ if(copySelected()) pasteClipboard({x:(lastPtr?lastPtr.x:view.x+view.w/2)+120, y:(lastPtr?lastPtr.y:view.y+view.h/2)+60}); }
       });
     }

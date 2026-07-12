@@ -425,7 +425,7 @@
                            con asignación parcial se envía categoría a categoría (solo las completas). #}
                         {% set _all_done = row.category_status and (row.category_status|rejectattr('done')|list|length == 0) %}
                         {% if _all_done %}
-                        <li><button class="dropdown-item" type="button" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar todo por email</button></li>
+                        <li><button class="dropdown-item" type="button" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar todo por email</button></li>
                         <li><button class="dropdown-item" type="button" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar todo por WhatsApp</button></li>
                         <li><button class="dropdown-item" type="button" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar todo por SMS</button></li>
                         {% endif %}
@@ -464,7 +464,7 @@
                                     {% if cs.assigned < cs.qty %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="commitment" data-source-id="{{ row.id }}" data-source-name="{{ row.name|e }}" data-assign-cat="{{ cs.id }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar</button></li>{% endif %}
                                     {# ENVIAR solo con el cupo COMPLETO de la categoría asignado (cs.done). #}
                                     {% if cs.assigned > 0 and cs.done %}
-                                    <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-paper-plane fa-fw me-1"></i>Enviar por email</button></li>
+                                    <li><button type="button" class="dropdown-item" data-send-open data-send-kind="commitment" data-send-id="{{ row.id }}" data-send-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-send-name="{{ row.name|e }} · {{ cs.name|e }}" data-send-category="{{ cs.id }}" data-send-recipient-name="{{ row.recipient_name|e }}" data-send-recipient-photo="{{ row.recipient_photo|e }}" data-send-recipient-email="{{ row.recipient_email|e }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por email</button></li>
                                     <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="whatsapp" data-inv-share-category="{{ cs.id }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
                                     <li><button type="button" class="dropdown-item" data-inv-share data-inv-share-action="{{ url_for('invitation_commitment_deliver', commitment_id=row.id) }}" data-inv-share-channel="sms" data-inv-share-category="{{ cs.id }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                                     {% endif %}
@@ -563,11 +563,11 @@
                       <ul class="dropdown-menu dropdown-menu-end dropdown-menu-app33">
                         <li><button type="button" class="dropdown-item" data-edit-request-full data-form-url="{{ url_for('invitation_request_edit_form', request_id=row.id) }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
                         {% if row.status == 'SOLICITADAS' %}<li><form method="post" data-inv-refresh data-opt-status="APROBADAS" action="{{ url_for('invitation_request_status', request_id=row.id) }}"><input type="hidden" name="action" value="APPROVE"><button class="dropdown-item"><i class="fa fa-check fa-fw me-1"></i>Aprobar</button></form></li>{% endif %}
-                        {% if row.can_auto_assign %}<li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item">Asignar automáticamente</button></form></li>{% endif %}
+                        {% if row.can_auto_assign %}<li><form method="post" data-inv-refresh action="{{ url_for('invitation_request_auto_assign', request_id=row.id) }}"><input type="hidden" name="accept_warnings" value="1"><button class="dropdown-item"><i class="fa fa-wand-magic-sparkles fa-fw me-1"></i>Asignar automáticamente</button></form></li>{% endif %}
                         {% if row.status in ['APROBADAS','ASIGNADAS'] %}<li><button type="button" class="dropdown-item" data-assign-source data-source-type="request" data-source-id="{{ row.id }}" data-source-name="{{ row.guest_name|e }}" data-category-ids="{{ row.quantities.keys()|reject('equalto','TOTAL')|join(',') }}"><i class="fa fa-arrow-right fa-fw me-1"></i>Asignar invitaciones</button></li>{% endif %}
-                        {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}">Descargar PDF</a></li>{% endif %}
+                        {% if row.can_download_pdf %}<li><a class="dropdown-item" href="{{ row.download_url }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar PDF</a></li>{% endif %}
                         {% if row.can_send %}
-                          <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}">Enviar por email</button></li>
+                          <li><button type="button" class="dropdown-item" data-send-open data-send-kind="request" data-send-id="{{ row.id }}" data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-send-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-send-name="{{ row.guest_name|e }}" data-send-recipient-name="{{ row.guest_name|e }}" data-send-recipient-photo="{{ row.guest_photo_url }}" data-send-recipient-email="{{ row.guest_email|e }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por email</button></li>
                           <li><button type="button" class="dropdown-item" data-inv-share data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="whatsapp"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
                           <li><button type="button" class="dropdown-item" data-inv-share data-partial-sent="{{ 1 if row.has_partial_sent else 0 }}" data-inv-share-action="{{ url_for('invitation_request_send', request_id=row.id) }}" data-inv-share-channel="sms"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
                         {% endif %}
@@ -648,13 +648,16 @@
            data-print-url="{{ url_for('invitation_tickets_bulk_print', concert_id=event.id) }}"
            data-download-url="{{ url_for('invitation_tickets_bulk_download', concert_id=event.id) }}"
            data-redetect-url="{{ url_for('invitation_tickets_redetect', concert_id=event.id) }}"
-           data-release-base="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}">
+           data-release-base="{{ url_for('invitation_ticket_release', ticket_id='RELEASE_TICKET_ID') }}"
+           data-block-url="{{ url_for('invitation_tickets_bulk_block', concert_id=event.id) }}">
         <div class="inv-sel-count"><span data-sel-count>0</span> seleccionada(s)</div>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-redetect><i class="fa fa-wand-magic-sparkles fa-fw me-2"></i>Redetectar butacas</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-print><i class="fa fa-print fa-fw me-2"></i>Imprimir</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-download><i class="fa fa-file-pdf fa-fw me-2"></i>Descargar PDF</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-send><i class="fa fa-paper-plane fa-fw me-2"></i>Enviar…</button>
         <button type="button" class="btn btn-sm btn-outline-secondary" data-sel-recover><i class="fa fa-rotate-left fa-fw me-2"></i>Recuperar</button>
+        <button type="button" class="btn btn-sm btn-outline-dark" data-sel-block title="Las bloqueadas no cuentan como disponibles ni se pueden asignar, enviar o imprimir"><i class="fa fa-lock fa-fw me-2"></i>Bloquear</button>
+        <button type="button" class="btn btn-sm btn-outline-dark" data-sel-unblock><i class="fa fa-lock-open fa-fw me-2"></i>Desbloquear</button>
         <hr class="my-1">
         <div class="d-flex gap-1 align-items-center">
           <select class="form-select form-select-sm" data-sel-move-cat style="max-width:150px">{% for cat in categories %}<option value="{{ cat.id }}">{{ cat.name }}</option>{% endfor %}</select>
@@ -827,7 +830,7 @@
                     {% else %}
                       <div class="invitation-seat-grid">
                         {% for t in items %}
-                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-ticket-alt"></i><span>{{ loop.index }}</span></button>
+                          <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.status == 'BLOCKED' %} · BLOQUEADA{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-ticket-alt' }}"></i><span>{{ loop.index }}</span></button>
                         {% endfor %}
                       </div>
                     {% endif %}
@@ -892,7 +895,7 @@
               </div>
               <div class="invitation-seat-grid">
                 {% for t in uncategorized_tickets %}
-                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}"><i class="fa fa-ticket-alt"></i><span>{{ t.code }}</span></button>
+                  <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.code }}{% if t.status == 'BLOCKED' %} · BLOQUEADA{% endif %}"><i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-ticket-alt' }}"></i><span>{{ t.code }}</span></button>
                 {% endfor %}
               </div>
             </div>
@@ -1501,6 +1504,15 @@
         <div class="alert alert-info py-2 small mt-3 d-none" data-companion-panel>
           <i class="fa fa-wheelchair me-1 text-danger"></i>Categoría <strong>PMR</strong>: si el PDF de una invitación tiene <strong>2 páginas</strong>, la 2ª se toma como <strong>entrada de acompañante</strong> y va siempre unida a la invitación (cuenta como una sola). Si tiene <strong>1 página</strong>, es PMR sin acompañante.
         </div>
+        {# Barra de progreso de la subida: % real mientras suben los archivos y modo «procesando»
+           (animado) mientras el servidor separa páginas, detecta butacas y guarda en Storage. #}
+        <div class="mt-3 d-none" data-upload-progress>
+          <div class="d-flex justify-content-between small mb-1">
+            <span class="fw-semibold" data-upload-progress-label>Subiendo…</span>
+            <span class="text-muted" data-upload-progress-pct>0%</span>
+          </div>
+          <div class="progress" style="height:10px"><div class="progress-bar bg-danger" role="progressbar" style="width:0%" data-upload-progress-bar></div></div>
+        </div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline-secondary" data-bs-dismiss="modal" type="button">Cancelar</button><button class="btn btn-danger"><i class="fa fa-upload me-1"></i>Subir</button></div>
     </form>
@@ -1610,29 +1622,95 @@
       .catch(function(){ btn.disabled = false; alert('Error de red al re-detectar.'); });
   });
 
-  // Subida de NUMERADAS por AJAX → popup de revisión. Otros tipos: envío normal (recarga).
+  // Subida de PDFs (numeradas Y sin numerar) por XHR con BARRA DE PROGRESO: % real mientras suben
+  // los archivos y modo «procesando» mientras el servidor trabaja. SIEMPRE termina con un mensaje
+  // de cuántas se han subido (antes el fetch sin feedback dejaba la ventana «parada» y, si la
+  // conexión se cortaba, no se sabía si habían entrado — al reintentar salían como duplicadas).
+  // Numeradas → popup de revisión; sin numerar → refresco en sitio. Listados: envío normal.
   var uploadModal = document.getElementById('ticketUploadModal');
   var uploadForm = uploadModal ? uploadModal.querySelector('form') : null;
   if(uploadForm){
+    var upWrap = uploadModal.querySelector('[data-upload-progress]');
+    var upBar = uploadModal.querySelector('[data-upload-progress-bar]');
+    var upLbl = uploadModal.querySelector('[data-upload-progress-label]');
+    var upPct = uploadModal.querySelector('[data-upload-progress-pct]');
+    var upBusy = false;
+    var upReset = function(){
+      upBusy = false;
+      if(upWrap) upWrap.classList.add('d-none');
+      if(upBar){ upBar.style.width = '0%'; upBar.classList.remove('progress-bar-striped', 'progress-bar-animated'); }
+      var b = uploadForm.querySelector('.modal-footer .btn-danger');
+      if(b){ b.disabled = false; b.innerHTML = '<i class="fa fa-upload me-1"></i>Subir'; }
+    };
+    uploadModal.addEventListener('show.bs.modal', upReset);
+    var upSummary = function(d){
+      var parts = [(d.created || 0) + ' invitación(es) subida(s).'];
+      if(d.companions) parts.push(d.companions + ' con entrada de acompañante.');
+      if(d.duplicates) parts.push('⚠️ ' + d.duplicates + ' duplicada(s): ya estaban subidas y no se repiten.');
+      if(d.discarded) parts.push('⚠️ ' + d.discarded + ' página(s) descartada(s) por no tener código.');
+      if(d.errors && d.errors.length) parts.push('Con error: ' + d.errors.join(' · '));
+      return parts.join('\n');
+    };
     uploadForm.addEventListener('submit', function(ev){
       var kind = (uploadForm.querySelector('[name="ticket_kind"]:checked')||{}).value || '';
-      if(kind !== 'PDF_NUMBERED') return;  // sin numerar / listados: flujo normal
+      if(kind !== 'PDF_NUMBERED' && kind !== 'PDF_UNNUMBERED') return;  // listados: flujo normal
       ev.preventDefault();
+      if(upBusy) return;   // evitar la doble subida por doble clic
       var catId = (uploadForm.querySelector('[data-upload-category-id]')||{}).value || '';
       var fd = new FormData(uploadForm); fd.append('ajax','1');
-      var submitBtn = uploadForm.querySelector('button[type="submit"], .btn-danger');
-      if(submitBtn) submitBtn.disabled = true;
-      fetch(uploadForm.getAttribute('action'), { method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'} })
-        .then(function(r){ return r.json().catch(function(){ return {ok:false}; }); })
-        .then(function(d){
-          if(submitBtn) submitBtn.disabled = false;
-          if(!d || !d.ok){ alert((d&&d.error)||'No se pudieron subir las invitaciones.'); return; }
+      var submitBtn = uploadForm.querySelector('.modal-footer .btn-danger');
+      upBusy = true;
+      if(submitBtn){ submitBtn.disabled = true; submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Subiendo…'; }
+      if(upWrap) upWrap.classList.remove('d-none');
+      if(upLbl) upLbl.textContent = 'Subiendo archivos…';
+      if(upPct) upPct.textContent = '0%';
+      var setProcessing = function(){
+        if(upBar){ upBar.style.width = '100%'; upBar.classList.add('progress-bar-striped', 'progress-bar-animated'); }
+        if(upLbl) upLbl.textContent = 'Procesando: separando páginas, detectando datos y guardando…';
+        if(upPct) upPct.textContent = '';
+        if(submitBtn) submitBtn.innerHTML = '<i class="fa fa-spinner fa-spin me-1"></i>Procesando…';
+      };
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', uploadForm.getAttribute('action'));
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      var _csrfMeta = document.querySelector('meta[name="csrf-token"]');
+      if(_csrfMeta) xhr.setRequestHeader('X-CSRFToken', _csrfMeta.getAttribute('content') || '');
+      if(xhr.upload) xhr.upload.addEventListener('progress', function(e){
+        if(!e.lengthComputable) return;
+        var pct = Math.min(100, Math.round(e.loaded * 100 / (e.total || 1)));
+        if(upBar) upBar.style.width = pct + '%';
+        if(upPct) upPct.textContent = pct + '%';
+        if(pct >= 100) setProcessing();   // archivos arriba: ahora trabaja el servidor
+      });
+      if(xhr.upload) xhr.upload.addEventListener('load', setProcessing);
+      xhr.onload = function(){
+        upReset();
+        var d = null;
+        try{ d = JSON.parse(xhr.responseText || 'null'); }catch(e){}
+        if(!d || !d.ok){
+          alert((d && d.error) || 'No se pudieron subir las invitaciones (respuesta inesperada del servidor). Comprueba en la pestaña Invitaciones si han entrado antes de reintentar.');
+          return;
+        }
+        alert(upSummary(d));
+        var inst = (uploadModal && window.bootstrap) ? bootstrap.Modal.getInstance(uploadModal) : null;
+        if(d.is_numbered && (d.created || 0) > 0){
+          // Numeradas: además del resumen, popup de revisión de las butacas detectadas.
           var showReview = function(){ open(d.category_id || catId, d, { mode:'upload', dirty:true }); };
-          var inst = (uploadModal && window.bootstrap) ? bootstrap.Modal.getInstance(uploadModal) : null;
           if(inst){ uploadModal.addEventListener('hidden.bs.modal', function _h(){ uploadModal.removeEventListener('hidden.bs.modal', _h); showReview(); }); inst.hide(); }
           else { showReview(); }
-        })
-        .catch(function(){ if(submitBtn) submitBtn.disabled = false; alert('Error de red al subir.'); });
+          return;
+        }
+        if(inst) inst.hide();
+        if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { window.location.reload(); }
+      };
+      var onNetFail = function(){
+        upReset();
+        alert('Se cortó la conexión mientras se subían/procesaban las invitaciones. Es posible que se hayan subido igualmente: la página se va a refrescar para comprobarlo (las duplicadas nunca entran dos veces).');
+        if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { window.location.reload(); }
+      };
+      xhr.onerror = onNetFail;
+      xhr.ontimeout = onNetFail;
+      xhr.send(fd);
     });
   }
 })();
@@ -2534,10 +2612,11 @@
     pop?.querySelector('[data-sel-recover]')?.addEventListener('click', async () => {
       if(!needSel()) return;
       const base = pop.dataset.releaseBase || '';
-      // Solo las que tienen algo que recuperar (ni disponibles ni desvinculadas).
+      // Solo las que tienen algo que recuperar (ni disponibles, ni desvinculadas, ni bloqueadas —
+      // las bloqueadas se quitan con «Desbloquear», no con recuperar).
       const ids = Array.from(selected).filter(id => {
         const s = seatById(id);
-        return s && !s.classList.contains('invitation-seat--available') && !s.classList.contains('invitation-seat--lost');
+        return s && !s.classList.contains('invitation-seat--available') && !s.classList.contains('invitation-seat--lost') && !s.classList.contains('invitation-seat--blocked');
       });
       if(!ids.length){ alert('La selección no tiene invitaciones asignadas, enviadas o impresas que recuperar.'); return; }
       if(!confirm('¿Recuperar ' + ids.length + ' invitación(es)? Volverán a estar disponibles y dejarán de estar asignadas.')) return;
@@ -2565,6 +2644,25 @@
       setMode(false);
       if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { location.reload(); }
     });
+    // Bloquear / desbloquear en bloque: solo cambian las que corresponde (disponibles ↔ bloqueadas);
+    // el resto de la selección se deja igual y el servidor informa de cuántas se saltaron.
+    const doBulkBlock = async (action) => {
+      if(!needSel()) return;
+      const msg = action === 'unblock'
+        ? ('¿Desbloquear ' + selected.size + ' invitación(es)? Las bloqueadas volverán a estar disponibles.')
+        : ('¿Bloquear ' + selected.size + ' invitación(es)? No contarán como disponibles ni se podrán asignar, enviar o imprimir hasta desbloquearlas (solo se bloquean las que están disponibles).');
+      if(!confirm(msg)) return;
+      const fd = new FormData(); fd.append('ticket_ids', idsCsv()); fd.append('action', action);
+      const res = await fetch(pop.dataset.blockUrl, {method:'POST', body:fd, headers:{'X-Requested-With':'XMLHttpRequest'}});
+      const j = await res.json().catch(()=>({}));
+      if(!res.ok || !j.ok){ alert(j.error || 'No se pudo completar la operación.'); return; }
+      alert((action === 'unblock' ? 'Desbloqueada(s) ' : 'Bloqueada(s) ') + (j.changed || 0) + ' invitación(es)' +
+            (j.skipped ? ' · ' + j.skipped + ' sin cambios (no estaban ' + (action === 'unblock' ? 'bloqueadas' : 'disponibles') + ')' : '') + '.');
+      setMode(false);
+      if(window.invRefreshStatuses){ window.invRefreshStatuses(); } else { location.reload(); }
+    };
+    pop?.querySelector('[data-sel-block]')?.addEventListener('click', () => doBulkBlock('block'));
+    pop?.querySelector('[data-sel-unblock]')?.addEventListener('click', () => doBulkBlock('unblock'));
     // Redetectar butacas de las categorías (numeradas) presentes en la selección.
     pop?.querySelector('[data-sel-redetect]')?.addEventListener('click', async () => {
       if(!needSel()) return;
@@ -3622,6 +3720,7 @@
         const seat = ev.target.closest('[data-ticket-id]'); if (!seat) return;
         if (stage.get(seat)) { ev.preventDefault(); paint = { mode: 'staged-pending', start: seat, src: stage.get(seat) }; return; }
         if (seatStatus(seat) === 'ASSIGNED' && seat.dataset.src) { ev.preventDefault(); paint = { mode: 'persisted-pending', start: seat, key: seat.dataset.src }; return; }
+        if (seatStatus(seat) === 'BLOCKED') { ev.preventDefault(); alert('Butaca BLOQUEADA: no se puede asignar. Desbloquéala desde la pestaña Invitaciones (pinchando la entrada o con «Seleccionar varias»).'); return; }
         if (seatStatus(seat) !== 'AVAILABLE') { ev.preventDefault(); releaseAssignedSeat(seat); return; }
         if (!activeSource) { alert('Marca primero a quién asignar (una solicitud a la izquierda).'); return; }
         ev.preventDefault();

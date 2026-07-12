@@ -63,11 +63,11 @@
             <i class="fa fa-share-alt"></i> Compartir LC
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
-            <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}">Descargar en PDF</a></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por WhatsApp</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por correo</button></li>
-            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')">Enviar por SMS</button></li>
-            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')">Copiar enlace</button></li>
+            <li><a class="dropdown-item" href="{{ url_for('discografica_album_label_copy_pdf', album_id=album.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Enviar por WhatsApp</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareByMail('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por correo</button></li>
+            <li><button class="dropdown-item" type="button" onclick="shareBySms('Label Copy · {{ album.title|e }}', '{{ label_copy_pdf_public_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Enviar por SMS</button></li>
+            <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ label_copy_public_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
           </ul>
         </div>
         {% if CAN_EDIT_DISCOGRAFICA %}
@@ -366,11 +366,11 @@
                                 <div class="dropdown">
                                   <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown" aria-expanded="false"><i class="fa fa-ellipsis-h"></i></button>
                                   <ul class="dropdown-menu dropdown-menu-end">
-                                    <li><a class="dropdown-item" href="{{ url_for('discografica_album_production_contract_pdf', album_id=album.id, contract_id=row.latest_contract.id) }}">Descargar en PDF</a></li>
-                                    <li><button class="dropdown-item" type="button" onclick="shareByMail('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por Mail</button></li>
-                                    <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por WhatsApp</button></li>
-                                    <li><button class="dropdown-item" type="button" onclick="shareBySms('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')">Compartir por SMS</button></li>
-                                    <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ row.share_url }}')">Copiar enlace</button></li>
+                                    <li><a class="dropdown-item" href="{{ url_for('discografica_album_production_contract_pdf', album_id=album.id, contract_id=row.latest_contract.id) }}"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar en PDF</a></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareByMail('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareByWhatsapp('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="shareBySms('Contrato de producción · {{ row.name|e }} · {{ album.title|e }}', '{{ row.share_url }}')"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</button></li>
+                                    <li><button class="dropdown-item" type="button" onclick="copyShareLink('{{ row.share_url }}')"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
                                     <li><hr class="dropdown-divider"></li>
                                     <li><button class="dropdown-item" type="button" onclick="openAlbumProductionContractModal('{{ row.name|e }}', '{{ row.latest_contract.id }}', '{{ 'yes' if row.latest_contract.has_royalties else 'no' }}')">Editar</button></li>
                                     <li>

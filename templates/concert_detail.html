@@ -591,10 +591,10 @@
                       <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
-                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a></li>
-                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
-                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
+                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
                           {% if CAN_EDIT_CONCERTS and (current_artwork_assets|length > 1) and not asset.is_primary %}
                             <li>
                               <form method="post" action="{{ url_for('concert_artwork_asset_primary', cid=concert.id, asset_id=asset.id) }}">
@@ -614,8 +614,8 @@
                       </div>
                     </div>
                     <div class="d-flex gap-2 mt-3 flex-wrap">
-                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a>
-                      <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button>
+                      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a>
+                      <button type="button" class="btn btn-sm btn-outline-secondary copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button>
                     </div>
                   </div>
                 </div>
@@ -647,10 +647,10 @@
                       <div class="dropdown">
                         <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis-v"></i></button>
                         <ul class="dropdown-menu dropdown-menu-end">
-                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}">Descargar</a></li>
-                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank">Compartir por WhatsApp</a></li>
-                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}">Enviar por mail</a></li>
-                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}">Copiar link</button></li>
+                          <li><a class="dropdown-item" href="{{ url_for('concert_artwork_asset_download', cid=concert.id, asset_id=asset.id) }}"><i class="fa fa-download fa-fw me-1"></i>Descargar</a></li>
+                          <li><a class="dropdown-item" href="https://wa.me/?text={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto') ~ ' ' ~ asset.file_url)|urlencode }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>
+                          <li><a class="dropdown-item" href="mailto:?subject={{ ('Cartelería ' ~ (concert.artist.name if concert.artist else 'concierto'))|urlencode }}&body={{ asset.file_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Enviar por mail</a></li>
+                          <li><button type="button" class="dropdown-item copy-link-btn" data-copy-url="{{ asset.file_url }}"><i class="fa fa-link fa-fw me-1"></i>Copiar link</button></li>
                           {% if CAN_EDIT_CONCERTS %}
                             <li><hr class="dropdown-divider"></li>
                             <li>

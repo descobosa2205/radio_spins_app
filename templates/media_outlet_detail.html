@@ -75,10 +75,10 @@
               <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
                 {% set share_text = ([outlet.name, contact.program, contact.role, [contact.first_name, contact.last_name]|select|join(' '), contact.phone, contact.email]|select|join(' · ')) %}
-                {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}">Compartir por Mail</a></li>{% endif %}
-                {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}">Compartir por WhatsApp</a></li>{% endif %}
-                {% if contact.phone %}<li><a class="dropdown-item" href="sms:{{ contact.phone }}?body={{ share_text|urlencode }}">Compartir por SMS</a></li>{% endif %}
-                <li><button type="button" class="dropdown-item copy-media-contact" data-share-text="{{ share_text }}">Copiar enlace</button></li>
+                {% if contact.email %}<li><a class="dropdown-item" href="mailto:{{ contact.email }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
+                {% if contact.phone %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ share_text|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>{% endif %}
+                {% if contact.phone %}<li><a class="dropdown-item" href="sms:{{ contact.phone }}?body={{ share_text|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>{% endif %}
+                <li><button type="button" class="dropdown-item copy-media-contact" data-share-text="{{ share_text }}"><i class="fa fa-link fa-fw me-1"></i>Copiar enlace</button></li>
                 <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editContactModal{{ contact.id }}">Editar</button></li>
                 <li><hr class="dropdown-divider"></li>
                 <li>

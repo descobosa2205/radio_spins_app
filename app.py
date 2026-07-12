@@ -39599,6 +39599,7 @@ def _invitation_ticket_status_label(value: str | None) -> str:
         "PICKED_UP": "Recogida",
         "PRINTED": "Impresa",
         "LOST": "Perdida",
+        "BLOCKED": "Bloqueada",
     }
     return labels.get((value or "AVAILABLE").upper(), (value or "AVAILABLE").title())
 
@@ -39615,6 +39616,8 @@ def _invitation_ticket_status_class(value: str | None) -> str:
         return "sent"
     if key == "LOST":
         return "lost"
+    if key == "BLOCKED":
+        return "blocked"
     return key.lower()
 
 
@@ -44998,11 +45001,14 @@ def invitation_request_auto_assign(request_id):
         cat_map = {str(c.id): c for c in categories}
         quantities = _json_dict(row.quantities_json)
         assigned_count = 0
-        for cid, qty in quantities.items():
+        # OJO: NO reutilizar `cid` aquí — es el id del CONCIERTO para el redirect de error. Antes el
+        # bucle lo machacaba con ids de categoría y, al faltar disponibilidad, el redirect iba a una
+        # URL inválida (404) y el aviso de «no hay invitaciones suficientes» se perdía en silencio.
+        for cat_key, qty in quantities.items():
             qty = _safe_int(qty)
-            if qty <= 0 or cid == 'TOTAL':
+            if qty <= 0 or cat_key == 'TOTAL':
                 continue
-            cat = cat_map.get(str(cid))
+            cat = cat_map.get(str(cat_key))
             if not cat:
                 continue
             if (cat.ticket_kind or '').upper() == 'GUEST_LIST':
@@ -45999,6 +46005,14 @@ def invitation_ticket_release(ticket_id):
         who = ticket.assigned_label or (req.guest_name if req else '') or 'el invitado'
         mode = (request.form.get('mode') or '').strip().lower()
 
+        # Una BLOQUEADA no se «recupera»: se desbloquea desde su botón (así el recuperar en bloque
+        # de una zona no quita bloqueos sin querer).
+        if (ticket.status or '').upper() == 'BLOCKED':
+            if _ajax:
+                return jsonify({'ok': False, 'error': 'Esta invitación está bloqueada: usa «Desbloquear» para volver a ponerla disponible.'}), 400
+            flash('Esta invitación está bloqueada: usa «Desbloquear» para volver a ponerla disponible.', 'warning')
+            return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+
         # Enviada sin decisión explícita → no liberar a ciegas: pedir confirmación.
         if was_sent and mode not in {'recover', 'lost'}:
             info = {
@@ -46379,6 +46393,9 @@ def invitation_tickets_bulk_print(concert_id):
             abort(404)
         _ensure_can_manage_invitations(session_db, concert)
         tickets = _invitation_bulk_selected_tickets(session_db, concert)
+        _blocked = [t for t in tickets if (t.status or '').upper() == 'BLOCKED']
+        if _blocked:
+            raise ValueError(f'La selección incluye {len(_blocked)} entrada(s) BLOQUEADA(s): desbloquéalas antes de poder imprimirlas.')
         reason = (request.form.get('reason') or '').strip()
         with_pdf = [t for t in tickets if (getattr(t, 'pdf_url', None) or '').strip()]
         if not with_pdf:
@@ -46430,6 +46447,82 @@ def invitation_tickets_bulk_download(concert_id):
         session_db.close()
 
 
+@app.post('/invitaciones/tickets/<ticket_id>/bloquear', endpoint='invitation_ticket_block')
+@admin_required
+def invitation_ticket_block(ticket_id):
+    """Bloquea/desbloquea UNA entrada (toggle). Una BLOQUEADA no cuenta como aforo disponible y no
+    se puede asignar, enviar ni imprimir hasta desbloquearla (vuelve a AVAILABLE). Solo se puede
+    bloquear una entrada DISPONIBLE: si está asignada/enviada hay que recuperarla primero."""
+    session_db = db()
+    try:
+        ticket = session_db.get(InvitationTicket, to_uuid(ticket_id))
+        if not ticket:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, ticket.concert)
+        cid = ticket.concert_id
+        status = (ticket.status or 'AVAILABLE').upper()
+        if status == 'BLOCKED':
+            ticket.status = 'AVAILABLE'
+            msg = 'Invitación desbloqueada: vuelve a estar disponible.'
+        elif status == 'AVAILABLE':
+            ticket.status = 'BLOCKED'
+            msg = 'Invitación bloqueada: no cuenta como disponible ni se puede usar hasta desbloquearla.'
+        else:
+            raise ValueError('Solo se pueden bloquear invitaciones disponibles: recupérala primero si está asignada, enviada o impresa.')
+        ticket.updated_at = _now_madrid()
+        session_db.commit()
+        flash(msg, 'success')
+        return redirect(url_for('invitation_event_detail', concert_id=cid) + '#inv-tab-tickets')
+    except Exception as exc:
+        session_db.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else f'No se pudo bloquear/desbloquear la entrada: {exc}', 'danger')
+        return redirect(url_for('invitations_view', tab='gestionar'))
+    finally:
+        session_db.close()
+
+
+@app.post('/invitaciones/evento/<concert_id>/tickets/bloquear', endpoint='invitation_tickets_bulk_block')
+@admin_required
+def invitation_tickets_bulk_block(concert_id):
+    """Bloquea (action=block) o desbloquea (action=unblock) en bloque las entradas seleccionadas.
+    Solo se bloquean las DISPONIBLES y solo se desbloquean las BLOQUEADAS; el resto de la selección
+    queda igual y se informa de cuántas se saltaron."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(concert_id))
+        if not concert:
+            abort(404)
+        _ensure_can_manage_invitations(session_db, concert)
+        tickets = _invitation_bulk_selected_tickets(session_db, concert)
+        action = (request.form.get('action') or 'block').strip().lower()
+        now = _now_madrid()
+        changed = 0
+        skipped = 0
+        for t in tickets:
+            st = (t.status or 'AVAILABLE').upper()
+            if action == 'unblock':
+                if st == 'BLOCKED':
+                    t.status = 'AVAILABLE'
+                    t.updated_at = now
+                    changed += 1
+                else:
+                    skipped += 1
+            else:
+                if st == 'AVAILABLE':
+                    t.status = 'BLOCKED'
+                    t.updated_at = now
+                    changed += 1
+                else:
+                    skipped += 1
+        session_db.commit()
+        return jsonify({'ok': True, 'action': action, 'changed': changed, 'skipped': skipped})
+    except Exception as exc:
+        session_db.rollback()
+        return jsonify({'ok': False, 'error': str(exc)}), 400
+    finally:
+        session_db.close()
+
+
 @app.post('/invitaciones/evento/<concert_id>/tickets/enviar-seleccion', endpoint='invitation_tickets_bulk_send')
 @admin_required
 def invitation_tickets_bulk_send(concert_id):
@@ -46446,6 +46539,9 @@ def invitation_tickets_bulk_send(concert_id):
         tickets = _invitation_bulk_selected_tickets(session_db, concert)
         accept_warnings = _truthy(request.form.get('accept_warnings'))
         # No se pueden enviar entradas de un listado (sin PDF) por esta vía.
+        _blocked = [t for t in tickets if (t.status or '').upper() == 'BLOCKED']
+        if _blocked:
+            raise ValueError(f'La selección incluye {len(_blocked)} entrada(s) BLOQUEADA(s): desbloquéalas antes de poder enviarlas.')
         for t in tickets:
             if t.previous_assignment_warning and not accept_warnings:
                 raise ValueError(f'La entrada {t.ticket_code or t.pdf_name or ""} ya había sido enviada/asignada antes. Confirma para reutilizarla.')
@@ -46752,6 +46848,9 @@ def _invitation_plan_pdf_build(*, logo_url: str, header_title: str, header_meta:
         st = (status or '').upper()
         if st == 'AVAILABLE':
             return GREEN, GREEN_BG, GREEN
+        if st == 'BLOCKED':
+            # Bloqueada: gris relleno — no disponible, sin invitado.
+            return GREY, HexColor('#e5e7eb'), INK
         if st in ('SENT', 'DELIVERED', 'PICKED_UP', 'PRINTED', 'DISPONIBLES_TAQUILLA', 'RECOGIDAS_TAQUILLA', 'ENTREGADAS_MANO', 'LOST'):
             base = HexColor(color_hex) if color_hex else RED
             return base, RED_BG, RED
@@ -47379,6 +47478,9 @@ def invitation_assignment_save(concert_id):
                 ticket = session_db.get(InvitationTicket, tid)
                 if not ticket or ticket.category_id != cat.id or ticket.concert_id != concert.id:
                     continue
+                # Una BLOQUEADA no se puede usar NUNCA (ni con accept_warnings): hay que desbloquearla antes.
+                if (ticket.status or '').upper() == 'BLOCKED':
+                    raise ValueError(f'La entrada {ticket.ticket_code or ticket.pdf_name} está bloqueada. Desbloquéala para poder usarla.')
                 if ticket.status != 'AVAILABLE' and not _truthy(request.form.get('accept_warnings')):
                     raise ValueError(f'La entrada {ticket.ticket_code or ticket.pdf_name} no está disponible.')
                 if ticket.previous_assignment_warning and not _truthy(request.form.get('accept_warnings')):

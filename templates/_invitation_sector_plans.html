@@ -49,7 +49,7 @@
               </div>
             {% elif cell.type == 'seat' %}
               {% set t = cell.seat %}
-              <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></button>
+              <button type="button" class="invitation-seat invitation-seat--{{ t.status_class }}" data-ticket-id="{{ t.id }}" title="{{ t.seat_number }}{% if t.status == 'BLOCKED' %} · BLOQUEADA{% endif %}{% if t.warning %} · {{ t.warning }}{% endif %}"><i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-couch' }}"></i><span>{{ t.seat_number or t.location }}</span></button>
             {% elif cell.type == 'missing' %}
               <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}" title="{{ 'Butaca apagada' if cell.off else 'No disponible' }}{% if cell.seat %} {{ cell.seat }}{% endif %}"><i class="fa fa-couch"></i></span>
             {% elif cell.type == 'gap' %}

@@ -253,9 +253,9 @@
                           </form>
                         {% endif %}
                         <div class="dropdown-divider"></div>
-                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='sms') }}">Compartir por SMS</a>
-                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='mail') }}">Compartir por mail</a>
-                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='whatsapp') }}" target="_blank">Compartir por WhatsApp</a>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='sms') }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='mail') }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por mail</a>
+                        <a class="dropdown-item" href="{{ url_for('promoter_contact_share', contact_id=contact.id, channel='whatsapp') }}" target="_blank"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a>
                       </div>
                     </div>
                   </div>

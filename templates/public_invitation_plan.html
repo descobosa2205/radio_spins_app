@@ -89,7 +89,7 @@
                 </div>
               {% elif cell.type == 'seat' %}
                 {% set t = cell.seat %}
-                <span class="invitation-seat invitation-seat--{{ t.status_class }}"><i class="fa fa-couch"></i><span>{{ t.seat_number or t.location }}</span></span>
+                <span class="invitation-seat invitation-seat--{{ t.status_class }}"><i class="fa {{ 'fa-lock' if t.status == 'BLOCKED' else 'fa-couch' }}"></i><span>{{ t.seat_number or t.location }}</span></span>
               {% elif cell.type == 'missing' %}
                 <span class="invitation-seat invitation-seat--missing{% if cell.off %} invitation-seat--off{% endif %}"><i class="fa fa-couch"></i></span>
               {% elif cell.type == 'gap' %}

@@ -897,6 +897,8 @@ img.img-error-pending{ visibility: hidden; }
 .invitation-seat--assigned { color:#8a6800; background:#fff7d6; }
 .invitation-seat--sent, .invitation-seat--delivered, .invitation-seat--picked_up { color:#b42318; background:#fff1f0; }
 .invitation-seat--lost { color:#6b7280; background:#eef0f3; border-style:dashed; text-decoration:line-through; opacity:.75; }
+/* Bloqueada: no cuenta como disponible ni se puede asignar/enviar/imprimir hasta desbloquearla. */
+.invitation-seat--blocked { color:#374151; background:#e2e5ea; border-color:#9ca3af; }
 .invitation-seat.is-pending { opacity:.5; pointer-events:none; }
 #inv-tab-tickets.is-selecting { -webkit-user-select:none; user-select:none; }
 #inv-tab-tickets.is-selecting .invitation-seat[data-ticket-id] { cursor:pointer; touch-action:none; }

@@ -54,10 +54,10 @@
             <div class="dropdown">
               <button class="btn btn-sm btn-outline-secondary" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
               <ul class="dropdown-menu dropdown-menu-end">
-                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="{{ invoice.pdf_url }}" target="_blank">Descargar factura en PDF</a></li>{% endif %}
-                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="mailto:?subject=Factura {{ invoice.invoice_number }}&body={{ invoice.pdf_url|urlencode }}">Compartir por Mail</a></li>{% endif %}
-                {% if invoice.pdf_url %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ invoice.pdf_url|urlencode }}">Compartir por WhatsApp</a></li>{% endif %}
-                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="sms:?body={{ invoice.pdf_url|urlencode }}">Compartir por SMS</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="{{ invoice.pdf_url }}" target="_blank"><i class="fa fa-file-pdf fa-fw me-1"></i>Descargar factura en PDF</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="mailto:?subject=Factura {{ invoice.invoice_number }}&body={{ invoice.pdf_url|urlencode }}"><i class="fa fa-envelope fa-fw me-1"></i>Compartir por Mail</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" target="_blank" href="https://wa.me/?text={{ invoice.pdf_url|urlencode }}"><i class="fa-brands fa-whatsapp fa-fw me-1"></i>Compartir por WhatsApp</a></li>{% endif %}
+                {% if invoice.pdf_url %}<li><a class="dropdown-item" href="sms:?body={{ invoice.pdf_url|urlencode }}"><i class="fa fa-comment-sms fa-fw me-1"></i>Compartir por SMS</a></li>{% endif %}
                 {% if invoice.bag %}<li><a class="dropdown-item" href="{{ url_for('bag_detail_view', bag_id=invoice.bag.id) }}">Ver bolsa</a></li>{% endif %}
                 <li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#assignBagModal" data-invoice-id="{{ invoice.id }}" data-current-bag="{{ invoice.bag_id or '' }}">{% if invoice.bag %}Cambiar bolsa{% else %}Asignar a una bolsa{% endif %}</button></li>
                 <li><hr class="dropdown-divider"></li>

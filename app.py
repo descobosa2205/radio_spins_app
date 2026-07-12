@@ -19754,16 +19754,17 @@ def simulation_detail_view(sid):
                 ti += ing; tg += gas; tr += (ing - gas)
                 tsell += c["ticketing"]["sellable"]
                 gen_acts.append(_sim_partner_module_payload(sim, a, c, label=row_label))
-                # Serie agregada (mismo % de venta en todas las fechas) para el gráfico general.
+                # Serie agregada (mismo % de venta en todas las fechas) para la tabla general.
                 for pt in (c.get("series") or []):
-                    acc = series_acc.setdefault(pt["pct"], {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
+                    acc = series_acc.setdefault(pt["pct"], {"tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
+                    acc["tickets"] += pt["tickets"]
                     acc["ingresos"] += pt["ingresos"]
                     acc["gastos"] += pt["gastos"]
                     acc["resultado"] += pt["resultado"]
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
             partner_module_payload = {"mode": "general", "activities": gen_acts}
             tour_series = [
-                {"pct": pct, "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
+                {"pct": pct, "tickets": v["tickets"], "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
                 for pct, v in sorted(series_acc.items())
             ]
             # Chinchetas del mapa numeradas por ORDEN DE FECHA (fechas sin definir al final).

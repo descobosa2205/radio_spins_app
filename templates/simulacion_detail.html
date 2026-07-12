@@ -3,6 +3,34 @@
 {# ============ Macro: importe con aclaración fiscal al pasar el ratón ============ #}
 {% macro amt(v, note) %}<span class="sim-amt" title="{{ note }}">{{ v|eur }}</span>{% endmacro %}
 
+{# ============ Macro: tabla de resultado por % de aforo (Resumen · Resultado · General) ============ #}
+{% macro result_table(series) %}
+{% set maxabs = namespace(v=0.0) %}
+{% for row in series %}{% set a = row.resultado if row.resultado >= 0 else -row.resultado %}{% if a > maxabs.v %}{% set maxabs.v = a %}{% endif %}{% endfor %}
+<div class="table-responsive">
+  <table class="table table-sm align-middle sim-result-table mb-0">
+    <thead><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:32%;">&nbsp;</th></tr></thead>
+    <tbody>
+      {% set seen = namespace(be=false) %}
+      {% for row in series %}
+        {% set is_be = (not seen.be and row.resultado >= 0) %}
+        {% if is_be %}{% set seen.be = true %}{% endif %}
+        {% set absval = row.resultado if row.resultado >= 0 else -row.resultado %}
+        {% set w = (absval / maxabs.v * 100) if maxabs.v else 0 %}
+        <tr class="{{ 'table-warning' if is_be else '' }}">
+          <td class="fw-semibold">{{ row.pct }}%{% if is_be %} <span class="badge text-bg-warning text-dark ms-1">empate</span>{% endif %}</td>
+          <td class="text-end">{{ row.tickets|k }}</td>
+          <td class="text-end">{{ amt(row.ingresos, 'Sin IVA') }}</td>
+          <td class="text-end">{{ amt(row.gastos, 'Sin IVA') }}</td>
+          <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ amt(row.resultado, 'Neto: sin IVA y sin SGAE') }}</td>
+          <td><div class="sim-bar"><div class="sim-bar__fill {{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%;"></div></div></td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endmacro %}
+
 {# ============ Macro: fila de socio del editor (kind: company|promoter|label) ============ #}
 {% macro partner_row(kind, ref, label, logo, pct, no_loss=False) %}
 <div class="sim-partner-row d-flex align-items-center gap-2 mb-2 {{ 'pe-noloss' if no_loss }}" data-kind="{{ kind }}">
@@ -245,9 +273,8 @@
 {% if tour_series %}
 <div class="ficha-section">
   <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} (agregado)</h6></div>
-  <div class="ficha-section__body"><canvas class="sim-result-chart" data-series-src="simTourSeriesData" height="90"></canvas></div>
+  <div class="ficha-section__body">{{ result_table(tour_series) }}</div>
 </div>
-<script type="application/json" id="simTourSeriesData">{{ tour_series|tojson }}</script>
 {% endif %}
 <div class="row g-3">
   <div class="col-12 col-lg-7">
@@ -471,7 +498,7 @@
             <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
             <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
           </div>
-          <canvas class="sim-result-chart" data-series-src="simSeriesData" height="110"></canvas>
+          {{ result_table(calc.series) }}
         </div>
       </div>
 
@@ -1006,30 +1033,8 @@
     </div>
     {% if calc.break_even_tickets is none %}<div class="alert alert-warning py-2"><i class="fa fa-triangle-exclamation me-1"></i>Con estos datos no se alcanza el punto de empate ni al 100% del aforo.</div>{% endif %}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
-      <div class="ficha-section__body"><canvas class="sim-result-chart" data-series-src="simSeriesData" height="110"></canvas></div>
-    </div>
-    <div class="table-responsive">
-      <table class="table table-sm align-middle sim-result-table">
-        <thead><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:32%;">&nbsp;</th></tr></thead>
-        <tbody>
-          {% set seen = namespace(be=false) %}
-          {% for row in calc.series %}
-            {% set is_be = (not seen.be and row.resultado >= 0) %}
-            {% if is_be %}{% set seen.be = true %}{% endif %}
-            {% set absval = row.resultado if row.resultado >= 0 else -row.resultado %}
-            {% set w = (absval / calc.series_max_abs * 100) if calc.series_max_abs else 0 %}
-            <tr class="{{ 'table-warning' if is_be else '' }}">
-              <td class="fw-semibold">{{ row.pct }}%{% if is_be %} <span class="badge text-bg-warning text-dark ms-1">empate</span>{% endif %}</td>
-              <td class="text-end">{{ row.tickets|k }}</td>
-              <td class="text-end">{{ amt(row.ingresos, 'Sin IVA') }}</td>
-              <td class="text-end">{{ amt(row.gastos, 'Sin IVA') }}</td>
-              <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ amt(row.resultado, 'Neto: sin IVA y sin SGAE') }}</td>
-              <td><div class="sim-bar"><div class="sim-bar__fill {{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%;"></div></div></td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado por % de aforo</h6></div>
+      <div class="ficha-section__body">{{ result_table(calc.series) }}</div>
     </div>
     <div class="text-muted small mb-3"><i class="fa fa-circle-info me-1"></i>Resultado en neto sin IVA. Configura la pestaña <strong>Gastos</strong> para un resultado realista.</div>
 
@@ -1946,43 +1951,6 @@
 </script>
 {% endif %}
 
-{% if calc and calc.ticketing.sellable %}
-<script type="application/json" id="simSeriesData">{{ calc.series|tojson }}</script>
-{% endif %}
-<script>
-/* Gráfico de resultado REUTILIZABLE: mismo en Resumen (fecha), Resultado (fecha) y General (gira).
-   Cada <canvas class="sim-result-chart" data-series-src="<idJSON>"> lee su serie del <script> JSON. */
-(function(){
-  if(!window.Chart) return;
-  function draw(el){
-    var src = document.getElementById(el.getAttribute('data-series-src'));
-    if(!src) return;
-    var series = []; try { series = JSON.parse(src.textContent || '[]'); } catch(e){ return; }
-    if(!series.length) return;
-    var labels = series.map(function(r){ return r.pct + '%'; });
-    new Chart(el, {
-      data: {
-        labels: labels,
-        datasets: [
-          { type:'bar', label:'Resultado', data: series.map(function(r){ return r.resultado; }),
-            backgroundColor: series.map(function(r){ return r.resultado >= 0 ? 'rgba(22,163,74,.55)' : 'rgba(220,38,38,.55)'; }),
-            borderRadius: 4 },
-          { type:'line', label:'Ingresos', data: series.map(function(r){ return r.ingresos; }), borderColor:'#007CA2', backgroundColor:'transparent', tension:.25, pointRadius:2 },
-          { type:'line', label:'Gastos', data: series.map(function(r){ return r.gastos; }), borderColor:'#E33D48', backgroundColor:'transparent', tension:.25, pointRadius:2 }
-        ]
-      },
-      options: {
-        responsive:true,
-        interaction:{ mode:'index', intersect:false },
-        plugins:{ legend:{ labels:{ boxWidth:12 } },
-          tooltip:{ callbacks:{ label:function(ctx){ return ctx.dataset.label+': '+(Number(ctx.parsed.y)||0).toLocaleString('es-ES',{minimumFractionDigits:2,maximumFractionDigits:2})+' € (sin IVA)'; } } } },
-        scales:{ y:{ ticks:{ callback:function(v){ return Number(v).toLocaleString('es-ES')+' €'; } } } }
-      }
-    });
-  }
-  document.querySelectorAll('.sim-result-chart').forEach(draw);
-})();
-</script>
 
 {% if show_general %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>

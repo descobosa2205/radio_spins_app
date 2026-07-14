@@ -10555,7 +10555,10 @@ def discografica_income_upload_csv():
             except Exception:
                 decoded = content.decode("latin-1")
             first_line = (decoded.splitlines() or [""])[0]
-            sep = ";" if first_line.count(";") > first_line.count(",") else ","
+            # Separador: coma, punto y coma o TABULADOR (hay distribuidores que exportan TSV con
+            # extensión .csv; antes esas filas no casaban con ninguna columna y el import quedaba a 0).
+            _sep_counts = {",": first_line.count(","), ";": first_line.count(";"), "\t": first_line.count("\t")}
+            sep = max(_sep_counts, key=lambda k: _sep_counts[k]) if any(_sep_counts.values()) else ","
             from io import StringIO
             df = pd.read_csv(StringIO(decoded), sep=sep)
         except Exception as e:

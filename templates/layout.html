@@ -286,9 +286,15 @@
       if(xhr.status>=200 && xhr.status<400){
         var dest=xhr.responseURL||'';
         var abs=action; try{ abs=new URL(action, location.href).href; }catch(_){ }
-        if(dest && dest!==abs){ location.assign(dest); return; }   // hubo redirect: seguirlo
+        // OJO: el XHR ya SIGUIÓ el redirect y descargó la página final — ese GET interno consumió
+        // los mensajes flash del servidor. Antes aquí se hacía location.assign(dest) (una SEGUNDA
+        // carga), que llegaba SIN mensajes: los avisos de las subidas (p. ej. el resultado del
+        // import de ingresos por CSV, o sus errores de validación) desaparecían y parecía que la
+        // subida «no hacía nada». Ahora se PINTA la respuesta ya descargada (con sus mensajes) y
+        // solo se corrige la URL de la barra con replaceState.
+        if(dest && dest!==abs){ try{ history.replaceState(null,'',dest); }catch(_){ } }
         try{ document.open(); document.write(xhr.responseText); document.close(); }
-        catch(_){ location.reload(); }
+        catch(_){ if(dest && dest!==abs){ location.assign(dest); } else { location.reload(); } }
       } else { hide(); alert('No se pudo completar la subida ('+xhr.status+'). Inténtalo de nuevo.'); }
     };
     xhr.onerror=function(){ hide(); alert('No se pudo completar la subida. Revisa la conexión e inténtalo de nuevo.'); };

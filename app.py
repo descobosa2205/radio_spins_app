@@ -22175,7 +22175,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "promocion", "marketing", "fotos"}:
+        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -22234,6 +22234,7 @@ def concert_detail_view(cid):
         promoter_email_suggestions = _concert_promoter_email_suggestions(session, c)
         production_panel = _concert_production_panel(session, c)
         roadmap_ctx = _roadmap_context(session, "concert", c)
+        result_ctx = _concert_result_context(session, c) if tab == "resultado" else None
         fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
 
         # Listas para la edición inline (solo en la pestaña general).
@@ -22304,6 +22305,8 @@ def concert_detail_view(cid):
             promoter_email_suggestions=promoter_email_suggestions,
             production_panel=production_panel,
             roadmap_ctx=roadmap_ctx,
+            result_calc=(result_ctx["calc"] if result_ctx else None),
+            result_module=(result_ctx["module"] if result_ctx else None),
             fotos_ctx=fotos_ctx,
             artists=edit_artists,
             venues=edit_venues,
@@ -37517,6 +37520,101 @@ def _concert_promoter_email_suggestions(session_db, concert):
             label = _contact_display_name(contact) or getattr(promoter, "nick", None)
             add(getattr(contact, "email", None), label)
     return suggestions
+
+
+def _concert_build_calc_data(s, concert):
+    """ADAPTADOR Concierto→sim_calc: traduce los datos económicos del concierto al dict que
+    consume `sim_calc.compute`. Best-effort y conservador (para no inflar ingresos):
+    - Ticketing: cada ConcertTicketType = una categoría (zona PISTA; qty_for_sale ya es a la venta).
+    - Cachés (ConcertCache): FIXED/OTHER→fijo; VARIABLE→ por entrada (TICKETS) o % (REVENUE).
+    - Comisionistas (ConcertZoneAgent): AMOUNT→fijo; PERCENT→ % (sobre beneficio si base=PROFIT).
+    - Producción: ConcertBudgetItem (amount_net = neto).
+    Retención 24% si el artista es internacional. Barras solo si el recinto las permite."""
+    def _ff(v):
+        try:
+            return float(_sim_d(v))
+        except Exception:
+            return 0.0
+    categories = []
+    for t in sorted((getattr(concert, "ticket_types", None) or []), key=lambda x: (x.name or "")):
+        categories.append({"zone": "PISTA", "quantity": int(_ff(t.qty_for_sale)), "invitations": 0,
+                           "price_net": _ff(t.price), "extras": []})
+    if not categories and concert.capacity and not concert.no_capacity:
+        categories.append({"zone": "PISTA", "quantity": int(concert.capacity or 0), "invitations": 0, "price_net": 0.0, "extras": []})
+    caches = []
+    for c in (getattr(concert, "caches", None) or []):
+        kind = (c.kind or "FIXED").upper()
+        if kind == "VARIABLE":
+            if (c.variable_basis or "REVENUE").upper() == "TICKETS":
+                caches.append({"mode": "VARIABLE", "var_type": "PER_TICKET", "var_value": _ff(c.amount),
+                               "includes_iva": (c.amount_base or "").upper() == "GROSS"})
+            else:
+                caches.append({"mode": "VARIABLE", "var_type": "PERCENT", "var_value": _ff(c.pct),
+                               "includes_iva": (c.pct_base or "").upper() == "GROSS"})
+        else:
+            caches.append({"mode": "FIXED", "amount": _ff(c.amount), "includes_iva": (c.amount_base or "").upper() == "GROSS"})
+    commissions = []
+    for a in sorted((getattr(concert, "zone_agents", None) or []), key=lambda x: (x.created_at or datetime.min)):
+        if (a.commission_type or "PERCENT").upper() == "AMOUNT":
+            commissions.append({"mode": "FIXED", "amount": _ff(a.commission_amount),
+                                "includes_iva": (a.commission_amount_base or "").upper() == "GROSS",
+                                "exempt_amount": _ff(a.exempt_amount)})
+        else:
+            vt = "PERCENT_PROFIT" if (a.commission_base or "").upper() == "PROFIT" else "PERCENT"
+            commissions.append({"mode": "VARIABLE", "var_type": vt, "var_value": _ff(a.commission_pct),
+                                "includes_iva": False, "exempt_amount": _ff(a.exempt_amount)})
+    production = []
+    for b in (s.query(ConcertBudgetItem).filter(ConcertBudgetItem.concert_id == concert.id, ConcertBudgetItem.status != "ELIMINADO").all()):
+        production.append({"category": (b.category or "OTROS"), "amount_net": _ff(b.amount_net), "quantity": 1,
+                           "iva_pct": 21, "includes_iva": False, "iva_exempt": False, "is_variable": False})
+    return {
+        "categories": categories, "caches": caches, "commissions": commissions, "production": production,
+        "subventions": [], "sponsorships": [],
+        "is_international": bool(getattr(concert.artist, "is_international", False)) if concert.artist else False,
+        "allows_bars": bool(getattr(concert.venue, "allows_bars", False)) if concert.venue else False,
+        "income_overrides": {},
+    }
+
+
+def _concert_result_module_payload(s, concert, calc, label=None):
+    """Payload de UNA actividad para sim_partners.js (socios + comisionistas + serie 0–100%)."""
+    fine = []
+    for pt in (calc.get("series_fine") or []):
+        fine.append({"pct": pt["pct"], "tickets": pt["tickets"], "ingresos": pt["ingresos"],
+                     "gastos": pt["gastos"], "resultado": pt["resultado"],
+                     "g": dict(pt.get("g") or {}), "com": list(pt.get("com") or [])})
+    be_pct = be_tickets = None
+    for pt in fine:
+        if pt["resultado"] >= 0:
+            be_pct = pt["pct"]; be_tickets = pt["tickets"]; break
+    partners = []
+    for sh in (getattr(concert, "company_shares", None) or []):
+        if not sh.pct:
+            continue
+        partners.append({"name": (sh.company.name if sh.company else "Empresa"), "logo": ((sh.company.logo_url if sh.company else "") or ""),
+                         "pct": float(_sim_d(sh.pct)), "company_id": (str(sh.company_id) if sh.company_id else ""), "promoter_id": "", "label": "", "no_loss": False})
+    for sh in (getattr(concert, "promoter_shares", None) or []):
+        if not sh.pct:
+            continue
+        partners.append({"name": (sh.promoter.nick if sh.promoter else "Socio"), "logo": ((sh.promoter.logo_url if sh.promoter else "") or ""),
+                         "pct": float(_sim_d(sh.pct)), "company_id": "", "promoter_id": (str(sh.promoter_id) if sh.promoter_id else ""), "label": "", "no_loss": False})
+    commissions_meta = []
+    for a in sorted((getattr(concert, "zone_agents", None) or []), key=lambda x: (x.created_at or datetime.min)):
+        name = (a.concept or "").strip() or (a.promoter.nick if a.promoter else "Comisionista")
+        commissions_meta.append({"name": name, "logo": ((a.promoter.logo_url if a.promoter else "") or ""), "desc": ""})
+    return {"label": label or "", "partners": partners, "commissions": commissions_meta, "series": fine,
+            "sellable": (calc["ticketing"]["sellable"] if calc else 0), "break_even_pct": be_pct, "break_even_tickets": be_tickets}
+
+
+def _concert_result_context(s, concert):
+    """{calc, module} para la pestaña Resultado del concierto, o None si falla el cálculo."""
+    try:
+        calc = sim_calc.compute(_concert_build_calc_data(s, concert))
+        module = {"mode": "activity", "labels": SIM_EXPENSE_CATEGORY_LABELS,
+                  "activities": [_concert_result_module_payload(s, concert, calc)]}
+        return {"calc": calc, "module": module}
+    except Exception:
+        return None
 
 
 def _concert_production_panel(session_db, concert):

@@ -37,6 +37,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='resultado') }}">Resultado</a></li>
   <li class="nav-item"><a class="nav-link {% if tab in ['promocion','marketing'] %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='marketing') }}">Marketing</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'ficha' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ficha') }}">Ficha promotor</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='fotos') }}">Fotos / Vídeos</a></li>
@@ -773,6 +774,43 @@
       </div>
     </div>
 
+  {% elif tab == 'resultado' %}
+    <div class="card mb-3"><div class="card-body">
+      {% if result_calc %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if result_calc.at_100.resultado >= 0 else 'text-danger' }}">{{ result_calc.at_100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.ingresos.total|eur }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.at_100.gastos.total|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{% if result_calc.break_even_tickets is none %}No se alcanza{% else %}{{ result_calc.break_even_tickets|k }}{% if result_calc.break_even_pct is not none %} · {{ result_calc.break_even_pct }}%{% endif %}{% endif %}</div><div class="sim-stat__l">Punto de empate</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ result_calc.avg_price_sin_iva|eur }}</div><div class="sim-stat__l">Precio medio (sin IVA)</div></div>
+        </div>
+        {% set maxabs = namespace(v=0.0) %}
+        {% for row in result_calc.series %}{% set a = row.resultado if row.resultado >= 0 else -row.resultado %}{% if a > maxabs.v %}{% set maxabs.v = a %}{% endif %}{% endfor %}
+        <div class="table-responsive mb-3"><table class="table table-sm align-middle sim-result-table">
+          <thead class="table-light"><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:26%"></th></tr></thead>
+          <tbody>
+            {% for row in result_calc.series %}
+              {% set absv = row.resultado if row.resultado >= 0 else -row.resultado %}
+              {% set w = (absv / maxabs.v * 100) if maxabs.v else 0 %}
+              <tr>
+                <td><strong>{{ row.pct }}%</strong></td>
+                <td class="text-end">{{ row.tickets|k }}</td>
+                <td class="text-end">{{ row.ingresos|eur }}</td>
+                <td class="text-end">{{ row.gastos|eur }}</td>
+                <td class="text-end {{ 'text-success' if row.resultado >= 0 else 'text-danger' }}">{{ row.resultado|eur }}</td>
+                <td><div class="sim-bar"><div class="sim-bar__fill {{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%"></div></div></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table></div>
+        <h6 class="mb-2">Reparto por socios y riesgo</h6>
+        <div data-sim-partners="concertResultData"></div>
+        <script type="application/json" id="concertResultData">{{ result_module|tojson }}</script>
+        <div class="small text-muted mt-2">Cálculo con el mismo motor que las simulaciones, a partir del ticketing, cachés, comisionistas, socios y presupuesto del concierto.</div>
+      {% else %}
+        <div class="alert alert-light border">Aún no se puede calcular el resultado. Configura los tipos de entrada (ticketing) y los cachés/gastos del concierto.</div>
+      {% endif %}
+    </div></div>
   {% elif tab in ['promocion','marketing'] %}
     {% include "_promotion_entity_panel.html" %}
   {% elif tab == 'invitations' %}
@@ -1134,4 +1172,5 @@ document.addEventListener('DOMContentLoaded', function(){
   };
 </script>
 <script src="{{ url_for('static', filename='js/concert_form.js') }}"></script>
+{% if tab == 'resultado' %}<script src="{{ url_for('static', filename='js/sim_partners.js') }}"></script>{% endif %}
 {% endblock %}

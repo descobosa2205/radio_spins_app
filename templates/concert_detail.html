@@ -921,7 +921,7 @@
           <div class="modal-body">
             <div class="table-responsive">
               <table class="table align-middle invitation-category-table" data-concert-category-table data-group-promoted="{{ 1 if invitation_group_promoted else 0 }}">
-                <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th>{% if invitation_group_promoted %}<th class="text-end">Número de invitaciones</th>{% else %}<th class="text-end">Por contrato</th><th class="text-end">Adicionales</th>{% endif %}<th></th></tr></thead>
+                <thead class="table-light"><tr><th>Categoría</th><th>Tipo de invitación</th><th>Zona</th>{% if invitation_group_promoted %}<th class="text-end">Número de invitaciones</th>{% else %}<th class="text-end">Por contrato</th><th class="text-end">Adicionales</th>{% endif %}<th></th></tr></thead>
                 <tbody>
                   {% for cat in invitation_categories_summary %}
                     <tr>
@@ -934,6 +934,13 @@
                           <option value="GUEST_LIST_DOOR" {% if cat.ticket_kind == 'GUEST_LIST' and cat.guest_list_mode == 'DOOR' %}selected{% endif %}>Lista acceso directo en puerta</option>
                         </select>
                         <input type="hidden" name="guest_list_mode[]" value="{{ cat.guest_list_mode }}">
+                      </td>
+                      <td>
+                        <select class="form-select" name="zone[]">
+                          <option value="PISTA" {% if cat.zone == 'PISTA' %}selected{% endif %}>Pista</option>
+                          <option value="GRADA" {% if cat.zone == 'GRADA' %}selected{% endif %}>Grada</option>
+                          <option value="PALCO" {% if cat.zone == 'PALCO' %}selected{% endif %}>Palco</option>
+                        </select>
                       </td>
                       {% if invitation_group_promoted %}
                       <td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="{{ cat.qty_contract }}"><input type="hidden" name="qty_extra[]" value="0"></td>
@@ -962,7 +969,7 @@
         const grp = document.querySelector('[data-concert-category-table]')?.getAttribute('data-group-promoted') === '1';
         const qtyCells = grp ? `<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"><input type="hidden" name="qty_extra[]" value="0"></td>` : `<td><input class="form-control text-end" type="number" min="0" name="qty_contract[]" value="0"></td><td><input class="form-control text-end" type="number" min="0" name="qty_extra[]" value="0"></td>`;
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td>${qtyCells}<td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-concert-category-row><i class="fa fa-times"></i></button></td>`;
+        tr.innerHTML = `<td><input type="hidden" name="category_id[]" value=""><input class="form-control" name="category_name[]" placeholder="Nueva categoría" required></td><td><select class="form-select" name="ticket_kind[]"><option value="PDF_UNNUMBERED">PDF sin numerar</option><option value="PDF_NUMBERED">PDF numeradas</option><option value="GUEST_LIST_BOX_OFFICE">Lista en taquilla</option><option value="GUEST_LIST_DOOR">Lista acceso directo en puerta</option></select><input type="hidden" name="guest_list_mode[]" value=""></td><td><select class="form-select" name="zone[]"><option value="PISTA">Pista</option><option value="GRADA">Grada</option><option value="PALCO">Palco</option></select></td>${qtyCells}<td><button class="btn btn-sm btn-outline-secondary" type="button" data-remove-concert-category-row><i class="fa fa-times"></i></button></td>`;
         table.appendChild(tr);
       });
       document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-concert-category-row]'); if(btn) btn.closest('tr')?.remove(); });

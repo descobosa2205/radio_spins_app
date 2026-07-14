@@ -22089,9 +22089,44 @@ def concerts_page():
             for p in promoters
         ]
 
+        # --- Vista rediseñada: rejilla de artistas (con nº de conciertos) → detalle por artista/todos ---
+        vista_mode = "list"
+        artist_groups = []
+        drill_artist = None
+        show_all = request.args.get("all") == "1"
+        type_counts = {}
+        if active_tab == "vista":
+            count_rows = (
+                s.query(Concert.artist_id, func.count(Concert.id))
+                .filter(
+                    ~func.upper(func.coalesce(Concert.sale_type, "")).in_(["GIRAS_COMPRADAS", "CADIZ"]),
+                    ~func.upper(func.coalesce(Concert.activity_type, "CONCIERTO")).in_(["FESTIVAL", "GIRA", "EVENTO_PROMOCIONAL", "TV", "MARCA", "OTROS"]),
+                ).group_by(Concert.artist_id).all()
+            )
+            count_map = {aid: int(n) for aid, n in count_rows}
+            for a in artists:
+                n = count_map.get(a.id, 0)
+                if n <= 0:
+                    continue
+                if _assigned_set and not is_master() and str(a.id) not in _assigned_set:
+                    continue
+                artist_groups.append({"artist": a, "count": n})
+            artist_groups.sort(key=lambda x: (x["artist"].name or "").lower())
+            if len(f_artist_ids) == 1:
+                drill_artist = next((a for a in artists if a.id == f_artist_ids[0]), None)
+            filters_active = bool(f_sale_types or f_statuses or f_concert_tags or f_announcements or drill_artist or show_all)
+            vista_mode = "list" if filters_active else "grid"
+            for c in concerts:
+                type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
+
         return render_template(
-            "concerts.html",
+            "concerts_vista.html" if active_tab == "vista" else "concerts.html",
             active_tab=active_tab,
+            vista_mode=vista_mode,
+            artist_groups=artist_groups,
+            drill_artist=drill_artist,
+            show_all=show_all,
+            type_counts=type_counts,
             artists=artists,
             venues=venues,
             promoters=promoters,

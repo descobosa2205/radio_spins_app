@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Contratación · Conciertos</h4>
+    <div class="text-muted">{% if vista_mode == 'grid' %}Elige un artista para ver sus conciertos, o míralos todos juntos.{% else %}Conciertos por fecha.{% endif %}</div>
+  </div>
+  <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#concertWizardModal"><i class="fa fa-plus me-1"></i> Actividad</button>
+</div>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link active" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
+</ul>
+
+{% if vista_mode == 'grid' %}
+  {# ---- Rejilla de artistas con nº de conciertos ---- #}
+  <div class="d-flex justify-content-end mb-3">
+    <a class="btn btn-outline-danger" href="{{ url_for('concerts_view', tab='vista', all='1') }}"><i class="fa fa-layer-group me-1"></i>Ver todos los conciertos</a>
+  </div>
+  {% if artist_groups %}
+  <div class="row g-3">
+    {% for g in artist_groups %}
+    <div class="col-6 col-md-4 col-lg-3 col-xl-2">
+      <a href="{{ url_for('concerts_view', tab='vista', artist=g.artist.id) }}" class="card h-100 text-decoration-none text-reset text-center">
+        <div class="card-body">
+          <img src="{{ g.artist.photo_url or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:84px;height:84px;border-radius:50%;object-fit:cover;margin-bottom:.5rem;">
+          <div class="fw-semibold text-truncate">{{ g.artist.name }}</div>
+          <div class="small text-muted"><span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ g.count }} concierto{{ '' if g.count == 1 else 's' }}</span></div>
+        </div>
+      </a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="alert alert-light border">No hay conciertos todavía. Pulsa «Actividad» para crear el primero.</div>
+  {% endif %}
+
+{% else %}
+  {# ---- Detalle: conciertos por fecha (de un artista o de todos) ---- #}
+  <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concerts_view', tab='vista') }}"><i class="fa fa-arrow-left me-1"></i>Artistas</a>
+    <h5 class="mb-0 me-2">
+      {% if drill_artist %}{{ artist_avatar(drill_artist.photo_url, drill_artist.name, artist_id=drill_artist.id) }} {{ drill_artist.name }}{% else %}Todos los conciertos{% endif %}
+    </h5>
+    <span class="badge text-bg-light border">{{ concerts|length }}</span>
+  </div>
+
+  {# Filtro visual por tipo #}
+  {% set base_args = {'tab':'vista'} %}
+  {% if drill_artist %}{% set _ = base_args.update({'artist': drill_artist.id}) %}{% else %}{% set _ = base_args.update({'all':'1'}) %}{% endif %}
+  <div class="d-flex gap-2 flex-wrap mb-3">
+    <a href="{{ url_for('concerts_view', **base_args) }}" class="badge {{ 'text-bg-dark' if not f_sale_types else 'text-bg-light border' }} text-decoration-none py-2 px-3">Todos</a>
+    {% for value, label in type_choices %}
+      {% if type_counts.get(value) or value in f_sale_types %}
+      <a href="{{ url_for('concerts_view', type=value, **base_args) }}" class="badge {{ 'text-bg-danger' if value in f_sale_types else 'text-bg-light border' }} text-decoration-none py-2 px-3">{{ label }} <span class="opacity-75">{{ type_counts.get(value, 0) }}</span></a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  {% if concerts %}
+  <div class="card"><div class="list-group list-group-flush">
+    {% for c in concerts %}
+    <a href="{{ url_for('concert_detail_view', cid=c.id) }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3">
+      <div class="text-center flex-shrink-0" style="width:52px;">
+        {% if c.date %}<div class="fw-bold" style="font-size:1.15rem;line-height:1;">{{ c.date.strftime('%d') }}</div><div class="small text-danger text-uppercase fw-semibold">{{ c.date.strftime('%b') }}</div><div class="small text-muted">{{ c.date.strftime('%Y') }}</div>{% else %}<i class="fa fa-calendar text-muted"></i>{% endif %}
+      </div>
+      {% if not drill_artist %}<img src="{{ (c.artist.photo_url if c.artist else '') or url_for('static', filename='img/logo.png') }}" alt="" data-default-photo="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
+      <div class="flex-grow-1" style="min-width:0;">
+        <div class="fw-semibold text-truncate">{{ c.festival_name or (c.artist.name if c.artist else 'Concierto') }}</div>
+        <div class="small text-muted text-truncate">{% if not drill_artist and c.artist %}{{ c.artist.name }} · {% endif %}{{ c.location_summary or (c.venue.name if c.venue else 'Sin recinto') }}</div>
+      </div>
+      <span class="badge text-bg-light border flex-shrink-0">{{ c.sale_type_label }}</span>
+      <span class="badge flex-shrink-0 {% if c.status == 'CONFIRMADO' %}bg-success{% elif c.status == 'RESERVADO' %}bg-primary text-white{% elif c.status == 'BORRADOR' %}text-bg-light border text-dark{% else %}bg-warning text-dark{% endif %}">{{ c.status }}</span>
+    </a>
+    {% endfor %}
+  </div></div>
+  {% else %}
+  <div class="alert alert-light border">No hay conciertos con estos filtros.</div>
+  {% endif %}
+{% endif %}
+
+{% include "_concert_wizard_modal.html" %}
+{% endblock %}

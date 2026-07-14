@@ -31,6 +31,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'info' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='info') }}">Información general</a></li>
   {% if action.has_fee %}<li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='ingresos') }}">Ingresos</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'bolsa' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='bolsa') }}">Bolsa</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='resultado') }}">Resultado</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'roadmap' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='roadmap') }}">Hoja de ruta</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='fotos') }}">Fotos / Vídeos</a></li>
 </ul>
@@ -73,6 +74,22 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2"><div><h5 class="mb-1">{{ bag.title }}</h5><div class="text-muted small">{{ bag.status }} · {{ bag.liquidation_status }}</div></div><a class="btn btn-primary" href="{{ url_for('bag_detail_view', bag_id=bag.id) }}">Gestionar bolsa</a></div>
       {% else %}
         <h5>Bolsa de gastos</h5><p class="text-muted">No hay bolsa vinculada todavía. Al abrirla se vinculará a la acción y a sus artistas.</p><form method="post"><input type="hidden" name="form_action" value="open_bag"><button class="btn btn-success">Abrir bolsa</button></form>
+      {% endif %}
+    </div></div>
+  {% elif tab == 'resultado' %}
+    <div class="card"><div class="card-body">
+      <h5 class="mb-3">Resultado</h5>
+      {% if action_result %}
+        <div class="d-flex flex-wrap gap-2 mb-3">
+          <div class="sim-stat"><div class="sim-stat__n">{{ action_result.fee|eur }}</div><div class="sim-stat__l">Ingreso (caché / fee)</div></div>
+          <div class="sim-stat"><div class="sim-stat__n">{{ action_result.expenses|eur }}</div><div class="sim-stat__l">Gastos (bolsa, neto)</div></div>
+          <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if action_result.net >= 0 else 'text-danger' }}">{{ action_result.net|eur }}</div><div class="sim-stat__l">Resultado neto</div></div>
+        </div>
+        {% if action_result.fee_notes %}<div class="small text-muted mb-2"><i class="fa fa-note-sticky me-1"></i>{{ action_result.fee_notes }}</div>{% endif %}
+        {% if not action_result.has_bag %}<div class="alert alert-light border small">No hay bolsa de gastos abierta; los gastos se muestran a 0. Ábrela en la pestaña «Bolsa».</div>{% endif %}
+        <div class="small text-muted">Las acciones no tienen venta de entradas: el resultado es el ingreso (caché/fee) menos los gastos reales de la bolsa.</div>
+      {% else %}
+        <div class="alert alert-light border">Sin datos de resultado.</div>
       {% endif %}
     </div></div>
   {% elif tab == 'fotos' %}

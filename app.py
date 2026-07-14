@@ -38644,7 +38644,7 @@ def action_detail_view(action_id):
             flash('Acción actualizada.', 'success')
             return redirect(url_for('action_detail_view', action_id=action.id))
         tab = (request.args.get('tab') or 'info').strip().lower()
-        if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion'}:
+        if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion', 'resultado', 'fotos'}:
             tab = 'info'
         display = _action_display_row(session_db, action)
         artists = _artists_from_ids(session_db, getattr(action, 'artist_ids', []) or [])
@@ -38652,8 +38652,20 @@ def action_detail_view(action_id):
         roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
         roadmap_ctx = _roadmap_context(session_db, 'action', action)
         fotos_ctx = _build_fotos_context(session_db, 'ACTION', action.id) if tab == 'fotos' else None
+        # Resultado de la acción (sin taquilla): fee/caché de ingreso − gastos reales de la bolsa.
+        action_result = None
+        if tab == 'resultado':
+            fee_payload = _json_loads_safe(getattr(action, 'fee_payload', None), {}) or {}
+            fee = _money_or_zero(fee_payload.get('amount')) if getattr(action, 'has_fee', False) else Decimal('0')
+            exp_net = Decimal('0')
+            if bag is not None:
+                try:
+                    exp_net = sum([_money_or_zero(getattr(e, 'amount_net', 0)) for e in session_db.query(BagExpense).filter(BagExpense.bag_id == bag.id).all()], Decimal('0'))
+                except Exception:
+                    exp_net = Decimal('0')
+            action_result = {'fee': fee, 'expenses': exp_net, 'net': fee - exp_net, 'has_bag': bag is not None, 'fee_notes': (fee_payload.get('notes') or '')}
         session_db.commit()
-        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx)
+        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx, action_result=action_result)
     finally:
         session_db.close()
 

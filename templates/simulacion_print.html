@@ -53,6 +53,22 @@
   .stat span { font-size:.66rem; text-transform:uppercase; letter-spacing:.02em; color:#777; }
   .stat.hl b { color:#E33D48; }
 
+  /* Tabla de resultado por % de aforo (la misma de las pestañas), con BARRAS imprimibles. */
+  * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .rbar { background:#f1f3f5; border-radius:5px; height:11px; overflow:hidden; min-width:40px; }
+  .rbar i { display:block; height:100%; border-radius:5px; min-width:2px; }
+  .rbar i.pos { background:linear-gradient(90deg,#34d399,#047857); }
+  .rbar i.neg { background:linear-gradient(90deg,#fca5a5,#dc2626); }
+  .be-badge { display:inline-block; background:#ffc107; color:#212529; border-radius:6px; font-size:.64rem; font-weight:700; padding:0 5px; margin-left:4px; }
+  tr.be td { background:#fff8e1 !important; }
+  /* Líneas de ingresos omitidas / no aplican: tachadas y en gris, como en las pestañas. */
+  tr.off td { color:#999; }
+  tr.off td:first-child { text-decoration:line-through; }
+  .badge-off { display:inline-block; border:1px solid #d9dee6; background:#f3f4f6; color:#666; border-radius:6px; font-size:.62rem; padding:0 5px; margin-left:4px; text-decoration:none; }
+  .plogo { height:18px; max-width:64px; object-fit:contain; vertical-align:middle; margin-right:6px; }
+  .noloss { display:inline-block; border:1px solid #d9dee6; background:#f8f9fa; color:#555; border-radius:6px; font-size:.62rem; padding:0 5px; margin-left:4px; }
+  #tourMap { height:300px; border:1px solid #eceef1; border-radius:12px; }
+
   @media print {
     body { background:#fff; }
     .toolbar { display:none; }
@@ -93,16 +109,92 @@
 
 {% macro money(v) %}{{ v|eur }}{% endmacro %}
 
-{% macro ingresos_tbl(c) %}
-{% set ing = c.at_100.ingresos %}
+{# --- Tabla de resultado por % de aforo con barras: la MISMA de las pestañas del detalle. --- #}
+{% macro result_tbl(series) %}
+{% set maxabs = namespace(v=0.0) %}
+{% for row in series %}{% set a = row.resultado if row.resultado >= 0 else -row.resultado %}{% if a > maxabs.v %}{% set maxabs.v = a %}{% endif %}{% endfor %}
 <table>
-  <tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>
-  {% if ing.complementos %}<tr><td>Complementos</td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
-  <tr><td>Rebate</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>
-  <tr><td>Barras</td><td class="text-end">{{ ing.barras|eur }}</td></tr>
-  <tr><td>Incentivos fiscales</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>
-  <tr><td>Subvenciones</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>
-  <tr><td>Patrocinios</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>
+  <thead><tr><th>% aforo</th><th class="text-end">Entradas</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th><th style="width:28%;">&nbsp;</th></tr></thead>
+  <tbody>
+    {% set seen = namespace(be=false) %}
+    {% for row in series %}
+      {% set is_be = (not seen.be and row.resultado >= 0) %}
+      {% if is_be %}{% set seen.be = true %}{% endif %}
+      {% set absval = row.resultado if row.resultado >= 0 else -row.resultado %}
+      {% set w = (absval / maxabs.v * 100) if maxabs.v else 0 %}
+      <tr class="{{ 'be' if is_be }}">
+        <td><b>{{ row.pct }}%</b>{% if is_be %}<span class="be-badge">empate</span>{% endif %}</td>
+        <td class="text-end">{{ row.tickets|k }}</td>
+        <td class="text-end">{{ row.ingresos|eur }}</td>
+        <td class="text-end">{{ row.gastos|eur }}</td>
+        <td class="text-end {{ 'pos' if row.resultado >= 0 else 'neg' }}">{{ row.resultado|eur }}</td>
+        <td><div class="rbar"><i class="{{ 'pos' if row.resultado >= 0 else 'neg' }}" style="width:{{ w }}%;"></i></div></td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{# --- Socios: beneficio y riesgo (versión estática @100% del módulo de las pestañas). --- #}
+{% macro partners_tbl(ps) %}
+{% if ps and ps.rows %}
+<div class="stats cols-3">
+  <div class="stat hl"><b class="{{ 'pos' if ps.at.resultado >= 0 else 'neg' }}">{{ ps.at.resultado|eur }}</b><span>Resultado @100%</span></div>
+  <div class="stat"><b>{{ ps.at.ingresos|eur }}</b><span>Ingresos @100%</span></div>
+  <div class="stat"><b>{{ ps.at.gastos|eur }}</b><span>Gastos @100%</span></div>
+</div>
+<table>
+  <thead><tr><th>Socio</th><th class="text-end">Participación</th><th class="text-end">Beneficio potencial<br><span class="muted" style="font-weight:400;">(neto, sin IVA y sin SGAE)</span></th><th class="text-end">Riesgo asumido<br><span class="muted" style="font-weight:400;">(gastos, sin IVA)</span></th></tr></thead>
+  <tbody>
+    {% for r in ps.rows %}
+    <tr>
+      <td>{% if r.logo %}<img class="plogo" src="{{ r.logo }}" alt="">{% endif %}{{ r.name }}</td>
+      <td class="text-end"><b>{{ r.pcts|join('% / ') }}%</b></td>
+      <td class="text-end {{ 'pos' if r.beneficio >= 0 else 'neg' }}"><b>{{ r.beneficio|eur }}</b></td>
+      <td class="text-end">{{ r.riesgo|eur }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<div class="muted" style="font-size:.72rem;margin-top:4px;">
+  {% if ps.break_even_pct is not none %}Punto de empate: {{ ps.break_even_tickets|k }} entradas ({{ ps.break_even_pct }}% de {{ ps.sellable|k }} a la venta).{% else %}No se alcanza el punto de empate ni al 100% de la venta.{% endif %}
+  Los socios «no soportan pérdidas» no asumen gasto: su parte se reparte entre el resto.
+</div>
+{% endif %}
+{% endmacro %}
+
+{# --- Descriptor de un caché/comisión (fijo o variable), como se configura en Gastos. --- #}
+{% macro cost_desc(c) -%}
+  {%- if (c.mode or 'FIXED')|upper == 'VARIABLE' -%}
+    {%- set vt = (c.var_type or '')|upper -%}
+    Variable ·
+    {%- if vt == 'PER_TICKET' %} {{ c.var_value|eur }} por entrada
+    {%- elif vt == 'PERCENT_PROFIT' %} {{ c.var_value }}% sobre el beneficio
+    {%- else %} {{ c.var_value }}% sobre ingresos (taquilla)
+    {%- endif -%}
+    {%- if (c.var_threshold_type or '')|upper == 'TICKETS' %} · a partir de {{ c.var_threshold_value|k }} entradas
+    {%- elif (c.var_threshold_type or '')|upper == 'AMOUNT' %} · a partir de {{ c.var_threshold_value|eur }}
+    {%- endif -%}
+  {%- else -%}
+    {{ c.amount|eur }} fijo{% if c.includes_iva %} · IVA incluido{% endif %}{% if c.includes_retention %} · retención incluida{% endif %}
+  {%- endif -%}
+{%- endmacro %}
+
+{# Marca «Omitido / No aplica» de una línea de ingresos (macro de nivel de plantilla: los macros
+   anidados de Jinja NO ven las variables locales del macro contenedor). #}
+{% macro offmark(ov, key) %}{% if ov.get(key) %}<span class="badge-off">{{ 'Omitido' if ov.get(key) == 'OMIT' else 'No aplica' }}</span>{% endif %}{% endmacro %}
+
+{% macro ingresos_tbl(c, overrides) %}
+{% set ing = c.at_100.ingresos %}
+{% set ov = overrides or {} %}
+<table>
+  <tr class="{{ 'off' if ov.get('ticketing') }}"><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span>{{ offmark(ov, 'ticketing') }}</td><td class="text-end">{{ ing.ticketing|eur }}</td></tr>
+  {% if ing.complementos or ov.get('complementos') %}<tr class="{{ 'off' if ov.get('complementos') }}"><td>Complementos{{ offmark(ov, 'complementos') }}</td><td class="text-end">{{ ing.complementos|eur }}</td></tr>{% endif %}
+  <tr class="{{ 'off' if ov.get('rebate') }}"><td>Rebate{{ offmark(ov, 'rebate') }}</td><td class="text-end">{{ ing.rebate|eur }}</td></tr>
+  <tr class="{{ 'off' if ov.get('barras') }}"><td>Barras{{ offmark(ov, 'barras') }}</td><td class="text-end">{{ ing.barras|eur }}</td></tr>
+  <tr class="{{ 'off' if ov.get('incentivos') }}"><td>Incentivos fiscales{{ offmark(ov, 'incentivos') }}</td><td class="text-end">{{ ing.incentivos|eur }}</td></tr>
+  <tr class="{{ 'off' if ov.get('subvenciones') }}"><td>Subvenciones{{ offmark(ov, 'subvenciones') }}</td><td class="text-end">{{ ing.subvenciones|eur }}</td></tr>
+  <tr class="{{ 'off' if ov.get('patrocinios') }}"><td>Patrocinios{{ offmark(ov, 'patrocinios') }}</td><td class="text-end">{{ ing.patrocinios|eur }}</td></tr>
   <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ ing.total|eur }}</td></tr>
 </table>
 {% endmacro %}
@@ -110,23 +202,55 @@
 {% macro gastos_tbl(c, extra_general) %}
 {% set g = c.at_100.gastos %}
 <table>
-  <tr><td>Cachés</td><td class="text-end">{{ g.caches|eur }}</td></tr>
+  {% if g.caches %}<tr><td>Cachés</td><td class="text-end">{{ g.caches|eur }}</td></tr>{% endif %}
   {% if g.retenciones %}<tr><td>Retenciones (24%)</td><td class="text-end">{{ g.retenciones|eur }}</td></tr>{% endif %}
-  <tr><td>Comisiones</td><td class="text-end">{{ g.comisiones|eur }}</td></tr>
-  <tr><td>Producción</td><td class="text-end">{{ g.produccion|eur }}</td></tr>
+  {% if g.comisiones %}<tr><td>Comisiones</td><td class="text-end">{{ g.comisiones|eur }}</td></tr>{% endif %}
+  {# Producción POR CATEGORÍAS, igual que el «Resumen de gastos» de las pestañas. #}
+  {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+    {% if c.at_100.gastos.produccion_por_categoria.get(ckey) %}
+      <tr><td style="padding-left:18px;">{{ clabel }}</td><td class="text-end">{{ c.at_100.gastos.produccion_por_categoria.get(ckey)|eur }}</td></tr>
+    {% endif %}
+  {% endfor %}
+  {% if c.at_100.gastos.produccion_por_categoria.get('PRORRATEO') %}
+    <tr><td style="padding-left:18px;">{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO', 'Prorrateo de gastos generales') }}</td><td class="text-end">{{ c.at_100.gastos.produccion_por_categoria.get('PRORRATEO')|eur }}</td></tr>
+  {% endif %}
   {% if extra_general %}<tr><td>Parte de gastos generales del ciclo</td><td class="text-end">{{ extra_general|eur }}</td></tr>{% endif %}
   <tr class="tot"><td>Total gastos</td><td class="text-end">{{ (g.total + (extra_general or 0))|eur }}</td></tr>
 </table>
 {% endmacro %}
 
-{% macro ticketing_tbl(c) %}
+{% macro ticketing_tbl(c, activity) %}
 {% set t = c.ticketing %}
 <div class="stats">
-  <div class="stat"><b>{{ t.qty }}</b><span>Aforo total</span></div>
-  <div class="stat"><b>{{ t.sellable }}</b><span>A la venta</span></div>
-  <div class="stat"><b>{{ t.invitations }}</b><span>Invitaciones</span></div>
+  <div class="stat"><b>{{ t.qty|k }}</b><span>Aforo total</span></div>
+  <div class="stat"><b>{{ t.sellable|k }}</b><span>A la venta</span></div>
+  <div class="stat"><b>{{ t.invitations|k }}</b><span>Invitaciones</span></div>
   <div class="stat"><b>{{ t.avg_price_sin_iva|eur }}</b><span>Precio medio (sin IVA)</span></div>
 </div>
+<div class="muted" style="font-size:.75rem;margin:-2px 0 8px;">
+  Pista: {{ t.zones.PISTA.sellable|k }} a la venta de {{ t.zones.PISTA.qty|k }} ·
+  Grada: {{ t.zones.GRADA.sellable|k }} a la venta de {{ t.zones.GRADA.qty|k }} ·
+  Palcos: {{ t.zones.PALCO.sellable|k }} a la venta de {{ t.zones.PALCO.qty|k }} ·
+  Precio medio con IVA: {{ t.avg_price_gross|eur }}
+</div>
+{% if activity and activity.ticket_categories %}
+{# Detalle por categorías, como la pestaña Ticketing. #}
+<table>
+  <thead><tr><th>Zona</th><th>Categoría</th><th class="text-end">Precio (sin IVA)</th><th class="text-end">Aforo</th><th class="text-end">Invit.</th><th class="text-end">A la venta</th></tr></thead>
+  <tbody>
+    {% for tc in activity.ticket_categories %}
+    <tr>
+      <td>{{ {'PISTA':'Pista','GRADA':'Grada','PALCO':'Palcos'}.get((tc.zone or 'PISTA')|upper, 'Pista') }}</td>
+      <td>{{ tc.name or '—' }}{% for ex in (tc.extras or []) %}<div class="muted" style="font-size:.72rem;">+ {{ ex.name or 'Complemento' }} · {{ ex.amount_gross|eur }} (IVA incl.)</div>{% endfor %}</td>
+      <td class="text-end">{{ tc.price_net|eur }}</td>
+      <td class="text-end">{{ (tc.quantity or 0)|k }}</td>
+      <td class="text-end">{{ (tc.invitations or 0)|k }}</td>
+      <td class="text-end">{{ ([(tc.quantity or 0) - (tc.invitations or 0), 0]|max)|k }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
 {% endmacro %}
 
 {# ===== HOJA DE PORTADA / RESUMEN ===== #}
@@ -143,7 +267,7 @@
   {% if is_multi %}
   <div class="sec-title">{{ 'Conciertos del ciclo' if is_cycle else 'Fechas de la gira' }}</div>
   <table>
-    <thead><tr><th>#</th><th>{{ 'Artista' if is_cycle else 'Fecha' }}</th><th>Fecha</th><th>Recinto</th><th class="text-end">A la venta</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th></tr></thead>
+    <thead><tr><th>#</th><th>{{ 'Artista' if is_cycle else 'Fecha' }}</th><th>Fecha</th><th>Recinto</th><th class="text-end">A la venta</th><th class="text-end">Precio medio</th><th class="text-end">Empate</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th></tr></thead>
     <tbody>
       {% for b in blocks %}
       <tr>
@@ -151,15 +275,30 @@
         <td>{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or '—' }}{% endif %}</td>
         <td>{% if b.activity.date_unknown or not b.activity.event_date %}—{% else %}{{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}</td>
         <td>{{ b.activity.venue.name if b.activity.venue else '—' }}</td>
-        <td class="text-end">{{ b.calc.ticketing.sellable }}</td>
+        <td class="text-end">{{ b.calc.ticketing.sellable|k }}</td>
+        <td class="text-end">{{ b.calc.avg_price_sin_iva|eur }}</td>
+        <td class="text-end">{% if b.calc.break_even_tickets is none %}—{% else %}{{ b.calc.break_even_tickets|k }} · {{ b.calc.break_even_pct }}%{% endif %}</td>
         <td class="text-end">{{ b.ingresos|eur }}</td>
         <td class="text-end">{{ b.gastos|eur }}</td>
         <td class="text-end {{ 'pos' if b.resultado >= 0 else 'neg' }}">{{ b.resultado|eur }}</td>
       </tr>
       {% endfor %}
     </tbody>
-    {% if is_cycle and general_net %}<tfoot><tr class="tot"><td colspan="6">Gastos generales del ciclo (÷ {{ blocks|length }})</td><td class="text-end" colspan="2">{{ general_net|eur }}</td></tr></tfoot>{% endif %}
+    {% if is_cycle and general_net %}<tfoot><tr class="tot"><td colspan="8">Gastos generales del ciclo (÷ {{ blocks|length }})</td><td class="text-end" colspan="2">{{ general_net|eur }}</td></tr></tfoot>{% endif %}
   </table>
+  {% if tour_series %}
+  <div class="sec-title">Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} por % de aforo (agregado)</div>
+  {{ result_tbl(tour_series) }}
+  {% endif %}
+  {% if not public and tour_points %}
+  <div class="sec-title">{{ 'Recorrido del ciclo' if is_cycle else 'Recorrido de la gira' }}</div>
+  <div id="tourMap"></div>
+  <div class="muted" style="font-size:.72rem;margin-top:4px;">Las chinchetas van numeradas por orden de fecha. Espera a que cargue el mapa antes de imprimir.</div>
+  {% endif %}
+  {% endif %}
+  {% if partners_summary and partners_summary.rows %}
+  <div class="sec-title">Socios: beneficio y riesgo (al 100% de la venta)</div>
+  {{ partners_tbl(partners_summary) }}
   {% endif %}
   {% if is_festival and festival_breakdown %}
   <div class="sec-title">Gastos por artista</div>
@@ -181,20 +320,83 @@
   {% set _sec %}{% if is_multi %}{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or ('Fecha ' ~ loop.index) }}{% endif %}{% if b.activity.event_date and not b.activity.date_unknown %} · {{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}{% if b.activity.venue %} · {{ b.activity.venue.name }}{% endif %}{% else %}Detalle económico{% endif %}{% endset %}
   {{ hdr(_sec) }}
   <div class="sec-title">Ticketing</div>
-  {{ ticketing_tbl(b.calc) }}
+  {{ ticketing_tbl(b.calc, b.activity) }}
   <div class="sec-title">Ingresos (al 100%)</div>
-  {{ ingresos_tbl(b.calc) }}
+  {{ ingresos_tbl(b.calc, b.income_overrides) }}
+  {% set _subv = (b.activity.income_items or [])|list %}
+  {% if _subv %}
+  <div class="muted" style="font-size:.74rem;margin-top:4px;">
+    {% for it in _subv %}{{ 'Subvención' if (it.kind or 'SUBVENCION')|upper == 'SUBVENCION' else 'Patrocinio' }} «{{ it.name or '—' }}»: {{ it.amount_net|eur }}{% if (it.status or 'ACTIVE')|upper in ['OMIT','NA'] %} ({{ 'omitida' if (it.status)|upper == 'OMIT' else 'no aplica' }}){% endif %}{% if not loop.last %} · {% endif %}{% endfor %}
+  </div>
+  {% endif %}
   <div class="sec-title">Gastos (al 100%)</div>
   {{ gastos_tbl(b.calc, (general_share if is_cycle else 0)) }}
+  {% set _caches = (b.activity.caches or [])|list %}
+  {% set _comms = (b.activity.commissions or [])|list %}
+  {% if _caches or _comms %}
+  <div class="sec-title">Cachés y comisiones (configuración)</div>
+  <table>
+    <tbody>
+      {% for c in _caches %}
+      <tr><td style="width:40%;">Caché{% if c.label %} · {{ c.label }}{% endif %}</td><td>{{ cost_desc(c) }}</td></tr>
+      {% endfor %}
+      {% for c in _comms %}
+      <tr><td style="width:40%;">Comisión · {{ c.name or (c.promoter.nick if c.promoter else (c.media_outlet.name if c.media_outlet else 'Comisionista')) }}</td><td>{{ cost_desc(c) }}{% if c.exempt_amount %} · exento hasta {{ c.exempt_amount|eur }}{% endif %}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
   <div class="sec-title">Resultado</div>
   <div class="stats cols-3">
-    <div class="stat"><b>{% if b.calc.break_even_tickets is none %}No se alcanza{% else %}{{ b.calc.break_even_tickets }}{% if b.calc.break_even_pct is not none %} · {{ b.calc.break_even_pct }}%{% endif %}{% endif %}</b><span>Punto de empate</span></div>
+    <div class="stat"><b>{% if b.calc.break_even_tickets is none %}No se alcanza{% else %}{{ b.calc.break_even_tickets|k }}{% if b.calc.break_even_pct is not none %} · {{ b.calc.break_even_pct }}%{% endif %}{% endif %}</b><span>Punto de empate</span></div>
     <div class="stat"><b>{{ b.calc.avg_price_sin_iva|eur }}</b><span>Precio medio sin IVA · {{ b.calc.avg_price_gross|eur }} con IVA</span></div>
     <div class="stat hl"><b class="{{ 'pos' if b.resultado >= 0 else 'neg' }}">{{ b.resultado|eur }}</b><span>Resultado @100%</span></div>
   </div>
+  {% if b.calc.series %}
+  <div class="sec-title">Resultado por % de aforo</div>
+  {{ result_tbl(b.calc.series) }}
+  {% endif %}
+  {% if is_multi and b.partners_summary and b.partners_summary.rows %}
+  <div class="sec-title">Socios de esta fecha (al 100% de la venta)</div>
+  {{ partners_tbl(b.partners_summary) }}
+  {% endif %}
 </div>
 {% endfor %}
 </div>
+
+{% if not public and tour_points %}
+{# Mapa del recorrido (solo PDF interno: el geocoding requiere sesión). Igual que la pestaña General. #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+(function(){
+  var el = document.getElementById('tourMap'); if(!el || !window.L) return;
+  var points = {{ tour_points|tojson }};
+  if(!points.length){ el.style.display='none'; return; }
+  var map = L.map('tourMap', {scrollWheelZoom:false, zoomControl:false}).setView([40.4168,-3.7038], 5);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
+  var coords = [], i = 0;
+  function geocode(p){ return fetch("{{ url_for('api_geocode') }}?city="+encodeURIComponent(p.city)+"&province="+encodeURIComponent(p.province||'')).then(function(r){ return r.json(); }); }
+  function step(){
+    if(i >= points.length){ finish(); return; }
+    var p = points[i++];
+    geocode(p).then(function(d){
+      if(d && d.ok){
+        var ll=[d.lat, d.lng];
+        var icon=L.divIcon({className:'', html:'<div style="background:#E33D48;color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:700;border:2px solid #fff;font-size:12px;">'+p.n+'</div>', iconSize:[24,24], iconAnchor:[12,12]});
+        L.marker(ll,{icon:icon}).addTo(map);
+        coords.push(ll);
+      }
+    }).catch(function(){}).then(step);
+  }
+  function finish(){
+    if(coords.length > 1){ try{ map.fitBounds(coords, {padding:[24,24]}); }catch(e){} }
+    else if(coords.length === 1){ map.setView(coords[0], 8); }
+  }
+  step();
+})();
+</script>
+{% endif %}
 
 <script>
   // Para "dossier directo": ?print=1 abre el diálogo de impresión al cargar.

@@ -59,20 +59,39 @@
 <form id="{{ form_id }}" method="post" action="{{ url_for('simulation_partners_save', sid=sim.id) }}" class="sim-partners-editor">
   <input type="hidden" name="activity_id" value="{{ activity_id or '' }}">
   <input type="hidden" name="back_tab" value="{{ back_tab }}">
-  <div class="row g-2 align-items-end mb-2">
-    <div class="col-12 col-md-4">
-      <label class="form-label small mb-0">Empresa del grupo</label>
-      <select class="form-select form-select-sm pe-company">
-        <option value="">— Añadir empresa —</option>
+  {# Añadir socio POR PASOS: 1) pantalla con iconos «¿empresa del grupo o tercero?» →
+     2) el selector que corresponda (empresas con logo; terceros con buscador + alta rápida). #}
+  <div class="mb-3" data-pe-add>
+    <div data-pe-step="kind">
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <label class="form-label small mb-0 fw-semibold">Añadir socio</label>
+        <button type="button" class="btn btn-sm btn-outline-primary pe-equal" title="Repartir a partes iguales"><i class="fa fa-scale-balanced"></i></button>
+      </div>
+      <div class="pe-kind-grid">
+        <button type="button" class="pe-kind-btn" data-pe-kind="company"><i class="fa fa-building"></i><span>Empresa del grupo</span></button>
+        <button type="button" class="pe-kind-btn" data-pe-kind="promoter"><i class="fa fa-user-tie"></i><span>Tercero</span></button>
+      </div>
+    </div>
+    <div class="d-none" data-pe-step="company">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary pe-back" title="Volver"><i class="fa fa-arrow-left"></i></button>
+        <label class="form-label small mb-0 fw-semibold"><i class="fa fa-building me-1 text-danger"></i>¿Qué empresa del grupo?</label>
+      </div>
+      <select class="form-select form-select-sm pe-company select-with-thumbs">
+        <option value="">— Elige empresa —</option>
         {% for c in group_companies %}<option value="{{ c.id }}" data-name="{{ c.name }}" data-logo="{{ c.logo_url or '' }}">{{ c.name }}</option>{% endfor %}
       </select>
     </div>
-    <div class="col">
-      <label class="form-label small mb-0">Tercero</label>
-      <select class="form-select form-select-sm pe-promoter" id="{{ form_id }}Prom"></select>
+    <div class="d-none" data-pe-step="promoter">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <button type="button" class="btn btn-sm btn-outline-secondary pe-back" title="Volver"><i class="fa fa-arrow-left"></i></button>
+        <label class="form-label small mb-0 fw-semibold"><i class="fa fa-user-tie me-1 text-danger"></i>¿Qué tercero?</label>
+      </div>
+      <div class="d-flex gap-2 align-items-start">
+        <div class="flex-grow-1"><select class="form-select form-select-sm pe-promoter" id="{{ form_id }}Prom"></select></div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-quick-create="promoter" data-target="{{ form_id }}Prom" title="Crear tercero"><i class="fa fa-plus"></i></button>
+      </div>
     </div>
-    <div class="col-auto"><button type="button" class="btn btn-sm btn-outline-secondary" data-quick-create="promoter" data-target="{{ form_id }}Prom" title="Crear tercero"><i class="fa fa-plus"></i></button></div>
-    <div class="col-auto"><button type="button" class="btn btn-sm btn-outline-primary pe-equal" title="Repartir a partes iguales"><i class="fa fa-scale-balanced"></i></button></div>
   </div>
   <div class="pe-list">
     {% for p in rows %}
@@ -147,6 +166,13 @@
   .simp-be__label{ display:inline-block; background:#212529; color:#fff; border-radius:6px; font-size:.68rem; padding:.1rem .4rem; white-space:nowrap; }
   .simp-be__arrow{ display:block; width:0; height:0; margin:0 auto; border-left:6px solid transparent; border-right:6px solid transparent; border-top:7px solid #212529; }
   .sim-partner-img{ height:30px; max-width:100px; object-fit:contain; background:transparent; }
+  .cost-summary{ cursor:pointer; }
+  /* Selector de socios por pasos: paso 1 con iconos (empresa del grupo / tercero) */
+  .pe-kind-grid{ display:grid; grid-template-columns:repeat(2, minmax(150px, 220px)); gap:.75rem; }
+  .pe-kind-btn{ border:1px solid #dfe4ea; border-radius:1rem; background:#fff; padding:.85rem; cursor:pointer; transition:.15s ease; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; min-height:96px; gap:.45rem; color:#18202b; }
+  .pe-kind-btn:hover{ border-color:#e83b4b; box-shadow:0 0 0 .18rem rgba(232,59,75,.12); }
+  .pe-kind-btn i{ font-size:1.7rem; color:#e83b4b; }
+  .pe-kind-btn span{ font-weight:600; font-size:.9rem; }
   .sim-partner-img--ph{ display:inline-flex; align-items:center; justify-content:center; width:30px; color:#adb5bd; }
   /* Módulo de socios: nombre completo (sin cortar) y filas altas bien alineadas */
   .simp-table th, .simp-table td{ padding-top:.55rem; padding-bottom:.55rem; vertical-align:middle; }
@@ -1111,9 +1137,10 @@
       <div class="modal-body">
         <div class="mb-2"><label class="form-label">Título (opcional)</label><input class="form-control" name="title" value="{{ sim.title or '' }}"></div>
         <div class="mb-2"><label class="form-label">Empresa que gestiona</label>
-          <select name="managing_company_id" class="form-select">
+          {# Con logo, como el resto de configuradores (select2 con miniatura vía initSelect2). #}
+          <select name="managing_company_id" class="form-select select-with-thumbs">
             <option value="">— Sin asignar —</option>
-            {% for c in group_companies %}<option value="{{ c.id }}" {% if sim.managing_company_id and sim.managing_company_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+            {% for c in group_companies %}<option value="{{ c.id }}" data-logo="{{ c.logo_url or '' }}" {% if sim.managing_company_id and sim.managing_company_id|string == c.id|string %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
           </select>
         </div>
         <div class="mb-2"><label class="form-label">Tipo</label>
@@ -1440,7 +1467,7 @@
         '<select class="form-select form-select-sm cv-type">'+
           '<option value="" '+sel(vt,'')+'>— Elige tipo de variable —</option>'+
           '<option value="PER_TICKET" '+sel(vt,'PER_TICKET')+'>Por entrada (€)</option>'+
-          '<option value="PERCENT" '+sel(vt,'PERCENT')+'>Porcentaje (% taquilla)</option>'+
+          '<option value="PERCENT" '+sel(vt,'PERCENT')+'>Porcentaje sobre ingresos (% taquilla)</option>'+
           profitOpt+
         '</select></div>'+
       '<div class="col-md-6 cv-more '+more+'"><label class="form-label small mb-0">Valor</label><input type="number" step="0.01" min="0" class="form-control form-control-sm cv-value" value="'+val(o.var_value)+'"></div>'+
@@ -1609,7 +1636,8 @@
       card.querySelector('.cost-var').classList.toggle('d-none', !isVar);
       return;
     }
-    var cet=e.target.closest('.cost-edit-toggle'); if(cet){ var cc0=cet.closest('.cost-card'); var ed=cc0.querySelector('.cost-edit'); var wasHidden=ed.classList.contains('d-none'); ed.classList.toggle('d-none'); if(!wasHidden){ var sm=cc0.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(cc0); } return; }
+    // Abrir/cerrar la configuración: por el menú ⋮ → Editar o pinchando el propio resumen.
+    var cet=e.target.closest('.cost-edit-toggle') || e.target.closest('.cost-summary'); if(cet){ var cc0=cet.closest('.cost-card'); var ed=cc0.querySelector('.cost-edit'); var wasHidden=ed.classList.contains('d-none'); ed.classList.toggle('d-none'); if(!wasHidden){ var sm=cc0.querySelector('.cost-summary'); if(sm) sm.innerHTML=costSummaryFromCard(cc0); } return; }
     var del=e.target.closest('.cost-del'); if(del){ del.closest('.cost-card').remove(); return; }
     var pdel=e.target.closest('.prod-del'); if(pdel){ pdel.closest('.prod-row').remove(); recompute(); return; }
     var pv=e.target.closest('.pr-var-toggle'); if(pv){ var row=pv.closest('.prod-row'); var on=row.querySelector('.prod-var').classList.toggle('d-none'); pv.classList.toggle('btn-primary', !on); pv.classList.toggle('btn-outline-secondary', on); recompute(); return; }
@@ -1825,12 +1853,14 @@
     $('#commissionSearch').on('select2:select', function(e){
       var d = (e.params && e.params.data) || {};
       if(!d.id) return;
+      // La tarjeta entra EXPANDIDA: la comisión (fija / % ingresos / % beneficio) se configura al
+      // momento — antes se añadía plegada y la configuración quedaba escondida tras ⋮ → Editar.
       appendHtml(document.getElementById('commissionsList'), commissionCard({
         promoter_id: d.kind === 'media' ? '' : d.id,
         media_outlet_id: d.kind === 'media' ? d.id : '',
         name: (d.text || 'Comisionista').replace(/ · medio$/, ''),
         logo: d.photo || '', mode: 'FIXED'
-      }));
+      }, true));
       $(this).val(null).trigger('change');
     });
   }
@@ -1912,13 +1942,32 @@
         return;
       }
     });
+    // --- Añadir socio por pasos: 1) tipo (iconos) → 2) selector correspondiente ---
+    var stepShow = function(name){
+      ed.querySelectorAll('[data-pe-step]').forEach(function(s){ s.classList.toggle('d-none', s.getAttribute('data-pe-step') !== name); });
+      // Auto-abrir el selector del paso 2 (menos clics, como los asistentes de la app).
+      if(hasS2 && (name === 'company' || name === 'promoter')){
+        var sel2 = ed.querySelector(name === 'company' ? '.pe-company' : '.pe-promoter');
+        if(sel2 && $(sel2).hasClass('select2-hidden-accessible')){ try{ $(sel2).select2('open'); }catch(e){} }
+      }
+    };
+    ed.querySelectorAll('[data-pe-kind]').forEach(function(b){ b.addEventListener('click', function(){ stepShow(this.getAttribute('data-pe-kind')); }); });
+    ed.querySelectorAll('.pe-back').forEach(function(b){ b.addEventListener('click', function(){ stepShow('kind'); }); });
     var companySel=ed.querySelector('.pe-company');
-    if(companySel) companySel.addEventListener('change', function(){
-      if(!this.value) return;
-      var opt=this.options[this.selectedIndex];
-      addRow(ed, 'company', this.value, opt.getAttribute('data-name')||opt.text, opt.getAttribute('data-logo')||'', 0);
-      this.value='';
-    });
+    if(companySel){
+      // Con select2 (logos) la selección dispara el change de jQuery, no el nativo: se escucha con
+      // jQuery si está disponible y en nativo si no (mismo guardado en ambos casos).
+      var onCompany = function(){
+        if(!companySel.value) return;
+        var opt=companySel.options[companySel.selectedIndex];
+        addRow(ed, 'company', companySel.value, opt.getAttribute('data-name')||opt.text, opt.getAttribute('data-logo')||'', 0);
+        if(hasS2 && $(companySel).hasClass('select2-hidden-accessible')){ $(companySel).val('').trigger('change.select2'); }
+        else { companySel.value=''; }
+        stepShow('kind');
+      };
+      if(hasS2) $(companySel).on('change', onCompany);
+      else companySel.addEventListener('change', onCompany);
+    }
     var promSel=ed.querySelector('.pe-promoter');
     if(promSel && hasS2){
       $(promSel).select2({
@@ -1933,6 +1982,7 @@
         var opt=this.options[this.selectedIndex];
         addRow(ed, 'promoter', id, opt?opt.text:'Tercero', opt?(opt.getAttribute('data-photo')||''):'', 0);
         $(this).val(null).trigger('change.select2');
+        stepShow('kind');
       });
     }
     ed.addEventListener('submit', function(e){

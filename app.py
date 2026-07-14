@@ -19935,7 +19935,9 @@ def simulation_print(sid):
 
 def _simulation_print_context(s, sim):
     """Contexto de solo lectura (PDF / enlace público): bloques por fecha, totales y prorrateo.
-    Compartido por el PDF interno y la vista pública."""
+    Compartido por el PDF interno y la vista pública. Incluye los MISMOS módulos que las pestañas
+    del detalle: serie por % de aforo (tabla con barras), socios (beneficio/riesgo), ticketing por
+    categorías, ingresos con omitidos y gastos por categorías."""
     all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
     kind = (sim.kind or "").upper()
     is_cycle = kind == "CYCLE"
@@ -19951,12 +19953,54 @@ def _simulation_print_context(s, sim):
     general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
     blocks = [{"activity": a, "calc": sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))} for a in activities]
     totals = {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0, "general": general_net}
-    for b in blocks:
+    series_acc = {}
+    partner_acts = []
+    for idx, b in enumerate(blocks, start=1):
+        a = b["activity"]
         ing = b["calc"]["at_100"]["ingresos"]["total"]
         gas = b["calc"]["at_100"]["gastos"]["total"]
         b["ingresos"] = ing; b["gastos"] = gas; b["resultado"] = ing - gas
         totals["ingresos"] += ing; totals["gastos"] += gas; totals["resultado"] += (ing - gas)
         totals["sellable"] += b["calc"]["ticketing"]["sellable"]
+        # Igual que en las pestañas: líneas de ingresos omitidas/no aplican de esta fecha.
+        try:
+            b["income_overrides"] = dict((a.settings or {}).get("income_overrides") or {})
+        except Exception:
+            b["income_overrides"] = {}
+        row_label = a.label or (("Concierto " if is_cycle else "Fecha ") + str(idx))
+        _pp = _sim_partner_module_payload(sim, a, b["calc"], label=row_label)
+        partner_acts.append(_pp)
+        # Socios de la propia fecha (tabla estática en su hoja).
+        b["partners_summary"] = _sim_partner_print_summary([_pp]) if _pp.get("partners") else None
+        # Serie agregada (mismo % de venta en todas las fechas) para la tabla general.
+        for pt in (b["calc"].get("series") or []):
+            acc = series_acc.setdefault(pt["pct"], {"tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
+            acc["tickets"] += pt["tickets"]; acc["ingresos"] += pt["ingresos"]
+            acc["gastos"] += pt["gastos"]; acc["resultado"] += pt["resultado"]
+    tour_series = [
+        {"pct": pct, "tickets": v["tickets"], "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
+        for pct, v in sorted(series_acc.items())
+    ] if is_multi else []
+    partners_summary = _sim_partner_print_summary(partner_acts)
+    # Chinchetas del mapa (solo PDF interno: el geocoding requiere sesión), por orden de fecha.
+    tour_points = []
+    if is_multi:
+        dated = sorted(
+            blocks,
+            key=lambda b: (b["activity"].date_unknown or not b["activity"].event_date,
+                           b["activity"].event_date or date.max,
+                           b["activity"].sort_order or 0),
+        )
+        n = 0
+        for r in dated:
+            v = r["activity"].venue
+            if v and (v.municipality or "").strip():
+                n += 1
+                tour_points.append({
+                    "n": n, "name": (v.name or ""),
+                    "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
+                    "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
+                })
     kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
     lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
     festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
@@ -19964,9 +20008,63 @@ def _simulation_print_context(s, sim):
         sim=sim, subject=_sim_subject(sim), kind=kind, kind_label=kind_label,
         is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
         blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
+        tour_series=tour_series, partners_summary=partners_summary, tour_points=tour_points,
         lineup=lineup_sorted, festival_breakdown=festival_breakdown,
         bag_labels=dict(BAG_EXPENSE_CATEGORIES), company=sim.managing_company,
     )
+
+
+def _sim_partner_print_summary(partner_acts, pct=100):
+    """Versión ESTÁTICA (para el PDF y el enlace público) del módulo de socios de sim_partners.js:
+    agrega las fechas del payload y reparte beneficio (resultado × % del socio) y riesgo (gastos;
+    los «no soporta pérdidas» no asumen gasto y su parte se reparte entre el resto proporcional a
+    su %). Devuelve filas por socio + totales y punto de empate agregado, al pct dado (100%)."""
+    acts = [a for a in (partner_acts or []) if a and (a.get("series") or [])]
+    if not acts:
+        return None
+    agg = []
+    for p in range(0, 101):
+        t = {"pct": p, "tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0}
+        for a in acts:
+            serie = a["series"]
+            pt = serie[p] if p < len(serie) else serie[-1]
+            t["tickets"] += pt["tickets"]; t["ingresos"] += pt["ingresos"]
+            t["gastos"] += pt["gastos"]; t["resultado"] += pt["resultado"]
+        agg.append(t)
+    be = next((x for x in agg if x["resultado"] >= 0), None)
+    order = []
+    rows = {}
+    for a in acts:
+        for pr in (a.get("partners") or []):
+            k = pr.get("company_id") or pr.get("promoter_id") or ("label:" + (pr.get("label") or pr.get("name") or ""))
+            if k not in rows:
+                rows[k] = {"name": pr.get("name") or "Socio", "logo": pr.get("logo") or "", "beneficio": 0.0, "riesgo": 0.0, "pcts": []}
+                order.append(k)
+    for a in acts:
+        serie = a["series"]
+        pt = serie[pct] if pct < len(serie) else serie[-1]
+        loss_pct_sum = sum((float(pr.get("pct") or 0)) for pr in (a.get("partners") or []) if not pr.get("no_loss"))
+        for pr in (a.get("partners") or []):
+            k = pr.get("company_id") or pr.get("promoter_id") or ("label:" + (pr.get("label") or pr.get("name") or ""))
+            p2 = float(pr.get("pct") or 0)
+            rows[k]["beneficio"] += pt["resultado"] * (p2 / 100.0)
+            if pr.get("no_loss"):
+                pass
+            elif loss_pct_sum > 0:
+                rows[k]["riesgo"] += pt["gastos"] * (p2 / loss_pct_sum)
+            else:
+                rows[k]["riesgo"] += pt["gastos"] * (p2 / 100.0)
+            _p2s = ("%g" % p2)   # 50.0 → "50" (como el módulo JS)
+            if _p2s not in rows[k]["pcts"]:
+                rows[k]["pcts"].append(_p2s)
+    at = agg[pct if pct < len(agg) else -1]
+    return {
+        "rows": [rows[k] for k in order],
+        "at": at,
+        "sellable": sum(int(a.get("sellable") or 0) for a in acts),
+        "break_even_pct": (be["pct"] if be else None),
+        "break_even_tickets": (be["tickets"] if be else None),
+    }
 
 
 def _simulation_public_load(s, token):

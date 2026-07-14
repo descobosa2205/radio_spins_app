@@ -4192,9 +4192,12 @@
               <div class="mb-2" id="invSendRecipient"></div>
               <label class="form-label mb-1">Destinatarios</label>
               <div class="d-flex flex-wrap gap-1 mb-2" id="invSendChips"></div>
-              <div class="input-group input-group-sm mb-3">
+              <div class="input-group input-group-sm mb-2">
                 <input type="email" class="form-control" id="invSendAddEmail" placeholder="Añadir otro correo">
                 <button class="btn btn-outline-secondary" type="button" id="invSendAddBtn"><i class="fa fa-plus"></i></button>
+              </div>
+              <div id="invSendNoEmail" class="alert alert-warning py-2 small mb-3 d-none">
+                <i class="fa fa-triangle-exclamation me-1"></i>Este destinatario no tiene correo configurado. Escribe arriba a qué dirección enviar las entradas para poder continuar.
               </div>
               <label class="form-label mb-1">Texto del correo <span class="text-muted small">(opcional)</span></label>
               <textarea class="form-control" name="custom_text" id="invSendCustom" rows="5" placeholder="Si lo dejas vacío se usa el texto estándar: «Hola, aquí tienes tus invitaciones. Esperamos que disfrutes. Un saludo.»"></textarea>
@@ -4275,6 +4278,8 @@
         if(rEmail) rcpt.querySelector('.rmail').textContent = rEmail;
       } else { rcpt.innerHTML = ''; }
       if(rEmail) addChip(rEmail);
+      var noEmailWarn = document.getElementById('invSendNoEmail');
+      if(noEmailWarn) noEmailWarn.classList.add('d-none');
       document.getElementById('invSendBoxOffice').classList.toggle('d-none', ctx.kind !== 'commitment');
       // Ampliación tras envío: mostrar la elección Todas / Solo nuevas.
       var scopeRow = document.getElementById('invSendScopeRow');
@@ -4286,8 +4291,23 @@
       loadPreview();
       if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modalEl).show();
     });
-    document.getElementById('invSendAddBtn').addEventListener('click', function(){ addChip(addInput.value); addInput.value=''; });
-    addInput.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); addChip(addInput.value); addInput.value=''; } });
+    function currentEmailCount(){ return chips.querySelectorAll('input[name="extra_emails"]').length; }
+    function hideNoEmailWarn(){ var w = document.getElementById('invSendNoEmail'); if(w) w.classList.add('d-none'); }
+    document.getElementById('invSendAddBtn').addEventListener('click', function(){ addChip(addInput.value); addInput.value=''; hideNoEmailWarn(); });
+    addInput.addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); addChip(addInput.value); addInput.value=''; hideNoEmailWarn(); } });
+    addInput.addEventListener('input', hideNoEmailWarn);
+    // Envío por correo: si NO hay ninguna dirección (destinatario sin email y sin correos añadidos)
+    // avisamos y NO dejamos continuar. La opción «Recoger en taquilla» no exige correo.
+    form.addEventListener('submit', function(e){
+      if(document.getElementById('invSendMode').value !== 'email') return;
+      if(addInput.value.trim()){ addChip(addInput.value); addInput.value=''; }
+      if(currentEmailCount() === 0){
+        e.preventDefault();
+        e.stopPropagation();
+        var w = document.getElementById('invSendNoEmail'); if(w) w.classList.remove('d-none');
+        addInput.focus();
+      }
+    });
     custom.addEventListener('input', function(){ if(pvTimer) clearTimeout(pvTimer); pvTimer = setTimeout(loadPreview, 600); });
     document.getElementById('invSendBoxOffice').addEventListener('click', function(){ document.getElementById('invSendMode').value = 'box_office'; });
     document.getElementById('invSendEmail').addEventListener('click', function(){ document.getElementById('invSendMode').value = 'email'; });

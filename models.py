@@ -1273,6 +1273,10 @@ class Concert(Base):
     # Empresa que factura (empresa del grupo)
     billing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
 
+    # Agrupación operativa (FK real): gira comprada / ciclo o festival propio.
+    purchased_tour_id = Column(PGUUID(as_uuid=True), ForeignKey("purchased_tours.id", ondelete="SET NULL"))
+    cycle_festival_id = Column(PGUUID(as_uuid=True), ForeignKey("cycle_festivals.id", ondelete="SET NULL"))
+
     # Hashtags / concepto / gira (multi-valor)
     hashtags = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
@@ -1293,6 +1297,8 @@ class Concert(Base):
     group_company = relationship("GroupCompany", foreign_keys=[group_company_id])
     billing_company = relationship("GroupCompany", foreign_keys=[billing_company_id])
     promoter_company = relationship("PromoterCompany", foreign_keys=[promoter_company_id])
+    purchased_tour = relationship("PurchasedTour", foreign_keys=[purchased_tour_id])
+    cycle_festival = relationship("CycleFestival", foreign_keys=[cycle_festival_id])
 
     notes = relationship(
         "ConcertNote",
@@ -2958,6 +2964,148 @@ class EmbargoOrder(Base):
         Index("idx_embargo_orders_suggested_promoter", "suggested_promoter_id"),
         Index("idx_embargo_orders_tax_status", "detected_tax_id", "status"),
         Index("idx_embargo_orders_created", "created_at"),
+    )
+
+
+# ============================================================================
+# CONTRATACIÓN — entidades operativas de agrupación y buzón de peticiones.
+#   • PurchasedTour  = GIRA COMPRADA por una empresa del grupo (agrupa conciertos).
+#   • CycleFestival  = CICLO / FESTIVAL que ORGANIZAMOS (empresa del grupo).
+#   • BookingRequest = BUZÓN de peticiones de contratación que llegan a la oficina.
+# Los conciertos se enganchan por FK real (Concert.purchased_tour_id /
+# Concert.cycle_festival_id), sustituyendo la agrupación frágil por etiqueta/tag.
+# ============================================================================
+
+class PurchasedTour(Base):
+    """Gira comprada por una empresa del grupo. Agrupa N conciertos por FK real
+    (Concert.purchased_tour_id). Su cara promocional es un one-sheet (TourOneSheet
+    o el enlace público propio)."""
+
+    __tablename__ = "purchased_tours"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    # Empresa del grupo que compra/gestiona la gira.
+    managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    # Artista principal + lista de artistas participantes.
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    logo_url = Column(Text)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    # ACTIVA | ARCHIVADA
+    status = Column(Text, nullable=False, server_default=text("'ACTIVA'"))
+    notes = Column(Text)
+    slug = Column(Text, unique=True)
+    public_token = Column(Text, unique=True)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    managing_company = relationship("GroupCompany", foreign_keys=[managing_company_id])
+    artist = relationship("Artist", foreign_keys=[artist_id])
+
+    __table_args__ = (
+        Index("idx_purchased_tours_company", "managing_company_id"),
+        Index("idx_purchased_tours_artist", "artist_id"),
+        Index("idx_purchased_tours_status", "status"),
+    )
+
+
+class CycleFestival(Base):
+    """Ciclo o festival organizado por una empresa del grupo. Agrupa N conciertos
+    por FK real (Concert.cycle_festival_id)."""
+
+    __tablename__ = "cycle_festivals"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    name = Column(Text, nullable=False)
+    # FESTIVAL | CICLO
+    kind = Column(Text, nullable=False, server_default=text("'FESTIVAL'"))
+    managing_company_id = Column(PGUUID(as_uuid=True), ForeignKey("group_companies.id", ondelete="SET NULL"))
+    logo_url = Column(Text)
+    edition = Column(Text)  # edición / año
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"))
+    municipality = Column(Text)
+    province = Column(Text)
+    start_date = Column(Date)
+    end_date = Column(Date)
+    # ACTIVO | ARCHIVADO
+    status = Column(Text, nullable=False, server_default=text("'ACTIVO'"))
+    notes = Column(Text)
+    slug = Column(Text, unique=True)
+    public_token = Column(Text, unique=True)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    managing_company = relationship("GroupCompany", foreign_keys=[managing_company_id])
+    venue = relationship("Venue", foreign_keys=[venue_id])
+
+    __table_args__ = (
+        Index("idx_cycle_festivals_company", "managing_company_id"),
+        Index("idx_cycle_festivals_kind", "kind"),
+        Index("idx_cycle_festivals_status", "status"),
+    )
+
+
+class BookingRequest(Base):
+    """Petición de contratación ENTRANTE (buzón de oficina). Se registra lo que
+    llega (artista, fecha aprox., contacto, recinto/ciudad, importe orientativo) y
+    se tramita hasta convertirse en un concierto o descartarse."""
+
+    __tablename__ = "booking_requests"
+
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    artist_id = Column(PGUUID(as_uuid=True), ForeignKey("artists.id", ondelete="SET NULL"))
+    artist_ids = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    # Fecha aproximada: fecha concreta si se conoce + texto libre para lo impreciso.
+    requested_date = Column(Date)
+    date_text = Column(Text)
+    # Quién pide (contacto) y, si es un tercero conocido, su FK.
+    contact_name = Column(Text)
+    contact_email = Column(Text)
+    contact_phone = Column(Text)
+    promoter_id = Column(PGUUID(as_uuid=True), ForeignKey("promoters.id", ondelete="SET NULL"))
+    # Ubicación (recinto conocido o texto libre).
+    venue_id = Column(PGUUID(as_uuid=True), ForeignKey("venues.id", ondelete="SET NULL"))
+    municipality = Column(Text)
+    province = Column(Text)
+    # Importe orientativo (texto libre) + resumen y notas.
+    fee_text = Column(Text)
+    subject = Column(Text)
+    notes = Column(Text)
+    # EMAIL | TELEFONO | WEB | PRESENCIAL | OTRO
+    source = Column(Text)
+    # NUEVA | EN_TRAMITE | CONVERTIDA | DESCARTADA
+    status = Column(Text, nullable=False, server_default=text("'NUEVA'"))
+    # Concierto creado al convertir la petición (si la aceptamos).
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
+    rejection_reason = Column(Text)
+    payload = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    received_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    created_by_nick = Column(Text)
+    reviewed_by_user_id = Column(PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"))
+    reviewed_by_nick = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    artist = relationship("Artist", foreign_keys=[artist_id])
+    promoter = relationship("Promoter", foreign_keys=[promoter_id])
+    venue = relationship("Venue", foreign_keys=[venue_id])
+    concert = relationship("Concert", foreign_keys=[concert_id])
+    requested_by = relationship("User", foreign_keys=[created_by_user_id])
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_user_id])
+
+    __table_args__ = (
+        Index("idx_booking_requests_status_date", "status", "requested_date"),
+        Index("idx_booking_requests_artist", "artist_id"),
+        Index("idx_booking_requests_concert", "concert_id"),
     )
 
 
@@ -5724,6 +5872,107 @@ def ensure_actions_contracting_admin_schema():
         """,
     ]
     _exec_ddl_statements(stmts, "actions_contracting_admin")
+
+
+def ensure_activities_grouping_schema():
+    """Entidades de agrupación de contratación (giras compradas, ciclos/festivales)
+    y el BUZÓN de peticiones de contratación, más el enganche por FK real en
+    `concerts` (purchased_tour_id / cycle_festival_id). Idempotente y best-effort."""
+    stmts = [
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS purchased_tours (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            managing_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            logo_url text,
+            start_date date,
+            end_date date,
+            status text NOT NULL DEFAULT 'ACTIVA',
+            notes text,
+            slug text UNIQUE,
+            public_token text UNIQUE,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_purchased_tours_company ON purchased_tours(managing_company_id);",
+        "CREATE INDEX IF NOT EXISTS idx_purchased_tours_artist ON purchased_tours(artist_id);",
+        "CREATE INDEX IF NOT EXISTS idx_purchased_tours_status ON purchased_tours(status);",
+        """
+        CREATE TABLE IF NOT EXISTS cycle_festivals (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            name text NOT NULL,
+            kind text NOT NULL DEFAULT 'FESTIVAL',
+            managing_company_id uuid REFERENCES group_companies(id) ON DELETE SET NULL,
+            logo_url text,
+            edition text,
+            venue_id uuid REFERENCES venues(id) ON DELETE SET NULL,
+            municipality text,
+            province text,
+            start_date date,
+            end_date date,
+            status text NOT NULL DEFAULT 'ACTIVO',
+            notes text,
+            slug text UNIQUE,
+            public_token text UNIQUE,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_cycle_festivals_company ON cycle_festivals(managing_company_id);",
+        "CREATE INDEX IF NOT EXISTS idx_cycle_festivals_kind ON cycle_festivals(kind);",
+        "CREATE INDEX IF NOT EXISTS idx_cycle_festivals_status ON cycle_festivals(status);",
+        """
+        CREATE TABLE IF NOT EXISTS booking_requests (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            artist_id uuid REFERENCES artists(id) ON DELETE SET NULL,
+            artist_ids jsonb NOT NULL DEFAULT '[]'::jsonb,
+            requested_date date,
+            date_text text,
+            contact_name text,
+            contact_email text,
+            contact_phone text,
+            promoter_id uuid REFERENCES promoters(id) ON DELETE SET NULL,
+            venue_id uuid REFERENCES venues(id) ON DELETE SET NULL,
+            municipality text,
+            province text,
+            fee_text text,
+            subject text,
+            notes text,
+            source text,
+            status text NOT NULL DEFAULT 'NUEVA',
+            concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
+            rejection_reason text,
+            payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+            received_at timestamptz DEFAULT now(),
+            created_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            created_by_nick text,
+            reviewed_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+            reviewed_by_nick text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_booking_requests_status_date ON booking_requests(status, requested_date);",
+        "CREATE INDEX IF NOT EXISTS idx_booking_requests_artist ON booking_requests(artist_id);",
+        "CREATE INDEX IF NOT EXISTS idx_booking_requests_concert ON booking_requests(concert_id);",
+        # Enganche por FK real en concerts (tras existir las tablas destino).
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS purchased_tour_id uuid REFERENCES purchased_tours(id) ON DELETE SET NULL;",
+        "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS cycle_festival_id uuid REFERENCES cycle_festivals(id) ON DELETE SET NULL;",
+        "CREATE INDEX IF NOT EXISTS idx_concerts_purchased_tour ON concerts(purchased_tour_id);",
+        "CREATE INDEX IF NOT EXISTS idx_concerts_cycle_festival ON concerts(cycle_festival_id);",
+    ]
+    _exec_ddl_statements(stmts, "activities_grouping")
+
 
 def init_db():
     Base.metadata.create_all(bind=engine)

@@ -20093,12 +20093,36 @@ def _simulation_print_context(s, sim):
     kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get(kind, "Concierto")
     lineup_sorted = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
     festival_breakdown = _sim_festival_breakdown(activities[0], blocks[0]["calc"], artist_intl_map, lineup_sorted) if (is_festival and blocks) else None
+    # ¿Hay nombres de fecha en la gira? Si no, la tabla de resumen no pinta una columna vacía.
+    has_row_labels = any((getattr(b["activity"], "label", "") or "").strip() for b in blocks)
+    # Resumen AGREGADO de ingresos y gastos (multi-fecha): mismos conceptos que las tablas por hoja,
+    # sumando todas las fechas y respetando los «omitidos/no aplican» por línea de ingresos.
+    summary_income = {"ticketing": 0.0, "complementos": 0.0, "rebate": 0.0, "barras": 0.0,
+                      "incentivos": 0.0, "subvenciones": 0.0, "patrocinios": 0.0, "total": 0.0}
+    summary_expense = {"caches": 0.0, "retenciones": 0.0, "comisiones": 0.0, "total": 0.0}
+    summary_expense_cat = {}
+    if is_multi:
+        for b in blocks:
+            ing = b["calc"]["at_100"]["ingresos"]
+            ov = b.get("income_overrides") or {}
+            for key in ("ticketing", "complementos", "rebate", "barras", "incentivos", "subvenciones", "patrocinios"):
+                if (ov.get(key) or "").upper() not in ("OMIT", "NA"):
+                    summary_income[key] += ing.get(key) or 0.0
+            summary_income["total"] += ing.get("total") or 0.0
+            g = b["calc"]["at_100"]["gastos"]
+            summary_expense["caches"] += g.get("caches") or 0.0
+            summary_expense["retenciones"] += g.get("retenciones") or 0.0
+            summary_expense["comisiones"] += g.get("comisiones") or 0.0
+            summary_expense["total"] += g.get("total") or 0.0
+            for ck, cv in (g.get("produccion_por_categoria") or {}).items():
+                summary_expense_cat[ck] = summary_expense_cat.get(ck, 0.0) + (cv or 0.0)
     return dict(
         sim=sim, subject=_sim_subject(sim), kind=kind, kind_label=kind_label,
         is_multi=is_multi, is_cycle=is_cycle, is_festival=is_festival,
         blocks=blocks, totals=totals, general_net=general_net, general_share=general_share,
         tour_series=tour_series, partners_summary=partners_summary, tour_points=tour_points,
-        lineup=lineup_sorted, festival_breakdown=festival_breakdown,
+        lineup=lineup_sorted, festival_breakdown=festival_breakdown, has_row_labels=has_row_labels,
+        summary_income=summary_income, summary_expense=summary_expense, summary_expense_cat=summary_expense_cat,
         bag_labels=dict(BAG_EXPENSE_CATEGORIES), company=sim.managing_company,
     )
 
@@ -28020,6 +28044,7 @@ from models import (
     ensure_marketing_country_schema,
     ensure_contracting_embargo_schema,
     ensure_actions_contracting_admin_schema,
+    ensure_activities_grouping_schema,
     ensure_roadmap_onesheet_schema,
 )
 
@@ -28067,6 +28092,7 @@ def _bootstrap_schema_bg():
         (ensure_marketing_country_schema, "ensure_marketing_country_schema"),
         (ensure_contracting_embargo_schema, "ensure_contracting_embargo_schema"),
         (ensure_actions_contracting_admin_schema, "ensure_actions_contracting_admin_schema"),
+        (ensure_activities_grouping_schema, "ensure_activities_grouping_schema"),
         (ensure_roadmap_onesheet_schema, "ensure_roadmap_onesheet_schema"),
         (ensure_chartmetric_schema, "ensure_chartmetric_schema"),
         (ensure_venue_seatmap_schema, "ensure_venue_seatmap_schema"),
@@ -45285,6 +45311,11 @@ def _invitation_send_request(session_db, row, channel, *, custom_text=None, extr
     # Email
     subject, html_body, text_body = _invitation_email_body(session_db, row, None, custom_text=custom_text)
     recipients = _dedupe_valid_email_addresses(list(extra_recipients or []) + _invitation_delivery_recipients(session_db, row))
+    # Sin ninguna dirección de destino NO se envía ni se marca: hay que escribir un correo
+    # (el destinatario no tiene email configurado y no se ha añadido ninguno).
+    if not recipients:
+        session_db.rollback()
+        return {'ok': False, 'channel': 'email', 'error': 'No hay ningún correo al que enviar. Escribe la dirección de destino del invitado antes de continuar.', 'recipients': []}
     # Reply-To: el peticionario de la oficina (no quien gestiona el envío).
     reply_to = _invitation_request_reply_to(session_db, row) or _current_user_email()
     ok, err = _send_optional_email(recipients, subject, html_body, text_body=text_body, reply_to=reply_to)

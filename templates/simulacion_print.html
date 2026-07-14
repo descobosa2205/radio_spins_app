@@ -52,6 +52,9 @@
   .stat b { display:block; font-size:1.06rem; color:#111; }
   .stat span { font-size:.66rem; text-transform:uppercase; letter-spacing:.02em; color:#777; }
   .stat.hl b { color:#E33D48; }
+  /* El resultado destacado va por signo (verde si es positivo), no siempre en rojo corporativo. */
+  .stat.hl b.pos { color:#0f7d3d; }
+  .stat.hl b.neg { color:#c0392b; }
 
   /* Tabla de resultado por % de aforo (la misma de las pestañas), con BARRAS imprimibles. */
   * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -88,7 +91,6 @@
 {% macro hdr(section_label) %}
   {% if company and company.logo_url %}<img class="ph-logo" src="{{ company.logo_url }}" alt="{{ company.name }}">{% endif %}
   <div class="ph-title">Simulación</div>
-  <div class="ph-sub">{{ [kind_label, (company.name if company else None)]|select|join(' · ') }}</div>
   <div class="hero">
     {% if subject.photo %}<img class="ava" src="{{ subject.photo }}" alt="">{% endif %}
     <div>
@@ -265,14 +267,15 @@
     <div class="stat hl"><b class="{{ 'pos' if totals.resultado >= 0 else 'neg' }}">{{ totals.resultado|eur }}</b><span>Resultado @100%</span></div>
   </div>
   {% if is_multi %}
+  {% set show_name_col = is_cycle or has_row_labels %}
   <div class="sec-title">{{ 'Conciertos del ciclo' if is_cycle else 'Fechas de la gira' }}</div>
   <table>
-    <thead><tr><th>#</th><th>{{ 'Artista' if is_cycle else 'Fecha' }}</th><th>Fecha</th><th>Recinto</th><th class="text-end">A la venta</th><th class="text-end">Precio medio</th><th class="text-end">Empate</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th></tr></thead>
+    <thead><tr><th>#</th>{% if show_name_col %}<th>{{ 'Artista' if is_cycle else 'Nombre' }}</th>{% endif %}<th>Fecha</th><th>Recinto</th><th class="text-end">A la venta</th><th class="text-end">Precio medio</th><th class="text-end">Empate</th><th class="text-end">Ingresos</th><th class="text-end">Gastos</th><th class="text-end">Resultado</th></tr></thead>
     <tbody>
       {% for b in blocks %}
       <tr>
         <td>{{ loop.index }}</td>
-        <td>{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or '—' }}{% endif %}</td>
+        {% if show_name_col %}<td>{% if is_cycle and b.activity.artist %}{{ b.activity.artist.name }}{% else %}{{ b.activity.label or '—' }}{% endif %}</td>{% endif %}
         <td>{% if b.activity.date_unknown or not b.activity.event_date %}—{% else %}{{ b.activity.event_date.strftime('%d/%m/%Y') }}{% endif %}</td>
         <td>{{ b.activity.venue.name if b.activity.venue else '—' }}</td>
         <td class="text-end">{{ b.calc.ticketing.sellable|k }}</td>
@@ -285,6 +288,30 @@
       {% endfor %}
     </tbody>
     {% if is_cycle and general_net %}<tfoot><tr class="tot"><td colspan="8">Gastos generales del ciclo (÷ {{ blocks|length }})</td><td class="text-end" colspan="2">{{ general_net|eur }}</td></tr></tfoot>{% endif %}
+  </table>
+  {# Desglose AGREGADO de ingresos y gastos de todas las fechas (mismos conceptos que las hojas). #}
+  {% set _sm = 'del ciclo' if is_cycle else 'de la gira' %}
+  <div class="sec-title">Resumen de ingresos {{ _sm }} (al 100%)</div>
+  <table>
+    <tr><td>Ticketing <span class="muted">(neto sin IVA y sin SGAE)</span></td><td class="text-end">{{ summary_income.ticketing|eur }}</td></tr>
+    {% if summary_income.complementos %}<tr><td>Complementos</td><td class="text-end">{{ summary_income.complementos|eur }}</td></tr>{% endif %}
+    <tr><td>Rebate</td><td class="text-end">{{ summary_income.rebate|eur }}</td></tr>
+    <tr><td>Barras</td><td class="text-end">{{ summary_income.barras|eur }}</td></tr>
+    <tr><td>Incentivos fiscales</td><td class="text-end">{{ summary_income.incentivos|eur }}</td></tr>
+    <tr><td>Subvenciones</td><td class="text-end">{{ summary_income.subvenciones|eur }}</td></tr>
+    <tr><td>Patrocinios</td><td class="text-end">{{ summary_income.patrocinios|eur }}</td></tr>
+    <tr class="tot"><td>Total ingresos</td><td class="text-end">{{ summary_income.total|eur }}</td></tr>
+  </table>
+  <div class="sec-title">Resumen de gastos {{ _sm }} (al 100%)</div>
+  <table>
+    {% if summary_expense.caches %}<tr><td>Cachés</td><td class="text-end">{{ summary_expense.caches|eur }}</td></tr>{% endif %}
+    {% if summary_expense.retenciones %}<tr><td>Retenciones (24%)</td><td class="text-end">{{ summary_expense.retenciones|eur }}</td></tr>{% endif %}
+    {% if summary_expense.comisiones %}<tr><td>Comisiones</td><td class="text-end">{{ summary_expense.comisiones|eur }}</td></tr>{% endif %}
+    {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+      {% if summary_expense_cat.get(ckey) %}<tr><td style="padding-left:18px;">{{ clabel }}</td><td class="text-end">{{ summary_expense_cat.get(ckey)|eur }}</td></tr>{% endif %}
+    {% endfor %}
+    {% if summary_expense_cat.get('PRORRATEO') %}<tr><td style="padding-left:18px;">{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO', 'Prorrateo de gastos generales') }}</td><td class="text-end">{{ summary_expense_cat.get('PRORRATEO')|eur }}</td></tr>{% endif %}
+    <tr class="tot"><td>Total gastos</td><td class="text-end">{{ summary_expense.total|eur }}</td></tr>
   </table>
   {% if tour_series %}
   <div class="sec-title">Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} por % de aforo (agregado)</div>

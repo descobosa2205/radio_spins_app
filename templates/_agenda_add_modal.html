@@ -45,6 +45,7 @@
             <div class="col"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date" data-agenda-end></div>
           </div>
           <div class="form-text">Esos días aparecerán marcados como bloqueados.</div>
+          <div class="alert alert-warning py-2 small mt-2 d-none" data-agenda-conflict></div>
           <div class="d-flex justify-content-between mt-3"><button type="button" class="btn btn-link px-0" data-agenda-back><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-primary"><i class="fa fa-ban me-1"></i>Bloquear días</button></div>
         </form>
 
@@ -58,6 +59,7 @@
             <div class="col"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date" data-agenda-start required></div>
             <div class="col"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date" data-agenda-end></div>
           </div>
+          <div class="alert alert-warning py-2 small mt-2 d-none" data-agenda-conflict></div>
           <div class="d-flex justify-content-between mt-3"><button type="button" class="btn btn-link px-0" data-agenda-back><i class="fa fa-arrow-left me-1"></i>Atrás</button><button class="btn btn-primary"><i class="fa fa-check me-1"></i>Añadir</button></div>
         </form>
       </div>
@@ -83,6 +85,21 @@
     modalEl.querySelectorAll('[data-agenda-artist-label]').forEach(function (l) { l.textContent = artistName ? (' para ' + artistName) : ''; });
   }
   function today() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function checkConflicts(step) {
+    var form = steps[step]; if (!form) return;
+    var box = form.querySelector('[data-agenda-conflict]'); if (!box) return;
+    var s = (form.querySelector('[data-agenda-start]') || {}).value || '';
+    var e = (form.querySelector('[data-agenda-end]') || {}).value || s;
+    if (!artistId || !s) { box.classList.add('d-none'); box.innerHTML = ''; return; }
+    fetch('/api/concerts/check-artist-conflict?artist_id=' + encodeURIComponent(artistId) + '&start=' + encodeURIComponent(s) + '&end=' + encodeURIComponent(e || s), { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(function (r) { return r.json(); })
+      .then(function (rows) {
+        if (!Array.isArray(rows) || !rows.length) { box.classList.add('d-none'); box.innerHTML = ''; return; }
+        var items = rows.map(function (x) { var d = document.createElement('div'); d.textContent = '• ' + (x.kind ? (x.kind + ': ') : '') + (x.summary || ''); return d.outerHTML; }).join('');
+        box.innerHTML = '<i class="fa fa-triangle-exclamation me-1"></i><strong>Atención:</strong> el artista ya tiene algo en esas fechas:' + items;
+        box.classList.remove('d-none');
+      }).catch(function () { box.classList.add('d-none'); });
+  }
 
   modalEl.addEventListener('show.bs.modal', function () {
     var pid = body.getAttribute('data-preset-artist-id') || '';
@@ -119,11 +136,20 @@
         return;
       }
       show(choice);
+      checkConflicts(choice);
     });
   });
 
   modalEl.querySelectorAll('[data-agenda-back]').forEach(function (b) {
     b.addEventListener('click', function () { show('type'); });
+  });
+
+  // Recalcular el aviso de solape al cambiar las fechas.
+  modalEl.querySelectorAll('[data-agenda-start],[data-agenda-end]').forEach(function (inp) {
+    inp.addEventListener('change', function () {
+      var form = inp.closest('[data-agenda-step]');
+      if (form) checkConflicts(form.getAttribute('data-agenda-step'));
+    });
   });
 })();
 </script>

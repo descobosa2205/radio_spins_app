@@ -1,0 +1,64 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1"><i class="fa fa-calendar-check text-danger me-2"></i>Actividades</h4>
+    <div class="text-muted">Todas las actividades de todos los artistas: conciertos y acciones.</div>
+  </div>
+  {% if CAN_EDIT_CONCERTS %}
+  <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1) }}"><i class="fa fa-plus me-1"></i> Añadir actividad</a>
+  {% endif %}
+</div>
+
+<form method="get" class="card mb-3"><div class="card-body d-flex flex-wrap gap-3 align-items-end">
+  <div>
+    <label class="form-label mb-1 small text-muted">Tipo</label>
+    <div class="btn-group d-block">
+      {% for val, lbl in [('all','Todas'),('concert','Conciertos'),('action','Acciones')] %}
+      <a href="{{ url_for('activities_view', type=val, when=when_f, artist_id=artist_f) }}" class="btn btn-sm {{ 'btn-danger' if type_f==val else 'btn-outline-secondary' }}">{{ lbl }} <span class="opacity-75">{{ counts.get(val, 0) }}</span></a>
+      {% endfor %}
+    </div>
+  </div>
+  <div>
+    <label class="form-label mb-1 small text-muted">Cuándo</label>
+    <div class="btn-group d-block">
+      {% for val, lbl in [('future','Próximas'),('past','Pasadas'),('all','Todas')] %}
+      <a href="{{ url_for('activities_view', type=type_f, when=val, artist_id=artist_f) }}" class="btn btn-sm {{ 'btn-danger' if when_f==val else 'btn-outline-secondary' }}">{{ lbl }}</a>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="flex-grow-1" style="min-width:220px;">
+    <label class="form-label mb-1 small text-muted">Artista</label>
+    <div class="input-group">
+      <input type="hidden" name="type" value="{{ type_f }}"><input type="hidden" name="when" value="{{ when_f }}">
+      <select class="form-select select-artists" name="artist_id" data-no-loader onchange="this.form.submit()">
+        <option value="">Todos los artistas</option>
+        {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {{ 'selected' if artist_f and (artist_f == (a.id|string)) }}>{{ a.name }}</option>{% endfor %}
+      </select>
+      {% if artist_f %}<a class="btn btn-outline-secondary" href="{{ url_for('activities_view', type=type_f, when=when_f) }}"><i class="fa fa-xmark"></i></a>{% endif %}
+    </div>
+  </div>
+</div></form>
+
+{% if items %}
+<div class="card"><div class="list-group list-group-flush">
+  {% for it in items %}
+  {% set tag = 'a' if it.url else 'div' %}
+  <{{ tag }} {% if it.url %}href="{{ it.url }}"{% endif %} class="list-group-item {% if it.url %}list-group-item-action{% endif %} d-flex align-items-center gap-3 text-decoration-none text-reset">
+    <span class="d-inline-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style="width:42px;height:42px;background:#f3f4f6;"><i class="fa {{ it.type_icon }} text-danger"></i></span>
+    {% if it.artist_photo %}<img src="{{ it.artist_photo }}" alt="" data-default-photo="1" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">{% endif %}
+    <div class="flex-grow-1" style="min-width:0;">
+      <div class="fw-semibold text-truncate">{{ it.title }}</div>
+      <div class="small text-muted text-truncate">
+        {% if it.artist_name %}{{ it.artist_name }} · {% endif %}<i class="fa fa-calendar-day me-1"></i>{{ it.date_label }}{% if it.venue %} · <i class="fa fa-location-dot me-1"></i>{{ it.venue }}{% endif %}
+      </div>
+    </div>
+    <span class="badge text-bg-light border flex-shrink-0">{{ it.type_label }}</span>
+    {% if it.status_label %}<span class="badge {{ it.status_badge }} flex-shrink-0">{{ it.status_label }}</span>{% endif %}
+  </{{ tag }}>
+  {% endfor %}
+</div></div>
+{% else %}
+<div class="alert alert-light border">No hay actividades con estos filtros.</div>
+{% endif %}
+{% endblock %}

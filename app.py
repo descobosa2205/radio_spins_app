@@ -19485,6 +19485,73 @@ def simulation_convert(sid):
         s.close()
 
 
+# ============================ ACTIVIDADES (vista global de todos los artistas) ============================
+@app.get("/actividades", endpoint="activities_view")
+@admin_required
+def activities_view():
+    """Vista GLOBAL de todas las actividades (conciertos + acciones) de todos los artistas, con
+    filtros por tipo, temporalidad y artista, y botón para añadir (abre el asistente de concierto)."""
+    s = db()
+    try:
+        type_f = (request.args.get("type") or "all").strip().lower()
+        when_f = (request.args.get("when") or "future").strip().lower()
+        artist_f = (request.args.get("artist_id") or "").strip()
+        today = date.today()
+        items = []
+        if type_f in ("all", "concert"):
+            cq = s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+            if artist_f:
+                cq = cq.filter(or_(Concert.artist_id == to_uuid(artist_f), Concert.artist_ids.contains([artist_f])))
+            if when_f == "future":
+                cq = cq.filter(Concert.date >= today)
+            elif when_f == "past":
+                cq = cq.filter(Concert.date < today)
+            for c in cq.order_by(Concert.date.asc().nullslast()).limit(500).all():
+                lbl, bdg = _concert_status_meta(c.status)
+                items.append({
+                    "kind": "concert", "type_icon": "fa-guitar",
+                    "type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), (c.activity_type or "Concierto")),
+                    "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
+                    "artist_name": (c.artist.name if c.artist else ""),
+                    "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
+                    "artist_id": (str(c.artist_id) if c.artist_id else ""),
+                    "date": c.date, "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+                    "venue": (c.venue.name if c.venue else (c.manual_venue_name or "")),
+                    "status_label": lbl, "status_badge": bdg,
+                    "url": url_for("concert_detail_view", cid=c.id),
+                })
+        if type_f in ("all", "action"):
+            aq = s.query(CompanyAction).options(joinedload(CompanyAction.venue))
+            if artist_f:
+                aq = aq.filter(CompanyAction.artist_ids.contains([artist_f]))
+            if when_f == "future":
+                aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= today)
+            elif when_f == "past":
+                aq = aq.filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) < today)
+            for a in aq.order_by(CompanyAction.start_date.asc().nullslast()).limit(500).all():
+                items.append({
+                    "kind": "action", "type_icon": "fa-rocket",
+                    "type_label": (a.action_type or "Acción").replace("_", " ").capitalize(),
+                    "title": (a.title or "Acción"), "artist_name": "", "artist_photo": "", "artist_id": "",
+                    "date": a.start_date, "date_label": (a.start_date.strftime("%d/%m/%Y") if a.start_date else "Sin fecha"),
+                    "venue": (a.venue.name if a.venue else ""),
+                    "status_label": (a.status or ""), "status_badge": "text-bg-light border", "url": "",
+                })
+        items.sort(key=lambda x: (x["date"] or date.max), reverse=(when_f == "past"))
+        counts = {
+            "all": len(items),
+            "concert": sum(1 for x in items if x["kind"] == "concert"),
+            "action": sum(1 for x in items if x["kind"] == "action"),
+        }
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        return render_template(
+            "actividades.html", items=items, type_f=type_f, when_f=when_f, artist_f=artist_f,
+            counts=counts, artists=artists, CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
 # ============================ EVENTOS (Bases de datos) ============================
 # Un EVENTO funciona como un "artista" para Simulaciones (galas, ciclos propios,
 # actividades sin artista concreto), pero vive en su propia base de datos y solo
@@ -27205,34 +27272,96 @@ def promoter_contact_share(contact_id, channel):
 @app.get('/api/concerts/check-artist-conflict', endpoint='api_concert_artist_conflicts')
 @admin_required
 def api_concert_artist_conflicts():
+    """Aviso de solape por artista y fecha (o rango): conciertos, acciones, bloqueos/notas de
+    agenda y PETICIONES. Acepta `date` (día) o `start`/`end` (rango). Cada resultado lleva `summary`
+    (compat con el asistente) + `kind`/`url`. Casa también co-artistas (artist_ids)."""
     session = db()
     try:
-        artist_id = to_uuid((request.args.get('artist_id') or '').strip())
-        event_date = parse_date((request.args.get('date') or '').strip())
+        aid = to_uuid((request.args.get('artist_id') or '').strip())
+        raw_date = (request.args.get('date') or '').strip()
+        raw_start = (request.args.get('start') or '').strip()
+        raw_end = (request.args.get('end') or '').strip()
+        if raw_start or raw_end:
+            start = parse_date(raw_start or raw_end)
+            end = parse_date(raw_end or raw_start)
+        else:
+            start = end = parse_date(raw_date)
+        if end < start:
+            start, end = end, start
         exclude_id_raw = (request.args.get('exclude_id') or '').strip() or None
-        query = (
-            session.query(Concert)
-            .options(joinedload(Concert.venue))
-            .filter(Concert.artist_id == artist_id)
-            .filter(Concert.date == event_date)
+        aid_s = str(aid)
+        out = []
+        # Conciertos (por artista principal o co-artista).
+        cq = (
+            session.query(Concert).options(joinedload(Concert.venue))
+            .filter(or_(Concert.artist_id == aid, Concert.artist_ids.contains([aid_s])))
+            .filter(Concert.date >= start, Concert.date <= end)
         )
         if exclude_id_raw:
             try:
-                query = query.filter(Concert.id != to_uuid(exclude_id_raw))
+                cq = cq.filter(Concert.id != to_uuid(exclude_id_raw))
             except Exception:
                 pass
-        rows = query.order_by(Concert.created_at.asc()).all()
-        return jsonify([
-            {
-                'id': str(c.id),
-                'festival_name': (c.festival_name or '').strip(),
-                'venue_name': _concert_venue_name(c),
-                'municipality': _concert_city(c),
-                'province': _concert_province_value(c),
-                'summary': ' · '.join([x for x in [c.festival_name or 'Evento', _concert_venue_name(c), _concert_city(c), _concert_province_value(c)] if x]),
-            }
-            for c in rows
-        ])
+        for c in cq.order_by(Concert.date.asc()).all():
+            base = ' · '.join([x for x in [c.festival_name or 'Concierto', _concert_venue_name(c), _concert_city(c)] if x])
+            out.append({
+                'id': str(c.id), 'kind': 'Concierto', 'date': (c.date.isoformat() if c.date else ''),
+                'festival_name': (c.festival_name or '').strip(), 'venue_name': _concert_venue_name(c),
+                'municipality': _concert_city(c), 'province': _concert_province_value(c),
+                'summary': ((c.date.strftime('%d/%m') + ' · ') if c.date else '') + base + ((' [' + c.status + ']') if (c.status and c.status.upper() != 'CONFIRMADO') else ''),
+                'url': url_for('concert_detail_view', cid=c.id),
+            })
+        # Acciones (CompanyAction), con solape de rango.
+        try:
+            aq = (
+                session.query(CompanyAction)
+                .filter(CompanyAction.artist_ids.contains([aid_s]))
+                .filter(CompanyAction.start_date.isnot(None))
+                .filter(CompanyAction.start_date <= end)
+                .filter(func.coalesce(CompanyAction.end_date, CompanyAction.start_date) >= start)
+                .filter(func.upper(func.coalesce(CompanyAction.status, '')).in_(['RESERVA', 'CONFIRMADO', 'CERRADA']))
+            )
+            for a in aq.order_by(CompanyAction.start_date.asc()).all():
+                out.append({
+                    'id': str(a.id), 'kind': 'Acción', 'date': (a.start_date.isoformat() if a.start_date else ''),
+                    'summary': ((a.start_date.strftime('%d/%m') + ' · ') if a.start_date else '') + (a.title or 'Acción'),
+                })
+        except Exception:
+            pass
+        # Bloqueos / notas de agenda (solape de rango).
+        try:
+            iq = (
+                session.query(ArtistAgendaItem)
+                .filter(ArtistAgendaItem.artist_id == aid)
+                .filter(ArtistAgendaItem.start_date <= end)
+                .filter(ArtistAgendaItem.end_date >= start)
+            )
+            for it in iq.order_by(ArtistAgendaItem.start_date.asc()).all():
+                k = 'Bloqueo' if (it.kind or '').upper() == 'BLOCK' else 'Nota'
+                out.append({
+                    'id': str(it.id), 'kind': k, 'date': (it.start_date.isoformat() if it.start_date else ''),
+                    'summary': ((it.start_date.strftime('%d/%m') + ' · ') if it.start_date else '') + (it.title or it.note or k),
+                })
+        except Exception:
+            pass
+        # Peticiones de contratación activas.
+        try:
+            bq = (
+                session.query(BookingRequest)
+                .filter(BookingRequest.artist_id == aid)
+                .filter(BookingRequest.requested_date.isnot(None))
+                .filter(BookingRequest.requested_date >= start, BookingRequest.requested_date <= end)
+                .filter(func.upper(func.coalesce(BookingRequest.status, 'NUEVA')).in_(['NUEVA', 'EN_TRAMITE']))
+            )
+            for b in bq.order_by(BookingRequest.requested_date.asc()).all():
+                out.append({
+                    'id': str(b.id), 'kind': 'Petición', 'date': (b.requested_date.isoformat() if b.requested_date else ''),
+                    'summary': ((b.requested_date.strftime('%d/%m') + ' · ') if b.requested_date else '') + (b.subject or 'Petición'),
+                    'url': url_for('contracting_view', section='peticiones'),
+                })
+        except Exception:
+            pass
+        return jsonify(out)
     except Exception as exc:
         return jsonify({'error': str(exc)}), 400
     finally:
@@ -30498,6 +30627,9 @@ CURATED_ACCESS_RESOURCES = [
 
     {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 160, "description": "Terceros: promotores, contactos y empresas relacionadas; sus fichas y vinculaciones."},
 
+    {"key": "actividades", "label": "Actividades", "section_key": "actividades", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 165, "description": "Vista global de TODAS las actividades de todos los artistas (conciertos y acciones), con opción de añadir."},
+    {"key": "actividades.todas", "label": "Todas las actividades", "section_key": "actividades", "parent_key": "actividades", "level": "TAB", "economic_capable": True, "sort_order": 166, "description": "Listado unificado de actividades de todos los artistas, filtrable por tipo/estado."},
+
     {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 170, "description": "Contratación de actividades en vivo: conciertos, giras, festivales y otras."},
     {"key": "contratacion.peticiones", "label": "Peticiones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 170, "description": "Buzón de peticiones de contratación entrantes: se registran y se tramitan hasta convertirse en concierto o descartarse."},
     {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
@@ -31260,6 +31392,7 @@ def _infer_group_key_from_path(path: str) -> str | None:
         ("/artistas", "artists"),
         ("/discografica", "discografica"),
         ("/promotores", "third_parties"),
+        ("/actividades", "actividades"),
         ("/contratacion", "contratacion"),
         ("/conciertos", "contratacion.conciertos"),
         ("/cuadrantes", "contratacion.cuadrantes"),
@@ -31362,6 +31495,8 @@ def _resolve_request_resource_key() -> str | None:
         return "databases.publishing_companies"
     if endpoint == "companies_view" or endpoint.startswith("company_"):
         return "databases.group_companies"
+    if endpoint == "activities_view":
+        return "actividades.todas"
     if endpoint == "contracting_view":
         section = (request.args.get("section") or "conciertos").strip().lower()
         mapping = {
@@ -31663,6 +31798,8 @@ def _resource_default_url(key: str) -> str:
         "registros.sgae": url_for("registros_view", tab="sgae"),
         "third_parties": url_for("promoters_view"),
         "fotos": url_for("media_gallery_view"),
+        "actividades": url_for("activities_view"),
+        "actividades.todas": url_for("activities_view"),
         "contratacion": url_for("contracting_view", section="conciertos"),
         "contratacion.conciertos": url_for("concerts_view", tab="vista"),
         "contratacion.peticiones": url_for("contracting_view", section="peticiones"),
@@ -31791,6 +31928,7 @@ SECTION_ICONS = {
     "discografica": "fa-compact-disc",
     "registros": "fa-clipboard-list",
     "third_parties": "fa-handshake",
+    "actividades": "fa-calendar-check",
     "contratacion": "fa-file-signature",
     "contratacion.conciertos": "fa-guitar",
     "playlisting": "fa-list-ol",
@@ -31835,6 +31973,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "fotos", "label": "Fotos / Vídeos", "url": _resource_default_url("fotos")},
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
+        {"type": "link", "key": "actividades", "label": "Actividades", "url": _resource_default_url("actividades")},
         {"type": "link", "key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
             {"key": "contratacion.peticiones", "label": "Peticiones", "url": _resource_default_url("contratacion.peticiones")},

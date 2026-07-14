@@ -779,7 +779,7 @@
       const rows = await res.json();
       if(!rows.length) return;
       const txt = rows.map(r => r.summary || 'Evento').join('<br>');
-      conflictBox.innerHTML = `<strong>Ese día el artista ya tiene eventos:</strong><br>${txt}`;
+      conflictBox.innerHTML = `<strong>Ese día el artista ya tiene actividades, bloqueos o peticiones:</strong><br>${txt}`;
       conflictBox.classList.remove('d-none');
       const keep = confirm(`Ese día el artista ya tiene ${rows.length} evento(s).\n\nAceptar = mantener la fecha nueva\nCancelar = borrar la fecha y cambiarla`);
       if(!keep){ document.getElementById('wizard_date').value = ''; }

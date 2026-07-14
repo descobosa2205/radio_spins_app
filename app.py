@@ -18996,6 +18996,35 @@ def _wizard_group_options(s):
     return tours, cycles
 
 
+def _group_general_roadmap(concerts):
+    """Hoja de ruta GENERAL de una gira/ciclo/festival: agrega la agenda (roadmap v2) de todos los
+    conciertos vinculados en una vista coordinada de solo lectura, ordenada por día y hora."""
+    cat = _roadmap_kind_catalog()
+    out = []
+    for c in concerts:
+        data = _json_loads_safe(getattr(c, "roadmap_payload", None), {})
+        if not isinstance(data, dict):
+            continue
+        clabel = ((c.date.strftime("%d/%m") + " · ") if getattr(c, "date", None) else "") + (
+            (c.venue.name if getattr(c, "venue", None) else None) or (c.artist.name if getattr(c, "artist", None) else None) or "Concierto")
+        for it in (data.get("agenda") or []):
+            k = (it.get("kind") or "OTROS").upper()
+            meta = cat.get(k, {})
+            _day = (it.get("day") or "")
+            try:
+                _day_label = datetime.strptime(_day[:10], "%Y-%m-%d").strftime("%d/%m/%Y") if _day else "Sin fecha"
+            except Exception:
+                _day_label = _day or "Sin fecha"
+            out.append({
+                "day": _day, "day_label": _day_label, "time": (it.get("time") or ""), "end_time": (it.get("end_time") or ""),
+                "title": (it.get("title") or meta.get("label") or k),
+                "kind_label": meta.get("label", k), "icon": meta.get("icon", "fa-circle-dot"), "color": meta.get("color", "#6c757d"),
+                "concert_id": str(c.id), "concert_label": clabel,
+            })
+    out.sort(key=lambda x: (x["day"] or "9999-99-99", x["time"] or "99:99"))
+    return out
+
+
 def _group_concert_row(c):
     label, badge = _concert_status_meta(c.status)
     return {
@@ -19139,6 +19168,7 @@ def purchased_tour_detail(tid):
             candidates=cand_rows, status_label=label, status_badge=badge,
             artists=artists, companies=companies, simulations=simulations,
             linked_sims=_group_linked_sims(s, general),
+            general_roadmap=_group_general_roadmap(concerts),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -19391,6 +19421,7 @@ def cycle_festival_detail(cfid):
             advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
             status_label=label, status_badge=badge, artists=artists, companies=companies,
             venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
+            general_roadmap=_group_general_roadmap(concerts),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:

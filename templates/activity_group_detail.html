@@ -48,6 +48,7 @@
   <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-resumen" type="button">Resumen</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">Producción general</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-items" type="button">{{ items_label }} <span class="badge text-bg-light">{{ concerts|length }}</span></button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-roadmap" type="button">Hoja de ruta <span class="badge text-bg-light">{{ (general_roadmap or [])|length }}</span></button></li>
 </ul>
 
 <div class="tab-content">
@@ -181,6 +182,27 @@
     </div>
     {% else %}
     <div class="alert alert-light border">Aún no hay {{ items_label|lower }}. Vincula un concierto existente o crea uno nuevo.</div>
+    {% endif %}
+  </div>
+
+  {# ---------- Hoja de ruta coordinada ---------- #}
+  <div class="tab-pane fade" id="tab-roadmap">
+    <div class="alert alert-light border small"><i class="fa fa-circle-info me-1"></i>Hoja de ruta coordinada: reúne las hojas de ruta de todas las {{ items_label|lower }} vinculadas. Cada una se edita en la ficha de su concierto.</div>
+    {% if general_roadmap %}
+      {% set ns = namespace(day='__') %}
+      <div class="list-group">
+        {% for it in general_roadmap %}
+          {% if it.day != ns.day %}{% set ns.day = it.day %}<div class="list-group-item bg-light fw-semibold"><i class="fa fa-calendar-day me-1"></i>{{ it.day_label }}</div>{% endif %}
+          <div class="list-group-item d-flex align-items-center gap-3">
+            <span class="text-muted small" style="width:96px;">{{ it.time or '' }}{% if it.end_time %}–{{ it.end_time }}{% endif %}</span>
+            <span class="d-inline-flex align-items-center justify-content-center rounded-circle flex-shrink-0" style="width:34px;height:34px;background:{{ it.color }}22;"><i class="fa {{ it.icon }}" style="color:{{ it.color }};"></i></span>
+            <div class="flex-grow-1" style="min-width:0;"><div class="fw-semibold text-truncate">{{ it.title }}</div><div class="small text-muted">{{ it.kind_label }}</div></div>
+            <a class="badge text-bg-light border text-decoration-none flex-shrink-0" href="{{ url_for('concert_detail_view', cid=it.concert_id) }}">{{ it.concert_label }}</a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="alert alert-light border">Aún no hay hoja de ruta en las {{ items_label|lower }} vinculadas.</div>
     {% endif %}
   </div>
 </div>

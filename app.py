@@ -18669,6 +18669,8 @@ def contracting_view():
             companies=companies,
             type_choices=type_choices,
             all_concert_tags=all_concert_tags,
+            wizard_tours=_wizard_group_options(session_db)[0],
+            wizard_cycles=_wizard_group_options(session_db)[1],
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -18978,6 +18980,20 @@ def _group_linked_sims(s, general):
                 "title": (sim.title or (sim.artist.name if sim.artist else (sim.event.name if sim.event else "Simulación"))),
             })
     return out
+
+
+def _wizard_group_options(s):
+    """Giras compradas + ciclos/festivales ACTIVOS para el paso del asistente de concierto."""
+    tours = [
+        {"id": str(t.id), "name": t.name, "logo": (t.logo_url or ""), "artist_id": (str(t.artist_id) if t.artist_id else "")}
+        for t in s.query(PurchasedTour).filter(func.upper(func.coalesce(PurchasedTour.status, "ACTIVA")) == "ACTIVA").order_by(PurchasedTour.created_at.desc()).limit(100).all()
+    ]
+    cycles = [
+        {"id": str(cf.id), "name": cf.name, "logo": (cf.logo_url or ""),
+         "kind_label": ("Festival" if (cf.kind or "FESTIVAL").upper() == "FESTIVAL" else "Ciclo")}
+        for cf in s.query(CycleFestival).filter(func.upper(func.coalesce(CycleFestival.status, "ACTIVO")) == "ACTIVO").order_by(CycleFestival.created_at.desc()).limit(100).all()
+    ]
+    return tours, cycles
 
 
 def _group_concert_row(c):
@@ -22190,6 +22206,7 @@ def concerts_page():
             for c in concerts:
                 type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
 
+        _wizard_tours, _wizard_cycles = _wizard_group_options(s)
         return render_template(
             "concerts_vista.html" if active_tab == "vista" else "concerts.html",
             active_tab=active_tab,
@@ -22198,6 +22215,8 @@ def concerts_page():
             drill_artist=drill_artist,
             show_all=show_all,
             type_counts=type_counts,
+            wizard_tours=_wizard_tours,
+            wizard_cycles=_wizard_cycles,
             artists=artists,
             venues=venues,
             promoters=promoters,
@@ -27780,6 +27799,20 @@ def concert_wizard_create():
         )
         session.add(concert)
         session.flush()
+
+        # Vínculo opcional a una gira comprada / ciclo o festival (paso del asistente).
+        _ptid = (request.form.get('wizard_purchased_tour_id') or '').strip()
+        _cfid = (request.form.get('wizard_cycle_festival_id') or '').strip()
+        if _ptid:
+            try:
+                concert.purchased_tour_id = to_uuid(_ptid)
+            except Exception:
+                pass
+        if _cfid:
+            try:
+                concert.cycle_festival_id = to_uuid(_cfid)
+            except Exception:
+                pass
 
         _replace_concert_promoter_shares(session, concert.id, _parse_wizard_promoter_share_rows(request.form))
         _replace_concert_zone_agents(session, concert.id, _parse_wizard_zone_rows(request.form))

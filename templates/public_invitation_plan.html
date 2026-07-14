@@ -4,6 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Visionado plano asientos{% if sector_name %} · {{ sector_name }}{% endif %}</title>
+  {% if og %}
+  <meta property="og:title" content="{{ og.title }}">
+  {% if og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="description" content="{{ og.description }}">{% endif %}
+  {% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta name="twitter:image" content="{{ og.image }}"><meta name="twitter:card" content="summary">{% endif %}
+  {% endif %}
   {# Respaldo sin JS: recarga cada 5 min. Con JS, el mapa se refresca solo cada 10 s (abajo). #}
   {% if not revoked %}<meta http-equiv="refresh" content="300">{% endif %}
   <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">

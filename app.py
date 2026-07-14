@@ -10560,7 +10560,9 @@ def discografica_income_upload_csv():
             _sep_counts = {",": first_line.count(","), ";": first_line.count(";"), "\t": first_line.count("\t")}
             sep = max(_sep_counts, key=lambda k: _sep_counts[k]) if any(_sep_counts.values()) else ","
             from io import StringIO
-            df = pd.read_csv(StringIO(decoded), sep=sep)
+            # dtype=str: TODO como texto — si no, pandas convierte los Product Code numéricos a
+            # float («286022.0») y luego no casan con los códigos configurados en la app.
+            df = pd.read_csv(StringIO(decoded), sep=sep, dtype=str)
         except Exception as e:
             flash(f"Error leyendo CSV '{getattr(uploaded, 'filename', 'archivo')}': {e}", "danger")
             return redirect(next_url)
@@ -10580,6 +10582,18 @@ def discografica_income_upload_csv():
                 "Gross Revenue" if amount_kind == "net" else "Net Revenue",
             ],
         )
+        if not file_amount_col:
+            # Formato de EXTRACTO POR PERIODO (p. ej. Altafonte «statement_period_track»): el importe
+            # viene en una columna con el nombre del MES («February 2026») y en «Total». Si hay un
+            # solo mes se usa esa columna; con varios meses (o sin reconocerlos), «Total».
+            _month_col_re = re.compile(r"^\s*[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+\s+\d{4}\s*$")
+            _month_cols = [c for c in cols if _month_col_re.match(str(c or ""))]
+            if len(_month_cols) == 1:
+                file_amount_col = _month_cols[0]
+            elif "Total" in cols:
+                file_amount_col = "Total"
+            elif _month_cols:
+                file_amount_col = _month_cols[0]
         if not file_amount_col or (not file_isrc_col and not file_product_code_col):
             flash(
                 f"El archivo '{getattr(uploaded, 'filename', 'archivo')}' no contiene columnas compatibles (ISRC o Product Code) ni una columna de importe válida.",
@@ -10596,6 +10610,11 @@ def discografica_income_upload_csv():
 
         for _, row in df.iterrows():
             raw_row = {col: _clean_csv_cell(row.get(col)) for col in cols}
+            _track_val = _clean_csv_cell(row.get(file_track_col)) if file_track_col else ""
+            # Fila-RESUMEN del extracto («Total» al final, sin ISRC ni Product Code): fuera en
+            # silencio — no es una canción y solo metía ruido en «filas sin match».
+            if _track_val.strip().lower() in ("total", "totales") and not str(row.get("__isrc") or "") and not str(row.get("__product_code") or ""):
+                continue
             parsed_rows.append(
                 {
                     "file_name": getattr(uploaded, "filename", "archivo.csv"),
@@ -10604,7 +10623,7 @@ def discografica_income_upload_csv():
                     "isrc": str(row.get("__isrc") or ""),
                     "product_code": str(row.get("__product_code") or ""),
                     "amount": _money_norm(row.get("__amount") or 0),
-                    "track": _clean_csv_cell(row.get(file_track_col)) if file_track_col else "",
+                    "track": _track_val,
                     "primary_artist": _clean_csv_cell(row.get("Primary Artist") or row.get("ARTIST") or row.get("Artist")),
                 }
             )
@@ -19447,6 +19466,44 @@ def _sim_partner_row_payload(p):
     }
 
 
+def _sim_commission_desc(c) -> str:
+    """Comisión CONFIGURADA de un comisionista, legible: «Fija · 1.000 €», «Variable · 10% sobre
+    ingresos (taquilla)», «Variable · 5% sobre el beneficio», «Variable · 0,50 € por entrada»…
+    con umbral e importe exento si los hay. Se muestra bajo el nombre en el módulo Resultados."""
+    def _n(v):
+        try:
+            f = float(_sim_d(v))
+        except Exception:
+            f = 0.0
+        s = ("%.2f" % f).rstrip("0").rstrip(".")
+        ent, _, dec = s.partition(".")
+        try:
+            ent = "{:,}".format(int(ent)).replace(",", ".")
+        except Exception:
+            pass
+        return ent + ("," + dec if dec else "")
+    if (c.mode or "FIXED").upper() == "VARIABLE":
+        vt = (c.var_type or "").upper()
+        if vt == "PER_TICKET":
+            base = f"Variable · {_n(c.var_value)} € por entrada"
+        elif vt == "PERCENT_PROFIT":
+            base = f"Variable · {_n(c.var_value)}% sobre el beneficio"
+        else:
+            base = f"Variable · {_n(c.var_value)}% sobre ingresos (taquilla)"
+        tt = (c.var_threshold_type or "").upper()
+        if tt == "TICKETS" and float(_sim_d(c.var_threshold_value)) > 0:
+            base += f" · a partir de {_n(c.var_threshold_value)} entradas"
+        elif tt == "AMOUNT" and float(_sim_d(c.var_threshold_value)) > 0:
+            base += f" · a partir de {_n(c.var_threshold_value)} €"
+        if float(_sim_d(getattr(c, "exempt_amount", 0) or 0)) > 0:
+            base += f" · exento hasta {_n(c.exempt_amount)} €"
+        return base
+    extras = []
+    if getattr(c, "includes_iva", False):
+        extras.append("IVA incluido")
+    return f"Fija · {_n(c.amount)} €" + ((" · " + " · ".join(extras)) if extras else "")
+
+
 def _sim_partner_module_payload(sim, activity, calc, extra_fixed_cost=0.0, label=None):
     """Datos de UNA fecha para el módulo de RESULTADOS (socios + comisionistas + gastos con
     slider 0–100%). Cada punto de la serie lleva el desglose (g/com) que pinta sim_partners.js
@@ -19478,13 +19535,14 @@ def _sim_partner_module_payload(sim, activity, calc, extra_fixed_cost=0.0, label
             be_tickets = pt["tickets"]
             break
     # Comisionistas (mismo ORDEN que las series "com": el de activity.commissions, que es el que
-    # usa _sim_build_calc_data): nombre + logo/foto, sea un tercero o un medio.
+    # usa _sim_build_calc_data): nombre + logo/foto (tercero o medio) + la comisión CONFIGURADA
+    # (fija o variable, y si es variable sobre qué: entradas, ingresos o beneficio).
     commissions_meta = []
     for c in sorted((activity.commissions or []) if activity is not None else [], key=lambda x: x.sort_order or 0):
         name = (c.name or "").strip() or (
             (c.promoter.nick if c.promoter else None) or (c.media_outlet.name if c.media_outlet else None) or "Comisionista")
         logo = (c.promoter.logo_url if c.promoter else None) or (getattr(c.media_outlet, "logo_url", None) if c.media_outlet else None) or ""
-        commissions_meta.append({"name": name, "logo": logo})
+        commissions_meta.append({"name": name, "logo": logo, "desc": _sim_commission_desc(c)})
     return {
         "label": label or "",
         "partners": [_sim_partner_row_payload(p) for p in _sim_partners_for_activity(sim, activity)],
@@ -38823,7 +38881,8 @@ def public_photo_share(token):
         og = {
             "title": ("Fotos / Vídeos" + (" · " + (card["artist_name"] or card["event_name"] or owner_title) if (card["artist_name"] or card["event_name"] or owner_title) else "")),
             "description": " · ".join(_card_bits),
-            "image": (card["artist_photo"] or (rows[0]["file_url"] if rows and not rows[0]["is_video"] else "") or (logo or "")),
+            # SIEMPRE absoluta y sin el «?» final de storage3: si no, WhatsApp/SMS no previsualizan.
+            "image": _absolute_media_url(card["artist_photo"] or (rows[0]["file_url"] if rows and not rows[0]["is_video"] else "") or (logo or "")),
         }
         return render_template("public_photo_share.html", logo=logo, owner_title=owner_title, photos=rows,
                                zip_url=url_for("public_photo_share_zip", token=token), count_label=_photo_count_label(photos),
@@ -47362,7 +47421,16 @@ def public_invitation_plan(token):
         if not concert:
             abort(404)
         ctx = _invitation_plan_view_context(session_db, concert, cat, sector_name)
-        return render_template('public_invitation_plan.html', revoked=False,
+        # Previsualización WhatsApp/SMS (og): cartel/foto del artista + detalles, como el resto
+        # de enlaces públicos (sin og la previsualización salía sin imagen o con una cualquiera).
+        _card = _public_share_card(session_db, "CONCERT", concert, artist_id=getattr(concert, "artist_id", None))
+        og = {
+            "title": (ctx.get("header_title") or "Visionado plano asientos") + (f" · Sector {sector_name}" if sector_name else ""),
+            "description": " · ".join([x for x in [_card.get("activity_label"), _card.get("event_name") or _card.get("city"), _card.get("date_label")] if x]),
+            "image": _public_share_og_image(session_db, concert, card=_card,
+                                            logo=_invitation_event_logo_url(session_db, concert, external=True)),
+        }
+        return render_template('public_invitation_plan.html', revoked=False, og=og,
                                updated_label=_now_madrid().strftime('%d/%m/%Y %H:%M'), **ctx)
     finally:
         session_db.close()
@@ -47747,7 +47815,16 @@ def public_invitation_guest_list(token):
         if not concert:
             abort(404)
         rows = _invitation_guest_list_rows(session_db, concert, link.list_type)
-        return render_template('public_invitation_guest_list.html', link=link, unavailable=False, rows=rows, event=_invitation_event_payload(session_db, concert), list_type_label=_invitation_list_type_label(link.list_type), logo_url=_invitation_event_logo_url(session_db, concert, external=False))
+        _ev = _invitation_event_payload(session_db, concert)
+        # Previsualización WhatsApp/SMS (og), como el resto de enlaces públicos.
+        _card = _public_share_card(session_db, "CONCERT", concert, artist_id=getattr(concert, "artist_id", None))
+        og = {
+            "title": "Lista de invitados · " + (_ev.get("artist_names") or _ev.get("title") or ""),
+            "description": " · ".join([x for x in [_invitation_list_type_label(link.list_type), _card.get("event_name") or _card.get("city"), _card.get("date_label")] if x]),
+            "image": _public_share_og_image(session_db, concert, event_payload=_ev, card=_card,
+                                            logo=_invitation_event_logo_url(session_db, concert, external=True)),
+        }
+        return render_template('public_invitation_guest_list.html', link=link, unavailable=False, rows=rows, event=_ev, og=og, list_type_label=_invitation_list_type_label(link.list_type), logo_url=_invitation_event_logo_url(session_db, concert, external=False))
     finally:
         session_db.close()
 

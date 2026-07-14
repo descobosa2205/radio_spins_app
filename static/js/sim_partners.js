@@ -238,9 +238,18 @@
           var img = cm.logo
             ? '<img src="' + esc(cm.logo) + '" alt="" style="height:26px;max-width:74px;object-fit:contain;">'
             : '<i class="fa fa-user-tie text-muted"></i>';
+          // Configuración de la comisión bajo el nombre: fija/variable y, si es variable, sobre
+          // qué va (entradas, ingresos o beneficio). Con varias fechas pueden ser distintas.
+          var descs = [];
+          cm.refs.forEach(function (ref) {
+            var a = acts[ref[0]];
+            var d = ((a.commissions || [])[ref[1]] || {}).desc || '';
+            if (d && descs.indexOf(d) < 0) descs.push(d);
+          });
+          var descHtml = descs.length ? '<span class="small text-muted d-block">' + descs.map(esc).join(' · ') + '</span>' : '';
           return '<tr>' +
             '<td><span class="d-inline-flex align-items-center gap-2"><span class="simp-logo">' + img + '</span>' +
-            '<span class="fw-medium simp-name">' + esc(cm.name) + '</span></span></td>' +
+            '<span><span class="fw-medium simp-name d-block">' + esc(cm.name) + '</span>' + descHtml + '</span></span></td>' +
             '<td class="text-end fw-semibold"><span class="sim-amt" title="Sin IVA">' + fmtEur(ct[k]) + '</span></td>' +
             '</tr>';
         }).join('');

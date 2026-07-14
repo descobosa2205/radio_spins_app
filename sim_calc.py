@@ -229,11 +229,14 @@ def evaluate(prep, tickets_sold):
     # --- Comisiones ---
     # Las de tipo «% sobre el beneficio» se calculan en una 2ª pasada (necesitan el beneficio
     # antes de comisiones), tras conocer ingresos y el resto de gastos.
+    # com_each: importe NETO de cada comisionista (mismo orden que prep["commissions"]) para el
+    # desglose en vivo del módulo de Resultados (slider de socios).
     com_net_total = 0.0
+    com_each = [0.0] * len(prep["commissions"])
     commissions_on_profit = []
-    for c in prep["commissions"]:
+    for _ci, c in enumerate(prep["commissions"]):
         if c["mode"] == "VARIABLE" and (c["cfg"].get("var_type") or "").upper() == "PERCENT_PROFIT":
-            commissions_on_profit.append(c)
+            commissions_on_profit.append((_ci, c))
             continue
         if c["mode"] == "VARIABLE":
             base_taquilla = max(taquilla - c["exempt_amount"], 0.0)
@@ -242,6 +245,7 @@ def evaluate(prep, tickets_sold):
                 net = net / (1.0 + IVA_GENERAL)
         else:
             net = c["fixed_net"]
+        com_each[_ci] = net
         com_net_total += net
 
     # --- Producción ---
@@ -273,11 +277,12 @@ def evaluate(prep, tickets_sold):
     # 2ª pasada: comisiones «% sobre el beneficio» = % del resultado ANTES de estas comisiones.
     if commissions_on_profit:
         profit_base = max(ingresos_total - (cache_net_total + retention_added + com_net_total + prod_net_total), 0.0)
-        for c in commissions_on_profit:
+        for _ci, c in commissions_on_profit:
             pct = _f(c["cfg"].get("var_value")) / 100.0
             net = pct * profit_base
             if c["includes_iva"]:
                 net = net / (1.0 + IVA_GENERAL)
+            com_each[_ci] = net
             com_net_total += net
 
     gastos_total = cache_net_total + retention_added + com_net_total + prod_net_total
@@ -292,6 +297,7 @@ def evaluate(prep, tickets_sold):
             "produccion": prod_net_total, "produccion_por_categoria": prod_by_cat,
             "total": gastos_total,
         },
+        "comisiones_detalle": com_each,
         "resultado": resultado,
     }
 
@@ -328,17 +334,30 @@ def series(prep, steps=10):
 
 
 def series_fine(prep):
-    """Serie fina 0..100% (paso 1%) para los sliders de socios (beneficio/riesgo)."""
+    """Serie fina 0..100% (paso 1%) para el módulo de Resultados (slider de socios).
+
+    Además de los totales, cada punto lleva el DESGLOSE para pintarlo en vivo al arrastrar:
+    - g: gastos (cachés, retenciones, comisiones y producción por categoría),
+    - com: importe de CADA comisionista (mismo orden que prep["commissions"]).
+    """
     sellable = prep["sellable"]
     out = []
     for pct in range(0, 101):
         n = int(round(sellable * pct / 100.0))
         ev = evaluate(prep, n)
+        g = ev["gastos"]
         out.append({
             "pct": pct, "tickets": n,
             "ingresos": round(ev["ingresos"]["total"], 2),
-            "gastos": round(ev["gastos"]["total"], 2),
+            "gastos": round(g["total"], 2),
             "resultado": round(ev["resultado"], 2),
+            "g": {
+                "caches": round(g["caches"], 2),
+                "retenciones": round(g["retenciones"], 2),
+                "comisiones": round(g["comisiones"], 2),
+                "prod": {k: round(v, 2) for k, v in (g["produccion_por_categoria"] or {}).items()},
+            },
+            "com": [round(x, 2) for x in (ev.get("comisiones_detalle") or [])],
         })
     return out
 

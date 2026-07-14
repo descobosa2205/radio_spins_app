@@ -88,8 +88,9 @@
           </div>
         </div>
 
-        {# Zona de arrastrar / seleccionar #}
-        <div class="fotos-dropzone" id="fotosDropzone">
+        {# Zona de arrastrar / seleccionar. data-file-drop="off": ya tiene su propio drag&drop
+           (fotos.js) y el global (file_drop.js) no debe duplicarlo. #}
+        <div class="fotos-dropzone" id="fotosDropzone" data-file-drop="off">
           <i class="fa fa-cloud-arrow-up fa-2x mb-2"></i>
           <div>Arrastra aquí las fotos o vídeos, o <span class="text-primary text-decoration-underline">pincha para seleccionar</span></div>
           <div class="small text-muted mt-1">Puedes añadir todas las que quieras.</div>

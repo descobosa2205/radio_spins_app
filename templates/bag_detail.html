@@ -342,8 +342,10 @@
   <div class="modal-header"><h5 class="modal-title">Reemplazar factura/ticket</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
   <div class="modal-body">
     <label class="form-label">Qué hacer con la anterior</label><select name="replace_policy" class="form-select mb-3"><option value="replace">Eliminar/reemplazar</option><option value="annul">Anular con rectificativa</option></select>
-    <label class="form-label">Factura rectificativa (si se anula)</label><input type="file" name="rectification_document" class="form-control mb-3" accept=".pdf,image/*">
-    <label class="form-label">Nueva factura/ticket</label><input type="file" name="document" class="form-control" accept=".pdf,image/*" required>
+    {# Cada campo en su propio wrapper: arrastrar un archivo sobre la etiqueta o el hueco lo asigna
+       a ESE input (con los dos inputs sueltos en el modal-body el drop era ambiguo y no hacía nada). #}
+    <div class="mb-3"><label class="form-label">Factura rectificativa (si se anula)</label><input type="file" name="rectification_document" class="form-control" accept=".pdf,image/*"></div>
+    <div><label class="form-label">Nueva factura/ticket</label><input type="file" name="document" class="form-control" accept=".pdf,image/*" required></div>
   </div>
   <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button><button class="btn btn-primary">Reemplazar</button></div>
 </form></div></div></div>
@@ -432,14 +434,18 @@
   });
   let dragged = null;
   document.querySelectorAll('.expense-row[draggable="true"]').forEach(function(row){
-    row.addEventListener('dragstart', function(){ dragged = row; row.classList.add('opacity-50'); });
+    // setData: sin datos, Firefox no llega a iniciar el drag; además el 'text/plain' deja este
+    // arrastre explícitamente fuera del drag&drop global de archivos (file_drop.js).
+    row.addEventListener('dragstart', function(ev){ dragged = row; row.classList.add('opacity-50'); try{ ev.dataTransfer.effectAllowed='move'; ev.dataTransfer.setData('text/plain','row'); }catch(e){} });
     row.addEventListener('dragend', function(){ row.classList.remove('opacity-50'); dragged = null; });
   });
   document.querySelectorAll('.expense-drop-zone').forEach(function(zone){
-    zone.addEventListener('dragover', function(ev){ ev.preventDefault(); });
+    // Solo aceptar el arrastre INTERNO de filas: con ficheros, el preventDefault incondicional
+    // «aceptaba» el drop y se lo tragaba en silencio (cursor de copiar engañoso).
+    zone.addEventListener('dragover', function(ev){ if (!dragged) return; ev.preventDefault(); });
     zone.addEventListener('drop', async function(ev){
-      ev.preventDefault();
       if (!dragged) return;
+      ev.preventDefault();
       const category = zone.dataset.category || 'OTROS';
       zone.appendChild(dragged);
       const rows = Array.from(zone.querySelectorAll('.expense-row'));

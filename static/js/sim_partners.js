@@ -1,16 +1,21 @@
-/* Simulaciones · Módulo de SOCIOS (beneficio potencial / riesgo asumido) con slider de venta.
+/* Simulaciones · Módulo de RESULTADOS (socios + comisionistas + gastos) con slider de venta.
  *
  * Uso: un contenedor <div data-sim-partners="idDelScript"></div> y un
  * <script type="application/json" id="idDelScript">{...}</script> con:
- *   { mode: 'activity'|'general',
- *     activities: [ { label, partners:[{name,logo,pct,company_id,promoter_id,label}],
- *                     series:[{pct,tickets,ingresos,gastos,resultado} x0..100],
+ *   { mode: 'activity'|'general', labels: {CLAVE_CATEGORIA: 'Etiqueta', ...},
+ *     activities: [ { label, partners:[{name,logo,pct,company_id,promoter_id,label,no_loss}],
+ *                     commissions:[{name,logo}],
+ *                     series:[{pct,tickets,ingresos,gastos,resultado,
+ *                              g:{caches,retenciones,comisiones,prod:{CAT:importe}},
+ *                              com:[importe por comisionista]} x0..100],
  *                     sellable, break_even_pct, break_even_tickets } ] }
  *
  * - Slider 0–100% en pasos de 1% con degradado rojo→verde según el resultado en cada punto.
  * - Flecha-etiqueta en el punto de empate (entradas y %).
  * - Por socio: beneficio potencial (resultado × su %) y riesgo (gastos × su %), en vivo.
- * - En modo general agrega varias fechas (cada una con sus propios socios y %).
+ * - Comisionistas (terceros o medios): su comisión a ese % de venta, en vivo (oculto si no hay).
+ * - Gastos: desglose (cachés, retenciones, comisiones y categorías) a ese % de venta, en vivo.
+ * - En modo general agrega varias fechas (cada una con sus propios socios/comisionistas/gastos).
  */
 (function () {
   'use strict';
@@ -96,6 +101,55 @@
       return out;
     }
 
+    // --- Comisionistas (terceros o medios) agregados entre fechas: clave nombre+logo. ---
+    var commMap = {}, commOrder = [];
+    acts.forEach(function (a, ai) {
+      (a.commissions || []).forEach(function (cm, ci) {
+        var k = (cm.name || '') + '|' + (cm.logo || '');
+        if (!commMap[k]) { commMap[k] = { name: cm.name || 'Comisionista', logo: cm.logo || '', refs: [] }; commOrder.push(k); }
+        commMap[k].refs.push([ai, ci]);
+      });
+    });
+    function commTotals(pct) {
+      var out = {};
+      commOrder.forEach(function (k) {
+        var sum = 0;
+        commMap[k].refs.forEach(function (ref) {
+          var a = acts[ref[0]];
+          var pt = a.series[pct] || a.series[a.series.length - 1];
+          sum += ((pt.com || [])[ref[1]]) || 0;
+        });
+        out[k] = sum;
+      });
+      return out;
+    }
+
+    // --- Gastos agregados a un % de venta (cachés, retenciones, comisiones, categorías). ---
+    function gastosAt(pct) {
+      var out = { caches: 0, retenciones: 0, comisiones: 0, prod: {}, total: 0 };
+      acts.forEach(function (a) {
+        var pt = a.series[pct] || a.series[a.series.length - 1];
+        var g = pt.g || {};
+        out.caches += g.caches || 0;
+        out.retenciones += g.retenciones || 0;
+        out.comisiones += g.comisiones || 0;
+        var prod = g.prod || {};
+        Object.keys(prod).forEach(function (ck) { out.prod[ck] = (out.prod[ck] || 0) + (prod[ck] || 0); });
+        out.total += pt.gastos || 0;
+      });
+      return out;
+    }
+    var LABELS = data.labels || {};
+    // Filas visibles: las que tienen importe al 0% o al 100% (así no aparecen/desaparecen filas al
+    // arrastrar; los condicionantes «solo si se venden menos de X» cuentan por el 0%).
+    var g0 = gastosAt(0), g100 = gastosAt(100);
+    function gRowVisible(key) { return (g0[key] || 0) !== 0 || (g100[key] || 0) !== 0; }
+    var prodShow = {};
+    [g0, g100].forEach(function (g) { Object.keys(g.prod).forEach(function (k) { if ((g.prod[k] || 0) !== 0) prodShow[k] = 1; }); });
+    var prodKeys = Object.keys(LABELS).filter(function (k) { return prodShow[k]; });
+    Object.keys(prodShow).forEach(function (k) { if (prodKeys.indexOf(k) < 0) prodKeys.push(k); });
+    var hasGastos = gRowVisible('caches') || gRowVisible('retenciones') || gRowVisible('comisiones') || prodKeys.length > 0;
+
     // Degradado del slider según el resultado en cada punto.
     var maxAbs = agg.reduce(function (m, r) { return Math.max(m, Math.abs(r.resultado)); }, 0) || 1;
     var stops = [];
@@ -131,12 +185,26 @@
     } else {
       html += '<div class="text-muted small">Sin socios configurados: añade socios para ver el reparto.</div>';
     }
+    // Comisionistas (solo si hay) y gastos, en el MISMO módulo y actualizándose con la barra.
+    if (commOrder.length) {
+      html += '<div class="simp-sec mt-3"><i class="fa fa-user-tie me-1"></i>Comisionistas</div>';
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0 simp-table"><thead><tr>' +
+        '<th class="align-bottom">Comisionista</th>' +
+        '<th class="text-end">Comisión a este % de venta<br><span class="text-muted fw-normal small">(neto, sin IVA)</span></th>' +
+        '</tr></thead><tbody data-simp-comm></tbody></table></div>';
+    }
+    if (hasGastos) {
+      html += '<div class="simp-sec mt-3"><i class="fa fa-arrow-trend-down me-1"></i>Gastos a este % de venta <span class="text-muted fw-normal small">(sin IVA)</span></div>';
+      html += '<div class="table-responsive"><table class="table table-sm align-middle mb-0 simp-table"><tbody data-simp-gastos></tbody></table></div>';
+    }
     container.innerHTML = html;
 
     var range = container.querySelector('.simp-range');
     var live = container.querySelector('[data-simp-live]');
     var totalsEl = container.querySelector('[data-simp-totals]');
     var rowsEl = container.querySelector('[data-simp-rows]');
+    var commEl = container.querySelector('[data-simp-comm]');
+    var gastosEl = container.querySelector('[data-simp-gastos]');
 
     function render(pct) {
       var pt = agg[pct];
@@ -162,6 +230,34 @@
             '<td class="text-end"><span class="sim-amt" title="Sin IVA">' + fmtEur(v.riesgo) + '</span></td>' +
             '</tr>';
         }).join('');
+      }
+      if (commEl) {
+        var ct = commTotals(pct);
+        commEl.innerHTML = commOrder.map(function (k) {
+          var cm = commMap[k];
+          var img = cm.logo
+            ? '<img src="' + esc(cm.logo) + '" alt="" style="height:26px;max-width:74px;object-fit:contain;">'
+            : '<i class="fa fa-user-tie text-muted"></i>';
+          return '<tr>' +
+            '<td><span class="d-inline-flex align-items-center gap-2"><span class="simp-logo">' + img + '</span>' +
+            '<span class="fw-medium simp-name">' + esc(cm.name) + '</span></span></td>' +
+            '<td class="text-end fw-semibold"><span class="sim-amt" title="Sin IVA">' + fmtEur(ct[k]) + '</span></td>' +
+            '</tr>';
+        }).join('');
+      }
+      if (gastosEl) {
+        var gg = gastosAt(pct);
+        var trg = function (label, v, boldTop) {
+          return '<tr' + (boldTop ? ' class="fw-bold border-top"' : '') + '><td>' + esc(label) + '</td>' +
+            '<td class="text-end"><span class="sim-amt" title="Sin IVA">' + fmtEur(v) + '</span></td></tr>';
+        };
+        var rows = '';
+        if (gRowVisible('caches')) rows += trg('Cachés', gg.caches);
+        if (gRowVisible('retenciones')) rows += trg('Retenciones (24%)', gg.retenciones);
+        if (gRowVisible('comisiones')) rows += trg('Comisiones', gg.comisiones);
+        prodKeys.forEach(function (k) { rows += trg(LABELS[k] || k, gg.prod[k] || 0); });
+        rows += trg('Total gastos', gg.total, true);
+        gastosEl.innerHTML = rows;
       }
       range.style.setProperty('--simp-pct', pct);
     }

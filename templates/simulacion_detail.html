@@ -296,34 +296,64 @@
   <div class="sim-stat"><div class="sim-stat__n">{{ amt(tour_totals.gastos, 'Sin IVA') }}</div><div class="sim-stat__l">Gastos @100%{% if tour_totals.general %} (incl. generales){% endif %}</div></div>
   <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if tour_totals.resultado >= 0 else 'text-danger' }}">{{ amt(tour_totals.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
 </div>
-{% if tour_series %}
-<div class="ficha-section">
-  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} (agregado)</h6></div>
-  <div class="ficha-section__body">{{ result_table(tour_series) }}</div>
-</div>
-{% endif %}
+{# Orden del resumen general (pedido por Dani): 1) mapa con las fichas de fechas a la derecha,
+   2) Resultado (agregado), 3) módulo «Resultados» (socios + comisionistas + gastos con la barra). #}
 <div class="row g-3">
   <div class="col-12 col-lg-7">
-    <div class="ficha-section">
+    <div class="ficha-section h-100">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-map-location-dot"></i>{{ 'Recorrido del ciclo' if is_cycle else 'Recorrido de la gira' }}</h6></div>
       <div class="ficha-section__body">
-        <div id="tourMap" style="height:300px;border-radius:12px;border:1px solid #eee;"></div>
+        <div id="tourMap" style="height:340px;border-radius:12px;border:1px solid #eee;"></div>
         <div id="tourMapEmpty" class="text-muted small mt-2 d-none">No hay recintos con municipio para dibujar el mapa.</div>
         <div class="text-muted small mt-1"><i class="fa fa-circle-info me-1"></i>Las chinchetas van numeradas por orden de fecha.</div>
       </div>
     </div>
   </div>
   <div class="col-12 col-lg-5">
-    <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6>
-        {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios comunes"><i class="fa fa-pen"></i></button>{% endif %}
-      </div>
+    <div class="ficha-section h-100">
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-calendar-days"></i>{{ 'Calendario del ciclo' if is_cycle else 'Fechas de la gira' }}</h6></div>
       <div class="ficha-section__body">
-        {% if not global_partners %}<div class="text-muted small mb-2">Sin socios comunes. {% if CAN_EDIT %}Añádelos con el lápiz.{% endif %}</div>{% endif %}
-        <div data-sim-partners="simPartnersData"></div>
-        <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Si una fecha tiene socios propios (pestaña «Socios» de la fecha), el reparto de esa fecha usa sus porcentajes.</div>
+        <div class="list-group">
+          {% for r in tour_rows %}
+          <a href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
+            <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
+            <span style="min-width:150px;">
+              {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
+              <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable|k }} a la venta</div>
+            </span>
+            <span class="d-flex flex-wrap gap-1 flex-grow-1">
+              <span class="sim-tag" title="Precio medio de entrada: sin IVA, incluye SGAE"><i class="fa fa-ticket"></i>{{ r.calc.avg_price_sin_iva|eur }}</span>
+              <span class="sim-tag" title="Punto de empate (entradas a vender y % del aforo a la venta)"><i class="fa fa-scale-balanced"></i>{% if r.calc.break_even_tickets is none %}—{% else %}{{ r.calc.break_even_tickets|k }} · {{ r.calc.break_even_pct }}%{% endif %}</span>
+              <span class="sim-tag" title="Beneficio potencial @100%: neto, sin IVA y sin SGAE"><i class="fa fa-flag-checkered"></i><span class="{{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</span></span>
+            </span>
+          </a>
+          {% else %}
+          <div class="text-muted">Aún no hay {{ 'conciertos' if is_cycle else 'fechas' }}. Pulsa «{{ 'Añadir concierto' if is_cycle else 'Añadir fecha' }}».</div>
+          {% endfor %}
+        </div>
+        {% if tour_totals.general %}
+          <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales (÷ {{ activities|length }}, «Prorrateo» en cada {{ 'concierto' if is_cycle else 'fecha' }})</span><span class="fw-semibold">{{ amt(tour_totals.general, 'Sin IVA') }}</span></div>
+        {% endif %}
       </div>
     </div>
+  </div>
+</div>
+
+{% if tour_series %}
+<div class="ficha-section">
+  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado {{ 'del ciclo' if is_cycle else 'de la gira' }} (agregado)</h6></div>
+  <div class="ficha-section__body">{{ result_table(tour_series) }}</div>
+</div>
+{% endif %}
+
+<div class="ficha-section">
+  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-column"></i>Resultados</h6>
+    {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios comunes"><i class="fa fa-pen"></i></button>{% endif %}
+  </div>
+  <div class="ficha-section__body">
+    {% if not global_partners %}<div class="text-muted small mb-2">Sin socios comunes. {% if CAN_EDIT %}Añádelos con el lápiz.{% endif %}</div>{% endif %}
+    <div data-sim-partners="simPartnersData"></div>
+    <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Si una fecha tiene socios propios (pestaña «Socios» de la fecha), el reparto de esa fecha usa sus porcentajes.</div>
   </div>
 </div>
 
@@ -355,34 +385,6 @@
   </div>
 </div>
 {% endif %}
-
-<div class="ficha-section">
-  <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-calendar-days"></i>{{ 'Calendario del ciclo' if is_cycle else 'Fechas de la gira' }}</h6></div>
-  <div class="ficha-section__body">
-    <div class="list-group">
-      {% for r in tour_rows %}
-      <a href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
-        <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
-        <span style="min-width:170px;">
-          {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
-          <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable|k }} a la venta</div>
-        </span>
-        <span class="d-flex flex-wrap gap-1 flex-grow-1">
-          <span class="sim-tag" title="Precio medio de entrada: sin IVA, incluye SGAE"><i class="fa fa-ticket"></i>Precio medio {{ r.calc.avg_price_sin_iva|eur }}</span>
-          <span class="sim-tag" title="Punto de empate (entradas a vender y % del aforo a la venta)"><i class="fa fa-scale-balanced"></i>Empate {% if r.calc.break_even_tickets is none %}—{% else %}{{ r.calc.break_even_tickets|k }} ent · {{ r.calc.break_even_pct }}%{% endif %}</span>
-          <span class="sim-tag" title="Beneficio potencial @100%: neto, sin IVA y sin SGAE"><i class="fa fa-flag-checkered"></i>Beneficio <span class="{{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ r.resultado|eur }}</span></span>
-        </span>
-        <span class="text-end"><div class="small text-muted">Beneficio potencial</div><div class="fw-semibold {{ 'text-success' if r.resultado >= 0 else 'text-danger' }}">{{ amt(r.resultado, 'Neto: sin IVA y sin SGAE') }}</div></span>
-      </a>
-      {% else %}
-      <div class="text-muted">Aún no hay {{ 'conciertos' if is_cycle else 'fechas' }}. Pulsa «{{ 'Añadir concierto' if is_cycle else 'Añadir fecha' }}».</div>
-      {% endfor %}
-    </div>
-    {% if tour_totals.general %}
-      <div class="d-flex justify-content-between border-top pt-2 mt-2 small"><span class="text-muted"><i class="fa fa-layer-group me-1"></i>Gastos generales (repartidos ÷ {{ activities|length }} como «Prorrateo» en cada {{ 'concierto' if is_cycle else 'fecha' }})</span><span class="fw-semibold">{{ amt(tour_totals.general, 'Sin IVA') }}</span></div>
-    {% endif %}
-  </div>
-</div>
 
 {% if CAN_EDIT %}
 <div class="modal fade" id="partnersCommonModal" tabindex="-1" aria-hidden="true">
@@ -467,9 +469,11 @@
 <div class="ficha-tabpane">
 {# ===================== RESUMEN ===================== #}
 {% if tab == 'resumen' %}
-  <div class="row g-3">
-    <div class="col-12 col-lg-7">
-      <div class="ficha-section">
+  {# Orden del resumen (pedido por Dani): 1) mapa con la ficha de datos a la derecha,
+     2) Resultado, 3) módulo «Resultados» (socios + comisionistas + gastos con la barra), y
+     después el resto (ticketing, ingresos y gastos al 100%). #}
+  {% set datos_ficha %}
+      <div class="ficha-section h-100">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-circle-info"></i>Datos de la simulación</h6></div>
         <div class="ficha-section__body">
           <div class="ficha-fields">
@@ -483,6 +487,81 @@
           </div>
         </div>
       </div>
+  {% endset %}
+  <div class="row g-3">
+    {% if tour_points %}
+    <div class="col-12 col-lg-7">
+      <div class="ficha-section h-100">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-map-location-dot"></i>Ubicación</h6></div>
+        <div class="ficha-section__body">
+          <div id="tourMap" style="height:300px;border-radius:12px;border:1px solid #eee;"></div>
+          <div id="tourMapEmpty" class="text-muted small mt-2 d-none">No se pudo situar el recinto en el mapa.</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12 col-lg-5">
+      {{ datos_ficha }}
+      {% if is_festival %}<div class="mt-3"></div>{% endif %}
+    </div>
+    {% else %}
+    <div class="col-12">
+      {{ datos_ficha }}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if calc and calc.ticketing.sellable %}
+  {# --- 2) Resultado --- #}
+  <div class="ficha-section">
+    <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
+    <div class="ficha-section__body">
+      <div class="d-flex flex-wrap gap-3 mb-2">
+        <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
+        <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
+      </div>
+      {{ result_table(calc.series) }}
+    </div>
+  </div>
+  {% endif %}
+
+  {# --- 3) Resultados: socios + comisionistas + gastos, en vivo con la barra --- #}
+  <div class="ficha-section">
+    <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-column"></i>Resultados</h6>
+      {% if CAN_EDIT %}
+        {% if is_multi and active_activity and not active_activity.is_shared %}
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}" title="Editar socios de esta fecha"><i class="fa fa-pen"></i></a>
+        {% else %}
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios"><i class="fa fa-pen"></i></button>
+        {% endif %}
+      {% endif %}
+    </div>
+    <div class="ficha-section__body">
+      {% if is_multi and activity_partners_own %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Esta fecha usa <strong>socios propios</strong> (no los comunes).</div>{% endif %}
+      <div data-sim-partners="simPartnersData"></div>
+    </div>
+  </div>
+
+  {% if is_festival %}
+  <div class="ficha-section">
+    <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-people-group"></i>Artistas del festival</h6>
+      {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addArtistModal"><i class="fa fa-plus"></i></button>{% endif %}
+    </div>
+    <div class="ficha-section__body">
+      {% if lineup %}
+        <div class="d-flex flex-column gap-2">
+          {% for la in lineup %}
+            <div class="d-flex align-items-center gap-2">
+              <img src="{{ (la.artist.photo_url if la.artist else None) or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
+              <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}{% if la.artist %}{{ linked_mini('artist', la.artist.id) }}{% endif %}</span>
+              {% if CAN_EDIT %}<form method="post" action="{{ url_for('simulation_lineup_delete', sid=sim.id, lid=la.id) }}" onsubmit="return confirm('¿Quitar artista del festival?');"><button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-xmark"></i></button></form>{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}<div class="text-muted">Sin artistas. {% if CAN_EDIT %}Añade con +.{% endif %}</div>{% endif %}
+      <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Los cachés y comisiones se asignan a cada artista en la pestaña Gastos.</div>
+    </div>
+  </div>
+  {% endif %}
 
       {% if summary and summary.aforo_total %}
       <div class="ficha-section">
@@ -516,18 +595,6 @@
       {% endif %}
 
       {% if calc and calc.ticketing.sellable %}
-      {# --- Resultado con gráfica --- #}
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-line"></i>Resultado</h6></div>
-        <div class="ficha-section__body">
-          <div class="d-flex flex-wrap gap-3 mb-2">
-            <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
-            <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if calc.at_100.resultado >= 0 else 'text-danger' }}">{{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</div><div class="sim-stat__l">Beneficio potencial @100%</div></div>
-          </div>
-          {{ result_table(calc.series) }}
-        </div>
-      </div>
-
       {# --- Resumen de ingresos --- #}
       {% set ing = calc.at_100.ingresos %}
       <div class="ficha-section">
@@ -576,47 +643,6 @@
         </div>
       </div>
       {% endif %}
-    </div>
-
-    <div class="col-12 col-lg-5">
-      {% if is_festival %}
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-people-group"></i>Artistas del festival</h6>
-          {% if CAN_EDIT %}<button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addArtistModal"><i class="fa fa-plus"></i></button>{% endif %}
-        </div>
-        <div class="ficha-section__body">
-          {% if lineup %}
-            <div class="d-flex flex-column gap-2">
-              {% for la in lineup %}
-                <div class="d-flex align-items-center gap-2">
-                  <img src="{{ (la.artist.photo_url if la.artist else None) or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-                  <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}{% if la.artist %}{{ linked_mini('artist', la.artist.id) }}{% endif %}</span>
-                  {% if CAN_EDIT %}<form method="post" action="{{ url_for('simulation_lineup_delete', sid=sim.id, lid=la.id) }}" onsubmit="return confirm('¿Quitar artista del festival?');"><button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-xmark"></i></button></form>{% endif %}
-                </div>
-              {% endfor %}
-            </div>
-          {% else %}<div class="text-muted">Sin artistas. {% if CAN_EDIT %}Añade con +.{% endif %}</div>{% endif %}
-          <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Los cachés y comisiones se asignan a cada artista en la pestaña Gastos.</div>
-        </div>
-      </div>
-      {% endif %}
-      <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6>
-          {% if CAN_EDIT %}
-            {% if is_multi and active_activity and not active_activity.is_shared %}
-              <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}" title="Editar socios de esta fecha"><i class="fa fa-pen"></i></a>
-            {% else %}
-              <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios"><i class="fa fa-pen"></i></button>
-            {% endif %}
-          {% endif %}
-        </div>
-        <div class="ficha-section__body">
-          {% if is_multi and activity_partners_own %}<div class="small text-muted mb-2"><i class="fa fa-circle-info me-1"></i>Esta fecha usa <strong>socios propios</strong> (no los comunes).</div>{% endif %}
-          <div data-sim-partners="simPartnersData"></div>
-        </div>
-      </div>
-    </div>
-  </div>
 
   {% if CAN_EDIT and not (is_multi and active_activity and not active_activity.is_shared) %}
   <div class="modal fade" id="partnersCommonModal" tabindex="-1" aria-hidden="true">
@@ -1038,7 +1064,7 @@
     </div>
     <div class="col-12 col-lg-6">
       <div class="ficha-section">
-        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-scale-balanced"></i>Beneficio y riesgo por socio (esta fecha)</h6></div>
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-column"></i>Resultados (esta fecha)</h6></div>
         <div class="ficha-section__body">
           <div data-sim-partners="simPartnersData"></div>
           {% if is_cycle and general_share %}<div class="text-muted small mt-2"><i class="fa fa-layer-group me-1"></i>Incluye {{ amt(general_share, 'Sin IVA') }} de gastos generales del ciclo repartidos a esta fecha.</div>{% endif %}
@@ -1064,9 +1090,9 @@
     </div>
     <div class="text-muted small mb-3"><i class="fa fa-circle-info me-1"></i>Resultado en neto sin IVA. Configura la pestaña <strong>Gastos</strong> para un resultado realista.</div>
 
-    {# --- Reparto por socios con slider --- #}
+    {# --- Módulo Resultados (socios + comisionistas + gastos) con slider --- #}
     <div class="ficha-section">
-      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-handshake"></i>Socios: beneficio y riesgo</h6></div>
+      <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-column"></i>Resultados</h6></div>
       <div class="ficha-section__body">
         <div data-sim-partners="simPartnersData"></div>
         {% if is_cycle and general_share %}<div class="text-muted small mt-2"><i class="fa fa-layer-group me-1"></i>Incluye {{ amt(general_share, 'Sin IVA') }} de gastos generales del ciclo repartidos a esta fecha.</div>{% endif %}
@@ -2002,7 +2028,7 @@
 {% endif %}
 
 
-{% if show_general %}
+{% if tour_points and (show_general or tab == 'resumen') %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
@@ -2052,6 +2078,7 @@
       });
       map.addControl(new ToggleCtl());
     }
+    if(coords.length === 1){ map.setView(coords[0].ll, 9); return; }   // fecha individual: un solo pin
     try { map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); } catch(e){}
   }
   step();

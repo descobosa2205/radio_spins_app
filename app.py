@@ -19445,18 +19445,27 @@ def _sim_partner_row_payload(p):
 
 
 def _sim_partner_module_payload(sim, activity, calc, extra_fixed_cost=0.0, label=None):
-    """Datos de UNA fecha para el módulo de socios (beneficio/riesgo con slider 0–100%).
+    """Datos de UNA fecha para el módulo de RESULTADOS (socios + comisionistas + gastos con
+    slider 0–100%). Cada punto de la serie lleva el desglose (g/com) que pinta sim_partners.js
+    en vivo al arrastrar la barra.
 
     extra_fixed_cost: gastos generales del ciclo repartidos a esta fecha (fijos, no
     escalan con la venta): se suman a los gastos y se restan del resultado en cada punto.
     """
     fine = []
     for pt in (calc.get("series_fine") or []):
+        g = dict(pt.get("g") or {})
+        if extra_fixed_cost:
+            prod = dict(g.get("prod") or {})
+            prod["PRORRATEO"] = round((prod.get("PRORRATEO") or 0.0) + extra_fixed_cost, 2)
+            g["prod"] = prod
         fine.append({
             "pct": pt["pct"], "tickets": pt["tickets"],
             "ingresos": pt["ingresos"],
             "gastos": round(pt["gastos"] + extra_fixed_cost, 2),
             "resultado": round(pt["resultado"] - extra_fixed_cost, 2),
+            "g": g,
+            "com": list(pt.get("com") or []),
         })
     be_pct = None
     be_tickets = None
@@ -19465,9 +19474,18 @@ def _sim_partner_module_payload(sim, activity, calc, extra_fixed_cost=0.0, label
             be_pct = pt["pct"]
             be_tickets = pt["tickets"]
             break
+    # Comisionistas (mismo ORDEN que las series "com": el de activity.commissions, que es el que
+    # usa _sim_build_calc_data): nombre + logo/foto, sea un tercero o un medio.
+    commissions_meta = []
+    for c in sorted((activity.commissions or []) if activity is not None else [], key=lambda x: x.sort_order or 0):
+        name = (c.name or "").strip() or (
+            (c.promoter.nick if c.promoter else None) or (c.media_outlet.name if c.media_outlet else None) or "Comisionista")
+        logo = (c.promoter.logo_url if c.promoter else None) or (getattr(c.media_outlet, "logo_url", None) if c.media_outlet else None) or ""
+        commissions_meta.append({"name": name, "logo": logo})
     return {
         "label": label or "",
         "partners": [_sim_partner_row_payload(p) for p in _sim_partners_for_activity(sim, activity)],
+        "commissions": commissions_meta,
         "series": fine,
         "sellable": calc["ticketing"]["sellable"] if calc else 0,
         "break_even_pct": be_pct,
@@ -19762,7 +19780,7 @@ def simulation_detail_view(sid):
                     acc["gastos"] += pt["gastos"]
                     acc["resultado"] += pt["resultado"]
             tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
-            partner_module_payload = {"mode": "general", "activities": gen_acts}
+            partner_module_payload = {"mode": "general", "activities": gen_acts, "labels": SIM_EXPENSE_CATEGORY_LABELS}
             tour_series = [
                 {"pct": pct, "tickets": v["tickets"], "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
                 for pct, v in sorted(series_acc.items())
@@ -19784,6 +19802,15 @@ def simulation_detail_view(sid):
                         "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
                         "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
                     })
+        # Mapa también en el RESUMEN de una fecha individual: un único pin con su recinto.
+        if not show_general and active_activity is not None and not active_activity.is_shared:
+            _v = active_activity.venue
+            if _v and (_v.municipality or "").strip():
+                tour_points.append({
+                    "n": 1, "name": _v.name or "",
+                    "city": (_v.municipality or "").strip(), "province": (_v.province or "").strip(),
+                    "date": (active_activity.event_date.strftime("%d/%m/%Y") if (active_activity.event_date and not active_activity.date_unknown) else ""),
+                })
         summary = _sim_ticketing_summary(active_activity) if active_activity else None
         ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
         # En una fecha concreta (no el contenedor de generales) se aplica el prorrateo.
@@ -19794,6 +19821,7 @@ def simulation_detail_view(sid):
             partner_module_payload = {
                 "mode": "activity",
                 "activities": [_sim_partner_module_payload(sim, active_activity, calc)],
+                "labels": SIM_EXPENSE_CATEGORY_LABELS,
             }
         venue_tpl = []
         if active_activity and active_activity.venue_id:

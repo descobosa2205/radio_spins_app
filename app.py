@@ -183,6 +183,9 @@ from models import (
     RoyaltyLiquidation,
     Venue,
     Concert,
+    PurchasedTour,
+    CycleFestival,
+    BookingRequest,
     TicketSale,
     GroupCompany,
     ConcertPromoterShare,
@@ -18602,11 +18605,13 @@ def contracting_view():
         return redirect(url_for("concerts_view", tab="facturacion"))
     if section == "cuadrantes":
         return redirect(url_for("quadrantes_view"))
-    valid_sections = {"giras-compradas", "festivales-ciclos", "otras-actividades", "simulaciones"}
+    valid_sections = {"peticiones", "giras-compradas", "festivales-ciclos", "otras-actividades", "simulaciones"}
     if section not in valid_sections:
         section = "giras-compradas"
     if section == "simulaciones":
         return _render_simulations_list()
+    if section == "peticiones":
+        return _render_booking_requests()
     session_db = db()
     try:
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
@@ -18665,6 +18670,222 @@ def contracting_view():
     finally:
         session_db.close()
 
+
+# ============================ PETICIONES (buzón de contratación) ============================
+# Buzón de peticiones ENTRANTES: se registra lo que llega a la oficina (artista, fecha aprox.,
+# contacto, recinto/ciudad, importe orientativo) y se tramita hasta convertirse en concierto o
+# descartarse. Modelo BookingRequest. Sección en Contratación (contratacion.peticiones).
+BOOKING_STATUS_ORDER = ["NUEVA", "EN_TRAMITE", "CONVERTIDA", "DESCARTADA"]
+BOOKING_STATUS_META = {
+    "NUEVA": ("Nueva", "text-bg-danger"),
+    "EN_TRAMITE": ("En trámite", "text-bg-warning text-dark"),
+    "CONVERTIDA": ("Convertida", "text-bg-success"),
+    "DESCARTADA": ("Descartada", "text-bg-secondary"),
+}
+BOOKING_SOURCE_CHOICES = [
+    ("EMAIL", "Email"), ("TELEFONO", "Teléfono"), ("WEB", "Web / formulario"),
+    ("PRESENCIAL", "Presencial"), ("OTRO", "Otro"),
+]
+
+
+def _booking_status_meta(status):
+    return BOOKING_STATUS_META.get((status or "NUEVA").upper(), ("Nueva", "text-bg-danger"))
+
+
+def _booking_request_row(r):
+    st = (r.status or "NUEVA").upper()
+    label, badge = _booking_status_meta(st)
+    art = r.artist
+    if r.requested_date:
+        dlabel = r.requested_date.strftime("%d/%m/%Y")
+    else:
+        dlabel = (r.date_text or "").strip()
+    return {
+        "id": str(r.id),
+        "subject": (r.subject or "").strip(),
+        "artist_id": (str(r.artist_id) if r.artist_id else ""),
+        "artist_name": (art.name if art else ""),
+        "artist_photo": ((getattr(art, "photo_url", "") or "") if art else ""),
+        "date_label": dlabel,
+        "requested_date": (r.requested_date.isoformat() if r.requested_date else ""),
+        "date_text": (r.date_text or ""),
+        "contact_name": (r.contact_name or ""),
+        "contact_email": (r.contact_email or ""),
+        "contact_phone": (r.contact_phone or ""),
+        "municipality": (r.municipality or ""),
+        "province": (r.province or ""),
+        "fee_text": (r.fee_text or ""),
+        "source": (r.source or ""),
+        "notes": (r.notes or ""),
+        "status": st,
+        "status_label": label,
+        "status_badge": badge,
+        "rejection_reason": (r.rejection_reason or ""),
+        "concert_id": (str(r.concert_id) if r.concert_id else ""),
+        "created_by": (r.created_by_nick or ""),
+        "received_label": (r.received_at.strftime("%d/%m/%Y") if r.received_at else (r.created_at.strftime("%d/%m/%Y") if r.created_at else "")),
+    }
+
+
+def _render_booking_requests():
+    s = db()
+    try:
+        status_filter = (request.args.get("status") or "").strip().upper()
+        rows_all = (
+            s.query(BookingRequest)
+            .options(joinedload(BookingRequest.artist), joinedload(BookingRequest.promoter), joinedload(BookingRequest.venue))
+            .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
+            .limit(500).all()
+        )
+        counts = {k: 0 for k in BOOKING_STATUS_ORDER}
+        for r in rows_all:
+            k = (r.status or "NUEVA").upper()
+            counts[k] = counts.get(k, 0) + 1
+        rows = [r for r in rows_all if (not status_filter or (r.status or "NUEVA").upper() == status_filter)]
+        payload = [_booking_request_row(r) for r in rows]
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        return render_template(
+            "peticiones.html",
+            section="peticiones",
+            booking_rows=payload,
+            booking_counts=counts,
+            booking_total=len(rows_all),
+            status_filter=status_filter,
+            booking_status_order=BOOKING_STATUS_ORDER,
+            booking_status_meta=BOOKING_STATUS_META,
+            booking_source_choices=BOOKING_SOURCE_CHOICES,
+            artists=artists,
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
+def _booking_apply_form(r, form):
+    r.subject = (form.get("subject") or "").strip() or None
+    aid = (form.get("artist_id") or "").strip()
+    r.artist_id = to_uuid(aid) if aid else None
+    r.artist_ids = [aid] if aid else []
+    r.requested_date = parse_optional_date(form.get("requested_date"))
+    r.date_text = (form.get("date_text") or "").strip() or None
+    r.contact_name = (form.get("contact_name") or "").strip() or None
+    r.contact_email = (form.get("contact_email") or "").strip() or None
+    r.contact_phone = (form.get("contact_phone") or "").strip() or None
+    r.municipality = (form.get("municipality") or "").strip() or None
+    r.province = (form.get("province") or "").strip() or None
+    r.fee_text = (form.get("fee_text") or "").strip() or None
+    r.source = (form.get("source") or "").strip().upper() or None
+    r.notes = (form.get("notes") or "").strip() or None
+
+
+@app.post("/contratacion/peticiones/crear", endpoint="booking_request_create")
+@admin_required
+def booking_request_create():
+    s = db()
+    try:
+        r = BookingRequest(status="NUEVA")
+        _booking_apply_form(r, request.form)
+        if not (r.subject or r.artist_id or r.contact_name):
+            flash("Indica al menos un artista, un contacto o un asunto para la petición.", "warning")
+            return redirect(url_for("contracting_view", section="peticiones"))
+        st = _current_user_state()
+        r.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        r.created_by_nick = st.get("nick") or None
+        s.add(r)
+        s.commit()
+        flash("Petición registrada en el buzón.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo registrar la petición: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="peticiones"))
+
+
+@app.post("/contratacion/peticiones/<rid>/editar", endpoint="booking_request_update")
+@admin_required
+def booking_request_update(rid):
+    s = db()
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        _booking_apply_form(r, request.form)
+        s.commit()
+        flash("Petición actualizada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo actualizar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="peticiones"))
+
+
+@app.post("/contratacion/peticiones/<rid>/estado", endpoint="booking_request_status")
+@admin_required
+def booking_request_status(rid):
+    s = db()
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        new = (request.form.get("status") or "").strip().upper()
+        if new not in BOOKING_STATUS_META:
+            raise ValueError("Estado no válido.")
+        r.status = new
+        r.rejection_reason = ((request.form.get("rejection_reason") or "").strip() or None) if new == "DESCARTADA" else None
+        st = _current_user_state()
+        r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        r.reviewed_by_nick = st.get("nick") or None
+        s.commit()
+        flash("Estado de la petición actualizado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo cambiar el estado: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="peticiones"))
+
+
+@app.post("/contratacion/peticiones/<rid>/tramitar", endpoint="booking_request_convert")
+@admin_required
+def booking_request_convert(rid):
+    """Marca la petición EN_TRAMITE y abre el asistente de concierto prefiltrado por su artista."""
+    s = db()
+    aid = ""
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        if (r.status or "NUEVA").upper() == "NUEVA":
+            r.status = "EN_TRAMITE"
+            s.commit()
+        aid = str(r.artist_id) if r.artist_id else ""
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo tramitar: {exc}", "danger")
+        return redirect(url_for("contracting_view", section="peticiones"))
+    finally:
+        s.close()
+    return redirect(url_for("concerts_view", tab="vista", open_wizard=1, wizard_artist=aid))
+
+
+@app.post("/contratacion/peticiones/<rid>/eliminar", endpoint="booking_request_delete")
+@admin_required
+def booking_request_delete(rid):
+    s = db()
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if r:
+            s.delete(r)
+            s.commit()
+            flash("Petición eliminada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="peticiones"))
 
 
 # ============================ EVENTOS (Bases de datos) ============================
@@ -29681,6 +29902,7 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "third_parties", "label": "Terceros", "section_key": "third_parties", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 160, "description": "Terceros: promotores, contactos y empresas relacionadas; sus fichas y vinculaciones."},
 
     {"key": "contratacion", "label": "Contratación", "section_key": "contratacion", "parent_key": None, "level": "SECTION", "economic_capable": True, "sort_order": 170, "description": "Contratación de actividades en vivo: conciertos, giras, festivales y otras."},
+    {"key": "contratacion.peticiones", "label": "Peticiones", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 170, "description": "Buzón de peticiones de contratación entrantes: se registran y se tramitan hasta convertirse en concierto o descartarse."},
     {"key": "contratacion.conciertos", "label": "Conciertos", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 171, "description": "Pestaña «Conciertos»: listado y ficha de concierto (importes)."},
     {"key": "contratacion.giras", "label": "Giras compradas", "section_key": "contratacion", "parent_key": "contratacion", "level": "TAB", "economic_capable": True, "sort_order": 172, "description": "Pestaña «Giras compradas» (importes)."},
     {"key": "contratacion.giras.onesheet", "label": "One-sheet de giras", "section_key": "contratacion", "parent_key": "contratacion.giras", "level": "SUBTAB", "economic_capable": False, "sort_order": 173, "description": "One-sheet de giras: dossier público de la gira."},
@@ -30547,6 +30769,7 @@ def _resolve_request_resource_key() -> str | None:
         section = (request.args.get("section") or "conciertos").strip().lower()
         mapping = {
             "conciertos": "contratacion.conciertos",
+            "peticiones": "contratacion.peticiones",
             "giras-compradas": "contratacion.giras",
             "festivales-ciclos": "contratacion.festivales",
             "otras-actividades": "contratacion.otras",
@@ -30555,6 +30778,12 @@ def _resolve_request_resource_key() -> str | None:
             "simulaciones": "contratacion.simulaciones",
         }
         return mapping.get(section, "contratacion")
+    if endpoint.startswith("booking_request"):
+        return "contratacion.peticiones"
+    if endpoint.startswith("purchased_tour"):
+        return "contratacion.giras"
+    if endpoint.startswith("cycle_festival"):
+        return "contratacion.festivales"
     if endpoint == "concerts_view":
         tab = (request.args.get("tab") or "vista").strip().lower()
         if tab == "facturacion":
@@ -30839,6 +31068,7 @@ def _resource_default_url(key: str) -> str:
         "fotos": url_for("media_gallery_view"),
         "contratacion": url_for("contracting_view", section="conciertos"),
         "contratacion.conciertos": url_for("concerts_view", tab="vista"),
+        "contratacion.peticiones": url_for("contracting_view", section="peticiones"),
         "contratacion.giras": url_for("contracting_view", section="giras-compradas"),
         "contratacion.festivales": url_for("contracting_view", section="festivales-ciclos"),
         "contratacion.otras": url_for("contracting_view", section="otras-actividades"),
@@ -31010,6 +31240,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "link", "key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
+            {"key": "contratacion.peticiones", "label": "Peticiones", "url": _resource_default_url("contratacion.peticiones")},
             {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
             {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
             {"key": "contratacion.otras", "label": "Otras actividades", "url": _resource_default_url("contratacion.otras")},

@@ -6,6 +6,7 @@
   {% set edit_url = url_for('purchased_tour_update', tid=group.id) %}
   {% set general_url = url_for('purchased_tour_general_save', tid=group.id) %}
   {% set link_url = url_for('purchased_tour_link_concert', tid=group.id) %}
+  {% set link_sim_url = url_for('purchased_tour_link_sim', tid=group.id) %}
   {% set delete_url = url_for('purchased_tour_delete', tid=group.id) %}
   {% set back_url = url_for('contracting_view', section='giras-compradas') %}
   {% set kind_label = 'Gira comprada' %}
@@ -13,6 +14,7 @@
   {% set edit_url = url_for('cycle_festival_update', cfid=group.id) %}
   {% set general_url = url_for('cycle_festival_general_save', cfid=group.id) %}
   {% set link_url = url_for('cycle_festival_link_concert', cfid=group.id) %}
+  {% set link_sim_url = url_for('cycle_festival_link_sim', cfid=group.id) %}
   {% set delete_url = url_for('cycle_festival_delete', cfid=group.id) %}
   {% set back_url = url_for('contracting_view', section='festivales-ciclos') %}
   {% set kind_label = 'Festival' if is_festival else 'Ciclo' %}
@@ -73,6 +75,25 @@
     {% else %}
     <div class="alert alert-light border">Todavía no hay {{ items_label|lower }} en {% if is_tour %}esta gira{% else %}este {{ kind_label|lower }}{% endif %}. Añádelas en la pestaña «{{ items_label }}».</div>
     {% endif %}
+    <div class="card mt-3"><div class="card-body">
+      <h6 class="mb-2"><i class="fa fa-chart-line me-1"></i>Simulaciones vinculadas</h6>
+      {% if linked_sims %}
+      <div class="list-group mb-2">
+        {% for sm in linked_sims %}
+        <div class="list-group-item d-flex align-items-center gap-2">
+          <a class="flex-grow-1 text-decoration-none text-reset" href="{{ url_for('simulation_detail_view', sid=sm.id) }}">{{ sm.title }} <span class="badge text-bg-light border">{{ sm.kind }}</span></a>
+          {% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ link_sim_url }}"><input type="hidden" name="remove_simulation_id" value="{{ sm.id }}"><button class="btn btn-sm btn-outline-warning" title="Quitar"><i class="fa fa-link-slash"></i></button></form>{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}<div class="text-muted small mb-2">Ninguna simulación vinculada. Puedes vincular una proyección económica a {% if is_tour %}esta gira{% else %}este {{ kind_label|lower }}{% endif %}.</div>{% endif %}
+      {% if CAN_EDIT_CONCERTS and simulations %}
+      <form method="post" action="{{ link_sim_url }}" class="d-flex gap-2 align-items-end">
+        <div class="flex-grow-1"><select class="form-select form-select-sm" name="simulation_id" required><option value="">Vincular una simulación…</option>{% for sm in simulations %}<option value="{{ sm.id }}">{{ sm.title or (sm.artist.name if sm.artist else 'Simulación') }} · {{ sm.kind }}</option>{% endfor %}</select></div>
+        <button class="btn btn-sm btn-outline-primary"><i class="fa fa-link me-1"></i>Vincular</button>
+      </form>
+      {% endif %}
+    </div></div>
   </div>
 
   {# ---------- Producción general ---------- #}

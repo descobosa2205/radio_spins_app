@@ -18949,6 +18949,37 @@ def _group_general_save(group, form):
     group.payload = p
 
 
+def _group_toggle_sim(group, form):
+    """Añade/quita una simulación vinculada al grupo (guardada en payload.general.simulation_ids)."""
+    p = dict(group.payload or {})
+    gen = dict(p.get("general") or {})
+    ids = [str(x) for x in (gen.get("simulation_ids") or [])]
+    add = (form.get("simulation_id") or "").strip()
+    rem = (form.get("remove_simulation_id") or "").strip()
+    if add and add not in ids:
+        ids.append(add)
+    if rem and rem in ids:
+        ids.remove(rem)
+    gen["simulation_ids"] = ids
+    p["general"] = gen
+    group.payload = p
+
+
+def _group_linked_sims(s, general):
+    out = []
+    for sid in (general.get("simulation_ids") or []):
+        try:
+            sim = s.get(Simulation, to_uuid(sid))
+        except Exception:
+            sim = None
+        if sim:
+            out.append({
+                "id": str(sim.id), "kind": (sim.kind or ""),
+                "title": (sim.title or (sim.artist.name if sim.artist else (sim.event.name if sim.event else "Simulación"))),
+            })
+    return out
+
+
 def _group_concert_row(c):
     label, badge = _concert_status_meta(c.status)
     return {
@@ -19091,6 +19122,7 @@ def purchased_tour_detail(tid):
             advance_share=advance_share, gen_total=gen_total,
             candidates=cand_rows, status_label=label, status_badge=badge,
             artists=artists, companies=companies, simulations=simulations,
+            linked_sims=_group_linked_sims(s, general),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -19132,6 +19164,25 @@ def purchased_tour_general_save(tid):
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("purchased_tour_detail", tid=tid))
+
+
+@app.post("/contratacion/giras/<tid>/simulacion", endpoint="purchased_tour_link_sim")
+@admin_required
+def purchased_tour_link_sim(tid):
+    s = db()
+    try:
+        t = s.get(PurchasedTour, to_uuid(tid))
+        if not t:
+            abort(404)
+        _group_toggle_sim(t, request.form)
+        s.commit()
+        flash("Simulación actualizada en la gira.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo actualizar la simulación: {exc}", "danger")
     finally:
         s.close()
     return redirect(url_for("purchased_tour_detail", tid=tid))
@@ -19323,7 +19374,8 @@ def cycle_festival_detail(cfid):
             group_kind=(cf.kind or "FESTIVAL").upper(), group=cf, concerts=rows, general=general,
             advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
             status_label=label, status_badge=badge, artists=artists, companies=companies,
-            venues=venues, simulations=simulations, CAN_EDIT_CONCERTS=can_edit_concerts(),
+            venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
         s.close()
@@ -19364,6 +19416,25 @@ def cycle_festival_general_save(cfid):
     except Exception as exc:
         s.rollback()
         flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("cycle_festival_detail", cfid=cfid))
+
+
+@app.post("/contratacion/ciclos/<cfid>/simulacion", endpoint="cycle_festival_link_sim")
+@admin_required
+def cycle_festival_link_sim(cfid):
+    s = db()
+    try:
+        cf = s.get(CycleFestival, to_uuid(cfid))
+        if not cf:
+            abort(404)
+        _group_toggle_sim(cf, request.form)
+        s.commit()
+        flash("Simulación actualizada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo actualizar la simulación: {exc}", "danger")
     finally:
         s.close()
     return redirect(url_for("cycle_festival_detail", cfid=cfid))

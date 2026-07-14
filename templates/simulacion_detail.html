@@ -188,6 +188,19 @@
       <ul class="dropdown-menu dropdown-menu-end">
         {% if CAN_EDIT %}<li><button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#simConfigModal"><i class="fa fa-pen fa-fw me-2"></i>Editar configuración</button></li>{% endif %}
         <li><a class="dropdown-item" href="{{ url_for('simulation_print', sid=sim.id) }}" target="_blank" rel="noopener" data-no-loader><i class="fa fa-file-pdf fa-fw me-2"></i>Exportar PDF (A4)</a></li>
+        {% if CAN_EDIT %}
+        <li><hr class="dropdown-divider"></li>
+        {% set _k = (sim.kind or 'CONCERT')|upper %}
+        {% if _k == 'TOUR' %}
+        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="tour"><button class="dropdown-item" type="submit"><i class="fa fa-route fa-fw me-2"></i>Convertir en gira comprada</button></form></li>
+        {% elif _k == 'CYCLE' %}
+        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="cycle"><button class="dropdown-item" type="submit"><i class="fa fa-repeat fa-fw me-2"></i>Convertir en ciclo</button></form></li>
+        {% elif _k == 'FESTIVAL' %}
+        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="festival"><button class="dropdown-item" type="submit"><i class="fa fa-star fa-fw me-2"></i>Convertir en festival</button></form></li>
+        {% else %}
+        <li><form method="post" action="{{ url_for('simulation_convert', sid=sim.id) }}"><input type="hidden" name="target" value="concert"><button class="dropdown-item" type="submit"><i class="fa fa-guitar fa-fw me-2"></i>Convertir en concierto</button></form></li>
+        {% endif %}
+        {% endif %}
         {% if CAN_EDIT and public_link %}
         <li><hr class="dropdown-divider"></li>
         <li><h6 class="dropdown-header">Compartir</h6></li>

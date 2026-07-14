@@ -18612,6 +18612,10 @@ def contracting_view():
         return _render_simulations_list()
     if section == "peticiones":
         return _render_booking_requests()
+    if section == "giras-compradas":
+        return _render_purchased_tours()
+    if section == "festivales-ciclos":
+        return _render_cycle_festivals()
     session_db = db()
     try:
         query = session_db.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue)).order_by(Concert.date.asc().nullslast(), Concert.created_at.desc())
@@ -18886,6 +18890,599 @@ def booking_request_delete(rid):
     finally:
         s.close()
     return redirect(url_for("contracting_view", section="peticiones"))
+
+
+# ================= GIRAS COMPRADAS · CICLOS / FESTIVALES (entidades operativas) =================
+# Agrupan conciertos reales por FK (Concert.purchased_tour_id / cycle_festival_id). Ficha estilo
+# simulación: Resumen + Producción general (adelanto prorrateado + gastos generales) + Fechas (o
+# Artistas en festival). Economía detallada por fecha vive en la ficha de cada concierto.
+CONCERT_STATUS_META = {
+    "BORRADOR": ("Borrador", "text-bg-light border text-dark"),
+    "HABLADO": ("Hablado", "text-bg-secondary"),
+    "RESERVADO": ("Reservado", "text-bg-info text-dark"),
+    "CONFIRMADO": ("Confirmado", "text-bg-success"),
+}
+GROUP_STATUS_META = {
+    "ACTIVA": ("Activa", "text-bg-success"), "ACTIVO": ("Activo", "text-bg-success"),
+    "ARCHIVADA": ("Archivada", "text-bg-secondary"), "ARCHIVADO": ("Archivado", "text-bg-secondary"),
+}
+
+
+def _concert_status_meta(status):
+    return CONCERT_STATUS_META.get((status or "BORRADOR").upper(), ("Borrador", "text-bg-light border text-dark"))
+
+
+def _group_status_meta(status):
+    return GROUP_STATUS_META.get((status or "").upper(), ((status or "—"), "text-bg-light border text-dark"))
+
+
+def _group_general(group):
+    """Normaliza el bloque «Producción general» del payload del grupo."""
+    p = dict(group.payload or {})
+    gen = p.get("general") or {}
+    items = []
+    for it in (gen.get("expenses") or []):
+        items.append({"concept": (it.get("concept") or ""), "amount": float(_money_or_zero(it.get("amount")))})
+    return {
+        "advance": float(_money_or_zero(gen.get("advance"))),
+        "expenses": items,
+        "notes": (gen.get("notes") or ""),
+        "simulation_ids": list(gen.get("simulation_ids") or []),
+    }
+
+
+def _group_general_save(group, form):
+    concepts = form.getlist("gen_concept")
+    amounts = form.getlist("gen_amount")
+    expenses = []
+    for c, a in zip(concepts, amounts):
+        c = (c or "").strip()
+        if not c and not (a or "").strip():
+            continue
+        expenses.append({"concept": c, "amount": float(_money_or_zero(a))})
+    p = dict(group.payload or {})
+    gen = dict(p.get("general") or {})
+    gen["advance"] = float(_money_or_zero(form.get("advance")))
+    gen["expenses"] = expenses
+    gen["notes"] = (form.get("notes") or "").strip()
+    p["general"] = gen
+    group.payload = p
+
+
+def _group_concert_row(c):
+    label, badge = _concert_status_meta(c.status)
+    return {
+        "id": str(c.id),
+        "title": (c.festival_name or (c.artist.name if c.artist else "Concierto")),
+        "artist_name": (c.artist.name if c.artist else ""),
+        "artist_photo": ((c.artist.photo_url or "") if c.artist else ""),
+        "artist_id": (str(c.artist_id) if c.artist_id else ""),
+        "date": c.date,
+        "date_label": (c.date.strftime("%d/%m/%Y") if c.date else "Sin fecha"),
+        "venue_name": (c.venue.name if c.venue else (c.manual_venue_name or "")),
+        "municipality": (c.venue.municipality if c.venue else (c.manual_municipality or "")),
+        "status": (c.status or "BORRADOR").upper(),
+        "status_label": label,
+        "status_badge": badge,
+        "sale_type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or ""),
+    }
+
+
+# ----------------------------- Giras compradas -----------------------------
+def _tour_concerts(s, tour_id):
+    return (
+        s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+        .filter(Concert.purchased_tour_id == tour_id)
+        .order_by(Concert.date.asc().nullslast(), Concert.created_at.asc()).all()
+    )
+
+
+def _render_purchased_tours():
+    s = db()
+    try:
+        tours = (
+            s.query(PurchasedTour).options(joinedload(PurchasedTour.managing_company), joinedload(PurchasedTour.artist))
+            .order_by(PurchasedTour.status.asc(), PurchasedTour.start_date.desc().nullslast(), PurchasedTour.created_at.desc()).all()
+        )
+        counts = dict(
+            s.query(Concert.purchased_tour_id, func.count(Concert.id))
+            .filter(Concert.purchased_tour_id.isnot(None)).group_by(Concert.purchased_tour_id).all()
+        )
+        rows = []
+        for t in tours:
+            label, badge = _group_status_meta(t.status)
+            rows.append({
+                "id": str(t.id), "name": t.name, "logo_url": (t.logo_url or ""),
+                "company": (t.managing_company.name if t.managing_company else ""),
+                "company_logo": (t.managing_company.logo_url if t.managing_company else ""),
+                "artist_name": (t.artist.name if t.artist else ""),
+                "artist_photo": ((t.artist.photo_url or "") if t.artist else ""),
+                "artist_id": (str(t.artist_id) if t.artist_id else ""),
+                "date_range": _date_range_label(t.start_date, t.end_date),
+                "status": (t.status or "ACTIVA").upper(), "status_label": label, "status_badge": badge,
+                "count": int(counts.get(t.id, 0)),
+            })
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        return render_template(
+            "giras_compradas.html", section="giras-compradas", rows=rows,
+            artists=artists, companies=companies, CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
+def _date_range_label(a, b):
+    if not a and not b:
+        return ""
+    if a and b and a != b:
+        return a.strftime("%d/%m/%Y") + " – " + b.strftime("%d/%m/%Y")
+    return (a or b).strftime("%d/%m/%Y")
+
+
+def _apply_tour_form(t, form):
+    t.name = (form.get("name") or "").strip() or "Gira comprada"
+    cid = (form.get("managing_company_id") or "").strip()
+    t.managing_company_id = to_uuid(cid) if cid else None
+    aid = (form.get("artist_id") or "").strip()
+    t.artist_id = to_uuid(aid) if aid else None
+    t.artist_ids = [aid] if aid else []
+    t.logo_url = (form.get("logo_url") or "").strip() or (t.logo_url or None)
+    t.start_date = parse_optional_date(form.get("start_date"))
+    t.end_date = parse_optional_date(form.get("end_date"))
+    t.notes = (form.get("notes") or "").strip() or None
+
+
+@app.post("/contratacion/giras/crear", endpoint="purchased_tour_create")
+@admin_required
+def purchased_tour_create():
+    s = db()
+    tid = None
+    try:
+        t = PurchasedTour(status="ACTIVA")
+        _apply_tour_form(t, request.form)
+        st = _current_user_state()
+        t.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        t.created_by_nick = st.get("nick") or None
+        s.add(t)
+        s.commit()
+        tid = str(t.id)
+        flash("Gira comprada creada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo crear la gira: {exc}", "danger")
+    finally:
+        s.close()
+    if tid:
+        return redirect(url_for("purchased_tour_detail", tid=tid))
+    return redirect(url_for("contracting_view", section="giras-compradas"))
+
+
+@app.get("/contratacion/giras/<tid>", endpoint="purchased_tour_detail")
+@admin_required
+def purchased_tour_detail(tid):
+    s = db()
+    try:
+        t = s.query(PurchasedTour).options(joinedload(PurchasedTour.managing_company), joinedload(PurchasedTour.artist)).filter(PurchasedTour.id == to_uuid(tid)).first()
+        if not t:
+            abort(404)
+        concerts = _tour_concerts(s, t.id)
+        rows = [_group_concert_row(c) for c in concerts]
+        general = _group_general(t)
+        n = len(rows) or 1
+        advance_share = (general["advance"] / n) if general["advance"] else 0.0
+        gen_total = general["advance"] + sum(x["amount"] for x in general["expenses"])
+        # Candidatos a vincular: conciertos del artista aún sin gira.
+        candidates = []
+        if t.artist_id:
+            candidates = (
+                s.query(Concert).options(joinedload(Concert.venue)).filter(
+                    Concert.artist_id == t.artist_id, Concert.purchased_tour_id.is_(None)
+                ).order_by(Concert.date.asc().nullslast()).limit(100).all()
+            )
+        cand_rows = [{"id": str(c.id), "label": ((c.date.strftime("%d/%m/%Y") + " · ") if c.date else "") + (c.venue.name if c.venue else (c.manual_venue_name or c.festival_name or "Concierto"))} for c in candidates]
+        label, badge = _group_status_meta(t.status)
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        simulations = s.query(Simulation).options(joinedload(Simulation.artist)).order_by(Simulation.created_at.desc()).limit(200).all()
+        return render_template(
+            "activity_group_detail.html",
+            group_kind="TOUR", group=t, concerts=rows, general=general,
+            advance_share=advance_share, gen_total=gen_total,
+            candidates=cand_rows, status_label=label, status_badge=badge,
+            artists=artists, companies=companies, simulations=simulations,
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/giras/<tid>/editar", endpoint="purchased_tour_update")
+@admin_required
+def purchased_tour_update(tid):
+    s = db()
+    try:
+        t = s.get(PurchasedTour, to_uuid(tid))
+        if not t:
+            abort(404)
+        _apply_tour_form(t, request.form)
+        if (request.form.get("status") or "").strip().upper() in GROUP_STATUS_META:
+            t.status = request.form.get("status").strip().upper()
+        s.commit()
+        flash("Gira actualizada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo actualizar la gira: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("purchased_tour_detail", tid=tid))
+
+
+@app.post("/contratacion/giras/<tid>/general", endpoint="purchased_tour_general_save")
+@admin_required
+def purchased_tour_general_save(tid):
+    s = db()
+    try:
+        t = s.get(PurchasedTour, to_uuid(tid))
+        if not t:
+            abort(404)
+        _group_general_save(t, request.form)
+        s.commit()
+        flash("Producción general guardada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("purchased_tour_detail", tid=tid))
+
+
+@app.post("/contratacion/giras/<tid>/vincular", endpoint="purchased_tour_link_concert")
+@admin_required
+def purchased_tour_link_concert(tid):
+    s = db()
+    try:
+        t = s.get(PurchasedTour, to_uuid(tid))
+        if not t:
+            abort(404)
+        cid = (request.form.get("concert_id") or "").strip()
+        c = s.get(Concert, to_uuid(cid)) if cid else None
+        if c:
+            c.purchased_tour_id = t.id
+            s.commit()
+            flash("Concierto vinculado a la gira.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo vincular: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("purchased_tour_detail", tid=tid))
+
+
+@app.post("/contratacion/giras/<tid>/desvincular/<cid>", endpoint="purchased_tour_unlink_concert")
+@admin_required
+def purchased_tour_unlink_concert(tid, cid):
+    s = db()
+    try:
+        c = s.get(Concert, to_uuid(cid))
+        if c and str(c.purchased_tour_id) == str(to_uuid(tid)):
+            c.purchased_tour_id = None
+            s.commit()
+            flash("Concierto desvinculado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo desvincular: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("purchased_tour_detail", tid=tid))
+
+
+@app.post("/contratacion/giras/<tid>/eliminar", endpoint="purchased_tour_delete")
+@admin_required
+def purchased_tour_delete(tid):
+    s = db()
+    try:
+        t = s.get(PurchasedTour, to_uuid(tid))
+        if t:
+            for c in _tour_concerts(s, t.id):
+                c.purchased_tour_id = None
+            s.delete(t)
+            s.commit()
+            flash("Gira eliminada (los conciertos se conservan, desvinculados).", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="giras-compradas"))
+
+
+# ----------------------------- Ciclos / Festivales -----------------------------
+def _cycle_concerts(s, cf_id):
+    return (
+        s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+        .filter(Concert.cycle_festival_id == cf_id)
+        .order_by(Concert.date.asc().nullslast(), Concert.created_at.asc()).all()
+    )
+
+
+def _render_cycle_festivals():
+    s = db()
+    try:
+        items = (
+            s.query(CycleFestival).options(joinedload(CycleFestival.managing_company), joinedload(CycleFestival.venue))
+            .order_by(CycleFestival.status.asc(), CycleFestival.start_date.desc().nullslast(), CycleFestival.created_at.desc()).all()
+        )
+        counts = dict(
+            s.query(Concert.cycle_festival_id, func.count(Concert.id))
+            .filter(Concert.cycle_festival_id.isnot(None)).group_by(Concert.cycle_festival_id).all()
+        )
+        rows = []
+        for cf in items:
+            label, badge = _group_status_meta(cf.status)
+            rows.append({
+                "id": str(cf.id), "name": cf.name, "logo_url": (cf.logo_url or ""),
+                "kind": (cf.kind or "FESTIVAL").upper(),
+                "kind_label": ("Festival" if (cf.kind or "FESTIVAL").upper() == "FESTIVAL" else "Ciclo"),
+                "edition": (cf.edition or ""),
+                "company": (cf.managing_company.name if cf.managing_company else ""),
+                "company_logo": (cf.managing_company.logo_url if cf.managing_company else ""),
+                "venue_name": (cf.venue.name if cf.venue else ""),
+                "date_range": _date_range_label(cf.start_date, cf.end_date),
+                "status": (cf.status or "ACTIVO").upper(), "status_label": label, "status_badge": badge,
+                "count": int(counts.get(cf.id, 0)),
+            })
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        events = s.query(AppEvent).order_by(AppEvent.name.asc()).all()
+        venues = s.query(Venue).order_by(Venue.name.asc()).all()
+        return render_template(
+            "festivales_ciclos.html", section="festivales-ciclos", rows=rows,
+            artists=artists, companies=companies, events=events, venues=venues,
+            CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
+def _apply_cycle_form(cf, form):
+    cf.name = (form.get("name") or "").strip() or "Ciclo / Festival"
+    kind = (form.get("kind") or "FESTIVAL").strip().upper()
+    cf.kind = "CICLO" if kind == "CICLO" else "FESTIVAL"
+    cid = (form.get("managing_company_id") or "").strip()
+    cf.managing_company_id = to_uuid(cid) if cid else None
+    cf.edition = (form.get("edition") or "").strip() or None
+    vid = (form.get("venue_id") or "").strip()
+    cf.venue_id = to_uuid(vid) if vid else None
+    cf.municipality = (form.get("municipality") or "").strip() or None
+    cf.province = (form.get("province") or "").strip() or None
+    cf.logo_url = (form.get("logo_url") or "").strip() or (cf.logo_url or None)
+    cf.start_date = parse_optional_date(form.get("start_date"))
+    cf.end_date = parse_optional_date(form.get("end_date"))
+    cf.notes = (form.get("notes") or "").strip() or None
+
+
+@app.post("/contratacion/ciclos/crear", endpoint="cycle_festival_create")
+@admin_required
+def cycle_festival_create():
+    s = db()
+    cid = None
+    try:
+        cf = CycleFestival(status="ACTIVO")
+        _apply_cycle_form(cf, request.form)
+        # Logo: si se elige un evento y no hay logo propio, hereda el del evento.
+        ev_id = (request.form.get("event_id") or "").strip()
+        if ev_id and not cf.logo_url:
+            ev = s.get(AppEvent, to_uuid(ev_id))
+            if ev:
+                cf.logo_url = ev.logo_url or None
+                if not (request.form.get("name") or "").strip():
+                    cf.name = ev.name
+        st = _current_user_state()
+        cf.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        cf.created_by_nick = st.get("nick") or None
+        s.add(cf)
+        s.commit()
+        cid = str(cf.id)
+        flash("Ciclo/Festival creado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo crear: {exc}", "danger")
+    finally:
+        s.close()
+    if cid:
+        return redirect(url_for("cycle_festival_detail", cfid=cid))
+    return redirect(url_for("contracting_view", section="festivales-ciclos"))
+
+
+@app.get("/contratacion/ciclos/<cfid>", endpoint="cycle_festival_detail")
+@admin_required
+def cycle_festival_detail(cfid):
+    s = db()
+    try:
+        cf = s.query(CycleFestival).options(joinedload(CycleFestival.managing_company), joinedload(CycleFestival.venue)).filter(CycleFestival.id == to_uuid(cfid)).first()
+        if not cf:
+            abort(404)
+        concerts = _cycle_concerts(s, cf.id)
+        rows = [_group_concert_row(c) for c in concerts]
+        general = _group_general(cf)
+        gen_total = general["advance"] + sum(x["amount"] for x in general["expenses"])
+        candidates = (
+            s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+            .filter(Concert.cycle_festival_id.is_(None))
+            .order_by(Concert.date.asc().nullslast()).limit(150).all()
+        )
+        cand_rows = [{"id": str(c.id), "label": ((c.date.strftime("%d/%m/%Y") + " · ") if c.date else "") + ((c.artist.name + " · ") if c.artist else "") + (c.venue.name if c.venue else (c.manual_venue_name or c.festival_name or "Concierto"))} for c in candidates]
+        label, badge = _group_status_meta(cf.status)
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        companies = s.query(GroupCompany).order_by(GroupCompany.name.asc()).all()
+        venues = s.query(Venue).order_by(Venue.name.asc()).all()
+        simulations = s.query(Simulation).options(joinedload(Simulation.artist)).order_by(Simulation.created_at.desc()).limit(200).all()
+        return render_template(
+            "activity_group_detail.html",
+            group_kind=(cf.kind or "FESTIVAL").upper(), group=cf, concerts=rows, general=general,
+            advance_share=0.0, gen_total=gen_total, candidates=cand_rows,
+            status_label=label, status_badge=badge, artists=artists, companies=companies,
+            venues=venues, simulations=simulations, CAN_EDIT_CONCERTS=can_edit_concerts(),
+        )
+    finally:
+        s.close()
+
+
+@app.post("/contratacion/ciclos/<cfid>/editar", endpoint="cycle_festival_update")
+@admin_required
+def cycle_festival_update(cfid):
+    s = db()
+    try:
+        cf = s.get(CycleFestival, to_uuid(cfid))
+        if not cf:
+            abort(404)
+        _apply_cycle_form(cf, request.form)
+        if (request.form.get("status") or "").strip().upper() in GROUP_STATUS_META:
+            cf.status = request.form.get("status").strip().upper()
+        s.commit()
+        flash("Ciclo/Festival actualizado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo actualizar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("cycle_festival_detail", cfid=cfid))
+
+
+@app.post("/contratacion/ciclos/<cfid>/general", endpoint="cycle_festival_general_save")
+@admin_required
+def cycle_festival_general_save(cfid):
+    s = db()
+    try:
+        cf = s.get(CycleFestival, to_uuid(cfid))
+        if not cf:
+            abort(404)
+        _group_general_save(cf, request.form)
+        s.commit()
+        flash("Producción general guardada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo guardar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("cycle_festival_detail", cfid=cfid))
+
+
+@app.post("/contratacion/ciclos/<cfid>/vincular", endpoint="cycle_festival_link_concert")
+@admin_required
+def cycle_festival_link_concert(cfid):
+    s = db()
+    try:
+        cf = s.get(CycleFestival, to_uuid(cfid))
+        if not cf:
+            abort(404)
+        cid = (request.form.get("concert_id") or "").strip()
+        c = s.get(Concert, to_uuid(cid)) if cid else None
+        if c:
+            c.cycle_festival_id = cf.id
+            s.commit()
+            flash("Concierto vinculado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo vincular: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("cycle_festival_detail", cfid=cfid))
+
+
+@app.post("/contratacion/ciclos/<cfid>/desvincular/<cid>", endpoint="cycle_festival_unlink_concert")
+@admin_required
+def cycle_festival_unlink_concert(cfid, cid):
+    s = db()
+    try:
+        c = s.get(Concert, to_uuid(cid))
+        if c and str(c.cycle_festival_id) == str(to_uuid(cfid)):
+            c.cycle_festival_id = None
+            s.commit()
+            flash("Concierto desvinculado.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo desvincular: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("cycle_festival_detail", cfid=cfid))
+
+
+@app.post("/contratacion/ciclos/<cfid>/eliminar", endpoint="cycle_festival_delete")
+@admin_required
+def cycle_festival_delete(cfid):
+    s = db()
+    try:
+        cf = s.get(CycleFestival, to_uuid(cfid))
+        if cf:
+            for c in _cycle_concerts(s, cf.id):
+                c.cycle_festival_id = None
+            s.delete(cf)
+            s.commit()
+            flash("Ciclo/Festival eliminado (los conciertos se conservan, desvinculados).", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo eliminar: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(url_for("contracting_view", section="festivales-ciclos"))
+
+
+@app.post("/contratacion/simulaciones/<sid>/convertir", endpoint="simulation_convert")
+@admin_required
+def simulation_convert(sid):
+    """Convierte una simulación en la entidad operativa correspondiente: concierto (abre el
+    asistente), gira comprada, ciclo o festival. Copia sujeto, empresa del grupo y rango de fechas;
+    la economía por fecha se completa en cada ficha. Guarda el vínculo a la simulación de origen."""
+    s = db()
+    try:
+        sim = s.get(Simulation, to_uuid(sid))
+        if not sim:
+            abort(404)
+        target = (request.form.get("target") or "").strip().lower()
+        name = (sim.title or (sim.artist.name if sim.artist else None) or (sim.event.name if sim.event else None) or "Actividad").strip()
+        acts = [a for a in (sim.activities or []) if not getattr(a, "is_shared", False)]
+        dts = sorted([a.event_date for a in acts if getattr(a, "event_date", None) and not getattr(a, "date_unknown", False)])
+        start = dts[0] if dts else None
+        end = dts[-1] if dts else None
+        stt = _current_user_state()
+        uid = to_uuid(stt.get("user_id")) if stt.get("user_id") else None
+        nick = stt.get("nick") or None
+        if target == "concert":
+            aid = str(sim.artist_id) if sim.artist_id else ""
+            return redirect(url_for("concerts_view", tab="vista", open_wizard=1, wizard_artist=aid))
+        if target == "tour":
+            t = PurchasedTour(
+                name=name, managing_company_id=sim.managing_company_id, artist_id=sim.artist_id,
+                artist_ids=([str(sim.artist_id)] if sim.artist_id else []), start_date=start, end_date=end,
+                status="ACTIVA", payload={"general": {"simulation_ids": [str(sim.id)]}},
+                created_by_user_id=uid, created_by_nick=nick,
+            )
+            s.add(t)
+            s.commit()
+            flash("Simulación convertida en gira comprada. Añade/vincula las fechas y su producción general.", "success")
+            return redirect(url_for("purchased_tour_detail", tid=str(t.id)))
+        if target in ("cycle", "festival"):
+            kind = "CICLO" if target == "cycle" else "FESTIVAL"
+            cf = CycleFestival(
+                name=name, kind=kind, managing_company_id=sim.managing_company_id,
+                logo_url=(sim.event.logo_url if sim.event else None), start_date=start, end_date=end,
+                status="ACTIVO", payload={"general": {"simulation_ids": [str(sim.id)]}},
+                created_by_user_id=uid, created_by_nick=nick,
+            )
+            s.add(cf)
+            s.commit()
+            flash("Simulación convertida en " + ("ciclo" if kind == "CICLO" else "festival") + ". Añade sus fechas/artistas y la producción general.", "success")
+            return redirect(url_for("cycle_festival_detail", cfid=str(cf.id)))
+        flash("Destino de conversión no válido.", "warning")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo convertir la simulación: {exc}", "danger")
+        return redirect(url_for("simulation_detail_view", sid=sid))
+    finally:
+        s.close()
 
 
 # ============================ EVENTOS (Bases de datos) ============================

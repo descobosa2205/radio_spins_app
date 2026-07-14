@@ -1,0 +1,125 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Contratación · Festivales / Ciclos</h4>
+    <div class="text-muted">Festivales y ciclos que organiza una empresa del grupo. Agrupan sus fechas/artistas y su producción general.</div>
+  </div>
+  {% if CAN_EDIT_CONCERTS %}
+  <button class="btn btn-primary" type="button" data-cf-new><i class="fa fa-plus me-1"></i> Nuevo ciclo / festival</button>
+  {% endif %}
+</div>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
+  <li class="nav-item"><a class="nav-link active" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
+</ul>
+
+{% if rows %}
+<div class="row g-3">
+  {% for cf in rows %}
+  <div class="col-12 col-lg-6 col-xl-4">
+    <a href="{{ url_for('cycle_festival_detail', cfid=cf.id) }}" class="card h-100 text-decoration-none text-reset">
+      <div class="card-body d-flex gap-3 align-items-center">
+        <img src="{{ cf.logo_url or cf.company_logo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:58px;height:58px;object-fit:cover;border-radius:14px;">
+        <div class="flex-grow-1" style="min-width:0;">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <h5 class="mb-0 text-truncate">{{ cf.name }}{% if cf.edition %} <span class="text-muted small">· {{ cf.edition }}</span>{% endif %}</h5>
+            <span class="badge {{ cf.status_badge }} flex-shrink-0">{{ cf.status_label }}</span>
+          </div>
+          <div class="small text-muted text-truncate mt-1">
+            <span class="badge text-bg-light border">{{ cf.kind_label }}</span>
+            {% if cf.company %} · {{ cf.company }}{% endif %}{% if cf.venue_name %} · {{ cf.venue_name }}{% endif %}
+          </div>
+          <div class="d-flex gap-2 flex-wrap mt-2">
+            <span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ cf.count }} {{ 'artista' if cf.kind == 'FESTIVAL' else 'fecha' }}{{ '' if cf.count == 1 else 's' }}</span>
+            {% if cf.date_range %}<span class="badge text-bg-light border"><i class="fa fa-calendar me-1"></i>{{ cf.date_range }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-light border">Aún no hay festivales ni ciclos. Pulsa «Nuevo ciclo / festival» para crear el primero.</div>
+{% endif %}
+
+{# ===== Modal nuevo ciclo / festival ===== #}
+<div class="modal fade" id="cfModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-star me-2"></i>Nuevo ciclo / festival</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label d-block">¿Qué es?</label>
+            <div class="btn-group" role="group">
+              <input type="radio" class="btn-check" name="kind" id="cfKindFest" value="FESTIVAL" checked>
+              <label class="btn btn-outline-primary" for="cfKindFest"><i class="fa fa-star me-1"></i>Festival</label>
+              <input type="radio" class="btn-check" name="kind" id="cfKindCycle" value="CICLO">
+              <label class="btn btn-outline-primary" for="cfKindCycle"><i class="fa fa-repeat me-1"></i>Ciclo</label>
+            </div>
+            <div class="form-text" data-cf-hint>Festival: cada pestaña será un artista. Ciclo: cada pestaña una fecha en el mismo recinto.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Evento</label>
+            <div class="input-group">
+              <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader>
+                <option value="">Sin evento asociado</option>
+                {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>{% endfor %}
+              </select>
+              {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="event" data-target="cfEvent"><i class="fa fa-plus"></i></button>{% endif %}
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Nombre</label>
+            <input class="form-control" name="name" placeholder="(si no eliges evento)">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Edición / año</label>
+            <input class="form-control" name="edition" placeholder="Ej.: 2026">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Empresa del grupo</label>
+            <select class="form-select" name="managing_company_id">
+              <option value="">Sin asignar</option>
+              {% for c in companies %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6" data-cf-venue>
+            <label class="form-label">Recinto (ciclo)</label>
+            <select class="form-select select-venues" name="venue_id" data-no-loader>
+              <option value="">—</option>
+              {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}">{{ v.name }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date"></div>
+          <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date"></div>
+          <div class="col-12"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% include "_quick_create_modals.html" %}
+<script>
+  document.addEventListener('click', function(ev){
+    if(ev.target.closest('[data-cf-new]')){ var m=document.getElementById('cfModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }
+  });
+</script>
+{% endblock %}

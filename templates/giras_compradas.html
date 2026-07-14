@@ -1,0 +1,114 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h4 class="mb-1">Contratación · Giras compradas</h4>
+    <div class="text-muted">Giras compradas por una empresa del grupo. Agrupan sus conciertos y su producción general.</div>
+  </div>
+  {% if CAN_EDIT_CONCERTS %}
+  <button class="btn btn-primary" type="button" data-tour-new><i class="fa fa-plus me-1"></i> Nueva gira</button>
+  {% endif %}
+</div>
+
+<ul class="nav nav-pills mb-3">
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='vista') }}">Conciertos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='peticiones') }}">Peticiones</a></li>
+  <li class="nav-item"><a class="nav-link active" href="{{ url_for('contracting_view', section='giras-compradas') }}">Giras compradas</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='festivales-ciclos') }}">Festivales / Ciclos</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='otras-actividades') }}">Otras actividades</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('quadrantes_view') }}">Cuadrantes</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('concerts_view', tab='facturacion') }}">Facturación</a></li>
+  <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
+</ul>
+
+{% if rows %}
+<div class="row g-3">
+  {% for t in rows %}
+  <div class="col-12 col-lg-6 col-xl-4">
+    <a href="{{ url_for('purchased_tour_detail', tid=t.id) }}" class="card h-100 text-decoration-none text-reset">
+      <div class="card-body d-flex gap-3 align-items-center">
+        <img src="{{ t.logo_url or t.artist_photo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:58px;height:58px;object-fit:cover;border-radius:14px;">
+        <div class="flex-grow-1" style="min-width:0;">
+          <div class="d-flex align-items-center justify-content-between gap-2">
+            <h5 class="mb-0 text-truncate">{{ t.name }}</h5>
+            <span class="badge {{ t.status_badge }} flex-shrink-0">{{ t.status_label }}</span>
+          </div>
+          <div class="small text-muted text-truncate mt-1">
+            {% if t.artist_name %}{{ t.artist_name }}{% endif %}{% if t.company %} · {{ t.company }}{% endif %}
+          </div>
+          <div class="d-flex gap-2 flex-wrap mt-2">
+            <span class="badge text-bg-light border"><i class="fa fa-guitar me-1"></i>{{ t.count }} concierto{{ '' if t.count == 1 else 's' }}</span>
+            {% if t.date_range %}<span class="badge text-bg-light border"><i class="fa fa-calendar me-1"></i>{{ t.date_range }}</span>{% endif %}
+          </div>
+        </div>
+      </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="alert alert-light border">Aún no hay giras compradas. Pulsa «Nueva gira» para crear la primera.</div>
+{% endif %}
+
+{# ===== Modal nueva gira ===== #}
+<div class="modal fade" id="tourModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <form class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-route me-2"></i>Nueva gira comprada</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Nombre de la gira</label>
+            <input class="form-control" name="name" placeholder="Ej.: Gira 2026" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Artista</label>
+            <div class="input-group">
+              <select class="form-select select-artists" name="artist_id" id="tourArtist" data-no-loader>
+                <option value="">Selecciona un artista…</option>
+                {% for a in artists %}<option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
+              </select>
+              {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="tourArtist"><i class="fa fa-plus"></i></button>{% endif %}
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Empresa del grupo</label>
+            <select class="form-select" name="managing_company_id">
+              <option value="">Sin asignar</option>
+              {% for c in companies %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+            <div class="form-text">Las empresas del grupo se gestionan en Empresas.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Desde</label>
+            <input type="date" class="form-control" name="start_date">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Hasta</label>
+            <input type="date" class="form-control" name="end_date">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Notas</label>
+            <textarea class="form-control" name="notes" rows="2"></textarea>
+          </div>
+          <div class="col-12"><div class="alert alert-light border small mb-0"><i class="fa fa-circle-info me-1"></i>Tras crearla podrás configurar el adelanto del artista, los gastos generales, los socios y añadir/vincular las fechas.</div></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Crear gira</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% include "_quick_create_modals.html" %}
+<script>
+  document.addEventListener('click', function(ev){
+    if(ev.target.closest('[data-tour-new]')){ var m=document.getElementById('tourModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }
+  });
+</script>
+{% endblock %}

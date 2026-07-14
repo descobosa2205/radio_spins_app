@@ -31,7 +31,16 @@
     {% for e in events %}
       <div class="col-6 col-md-4 col-lg-3 col-xl-2">
         <a href="{{ url_for('event_detail_view', eid=e.id) }}" class="text-decoration-none text-reset d-block h-100">
-          <div class="event-card">
+          <div class="event-card position-relative">
+            {% if CAN_EDIT %}
+            {# ⋮ del evento (Fusionar): el preventDefault evita que el clic navegue a la ficha. #}
+            <div class="dropdown merge-fab">
+              <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" onclick="event.preventDefault();" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+              <ul class="dropdown-menu dropdown-menu-end" onclick="event.preventDefault();">
+                <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Evento" data-merge-id="{{ e.id }}" data-merge-name="{{ e.name|e }}" data-merge-photo="{{ e.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_event') }}" data-merge-compare="{{ url_for('merge_compare_event') }}" data-merge-execute="{{ url_for('merge_execute_event') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otro…</button></li>
+              </ul>
+            </div>
+            {% endif %}
             {% if e.logo_url %}
               <img src="{{ e.logo_url }}" alt="{{ e.name }}" class="event-card__logo">
             {% else %}
@@ -67,4 +76,5 @@
   </div></div>
 </div>
 {% endif %}
+{% if CAN_EDIT %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

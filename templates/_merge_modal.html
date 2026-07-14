@@ -1,0 +1,62 @@
+{# Modal GENÉRICO de fusión de duplicados (bases de datos). Se incluye UNA vez por página de
+   listado. Los botones que lo abren llevan:
+     data-merge-open data-merge-kind data-merge-label data-merge-id data-merge-name
+     data-merge-photo data-merge-search data-merge-compare data-merge-execute
+   Flujo (static/js/merge_entities.js): 1) buscar el otro elemento de la MISMA categoría →
+   2) comparación campo a campo de los dos (radios para elegir qué valor se conserva y cuál
+   de los dos sobrevive) → 3) confirmar (POST clásico con flash + recarga). #}
+<div class="modal fade" id="mergeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-code-merge me-2 text-danger"></i>Fusionar <span data-merge-title-label>elemento</span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-light border small py-2">
+          <i class="fa fa-circle-info me-1"></i>Sirve para juntar <strong>duplicados</strong>: todo lo que
+          apunte a cualquiera de los dos (conciertos, simulaciones, invitaciones, vinculaciones, contactos…)
+          quedará apuntando al que se conserve. <strong>No se pierde nada.</strong>
+        </div>
+
+        {# Paso 1: buscar el otro elemento de la misma categoría #}
+        <div data-merge-step="search">
+          <div class="mb-2">
+            <span class="text-muted small">Fusionar</span>
+            <div class="d-flex align-items-center gap-2 mt-1">
+              <img data-merge-src-photo src="" alt="" class="d-none" style="width:34px;height:34px;object-fit:contain;border-radius:8px;border:1px solid #eee;background:#fff;">
+              <span class="fw-semibold" data-merge-src-name>—</span>
+              <span class="text-muted">con…</span>
+            </div>
+          </div>
+          <input type="search" class="form-control" data-merge-search-input placeholder="Busca el duplicado dentro de la misma categoría…" autocomplete="off">
+          <div class="list-group mt-2" data-merge-results></div>
+          <div class="text-muted small mt-2 d-none" data-merge-noresults>Sin resultados.</div>
+        </div>
+
+        {# Paso 2: comparación de los dos, campo a campo #}
+        <div class="d-none" data-merge-step="compare">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-merge-back><i class="fa fa-arrow-left"></i></button>
+            <span class="small text-muted">Elige <strong>cuál de los dos se conserva</strong> y, campo a campo, <strong>qué dato te quedas</strong>.</span>
+          </div>
+          <div class="row g-2 mb-3" data-merge-survivors></div>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+              <thead><tr><th style="width:26%;">Campo</th><th style="width:37%;" data-merge-col-a>A</th><th style="width:37%;" data-merge-col-b>B</th></tr></thead>
+              <tbody data-merge-fields></tbody>
+            </table>
+          </div>
+          <div class="alert alert-warning small py-2 mt-3 mb-0">
+            <i class="fa fa-triangle-exclamation me-1"></i>La fusión <strong>no se puede deshacer</strong>: el elemento no conservado desaparece (sus datos y referencias pasan al conservado).
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+        <button type="button" class="btn btn-danger d-none" data-merge-confirm><i class="fa fa-code-merge me-1"></i>Fusionar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="{{ url_for('static', filename='js/merge_entities.js') }}"></script>

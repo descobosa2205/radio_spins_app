@@ -50664,6 +50664,247 @@ def _bootstrap_personnel_bg():
 threading.Thread(target=_bootstrap_personnel_bg, daemon=True).start()
 
 
+# =====================================================================================
+# FUSIÓN DE DUPLICADOS (bases de datos): dos elementos de la misma categoría (dos
+# terceros, dos recintos…) se funden en uno. Se re-apuntan TODAS las referencias del
+# perdedor al ganador —cualquier FK de cualquier tabla (descubiertas por metadatos) más
+# las referencias polimórficas registradas (vinculaciones y plantillas de gastos)—, se
+# aplican los campos elegidos y se elimina el perdedor: nada de lo que colgaba de un
+# duplicado se pierde. Las rutas van bajo el prefijo de su sección para heredar sus
+# permisos (leer = ver la sección; fusionar = POST, exige edición de la sección).
+MERGE_KINDS = {
+    "promoter":  {"model": Promoter, "label": "Tercero", "path": "promotores", "photo": "logo_url", "display": "nick", "link_types": ["promoter"], "tpl_owner": None},
+    "venue":     {"model": Venue, "label": "Recinto", "path": "recintos", "photo": "photo_url", "display": "name", "link_types": ["venue"], "tpl_owner": "VENUE"},
+    "ticketer":  {"model": Ticketer, "label": "Ticketera", "path": "ticketeras", "photo": "logo_url", "display": "name", "link_types": ["ticketer"], "tpl_owner": None},
+    "publishing": {"model": PublishingCompany, "label": "Editorial", "path": "editoriales", "photo": "logo_url", "display": "name", "link_types": ["publishing"], "tpl_owner": None},
+    "company":   {"model": GroupCompany, "label": "Empresa del grupo", "path": "empresas", "photo": "logo_url", "display": "name", "link_types": [], "tpl_owner": None},
+    "media":     {"model": MediaOutlet, "label": "Medio", "path": "medios", "photo": "logo_url", "display": "name", "link_types": ["media"], "tpl_owner": None},
+    "event":     {"model": AppEvent, "label": "Evento", "path": "eventos", "photo": "logo_url", "display": "name", "link_types": [], "tpl_owner": "EVENT"},
+}
+
+_MERGE_FIELD_LABELS = {
+    "nick": "Nick / nombre corto", "name": "Nombre", "first_name": "Nombre (persona)",
+    "last_name": "Apellidos", "tax_id": "NIF/CIF", "contact_email": "Email",
+    "contact_phone": "Teléfono", "logo_url": "Logo", "photo_url": "Foto",
+    "address": "Dirección", "municipality": "Municipio", "province": "Provincia",
+    "covered": "Cubierto", "allows_bars": "Permite barras", "link_url": "Enlace",
+    "tax_info": "Datos fiscales", "media_type": "Tipo de medio", "country_code": "Código de país",
+    "country_name": "País", "notes": "Notas", "kind": "Tipo", "birth_date": "Fecha de nacimiento",
+    "capacity": "Aforo", "website": "Web", "city": "Ciudad", "iban": "IBAN",
+}
+
+
+def _merge_fields(model):
+    """Columnas simples comparables del modelo (sin ids, FKs, JSON ni timestamps)."""
+    out = []
+    for col in model.__table__.columns:
+        if col.name in ("id", "created_at", "updated_at") or col.foreign_keys:
+            continue
+        if "JSON" in col.type.__class__.__name__.upper():
+            continue
+        out.append(col.name)
+    return out
+
+
+def _merge_display(cfg, row):
+    return (getattr(row, cfg["display"], None) or getattr(row, "name", None) or "—")
+
+
+def _merge_fmt(v):
+    if v is None or v == "":
+        return ""
+    if v is True:
+        return "Sí"
+    if v is False:
+        return "No"
+    return str(v)
+
+
+def _merge_repoint_references(s, model, keep_id, drop_id):
+    """Re-apunta al ganador TODAS las FKs (de cualquier tabla) que señalen al perdedor.
+    Conflictos de unicidad (filas que quedarían duplicadas, p. ej. el mismo email vinculado
+    a ambos) se resuelven fila a fila eliminando la del perdedor. Devuelve filas tocadas."""
+    from sqlalchemy import select as _sel
+    from sqlalchemy.exc import IntegrityError as _IE
+    s.flush()
+    target = model.__table__
+    total = 0
+    for tbl in target.metadata.sorted_tables:
+        for col in list(tbl.columns):
+            if not col.foreign_keys:
+                continue
+            if not any(fk.column.table is target and fk.column.name == "id" for fk in col.foreign_keys):
+                continue
+            try:
+                with s.begin_nested():
+                    res = s.execute(tbl.update().where(col == drop_id).values(**{col.name: keep_id}))
+                total += res.rowcount or 0
+            except _IE:
+                pks = list(tbl.primary_key.columns)
+                if not pks:
+                    with s.begin_nested():
+                        s.execute(tbl.delete().where(col == drop_id))
+                    continue
+                rows = s.execute(_sel(*pks).where(col == drop_id)).all()
+                for row in rows:
+                    cond = and_(*[pk == v for pk, v in zip(pks, row)])
+                    try:
+                        with s.begin_nested():
+                            s.execute(tbl.update().where(cond).values(**{col.name: keep_id}))
+                        total += 1
+                    except _IE:
+                        # La fila re-apuntada ya existe para el ganador: era un duplicado puro.
+                        with s.begin_nested():
+                            s.execute(tbl.delete().where(cond))
+    return total
+
+
+def _merge_repoint_polymorphic(s, cfg, keep_id, drop_id):
+    """Referencias SIN FK: vinculaciones (third_party_links, por tipo) y plantillas de
+    gastos por dueño (expense_templates.owner_type/owner_id para VENUE/EVENT)."""
+    from sqlalchemy.exc import IntegrityError as _IE
+    md = cfg["model"].__table__.metadata
+    total = 0
+    lts = cfg.get("link_types") or []
+    if lts and "third_party_links" in md.tables:
+        t = md.tables["third_party_links"]
+        for type_col, id_col in ((t.c.source_type, t.c.source_id), (t.c.target_type, t.c.target_id)):
+            with s.begin_nested():
+                res = s.execute(t.update().where(type_col.in_(lts), id_col == drop_id).values(**{id_col.name: keep_id}))
+            total += res.rowcount or 0
+        # Auto-vinculaciones resultantes (el elemento consigo mismo): fuera.
+        with s.begin_nested():
+            s.execute(t.delete().where(t.c.source_type.in_(lts), t.c.target_type.in_(lts), t.c.source_id == t.c.target_id))
+    owner = cfg.get("tpl_owner")
+    if owner and "expense_templates" in md.tables:
+        t2 = md.tables["expense_templates"]
+        try:
+            with s.begin_nested():
+                res2 = s.execute(t2.update().where(t2.c.owner_type == owner, t2.c.owner_id == drop_id).values(owner_id=keep_id))
+            total += res2.rowcount or 0
+        except _IE:
+            with s.begin_nested():
+                s.execute(t2.delete().where(t2.c.owner_type == owner, t2.c.owner_id == drop_id))
+    return total
+
+
+def _merge_cfg_or_404(kind):
+    cfg = MERGE_KINDS.get(kind)
+    if not cfg:
+        abort(404)
+    return cfg
+
+
+def _merge_search_view(kind):
+    """Candidatos de la MISMA categoría para fusionar (búsqueda acento-insensible)."""
+    cfg = _merge_cfg_or_404(kind)
+    q = (request.args.get("q") or "").strip()
+    exclude = _safe_uuid(request.args.get("exclude"))
+    s = db()
+    try:
+        model = cfg["model"]
+        query = s.query(model)
+        if q:
+            conds = []
+            for attr in {cfg["display"], "name", "nick", "first_name", "last_name"}:
+                if hasattr(model, attr):
+                    conds.append(_sa_contains_text(getattr(model, attr), q))
+            if conds:
+                query = query.filter(or_(*conds))
+        rows = query.limit(25).all()
+        out = []
+        for r in rows:
+            if exclude and r.id == exclude:
+                continue
+            out.append({
+                "id": str(r.id),
+                "name": _merge_display(cfg, r),
+                "photo": getattr(r, cfg["photo"], None) or "",
+            })
+        out.sort(key=lambda x: (x["name"] or "").lower())
+        return jsonify(out[:20])
+    finally:
+        s.close()
+
+
+def _merge_compare_view(kind):
+    """Datos de los dos elementos, campo a campo, para elegir con cuál quedarse."""
+    cfg = _merge_cfg_or_404(kind)
+    s = db()
+    try:
+        model = cfg["model"]
+        a = s.get(model, _safe_uuid(request.args.get("a")))
+        b = s.get(model, _safe_uuid(request.args.get("b")))
+        if not a or not b or a.id == b.id:
+            abort(404)
+        fields = []
+        for f in _merge_fields(model):
+            va = _merge_fmt(getattr(a, f, None))
+            vb = _merge_fmt(getattr(b, f, None))
+            if va == "" and vb == "":
+                continue
+            fields.append({"key": f, "label": _MERGE_FIELD_LABELS.get(f, f.replace("_", " ").capitalize()), "a": va, "b": vb})
+        payload = lambda r: {"id": str(r.id), "name": _merge_display(cfg, r), "photo": getattr(r, cfg["photo"], None) or ""}
+        return jsonify({"a": payload(a), "b": payload(b), "fields": fields})
+    finally:
+        s.close()
+
+
+def _merge_execute_view(kind):
+    cfg = _merge_cfg_or_404(kind)
+    s = db()
+    back = request.form.get("next") or request.referrer or ("/" + cfg["path"])
+    try:
+        model = cfg["model"]
+        keep_id = _safe_uuid(request.form.get("keep_id"))
+        drop_id = _safe_uuid(request.form.get("drop_id"))
+        if not keep_id or not drop_id or keep_id == drop_id:
+            raise ValueError("Elige dos elementos distintos para fusionar.")
+        keep = s.get(model, keep_id)
+        drop = s.get(model, drop_id)
+        if not keep or not drop:
+            abort(404)
+        try:
+            choices = json.loads(request.form.get("choices_json") or "{}")
+        except Exception:
+            choices = {}
+        valid = set(_merge_fields(model))
+        # Valores del PERDEDOR elegidos por el usuario: se capturan antes de borrarlo y se
+        # aplican al ganador DESPUÉS (evita choques de unicidad, p. ej. name único).
+        chosen_vals = {f: getattr(drop, f) for f, side in (choices or {}).items() if side == "drop" and f in valid}
+        keep_name = _merge_display(cfg, keep)
+        drop_name = _merge_display(cfg, drop)
+        moved = _merge_repoint_references(s, model, keep.id, drop.id)
+        moved += _merge_repoint_polymorphic(s, cfg, keep.id, drop.id)
+        s.delete(drop)
+        s.flush()
+        for f, v in chosen_vals.items():
+            setattr(keep, f, v)
+        s.commit()
+        flash(f"{cfg['label']} fusionado: «{drop_name}» se ha fundido en «{keep_name}» ({moved} referencia(s) re-apuntadas; no se pierde nada).", "success")
+        return redirect(back)
+    except Exception as exc:
+        s.rollback()
+        flash(str(exc) if isinstance(exc, ValueError) else f"No se pudo fusionar: {exc}", "danger")
+        return redirect(back)
+    finally:
+        s.close()
+
+
+def _register_merge_routes():
+    for kind, cfg in MERGE_KINDS.items():
+        p = cfg["path"]
+        app.add_url_rule(f"/{p}/fusion/buscar", endpoint=f"merge_search_{kind}",
+                         view_func=admin_required((lambda kind=kind: _merge_search_view(kind))), methods=["GET"])
+        app.add_url_rule(f"/{p}/fusion/comparar", endpoint=f"merge_compare_{kind}",
+                         view_func=admin_required((lambda kind=kind: _merge_compare_view(kind))), methods=["GET"])
+        app.add_url_rule(f"/{p}/fusion", endpoint=f"merge_execute_{kind}",
+                         view_func=admin_required((lambda kind=kind: _merge_execute_view(kind))), methods=["POST"])
+
+
+_register_merge_routes()
+
+
 if __name__ == "__main__":
     # El esquema ya se inicializa en segundo plano al importar el módulo (ver _bootstrap_schema_bg),
     # así que aquí NO lo repetimos de forma síncrona (bloquearía el arranque). Enlazamos a 0.0.0.0 y

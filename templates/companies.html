@@ -86,6 +86,12 @@
                           onclick="return confirm('¿Borrar empresa?');">
                     <i class="fa fa-trash"></i>
                   </button>
+                  <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Empresa del grupo" data-merge-id="{{ c.id }}" data-merge-name="{{ c.name|e }}" data-merge-photo="{{ c.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_company') }}" data-merge-compare="{{ url_for('merge_compare_company') }}" data-merge-execute="{{ url_for('merge_execute_company') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otra…</button></li>
+                    </ul>
+                  </div>
                 </div>
               </td>
             </form>
@@ -124,4 +130,5 @@
   apply();
 })();
 </script>
+{% if CAN_EDIT_CATALOGS %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

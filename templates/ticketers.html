@@ -87,6 +87,12 @@
                           onclick="return confirm('¿Borrar ticketera?');">
                     <i class="fa fa-trash"></i>
                   </button>
+                  <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Ticketera" data-merge-id="{{ t.id }}" data-merge-name="{{ t.name|e }}" data-merge-photo="{{ t.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_ticketer') }}" data-merge-compare="{{ url_for('merge_compare_ticketer') }}" data-merge-execute="{{ url_for('merge_execute_ticketer') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otra…</button></li>
+                    </ul>
+                  </div>
                 </div>
               </td>
             </form>
@@ -129,4 +135,5 @@
   apply();
 })();
 </script>
+{% if CAN_EDIT_CATALOGS %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

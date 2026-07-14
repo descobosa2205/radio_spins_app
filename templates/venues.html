@@ -84,7 +84,16 @@
   {% for v in venues %}
     <div class="col-12 col-md-6 col-xl-4 venue-list-item" data-search="{{ (v.name ~ ' ' ~ (v.municipality or '') ~ ' ' ~ (v.province or '') ~ ' ' ~ (v.address or ''))|lower }}">
       <a class="venue-card-link" href="{{ url_for('venue_detail_view', vid=v.id) }}">
-        <div class="card venue-card h-100">
+        <div class="card venue-card h-100 position-relative">
+          {% if CAN_EDIT_CATALOGS %}
+          {# ⋮ de la tarjeta (Fusionar): el preventDefault evita que el clic navegue a la ficha. #}
+          <div class="dropdown merge-fab">
+            <button class="btn btn-sm btn-light border" type="button" data-bs-toggle="dropdown" onclick="event.preventDefault();" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+            <ul class="dropdown-menu dropdown-menu-end" onclick="event.preventDefault();">
+              <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Recinto" data-merge-id="{{ v.id }}" data-merge-name="{{ v.name|e }}" data-merge-photo="{{ v.photo_url or '' }}" data-merge-search="{{ url_for('merge_search_venue') }}" data-merge-compare="{{ url_for('merge_compare_venue') }}" data-merge-execute="{{ url_for('merge_execute_venue') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otro…</button></li>
+            </ul>
+          </div>
+          {% endif %}
           <div class="card-body d-flex gap-3 align-items-center">
             <img src="{{ v.photo_url or DEFAULT_PHOTO_URL }}" alt="{{ v.name }}" data-default-photo="1" style="width:72px;height:72px;border-radius:16px;object-fit:cover;border:1px solid #eee;">
             <div class="flex-grow-1 min-w-0">
@@ -127,4 +136,5 @@
   apply();
 })();
 </script>
+{% if CAN_EDIT_CATALOGS %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

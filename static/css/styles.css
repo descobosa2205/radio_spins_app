@@ -902,6 +902,14 @@ img.img-error-pending{ visibility: hidden; }
 /* Simulador · módulo Resultados: título de subsección (Comisionistas / Gastos) */
 .simp-sec { font-weight:700; font-size:.92rem; color:#111; border-top:1px solid #eef0f2; padding-top:.65rem; margin-bottom:.35rem; }
 .simp-sec i { color:var(--brand-accent, #007CA2); }
+/* Fusión de duplicados (bases de datos) */
+.merge-fab { position:absolute; top:.45rem; right:.55rem; z-index:3; }
+.merge-fab .btn { --bs-btn-padding-y:.12rem; --bs-btn-padding-x:.45rem; }
+.merge-surv { transition:.15s ease; }
+.merge-surv.is-picked { border-color:#16a34a !important; box-shadow:0 0 0 .18rem rgba(22,163,74,.15); }
+.merge-val { border:1px solid #e3e7ec; background:#fff; border-radius:.5rem; padding:.3rem .55rem; font-size:.88rem; word-break:break-word; }
+.merge-val.is-picked { border-color:#E33D48; background:#fdeced; box-shadow:inset 0 0 0 1px #E33D48; }
+.merge-val--empty { background:#f8f9fa; }
 .invitation-seat.is-pending { opacity:.5; pointer-events:none; }
 #inv-tab-tickets.is-selecting { -webkit-user-select:none; user-select:none; }
 #inv-tab-tickets.is-selecting .invitation-seat[data-ticket-id] { cursor:pointer; touch-action:none; }

@@ -81,6 +81,12 @@
                           onclick="return confirm('¿Borrar editorial?');">
                     <i class="fa fa-trash"></i>
                   </button>
+                  <div class="dropdown">
+                    <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="dropdown" title="Más acciones"><i class="fa fa-ellipsis-vertical"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                      <li><button type="button" class="dropdown-item" data-merge-open data-merge-label="Editorial" data-merge-id="{{ pc.id }}" data-merge-name="{{ pc.name|e }}" data-merge-photo="{{ pc.logo_url or '' }}" data-merge-search="{{ url_for('merge_search_publishing') }}" data-merge-compare="{{ url_for('merge_compare_publishing') }}" data-merge-execute="{{ url_for('merge_execute_publishing') }}"><i class="fa fa-code-merge fa-fw me-1"></i>Fusionar con otra…</button></li>
+                    </ul>
+                  </div>
                 </div>
               </td>
             </form>
@@ -118,4 +124,5 @@
   apply();
 })();
 </script>
+{% if CAN_EDIT_CATALOGS %}{% include '_merge_modal.html' %}{% endif %}
 {% endblock %}

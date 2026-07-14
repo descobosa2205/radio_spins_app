@@ -37544,6 +37544,13 @@ def _concert_production_panel(session_db, concert):
     net_total = sum([_money_or_zero(getattr(item, "amount_net", 0)) for item in budget_items], Decimal("0"))
     gross_total = sum([_money_or_zero(getattr(item, "amount_gross", 0)) for item in budget_items], Decimal("0"))
     roadmap = _json_loads_safe(getattr(concert, "roadmap_payload", None), {})
+    # Plantillas de gastos guardadas del ARTISTA, para cargarlas como base del presupuesto.
+    artist_templates = []
+    try:
+        for t in _expense_templates_for(session_db, "ARTIST", concert.artist_id):
+            artist_templates.append({"id": str(t.id), "name": (t.name or "Plantilla"), "count": len(t.items or [])})
+    except Exception:
+        artist_templates = []
     return {
         "bag": bag,
         "budget_items": budget_items,
@@ -37553,6 +37560,7 @@ def _concert_production_panel(session_db, concert):
         "request": request_row,
         "roadmap": roadmap if isinstance(roadmap, dict) else {},
         "can_open_bag": bag is None,
+        "artist_templates": artist_templates,
     }
 
 
@@ -37979,6 +37987,63 @@ def concert_budget_item_create(cid):
     except Exception as exc:
         session_db.rollback()
         flash(f'Error guardando presupuesto: {exc}', 'danger')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    finally:
+        session_db.close()
+
+
+CONCERT_BUDGET_CATEGORY_MAP = {
+    "SONIDO_LUCES": "SONIDO_LUCES", "RIDER": "SONIDO_LUCES",
+    "MUSICOS": "MUSICOS", "PERSONAL": "PERSONAL",
+    "LOGISTICA": "TRANSPORTE", "TRANSPORTE": "TRANSPORTE",
+    "ALOJAMIENTO": "HOTELES", "HOTELES": "HOTELES",
+    "MARKETING": "MARKETING", "PROMOCION": "MARKETING",
+}
+
+
+@app.post('/conciertos/<cid>/produccion/presupuesto/cargar-plantilla', endpoint='concert_budget_load_template')
+@admin_required
+def concert_budget_load_template(cid):
+    """Carga un presupuesto guardado del ARTISTA (ExpenseTemplate) como partidas del presupuesto
+    del concierto (ConcertBudgetItem), igual que en los simuladores."""
+    session_db = db()
+    try:
+        concert = session_db.get(Concert, to_uuid(cid))
+        if not concert:
+            abort(404)
+        tid = (request.form.get('template_id') or '').strip()
+        tpl = (
+            session_db.query(ExpenseTemplate).options(selectinload(ExpenseTemplate.items))
+            .filter(ExpenseTemplate.id == to_uuid(tid)).first()
+        ) if tid else None
+        if not tpl:
+            flash('Elige un presupuesto guardado del artista.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+        uid = _safe_uuid(session.get('user_id')) if session.get('user_id') else None
+        nick = _email_to_nick(_current_user_email() or '')
+        n = 0
+        for it in sorted(tpl.items or [], key=lambda x: x.sort_order or 0):
+            cat = CONCERT_BUDGET_CATEGORY_MAP.get((it.category or 'OTROS').upper(), 'OTROS')
+            qty = _money_or_zero(getattr(it, 'quantity', 1) or 1)
+            if qty <= 0:
+                qty = Decimal('1')
+            unit = _money_or_zero(it.amount_net)
+            iva_rate = Decimal('0') if getattr(it, 'iva_exempt', False) else (_money_or_zero(getattr(it, 'iva_pct', 21)) / Decimal('100'))
+            divisor = (Decimal('1') + iva_rate) if (getattr(it, 'includes_iva', False) and iva_rate > 0) else Decimal('1')
+            net = (unit * qty) / divisor
+            gross = net * (Decimal('1') + iva_rate)
+            session_db.add(ConcertBudgetItem(
+                concert_id=concert.id, category=cat, concept=(it.concept or 'Gasto'),
+                amount_net=net, amount_gross=gross, sort_order=n,
+                created_by_user_id=uid, created_by_nick=nick,
+            ))
+            n += 1
+        session_db.commit()
+        flash('Presupuesto «' + (tpl.name or 'plantilla') + '» cargado (' + str(n) + ' partida' + ('s' if n != 1 else '') + ').', 'success')
+        return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo cargar el presupuesto: {exc}', 'danger')
         return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
     finally:
         session_db.close()

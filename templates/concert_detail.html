@@ -35,6 +35,7 @@
 <ul class="nav nav-tabs ficha-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
+  {% if show_ticketing_tab or tab == 'ticketing' %}<li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">Ticketing</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='resultado') }}">Resultado</a></li>
@@ -774,6 +775,47 @@
       </div>
     </div>
 
+  {% elif tab == 'ticketing' %}
+    <div class="card mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+        <div>
+          <h5 class="mb-0">Ticketing e invitaciones</h5>
+          <div class="text-muted small">Invitaciones por zona; aparecen vinculadas a la gestión y petición de invitaciones.</div>
+        </div>
+        <div class="d-flex gap-2">
+          {% if invitation_can_manage and venue_saved_ticket_count %}
+          <form method="post" action="{{ url_for('concert_ticketing_load_venue', cid=concert.id) }}" onsubmit="return confirm('¿Cargar las categorías de invitación guardadas del recinto?');">
+            <button class="btn btn-outline-primary btn-sm"><i class="fa fa-download me-1"></i>Cargar del recinto</button>
+          </form>
+          {% endif %}
+          {% if invitation_can_manage %}
+          <a class="btn btn-danger btn-sm" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}"><i class="fa fa-gear me-1"></i>Configurar invitaciones</a>
+          {% endif %}
+        </div>
+      </div>
+      {% for zk, zl, zi in [('PISTA','Pista','fa-people-group'),('GRADA','Grada','fa-chair'),('PALCO','Palco','fa-crown')] %}
+        {% set zcats = invitation_categories_summary|selectattr('zone','equalto',zk)|list %}
+        {% if zcats %}
+        <div class="mb-3">
+          <h6 class="text-uppercase small text-muted"><i class="fa {{ zi }} me-1"></i>{{ zl }}</h6>
+          <div class="row g-2">
+            {% for cat in zcats %}
+            <div class="col-6 col-md-3">
+              <div class="border rounded p-2 text-center h-100">
+                <div class="fw-semibold small text-truncate" title="{{ cat.name }}">{{ cat.name }}</div>
+                <div class="h5 mb-0">{{ (cat.qty_contract or 0) + (cat.qty_extra or 0) }}</div>
+                <div class="small text-muted">invitaciones</div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+      {% if not invitation_categories_summary %}
+      <div class="alert alert-light border">Aún no hay invitaciones configuradas.{% if venue_saved_ticket_count %} Pulsa «Cargar del recinto» para traer las del recinto,{% else %} Configúralas{% endif %} o usa «Configurar invitaciones».</div>
+      {% endif %}
+    </div></div>
   {% elif tab == 'resultado' %}
     <div class="card mb-3"><div class="card-body">
       {% if result_calc %}

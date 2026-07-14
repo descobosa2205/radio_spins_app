@@ -22300,7 +22300,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos"}:
+        if tab not in {"general", "invitations", "ticketing", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -22324,13 +22324,21 @@ def concert_detail_view(cid):
             invitation_categories_summary = []
         invitation_can_manage = False
         invitation_ficha_groups = []
-        if tab == 'invitations':
+        if tab in ('invitations', 'ticketing'):
             try:
                 invitation_can_manage = _user_can_manage_invitations(c, session_db=session)
                 invitation_ficha_groups = _invitation_ficha_overview(session, c, _invitation_get_categories(session, c, ensure_defaults=False))
             except Exception:
                 invitation_can_manage = False
                 invitation_ficha_groups = []
+        # Ticketing: ¿el recinto tiene una plantilla de categorías guardada para precargar?
+        venue_saved_ticket_count = 0
+        if tab == 'ticketing' and c.venue_id:
+            try:
+                venue_saved_ticket_count = session.query(VenueTicketCategory).filter(VenueTicketCategory.venue_id == c.venue_id).count()
+            except Exception:
+                venue_saved_ticket_count = 0
+        show_ticketing_tab = (c.sale_type or '').upper() in ('EMPRESA', 'PARTICIPADOS')
         payment_terms = _concert_payment_rows(c, pending_only=False)
         payment_pending = _concert_payment_total(c, pending_only=True)
         payment_total_configured = _concert_payment_total(c, pending_only=False)
@@ -22432,6 +22440,8 @@ def concert_detail_view(cid):
             roadmap_ctx=roadmap_ctx,
             result_calc=(result_ctx["calc"] if result_ctx else None),
             result_module=(result_ctx["module"] if result_ctx else None),
+            venue_saved_ticket_count=venue_saved_ticket_count,
+            show_ticketing_tab=show_ticketing_tab,
             fotos_ctx=fotos_ctx,
             artists=edit_artists,
             venues=edit_venues,
@@ -38284,6 +38294,52 @@ def concert_budget_load_template(cid):
         return redirect(url_for('concert_detail_view', cid=cid, tab='produccion'))
     finally:
         session_db.close()
+
+
+@app.post('/conciertos/<cid>/ticketing/cargar-recinto', endpoint='concert_ticketing_load_venue')
+@admin_required
+def concert_ticketing_load_venue(cid):
+    """Precarga las categorías de invitación del concierto desde la plantilla del recinto
+    (VenueTicketCategory: zona + nº de invitaciones), para no configurarlas a mano."""
+    session_db = db()
+    try:
+        c = session_db.get(Concert, to_uuid(cid))
+        if not c:
+            abort(404)
+        if not c.venue_id:
+            flash('Este concierto no tiene recinto asignado.', 'warning')
+            return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
+        cats = (
+            session_db.query(VenueTicketCategory)
+            .filter(VenueTicketCategory.venue_id == c.venue_id)
+            .order_by(VenueTicketCategory.sort_order.asc()).all()
+        )
+        existing = {(x.name or '').strip().lower() for x in session_db.query(InvitationCategory).filter(InvitationCategory.concert_id == c.id).all()}
+        n = 0
+        for vc in cats:
+            inv = int(vc.invitations or 0)
+            if inv <= 0:
+                continue
+            nm = (vc.name or vc.zone or 'Invitaciones').strip()
+            if nm.lower() in existing:
+                continue
+            session_db.add(InvitationCategory(
+                concert_id=c.id, name=nm, zone=((vc.zone or 'PISTA').strip().upper() if (vc.zone or '').strip().upper() in ('PISTA', 'GRADA', 'PALCO') else 'PISTA'),
+                qty_contract=inv, qty_extra=0, source='TICKETING',
+            ))
+            existing.add(nm.lower())
+            n += 1
+        session_db.commit()
+        if n:
+            flash(f'Cargadas {n} categoría(s) de invitación del recinto.', 'success')
+        else:
+            flash('El recinto no tiene invitaciones por zona configuradas (o ya estaban cargadas).', 'info')
+    except Exception as exc:
+        session_db.rollback()
+        flash(f'No se pudo cargar del recinto: {exc}', 'danger')
+    finally:
+        session_db.close()
+    return redirect(url_for('concert_detail_view', cid=cid, tab='ticketing'))
 
 
 @app.post('/conciertos/<cid>/produccion/presupuesto/<item_id>/delete', endpoint='concert_budget_item_delete')

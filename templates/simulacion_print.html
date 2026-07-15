@@ -406,9 +406,13 @@
   var el = document.getElementById('tourMap'); if(!el || !window.L) return;
   var points = {{ tour_points|tojson }};
   if(!points.length){ el.style.display='none'; return; }
-  var map = L.map('tourMap', {scrollWheelZoom:false, zoomControl:false}).setView([40.4168,-3.7038], 5);
+  // fadeAnimation:false → tiles sin desvanecido (que depende de rAF y a veces dejaba el mapa gris).
+  var map = L.map('tourMap', {scrollWheelZoom:false, zoomControl:false, fadeAnimation:false}).setView([40.4168,-3.7038], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
   var coords = [], i = 0;
+  // Reaplicar la vista al recalcular el tamaño (si no, se queda al zoom del tamaño 0 = casi en blanco).
+  function _fitView(){ try{ map.invalidateSize(true); if(coords.length===1){ map.setView(coords[0], 12); } else if(coords.length>1){ map.fitBounds(coords, {padding:[24,24]}); } }catch(e){} }
+  [60,300,800,1500].forEach(function(t){ setTimeout(_fitView, t); });
   function geocode(p){ return fetch("{{ url_for('api_geocode') }}?city="+encodeURIComponent(p.city)+"&province="+encodeURIComponent(p.province||'')).then(function(r){ return r.json(); }); }
   function step(){
     if(i >= points.length){ finish(); return; }
@@ -423,8 +427,9 @@
     }).catch(function(){}).then(step);
   }
   function finish(){
-    if(coords.length > 1){ try{ map.fitBounds(coords, {padding:[24,24]}); }catch(e){} }
-    else if(coords.length === 1){ map.setView(coords[0], 8); }
+    _fitView();
+    requestAnimationFrame(function(){ requestAnimationFrame(_fitView); });
+    [80,300,800].forEach(function(t){ setTimeout(_fitView, t); });
   }
   step();
 })();

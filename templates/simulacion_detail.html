@@ -2050,15 +2050,27 @@
   var points = {{ tour_points|tojson }};
   var empty = document.getElementById('tourMapEmpty');
   if(!points.length){ if(empty) empty.classList.remove('d-none'); el.style.display='none'; return; }
-  var map = L.map('tourMap', {scrollWheelZoom:false}).setView([40.4168,-3.7038], 5);
+  // fadeAnimation:false → los tiles aparecen SIN el desvanecido de Leaflet (que depende de
+  // requestAnimationFrame; si el rAF se atasca —pestaña de fondo, render lento— los tiles se
+  // quedaban casi transparentes y el mapa se veía GRIS aunque estuvieran cargados).
+  var map = L.map('tourMap', {scrollWheelZoom:false, fadeAnimation:false}).setView([40.4168,-3.7038], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
-  // Recalcular tamaño cuando el layout se estabiliza (evita tiles descolocados).
-  function _invalMap(){ try{ map.invalidateSize(); }catch(e){} }
+  var coords = [], i = 0;
+  // Al recalcular el tamaño hay que REAPLICAR la vista: si el contenedor no tenía su tamaño final
+  // cuando se hizo setView/fitBounds, invalidateSize lo redimensiona pero se quedaba con el zoom
+  // equivocado (mapa a nivel mundo, casi en blanco). Reencuadrar tras el tamaño lo arregla.
+  function _fitView(){
+    try{
+      map.invalidateSize(true);
+      if(coords.length===1){ map.setView(coords[0].ll, 12); }
+      else if(coords.length>1){ map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); }
+    }catch(e){}
+  }
+  function _invalMap(){ _fitView(); }
   [60,300,800,1500].forEach(function(t){ setTimeout(_invalMap, t); });
   window.addEventListener('load', function(){ setTimeout(_invalMap, 100); });
   window.addEventListener('resize', _invalMap);
   if(window.ResizeObserver){ try{ new ResizeObserver(_invalMap).observe(el); }catch(e){} }
-  var coords = [], i = 0;
   function geocode(p){ return fetch("{{ url_for('api_geocode') }}?city="+encodeURIComponent(p.city)+"&province="+encodeURIComponent(p.province||'')).then(function(r){ return r.json(); }); }
   function step(){
     if(i >= points.length){ finish(); return; }
@@ -2097,9 +2109,11 @@
       });
       map.addControl(new ToggleCtl());
     }
-    if(coords.length === 1){ map.setView(coords[0].ll, 9); setTimeout(_invalMap, 60); return; }   // fecha individual: un solo pin
-    try { map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); } catch(e){}
-    setTimeout(_invalMap, 60);
+    // Encaja la vista (1 pin = zoom fijo; varios = fitBounds) y REAPLICA tras el layout (rAF +
+    // timeouts) por si el contenedor aún no tenía su tamaño definitivo.
+    _fitView();
+    requestAnimationFrame(function(){ requestAnimationFrame(_fitView); });
+    [80,300,800].forEach(function(t){ setTimeout(_fitView, t); });
   }
   step();
 })();

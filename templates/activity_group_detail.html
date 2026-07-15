@@ -49,6 +49,7 @@
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-general" type="button">Producción general</button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-items" type="button">{{ items_label }} <span class="badge text-bg-light">{{ concerts|length }}</span></button></li>
   <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-roadmap" type="button">Hoja de ruta <span class="badge text-bg-light">{{ (general_roadmap or [])|length }}</span></button></li>
+  <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-result" type="button">Resultado</button></li>
 </ul>
 
 <div class="tab-content">
@@ -124,6 +125,19 @@
             {% endfor %}
           </div>
           <button class="btn btn-sm btn-outline-secondary" type="button" data-gen-add><i class="fa fa-plus me-1"></i>Añadir gasto</button>
+          <hr>
+          <label class="form-label">Socios{% if is_tour %} de la gira{% else %} del {{ kind_label|lower }}{% endif %} <span class="text-muted small">(reparto del resultado general)</span></label>
+          <div id="partnerRows">
+            {% for pr in general.partners %}
+            <div class="input-group mb-2" data-partner-row>
+              <input class="form-control" name="partner_name" placeholder="Nombre del socio" value="{{ pr.name }}">
+              <input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" value="{{ pr.pct }}" style="max-width:120px;">
+              <span class="input-group-text">%</span>
+              <button class="btn btn-outline-danger" type="button" data-partner-remove><i class="fa fa-trash"></i></button>
+            </div>
+            {% endfor %}
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-partner-add><i class="fa fa-plus me-1"></i>Añadir socio</button>
           <div class="mt-3">
             <label class="form-label">Notas</label>
             <textarea class="form-control" name="notes" rows="2">{{ general.notes }}</textarea>
@@ -205,7 +219,28 @@
       <div class="alert alert-light border">Aún no hay hoja de ruta en las {{ items_label|lower }} vinculadas.</div>
     {% endif %}
   </div>
+
+  {# ---------- Resultado general (agregado + reparto por socios) ---------- #}
+  <div class="tab-pane fade" id="tab-result">
+    {% if group_result %}
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if group_result.at100.resultado >= 0 else 'text-danger' }}">{{ group_result.at100.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+        <div class="sim-stat"><div class="sim-stat__n">{{ group_result.at100.ingresos|eur }}</div><div class="sim-stat__l">Ingresos @100%</div></div>
+        <div class="sim-stat"><div class="sim-stat__n">{{ group_result.at100.gastos|eur }}</div><div class="sim-stat__l">Gastos @100%</div></div>
+        <div class="sim-stat"><div class="sim-stat__n">{% if group_result.break_even_tickets is none %}No se alcanza{% else %}{{ group_result.break_even_tickets|k }} · {{ group_result.break_even_pct }}%{% endif %}</div><div class="sim-stat__l">Punto de empate</div></div>
+      </div>
+      <h6 class="mb-2">Reparto del resultado general entre socios</h6>
+      <div data-sim-partners="groupResultData"></div>
+      <script type="application/json" id="groupResultData">{{ group_result.module|tojson }}</script>
+      {% if not group_result.has_partners %}<div class="small text-muted mt-2">Añade socios en «Producción general» para ver el reparto del resultado.</div>{% endif %}
+      <div class="small text-muted mt-2">Suma del resultado de todas las {{ items_label|lower }} vinculadas (mismo motor que las simulaciones), menos los gastos generales.</div>
+    {% else %}
+      <div class="alert alert-light border">Aún no se puede calcular el resultado. Vincula fechas con ticketing/cachés configurados.</div>
+    {% endif %}
+  </div>
 </div>
+
+<script src="{{ url_for('static', filename='js/sim_partners.js') }}"></script>
 
 {# ===== Modal editar ===== #}
 <div class="modal fade" id="groupEditModal" tabindex="-1" aria-hidden="true">
@@ -260,6 +295,7 @@
 <script>
 (function(){
   var rows = document.getElementById('genRows');
+  var prows = document.getElementById('partnerRows');
   function newRow(){
     var d = document.createElement('div'); d.className='input-group mb-2'; d.setAttribute('data-gen-row','');
     d.innerHTML = '<input class="form-control" name="gen_concept" placeholder="Concepto">'
@@ -268,9 +304,19 @@
       + '<button class="btn btn-outline-danger" type="button" data-gen-remove><i class="fa fa-trash"></i></button>';
     return d;
   }
+  function newPartner(){
+    var d = document.createElement('div'); d.className='input-group mb-2'; d.setAttribute('data-partner-row','');
+    d.innerHTML = '<input class="form-control" name="partner_name" placeholder="Nombre del socio">'
+      + '<input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:120px;">'
+      + '<span class="input-group-text">%</span>'
+      + '<button class="btn btn-outline-danger" type="button" data-partner-remove><i class="fa fa-trash"></i></button>';
+    return d;
+  }
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-gen-add]') && rows){ rows.appendChild(newRow()); }
     var rm = ev.target.closest('[data-gen-remove]'); if(rm){ var r = rm.closest('[data-gen-row]'); if(r) r.remove(); }
+    if(ev.target.closest('[data-partner-add]') && prows){ prows.appendChild(newPartner()); }
+    var prm = ev.target.closest('[data-partner-remove]'); if(prm){ var pr = prm.closest('[data-partner-row]'); if(pr) pr.remove(); }
   });
 })();
 </script>

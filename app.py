@@ -18925,11 +18925,13 @@ def _group_general(group):
     items = []
     for it in (gen.get("expenses") or []):
         items.append({"concept": (it.get("concept") or ""), "amount": float(_money_or_zero(it.get("amount")))})
+    partners = [{"name": (x.get("name") or ""), "pct": float(_money_or_zero(x.get("pct")))} for x in (gen.get("partners") or []) if (x.get("name") or "").strip()]
     return {
         "advance": float(_money_or_zero(gen.get("advance"))),
         "expenses": items,
         "notes": (gen.get("notes") or ""),
         "simulation_ids": list(gen.get("simulation_ids") or []),
+        "partners": partners,
     }
 
 
@@ -18944,9 +18946,16 @@ def _group_general_save(group, form):
         expenses.append({"concept": c, "amount": float(_money_or_zero(a))})
     p = dict(group.payload or {})
     gen = dict(p.get("general") or {})
+    partners = []
+    for nm, pc in zip(form.getlist("partner_name"), form.getlist("partner_pct")):
+        nm = (nm or "").strip()
+        if not nm:
+            continue
+        partners.append({"name": nm, "pct": float(_money_or_zero(pc))})
     gen["advance"] = float(_money_or_zero(form.get("advance")))
     gen["expenses"] = expenses
     gen["notes"] = (form.get("notes") or "").strip()
+    gen["partners"] = partners
     p["general"] = gen
     group.payload = p
 
@@ -19023,6 +19032,46 @@ def _group_general_roadmap(concerts):
             })
     out.sort(key=lambda x: (x["day"] or "9999-99-99", x["time"] or "99:99"))
     return out
+
+
+def _group_result_context(s, concerts, general):
+    """Resultado AGREGADO de la gira/ciclo: suma la serie 0–100% de cada concierto (adaptador
+    Concert→sim_calc), resta los gastos generales (adelanto + gastos generales) y prepara el
+    módulo de socios (sim_partners.js) con los socios de TODA la gira para repartir el resultado."""
+    extra_fixed = float(general.get("advance") or 0) + sum((x.get("amount") or 0) for x in (general.get("expenses") or []))
+    agg = None
+    total_sellable = 0
+    for c in concerts:
+        try:
+            calc = sim_calc.compute(_concert_build_calc_data(s, c))
+        except Exception:
+            continue
+        total_sellable += int(calc["ticketing"]["sellable"] or 0)
+        fine = calc.get("series_fine") or []
+        if agg is None:
+            agg = [{"pct": p.get("pct"), "tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "g": {}, "com": []} for p in fine]
+        for i, p in enumerate(fine):
+            if i >= len(agg):
+                break
+            agg[i]["tickets"] += p["tickets"]; agg[i]["ingresos"] += p["ingresos"]
+            agg[i]["gastos"] += p["gastos"]; agg[i]["resultado"] += p["resultado"]
+    if not agg:
+        return None
+    for p in agg:
+        p["gastos"] = round(p["gastos"] + extra_fixed, 2)
+        p["resultado"] = round(p["resultado"] - extra_fixed, 2)
+        p["ingresos"] = round(p["ingresos"], 2)
+    be_pct = be_tickets = None
+    for p in agg:
+        if p["resultado"] >= 0:
+            be_pct = p["pct"]; be_tickets = p["tickets"]; break
+    partners = [{"name": (pr.get("name") or "Socio"), "logo": "", "pct": float(pr.get("pct") or 0),
+                 "company_id": "", "promoter_id": "", "label": "", "no_loss": False} for pr in (general.get("partners") or [])]
+    module = {"mode": "activity", "labels": SIM_EXPENSE_CATEGORY_LABELS,
+              "activities": [{"label": "General", "partners": partners, "commissions": [], "series": agg,
+                              "sellable": total_sellable, "break_even_pct": be_pct, "break_even_tickets": be_tickets}]}
+    return {"at100": (agg[-1] if agg else {}), "series": agg, "module": module,
+            "break_even_pct": be_pct, "break_even_tickets": be_tickets, "sellable": total_sellable, "has_partners": bool(partners)}
 
 
 def _group_concert_row(c):
@@ -19180,6 +19229,7 @@ def purchased_tour_detail(tid):
             artists=artists, companies=companies, simulations=simulations,
             linked_sims=_group_linked_sims(s, general),
             general_roadmap=_group_general_roadmap(concerts),
+            group_result=_group_result_context(s, concerts, general),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:
@@ -19433,6 +19483,7 @@ def cycle_festival_detail(cfid):
             status_label=label, status_badge=badge, artists=artists, companies=companies,
             venues=venues, simulations=simulations, linked_sims=_group_linked_sims(s, general),
             general_roadmap=_group_general_roadmap(concerts),
+            group_result=_group_result_context(s, concerts, general),
             CAN_EDIT_CONCERTS=can_edit_concerts(),
         )
     finally:

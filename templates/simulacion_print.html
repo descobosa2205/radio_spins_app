@@ -6,9 +6,13 @@
 <title>Simulación · {{ sim.title or subject.name }}</title>
 {% if og %}
 <meta property="og:type" content="website">
+<meta property="og:site_name" content="33 Producciones">
+<meta property="og:locale" content="es_ES">
+{% if og.url %}<meta property="og:url" content="{{ og.url }}">{% endif %}
 <meta property="og:title" content="{{ og.title }}">
+<meta name="twitter:title" content="{{ og.title }}">
 {% if og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
-{% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta name="twitter:image" content="{{ og.image }}"><meta name="twitter:card" content="summary_large_image">{% else %}<meta name="twitter:card" content="summary">{% endif %}
+{% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta property="og:image:secure_url" content="{{ og.image }}">{% if og.image_processed %}<meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">{% endif %}<meta property="og:image:alt" content="{{ og.title }}"><meta name="twitter:image" content="{{ og.image }}"><meta name="twitter:card" content="summary_large_image">{% else %}<meta name="twitter:card" content="summary">{% endif %}
 {% endif %}
 <style>
   /* ESTÉTICA COMÚN de los PDFs de la casa (invitaciones): logo del grupo arriba a la DERECHA,

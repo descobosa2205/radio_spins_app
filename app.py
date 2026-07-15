@@ -21541,15 +21541,25 @@ def _simulation_share_meta(sim):
     """Metadatos para compartir una simulación por WhatsApp/correo (previsualización social del
     enlace público y cabecera del correo). Se comparten para que el enlace y el correo se vean igual.
     - imagen: el CARTEL PRINCIPAL (`poster_url`) si lo hay; si no, la foto del artista o el logo del
-      evento (así SIEMPRE hay imagen de previsualización).
+      evento; en último término el logo corporativo (así SIEMPRE hay imagen de previsualización).
+      Para el og:image se usa `public_simulation_og_image` (JPEG 1200×630 servido desde nuestro
+      dominio): WhatsApp descarta imágenes grandes, sin content-type de imagen o sin dimensiones,
+      y al fallar la imagen colapsa la tarjeta a solo título+dominio (sin descripción).
     - descripción secundaria: si hay VARIAS fechas, el número de eventos; si es UNA sola, la fecha y
       el recinto."""
     subject = _sim_subject(sim)
     kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get((sim.kind or "").upper(), "Concierto")
-    image = _absolute_media_url((sim.poster_url or "").strip() or (subject.get("photo") or ""))
+    image_src = (sim.poster_url or "").strip() or (subject.get("photo") or "").strip() or url_for("static", filename="img/logo_33_producciones.png")
+    image_raw = _absolute_media_url(image_src)
+    if sim.public_token:
+        image = _external_url_for("public_simulation_og_image", token=sim.public_token)
+        image_processed = True
+        share_url = _external_url_for("public_simulation_view", token=sim.public_token)
+    else:
+        image, image_processed, share_url = image_raw, False, ""
     activities = [a for a in (sim.activities or []) if not a.is_shared]
     if len(activities) > 1:
-        desc = f"{kind_label} · {len(activities)} fechas"
+        desc = f"{kind_label} · {len(activities)} eventos"
     elif activities:
         a0 = activities[0]
         parts = []
@@ -21565,7 +21575,8 @@ def _simulation_share_meta(sim):
     else:
         desc = kind_label
     return {"title": (sim.title or subject["name"] or "Simulación"), "description": desc,
-            "image": image, "kind_label": kind_label, "subject": subject}
+            "image": image, "image_raw": image_raw, "image_processed": image_processed,
+            "url": share_url, "kind_label": kind_label, "subject": subject}
 
 
 def _simulation_print_context(s, sim):
@@ -21775,7 +21786,8 @@ def _simulation_email_body(s, sim, link):
     logo = _invitation_event_logo_url(s, None, external=True)
     esc = html.escape
     # Imagen de cabecera: cartel principal si lo hay, si no la foto del artista / logo del evento.
-    photo = meta["image"]
+    # La versión SIN procesar (cuadrada): la og es 1200×630 y en un avatar redondo se vería mal.
+    photo = meta.get("image_raw") or meta["image"]
     subject = f"Simulación · {subj['name']} ({kind_label})"
     photo_html = (f'<img src="{esc(photo)}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid #eceef1;vertical-align:middle;margin-right:10px">' if photo else '')
     # Línea secundaria: nº de fechas (varias) o fecha + recinto (una sola).
@@ -21813,6 +21825,66 @@ def public_simulation_view(token):
         return render_template("simulacion_print.html", public=True, **_simulation_print_context(s, sim))
     finally:
         s.close()
+
+
+# Miniaturas og:image ya procesadas, por token de simulación: {token: (src, bytes)}.
+_SIM_OG_IMAGE_CACHE: dict = {}
+
+
+def _og_image_jpeg_bytes(source_url: str) -> bytes | None:
+    """Normaliza una imagen a tarjeta OG: JPEG 1200×630 (contain sobre blanco), <300 KB.
+    Los previsualizadores (WhatsApp sobre todo) descartan og:image grandes o sin dimensiones."""
+    if not PILLOW_AVAILABLE:
+        return None
+    try:
+        rel = (source_url or "").strip()
+        if rel.startswith("/static/"):
+            with open(os.path.join(app.static_folder, rel[len("/static/"):]), "rb") as fh:
+                data = fh.read()
+        else:
+            data, _ctype = _download_remote_content(rel, timeout=10)
+        img = ImageOps.exif_transpose(PILImage.open(BytesIO(data)))
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img = ImageOps.contain(img, (1200, 630))
+        canvas = PILImage.new("RGB", (1200, 630), (255, 255, 255))
+        canvas.paste(img, ((1200 - img.width) // 2, (630 - img.height) // 2))
+        out = BytesIO()
+        canvas.save(out, format="JPEG", quality=85, optimize=True)
+        return out.getvalue()
+    except Exception:
+        return None
+
+
+@app.get("/simulaciones/ver/<token>/og.jpg", endpoint="public_simulation_og_image")
+def public_simulation_og_image(token):
+    """Imagen de previsualización (og:image) del enlace público de una simulación. Se sirve desde
+    nuestro dominio y procesada (cartel → foto del artista / logo del evento → logo corporativo)."""
+    s = db()
+    try:
+        sim = (s.query(Simulation)
+               .options(joinedload(Simulation.artist), joinedload(Simulation.event))
+               .filter(Simulation.public_token == token).first())
+        if not sim:
+            abort(404)
+        src = ((sim.poster_url or "").strip()
+               or (_sim_subject(sim).get("photo") or "").strip()
+               or url_for("static", filename="img/logo_33_producciones.png"))
+    finally:
+        s.close()
+    cached = _SIM_OG_IMAGE_CACHE.get(token)
+    data = cached[1] if (cached and cached[0] == src) else None
+    if data is None:
+        data = _og_image_jpeg_bytes(src if src.startswith("/static/") else _absolute_media_url(src))
+        if data:
+            if len(_SIM_OG_IMAGE_CACHE) > 200:
+                _SIM_OG_IMAGE_CACHE.clear()
+            _SIM_OG_IMAGE_CACHE[token] = (src, data)
+    if not data:
+        return redirect(_absolute_media_url(src))
+    resp = send_file(BytesIO(data), mimetype="image/jpeg")
+    resp.headers["Cache-Control"] = "public, max-age=21600"
+    return resp
 
 
 @app.post("/contratacion/simulaciones/<sid>/compartir", endpoint="simulation_share")
@@ -31632,7 +31704,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:

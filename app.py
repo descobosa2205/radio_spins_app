@@ -47717,11 +47717,22 @@ def invitation_tickets_upload(concert_id):
         seen_butacas = set() # butacas (sector+fila+asiento) ya vistas en este lote (numeradas)
         folder = f'invitaciones/{concert.id}/{category.id if category else "sin-categoria"}'
 
+        # Precarga EN BLOQUE de lo ya subido a este concierto: dedupe por código, SHA y butaca en
+        # memoria. Antes era una consulta a la BD remota por página (lentísimo con muchos PDFs).
+        _existing = session_db.query(
+            InvitationTicket.ticket_code, InvitationTicket.pdf_sha256,
+            InvitationTicket.sector, InvitationTicket.row_label, InvitationTicket.seat_number,
+        ).filter(InvitationTicket.concert_id == concert.id).all()
+        existing_codes = {r[0] for r in _existing if r[0]}
+        existing_shas = {r[1] for r in _existing if r[1]}
+        existing_butacas = {
+            (str(r[2] or '').strip().lower(), str(r[3] or '').strip().lower(), str(r[4] or '').strip().lower())
+            for r in _existing if r[4]
+        }
+        pending = []   # páginas aceptadas: se suben en paralelo y se crean en orden
+
         def _code_taken(value):
-            if value in seen_codes:
-                return True
-            return session_db.query(InvitationTicket.id).filter(
-                InvitationTicket.concert_id == concert.id, InvitationTicket.ticket_code == value).first() is not None
+            return value in seen_codes or value in existing_codes
         for idx, file in enumerate(files):
             if not file or not getattr(file, 'filename', ''):
                 continue
@@ -47753,8 +47764,7 @@ def invitation_tickets_upload(concert_id):
                 page_sha = hashlib.sha256(page_bytes).hexdigest()
                 page_label = f'{stem} (pág. {pidx + 1})' if multi else stem
                 # Duplicado real = misma página (SHA): se salta e informa; el resto del lote sí se sube.
-                if page_sha in seen_shas or session_db.query(InvitationTicket.id).filter(
-                        InvitationTicket.concert_id == concert.id, InvitationTicket.pdf_sha256 == page_sha).first():
+                if page_sha in seen_shas or page_sha in existing_shas:
                     duplicates.append(page_label)
                     continue
                 meta = _invitation_extract_ticket_metadata(page_bytes, f'{stem}-p{pidx + 1}.pdf')
@@ -47782,13 +47792,6 @@ def invitation_tickets_upload(concert_id):
                     while _code_taken(code) and suffix < 9999:
                         code = f'{base}-{suffix}'
                         suffix += 1
-                try:
-                    url = upload_pdf_bytes(page_bytes, folder)
-                except Exception as up_exc:
-                    errors.append(f'{page_label}: no se pudo subir ({up_exc})')
-                    continue
-                seen_codes.add(code)
-                seen_shas.add(page_sha)
                 meta_sector = meta.get('sector') if is_numbered else None
                 meta_row = meta.get('row_label') if is_numbered else None
                 meta_seat = meta.get('seat_number') if is_numbered else None
@@ -47808,46 +47811,73 @@ def invitation_tickets_upload(concert_id):
                 # en el mismo concierto, aunque el PDF sea distinto (complementa la deduplicación por SHA).
                 if is_numbered and seat_val and sector_val and sector_val != 'Sin numerar':
                     _bk = (str(sector_val).strip().lower(), str(row_val or '').strip().lower(), str(seat_val).strip().lower())
-                    if _bk in seen_butacas or session_db.query(InvitationTicket.id).filter(
-                            InvitationTicket.concert_id == concert.id,
-                            func.lower(func.coalesce(InvitationTicket.sector, '')) == _bk[0],
-                            func.lower(func.coalesce(InvitationTicket.row_label, '')) == _bk[1],
-                            func.lower(func.coalesce(InvitationTicket.seat_number, '')) == _bk[2]).first():
+                    if _bk in seen_butacas or _bk in existing_butacas:
                         duplicates.append(f'{page_label} · {sector_val} F{row_val or "-"} A{seat_val}')
                         continue
                     seen_butacas.add(_bk)
-                ticket = InvitationTicket(
-                    concert_id=concert.id,
-                    category_id=(category.id if category else None),
-                    ticket_code=code,
-                    pdf_url=url,
-                    pdf_name=(f'{stem}.pdf' if multi else fname),
-                    pdf_sha256=page_sha,
-                    is_numbered=is_numbered,
-                    sector=sector_val,
-                    row_label=row_val,
-                    seat_number=seat_val,
-                    uploaded_by_user_id=_safe_uuid(session.get('user_id')),
-                    uploaded_by_nick=_current_user_email(),
-                )
-                session_db.add(ticket)
-                created += 1
-                created_tickets.append(ticket)
-                # PMR: adjuntar la 2ª página como entrada de ACOMPAÑANTE de esta misma invitación.
-                # Viaja siempre con ella (fusión/ZIP/descarga al enviar); no es una entrada aparte.
-                if companion_bytes is not None:
+                # Decisión tomada: reservamos código/SHA en el lote y encolamos la subida (que se hace
+                # en paralelo más abajo para que sea muy rápida). Aún no subimos ni creamos nada.
+                seen_codes.add(code)
+                seen_shas.add(page_sha)
+                pending.append({
+                    'page_bytes': page_bytes, 'companion_bytes': companion_bytes,
+                    'code': code, 'page_label': page_label, 'page_sha': page_sha,
+                    'pdf_name': (f'{stem}.pdf' if multi else fname), 'stem': stem,
+                    'sector': sector_val, 'row_label': row_val, 'seat_number': seat_val,
+                })
+
+        # Subida a Storage EN PARALELO: subir de una en una a la región del bucket era el cuello de
+        # botella; con hilos, N páginas se suben a la vez y el proceso es muy rápido.
+        if pending:
+            def _do_upload(item):
+                try:
+                    item['url'] = upload_pdf_bytes(item['page_bytes'], folder)
+                except Exception as up_exc:
+                    item['upload_error'] = str(up_exc)
+                    return
+                if item.get('companion_bytes') is not None:
                     try:
-                        ticket.companion_pdf_url = upload_pdf_bytes(companion_bytes, folder)
-                        ticket.companion_pdf_name = f'{stem} (acompañante).pdf'
-                        companions_linked += 1
+                        item['companion_url'] = upload_pdf_bytes(item['companion_bytes'], folder)
                     except Exception as _cexc:
-                        errors.append(f'{page_label}: no se pudo subir el acompañante ({_cexc})')
-                if is_numbered:
-                    created_rows.append({
-                        "sector": sector_val or "", "row_label": row_val or "",
-                        "seat_number": seat_val or "", "pdf_name": ticket.pdf_name or "",
-                    })
-        # (PMR: la entrada de ACOMPAÑANTE ya se adjunta arriba desde la 2ª página del propio PDF.)
+                        item['companion_error'] = str(_cexc)
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=min(8, max(1, len(pending)))) as _ex:
+                list(_ex.map(_do_upload, pending))
+
+        # Persistencia EN ORDEN (una entrada por página aceptada).
+        for item in pending:
+            if item.get('upload_error'):
+                errors.append(f"{item['page_label']}: no se pudo subir ({item['upload_error']})")
+                continue
+            ticket = InvitationTicket(
+                concert_id=concert.id,
+                category_id=(category.id if category else None),
+                ticket_code=item['code'],
+                pdf_url=item['url'],
+                pdf_name=item['pdf_name'],
+                pdf_sha256=item['page_sha'],
+                is_numbered=is_numbered,
+                sector=item['sector'],
+                row_label=item['row_label'],
+                seat_number=item['seat_number'],
+                uploaded_by_user_id=_safe_uuid(session.get('user_id')),
+                uploaded_by_nick=_current_user_email(),
+            )
+            session_db.add(ticket)
+            created += 1
+            created_tickets.append(ticket)
+            # PMR: la 2ª página va adjunta como entrada de ACOMPAÑANTE (viaja siempre con la invitación).
+            if item.get('companion_url'):
+                ticket.companion_pdf_url = item['companion_url']
+                ticket.companion_pdf_name = f"{item['stem']} (acompañante).pdf"
+                companions_linked += 1
+            elif item.get('companion_error'):
+                errors.append(f"{item['page_label']}: no se pudo subir el acompañante ({item['companion_error']})")
+            if is_numbered:
+                created_rows.append({
+                    "sector": item['sector'] or "", "row_label": item['row_label'] or "",
+                    "seat_number": item['seat_number'] or "", "pdf_name": ticket.pdf_name or "",
+                })
         if category is not None:
             category.updated_at = _now_madrid()
         session_db.commit()

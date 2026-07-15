@@ -924,6 +924,21 @@ img.img-error-pending{ visibility: hidden; }
 .invitation-icon-option i, .invitation-radio-option i { font-size:1.8rem; color:#e83b4b; }
 .invitation-radio-option input { position:absolute; opacity:0; pointer-events:none; }
 .invitation-radio-option:has(input:checked) { border-color:#e83b4b; box-shadow:0 0 0 .18rem rgba(232,59,75,.12); }
+/* Dropzone de subida de invitaciones (arrastrar PDFs o pinchar para seleccionar) */
+.inv-dropzone { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.3rem; border:2px dashed #cfd6de; border-radius:1rem; background:#fbfcfd; padding:1.5rem 1rem; text-align:center; cursor:pointer; transition:.15s ease; color:#42505f; margin:0; width:100%; }
+.inv-dropzone:hover { border-color:#e83b4b; background:rgba(232,59,75,.04); }
+.inv-dropzone.file-drop-hover, .inv-dropzone.is-dragover { border-color:#e83b4b; background:rgba(232,59,75,.08); box-shadow:0 0 0 .2rem rgba(232,59,75,.12); }
+.inv-dropzone > i { font-size:2rem; color:#e83b4b; }
+.inv-dropzone__title { font-weight:700; }
+.inv-dropzone__hint { font-size:.82rem; color:#6c757d; }
+.inv-dropzone__browse { color:#e83b4b; text-decoration:underline; font-weight:600; }
+.inv-file-chip { display:inline-flex; align-items:center; gap:.35rem; background:#f1f3f5; border:1px solid #e9ecef; border-radius:.6rem; padding:.2rem .5rem; margin:.2rem .25rem 0 0; font-size:.8rem; max-width:100%; }
+.inv-file-chip i { color:#e83b4b; flex:0 0 auto; }
+.inv-file-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Zona de categoría en «Invitaciones» resaltada al arrastrarle PDFs encima */
+.invitation-ticket-module.is-catdrop { outline:2px dashed #e83b4b; outline-offset:3px; background:rgba(232,59,75,.05); }
+.inv-catdrop-hint { display:none; margin-top:.5rem; padding:.4rem .6rem; border-radius:.6rem; background:rgba(232,59,75,.08); border:1px dashed #e83b4b; color:#b42318; font-size:.82rem; font-weight:600; }
+.invitation-ticket-module.is-catdrop .inv-catdrop-hint { display:block; }
 .invitation-event-picker { display:flex; flex-direction:column; gap:.65rem; max-height:55vh; overflow:auto; padding-right:.25rem; }
 .invitation-event-option { width:100%; display:flex; justify-content:space-between; align-items:center; gap:1rem; }
 .public-invitation-page { background:#f6f7f9; }

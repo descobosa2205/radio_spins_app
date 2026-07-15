@@ -780,8 +780,9 @@
           {% set cat_tickets = tickets_by_category.get(cat.id, []) if tickets_by_category is defined else [] %}
           {% set cat_groups = ticket_groups_by_category.get(cat.id, []) if ticket_groups_by_category is defined else [] %}
           <div class="col-12">
-            <div class="card invitation-ticket-module">
+            <div class="card invitation-ticket-module{% if cat.ticket_kind != 'GUEST_LIST' %} position-relative{% endif %}"{% if cat.ticket_kind != 'GUEST_LIST' %} data-cat-upload-drop data-file-drop="off" data-category-id="{{ cat.id }}" data-category-name="{{ cat.name }}" data-ticket-kind="{{ cat.ticket_kind }}" data-guest-list-mode="{{ cat.guest_list_mode }}" data-is-pmr="{{ '1' if cat.is_pmr else '' }}"{% endif %}>
               <div class="card-body">
+                {% if cat.ticket_kind != 'GUEST_LIST' %}<div class="inv-catdrop-hint"><i class="fa fa-file-arrow-up me-1"></i>Suelta los PDFs para subirlos a «{{ cat.name }}»</div>{% endif %}
                 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                   <div>
                     <h5 class="mb-0">{{ cat.name }}</h5>
@@ -1494,9 +1495,14 @@
         <input type="hidden" name="guest_list_mode" value="">
         <div data-pdf-upload-panel>
           <label class="form-label">PDFs de invitaciones</label>
-          <input type="file" name="tickets[]" accept="application/pdf" multiple class="form-control" data-ticket-files>
+          <label class="inv-dropzone" for="ticketFilesInput" data-file-drop-for="#ticketFilesInput">
+            <i class="fa fa-file-arrow-up"></i>
+            <div class="inv-dropzone__title">Arrastra aquí los PDFs</div>
+            <div class="inv-dropzone__hint">o <span class="inv-dropzone__browse">selecciona archivos</span> · varios PDFs o un PDF con varias páginas</div>
+            <input type="file" id="ticketFilesInput" name="tickets[]" accept="application/pdf" multiple class="d-none" data-ticket-files>
+          </label>
           <div class="small text-muted mt-2" data-file-summary>Puedes subir <strong>varios PDFs a la vez</strong> o un <strong>PDF con varias páginas</strong> (se separa en una entrada por página). En numeradas se detecta sector, fila y asiento del texto del PDF.</div>
-          <div class="list-group mt-2 small" data-file-list></div>
+          <div class="mt-2" data-file-list></div>
         </div>
         {# Categoría PMR: la invitación puede llevar acompañante. Un PDF de 2 páginas = una invitación
            (pág. 1) + su acompañante (pág. 2), que van SIEMPRE unidas y cuentan como UNA petición. Una
@@ -1656,6 +1662,8 @@
       if(kind !== 'PDF_NUMBERED' && kind !== 'PDF_UNNUMBERED') return;  // listados: flujo normal
       ev.preventDefault();
       if(upBusy) return;   // evitar la doble subida por doble clic
+      var _fi = uploadForm.querySelector('[data-ticket-files]');
+      if(!_fi || !_fi.files || !_fi.files.length){ alert('Selecciona o arrastra al menos un PDF de invitaciones.'); return; }
       var catId = (uploadForm.querySelector('[data-upload-category-id]')||{}).value || '';
       var fd = new FormData(uploadForm); fd.append('ajax','1');
       var submitBtn = uploadForm.querySelector('.modal-footer .btn-danger');
@@ -2486,9 +2494,53 @@
     tbody.appendChild(tr);
   });
   document.addEventListener('click', (ev) => { const btn = ev.target.closest('[data-remove-row]'); if(btn) btn.closest('tr')?.remove(); });
-  document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; modal.dataset.isPmr = (btn?.dataset.isPmr === '1') ? '1' : ''; let kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; const mode = (btn?.dataset.guestListMode || '').toUpperCase(); if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
-  function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; const isList = kind === 'GUEST_LIST_BOX_OFFICE' || kind === 'GUEST_LIST_DOOR' || kind === 'GUEST_LIST'; const hiddenMode = root.querySelector('[name="guest_list_mode"]'); if(hiddenMode) hiddenMode.value = kind === 'GUEST_LIST_DOOR' ? 'DOOR' : (isList ? 'BOX_OFFICE' : ''); root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', isList); root.querySelector('[data-ticket-files]')?.toggleAttribute('required', !isList); root.querySelector('[data-companion-panel]')?.classList.toggle('d-none', !(root.dataset.isPmr === '1' && !isList)); }
+  document.getElementById('ticketUploadModal')?.addEventListener('show.bs.modal', (ev) => { const btn = ev.relatedTarget; const modal = ev.currentTarget; if(!btn) return; modal.querySelector('[data-upload-category-id]').value = btn?.dataset.categoryId || ''; modal.querySelector('[data-upload-category-label]').textContent = btn?.dataset.categoryName ? '· ' + btn.dataset.categoryName : ''; modal.dataset.isPmr = (btn?.dataset.isPmr === '1') ? '1' : ''; let kind = btn?.dataset.ticketKind || 'PDF_UNNUMBERED'; const mode = (btn?.dataset.guestListMode || '').toUpperCase(); if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE'; modal.querySelectorAll('[name="ticket_kind"]').forEach(x => x.checked = x.value === kind); updateUploadKind(modal); });
+  function updateUploadKind(root){ const kind = root.querySelector('[name="ticket_kind"]:checked')?.value || 'PDF_UNNUMBERED'; const isList = kind === 'GUEST_LIST_BOX_OFFICE' || kind === 'GUEST_LIST_DOOR' || kind === 'GUEST_LIST'; const hiddenMode = root.querySelector('[name="guest_list_mode"]'); if(hiddenMode) hiddenMode.value = kind === 'GUEST_LIST_DOOR' ? 'DOOR' : (isList ? 'BOX_OFFICE' : ''); root.querySelector('[data-numbering-panel]')?.classList.toggle('d-none', kind !== 'PDF_NUMBERED'); root.querySelector('[data-pdf-upload-panel]')?.classList.toggle('d-none', isList); root.querySelector('[data-ticket-files]')?.removeAttribute('required'); root.querySelector('[data-companion-panel]')?.classList.toggle('d-none', !(root.dataset.isPmr === '1' && !isList)); }
   document.querySelectorAll('#ticketUploadModal [name="ticket_kind"]').forEach(x=>x.addEventListener('change', () => updateUploadKind(document.getElementById('ticketUploadModal'))));
+
+  // --- Dropzone del modal (lista de archivos) + arrastrar PDFs directamente a cada categoría ---
+  (function(){
+    var upModal = document.getElementById('ticketUploadModal');
+    var fileInput = upModal ? upModal.querySelector('[data-ticket-files]') : null;
+    var fileListBox = upModal ? upModal.querySelector('[data-file-list]') : null;
+    function renderFiles(){
+      if(!fileListBox || !fileInput) return;
+      var fs = fileInput.files || [];
+      if(!fs.length){ fileListBox.innerHTML = ''; return; }
+      var html = '';
+      for(var i=0;i<fs.length;i++){ html += '<span class="inv-file-chip"><i class="fa fa-file-pdf"></i><span>' + String(fs[i].name||'archivo.pdf').replace(/&/g,'&amp;').replace(/</g,'&lt;') + '</span></span>'; }
+      fileListBox.innerHTML = '<div class="fw-semibold small mb-1">' + fs.length + ' archivo(s):</div>' + html;
+    }
+    if(fileInput) fileInput.addEventListener('change', renderFiles);
+    if(upModal) upModal.addEventListener('hidden.bs.modal', function(){ if(fileInput){ try{ fileInput.value=''; }catch(e){} } renderFiles(); });
+
+    // Configura el modal para una categoría, le mete los archivos y lanza la subida (con su barra).
+    function uploadToCategory(ctx, files){
+      if(!upModal || !fileInput) return;
+      upModal.querySelector('[data-upload-category-id]').value = ctx.categoryId || '';
+      upModal.querySelector('[data-upload-category-label]').textContent = ctx.categoryName ? '· ' + ctx.categoryName : '';
+      upModal.dataset.isPmr = ctx.isPmr ? '1' : '';
+      var kind = ctx.ticketKind || 'PDF_UNNUMBERED';
+      var mode = (ctx.guestListMode||'').toUpperCase();
+      if(kind === 'GUEST_LIST') kind = mode === 'DOOR' ? 'GUEST_LIST_DOOR' : 'GUEST_LIST_BOX_OFFICE';
+      upModal.querySelectorAll('[name="ticket_kind"]').forEach(function(x){ x.checked = x.value === kind; });
+      try{ updateUploadKind(upModal); }catch(e){}
+      try{ var dt = new DataTransfer(); for(var i=0;i<files.length;i++){ if(String(files[i].name||'').toLowerCase().slice(-4) === '.pdf') dt.items.add(files[i]); } fileInput.files = dt.files; }catch(e){}
+      renderFiles();
+      if(!fileInput.files || !fileInput.files.length){ alert('Arrastra archivos PDF de invitaciones.'); return; }
+      var inst = window.bootstrap ? bootstrap.Modal.getOrCreateInstance(upModal) : null;
+      var submitNow = function(){ var f = upModal.querySelector('form'); if(!f) return; if(f.requestSubmit) f.requestSubmit(); else f.dispatchEvent(new Event('submit', {cancelable:true, bubbles:true})); };
+      if(inst){ upModal.addEventListener('shown.bs.modal', function _s(){ upModal.removeEventListener('shown.bs.modal', _s); submitNow(); }); inst.show(); }
+      else { submitNow(); }
+    }
+
+    function dragHasFiles(e){ var t=(e.dataTransfer&&e.dataTransfer.types)||[]; for(var i=0;i<t.length;i++){ if(t[i]==='Files') return true; } return false; }
+    document.querySelectorAll('[data-cat-upload-drop]').forEach(function(zone){
+      zone.addEventListener('dragover', function(e){ if(!dragHasFiles(e)) return; e.preventDefault(); e.stopPropagation(); try{ e.dataTransfer.dropEffect='copy'; }catch(_){} zone.classList.add('is-catdrop'); });
+      zone.addEventListener('dragleave', function(e){ if(e.relatedTarget && zone.contains(e.relatedTarget)) return; zone.classList.remove('is-catdrop'); });
+      zone.addEventListener('drop', function(e){ if(!e.dataTransfer || !e.dataTransfer.files || !e.dataTransfer.files.length) return; e.preventDefault(); e.stopPropagation(); zone.classList.remove('is-catdrop'); var files=[]; for(var i=0;i<e.dataTransfer.files.length;i++) files.push(e.dataTransfer.files[i]); uploadToCategory({ categoryId: zone.getAttribute('data-category-id'), categoryName: zone.getAttribute('data-category-name'), ticketKind: zone.getAttribute('data-ticket-kind'), guestListMode: zone.getAttribute('data-guest-list-mode'), isPmr: zone.getAttribute('data-is-pmr')==='1' }, files); });
+    });
+  })();
   // Imprimir entrada: abre el PDF en una pestaña nueva e intenta lanzar el diálogo de impresión.
   document.addEventListener('click', function(ev){
     const b = ev.target.closest('[data-print-ticket]');

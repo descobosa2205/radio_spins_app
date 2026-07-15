@@ -1,0 +1,51 @@
+{% extends "layout.html" %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-start gap-3 mb-3 flex-wrap">
+  <div>
+    <h2 class="mb-1"><i class="fa {{ icon }} me-2 text-danger"></i>{{ title }}</h2>
+    <div class="text-muted">{{ subtitle }}</div>
+  </div>
+</div>
+
+{% macro peticion_rows(rows, empty_text) %}
+  {% if rows %}
+    <div class="list-group">
+      {% for p in rows %}
+        <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+          <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
+          <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
+            {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
+            <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
+          </span>
+          {% if p.subject and p.artist_name %}<span class="text-muted text-truncate d-none d-md-inline">{{ p.subject }}</span>{% endif %}
+          <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
+            {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
+            {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
+            {% if p.fee_text %}<span><i class="fa fa-euro-sign me-1"></i>{{ p.fee_text }}</span>{% endif %}
+            {% if p.received_label %}<span title="Recibida"><i class="fa fa-clock me-1"></i>{{ p.received_label }}</span>{% endif %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="text-muted small py-2"><i class="fa fa-inbox me-1"></i>{{ empty_text }}</div>
+  {% endif %}
+{% endmacro %}
+
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span class="fw-semibold"><i class="fa fa-hourglass-half text-danger me-2"></i>Pendientes</span>
+    {% if pending_rows %}<span class="badge text-bg-danger ms-1">{{ pending_rows|length }}</span>{% endif %}
+  </div>
+  <div class="card-body">{{ peticion_rows(pending_rows, 'Aquí llegarán las peticiones de ' ~ title ~ '.') }}</div>
+</div>
+
+<div class="card">
+  <div class="card-header"><span class="fw-semibold"><i class="fa fa-box-archive me-2"></i>Archivadas</span></div>
+  <div class="card-body">{{ peticion_rows(archived_rows, 'Sin peticiones archivadas.') }}</div>
+</div>
+
+<div class="alert alert-light border mt-3 small text-muted mb-0"><i class="fa fa-circle-info me-1"></i>El asistente para crear peticiones y el reparto automático por departamento llegan en el siguiente lote; esta bandeja ya queda lista para recibirlas.</div>
+
+{% endblock %}

@@ -18894,6 +18894,63 @@ def booking_request_delete(rid):
     return redirect(url_for("contracting_view", section="peticiones"))
 
 
+# ================= SECCIONES PROMOCIÓN / DISEÑO (bandejas de peticiones por departamento) =========
+# Secciones nuevas del menú (aparte de "Marketing"). Cada una es la bandeja de peticiones que le
+# corresponden a ese departamento. El reparto de peticiones por departamento se define en un lote
+# posterior (campo payload['department'] de BookingRequest); aquí ya quedan listas para recibirlas.
+def _booking_request_department(r) -> str:
+    payload = r.payload if isinstance(getattr(r, "payload", None), dict) else {}
+    return (payload.get("department") or "").strip().upper()
+
+
+def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str):
+    s = db()
+    try:
+        try:
+            rows_all = (
+                s.query(BookingRequest)
+                .options(joinedload(BookingRequest.artist))
+                .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
+                .limit(500)
+                .all()
+            )
+            mine = [r for r in rows_all if _booking_request_department(r) == dept_key]
+        except Exception:
+            mine = []
+        pending = [r for r in mine if (r.status or "NUEVA").upper() in {"NUEVA", "EN_TRAMITE"}]
+        archived = [r for r in mine if (r.status or "NUEVA").upper() in {"CONVERTIDA", "DESCARTADA"}]
+        return render_template(
+            "department_inbox.html",
+            dept_key=dept_key,
+            title=title,
+            icon=icon,
+            subtitle=subtitle,
+            pending_rows=[_booking_request_row(r) for r in pending],
+            archived_rows=[_booking_request_row(r) for r in archived],
+            booking_status_meta=BOOKING_STATUS_META,
+        )
+    finally:
+        s.close()
+
+
+@app.get("/promocion-peticiones", endpoint="promo_view")
+@admin_required
+def promo_view():
+    return _render_department_inbox(
+        "PROMO", "Promoción", "fa-microphone-lines",
+        "Peticiones de promoción (entrevistas, medios, prensa). El equipo de promoción las gestiona aquí.",
+    )
+
+
+@app.get("/diseno", endpoint="diseno_view")
+@admin_required
+def diseno_view():
+    return _render_department_inbox(
+        "DISENO", "Diseño", "fa-palette",
+        "Peticiones y encargos de diseño.",
+    )
+
+
 # ================= GIRAS COMPRADAS · CICLOS / FESTIVALES (entidades operativas) =================
 # Agrupan conciertos reales por FK (Concert.purchased_tour_id / cycle_festival_id). Ficha estilo
 # simulación: Resumen + Producción general (adelanto prorrateado + gastos generales) + Fechas (o
@@ -31141,6 +31198,8 @@ CURATED_ACCESS_RESOURCES = [
     {"key": "acciones.solicitudes", "label": "Solicitudes", "section_key": "acciones", "parent_key": "acciones", "level": "TAB", "economic_capable": True, "sort_order": 194, "description": "Solicitudes de acción pendientes de aprobar (importes)."},
 
     {"key": "promocion", "label": "Marketing", "section_key": "promocion", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 200, "description": "Marketing y promoción: medios, prensa y campañas de los lanzamientos/actividades."},
+    {"key": "promo", "label": "Promoción", "section_key": "promo", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 205, "description": "Promoción: bandeja de peticiones de promoción (entrevistas, medios, prensa) que gestiona el equipo de promoción."},
+    {"key": "diseno", "label": "Diseño", "section_key": "diseno", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 206, "description": "Diseño: bandeja de peticiones y encargos de diseño."},
 
     {"key": "invitaciones", "label": "Invitaciones", "section_key": "invitaciones", "parent_key": None, "level": "SECTION", "economic_capable": False, "sort_order": 210, "description": "Invitaciones a conciertos: pedir y gestionar. Función de acción (tener la pestaña habilitada = poder usarla)."},
     {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "section_key": "invitaciones", "parent_key": "invitaciones", "level": "TAB", "economic_capable": False, "sort_order": 211, "description": "Pedir invitaciones para un evento mediante el asistente (acción)."},
@@ -32023,6 +32082,10 @@ def _resolve_request_resource_key() -> str | None:
         return "contratacion.simulaciones"
     if endpoint == "events_view" or endpoint.startswith("event_"):
         return "databases.events"
+    if endpoint == "promo_view" or endpoint.startswith("promo_peticion"):
+        return "promo"
+    if endpoint == "diseno_view" or endpoint.startswith("diseno_peticion"):
+        return "diseno"
     if endpoint in {"promocion_view", "marketing_view", "acciones_view", "action_detail_view", "produccion_view", "administracion_view", "contabilidad_view", "personnel_view", "personnel_detail_view", "personnel_bulk_access"}:
         if endpoint == "administracion_view":
             admin_tab = (request.args.get("tab") or "pendiente").strip().lower()
@@ -32303,6 +32366,8 @@ def _resource_default_url(key: str) -> str:
         "databases.events": url_for("events_view"),
         "playlisting": url_for("playlisting_view"),
         "promocion": url_for("marketing_view"),
+        "promo": url_for("promo_view"),
+        "diseno": url_for("diseno_view"),
         "acciones": url_for("acciones_view", tab="inicio"),
         "acciones.inicio": url_for("acciones_view", tab="inicio"),
         "acciones.activas": url_for("acciones_view", tab="acciones", subtab="activas"),
@@ -32424,6 +32489,8 @@ SECTION_ICONS = {
     "contratacion.conciertos": "fa-guitar",
     "playlisting": "fa-list-ol",
     "promocion": "fa-bullhorn",
+    "promo": "fa-microphone-lines",
+    "diseno": "fa-palette",
     "acciones": "fa-rocket",
     "invitaciones": "fa-envelope-open-text",
     "produccion": "fa-screwdriver-wrench",
@@ -32475,6 +32542,8 @@ def _build_nav_menu() -> list[dict]:
             {"key": "contratacion.simulaciones", "label": "Simulaciones", "url": _resource_default_url("contratacion.simulaciones")},
         ]},
         {"type": "link", "key": "promocion", "label": "Marketing", "url": _resource_default_url("promocion")},
+        {"type": "link", "key": "promo", "label": "Promoción", "url": _resource_default_url("promo")},
+        {"type": "link", "key": "diseno", "label": "Diseño", "url": _resource_default_url("diseno")},
         {"type": "link", "key": "acciones", "label": "Acciones", "url": _resource_default_url("acciones")},
         {"type": "dropdown", "key": "invitaciones", "label": "Invitaciones", "children": [
             {"key": "invitaciones.pedir", "label": "Pedir invitaciones", "url": _resource_default_url("invitaciones.pedir")},

@@ -106,6 +106,24 @@
           <div class="col-md-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date"></div>
           <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date"></div>
           <div class="col-12"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
+          <div class="col-12"><hr class="my-1"><label class="form-label d-block">Remuneración</label>
+            <div class="btn-group btn-group-sm mb-2" role="group">
+              <input type="radio" class="btn-check" name="fee_mode" id="cfFeeAdv" value="ADVANCE" checked>
+              <label class="btn btn-outline-primary" for="cfFeeAdv">Adelanto global</label>
+              <input type="radio" class="btn-check" name="fee_mode" id="cfFeePer" value="FEE_PER_DATE">
+              <label class="btn btn-outline-primary" for="cfFeePer">Caché por fecha/artista</label>
+            </div>
+            <div class="d-flex flex-wrap gap-3 align-items-end">
+              <div><label class="form-label mb-0 small">Importe del adelanto</label><div class="input-group"><input type="number" step="0.01" class="form-control" name="fee_amount"><span class="input-group-text">€</span></div></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" name="fee_exempt" id="cfFeeExempt"><label class="form-check-label" for="cfFeeExempt">Exento de retención</label></div>
+            </div>
+          </div>
+          <div class="col-md-6"><label class="form-label">Socios <span class="text-muted small">(reparto del resultado)</span></label>
+            {% for i in range(3) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="partner_name" placeholder="Socio"><input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
+          </div>
+          <div class="col-md-6"><label class="form-label">Comisionistas</label>
+            {% for i in range(2) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="commissioner_name" placeholder="Comisionista"><input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
+          </div>
         </div>
       </div>
       <div class="modal-footer">

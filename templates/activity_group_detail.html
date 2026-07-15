@@ -104,15 +104,21 @@
       <div class="card mb-3">
         <div class="card-header bg-transparent fw-semibold"><i class="fa fa-screwdriver-wrench me-1"></i>Producción general</div>
         <div class="card-body">
-          {% if is_tour %}
           <div class="row g-3 mb-2">
-            <div class="col-md-4">
-              <label class="form-label">Adelanto del artista (toda la gira)</label>
-              <div class="input-group"><input type="number" step="0.01" class="form-control" name="advance" value="{{ general.advance or '' }}"><span class="input-group-text">€</span></div>
-              <div class="form-text">Se prorratea entre las fechas: <strong>{{ advance_share|eur }}</strong> por fecha ({{ concerts|length }}).</div>
+            <div class="col-md-6">
+              <label class="form-label d-block">Remuneración del artista</label>
+              <div class="btn-group btn-group-sm mb-2">
+                <input type="radio" class="btn-check" name="fee_mode" id="gFeeAdv" value="ADVANCE" {{ 'checked' if general.fee_mode != 'FEE_PER_DATE' }}>
+                <label class="btn btn-outline-primary" for="gFeeAdv">Adelanto{% if is_tour %} de la gira{% endif %}</label>
+                <input type="radio" class="btn-check" name="fee_mode" id="gFeePer" value="FEE_PER_DATE" {{ 'checked' if general.fee_mode == 'FEE_PER_DATE' }}>
+                <label class="btn btn-outline-primary" for="gFeePer">Caché por fecha</label>
+              </div>
+              <div class="input-group"><input type="number" step="0.01" class="form-control" name="advance" value="{{ general.advance or '' }}" placeholder="Importe del adelanto"><span class="input-group-text">€</span></div>
+              <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="fee_exempt" id="gFeeExempt" {{ 'checked' if general.fee_exempt }}><label class="form-check-label small" for="gFeeExempt">Exento de retención</label></div>
+              {% if advance_share %}<div class="form-text">Adelanto prorrateado: <strong>{{ advance_share|eur }}</strong> por fecha ({{ concerts|length }}).</div>{% endif %}
+              <div class="form-text">«Caché por fecha»: cada fecha lleva su caché (con variables/exentos) en la ficha del concierto.</div>
             </div>
           </div>
-          {% endif %}
           <label class="form-label">Gastos generales{% if is_tour %} de la gira{% else %} del {{ kind_label|lower }}{% endif %}</label>
           <div id="genRows">
             {% for it in general.expenses %}
@@ -138,6 +144,18 @@
             {% endfor %}
           </div>
           <button class="btn btn-sm btn-outline-secondary" type="button" data-partner-add><i class="fa fa-plus me-1"></i>Añadir socio</button>
+          <label class="form-label mt-3">Comisionistas <span class="text-muted small">(se llevan su % del resultado antes del reparto)</span></label>
+          <div id="commissionerRows">
+            {% for cr in general.commissioners %}
+            <div class="input-group mb-2" data-commissioner-row>
+              <input class="form-control" name="commissioner_name" placeholder="Comisionista" value="{{ cr.name }}">
+              <input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" value="{{ cr.pct }}" style="max-width:120px;">
+              <span class="input-group-text">%</span>
+              <button class="btn btn-outline-danger" type="button" data-commissioner-remove><i class="fa fa-trash"></i></button>
+            </div>
+            {% endfor %}
+          </div>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-commissioner-add><i class="fa fa-plus me-1"></i>Añadir comisionista</button>
           <div class="mt-3">
             <label class="form-label">Notas</label>
             <textarea class="form-control" name="notes" rows="2">{{ general.notes }}</textarea>
@@ -297,6 +315,7 @@
 (function(){
   var rows = document.getElementById('genRows');
   var prows = document.getElementById('partnerRows');
+  var crows = document.getElementById('commissionerRows');
   function newRow(){
     var d = document.createElement('div'); d.className='input-group mb-2'; d.setAttribute('data-gen-row','');
     d.innerHTML = '<input class="form-control" name="gen_concept" placeholder="Concepto">'
@@ -313,11 +332,21 @@
       + '<button class="btn btn-outline-danger" type="button" data-partner-remove><i class="fa fa-trash"></i></button>';
     return d;
   }
+  function newCommissioner(){
+    var d = document.createElement('div'); d.className='input-group mb-2'; d.setAttribute('data-commissioner-row','');
+    d.innerHTML = '<input class="form-control" name="commissioner_name" placeholder="Comisionista">'
+      + '<input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:120px;">'
+      + '<span class="input-group-text">%</span>'
+      + '<button class="btn btn-outline-danger" type="button" data-commissioner-remove><i class="fa fa-trash"></i></button>';
+    return d;
+  }
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-gen-add]') && rows){ rows.appendChild(newRow()); }
     var rm = ev.target.closest('[data-gen-remove]'); if(rm){ var r = rm.closest('[data-gen-row]'); if(r) r.remove(); }
     if(ev.target.closest('[data-partner-add]') && prows){ prows.appendChild(newPartner()); }
     var prm = ev.target.closest('[data-partner-remove]'); if(prm){ var pr = prm.closest('[data-partner-row]'); if(pr) pr.remove(); }
+    if(ev.target.closest('[data-commissioner-add]') && crows){ crows.appendChild(newCommissioner()); }
+    var crm = ev.target.closest('[data-commissioner-remove]'); if(crm){ var cr = crm.closest('[data-commissioner-row]'); if(cr) cr.remove(); }
   });
 })();
 </script>

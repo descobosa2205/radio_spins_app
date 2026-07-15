@@ -18926,13 +18926,51 @@ def _group_general(group):
     for it in (gen.get("expenses") or []):
         items.append({"concept": (it.get("concept") or ""), "amount": float(_money_or_zero(it.get("amount")))})
     partners = [{"name": (x.get("name") or ""), "pct": float(_money_or_zero(x.get("pct")))} for x in (gen.get("partners") or []) if (x.get("name") or "").strip()]
+    commissioners = [{"name": (x.get("name") or ""), "pct": float(_money_or_zero(x.get("pct")))} for x in (gen.get("commissioners") or []) if (x.get("name") or "").strip()]
+    fee_mode = (gen.get("fee_mode") or "ADVANCE").upper()
     return {
         "advance": float(_money_or_zero(gen.get("advance"))),
+        "fee_mode": ("FEE_PER_DATE" if fee_mode == "FEE_PER_DATE" else "ADVANCE"),
+        "fee_exempt": bool(gen.get("fee_exempt")),
         "expenses": items,
         "notes": (gen.get("notes") or ""),
         "simulation_ids": list(gen.get("simulation_ids") or []),
         "partners": partners,
+        "commissioners": commissioners,
     }
+
+
+def _parse_group_economics(form, gen):
+    """Lee del formulario (alta o Producción general) el modo de caché, el exento, los socios y
+    los comisionistas de toda la gira/ciclo, y los escribe en el dict `gen` (payload.general)."""
+    mode = (form.get("fee_mode") or "ADVANCE").strip().upper()
+    gen["fee_mode"] = "FEE_PER_DATE" if mode == "FEE_PER_DATE" else "ADVANCE"
+    gen["fee_exempt"] = bool(form.get("fee_exempt"))
+    partners = []
+    for nm, pc in zip(form.getlist("partner_name"), form.getlist("partner_pct")):
+        nm = (nm or "").strip()
+        if nm:
+            partners.append({"name": nm, "pct": float(_money_or_zero(pc))})
+    gen["partners"] = partners
+    commissioners = []
+    for nm, pc in zip(form.getlist("commissioner_name"), form.getlist("commissioner_pct")):
+        nm = (nm or "").strip()
+        if nm:
+            commissioners.append({"name": nm, "pct": float(_money_or_zero(pc))})
+    gen["commissioners"] = commissioners
+    return gen
+
+
+def _apply_group_create_economics(group, form):
+    """Persiste en el ALTA la economía de toda la gira/ciclo (adelanto global si el modo es
+    ADVANCE, exento, socios y comisionistas) en payload.general."""
+    gen = dict((group.payload or {}).get("general") or {})
+    if (form.get("fee_mode") or "").strip().upper() == "ADVANCE":
+        gen["advance"] = float(_money_or_zero(form.get("fee_amount")))
+    _parse_group_economics(form, gen)
+    p = dict(group.payload or {})
+    p["general"] = gen
+    group.payload = p
 
 
 def _group_general_save(group, form):
@@ -18946,16 +18984,10 @@ def _group_general_save(group, form):
         expenses.append({"concept": c, "amount": float(_money_or_zero(a))})
     p = dict(group.payload or {})
     gen = dict(p.get("general") or {})
-    partners = []
-    for nm, pc in zip(form.getlist("partner_name"), form.getlist("partner_pct")):
-        nm = (nm or "").strip()
-        if not nm:
-            continue
-        partners.append({"name": nm, "pct": float(_money_or_zero(pc))})
     gen["advance"] = float(_money_or_zero(form.get("advance")))
     gen["expenses"] = expenses
     gen["notes"] = (form.get("notes") or "").strip()
-    gen["partners"] = partners
+    _parse_group_economics(form, gen)  # fee_mode, fee_exempt, partners, comisionistas
     p["general"] = gen
     group.payload = p
 
@@ -19057,9 +19089,15 @@ def _group_result_context(s, concerts, general):
             agg[i]["gastos"] += p["gastos"]; agg[i]["resultado"] += p["resultado"]
     if not agg:
         return None
+    comm_pct = sum(float(x.get("pct") or 0) for x in (general.get("commissioners") or [])) / 100.0
     for p in agg:
         p["gastos"] = round(p["gastos"] + extra_fixed, 2)
         p["resultado"] = round(p["resultado"] - extra_fixed, 2)
+        # Comisionistas de toda la gira: se llevan su % del resultado positivo (antes del reparto).
+        if comm_pct > 0 and p["resultado"] > 0:
+            _com = p["resultado"] * comm_pct
+            p["gastos"] = round(p["gastos"] + _com, 2)
+            p["resultado"] = round(p["resultado"] - _com, 2)
         p["ingresos"] = round(p["ingresos"], 2)
     be_pct = be_tickets = None
     for p in agg:
@@ -19177,6 +19215,7 @@ def purchased_tour_create():
     try:
         t = PurchasedTour(status="ACTIVA")
         _apply_tour_form(t, request.form)
+        _apply_group_create_economics(t, request.form)
         st = _current_user_state()
         t.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
         t.created_by_nick = st.get("nick") or None
@@ -19428,6 +19467,7 @@ def cycle_festival_create():
     try:
         cf = CycleFestival(status="ACTIVO")
         _apply_cycle_form(cf, request.form)
+        _apply_group_create_economics(cf, request.form)
         # Logo: si se elige un evento y no hay logo propio, hereda el del evento.
         ev_id = (request.form.get("event_id") or "").strip()
         if ev_id and not cf.logo_url:

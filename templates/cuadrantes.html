@@ -26,9 +26,10 @@
 } %}
 {% set COLS = [
   ('show_date','fa-calendar-day','Fecha', show_date),
-  ('show_festival','fa-star','Nombre / festival', show_festival),
+  ('show_concept','fa-shapes','Concepto', show_concept),
   ('show_sale_type','fa-tag','Tipo', show_sale_type),
-  ('show_hashtag','fa-hashtag','Concepto', show_hashtag),
+  ('show_festival','fa-signature','Nombre', show_festival),
+  ('show_hashtag','fa-hashtag','Gira / #', show_hashtag),
   ('show_province','fa-map','Provincia', show_province),
   ('show_municipality','fa-location-dot','Municipio', show_municipality),
   ('show_venue','fa-location-pin','Recinto', show_venue),
@@ -106,6 +107,11 @@
   .quad-type-badge{ display:inline-flex; align-items:center; gap:.35rem; font-weight:700; font-size:.78rem;
     padding:.14rem .5rem; border-radius:999px; background:#f1f3f5; border:1px solid #e9ecef; color:#495057; }
   .quad-type-badge i{ color:var(--brand-primary,#E33D48); }
+  .quad-concept-badge{ display:inline-flex; align-items:center; gap:.35rem; font-weight:700; font-size:.78rem;
+    padding:.14rem .5rem; border-radius:999px; background:rgba(0,124,162,.08); border:1px solid rgba(0,124,162,.2); color:#0a6a89; }
+  .quad-concept-badge i{ color:var(--brand-accent,#007CA2); }
+  .quad-hint{ color:var(--muted-2,#6c757d); }
+  #quadFiltersModal .quad-filter-group:first-child{ margin-top:0; }
   .quad-status-badge{ display:inline-flex; align-items:center; gap:.3rem; font-weight:700; font-size:.76rem;
     padding:.12rem .5rem; border-radius:999px; }
   .quad-promoter-logo{ width:26px; height:26px; object-fit:contain; border-radius:7px; background:#fff; border:1px solid #eee; }
@@ -228,120 +234,155 @@
   </div>
 </div>
 
-<!-- ===================== PANEL DE FILTROS ===================== -->
-<form method="get" class="quad-panel mb-3 no-print" id="quadForm">
-  <div class="quad-panel__body">
-
-    <div class="row g-2 align-items-end">
-      <div class="col-12 col-lg-7">
-        <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas <span class="text-muted fw-normal small">(añade varios al mismo cuadrante)</span></label>
-        <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona uno o varios artistas...">
-          {% for a in artists %}
-            <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}"
-              {% if a.id|string in selected_artist_ids %}selected{% endif %}>{{ a.name }}</option>
-          {% endfor %}
-        </select>
+<!-- ===================== BARRA PRINCIPAL + POPUP DE FILTROS ===================== -->
+<form method="get" class="mb-3 no-print" id="quadForm">
+  <div class="quad-panel">
+    <div class="quad-panel__body">
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-lg-6">
+          <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas <span class="text-muted fw-normal small">(añade varios al mismo cuadrante)</span></label>
+          <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona uno o varios artistas...">
+            {% for a in artists %}
+              <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}"
+                {% if a.id|string in selected_artist_ids %}selected{% endif %}>{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-6 col-lg-2">
+          <label class="form-label mb-1 fw-semibold"><i class="fa fa-calendar me-1 text-danger"></i>Año</label>
+          <select name="year" class="form-select">
+            {% for y in year_options %}
+              <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="col-12 col-lg-4 d-flex gap-2">
+          <button type="button" class="btn btn-outline-danger flex-fill" data-quad-requires-artist data-bs-toggle="modal" data-bs-target="#quadFiltersModal">
+            <i class="fa fa-sliders me-1"></i> Filtros y columnas
+          </button>
+          <button type="submit" class="btn btn-danger flex-fill quad-apply" data-quad-requires-artist>
+            <i class="fa fa-eye me-1"></i> Ver cuadrante
+          </button>
+        </div>
       </div>
-      <div class="col-6 col-lg-2">
-        <label class="form-label mb-1 fw-semibold"><i class="fa fa-calendar me-1 text-danger"></i>Año</label>
-        <select name="year" class="form-select">
-          {% for y in year_options %}
-            <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="col-6 col-lg-3">
-        <button class="btn btn-danger w-100 quad-apply">
-          <i class="fa fa-wand-magic-sparkles me-1"></i> Ver cuadrante
-        </button>
-      </div>
-    </div>
-
-    <!-- Filtros de actividad -->
-    <div class="quad-filter-group">
-      <div class="quad-filter-label"><i class="fa fa-flag"></i>Estado</div>
-      <div class="quad-chips">
-        {% for key, meta in STATUS_META.items() %}
-          <label class="quad-chip">
-            <input type="checkbox" name="status" value="{{ key }}" {% if key in (f_statuses or []) %}checked{% endif %}>
-            <span class="quad-dot" style="background:{{ meta.dot }};"></span>{{ meta.label }}
-          </label>
-        {% endfor %}
+      <div class="quad-hint small mt-2" data-quad-hint>
+        <i class="fa fa-circle-info me-1"></i>Selecciona al menos un artista para configurar y ver el cuadrante. El resto de filtros y columnas se ajustan en «Filtros y columnas».
       </div>
     </div>
+  </div>
 
-    <div class="quad-filter-group">
-      <div class="quad-filter-label"><i class="fa fa-tags"></i>Tipo de actividad</div>
-      <div class="quad-chips">
-        {% for value, label in type_choices %}
-          <label class="quad-chip">
-            <input type="checkbox" name="type" value="{{ value }}" {% if value in (f_sale_types or []) %}checked{% endif %}>
-            <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(value, label) }}
-          </label>
-        {% endfor %}
+  <!-- POPUP: filtros, columnas y vistas (todo lo que no es artista/año) -->
+  <div class="modal fade" id="quadFiltersModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title"><i class="fa fa-sliders text-danger me-2"></i>Configurar cuadrante</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-shapes"></i>Concepto · tipo de actividad</div>
+            <div class="quad-chips">
+              {% for key, label, icon in (activity_type_choices or []) %}
+                <label class="quad-chip">
+                  <input type="checkbox" name="activity" value="{{ key }}" {% if key in (f_activity_types or []) %}checked{% endif %}>
+                  <i class="fa {{ icon }}"></i>{{ label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-tags"></i>Tipo de venta <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— solo aplica a conciertos y eventos</span></div>
+            <div class="quad-chips">
+              {% for value, label in type_choices %}
+                <label class="quad-chip">
+                  <input type="checkbox" name="type" value="{{ value }}" {% if value in (f_sale_types or []) %}checked{% endif %}>
+                  <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(value, label) }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-flag"></i>Estado</div>
+            <div class="quad-chips">
+              {% for key, meta in STATUS_META.items() %}
+                <label class="quad-chip">
+                  <input type="checkbox" name="status" value="{{ key }}" {% if key in (f_statuses or []) %}checked{% endif %}>
+                  <span class="quad-dot" style="background:{{ meta.dot }};"></span>{{ meta.label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
+            <div class="quad-chips">
+              {% for key, meta in ANN_META.items() %}
+                <label class="quad-chip">
+                  <input type="checkbox" name="announcement" value="{{ key }}" {% if key in (f_announcements or []) %}checked{% endif %}>
+                  <i class="fa {{ meta.ico }}"></i>{{ meta.label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="quad-filter-group">
+            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+              <div class="quad-filter-label mb-0"><i class="fa fa-hashtag"></i>Gira / concepto / #</div>
+              <label class="form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" name="concert_tag_enabled" id="concertTagEnabled" value="1" {% if concert_tag_enabled %}checked{% endif %} {% if not selected_artist_ids %}disabled{% endif %}>
+                <span class="form-check-label small">Activar filtro</span>
+              </label>
+            </div>
+            <input type="text" name="concert_tag_text" id="concertTagInput" class="form-control mt-2"
+              list="concertTagsList" value="{{ concert_tag_text or '' }}"
+              placeholder="Escribe o selecciona un #" {% if not selected_artist_ids %}disabled{% endif %}>
+            <datalist id="concertTagsList">
+              {% for tag in available_concert_tags %}<option value="#{{ tag }}"></option>{% endfor %}
+            </datalist>
+          </div>
+
+          <hr class="quad-divider">
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-table-columns"></i>Datos en la tabla <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— toca para mostrar/ocultar columnas al instante</span></div>
+            <div class="quad-chips" id="quadColChips">
+              {% for name, ico, label, on in COLS %}
+                <label class="quad-chip">
+                  <input type="hidden" name="{{ name }}" value="0">
+                  <input type="checkbox" class="quad-col-toggle" data-toggle-col="{{ name[5:] }}" name="{{ name }}" value="1" {% if on %}checked{% endif %}>
+                  <i class="fa {{ ico }}"></i>{{ label }}
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+
+          <div class="quad-filter-group">
+            <div class="quad-filter-label"><i class="fa fa-eye"></i>Vistas</div>
+            <div class="quad-chips">
+              <label class="quad-chip">
+                <input type="hidden" name="show_calendar" value="0">
+                <input type="checkbox" class="quad-view-toggle" data-view="calendar" name="show_calendar" value="1" {% if show_calendar %}checked{% endif %}>
+                <i class="fa fa-calendar-days"></i>Calendario
+              </label>
+              <label class="quad-chip">
+                <input type="hidden" name="show_map" value="0">
+                <input type="checkbox" class="quad-view-toggle" data-view="map" name="show_map" value="1" {% if show_map %}checked{% endif %}>
+                <i class="fa fa-map-location-dot"></i>Mapa
+              </label>
+            </div>
+          </div>
+
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cerrar</button>
+          <button type="submit" class="btn btn-danger quad-apply"><i class="fa fa-eye me-1"></i>Aplicar y ver</button>
+        </div>
       </div>
     </div>
-
-    <div class="quad-filter-group">
-      <div class="quad-filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
-      <div class="quad-chips">
-        {% for key, meta in ANN_META.items() %}
-          <label class="quad-chip">
-            <input type="checkbox" name="announcement" value="{{ key }}" {% if key in (f_announcements or []) %}checked{% endif %}>
-            <i class="fa {{ meta.ico }}"></i>{{ meta.label }}
-          </label>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="quad-filter-group">
-      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-        <div class="quad-filter-label mb-0"><i class="fa fa-hashtag"></i>Concepto / gira / #</div>
-        <label class="form-check form-switch m-0">
-          <input class="form-check-input" type="checkbox" name="concert_tag_enabled" id="concertTagEnabled" value="1" {% if concert_tag_enabled %}checked{% endif %} {% if not selected_artist_ids %}disabled{% endif %}>
-          <span class="form-check-label small">Activar filtro</span>
-        </label>
-      </div>
-      <input type="text" name="concert_tag_text" id="concertTagInput" class="form-control mt-2"
-        list="concertTagsList" value="{{ concert_tag_text or '' }}"
-        placeholder="Escribe o selecciona un #" {% if not selected_artist_ids %}disabled{% endif %}>
-      <datalist id="concertTagsList">
-        {% for tag in available_concert_tags %}<option value="#{{ tag }}"></option>{% endfor %}
-      </datalist>
-    </div>
-
-    <hr class="quad-divider">
-
-    <!-- Personalización del cuadrante -->
-    <div class="quad-filter-group">
-      <div class="quad-filter-label"><i class="fa fa-table-columns"></i>Datos en la tabla <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— toca para mostrar/ocultar columnas al instante</span></div>
-      <div class="quad-chips" id="quadColChips">
-        {% for name, ico, label, on in COLS %}
-          <label class="quad-chip">
-            <input type="hidden" name="{{ name }}" value="0">
-            <input type="checkbox" class="quad-col-toggle" data-toggle-col="{{ name[5:] }}" name="{{ name }}" value="1" {% if on %}checked{% endif %}>
-            <i class="fa {{ ico }}"></i>{{ label }}
-          </label>
-        {% endfor %}
-      </div>
-    </div>
-
-    <div class="quad-filter-group">
-      <div class="quad-filter-label"><i class="fa fa-eye"></i>Vistas</div>
-      <div class="quad-chips">
-        <label class="quad-chip">
-          <input type="hidden" name="show_calendar" value="0">
-          <input type="checkbox" class="quad-view-toggle" data-view="calendar" name="show_calendar" value="1" {% if show_calendar %}checked{% endif %}>
-          <i class="fa fa-calendar-days"></i>Calendario
-        </label>
-        <label class="quad-chip">
-          <input type="hidden" name="show_map" value="0">
-          <input type="checkbox" class="quad-view-toggle" data-view="map" name="show_map" value="1" {% if show_map %}checked{% endif %}>
-          <i class="fa fa-map-location-dot"></i>Mapa
-        </label>
-      </div>
-    </div>
-
   </div>
 </form>
 
@@ -409,9 +450,10 @@
                 <th class="quad-col-include no-print" style="width:34px;"></th>
                 <th style="width:44px;">#</th>
                 <th data-col="date">Fecha</th>
-                <th data-col="festival">Nombre / festival</th>
+                <th data-col="concept">Concepto</th>
                 <th data-col="sale_type">Tipo</th>
-                <th data-col="hashtag">Concepto</th>
+                <th data-col="festival">Nombre</th>
+                <th data-col="hashtag">Gira / #</th>
                 <th data-col="province">Provincia</th>
                 <th data-col="municipality">Municipio</th>
                 <th data-col="venue">Recinto</th>
@@ -438,12 +480,15 @@
                     <span class="quad-num {{ sm.cls }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
                   </td>
                   <td data-col="date">{{ e.date_es }}</td>
-                  <td data-col="festival">{{ e.festival_name or '—' }}</td>
+                  <td data-col="concept">
+                    <span class="quad-concept-badge"><i class="fa {{ e.activity_icon or 'fa-guitar' }}"></i>{{ e.activity_label or 'Concierto' }}</span>
+                  </td>
                   <td data-col="sale_type">
                     {% if e.sale_type %}
                       <span class="quad-type-badge"><i class="fa {{ TYPE_ICON.get(e.sale_type, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(e.sale_type, e.sale_type_label or e.sale_type) }}</span>
                     {% else %}—{% endif %}
                   </td>
+                  <td data-col="festival">{{ e.festival_name or '—' }}</td>
                   <td data-col="hashtag">{% if e.hashtags_text %}<span class="quad-hash">{{ e.hashtags_text }}</span>{% else %}—{% endif %}</td>
                   <td data-col="province">{{ e.province or '—' }}</td>
                   <td data-col="municipality">{{ e.municipality or '—' }}</td>
@@ -578,6 +623,23 @@
   (function(){
     const el = document.getElementById('quadPrintDate');
     if (el){ try { el.textContent = ' · Generado el ' + new Date().toLocaleDateString('es-ES'); } catch(e){} }
+  })();
+
+  /* ---- Los botones (filtros / ver) requieren al menos un artista ---- */
+  function syncQuadButtons(){
+    const sel = document.querySelector('select[name="artist_id"]');
+    const has = !!(sel && Array.from(sel.selectedOptions || []).some(o => o.value));
+    document.querySelectorAll('[data-quad-requires-artist]').forEach(b => { b.disabled = !has; });
+    const hint = document.querySelector('[data-quad-hint]');
+    if (hint) hint.style.display = has ? 'none' : '';
+  }
+  (function(){
+    const sel = document.querySelector('select[name="artist_id"]');
+    if (sel){
+      sel.addEventListener('change', syncQuadButtons);
+      if (window.jQuery) window.jQuery(sel).on('change', syncQuadButtons);
+    }
+    syncQuadButtons();
   })();
 
   /* ---- Columnas: mostrar/ocultar al instante ---- */

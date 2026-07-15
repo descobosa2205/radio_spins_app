@@ -28548,6 +28548,39 @@ def _concert_schedule_label(concert) -> str:
     return " · ".join(parts)
 
 
+# Concepto (tipo de actividad) de cuadrantes: se filtra por CONCIERTO / FESTIVAL /
+# EVENTO_PROMOCIONAL / TV / MARCA / OTROS. El "Tipo" (venta: empresa/gratuito/…) es
+# un segundo nivel que solo aplica cuando la actividad tiene un sale_type real.
+QUAD_ACTIVITY_CHOICES = [
+    ("CONCIERTO", "Concierto", "fa-guitar"),
+    ("FESTIVAL", "Festival", "fa-star"),
+    ("EVENTO_PROMOCIONAL", "Evento promocional", "fa-bullhorn"),
+    ("TV", "Programa de TV", "fa-tv"),
+    ("MARCA", "Acción con marca", "fa-tags"),
+    ("OTROS", "Otros", "fa-calendar-day"),
+]
+QUAD_ACTIVITY_LABELS = {k: l for k, l, _i in QUAD_ACTIVITY_CHOICES}
+QUAD_ACTIVITY_ICONS = {k: i for k, _l, i in QUAD_ACTIVITY_CHOICES}
+QUAD_ACTIVITY_ALIASES = {
+    "CONCIERTO": "CONCIERTO",
+    "FESTIVAL": "FESTIVAL", "CADIZ": "FESTIVAL", "CICLO": "FESTIVAL",
+    "EVENTO_PROMOCIONAL": "EVENTO_PROMOCIONAL", "PROMOCIONAL": "EVENTO_PROMOCIONAL", "PROMOCION": "EVENTO_PROMOCIONAL",
+    "TV": "TV", "PROGRAMA_TV": "TV",
+    "MARCA": "MARCA", "ACCION_MARCA": "MARCA",
+    "GIRA": "CONCIERTO", "GIRA_COMPRADA": "CONCIERTO", "GIRAS_COMPRADAS": "CONCIERTO",
+    "OTROS": "OTROS",
+}
+
+
+def _concert_activity_concept(concert) -> str:
+    """Normaliza ``activity_type`` a uno de los conceptos de cuadrantes.
+
+    Por defecto CONCIERTO (para actividades antiguas sin ``activity_type``).
+    """
+    raw = (getattr(concert, "activity_type", None) or "").strip().upper()
+    return QUAD_ACTIVITY_ALIASES.get(raw, "CONCIERTO")
+
+
 @app.get("/cuadrantes", endpoint="quadrantes_view")
 @admin_required
 def quadrantes_view():
@@ -28617,6 +28650,16 @@ def quadrantes_view():
         if not f_statuses:
             f_statuses = ["BORRADOR", "HABLADO", "RESERVADO", "CONFIRMADO"]
 
+        allowed_activities = {k for k, _l, _i in QUAD_ACTIVITY_CHOICES}
+        f_activity_types = [
+            (a or "").strip().upper()
+            for a in (request.args.getlist("activity") or [])
+            if (a or "").strip()
+        ]
+        f_activity_types = [a for a in f_activity_types if a in allowed_activities]
+        if not f_activity_types:
+            f_activity_types = [k for k, _l, _i in QUAD_ACTIVITY_CHOICES]
+
         allowed_types = CONCERT_SALE_TYPES_ALL_SET
         f_sale_types_raw = request.args.getlist("type") or []
         f_sale_types = [(t or "").strip().upper() for t in f_sale_types_raw if (t or "").strip()]
@@ -28656,6 +28699,7 @@ def quadrantes_view():
         show_calendar = _flag("show_calendar", True)
         show_map = _flag("show_map", True)
         show_date = _flag("show_date", True)
+        show_concept = _flag("show_concept", True)
         show_festival = _flag("show_festival", True)
         show_sale_type = _flag("show_sale_type", True)
         show_status = _flag("show_status", True)
@@ -28700,14 +28744,23 @@ def quadrantes_view():
                 .order_by(Concert.date.asc())
                 .all()
             )
-            # No filtramos por sale_type en SQL: algunos conciertos multiarista
-            # creados desde +Actividad tienen el tipo derivado en otros campos.
-            selected_all_types = set(f_sale_types) >= set(CONCERT_SALE_TYPES_ALL)
-            concerts = [
-                c for c in concerts
-                if selected_id_set.intersection(_concert_participant_artist_ids(c))
-                and (selected_all_types or _quadrantes_effective_sale_type(c) in f_sale_types or not _quadrantes_effective_sale_type(c))
-            ]
+            # Filtro en dos niveles (no en SQL, porque el tipo de actividades
+            # multiartista se deriva de varios campos):
+            #  1) CONCEPTO (tipo de actividad): concierto / evento / TV / marca…
+            #  2) TIPO (venta): empresa / gratuito / vendido…, que SOLO descarta
+            #     cuando la actividad tiene un sale_type reconocido y está deseleccionado.
+            #     Así una actividad promocional no desaparece por el filtro de venta.
+            def _quad_keep(c):
+                if not selected_id_set.intersection(_concert_participant_artist_ids(c)):
+                    return False
+                if _concert_activity_concept(c) not in f_activity_types:
+                    return False
+                st_eff = _quadrantes_effective_sale_type(c)
+                if st_eff in CONCERT_SALE_TYPES_ALL_SET and st_eff not in f_sale_types:
+                    return False
+                return True
+
+            concerts = [c for c in concerts if _quad_keep(c)]
 
             if f_concert_tags:
                 concerts = [c for c in concerts if _concert_matches_any_tag(c, f_concert_tags)]
@@ -28782,6 +28835,7 @@ def quadrantes_view():
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
                 show_format_txt = _concert_show_format(c)
                 schedule_txt = _concert_schedule_label(c)
+                activity_concept = _concert_activity_concept(c)
                 pro_logo, pro_name = _promoter_display(c)
                 tags_clean = _concert_tags(c)
                 announcement_state = _announcement_state(c)
@@ -28799,6 +28853,9 @@ def quadrantes_view():
                         "artist_photo": artist_obj.photo_url if artist_obj else (c.artist.photo_url if c.artist else ""),
                         "artist_color": artist_color.get(aid, "#0d6efd"),
                         "festival_name": (c.festival_name or ""),
+                        "activity_type": activity_concept,
+                        "activity_label": QUAD_ACTIVITY_LABELS.get(activity_concept, "Concierto"),
+                        "activity_icon": QUAD_ACTIVITY_ICONS.get(activity_concept, "fa-guitar"),
                         "sale_type": effective_sale_type,
                         "sale_type_label": _sale_type_label(effective_sale_type),
                         "status": st,
@@ -28886,10 +28943,13 @@ def quadrantes_view():
             f_announcements=f_announcements,
             f_statuses=f_statuses,
             f_sale_types=f_sale_types,
+            activity_type_choices=QUAD_ACTIVITY_CHOICES,
+            f_activity_types=f_activity_types,
             stats=stats,
             show_calendar=show_calendar,
             show_map=show_map,
             show_date=show_date,
+            show_concept=show_concept,
             show_festival=show_festival,
             show_sale_type=show_sale_type,
             show_status=show_status,

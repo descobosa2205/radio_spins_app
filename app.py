@@ -22339,7 +22339,8 @@ def concert_detail_view(cid):
             sheet = _ensure_internal_contract_sheet(session, c)
             session.flush()
         contract_sheet_data = _contract_sheet_prefill(c, sheet) if sheet else {}
-        contract_sheet_sections = _contract_sheet_sections(contract_sheet_data) if sheet else []
+        # Siempre calculadas (con {} si aún no hay sheet) para poder previsualizar en la solicitud.
+        contract_sheet_sections = _contract_sheet_sections(contract_sheet_data)
         invitation_rows = list(getattr(c, 'invitations_json', None) or [])
         invitation_totals = {
             'artist': sum(int(x.get('artist_qty') or 0) for x in invitation_rows),

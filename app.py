@@ -28514,6 +28514,40 @@ def _concert_participant_artist_ids(concert) -> set[str]:
     return {x for x in ids if x}
 
 
+def _concert_show_format(concert) -> str:
+    """Formato del show (Banda completa, Acústico, DJ set…).
+
+    Se toma de la ficha de contratación (``ConcertContractSheet``), que es donde
+    Producción registra el ``show_format``; primero de los datos consolidados y,
+    si no, del payload de la petición.
+    """
+    sheet = getattr(concert, "contract_sheet", None)
+    if not sheet:
+        return ""
+    for src in (getattr(sheet, "data", None), getattr(sheet, "request_payload", None)):
+        if isinstance(src, dict):
+            val = (src.get("show_format") or "").strip()
+            if val:
+                return val
+    return ""
+
+
+def _concert_schedule_label(concert) -> str:
+    """Horario legible: 'Apertura HH:MM · Show HH:MM' (tolerante a TBC/vacíos)."""
+    doors = (getattr(concert, "doors_time", None) or "").strip()
+    show = (getattr(concert, "show_time", None) or "").strip()
+    if not doors and getattr(concert, "doors_time_tbc", False):
+        doors = "TBC"
+    if not show and getattr(concert, "show_time_tbc", False):
+        show = "TBC"
+    parts = []
+    if doors:
+        parts.append(f"Apertura {doors}")
+    if show:
+        parts.append(f"Show {show}")
+    return " · ".join(parts)
+
+
 @app.get("/cuadrantes", endpoint="quadrantes_view")
 @admin_required
 def quadrantes_view():
@@ -28630,6 +28664,8 @@ def quadrantes_view():
         show_venue = _flag("show_venue", True)
         show_capacity = _flag("show_capacity", True)
         show_cache = _flag("show_cache", True)
+        show_format = _flag("show_format", True)
+        show_schedule = _flag("show_schedule", False)
         show_equipment = _flag("show_equipment", True)
         show_promoter = _flag("show_promoter", True)
         show_hashtag = _flag("show_hashtag", True)
@@ -28639,6 +28675,7 @@ def quadrantes_view():
         events_by_artist = []
         events_flat = []
         marks_by_date = {}
+        stats = None
 
         if selected_uuids:
             selected_artists = (
@@ -28657,6 +28694,7 @@ def quadrantes_view():
                     joinedload(Concert.promoter),
                     joinedload(Concert.group_company),
                     joinedload(Concert.billing_company),
+                    joinedload(Concert.contract_sheet),
                 )
                 .filter(func.extract("year", Concert.date) == year)
                 .order_by(Concert.date.asc())
@@ -28742,6 +28780,8 @@ def quadrantes_view():
                 cap = int(c.capacity or 0)
                 dstr = c.date.isoformat()
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
+                show_format_txt = _concert_show_format(c)
+                schedule_txt = _concert_schedule_label(c)
                 pro_logo, pro_name = _promoter_display(c)
                 tags_clean = _concert_tags(c)
                 announcement_state = _announcement_state(c)
@@ -28770,6 +28810,8 @@ def quadrantes_view():
                         "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
                         "cache": cache_txt,
                         "has_cache": has_cache,
+                        "show_format": show_format_txt,
+                        "schedule_label": schedule_txt,
                         "has_equipment": has_equip,
                         "promoter_name": pro_name or "",
                         "promoter_logo": pro_logo or "",
@@ -28803,6 +28845,25 @@ def quadrantes_view():
                     "events": evs,
                 })
 
+            # KPIs de cabecera (estética simulaciones)
+            total_capacity = sum(
+                int(e.get("capacity") or 0)
+                for e in events_flat
+                if e.get("capacity_label") != "Sin aforo"
+            )
+            provinces = {
+                (e.get("province") or "").strip()
+                for e in events_flat
+                if (e.get("province") or "").strip()
+            }
+            stats = {
+                "total": len(events_flat),
+                "confirmed": sum(1 for e in events_flat if (e.get("status") == "CONFIRMADO")),
+                "artists": len(selected_artists),
+                "capacity": total_capacity,
+                "provinces": len(provinces),
+            }
+
         return render_template(
             "cuadrantes.html",
             artists=artists,
@@ -28825,6 +28886,7 @@ def quadrantes_view():
             f_announcements=f_announcements,
             f_statuses=f_statuses,
             f_sale_types=f_sale_types,
+            stats=stats,
             show_calendar=show_calendar,
             show_map=show_map,
             show_date=show_date,
@@ -28836,6 +28898,8 @@ def quadrantes_view():
             show_venue=show_venue,
             show_capacity=show_capacity,
             show_cache=show_cache,
+            show_format=show_format,
+            show_schedule=show_schedule,
             show_equipment=show_equipment,
             show_promoter=show_promoter,
             show_hashtag=show_hashtag,

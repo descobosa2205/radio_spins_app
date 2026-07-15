@@ -1,286 +1,207 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<!-- Leaflet (mapa) - lo metemos aquí para no tocar el <head> del layout -->
+<!-- Leaflet (mapa) -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 
+{# ---- Catálogos de iconos/etiquetas (chips visuales estilo invitaciones) ---- #}
+{% set TYPE_ICON = {
+  'EMPRESA':'fa-building','GRATUITO':'fa-gift','GIRAS_COMPRADAS':'fa-route',
+  'PARTICIPADOS':'fa-handshake','CADIZ':'fa-star','VENDIDO':'fa-tag'
+} %}
+{% set TYPE_SHORT = {
+  'EMPRESA':'Empresa','GRATUITO':'Gratuito','GIRAS_COMPRADAS':'Gira comprada',
+  'PARTICIPADOS':'Participado','CADIZ':'Cádiz MS','VENDIDO':'Vendido'
+} %}
+{% set STATUS_META = {
+  'BORRADOR':{'ico':'fa-pen-ruler','label':'Borrador','cls':'status-borrador','dot':'#1d4ed8'},
+  'HABLADO':{'ico':'fa-comments','label':'Hablado','cls':'status-hablado','dot':'#c99400'},
+  'RESERVADO':{'ico':'fa-bookmark','label':'Reservado','cls':'status-reservado','dot':'#0d6efd'},
+  'CONFIRMADO':{'ico':'fa-circle-check','label':'Confirmado','cls':'status-confirmado','dot':'#198754'}
+} %}
+{% set ANN_META = {
+  'NO_ANNOUNCE':{'ico':'fa-eye-slash','label':'No anunciar'},
+  'UPCOMING':{'ico':'fa-bullhorn','label':'Próximamente'},
+  'ANNOUNCED':{'ico':'fa-circle-check','label':'Ya anunciado'}
+} %}
+{% set COLS = [
+  ('show_date','fa-calendar-day','Fecha', show_date),
+  ('show_festival','fa-star','Nombre / festival', show_festival),
+  ('show_sale_type','fa-tag','Tipo', show_sale_type),
+  ('show_hashtag','fa-hashtag','Concepto', show_hashtag),
+  ('show_province','fa-map','Provincia', show_province),
+  ('show_municipality','fa-location-dot','Municipio', show_municipality),
+  ('show_venue','fa-location-pin','Recinto', show_venue),
+  ('show_capacity','fa-users','Aforo', show_capacity),
+  ('show_cache','fa-euro-sign','Caché', show_cache),
+  ('show_format','fa-guitar','Formato', show_format),
+  ('show_schedule','fa-clock','Horario', show_schedule),
+  ('show_equipment','fa-toolbox','Equipamiento', show_equipment),
+  ('show_status','fa-flag','Estado', show_status),
+  ('show_announcement','fa-bullhorn','Anuncio', show_announcement),
+  ('show_promoter','fa-building-user','Promotora', show_promoter)
+] %}
+
 <style>
-  .year-grid {
-    display: grid;
-    grid-template-columns: repeat(1, minmax(0,1fr));
-    gap: .75rem;
-  }
+  /* ============ CUADRANTES (rediseño) ============ */
+  .quad-head{ display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+  .quad-head h2{ margin:0; font-weight:800; letter-spacing:-.4px; }
+  .quad-head .quad-sub{ color:var(--muted-2,#6c757d); font-size:.92rem; }
 
-  @media (min-width: 768px){
-    .year-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
-  }
-  @media (min-width: 1200px){
-    .year-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
-  }
+  /* Panel de filtros */
+  .quad-panel{ border:1px solid var(--line-2,#e3e6eb); border-radius:16px; background:#fff;
+    box-shadow:var(--shadow-sm-2, 0 1px 2px rgba(20,25,35,.06)); overflow:hidden; }
+  .quad-panel__body{ padding:1.1rem 1.15rem; }
+  .quad-filter-group{ margin-top:1rem; }
+  .quad-filter-group:first-child{ margin-top:0; }
+  .quad-filter-label{ display:flex; align-items:center; gap:.45rem; font-size:.72rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:.04em; color:var(--muted-2,#6c757d); margin-bottom:.55rem; }
+  .quad-filter-label i{ color:var(--brand-accent,#007CA2); }
+  .quad-chips{ display:flex; flex-wrap:wrap; gap:.5rem; }
 
-  .month-card {
-    border: 1px solid #eee;
-    border-radius: 10px;
-    background: #fff;
-    overflow: hidden;
-  }
-  .month-title{
-    font-weight: 700;
-    padding: .4rem .6rem;
-    background: #f8f9fa;
-    border-bottom: 1px solid #eee;
-  }
+  .quad-chip{ position:relative; display:inline-flex; align-items:center; gap:.45rem;
+    border:1px solid var(--line-2,#e3e6eb); border-radius:999px; padding:.42rem .8rem; background:#fff;
+    cursor:pointer; font-size:.85rem; font-weight:600; color:#42505f; transition:.15s ease; user-select:none; margin:0; }
+  .quad-chip i{ color:#9aa4b0; transition:.15s ease; font-size:.9rem; }
+  .quad-chip .quad-dot{ width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+  .quad-chip input{ position:absolute; opacity:0; pointer-events:none; }
+  .quad-chip:hover{ border-color:var(--brand-primary,#E33D48); }
+  .quad-chip:has(input:checked){ border-color:var(--brand-primary,#E33D48);
+    background:rgba(227,61,72,.07); color:var(--brand-primary,#E33D48); box-shadow:0 0 0 .16rem rgba(227,61,72,.12); }
+  .quad-chip:has(input:checked) i{ color:var(--brand-primary,#E33D48); }
 
-  table.month-table{
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    font-size: 12px;
-  }
-  table.month-table th{
-    text-align: center;
-    padding: .25rem 0;
-    color: #666;
-    font-weight: 700;
-    border-bottom: 1px solid #f0f0f0;
-  }
-  table.month-table td{
-    vertical-align: top;
-    border-bottom: 1px solid #fafafa;
-    border-right: 1px solid #fafafa;
-    height: 32px;
-    padding: 2px;
-    position: relative;
-    background: #fff;
-  }
-  table.month-table tr:last-child td{ border-bottom: 0; }
-  table.month-table td:last-child{ border-right: 0; }
+  .quad-divider{ border:0; border-top:1px dashed var(--line-2,#e3e6eb); margin:1.15rem 0 .25rem; }
+  .quad-apply{ font-weight:700; }
 
-  .day-num{
-    position: absolute;
-    top: 2px;
-    left: 4px;
-    font-weight: 700;
-    font-size: 11px;
-    color: #444;
-    z-index: 2;
-  }
-  .day-badges{
-    position: absolute;
-    bottom: 2px;
-    left: 2px;
-    right: 2px;
-    display: flex;
-    gap: 2px;
-    flex-wrap: wrap;
-    align-items: center;
-    z-index: 1;
-  }
-  .day-badge{
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-weight: 900;
-    font-size: 13px;
-    line-height: 1;
-    border: 2px solid #0d6efd; /* se sobreescribe inline por artista */
-    box-shadow: 0 1px 4px rgba(0,0,0,.18);
-    user-select: none;
-  }
-  .day-more{
-    font-size: 10px;
-    color: #666;
-    background: #f1f3f5;
-    border: 1px solid #e9ecef;
-    border-radius: 10px;
-    padding: 0 4px;
-    line-height: 18px;
-  }
+  /* KPIs (estética simulaciones) */
+  .quad-kpis{ display:flex; flex-wrap:wrap; gap:.6rem; }
+  .quad-kpis .sim-stat{ flex:1 1 120px; }
 
-  /* Colores estado (mismo criterio que en Conciertos) */
+  /* Cabecera por artista */
+  .quad-artist-head{ display:flex; align-items:center; justify-content:space-between; gap:.75rem;
+    background:linear-gradient(0deg, #fbfcfd, #fff); border:1px solid var(--line-2,#e3e6eb);
+    border-left-width:5px; border-radius:14px; padding:.6rem .85rem; margin-bottom:.6rem; }
+  .quad-artist-head .a-left{ display:flex; align-items:center; gap:.6rem; min-width:0; }
+  .quad-artist-head .a-name{ font-weight:800; font-size:1.02rem; color:var(--ink,#18202b); }
+  .quad-artist-actions{ display:flex; align-items:center; gap:.4rem; }
+  .quad-mini-btn{ border:1px solid var(--line-2,#e3e6eb); background:#fff; border-radius:8px;
+    font-size:.72rem; font-weight:700; color:#5b6774; padding:.18rem .5rem; cursor:pointer; }
+  .quad-mini-btn:hover{ border-color:var(--brand-accent,#007CA2); color:var(--brand-accent,#007CA2); }
+  .quad-count-pill{ background:#f1f3f5; border:1px solid #e9ecef; border-radius:999px;
+    font-size:.8rem; font-weight:800; color:#495057; padding:.1rem .6rem; }
+
+  /* Tabla resumen (una fila por actividad) */
+  .quad-table-wrap{ overflow-x:auto; border:1px solid var(--line-2,#e3e6eb); border-radius:14px; margin-bottom:1.1rem; }
+  table.quad-table{ width:100%; border-collapse:collapse; font-size:13px; white-space:nowrap; margin:0; }
+  table.quad-table thead th{ position:sticky; top:0; background:#f8f9fb; z-index:1;
+    font-size:10.5px; text-transform:uppercase; letter-spacing:.03em; color:#6c757d; font-weight:700;
+    padding:.5rem .55rem; border-bottom:1px solid var(--line-2,#e3e6eb); text-align:left; }
+  table.quad-table tbody td{ padding:.42rem .55rem; border-bottom:1px solid #f1f3f5; vertical-align:middle; color:#2b333c; }
+  table.quad-table tbody tr:last-child td{ border-bottom:0; }
+  table.quad-table tbody tr.clickable-row{ cursor:pointer; }
+  table.quad-table tbody tr.clickable-row:hover td{ background:rgba(0,124,162,.045); }
+  table.quad-table .num-cell{ text-align:right; }
+  .quad-num{ display:inline-grid; place-items:center; width:30px; height:30px; border-radius:9px;
+    border:2px solid #0d6efd; font-weight:800; font-size:.82rem; }
+  .quad-type-badge{ display:inline-flex; align-items:center; gap:.35rem; font-weight:700; font-size:.78rem;
+    padding:.14rem .5rem; border-radius:999px; background:#f1f3f5; border:1px solid #e9ecef; color:#495057; }
+  .quad-type-badge i{ color:var(--brand-primary,#E33D48); }
+  .quad-status-badge{ display:inline-flex; align-items:center; gap:.3rem; font-weight:700; font-size:.76rem;
+    padding:.12rem .5rem; border-radius:999px; }
+  .quad-promoter-logo{ width:26px; height:26px; object-fit:contain; border-radius:7px; background:#fff; border:1px solid #eee; }
+  .quad-hash{ color:var(--brand-accent,#007CA2); font-weight:600; }
+  .quad-fmt{ font-weight:600; }
+  .quad-check{ width:1.05rem; height:1.05rem; cursor:pointer; }
+  tr.quad-row.is-excluded td{ opacity:.32; }
+  tr.quad-row.is-excluded td .quad-check{ opacity:1; }
+
+  /* Estados (mismos criterios que Conciertos) */
   .status-hablado{ background:#ffe8a1; color:#7a5b00; }
   .status-reservado{ background:#cfe2ff; color:#084298; }
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
   .status-borrador{ background:#dbeafe; color:#1d4ed8; }
 
+  /* Calendario */
+  .year-grid{ display:grid; grid-template-columns:repeat(1, minmax(0,1fr)); gap:.7rem; }
+  @media (min-width:768px){ .year-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
+  @media (min-width:1400px){ .year-grid{ grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  .month-card{ border:1px solid var(--line-2,#e3e6eb); border-radius:12px; background:#fff; overflow:hidden; }
+  .month-title{ font-weight:700; padding:.35rem .6rem; background:#f8f9fb; border-bottom:1px solid #eef0f2; color:#3a434d; font-size:.85rem; }
+  table.month-table{ width:100%; border-collapse:collapse; table-layout:fixed; font-size:12px; }
+  table.month-table th{ text-align:center; padding:.22rem 0; color:#8b95a1; font-weight:700; border-bottom:1px solid #f2f3f5; }
+  table.month-table td{ vertical-align:top; border-bottom:1px solid #fafbfc; border-right:1px solid #fafbfc; height:32px; padding:2px; position:relative; background:#fff; }
+  table.month-table tr:last-child td{ border-bottom:0; }
+  table.month-table td:last-child{ border-right:0; }
+  .day-num{ position:absolute; top:2px; left:4px; font-weight:700; font-size:11px; color:#8b95a1; z-index:2; }
+  .day-badges{ position:absolute; bottom:2px; left:2px; right:2px; display:flex; gap:2px; flex-wrap:wrap; align-items:center; z-index:1; }
+  .day-badge{ width:20px; height:20px; border-radius:50%; display:grid; place-items:center; font-weight:900; font-size:12px; line-height:1;
+    border:2px solid #0d6efd; box-shadow:0 1px 4px rgba(0,0,0,.18); user-select:none; }
+  .day-more{ font-size:10px; color:#666; background:#f1f3f5; border:1px solid #e9ecef; border-radius:10px; padding:0 4px; line-height:18px; }
+
   /* Mapa */
-  #quad-map{
-    height: 520px;
-    width: 100%;
-  }
+  #quad-map{ height:520px; width:100%; }
+  .event-marker .marker-wrap{ width:44px; height:44px; border-radius:50%; display:grid; place-items:center;
+    border:3px solid #0d6efd; box-shadow:0 2px 10px rgba(0,0,0,.25); }
+  .event-marker .marker-n{ font-weight:900; font-size:17px; line-height:1; }
 
-  .event-marker .marker-wrap{
-    width: 46px;
-    height: 46px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    border: 3px solid #0d6efd; /* se sobreescribe inline por artista */
-    box-shadow: 0 2px 10px rgba(0,0,0,.25);
-  }
-  .event-marker .marker-n{
-    font-weight: 900;
-    font-size: 18px;
-    line-height: 1;
-  }
+  .quad-empty{ border:1px dashed var(--line-2,#e3e6eb); border-radius:16px; background:#fbfcfd;
+    padding:2.4rem 1.2rem; text-align:center; color:var(--muted-2,#6c757d); }
+  .quad-empty i{ font-size:2.2rem; color:var(--brand-accent,#007CA2); opacity:.7; }
 
-  .event-row{
-    display: flex;
-    gap: .6rem;
-    align-items: center;
-  }
-  .event-n{
-    width: 32px;
-    height: 32px;
-    border-radius: 10px;
-    border: 2px solid #0d6efd; /* se sobreescribe inline por artista */
-    display: grid;
-    place-items: center;
-    font-weight: 800;
-    flex: 0 0 auto;
-  }
-  .summary-table-wrap{
-    overflow-x: auto;
-  }
-  table.summary-table{
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    white-space: nowrap;
-  }
-  table.summary-table th,
-  table.summary-table td{
-    padding: .35rem .45rem;
-    border-bottom: 1px solid #f1f3f5;
-    vertical-align: middle;
-  }
-  table.summary-table th{
-    font-size: 11px;
-    color: #6c757d;
-    text-transform: uppercase;
-    letter-spacing: .02em;
-  }
-  .artist-group-head{
-    background: #f8f9fa;
-    border: 1px solid #eee;
-    border-radius: 10px;
-    padding: .5rem .6rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: .75rem;
-  }
-  .artist-dot{
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: .4rem;
-  }
-  .mini-pill{
-    background: #f8f9fa;
-    border: 1px solid #eee;
-    border-radius: 999px;
-    padding: 0 .45rem;
-    font-size: 12px;
-    color: #555;
-  }
-  .promoter-logo{
-    width: 28px;
-    height: 28px;
-    object-fit: contain;
-    border-radius: 8px;
-    background: #fff;
-    border: 1px solid #eee;
-    flex: 0 0 auto;
-  }
+  /* Cabecera de impresión */
+  .quad-print-header{ display:none; }
 
-
-  /* Print/PDF (exportación a PDF con window.print)
-     - 2 caras si hay calendario/mapa: 1) resumen 2) calendario+mapa
-     - Sin hoja inicial "Cuadrantes" (ocultamos cabecera de pantalla)
-  */
+  /* ================= PRINT / PDF (horizontal) ================= */
   .print-only{ display:none; }
-  .print-page{ }
-  .print-break-after{ }
-
   @media print{
-    @page { size: A4 landscape; margin: 8mm; }
-    nav.navbar { display: none !important; }
-    .no-print { display: none !important; }
-    .print-only { display: block !important; }
-    main.container { max-width: 100% !important; }
+    @page{ size: A4 landscape; margin: 8mm; }
+    nav.navbar{ display:none !important; }
+    .no-print{ display:none !important; }
+    .print-only{ display:block !important; }
+    main.container, main.container-fluid{ max-width:100% !important; }
+    a{ color:inherit !important; text-decoration:none !important; }
 
-    /* IMPORTANTE: permitir que los bloques se partan para evitar páginas en blanco */
-    .card { break-inside: auto !important; }
+    .print-break-after{ break-after:page; }
 
-    .print-break-after{ break-after: page; }
+    /* Cabecera co-branded */
+    .quad-print-header{ display:flex !important; align-items:center; justify-content:space-between;
+      gap:1rem; padding-bottom:6px; margin-bottom:8px; border-bottom:2px solid #E33D48; }
+    .quad-print-header img{ height:34px; object-fit:contain; }
+    .quad-print-brand{ display:flex; gap:14px; align-items:center; }
+    .quad-print-h{ font-size:15px; font-weight:800; }
+    .quad-print-sub{ font-size:10px; color:#555; }
 
-    /* Cabecera de impresión con artistas más visible */
-    .artist-avatar{ width: 54px !important; height: 54px !important; border-radius: 14px !important; }
+    /* KPIs y tablas compactos */
+    .quad-kpis{ gap:5px !important; margin-bottom:6px !important; }
+    .quad-kpis .sim-stat{ padding:.3rem .55rem !important; }
+    .quad-kpis .sim-stat__n{ font-size:1rem !important; }
+    .quad-artist-head{ padding:.3rem .5rem !important; margin-bottom:3px !important; break-inside:avoid; }
+    .quad-table-wrap{ overflow:visible !important; border:0 !important; margin-bottom:8px !important; }
+    table.quad-table{ font-size:9.5px !important; white-space:normal !important; }
+    table.quad-table thead th{ font-size:8px !important; padding:.2rem .28rem !important; background:#f1f3f5 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    table.quad-table tbody td{ padding:.16rem .28rem !important; }
+    .quad-num{ width:22px !important; height:22px !important; border-radius:6px !important; font-size:8px !important; }
+    .quad-status-badge, .quad-type-badge{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    /* Ocultar columna de selección y filas excluidas al imprimir */
+    .quad-col-include{ display:none !important; }
+    tr.quad-row.is-excluded{ display:none !important; }
 
-    /* Resumen: compactar pero manteniendo 1 línea por evento */
-    table.summary-table{ font-size: 10px !important; }
-    table.summary-table th{ font-size: 9px !important; }
-    table.summary-table th, table.summary-table td{ padding: .18rem .25rem !important; }
-    .artist-group-head{ padding: .35rem .45rem !important; }
-    .event-n{ width: 28px !important; height: 28px !important; border-radius: 8px !important; }
-
-    /* 2ª cara (CALENDARIO + MAPA EN LA MISMA HOJA)
-       - Calendario más pequeño a la izquierda
-       - Mapa a la derecha
-       - Evitar que ambos se partan entre páginas
-    */
-    .print-calmap-page{ break-inside: avoid !important; }
-    .print-calmap-row{ break-inside: avoid !important; }
-
-    /* En impresión, Bootstrap a veces apila columnas: forzamos layout en fila cuando hay ambos */
-    .print-calmap-row.print-both{
-      display: flex !important;
-      flex-wrap: nowrap !important;
-      gap: 6mm !important;
-      align-items: stretch !important;
-      margin: 0 !important;
-    }
-    .print-calmap-row.print-both > [class*="col"]{
-      padding: 0 !important;
-      margin: 0 !important;
-      float: none !important;
-    }
-    .print-calmap-row.print-both .print-col-calendar{
-      flex: 0 0 38% !important;
-      max-width: 38% !important;
-    }
-    .print-calmap-row.print-both .print-col-map{
-      flex: 1 1 62% !important;
-      max-width: 62% !important;
-    }
-
-    /* Cards: no partir entre páginas */
-    .print-calmap-page .card{ break-inside: avoid !important; }
-
-    /* Cabeceras/paddings más compactos en la 2ª cara */
-    .print-calmap-page .card-header{ padding: .25rem .35rem !important; font-size: 10px !important; }
-    .print-col-calendar .card-body{ padding: .25rem .35rem !important; }
-    .print-col-map .card-body{ padding: 0 !important; overflow: hidden !important; }
-
-    /* Calendario (compacto para que quepa junto al mapa) */
-    .print-col-calendar .year-grid{
-      gap: 2mm !important;
-      grid-template-columns: repeat(3, minmax(0,1fr)) !important;
-    }
-    .print-col-calendar .month-title{ padding: .12rem .18rem !important; font-size: 8px !important; }
-    .print-col-calendar table.month-table{ font-size: 7px !important; }
-    .print-col-calendar table.month-table th{ padding: .08rem 0 !important; }
-    .print-col-calendar table.month-table td{ height: 14px !important; padding: 1px !important; }
-    .print-col-calendar .day-num{ font-size: 8px !important; }
-    .print-col-calendar .day-badge{ width: 12px !important; height: 12px !important; font-size: 9px !important; border-width: 2px !important; }
-    .print-col-calendar .day-more{ line-height: 12px !important; font-size: 8px !important; }
-
-    /* Mapa: altura fija para garantizar que NO salte a otra hoja */
-    .print-col-map #quad-map{ height: 150mm !important; width: 100% !important; }
+    /* Calendario + mapa en la misma hoja horizontal */
+    .print-calmap-page{ break-inside:avoid !important; }
+    .print-calmap-row.print-both{ display:flex !important; flex-wrap:nowrap !important; gap:6mm !important; align-items:stretch !important; margin:0 !important; }
+    .print-calmap-row.print-both > [class*="col"]{ padding:0 !important; margin:0 !important; float:none !important; }
+    .print-calmap-row.print-both .print-col-calendar{ flex:0 0 40% !important; max-width:40% !important; }
+    .print-calmap-row.print-both .print-col-map{ flex:1 1 60% !important; max-width:60% !important; }
+    .print-calmap-page .card{ break-inside:avoid !important; }
+    .print-col-calendar .year-grid{ gap:2mm !important; grid-template-columns:repeat(3, minmax(0,1fr)) !important; }
+    .print-col-calendar .month-title{ padding:.12rem .18rem !important; font-size:8px !important; }
+    .print-col-calendar table.month-table{ font-size:7px !important; }
+    .print-col-calendar table.month-table th{ padding:.08rem 0 !important; }
+    .print-col-calendar table.month-table td{ height:14px !important; padding:1px !important; }
+    .print-col-calendar .day-num{ font-size:8px !important; }
+    .print-col-calendar .day-badge{ width:12px !important; height:12px !important; font-size:9px !important; border-width:2px !important; }
+    .print-col-calendar .day-more{ line-height:12px !important; font-size:8px !important; }
+    .print-col-map #quad-map{ height:150mm !important; width:100% !important; }
   }
 </style>
 
@@ -294,370 +215,291 @@
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
 </ul>
 
-<!-- Cabecera de pantalla (NO se imprime para evitar hoja vacía) -->
-<div class="d-flex align-items-center justify-content-between mb-3 no-print">
+<!-- Cabecera de pantalla -->
+<div class="quad-head no-print">
   <div>
-    <h3 class="m-0">Cuadrantes</h3>
-    <div class="text-muted">Selecciona uno o varios artistas para visualizar calendario + mapa + resumen.</div>
+    <h2><i class="fa fa-table-cells me-2 text-danger"></i>Cuadrantes</h2>
+    <div class="quad-sub">Un resumen imprimible de la actividad de tus artistas: calendario, mapa y una fila por actividad. Elige qué actividades y qué datos incluir y expórtalo en PDF horizontal.</div>
   </div>
-
-  <div class="no-print d-flex gap-2">
-    <button type="button" class="btn btn-outline-primary" onclick="window.print()">
-      <i class="fa fa-file-pdf"></i> Exportar PDF
+  <div class="d-flex gap-2">
+    <button type="button" class="btn btn-danger" onclick="window.print()">
+      <i class="fa fa-file-pdf me-1"></i> Exportar / Imprimir PDF
     </button>
   </div>
 </div>
 
-<form method="get" class="card mb-3 no-print">
-  <div class="card-body">
+<!-- ===================== PANEL DE FILTROS ===================== -->
+<form method="get" class="quad-panel mb-3 no-print" id="quadForm">
+  <div class="quad-panel__body">
+
     <div class="row g-2 align-items-end">
       <div class="col-12 col-lg-7">
-        <label class="form-label mb-1">Artistas</label>
-        <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona artistas...">
+        <label class="form-label mb-1 fw-semibold"><i class="fa fa-users me-1 text-danger"></i>Artistas <span class="text-muted fw-normal small">(añade varios al mismo cuadrante)</span></label>
+        <select name="artist_id" multiple class="form-select select-artists" data-placeholder="Selecciona uno o varios artistas...">
           {% for a in artists %}
             <option value="{{ a.id }}" data-photo="{{ a.photo_url or '' }}"
-              {% if a.id|string in selected_artist_ids %}selected{% endif %}>
-              {{ a.name }}
-            </option>
+              {% if a.id|string in selected_artist_ids %}selected{% endif %}>{{ a.name }}</option>
           {% endfor %}
         </select>
       </div>
-
       <div class="col-6 col-lg-2">
-        <label class="form-label mb-1">Año</label>
+        <label class="form-label mb-1 fw-semibold"><i class="fa fa-calendar me-1 text-danger"></i>Año</label>
         <select name="year" class="form-select">
           {% for y in year_options %}
             <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
           {% endfor %}
         </select>
       </div>
-
-      <div class="col-6 col-lg-3 d-flex gap-2">
-        <button class="btn btn-primary w-100">
-          <i class="fa fa-magnifying-glass"></i> Ver cuadrante
+      <div class="col-6 col-lg-3">
+        <button class="btn btn-danger w-100 quad-apply">
+          <i class="fa fa-wand-magic-sparkles me-1"></i> Ver cuadrante
         </button>
       </div>
     </div>
 
-    <hr class="my-3">
-
-    <div class="row g-2">
-      <div class="col-12">
-        <label class="form-label mb-1">Estado</label>
-        {% set S = f_statuses or [] %}
-        <div class="d-flex flex-wrap gap-2">
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="BORRADOR" {% if 'BORRADOR' in S %}checked{% endif %}>
-            Borrador
+    <!-- Filtros de actividad -->
+    <div class="quad-filter-group">
+      <div class="quad-filter-label"><i class="fa fa-flag"></i>Estado</div>
+      <div class="quad-chips">
+        {% for key, meta in STATUS_META.items() %}
+          <label class="quad-chip">
+            <input type="checkbox" name="status" value="{{ key }}" {% if key in (f_statuses or []) %}checked{% endif %}>
+            <span class="quad-dot" style="background:{{ meta.dot }};"></span>{{ meta.label }}
           </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="HABLADO" {% if 'HABLADO' in S %}checked{% endif %}>
-            Hablado
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="RESERVADO" {% if 'RESERVADO' in S %}checked{% endif %}>
-            Reservado
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="status" value="CONFIRMADO" {% if 'CONFIRMADO' in S %}checked{% endif %}>
-            Confirmado
-          </label>
-        </div>
-      </div>
-
-      <div class="col-12 mt-2">
-        <label class="form-label mb-1">Tipos</label>
-        {% set T = f_sale_types or [] %}
-        <div class="d-flex flex-wrap gap-2">
-          {% for value, label in type_choices %}
-            <label class="btn btn-outline-secondary btn-sm">
-              <input class="form-check-input me-1" type="checkbox" name="type" value="{{ value }}" {% if value in T %}checked{% endif %}>
-              {{ label }}
-            </label>
-          {% endfor %}
-        </div>
-      </div>
-
-      <div class="col-12 col-lg-6 mt-2">
-        <div class="d-flex justify-content-between align-items-center gap-2 flex-wrap">
-          <label class="form-label mb-1"># / gira / concepto</label>
-          <label class="form-check form-switch m-0">
-            <input class="form-check-input" type="checkbox" name="concert_tag_enabled" id="concertTagEnabled" value="1" {% if concert_tag_enabled %}checked{% endif %} {% if not selected_artist_ids %}disabled{% endif %}>
-            <span class="form-check-label small">Activar filtro</span>
-          </label>
-        </div>
-        <input
-          type="text"
-          name="concert_tag_text"
-          id="concertTagInput"
-          class="form-control"
-          list="concertTagsList"
-          value="{{ concert_tag_text or '' }}"
-          placeholder="Escribe o selecciona un #"
-          {% if not selected_artist_ids %}disabled{% endif %}
-        >
-        <datalist id="concertTagsList">
-          {% for tag in available_concert_tags %}
-            <option value="#{{ tag }}"></option>
-          {% endfor %}
-        </datalist>
-        <div class="form-text">
-          {% if selected_artist_ids %}
-            Solo filtra cuando activas el interruptor. Las sugerencias se limitan a los # de los artistas seleccionados.
-          {% else %}
-            Selecciona primero uno o varios artistas para activar este filtro.
-          {% endif %}
-        </div>
-      </div>
-
-      <div class="col-12 mt-2">
-        <label class="form-label mb-1">Anuncio</label>
-        {% set A = f_announcements or [] %}
-        <div class="d-flex flex-wrap gap-2">
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="announcement" value="NO_ANNOUNCE" {% if 'NO_ANNOUNCE' in A %}checked{% endif %}>
-            No anunciar
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="announcement" value="UPCOMING" {% if 'UPCOMING' in A %}checked{% endif %}>
-            Anuncia próximamente
-          </label>
-          <label class="btn btn-outline-secondary btn-sm">
-            <input class="form-check-input me-1" type="checkbox" name="announcement" value="ANNOUNCED" {% if 'ANNOUNCED' in A %}checked{% endif %}>
-            Ya anunciado
-          </label>
-        </div>
+        {% endfor %}
       </div>
     </div>
 
-    <div class="mt-3">
-      <label class="form-label mb-1">Contenido</label>
-      <div class="d-flex flex-wrap gap-2">
+    <div class="quad-filter-group">
+      <div class="quad-filter-label"><i class="fa fa-tags"></i>Tipo de actividad</div>
+      <div class="quad-chips">
+        {% for value, label in type_choices %}
+          <label class="quad-chip">
+            <input type="checkbox" name="type" value="{{ value }}" {% if value in (f_sale_types or []) %}checked{% endif %}>
+            <i class="fa {{ TYPE_ICON.get(value, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(value, label) }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
 
-        <label class="btn btn-outline-secondary btn-sm">
+    <div class="quad-filter-group">
+      <div class="quad-filter-label"><i class="fa fa-bullhorn"></i>Anuncio</div>
+      <div class="quad-chips">
+        {% for key, meta in ANN_META.items() %}
+          <label class="quad-chip">
+            <input type="checkbox" name="announcement" value="{{ key }}" {% if key in (f_announcements or []) %}checked{% endif %}>
+            <i class="fa {{ meta.ico }}"></i>{{ meta.label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="quad-filter-group">
+      <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <div class="quad-filter-label mb-0"><i class="fa fa-hashtag"></i>Concepto / gira / #</div>
+        <label class="form-check form-switch m-0">
+          <input class="form-check-input" type="checkbox" name="concert_tag_enabled" id="concertTagEnabled" value="1" {% if concert_tag_enabled %}checked{% endif %} {% if not selected_artist_ids %}disabled{% endif %}>
+          <span class="form-check-label small">Activar filtro</span>
+        </label>
+      </div>
+      <input type="text" name="concert_tag_text" id="concertTagInput" class="form-control mt-2"
+        list="concertTagsList" value="{{ concert_tag_text or '' }}"
+        placeholder="Escribe o selecciona un #" {% if not selected_artist_ids %}disabled{% endif %}>
+      <datalist id="concertTagsList">
+        {% for tag in available_concert_tags %}<option value="#{{ tag }}"></option>{% endfor %}
+      </datalist>
+    </div>
+
+    <hr class="quad-divider">
+
+    <!-- Personalización del cuadrante -->
+    <div class="quad-filter-group">
+      <div class="quad-filter-label"><i class="fa fa-table-columns"></i>Datos en la tabla <span class="text-muted fw-normal" style="text-transform:none;letter-spacing:0;">— toca para mostrar/ocultar columnas al instante</span></div>
+      <div class="quad-chips" id="quadColChips">
+        {% for name, ico, label, on in COLS %}
+          <label class="quad-chip">
+            <input type="hidden" name="{{ name }}" value="0">
+            <input type="checkbox" class="quad-col-toggle" data-toggle-col="{{ name[5:] }}" name="{{ name }}" value="1" {% if on %}checked{% endif %}>
+            <i class="fa {{ ico }}"></i>{{ label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="quad-filter-group">
+      <div class="quad-filter-label"><i class="fa fa-eye"></i>Vistas</div>
+      <div class="quad-chips">
+        <label class="quad-chip">
           <input type="hidden" name="show_calendar" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_calendar" value="1" {% if show_calendar %}checked{% endif %}>
-          Calendario
+          <input type="checkbox" class="quad-view-toggle" data-view="calendar" name="show_calendar" value="1" {% if show_calendar %}checked{% endif %}>
+          <i class="fa fa-calendar-days"></i>Calendario
         </label>
-        <label class="btn btn-outline-secondary btn-sm">
+        <label class="quad-chip">
           <input type="hidden" name="show_map" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_map" value="1" {% if show_map %}checked{% endif %}>
-          Mapa
+          <input type="checkbox" class="quad-view-toggle" data-view="map" name="show_map" value="1" {% if show_map %}checked{% endif %}>
+          <i class="fa fa-map-location-dot"></i>Mapa
         </label>
-
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_date" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_date" value="1" {% if show_date %}checked{% endif %}>
-          Fecha
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_festival" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_festival" value="1" {% if show_festival %}checked{% endif %}>
-          Festival
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_sale_type" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_sale_type" value="1" {% if show_sale_type %}checked{% endif %}>
-          Tipo
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_status" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_status" value="1" {% if show_status %}checked{% endif %}>
-          Estado
-        </label>
-
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_province" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_province" value="1" {% if show_province %}checked{% endif %}>
-          Provincia
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_municipality" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_municipality" value="1" {% if show_municipality %}checked{% endif %}>
-          Municipio
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_venue" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_venue" value="1" {% if show_venue %}checked{% endif %}>
-          Recinto
-        </label>
-
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_capacity" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_capacity" value="1" {% if show_capacity %}checked{% endif %}>
-          Aforo
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_cache" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_cache" value="1" {% if show_cache %}checked{% endif %}>
-          Caché
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_equipment" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_equipment" value="1" {% if show_equipment %}checked{% endif %}>
-          Equipamiento
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_promoter" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_promoter" value="1" {% if show_promoter %}checked{% endif %}>
-          Promotora
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_hashtag" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_hashtag" value="1" {% if show_hashtag %}checked{% endif %}>
-          #
-        </label>
-        <label class="btn btn-outline-secondary btn-sm">
-          <input type="hidden" name="show_announcement" value="0">
-          <input class="form-check-input me-1" type="checkbox" name="show_announcement" value="1" {% if show_announcement %}checked{% endif %}>
-          Anuncio
-        </label>
-
       </div>
     </div>
+
   </div>
 </form>
 
-<!-- =====================
-     RESUMEN (pantalla: debajo del formulario)
-     PRINT: 1ª cara
-     ===================== -->
-<div class="print-page {% if show_calendar or show_map %}print-break-after{% endif %}">
-  <div class="card mb-3">
-    <div class="card-header">
-      <div class="d-flex align-items-start justify-content-between gap-2">
-        <div>
-          <div class="fw-semibold">Artistas seleccionados</div>
-          {% if selected_artists and selected_artists|length > 0 %}
-            <div class="d-flex flex-wrap gap-3 mt-2">
-              {% for a in selected_artists %}
-                <div class="d-flex align-items-center gap-2">
-                  <img class="artist-avatar" style="width:36px;height:36px;"
-                       src="{{ a.photo_url or url_for('static', filename='img/logo.png') }}"
-                       alt="">
-                  <div class="fw-semibold">{{ a.name }}</div>
-                  {{ linked_mini('artist', a.id) }}
-                </div>
-              {% endfor %}
-            </div>
-          {% else %}
-            <div class="text-muted mt-1">No hay artistas seleccionados.</div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
+{% if selected_artists and selected_artists|length > 0 %}
 
-    <div class="card-body">
-      {% if events and events|length > 0 %}
-        <div class="d-flex align-items-center justify-content-between mb-2">
-          <div class="fw-semibold">Resumen de eventos ({{ events|length }})</div>
-          <div class="text-muted small">Numeración reinicia por artista</div>
-        </div>
-
-        {% for g in (events_by_artist or []) %}
-          <div class="artist-group-head mb-2">
-            <div class="d-flex align-items-center gap-2" style="min-width:0;">
-              <span class="artist-dot" style="background: {{ g.artist_color }};"></span>
-              {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}<div class="fw-semibold text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
-              {{ linked_mini('artist', g.artist_id) }}
-            </div>
-            <div class="mini-pill">{{ (g.events or [])|length }}</div>
-          </div>
-
-          {% if g.events and (g.events|length) > 0 %}
-            <div class="summary-table-wrap mb-3">
-              <table class="summary-table">
-                <thead>
-                  <tr>
-                    <th style="width:52px;">#</th>
-                    {% if show_date %}<th>Fecha</th>{% endif %}
-                    {% if show_festival %}<th>Festival</th>{% endif %}
-                    {% if show_sale_type %}<th>Tipo</th>{% endif %}
-                    {% if show_hashtag %}<th>#</th>{% endif %}
-                    {% if show_province %}<th>Provincia</th>{% endif %}
-                    {% if show_municipality %}<th>Municipio</th>{% endif %}
-                    {% if show_venue %}<th>Recinto</th>{% endif %}
-                    {% if show_capacity %}<th class="text-end">Aforo</th>{% endif %}
-                    {% if show_cache %}<th>Caché</th>{% endif %}
-                    {% if show_equipment %}<th>Equip.</th>{% endif %}
-                    {% if show_status %}<th>Estado</th>{% endif %}
-                    {% if show_announcement %}<th>Anuncio</th>{% endif %}
-                    {% if show_promoter %}<th>Promotora</th>{% endif %}
-                  </tr>
-                </thead>
-                <tbody>
-                  {% for e in g.events %}
-                    {% set st = (e.status or 'HABLADO') %}
-                    {% set st_class = 'status-borrador' if st=='BORRADOR' else ('status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado')) %}
-                    <tr class="clickable-row" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=e.concert_id) }}">
-                      <td>
-                        <span class="event-n {{ st_class }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
-                      </td>
-
-                      {% if show_date %}<td>{{ e.date_es }}</td>{% endif %}
-                      {% if show_festival %}<td>{{ e.festival_name or '' }}</td>{% endif %}
-                      {% if show_sale_type %}<td>{{ e.sale_type_label or e.sale_type or '' }}</td>{% endif %}
-                      {% if show_hashtag %}<td>{{ e.hashtags_text or '—' }}</td>{% endif %}
-                      {% if show_province %}<td>{{ e.province or '' }}</td>{% endif %}
-                      {% if show_municipality %}<td>{{ e.municipality or '' }}</td>{% endif %}
-                      {% if show_venue %}<td>{% if e.venue_id %}<a href="{{ url_for('venue_detail_view', vid=e.venue_id) }}">{{ e.venue_name or '' }}</a>{% else %}{{ e.venue_name or '' }}{% endif %}</td>{% endif %}
-                      {% if show_capacity %}<td class="text-end">{% if e.capacity_label == 'Sin aforo' %}Sin aforo{% else %}{{ e.capacity_label|k }}{% endif %}</td>{% endif %}
-                      {% if show_cache %}<td>{{ e.cache }}</td>{% endif %}
-                      {% if show_equipment %}<td>{% if e.has_equipment %}Sí{% else %}—{% endif %}</td>{% endif %}
-                      {% if show_status %}<td>{{ st|capitalize }}</td>{% endif %}
-                      {% if show_announcement %}
-                        <td>
-                          {% if e.announcement_badge %}
-                            <span class="badge {{ e.announcement_badge.class }}">{{ e.announcement_badge.text }}</span>
-                          {% else %}
-                            —
-                          {% endif %}
-                        </td>
-                      {% endif %}
-                      {% if show_promoter %}
-                        <td>
-                          {% if e.promoter_logo %}
-                            <img class="promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
-                          {% elif e.promoter_name %}
-                            {{ e.promoter_name }}
-                          {% else %}
-                            —
-                          {% endif %}
-                        </td>
-                      {% endif %}
-                    </tr>
-                  {% endfor %}
-                </tbody>
-              </table>
-            </div>
-          {% else %}
-            <div class="text-muted mb-3">Sin eventos con los filtros actuales.</div>
-          {% endif %}
-        {% endfor %}
-
-      {% else %}
-        <div class="text-muted">
-          Selecciona uno o varios artistas y pulsa <b>Ver cuadrante</b>.
-        </div>
-      {% endif %}
+<!-- Cabecera de impresión (solo PDF) -->
+<div class="quad-print-header">
+  <div class="quad-print-brand">
+    <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
+    <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
+  </div>
+  <div style="text-align:right;">
+    <div class="quad-print-h">Cuadrante de actividades · {{ year }}</div>
+    <div class="quad-print-sub">
+      {{ selected_artists | map(attribute='name') | join(' · ') }}
+      <span id="quadPrintDate"></span>
     </div>
   </div>
 </div>
 
-<!-- =====================
-     CALENDARIO + MAPA
-     Pantalla: debajo del resumen, 50/50
-     PRINT: 2ª cara
-     ===================== -->
-{% if show_calendar or show_map %}
-  <div class="print-page print-calmap-page">
+<!-- KPIs -->
+{% if stats %}
+<div class="quad-kpis mb-3">
+  <div class="sim-stat"><div class="sim-stat__n">{{ stats.total }}</div><div class="sim-stat__l">Actividades</div></div>
+  <div class="sim-stat"><div class="sim-stat__n text-success">{{ stats.confirmed }}</div><div class="sim-stat__l">Confirmadas</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ stats.artists }}</div><div class="sim-stat__l">Artistas</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ stats.capacity|k }}</div><div class="sim-stat__l">Aforo total</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ stats.provinces }}</div><div class="sim-stat__l">Provincias</div></div>
+</div>
+{% endif %}
+
+<!-- Barra de selección de actividades -->
+{% if events and events|length > 0 %}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2 no-print">
+  <div class="text-muted small"><i class="fa fa-square-check me-1 text-danger"></i>Marca o desmarca actividades para decidir cuáles aparecen en el PDF.</div>
+  <div class="d-flex gap-2 align-items-center">
+    <span class="text-muted small" id="quadInclCount"></span>
+    <button type="button" class="quad-mini-btn" data-quad-all-global><i class="fa fa-check-double me-1"></i>Incluir todas</button>
+    <button type="button" class="quad-mini-btn" data-quad-none-global><i class="fa fa-xmark me-1"></i>Ninguna</button>
+  </div>
+</div>
+{% endif %}
+
+<!-- ===================== RESUMEN: una fila por actividad ===================== -->
+<div class="print-page {% if show_calendar or show_map %}print-break-after{% endif %}">
+  {% if events and events|length > 0 %}
+    {% for g in (events_by_artist or []) %}
+      {% if g.events and (g.events|length) > 0 %}
+        <div class="quad-artist-head" style="border-left-color: {{ g.artist_color }};">
+          <div class="a-left" style="min-width:0;">
+            {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}
+            <div class="a-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
+            <span class="quad-count-pill">{{ (g.events or [])|length }} act.</span>
+          </div>
+          <div class="quad-artist-actions no-print" data-quad-group="{{ g.artist_id }}">
+            <button type="button" class="quad-mini-btn" data-quad-all>Todas</button>
+            <button type="button" class="quad-mini-btn" data-quad-none>Ninguna</button>
+          </div>
+        </div>
+
+        <div class="quad-table-wrap">
+          <table class="quad-table" data-quad-group-table="{{ g.artist_id }}">
+            <thead>
+              <tr>
+                <th class="quad-col-include no-print" style="width:34px;"></th>
+                <th style="width:44px;">#</th>
+                <th data-col="date">Fecha</th>
+                <th data-col="festival">Nombre / festival</th>
+                <th data-col="sale_type">Tipo</th>
+                <th data-col="hashtag">Concepto</th>
+                <th data-col="province">Provincia</th>
+                <th data-col="municipality">Municipio</th>
+                <th data-col="venue">Recinto</th>
+                <th data-col="capacity" class="num-cell">Aforo</th>
+                <th data-col="cache">Caché</th>
+                <th data-col="format">Formato</th>
+                <th data-col="schedule">Horario</th>
+                <th data-col="equipment">Equip.</th>
+                <th data-col="status">Estado</th>
+                <th data-col="announcement">Anuncio</th>
+                <th data-col="promoter">Promotora</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for e in g.events %}
+                {% set st = (e.status or 'BORRADOR') %}
+                {% set sm = STATUS_META.get(st, STATUS_META['BORRADOR']) %}
+                <tr class="quad-row clickable-row" role="button" tabindex="0"
+                    data-href="{{ url_for('concert_detail_view', cid=e.concert_id) }}">
+                  <td class="quad-col-include no-print" onclick="event.stopPropagation();">
+                    <input type="checkbox" class="quad-check quad-include" checked>
+                  </td>
+                  <td class="num-cell">
+                    <span class="quad-num {{ sm.cls }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
+                  </td>
+                  <td data-col="date">{{ e.date_es }}</td>
+                  <td data-col="festival">{{ e.festival_name or '—' }}</td>
+                  <td data-col="sale_type">
+                    {% if e.sale_type %}
+                      <span class="quad-type-badge"><i class="fa {{ TYPE_ICON.get(e.sale_type, 'fa-circle') }}"></i>{{ TYPE_SHORT.get(e.sale_type, e.sale_type_label or e.sale_type) }}</span>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td data-col="hashtag">{% if e.hashtags_text %}<span class="quad-hash">{{ e.hashtags_text }}</span>{% else %}—{% endif %}</td>
+                  <td data-col="province">{{ e.province or '—' }}</td>
+                  <td data-col="municipality">{{ e.municipality or '—' }}</td>
+                  <td data-col="venue">
+                    {% if e.venue_id %}<a href="{{ url_for('venue_detail_view', vid=e.venue_id) }}">{{ e.venue_name or '—' }}</a>
+                    {% else %}{{ e.venue_name or '—' }}{% endif %}
+                  </td>
+                  <td data-col="capacity" class="num-cell">
+                    {% if e.capacity_label == 'Sin aforo' %}<span class="text-muted">Sin aforo</span>{% else %}{{ e.capacity_label|k }}{% endif %}
+                  </td>
+                  <td data-col="cache">{{ e.cache }}</td>
+                  <td data-col="format">{% if e.show_format %}<span class="quad-fmt">{{ e.show_format }}</span>{% else %}—{% endif %}</td>
+                  <td data-col="schedule">{{ e.schedule_label or '—' }}</td>
+                  <td data-col="equipment">{% if e.has_equipment %}<i class="fa fa-circle-check text-success"></i>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+                  <td data-col="status"><span class="quad-status-badge {{ sm.cls }}"><i class="fa {{ sm.ico }}"></i>{{ sm.label }}</span></td>
+                  <td data-col="announcement">
+                    {% if e.announcement_badge %}<span class="badge {{ e.announcement_badge.class }}">{{ e.announcement_badge.text }}</span>{% else %}—{% endif %}
+                  </td>
+                  <td data-col="promoter">
+                    {% if e.promoter_logo %}<img class="quad-promoter-logo" src="{{ e.promoter_logo }}" title="{{ e.promoter_name }}" alt="">
+                    {% elif e.promoter_name %}{{ e.promoter_name }}{% else %}—{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% else %}
+        <div class="quad-artist-head" style="border-left-color: {{ g.artist_color }};">
+          <div class="a-left">
+            {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}
+            <div class="a-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
+          </div>
+          <span class="text-muted small">Sin actividades con estos filtros</span>
+        </div>
+      {% endif %}
+    {% endfor %}
+  {% else %}
+    <div class="quad-empty">
+      <div><i class="fa fa-calendar-xmark"></i></div>
+      <div class="mt-2 fw-semibold">No hay actividades con los filtros actuales.</div>
+      <div class="small">Prueba a ampliar los estados, tipos o el año.</div>
+    </div>
+  {% endif %}
+</div>
+
+<!-- ===================== CALENDARIO + MAPA ===================== -->
+{% if (show_calendar or show_map) and events and events|length > 0 %}
+  <div class="print-page print-calmap-page" id="quadCalMap">
     <div class="row g-3 print-calmap-row {% if show_calendar and show_map %}print-both{% else %}print-single{% endif %}">
       {% if show_calendar %}
-      <div class="col-12 col-lg-6 print-col-calendar">
+      <div class="col-12 {% if show_map %}col-lg-6{% endif %} print-col-calendar" data-view-block="calendar">
         <div class="card h-100">
           <div class="card-header d-flex align-items-center justify-content-between">
-            <span class="fw-semibold"><i class="fa fa-calendar"></i> Calendario {{ year }}</span>
-            <span class="text-muted small">Días con evento muestran el número</span>
+            <span class="fw-semibold"><i class="fa fa-calendar-days text-danger me-1"></i>Calendario {{ year }}</span>
+            <span class="text-muted small">El número = orden de la actividad</span>
           </div>
           <div class="card-body">
             <div class="year-grid">
@@ -665,19 +507,12 @@
                 <div class="month-card">
                   <div class="month-title">{{ m.name }}</div>
                   <table class="month-table">
-                    <thead>
-                      <tr>
-                        {% for d in dow %}
-                          <th>{{ d }}</th>
-                        {% endfor %}
-                      </tr>
-                    </thead>
+                    <thead><tr>{% for d in dow %}<th>{{ d }}</th>{% endfor %}</tr></thead>
                     <tbody>
                       {% for week in m.weeks %}
                         <tr>
                           {% for day in week %}
-                            {% if day == 0 %}
-                              <td></td>
+                            {% if day == 0 %}<td></td>
                             {% else %}
                               {% set date_str = "%04d-%02d-%02d"|format(year, m.num, day) %}
                               {% set marks = marks_by_date.get(date_str, []) %}
@@ -686,13 +521,10 @@
                                 {% if marks and marks|length > 0 %}
                                   <div class="day-badges">
                                     {% for it in marks[:4] %}
-                                      {% set st = (it.status or 'HABLADO') %}
-                                      {% set st_class = 'status-borrador' if st=='BORRADOR' else ('status-hablado' if st=='HABLADO' else ('status-reservado' if st=='RESERVADO' else 'status-confirmado')) %}
-                                      <span class="day-badge {{ st_class }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
+                                      {% set stc = STATUS_META.get((it.status or 'BORRADOR'), STATUS_META['BORRADOR']).cls %}
+                                      <span class="day-badge {{ stc }}" style="border-color: {{ it.artist_color or '#0d6efd' }};" title="{{ it.title or it.artist_name or '' }}">{{ it.n }}</span>
                                     {% endfor %}
-                                    {% if marks|length > 4 %}
-                                      <span class="day-more">+{{ marks|length - 4 }}</span>
-                                    {% endif %}
+                                    {% if marks|length > 4 %}<span class="day-more">+{{ marks|length - 4 }}</span>{% endif %}
                                   </div>
                                 {% endif %}
                               </td>
@@ -711,15 +543,13 @@
       {% endif %}
 
       {% if show_map %}
-      <div class="col-12 col-lg-6 print-col-map">
+      <div class="col-12 {% if show_calendar %}col-lg-6{% endif %} print-col-map" data-view-block="map">
         <div class="card h-100">
           <div class="card-header d-flex align-items-center justify-content-between">
-            <span class="fw-semibold"><i class="fa fa-map"></i> Mapa</span>
-            <span class="text-muted small">Chinchetas = número del evento</span>
+            <span class="fw-semibold"><i class="fa fa-map-location-dot text-danger me-1"></i>Mapa</span>
+            <span class="text-muted small">Chinchetas numeradas por actividad</span>
           </div>
-          <div class="card-body p-0">
-            <div id="quad-map"></div>
-          </div>
+          <div class="card-body p-0"><div id="quad-map"></div></div>
         </div>
       </div>
       {% endif %}
@@ -727,102 +557,118 @@
   </div>
 {% endif %}
 
+{% else %}
+<div class="quad-empty no-print">
+  <div><i class="fa fa-table-cells-large"></i></div>
+  <div class="mt-2 fw-semibold">Selecciona uno o varios artistas y pulsa «Ver cuadrante».</div>
+  <div class="small">Verás un resumen con calendario, mapa y una fila por actividad, listo para exportar en PDF.</div>
+</div>
+{% endif %}
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<!-- Metemos el JSON aquí para que el editor no lo trate como JS -->
-<script id="quad-tags-by-artist-json" type="application/json">
-  {{ (concert_tags_by_artist or {}) | tojson }}
-</script>
-
-<script id="quad-events-json" type="application/json">
-  {{ (events or []) | tojson }}
-</script>
+<script id="quad-tags-by-artist-json" type="application/json">{{ (concert_tags_by_artist or {}) | tojson }}</script>
+<script id="quad-events-json" type="application/json">{{ (events or []) | tojson }}</script>
 
 <script>
-  const EVENTS = JSON.parse(
-    document.getElementById("quad-events-json")?.textContent || "[]"
-  );
-  const CONCERT_TAGS_BY_ARTIST = JSON.parse(
-    document.getElementById("quad-tags-by-artist-json")?.textContent || "{}"
-  );
+  const EVENTS = JSON.parse(document.getElementById("quad-events-json")?.textContent || "[]");
+  const CONCERT_TAGS_BY_ARTIST = JSON.parse(document.getElementById("quad-tags-by-artist-json")?.textContent || "{}");
 
+  /* ---- Fecha de generación en la cabecera PDF ---- */
+  (function(){
+    const el = document.getElementById('quadPrintDate');
+    if (el){ try { el.textContent = ' · Generado el ' + new Date().toLocaleDateString('es-ES'); } catch(e){} }
+  })();
+
+  /* ---- Columnas: mostrar/ocultar al instante ---- */
+  function applyColumn(key, show){
+    document.querySelectorAll('[data-col="' + key + '"]').forEach(el => { el.style.display = show ? '' : 'none'; });
+  }
+  document.querySelectorAll('.quad-col-toggle').forEach(cb => {
+    applyColumn(cb.dataset.toggleCol, cb.checked);
+    cb.addEventListener('change', () => applyColumn(cb.dataset.toggleCol, cb.checked));
+  });
+
+  /* ---- Vistas (calendario / mapa): mostrar/ocultar al instante ---- */
+  document.querySelectorAll('.quad-view-toggle').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const block = document.querySelector('[data-view-block="' + cb.dataset.view + '"]');
+      if (block) block.style.display = cb.checked ? '' : 'none';
+      if (cb.dataset.view === 'map' && cb.checked && window.__quadMap){
+        setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 200);
+      }
+    });
+  });
+
+  /* ---- Selección de actividades (qué se incluye en el PDF) ---- */
+  function refreshInclCount(){
+    const all = document.querySelectorAll('.quad-include');
+    const on = document.querySelectorAll('.quad-include:checked');
+    const lbl = document.getElementById('quadInclCount');
+    if (lbl) lbl.textContent = on.length + ' de ' + all.length + ' incluidas';
+  }
+  function bindRow(cb){
+    const row = cb.closest('tr.quad-row');
+    const sync = () => { if (row) row.classList.toggle('is-excluded', !cb.checked); refreshInclCount(); };
+    cb.addEventListener('change', sync); sync();
+  }
+  document.querySelectorAll('.quad-include').forEach(bindRow);
+
+  document.querySelectorAll('[data-quad-group]').forEach(box => {
+    const gid = box.getAttribute('data-quad-group');
+    const table = document.querySelector('[data-quad-group-table="' + CSS.escape(gid) + '"]');
+    const setAll = (val) => { if(!table) return; table.querySelectorAll('.quad-include').forEach(cb => { cb.checked = val; cb.dispatchEvent(new Event('change')); }); };
+    box.querySelector('[data-quad-all]')?.addEventListener('click', () => setAll(true));
+    box.querySelector('[data-quad-none]')?.addEventListener('click', () => setAll(false));
+  });
+  document.querySelector('[data-quad-all-global]')?.addEventListener('click', () => {
+    document.querySelectorAll('.quad-include').forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change')); });
+  });
+  document.querySelector('[data-quad-none-global]')?.addEventListener('click', () => {
+    document.querySelectorAll('.quad-include').forEach(cb => { cb.checked = false; cb.dispatchEvent(new Event('change')); });
+  });
+  refreshInclCount();
+
+  /* ---- Filtro de # dependiente de los artistas seleccionados ---- */
   function refreshConcertTagOptions(){
     const artistSelect = document.querySelector('select[name="artist_id"]');
     const tagInput = document.getElementById('concertTagInput');
     const tagList = document.getElementById('concertTagsList');
     const tagToggle = document.getElementById('concertTagEnabled');
     if (!artistSelect || !tagInput || !tagList || !tagToggle) return;
-
     const selected = Array.from(artistSelect.selectedOptions || []).map(opt => opt.value).filter(Boolean);
     const tags = Array.from(new Set(selected.flatMap(id => CONCERT_TAGS_BY_ARTIST[id] || []))).sort((a, b) => a.localeCompare(b, 'es', {sensitivity: 'base'}));
-
     tagList.innerHTML = tags.map(tag => `<option value="#${String(tag || '').replace(/"/g, '&quot;')}"></option>`).join('');
-
     const enabled = selected.length > 0;
-    tagInput.disabled = !enabled;
-    tagToggle.disabled = !enabled;
-    if (!enabled){
-      tagToggle.checked = false;
-      tagInput.value = '';
-      tagInput.placeholder = 'Selecciona artistas para activar el filtro';
-    } else {
-      tagInput.placeholder = 'Escribe o selecciona un #';
-    }
+    tagInput.disabled = !enabled; tagToggle.disabled = !enabled;
+    if (!enabled){ tagToggle.checked = false; tagInput.value = ''; tagInput.placeholder = 'Selecciona artistas para activar el filtro'; }
+    else { tagInput.placeholder = 'Escribe o selecciona un #'; }
   }
-
   document.addEventListener('DOMContentLoaded', () => {
     const artistSelect = document.querySelector('select[name="artist_id"]');
-    if (artistSelect) {
+    if (artistSelect){
       artistSelect.addEventListener('change', refreshConcertTagOptions);
-      if (window.jQuery) {
-        window.jQuery(artistSelect).on('change', refreshConcertTagOptions);
-      }
+      if (window.jQuery) window.jQuery(artistSelect).on('change', refreshConcertTagOptions);
     }
     refreshConcertTagOptions();
   });
 
-  // Ajuste para impresión: Leaflet necesita recalcular tamaños cuando cambia el layout (CSS de print).
-  window.addEventListener("beforeprint", () => {
-    try {
-      if (window.__quadMap){
-        setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250);
-      }
-    } catch(e){}
-  });
-  window.addEventListener("afterprint", () => {
-    try {
-      if (window.__quadMap){
-        setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250);
-      }
-    } catch(e){}
-  });
+  /* ---- Impresión: recalcular tamaños de Leaflet ---- */
+  window.addEventListener("beforeprint", () => { try { if (window.__quadMap) setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250); } catch(e){} });
+  window.addEventListener("afterprint", () => { try { if (window.__quadMap) setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250); } catch(e){} });
 
-  function getGeoCache(){
-    try { return JSON.parse(localStorage.getItem("quad_geo_cache") || "{}"); }
-    catch(e){ return {}; }
-  }
-  
-  function setGeoCache(obj){
-    try { localStorage.setItem("quad_geo_cache", JSON.stringify(obj)); }
-    catch(e){}
-  }
-
+  /* ---- Geocodificación + mapa ---- */
+  function getGeoCache(){ try { return JSON.parse(localStorage.getItem("quad_geo_cache") || "{}"); } catch(e){ return {}; } }
+  function setGeoCache(obj){ try { localStorage.setItem("quad_geo_cache", JSON.stringify(obj)); } catch(e){} }
   async function geocodeCity(city, province){
     const key = (city || "") + "|" + (province || "");
     const cache = getGeoCache();
     if (cache[key]) return cache[key];
-
     const url = `/api/geocode?city=${encodeURIComponent(city||"")}&province=${encodeURIComponent(province||"")}`;
-    const r = await fetch(url);
-    if (!r.ok) return null;
-    const js = await r.json();
-    if (!js.ok) return null;
-
-    cache[key] = {lat: js.lat, lng: js.lng};
-    setGeoCache(cache);
-    return cache[key];
+    const r = await fetch(url); if (!r.ok) return null;
+    const js = await r.json(); if (!js.ok) return null;
+    cache[key] = {lat: js.lat, lng: js.lng}; setGeoCache(cache); return cache[key];
   }
-
   function statusToClass(st){
     const s = (st || "").toUpperCase();
     if (s === "BORRADOR") return "status-borrador";
@@ -830,72 +676,35 @@
     if (s === "CONFIRMADO") return "status-confirmado";
     return "status-hablado";
   }
-
   function eventIcon(n, status, artistColor){
-    const cls = statusToClass(status);
-    const border = artistColor || "#0d6efd";
+    const cls = statusToClass(status); const border = artistColor || "#0d6efd";
     const nn = (n === 0 || n) ? String(n) : "?";
-    return L.divIcon({
-      className: "event-marker",
-      html: `<div class="marker-wrap ${cls}" style="border-color:${border}"><div class="marker-n">${nn}</div></div>`,
-      iconSize: [46, 46],
-      iconAnchor: [23, 23]
-    });
+    return L.divIcon({ className: "event-marker", html: `<div class="marker-wrap ${cls}" style="border-color:${border}"><div class="marker-n">${nn}</div></div>`, iconSize: [44, 44], iconAnchor: [22, 22] });
   }
-
-  function escapeHtml(value){
-    return String(value || '')
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
+  function escapeHtml(value){ return String(value || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
   function offsetCoords(lat, lng, total, index){
     if (!total || total <= 1) return { lat, lng };
-    const angle = (2 * Math.PI * index) / total;
-    const radiusMeters = total <= 6 ? 140 : 190;
-    const dx = Math.cos(angle) * radiusMeters;
-    const dy = Math.sin(angle) * radiusMeters;
-    const dLat = dy / 111320;
-    const dLng = dx / (111320 * Math.max(Math.cos(lat * Math.PI / 180), 0.2));
+    const angle = (2 * Math.PI * index) / total; const radiusMeters = total <= 6 ? 140 : 190;
+    const dx = Math.cos(angle) * radiusMeters; const dy = Math.sin(angle) * radiusMeters;
+    const dLat = dy / 111320; const dLng = dx / (111320 * Math.max(Math.cos(lat * Math.PI / 180), 0.2));
     return { lat: lat + dLat, lng: lng + dLng };
   }
-
   (async function initMap(){
-    const el = document.getElementById("quad-map");
-    if (!el) return;
-
+    const el = document.getElementById("quad-map"); if (!el) return;
     const detailBase = "{{ url_for('concert_detail_view', cid='__CID__') }}";
     const map = L.map("quad-map", {scrollWheelZoom: false}).setView([40.4168, -3.7038], 6);
     window.__quadMap = map;
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
-      attribution: "&copy; OpenStreetMap"
-    }).addTo(map);
-
-    setTimeout(() => {
-      try { map.invalidateSize(); } catch(e) {}
-    }, 250);
-
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap" }).addTo(map);
+    setTimeout(() => { try { map.invalidateSize(); } catch(e) {} }, 250);
     const geocodedEvents = [];
     for (const e of EVENTS){
-      const city = e.municipality || "";
-      const prov = e.province || "";
+      const city = e.municipality || ""; const prov = e.province || "";
       if (!city) continue;
-      const coords = await geocodeCity(city, prov);
-      if (!coords) continue;
+      const coords = await geocodeCity(city, prov); if (!coords) continue;
       geocodedEvents.push({ ...e, lat: coords.lat, lng: coords.lng });
     }
-
     const grouped = {};
-    geocodedEvents.forEach((e) => {
-      const key = `${Number(e.lat).toFixed(5)}|${Number(e.lng).toFixed(5)}`;
-      grouped[key] = grouped[key] || [];
-      grouped[key].push(e);
-    });
-
+    geocodedEvents.forEach((e) => { const key = `${Number(e.lat).toFixed(5)}|${Number(e.lng).toFixed(5)}`; grouped[key] = grouped[key] || []; grouped[key].push(e); });
     const bounds = [];
     Object.values(grouped).forEach((group) => {
       group.forEach((e, idx) => {
@@ -904,27 +713,21 @@
         const detailUrl = detailBase.replace('__CID__', e.concert_id || '');
         const tags = e.hashtags_text ? `<div class="small text-muted">${escapeHtml(e.hashtags_text)}</div>` : '';
         const saleType = e.sale_type_label ? `<div class="small text-muted">${escapeHtml(e.sale_type_label)}</div>` : '';
+        const fmt = e.show_format ? `<div class="small text-muted">Formato: ${escapeHtml(e.show_format)}</div>` : '';
         const promoter = e.promoter_name ? `<div class="small text-muted">${escapeHtml(e.promoter_name)}</div>` : '';
         const artistImg = e.artist_photo ? '<img src="' + escapeHtml(e.artist_photo) + '" alt="" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:1px solid #eee;vertical-align:middle;">' : '';
         const html = `
           <div style="min-width:240px">
-            <div style="display:flex;align-items:center;gap:.4rem;">${artistImg}<b>${escapeHtml(e.artist_name || '')} · Evento ${escapeHtml(e.n || '')}</b></div>
+            <div style="display:flex;align-items:center;gap:.4rem;">${artistImg}<b>${escapeHtml(e.artist_name || '')} · Actividad ${escapeHtml(e.n || '')}</b></div>
             <div>${escapeHtml(e.date_es || '')}</div>
             <div>${escapeHtml(e.venue_name || '')} — ${escapeHtml(e.municipality || '')}${e.province ? ', ' + escapeHtml(e.province) : ''}</div>
-            ${saleType}
-            ${tags}
-            ${promoter}
-            <div class="mt-2"><a class="btn btn-sm btn-outline-primary" href="${detailUrl}">Abrir ficha</a></div>
-          </div>
-        `;
-        marker.bindPopup(html);
-        bounds.push([pos.lat, pos.lng]);
+            ${saleType}${fmt}${tags}${promoter}
+            <div class="mt-2"><a class="btn btn-sm btn-outline-danger" href="${detailUrl}">Abrir ficha</a></div>
+          </div>`;
+        marker.bindPopup(html); bounds.push([pos.lat, pos.lng]);
       });
     });
-
-    if (bounds.length){
-      map.fitBounds(bounds, {padding: [20, 20]});
-    }
+    if (bounds.length) map.fitBounds(bounds, {padding: [20, 20]});
   })();
 </script>
 

@@ -1,4 +1,6 @@
 import os
+import re
+import time
 
 from sqlalchemy import (
     create_engine,
@@ -168,7 +170,7 @@ class ArtistCalendarLink(Base):
 
 def ensure_artist_calendar_schema():
     """Crea la tabla de enlaces de calendario del artista y columnas CalDAV (idempotente)."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     _exec_ddl_statements([
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_uid text;",
         "ALTER TABLE IF EXISTS artist_agenda_items ADD COLUMN IF NOT EXISTS caldav_href text;",
@@ -3704,7 +3706,7 @@ class PhotoShare(Base):
 
 def ensure_fotos_schema():
     """Crea/actualiza las tablas de la galería de fotos (idempotente, sin Alembic)."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
@@ -3838,23 +3840,187 @@ def ensure_fotos_schema():
     _exec_ddl_statements(stmts, "fotos_schema")
 
 
-def _exec_ddl_statements(stmts, label: str = "schema"):
-    """Ejecuta DDL idempotente sentencia a sentencia.
+# =====================================================================================
+# Arranque del esquema: idempotente, SIN bloquear la web en cada deploy.
+#
+# PROBLEMA que resuelve: en cada deploy, el contenedor nuevo (sin fichero de cerrojo) reejecutaba
+# TODAS las migraciones `ensure_*`. Aunque son idempotentes (`IF NOT EXISTS`), un `ALTER TABLE ...
+# ADD COLUMN IF NOT EXISTS` toma un lock ACCESS EXCLUSIVE de la tabla ANTES de comprobar el
+# `IF NOT EXISTS`: incluso siendo un no-op, encola detrás de las peticiones en curso y bloquea
+# TODAS las lecturas de esa tabla mientras espera (y sin `lock_timeout`, la espera es ilimitada).
+# Con decenas de ALTER sobre tablas calientes (concerts/songs/artists/simulations) y la BD remota,
+# eso dejaba la web devolviendo 502 varios minutos en cada deploy (los hilos del worker se quedaban
+# esperando locks/consultas encoladas). Se arregla en dos frentes, GENERALIZANDO el patrón que ya
+# usaba `ensure_discografica_schema`:
+#   1) SALTAR el DDL idempotente que ya está aplicado (se lee UNA vez el esquema vivo y se comparan
+#      tablas/columnas/índices): en un deploy sin cambios de esquema NO se ejecuta ni un ALTER.
+#   2) Acotar la espera de locks (`SET LOCAL lock_timeout`): si una tabla está ocupada, el DDL aborta
+#      en vez de encolarse y bloquear a todos; es idempotente, así que se reintenta y, si no, se
+#      aplica en el siguiente arranque. Nunca vuelve a colgar la web.
+# =====================================================================================
 
-    Evita que un fallo tardío haga rollback de cambios previos ya válidos
-    (por ejemplo, un ``ALTER TABLE ... ADD COLUMN`` aplicado antes de una
-    sentencia que referencia otra tabla todavía inexistente).
+_CREATE_ALL_DONE = False
+
+
+def _create_all_once():
+    """`Base.metadata.create_all` UNA sola vez por proceso.
+
+    Todas las `ensure_*` lo llamaban «a la defensiva», pero como TODOS los modelos ya están definidos
+    al importar el módulo, una sola llamada crea todas las tablas que falten. Repetirlo ~12 veces solo
+    añadía cientos de round-trips de reflexión contra la BD remota en cada arranque.
+    """
+    global _CREATE_ALL_DONE
+    if _CREATE_ALL_DONE:
+        return
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+    _CREATE_ALL_DONE = True
+
+
+_SCHEMA_SNAPSHOT = None  # {"tables": set, "columns": {tabla: set}, "indexes": set} | None
+
+
+def _load_schema_snapshot(force: bool = False):
+    """Lee UNA vez (cacheado por proceso) las tablas/columnas/índices existentes en `public`.
+
+    Sirve para saltar el DDL idempotente ya aplicado. Si falla, devuelve None y se ejecuta todo el
+    DDL como antes (con `lock_timeout`): degradación segura, nunca peor que el comportamiento previo.
+    """
+    global _SCHEMA_SNAPSHOT
+    if _SCHEMA_SNAPSHOT is not None and not force:
+        return _SCHEMA_SNAPSHOT
+    snap = {"tables": set(), "columns": {}, "indexes": set()}
+    try:
+        with engine.connect() as conn:
+            for row in conn.exec_driver_sql(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+            ):
+                snap["tables"].add(row[0])
+            for row in conn.exec_driver_sql(
+                "SELECT table_name, column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public'"
+            ):
+                snap["columns"].setdefault(row[0], set()).add(row[1])
+            for row in conn.exec_driver_sql(
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public'"
+            ):
+                snap["indexes"].add(row[0])
+    except Exception as exc:
+        print(f"[schema] no se pudo leer el esquema vivo (se ejecutará todo el DDL): {exc}")
+        snap = None
+    _SCHEMA_SNAPSHOT = snap
+    return snap
+
+
+_RE_CREATE_TABLE = re.compile(r"create\s+table\s+if\s+not\s+exists\s+([a-z0-9_.\"]+)", re.I)
+_RE_CREATE_INDEX = re.compile(r"create\s+(?:unique\s+)?index\s+if\s+not\s+exists\s+([a-z0-9_.\"]+)", re.I)
+_RE_ALTER_TABLE = re.compile(r"alter\s+table\s+(?:if\s+exists\s+)?([a-z0-9_.\"]+)\s+(.*)", re.I | re.S)
+_RE_ADD_COL = re.compile(r"add\s+column\s+if\s+not\s+exists\s+([a-z0-9_\"]+)", re.I)
+
+
+def _norm_ident(name: str) -> str:
+    return (name or "").strip().strip('"').split(".")[-1].lower()
+
+
+def _ddl_already_applied(stmt: str, snap) -> bool:
+    """True SOLO si podemos PROBAR que el objeto del DDL idempotente ya existe (para saltarlo).
+
+    Conservador por diseño: ante cualquier duda devuelve False (se ejecuta el DDL). Como el snapshot
+    solo se toma tras `create_all` y los objetos solo se CREAN durante el arranque (nunca se borran),
+    «existe en el snapshot» ⇒ «existe ahora» ⇒ saltarlo es seguro. Nunca salta un cambio nuevo.
+    """
+    if not snap:
+        return False
+    s = stmt.strip().rstrip(";").strip()
+    low = s.lower()
+
+    m = _RE_CREATE_TABLE.match(low)
+    if m:
+        return _norm_ident(m.group(1)) in snap["tables"]
+
+    m = _RE_CREATE_INDEX.match(low)
+    if m:
+        return _norm_ident(m.group(1)) in snap["indexes"]
+
+    m = _RE_ALTER_TABLE.match(s)
+    if m:
+        table = _norm_ident(m.group(1))
+        body = m.group(2)
+        cols = _RE_ADD_COL.findall(body)
+        if cols:
+            # Solo saltamos si el ALTER es EXCLUSIVAMENTE «ADD COLUMN IF NOT EXISTS …» (una o varias)
+            # y TODAS esas columnas ya existen. Si mezcla otra operación (ALTER COLUMN, etc.) o hay
+            # cualquier ambigüedad, no se salta. Split por comas fuera de paréntesis (p. ej. numeric(10,2)).
+            clauses = [c.strip() for c in re.split(r",(?![^()]*\))", body) if c.strip()]
+            if clauses and all(re.match(r"add\s+column\s+if\s+not\s+exists\s", c, re.I) for c in clauses):
+                have = snap["columns"].get(table, set())
+                return all(_norm_ident(c) in have for c in cols)
+    return False
+
+
+def _snapshot_add(snap, stmt: str) -> None:
+    """Mantiene el snapshot al día tras aplicar un DDL, para poder saltar dependientes en el mismo arranque."""
+    if not snap:
+        return
+    s = stmt.strip().rstrip(";").strip()
+    low = s.lower()
+    m = _RE_CREATE_TABLE.match(low)
+    if m:
+        snap["tables"].add(_norm_ident(m.group(1)))
+        return
+    m = _RE_CREATE_INDEX.match(low)
+    if m:
+        snap["indexes"].add(_norm_ident(m.group(1)))
+        return
+    m = _RE_ALTER_TABLE.match(s)
+    if m:
+        table = _norm_ident(m.group(1))
+        cols = _RE_ADD_COL.findall(m.group(2))
+        if cols:
+            have = snap["columns"].setdefault(table, set())
+            for c in cols:
+                have.add(_norm_ident(c))
+
+
+def _exec_ddl_statements(stmts, label: str = "schema"):
+    """Ejecuta DDL idempotente sentencia a sentencia, SIN bloquear la web en cada deploy.
+
+    - Salta lo que ya está aplicado (ver `_ddl_already_applied`): en un deploy sin cambios de esquema
+      no se ejecuta ni un ALTER, así que no hay locks ACCESS EXCLUSIVE sobre tablas calientes.
+    - Cada sentencia va en su propia transacción con `lock_timeout` acotado: si no consigue el lock
+      rápido, aborta y se reintenta unas veces; si aun así no, se aplica en el próximo arranque.
+    - Cada sentencia aislada evita que un fallo tardío tire cambios previos ya válidos.
     """
 
+    snap = _load_schema_snapshot()
     for idx, stmt in enumerate(stmts, start=1):
         s = (stmt or "").strip()
         if not s:
             continue
-        try:
-            with engine.begin() as conn:
-                conn.exec_driver_sql(s)
-        except Exception as exc:
-            print(f"[schema:{label}] Aviso en sentencia {idx}: {exc}")
+        if _ddl_already_applied(s, snap):
+            continue
+        applied = False
+        for attempt in range(3):
+            try:
+                with engine.begin() as conn:
+                    # Espera de lock acotada: mejor abortar y reintentar que encolar y bloquear TODAS
+                    # las lecturas de la tabla durante el deploy (lo que devolvía 502). NO limitamos la
+                    # DURACIÓN de la sentencia (statement_timeout) para no matar la creación legítima de
+                    # un índice grande la primera vez.
+                    conn.exec_driver_sql("SET LOCAL lock_timeout = '3s';")
+                    conn.exec_driver_sql(s)
+                applied = True
+                break
+            except Exception as exc:
+                msg = str(exc).lower()
+                transient = ("lock" in msg or "timeout" in msg or "deadlock" in msg
+                             or "canceling statement" in msg)
+                if transient and attempt < 2:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                print(f"[schema:{label}] Aviso en sentencia {idx}: {exc}")
+                break
+        if applied:
+            _snapshot_add(snap, s)
 
 
 def ensure_simulations_schema():
@@ -5322,7 +5488,7 @@ def ensure_concert_artwork_schema():
 
 def ensure_personnel_and_operations_schema():
     """Crea tablas de Personal, Promoción y nuevas bases de datos operativas."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         # SEGURIDAD: borra cualquier contraseña en claro almacenada históricamente. Ya no se guardan
@@ -5468,7 +5634,7 @@ def ensure_personnel_and_operations_schema():
 
 def ensure_bag_expense_schema():
     """Asegura el esquema ampliado de bolsas y gastos administrativos."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
@@ -5755,7 +5921,7 @@ def ensure_marketing_country_schema():
 
 def ensure_actions_contracting_admin_schema():
     """Asegura acciones, presupuesto de actividades y recursos de acceso nuevos."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         "ALTER TABLE IF EXISTS concerts ADD COLUMN IF NOT EXISTS production_payload jsonb NOT NULL DEFAULT '{}'::jsonb;",
@@ -5975,7 +6141,7 @@ def ensure_activities_grouping_schema():
 
 
 def init_db():
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
 
 
 def ensure_contracting_embargo_schema():
@@ -6026,7 +6192,7 @@ def ensure_contracting_embargo_schema():
 
 def ensure_radio_import_schema():
     """Tablas de alias para la importación de tocadas por Excel (emisora e ISRC)."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     _exec_ddl_statements([
         """
         CREATE TABLE IF NOT EXISTS radio_station_aliases (
@@ -6053,7 +6219,7 @@ def ensure_radio_import_schema():
 
 def ensure_entity_links_schema():
     """Asegura vinculaciones genéricas y campos extra de invitaciones."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
@@ -6101,7 +6267,7 @@ def ensure_entity_links_schema():
 
 def ensure_invitation_schema():
     """Asegura la funcionalidad completa de Invitaciones sin depender de Alembic."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
@@ -6321,7 +6487,7 @@ def ensure_invitation_schema():
 
 def ensure_roadmap_onesheet_schema():
     """Asegura campos de hoja de ruta avanzada, redes sociales y one-sheets."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     stmts = [
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """
@@ -6512,7 +6678,7 @@ class ChartmetricMeta(Base):
 
 def ensure_chartmetric_schema():
     """Crea/actualiza las tablas de caché de Chartmetric (idempotente). Inofensivo si no se usa."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     _exec_ddl_statements([
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_name text;",
         "ALTER TABLE IF EXISTS chartmetric_artist ADD COLUMN IF NOT EXISTS chartmetric_image_url text;",
@@ -6534,7 +6700,7 @@ def ensure_chartmetric_schema():
 
 def ensure_venue_seatmap_schema():
     """Mapa de butacas por recinto (pestaña Ticketing de la ficha). Idempotente, sin Alembic."""
-    Base.metadata.create_all(bind=engine)
+    _create_all_once()
     _exec_ddl_statements([
         'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
         """

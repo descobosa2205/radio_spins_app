@@ -1106,7 +1106,16 @@ def admin_logout():
 def home():
     # Refresco diario automático de Chartmetric (sin configurar nada; no bloquea ni rompe la home).
     _chartmetric_maybe_daily_refresh()
-    return render_template("home.html")
+    artists = []
+    try:
+        s = db()
+        try:
+            artists = s.query(Artist).order_by(Artist.name.asc()).all()
+        finally:
+            s.close()
+    except Exception:
+        artists = []
+    return render_template("home.html", artists=artists)
 
 # ---------- ARTISTAS ----------
 def _active_artist_ids(session_db) -> set:
@@ -18683,11 +18692,13 @@ def contracting_view():
 # descartarse. Modelo BookingRequest. Sección en Contratación (contratacion.peticiones).
 BOOKING_STATUS_ORDER = ["NUEVA", "EN_TRAMITE", "CONVERTIDA", "DESCARTADA"]
 BOOKING_STATUS_META = {
-    "NUEVA": ("Nueva", "text-bg-danger"),
-    "EN_TRAMITE": ("En trámite", "text-bg-warning text-dark"),
-    "CONVERTIDA": ("Convertida", "text-bg-success"),
+    "NUEVA": ("Pendiente", "text-bg-warning text-dark"),
+    "EN_TRAMITE": ("Negociando", "text-bg-info text-dark"),
+    "CONVERTIDA": ("Aprobada", "text-bg-success"),
     "DESCARTADA": ("Descartada", "text-bg-secondary"),
 }
+# Estados que siguen "abiertos" (aparecen en el módulo de pendientes); el resto van a archivadas.
+BOOKING_OPEN_STATUSES = {"NUEVA", "EN_TRAMITE"}
 BOOKING_SOURCE_CHOICES = [
     ("EMAIL", "Email"), ("TELEFONO", "Teléfono"), ("WEB", "Web / formulario"),
     ("PRESENCIAL", "Presencial"), ("OTRO", "Otro"),
@@ -18733,6 +18744,16 @@ def _booking_request_row(r):
     }
 
 
+def _booking_in_department(r, dept: str) -> bool:
+    """¿Esta petición pertenece a `dept`? Se lee de payload['departments']; las
+    peticiones antiguas sin departamento se consideran de Contratación."""
+    pay = r.payload if isinstance(getattr(r, "payload", None), dict) else {}
+    depts = pay.get("departments")
+    if isinstance(depts, list) and depts:
+        return dept.upper() in [str(d).strip().upper() for d in depts]
+    return dept.upper() == "CONTRATACION"
+
+
 def _render_booking_requests():
     s = db()
     try:
@@ -18743,11 +18764,18 @@ def _render_booking_requests():
             .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
             .limit(500).all()
         )
-        counts = {k: 0 for k in BOOKING_STATUS_ORDER}
-        for r in rows_all:
-            k = (r.status or "NUEVA").upper()
-            counts[k] = counts.get(k, 0) + 1
-        rows = [r for r in rows_all if (not status_filter or (r.status or "NUEVA").upper() == status_filter)]
+        # Peticiones de Contratación (con caché o legado sin departamento).
+        mine = [r for r in rows_all if _booking_in_department(r, "CONTRATACION")]
+        pending = [r for r in mine if (r.status or "NUEVA").upper() in BOOKING_OPEN_STATUSES]
+        archived = [r for r in mine if (r.status or "NUEVA").upper() not in BOOKING_OPEN_STATUSES]
+        counts = {k: sum(1 for r in mine if (r.status or "NUEVA").upper() == k) for k in BOOKING_STATUS_ORDER}
+        # Por defecto se muestran las PENDIENTES; «Archivadas» muestra aprobadas/descartadas.
+        if status_filter == "ARCHIVED":
+            rows = archived
+        elif status_filter in BOOKING_STATUS_META:
+            rows = [r for r in mine if (r.status or "NUEVA").upper() == status_filter]
+        else:
+            rows = pending
         payload = [_booking_request_row(r) for r in rows]
         artists = s.query(Artist).order_by(Artist.name.asc()).all()
         return render_template(
@@ -18755,7 +18783,9 @@ def _render_booking_requests():
             section="peticiones",
             booking_rows=payload,
             booking_counts=counts,
-            booking_total=len(rows_all),
+            booking_total=len(mine),
+            booking_pending_total=len(pending),
+            booking_archived_total=len(archived),
             status_filter=status_filter,
             booking_status_order=BOOKING_STATUS_ORDER,
             booking_status_meta=BOOKING_STATUS_META,
@@ -18850,7 +18880,7 @@ def booking_request_status(rid):
         flash(f"No se pudo cambiar el estado: {exc}", "danger")
     finally:
         s.close()
-    return redirect(url_for("contracting_view", section="peticiones"))
+    return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
 @app.post("/contratacion/peticiones/<rid>/tramitar", endpoint="booking_request_convert")
@@ -18891,7 +18921,195 @@ def booking_request_delete(rid):
         flash(f"No se pudo eliminar: {exc}", "danger")
     finally:
         s.close()
-    return redirect(url_for("contracting_view", section="peticiones"))
+    return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
+
+
+@app.post("/peticiones/<rid>/aprobar", endpoint="booking_request_approve")
+@admin_required
+def booking_request_approve(rid):
+    """Aprobar una petición: crea el BORRADOR de la actividad correspondiente a partir
+    de los datos de la petición, la enlaza y marca la petición como Aprobada. La actividad
+    queda como borrador para completarla en su ficha."""
+    s = db()
+    try:
+        r = s.get(BookingRequest, to_uuid(rid))
+        if not r:
+            abort(404)
+        if r.concert_id:
+            return redirect(url_for("concert_detail_view", cid=r.concert_id))
+        if not r.artist_id:
+            flash("Añade un artista a la petición antes de aprobarla (edítala).", "warning")
+            return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
+        pay = r.payload if isinstance(r.payload, dict) else {}
+        activity_type = (pay.get("activity_type") or "CONCIERTO").strip().upper()
+        no_cache = bool(pay.get("no_cache"))
+        the_date = r.requested_date
+        if not the_date:
+            kind = (pay.get("date_kind") or "").upper()
+            if kind == "RANGE" and pay.get("range_start"):
+                the_date = parse_optional_date(pay.get("range_start"))
+            elif kind == "MONTH" and pay.get("month"):
+                the_date = parse_optional_date(str(pay.get("month")) + "-01")
+        if not the_date:
+            the_date = today_local()  # marcador editable en la ficha
+        sale_type = "GRATUITO" if no_cache else "EMPRESA"
+        c = Concert(
+            date=the_date,
+            sale_type=sale_type,
+            activity_type=activity_type,
+            artist_id=r.artist_id,
+            artist_ids=(r.artist_ids or [str(r.artist_id)]),
+            venue_id=r.venue_id,
+            manual_municipality=r.municipality,
+            manual_province=r.province,
+            capacity=0,
+            no_capacity=True,
+            status="BORRADOR",
+            festival_name=(r.subject if activity_type == "FESTIVAL" else None),
+        )
+        s.add(c)
+        s.flush()
+        r.concert_id = c.id
+        r.status = "CONVERTIDA"
+        st = _current_user_state()
+        r.reviewed_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        r.reviewed_by_nick = st.get("nick") or st.get("email") or ""
+        s.commit()
+        flash("Petición aprobada: se ha creado el borrador de la actividad. Complétalo aquí.", "success")
+        return redirect(url_for("concert_detail_view", cid=c.id))
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo aprobar la petición: {exc}", "danger")
+        return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
+    finally:
+        s.close()
+
+
+# ================= ASISTENTE NUEVO DE PETICIONES (multipaso) =================
+# Departamentos a los que se reparte una petición (payload['departments']).
+PETICION_DEPARTMENTS = {"CONTRATACION", "SELLO", "PROMO", "DISENO"}
+
+
+def _peticion_departments(activity_type, no_cache, explicit=None):
+    """Departamentos que ven la petición:
+    - Con caché → Contratación; sin caché → Sello.
+    - Actividad de TV → además Promoción (aparece en los dos).
+    - ``explicit`` (del botón global «¿para qué es?») fuerza un departamento concreto.
+    """
+    at = (activity_type or "").strip().upper()
+    depts = []
+    e = (explicit or "").strip().upper()
+    if e in PETICION_DEPARTMENTS:
+        depts.append(e)
+    if e not in ("PROMO", "DISENO"):
+        base = "SELLO" if no_cache else "CONTRATACION"
+        if base not in depts:
+            depts.append(base)
+    if at == "TV" and "PROMO" not in depts:
+        depts.append("PROMO")
+    return depts or ["CONTRATACION"]
+
+
+def _peticion_month_label(ym):
+    try:
+        y, m = (ym or "").split("-")
+        return f"{MONTHS_ES[int(m) - 1]} {y}"
+    except Exception:
+        return ym or ""
+
+
+@app.post("/peticiones/crear", endpoint="peticion_wizard_create")
+@admin_required
+def peticion_wizard_create():
+    """Crea una petición desde el asistente multipaso. Los campos que no tiene el
+    modelo (tipo de actividad, país, franja/mes, sin caché, departamentos, quién pide)
+    se guardan en ``payload`` (JSONB) para no tocar el esquema."""
+    s = db()
+    try:
+        f = request.form
+        activity_type = (f.get("activity_type") or "CONCIERTO").strip().upper()
+        no_cache = _truthy(f.get("no_cache"))
+        explicit_dept = (f.get("department") or "").strip().upper() or None
+
+        r = BookingRequest(status="NUEVA")
+        aid = (f.get("artist_id") or "").strip()
+        r.artist_id = to_uuid(aid) if aid else None
+        r.artist_ids = [aid] if aid else []
+
+        vid = (f.get("venue_id") or "").strip()
+        r.venue_id = to_uuid(vid) if vid else None
+        r.municipality = (f.get("municipality") or "").strip() or None
+        r.province = (f.get("province") or "").strip() or None
+        country = (f.get("country") or "").strip() or "España"
+
+        kind = (f.get("date_kind") or "EXACT").strip().upper()
+        pay = {}
+        if kind == "EXACT":
+            r.requested_date = parse_optional_date(f.get("requested_date"))
+            if not r.requested_date:
+                kind = "UNKNOWN"
+        if kind == "RANGE":
+            rs = (f.get("range_start") or "").strip()
+            re_ = (f.get("range_end") or "").strip()
+            pay["range_start"] = rs
+            pay["range_end"] = re_
+            r.date_text = f"Franja: {rs or '?'} → {re_ or '?'}"
+        elif kind == "MONTH":
+            ym = (f.get("month") or "").strip()
+            pay["month"] = ym
+            r.date_text = f"Mes: {_peticion_month_label(ym)}"
+        elif kind == "UNKNOWN":
+            r.date_text = "Fecha sin definir"
+        pay["date_kind"] = kind
+
+        req_type = (f.get("requester_type") or "").strip().lower()
+        req_id = (f.get("requester_id") or "").strip()
+        req_name = (f.get("requester_name") or "").strip()
+        r.contact_name = req_name or None
+        r.contact_email = (f.get("requester_email") or "").strip() or None
+        r.contact_phone = (f.get("requester_phone") or "").strip() or None
+        if req_type in ("promoter", "empresa", "institucion") and req_id:
+            r.promoter_id = to_uuid(req_id)
+
+        r.fee_text = None if no_cache else ((f.get("fee_text") or "").strip() or None)
+        r.notes = (f.get("description") or "").strip() or None
+        r.source = "OTRO"
+
+        subject = (f.get("subject") or "").strip()
+        if not subject:
+            art = s.get(Artist, r.artist_id) if r.artist_id else None
+            parts = [QUAD_ACTIVITY_LABELS.get(activity_type, activity_type.title())]
+            if art:
+                parts.append(art.name)
+            if r.municipality:
+                parts.append(r.municipality)
+            subject = " · ".join([p for p in parts if p])
+        r.subject = subject or "Petición"
+
+        pay.update({
+            "activity_type": activity_type,
+            "country": country,
+            "no_cache": no_cache,
+            "departments": _peticion_departments(activity_type, no_cache, explicit_dept),
+            "requester_type": req_type,
+            "requester_id": req_id,
+            "requester_name": req_name,
+            "description": r.notes or "",
+        })
+        r.payload = pay
+
+        st = _current_user_state()
+        r.created_by_user_id = to_uuid(st.get("user_id")) if st.get("user_id") else None
+        r.created_by_nick = st.get("nick") or st.get("email") or ""
+        s.add(r)
+        s.commit()
+        flash("Petición creada.", "success")
+    except Exception as exc:
+        s.rollback()
+        flash(f"No se pudo crear la petición: {exc}", "danger")
+    finally:
+        s.close()
+    return redirect(request.form.get("next") or url_for("contracting_view", section="peticiones"))
 
 
 # ================= SECCIONES PROMOCIÓN / DISEÑO (bandejas de peticiones por departamento) =========
@@ -18919,6 +19137,7 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             mine = []
         pending = [r for r in mine if (r.status or "NUEVA").upper() in {"NUEVA", "EN_TRAMITE"}]
         archived = [r for r in mine if (r.status or "NUEVA").upper() in {"CONVERTIDA", "DESCARTADA"}]
+        artists = s.query(Artist).order_by(Artist.name.asc()).all()
         return render_template(
             "department_inbox.html",
             dept_key=dept_key,
@@ -18928,6 +19147,7 @@ def _render_department_inbox(dept_key: str, title: str, icon: str, subtitle: str
             pending_rows=[_booking_request_row(r) for r in pending],
             archived_rows=[_booking_request_row(r) for r in archived],
             booking_status_meta=BOOKING_STATUS_META,
+            artists=artists,
         )
     finally:
         s.close()
@@ -18949,6 +19169,64 @@ def diseno_view():
         "DISENO", "Diseño", "fa-palette",
         "Peticiones y encargos de diseño.",
     )
+
+
+def _current_user_peticion_departments():
+    """Departamentos de peticiones que ve el usuario actual (según sus accesos)."""
+    depts = set()
+    try:
+        if has_access_key("contratacion", include_descendants=True):
+            depts.add("CONTRATACION")
+        if has_access_key("discografica", include_descendants=True):
+            depts.add("SELLO")
+        if has_access_key("promo", include_descendants=True):
+            depts.add("PROMO")
+        if has_access_key("diseno", include_descendants=True):
+            depts.add("DISENO")
+    except Exception:
+        pass
+    return depts
+
+
+def _home_pending_peticiones(limit=12):
+    """Peticiones abiertas (pendientes/negociando) de los departamentos del usuario, para el
+    módulo de Inicio. Añade días transcurridos desde que se solicitó y sus departamentos."""
+    depts = _current_user_peticion_departments()
+    if not depts:
+        return []
+    s = db()
+    try:
+        rows = (
+            s.query(BookingRequest)
+            .options(joinedload(BookingRequest.artist))
+            .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA")).in_(list(BOOKING_OPEN_STATUSES)))
+            .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
+            .limit(200)
+            .all()
+        )
+        today = today_local()
+        dept_labels = {"CONTRATACION": "Contratación", "SELLO": "Sello", "PROMO": "Promoción", "DISENO": "Diseño"}
+        out = []
+        for r in rows:
+            if not any(_booking_in_department(r, d) for d in depts):
+                continue
+            row = _booking_request_row(r)
+            base = getattr(r, "received_at", None) or getattr(r, "created_at", None)
+            days = None
+            if base:
+                try:
+                    days = (today - base.date()).days
+                except Exception:
+                    days = None
+            row["days_since"] = days
+            pay = r.payload if isinstance(r.payload, dict) else {}
+            row["dept_labels"] = [dept_labels.get(str(d).strip().upper(), str(d)) for d in (pay.get("departments") or ["CONTRATACION"])]
+            out.append(row)
+            if len(out) >= limit:
+                break
+        return out
+    finally:
+        s.close()
 
 
 # ================= GIRAS COMPRADAS · CICLOS / FESTIVALES (entidades operativas) =================
@@ -22427,9 +22705,11 @@ def concerts_page():
                     .options(joinedload(BookingRequest.artist))
                     .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA")).in_(["NUEVA", "EN_TRAMITE"]))
                     .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
-                    .limit(50)
+                    .limit(80)
                     .all()
                 )
+                # Solo las de Contratación (con caché o legado sin departamento).
+                _pending = [r for r in _pending if _booking_in_department(r, "CONTRATACION")][:50]
                 pending_booking_rows = [_booking_request_row(r) for r in _pending]
             except Exception:
                 pending_booking_rows = []
@@ -32743,6 +33023,7 @@ def inject_personnel_globals():
         "HOME_INVITATIONS": _home_invitation_requests_for_current_user() if request.endpoint == "home" and session.get("user_id") and "_home_invitation_requests_for_current_user" in globals() else [],
         "HOME_INVITATIONS_TO_MANAGE": _home_invitations_to_manage() if request.endpoint == "home" and session.get("user_id") and "_home_invitations_to_manage" in globals() and has_access_key("invitaciones.gestionar", include_descendants=True) else [],
         "HOME_REGISTROS_PENDING": _home_registros_pending() if request.endpoint == "home" and session.get("user_id") and "_home_registros_pending" in globals() and has_access_key("registros") else [],
+        "HOME_PENDING_PETICIONES": _home_pending_peticiones() if request.endpoint == "home" and session.get("user_id") and "_home_pending_peticiones" in globals() else [],
         "HOME_AFAVOR_ALERT": _home_afavor_alert() if request.endpoint == "home" and session.get("user_id") and "_home_afavor_alert" in globals() and has_access_key("registros") else None,
         "HOME_AGENDA": _home_agenda() if request.endpoint == "home" and session.get("user_id") and "_home_agenda" in globals() else None,
         "AGENDA_ARTIST_OPTIONS": _agenda_artist_options() if request.endpoint == "home" and session.get("user_id") and "_agenda_artist_options" in globals() else [],
@@ -32905,6 +33186,12 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Agenda: bloqueos y notas libres (botón + del calendario, Inicio y ficha de artista)
     "agenda_block_create", "agenda_note_create", "agenda_item_delete",
     "artist_calendar_link_create", "artist_calendar_link_cancel",
+    # Peticiones: crear/gestionar es transversal (cualquier miembro de la oficina crea peticiones
+    # desde el botón global; cada departamento gestiona las suyas en su bandeja). La visibilidad la
+    # limita el reparto por departamento, no el gate de sección.
+    "peticion_wizard_create", "booking_request_create", "booking_request_update",
+    "booking_request_status", "booking_request_delete", "booking_request_approve",
+    "booking_request_convert",
 }
 SUPPORT_READ_ENDPOINTS = {
     "api_media_artist_activities",

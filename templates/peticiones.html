@@ -6,7 +6,7 @@
     <div class="text-muted">Buzón de peticiones que llegan a la oficina. Regístralas y tramítalas hasta convertirlas en concierto.</div>
   </div>
   {% if CAN_EDIT_CONCERTS %}
-  <button class="btn btn-primary" type="button" data-booking-new><i class="fa fa-plus me-1"></i> Nueva petición</button>
+  <button class="btn btn-primary" type="button" data-peticion-new><i class="fa fa-plus me-1"></i> Nueva petición</button>
   {% endif %}
 </div>
 
@@ -21,13 +21,14 @@
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
 </ul>
 
-{# Filtros de estado (chips) #}
+{# Filtros: por defecto Pendientes; Archivadas = aprobadas/descartadas #}
 <div class="d-flex gap-2 flex-wrap mb-3">
-  <a href="{{ url_for('contracting_view', section='peticiones') }}" class="badge {{ 'text-bg-dark' if not status_filter else 'text-bg-light border' }} text-decoration-none py-2 px-3">Todas <span class="opacity-75">{{ booking_total }}</span></a>
-  {% for st in booking_status_order %}
+  <a href="{{ url_for('contracting_view', section='peticiones') }}" class="badge {{ 'text-bg-dark' if not status_filter or status_filter not in ['NUEVA','EN_TRAMITE','ARCHIVED'] else 'text-bg-light border' }} text-decoration-none py-2 px-3"><i class="fa fa-hourglass-half me-1"></i>Pendientes <span class="opacity-75">{{ booking_pending_total }}</span></a>
+  {% for st in ['NUEVA','EN_TRAMITE'] %}
     {% set meta = booking_status_meta[st] %}
     <a href="{{ url_for('contracting_view', section='peticiones', status=st) }}" class="badge {{ meta[1] if status_filter == st else 'text-bg-light border' }} text-decoration-none py-2 px-3">{{ meta[0] }} <span class="opacity-75">{{ booking_counts.get(st, 0) }}</span></a>
   {% endfor %}
+  <a href="{{ url_for('contracting_view', section='peticiones', status='ARCHIVED') }}" class="badge {{ 'text-bg-dark' if status_filter == 'ARCHIVED' else 'text-bg-light border' }} text-decoration-none py-2 px-3"><i class="fa fa-box-archive me-1"></i>Archivadas <span class="opacity-75">{{ booking_archived_total }}</span></a>
 </div>
 
 {% if booking_rows %}
@@ -76,20 +77,21 @@
                 data-municipality="{{ r.municipality|e }}" data-province="{{ r.province|e }}" data-fee-text="{{ r.fee_text|e }}"
                 data-source="{{ r.source }}" data-notes="{{ r.notes|e }}"><i class="fa fa-pen fa-fw me-1"></i>Editar</button></li>
             {% if r.concert_id %}
-            <li><a class="dropdown-item" href="{{ url_for('concert_detail_view', cid=r.concert_id) }}"><i class="fa fa-guitar fa-fw me-1"></i>Ver concierto</a></li>
-            {% else %}
-            <li><form method="post" action="{{ url_for('booking_request_convert', rid=r.id) }}"><button class="dropdown-item"><i class="fa fa-wand-magic-sparkles fa-fw me-1"></i>Tramitar (abrir asistente)</button></form></li>
+            <li><a class="dropdown-item" href="{{ url_for('concert_detail_view', cid=r.concert_id) }}"><i class="fa fa-guitar fa-fw me-1"></i>Ver actividad</a></li>
             {% endif %}
             <li><hr class="dropdown-divider"></li>
             {% if r.status != 'CONVERTIDA' %}
-            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}"><input type="hidden" name="status" value="CONVERTIDA"><button class="dropdown-item text-success"><i class="fa fa-check fa-fw me-1"></i>Marcar convertida</button></form></li>
+            <li><form method="post" action="{{ url_for('booking_request_approve', rid=r.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="dropdown-item text-success"><i class="fa fa-check fa-fw me-1"></i>Aprobar (crear borrador)</button></form></li>
+            {% endif %}
+            {% if r.status not in ['EN_TRAMITE','CONVERTIDA','DESCARTADA'] %}
+            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="status" value="EN_TRAMITE"><button class="dropdown-item"><i class="fa fa-comments fa-fw me-1"></i>Marcar en negociación</button></form></li>
             {% endif %}
             {% if r.status != 'DESCARTADA' %}
-            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}" data-booking-discard><input type="hidden" name="status" value="DESCARTADA"><input type="hidden" name="rejection_reason"><button class="dropdown-item text-warning"><i class="fa fa-ban fa-fw me-1"></i>Descartar</button></form></li>
+            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}" data-booking-discard><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="status" value="DESCARTADA"><input type="hidden" name="rejection_reason"><button class="dropdown-item text-warning"><i class="fa fa-ban fa-fw me-1"></i>Descartar</button></form></li>
             {% else %}
-            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}"><input type="hidden" name="status" value="NUEVA"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Reabrir</button></form></li>
+            <li><form method="post" action="{{ url_for('booking_request_status', rid=r.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><input type="hidden" name="status" value="NUEVA"><button class="dropdown-item"><i class="fa fa-rotate-left fa-fw me-1"></i>Reabrir</button></form></li>
             {% endif %}
-            <li><form method="post" action="{{ url_for('booking_request_delete', rid=r.id) }}" onsubmit="return confirm('¿Eliminar esta petición? No se puede deshacer.');"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
+            <li><form method="post" action="{{ url_for('booking_request_delete', rid=r.id) }}" onsubmit="return confirm('¿Eliminar esta petición? No se puede deshacer.');"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="dropdown-item text-danger"><i class="fa fa-trash fa-fw me-1"></i>Eliminar</button></form></li>
           </ul>
         </div>
         {% endif %}
@@ -180,6 +182,7 @@
 </div>
 
 {% include "_quick_create_modals.html" %}
+{% include "_peticion_wizard_modal.html" %}
 
 <script>
 (function(){

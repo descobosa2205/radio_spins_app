@@ -1,0 +1,276 @@
+{# Asistente multipaso de «Nueva petición». Autocontenido (buscadores de recinto y de «quién pide»
+   inline). Requiere `artists` en el contexto. La página que lo incluya debe incluir también
+   `_quick_create_modals.html` para el botón «+ artista». #}
+<div class="modal fade" id="peticionWizardModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <form class="modal-content" method="post" id="peticionWizardForm" action="{{ url_for('peticion_wizard_create') }}">
+      <input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="department" id="pwDepartment" value="">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-inbox me-2 text-danger"></i>Nueva petición <span class="text-muted small fw-normal" id="pwStepLabel"></span></h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+
+        <div class="pw-step" data-pstep="1">
+          <h6 class="mb-3">1. ¿Qué tipo de actividad?</h6>
+          <div class="invitation-icon-grid">
+            {% for k, l, i in [('CONCIERTO','Concierto','fa-guitar'),('FESTIVAL','Festival','fa-star'),('EVENTO_PROMOCIONAL','Evento promocional','fa-bullhorn'),('TV','Programa de TV','fa-tv'),('MARCA','Acción con marca','fa-tags'),('OTROS','Otros','fa-calendar-day')] %}
+              <label class="invitation-radio-option"><input type="radio" name="activity_type" value="{{ k }}" {% if loop.first %}checked{% endif %}><i class="fa {{ i }}"></i><span>{{ l }}</span></label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <div class="pw-step d-none" data-pstep="2">
+          <h6 class="mb-3">2. ¿De qué artista?</h6>
+          <div class="input-group">
+            <select class="form-select select-artists" name="artist_id" id="pwArtist" data-no-loader>
+              <option value="">Sin artista concreto</option>
+              {% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
+            </select>
+            <button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="pwArtist" title="Crear artista"><i class="fa fa-plus"></i></button>
+          </div>
+        </div>
+
+        <div class="pw-step d-none" data-pstep="3">
+          <h6 class="mb-3">3. Lugar y fecha</h6>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" id="pwKnowVenue" checked>
+            <label class="form-check-label" for="pwKnowVenue">Conozco el recinto</label>
+          </div>
+          <div data-pw-venue>
+            <div class="position-relative">
+              <input class="form-control" id="pwVenueSearch" placeholder="Busca el recinto por nombre o ciudad…" autocomplete="off" data-no-loader>
+              <input type="hidden" name="venue_id" id="pwVenueId">
+              <div class="list-group position-absolute w-100 shadow-sm d-none" id="pwVenueResults" style="z-index:10;max-height:230px;overflow:auto;"></div>
+            </div>
+            <div class="d-flex align-items-center gap-2 mt-1 flex-wrap">
+              <span class="small text-muted" id="pwVenuePicked"></span>
+              <button class="btn btn-sm btn-link p-0" type="button" id="pwVenueCreateToggle"><i class="fa fa-plus me-1"></i>No está: crear recinto</button>
+            </div>
+            <div class="d-none mt-2 row g-2" id="pwVenueCreatePanel">
+              <div class="col-md-6"><input class="form-control form-control-sm" id="pwVenueNewName" placeholder="Nombre del recinto"></div>
+              <div class="col-md-3"><input class="form-control form-control-sm" id="pwVenueNewMuni" placeholder="Municipio"></div>
+              <div class="col-md-3"><button class="btn btn-sm btn-outline-primary w-100" type="button" id="pwVenueCreateBtn"><i class="fa fa-check me-1"></i>Crear</button></div>
+            </div>
+          </div>
+          <div data-pw-manual class="d-none row g-2">
+            <div class="col-md-4"><label class="form-label mb-1 small">Municipio</label><input class="form-control" name="municipality" id="pwMuni"></div>
+            <div class="col-md-4"><label class="form-label mb-1 small">Provincia</label><input class="form-control" name="province" id="pwProv"></div>
+            <div class="col-md-4"><label class="form-label mb-1 small">País</label><input class="form-control" name="country" id="pwCountry" value="España"></div>
+          </div>
+          <hr class="my-3">
+          <label class="form-label">Fecha</label>
+          <div class="invitation-icon-grid mb-2">
+            <label class="invitation-radio-option"><input type="radio" name="date_kind" value="EXACT" checked><i class="fa fa-calendar-day"></i><span>Fecha concreta</span></label>
+            <label class="invitation-radio-option"><input type="radio" name="date_kind" value="RANGE"><i class="fa fa-calendar-week"></i><span>Franja de días</span></label>
+            <label class="invitation-radio-option"><input type="radio" name="date_kind" value="MONTH"><i class="fa fa-calendar"></i><span>Un mes</span></label>
+            <label class="invitation-radio-option"><input type="radio" name="date_kind" value="UNKNOWN"><i class="fa fa-circle-question"></i><span>No se sabe</span></label>
+          </div>
+          <div data-pw-date="EXACT"><input type="date" class="form-control" name="requested_date"></div>
+          <div data-pw-date="RANGE" class="d-none row g-2"><div class="col"><label class="form-label mb-0 small">Desde</label><input type="date" class="form-control" name="range_start"></div><div class="col"><label class="form-label mb-0 small">Hasta</label><input type="date" class="form-control" name="range_end"></div></div>
+          <div data-pw-date="MONTH" class="d-none"><input type="month" class="form-control" name="month"></div>
+          <div data-pw-date="UNKNOWN" class="d-none"><div class="small text-muted">Se registrará como «fecha sin definir».</div></div>
+        </div>
+
+        <div class="pw-step d-none" data-pstep="4">
+          <h6 class="mb-3">4. ¿Quién hace la petición?</h6>
+          <input type="hidden" name="requester_type" id="pwReqType">
+          <input type="hidden" name="requester_id" id="pwReqId">
+          <input type="hidden" name="requester_name" id="pwReqName">
+          <div class="quad-chips mb-2" id="pwReqTypes"></div>
+          <input class="form-control" id="pwReqSearch" placeholder="Busca por nombre…" autocomplete="off" data-no-loader>
+          <div class="list-group mt-2" id="pwReqResults" style="max-height:220px;overflow:auto;"></div>
+          <div class="mt-2">
+            <button class="btn btn-sm btn-link p-0" type="button" id="pwReqCreateToggle"><i class="fa fa-plus me-1"></i>No existe: crear nuevo</button>
+            <div class="d-none mt-2 input-group" id="pwReqCreatePanel">
+              <input class="form-control" id="pwReqCreateName" placeholder="Nombre">
+              <button class="btn btn-outline-primary" type="button" id="pwReqCreateBtn"><i class="fa fa-check me-1"></i>Crear y seleccionar</button>
+            </div>
+          </div>
+          <div class="mt-2 small" id="pwReqPicked"></div>
+          <div class="row g-2 mt-1">
+            <div class="col-md-6"><input class="form-control" name="requester_email" placeholder="Email de contacto (opcional)"></div>
+            <div class="col-md-6"><input class="form-control" name="requester_phone" placeholder="Teléfono (opcional)"></div>
+          </div>
+        </div>
+
+        <div class="pw-step d-none" data-pstep="5">
+          <h6 class="mb-3">5. Propuesta económica y descripción</h6>
+          <div class="form-check form-switch mb-2">
+            <input class="form-check-input" type="checkbox" name="no_cache" id="pwNoCache" value="1">
+            <label class="form-check-label" for="pwNoCache">Sin caché</label>
+          </div>
+          <div data-pw-fee>
+            <label class="form-label">Importe orientativo</label>
+            <input class="form-control" name="fee_text" id="pwFee" placeholder="Ej.: 8.000 € + IVA">
+          </div>
+          <label class="form-label mt-3">Descripción de la actividad</label>
+          <textarea class="form-control" name="description" rows="3" placeholder="Detalles de lo que se pide…"></textarea>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="pwPrev" disabled>Atrás</button>
+        <button type="button" class="btn btn-danger" id="pwNext">Siguiente</button>
+        <button type="submit" class="btn btn-danger d-none" id="pwSubmit"><i class="fa fa-check me-1"></i>Crear petición</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  var modal = document.getElementById('peticionWizardModal');
+  if(!modal) return;
+  var form = document.getElementById('peticionWizardForm');
+  var STEPS = 5, cur = 1;
+  var prevBtn = modal.querySelector('#pwPrev'), nextBtn = modal.querySelector('#pwNext'), submitBtn = modal.querySelector('#pwSubmit');
+  var stepLabel = modal.querySelector('#pwStepLabel');
+
+  function show(n){
+    cur = Math.max(1, Math.min(STEPS, n));
+    modal.querySelectorAll('.pw-step').forEach(function(el){ el.classList.toggle('d-none', parseInt(el.dataset.pstep,10) !== cur); });
+    prevBtn.disabled = cur === 1;
+    nextBtn.classList.toggle('d-none', cur === STEPS);
+    submitBtn.classList.toggle('d-none', cur !== STEPS);
+    if(stepLabel) stepLabel.textContent = '· paso ' + cur + ' de ' + STEPS;
+  }
+  function validate(n){
+    if(n === 3){
+      var known = modal.querySelector('#pwKnowVenue').checked;
+      if(!known){
+        var muni = (modal.querySelector('#pwMuni').value || '').trim();
+        if(!muni){ alert('Indica al menos el municipio.'); return false; }
+      }
+    }
+    return true;
+  }
+  nextBtn.addEventListener('click', function(){ if(validate(cur)) show(cur + 1); });
+  prevBtn.addEventListener('click', function(){ show(cur - 1); });
+
+  // Paso 1: al elegir tipo, avanzar solo.
+  modal.querySelectorAll('[name="activity_type"]').forEach(function(x){ x.addEventListener('change', function(){ if(cur === 1) show(2); }); });
+
+  // Recinto: conocido (buscador) vs manual.
+  var knowVenue = modal.querySelector('#pwKnowVenue');
+  function syncVenue(){
+    var known = knowVenue.checked;
+    modal.querySelector('[data-pw-venue]').classList.toggle('d-none', !known);
+    modal.querySelector('[data-pw-manual]').classList.toggle('d-none', known);
+    if(known){ modal.querySelector('#pwMuni').value=''; modal.querySelector('#pwProv').value=''; }
+    else { modal.querySelector('#pwVenueId').value=''; modal.querySelector('#pwVenuePicked').textContent=''; }
+  }
+  knowVenue.addEventListener('change', syncVenue);
+
+  // Buscador de recintos (inline).
+  var vSearch = modal.querySelector('#pwVenueSearch'), vResults = modal.querySelector('#pwVenueResults'), vId = modal.querySelector('#pwVenueId'), vPicked = modal.querySelector('#pwVenuePicked');
+  var vTimer = null;
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+  vSearch.addEventListener('input', function(){
+    vId.value=''; vPicked.textContent='';
+    var q = vSearch.value.trim();
+    if(vTimer) clearTimeout(vTimer);
+    if(q.length < 2){ vResults.classList.add('d-none'); vResults.innerHTML=''; return; }
+    vTimer = setTimeout(function(){
+      fetch('/api/search/venues?q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(data){
+        var items = (data && (data.results || data.items || data)) || [];
+        if(!Array.isArray(items)) items = [];
+        vResults.innerHTML = items.slice(0,10).map(function(it){
+          var sub = [it.municipality, it.province].filter(Boolean).join(', ');
+          return '<button type="button" class="list-group-item list-group-item-action" data-vid="'+esc(it.id)+'" data-vlabel="'+esc(it.name||it.label)+(sub?(' ('+esc(sub)+')'):'')+'"><strong>'+esc(it.name||it.label)+'</strong>'+(sub?(' <span class="text-muted small">'+esc(sub)+'</span>'):'')+'</button>';
+        }).join('') || '<div class="list-group-item text-muted small">Sin resultados</div>';
+        vResults.classList.remove('d-none');
+      }).catch(function(){ vResults.classList.add('d-none'); });
+    }, 220);
+  });
+  vResults.addEventListener('click', function(ev){
+    var b = ev.target.closest('[data-vid]'); if(!b) return;
+    vId.value = b.getAttribute('data-vid'); vSearch.value = b.getAttribute('data-vlabel');
+    vPicked.innerHTML = '<i class="fa fa-check text-success me-1"></i>Recinto seleccionado';
+    vResults.classList.add('d-none');
+  });
+  document.addEventListener('click', function(ev){ if(!modal.contains(ev.target)) return; if(!ev.target.closest('#pwVenueSearch') && !ev.target.closest('#pwVenueResults')) vResults.classList.add('d-none'); });
+  // Crear recinto inline.
+  modal.querySelector('#pwVenueCreateToggle').addEventListener('click', function(){ modal.querySelector('#pwVenueCreatePanel').classList.toggle('d-none'); });
+  modal.querySelector('#pwVenueCreateBtn').addEventListener('click', function(){
+    var name = (modal.querySelector('#pwVenueNewName').value||'').trim();
+    if(!name){ alert('Nombre del recinto'); return; }
+    var muni = (modal.querySelector('#pwVenueNewMuni').value||'').trim();
+    var csrf = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+    fetch('/api/venues/create', {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body: JSON.stringify({name:name, municipality:muni, force_new:true})})
+      .then(function(r){ return r.json().then(function(d){ return {ok:r.ok, d:d}; }); })
+      .then(function(res){ var d = res.d||{}; var id = d.id || (d.venue&&d.venue.id); if(id){ vId.value = id; vSearch.value = name + (muni?(' ('+muni+')'):''); vPicked.innerHTML='<i class="fa fa-check text-success me-1"></i>Recinto creado y seleccionado'; modal.querySelector('#pwVenueCreatePanel').classList.add('d-none'); } else { alert((d && d.error) || 'No se pudo crear el recinto.'); } })
+      .catch(function(){ alert('No se pudo crear el recinto.'); });
+  });
+
+  // Fecha: mostrar el campo según el tipo.
+  modal.querySelectorAll('[name="date_kind"]').forEach(function(x){ x.addEventListener('change', function(){
+    var k = modal.querySelector('[name="date_kind"]:checked').value;
+    modal.querySelectorAll('[data-pw-date]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-pw-date') !== k); });
+  }); });
+
+  // Quién pide: chips de tipo + búsqueda + crear.
+  var REQ_TYPES = [['promoter','Tercero','fa-user'],['empresa','Empresa','fa-building'],['institucion','Institución','fa-landmark'],['artist','Artista','fa-guitar'],['media','Medio','fa-newspaper'],['venue','Recinto','fa-location-dot'],['personal','Oficina','fa-user-tie']];
+  var CREATE_EP = {promoter:'/api/promoters/create', empresa:'/api/promoters/create', institucion:'/api/promoters/create', artist:'/api/artists/create', media:'/api/media/create', venue:'/api/venues/create'};
+  var reqTypesBox = modal.querySelector('#pwReqTypes'), reqType = modal.querySelector('#pwReqType'), reqId = modal.querySelector('#pwReqId'), reqName = modal.querySelector('#pwReqName');
+  var reqSearch = modal.querySelector('#pwReqSearch'), reqResults = modal.querySelector('#pwReqResults'), reqPicked = modal.querySelector('#pwReqPicked');
+  reqTypesBox.innerHTML = REQ_TYPES.map(function(t){ return '<label class="quad-chip"><input type="radio" name="__reqtype" value="'+t[0]+'"'+(t[0]==='promoter'?' checked':'')+'><i class="fa '+t[2]+'"></i>'+t[1]+'</label>'; }).join('');
+  reqType.value = 'promoter';
+  var reqTimer = null;
+  function runReqSearch(){
+    var q = reqSearch.value.trim(); var type = reqType.value;
+    if(reqTimer) clearTimeout(reqTimer);
+    if(q.length < 2){ reqResults.innerHTML=''; return; }
+    reqTimer = setTimeout(function(){
+      fetch('/api/vinculaciones/search?type=' + encodeURIComponent(type) + '&q=' + encodeURIComponent(q)).then(function(r){ return r.json(); }).then(function(data){
+        var items = (data && (data.results || data.items || data)) || [];
+        if(!Array.isArray(items)) items = [];
+        reqResults.innerHTML = items.slice(0,10).map(function(it){
+          return '<button type="button" class="list-group-item list-group-item-action d-flex align-items-center gap-2" data-rid="'+esc(it.id)+'" data-rname="'+esc(it.label||it.name||it.nick)+'">'+(it.logo_url?('<img src="'+esc(it.logo_url)+'" style="width:24px;height:24px;border-radius:50%;object-fit:cover;">'):'')+'<span>'+esc(it.label||it.name||it.nick)+(it.subtitle?(' <span class="text-muted small">'+esc(it.subtitle)+'</span>'):'')+'</span></button>';
+        }).join('') || '<div class="list-group-item text-muted small">Sin resultados</div>';
+      }).catch(function(){ reqResults.innerHTML=''; });
+    }, 220);
+  }
+  reqSearch.addEventListener('input', runReqSearch);
+  reqTypesBox.addEventListener('change', function(ev){ if(ev.target.name==='__reqtype'){ reqType.value = ev.target.value; reqResults.innerHTML=''; runReqSearch(); } });
+  reqResults.addEventListener('click', function(ev){ var b = ev.target.closest('[data-rid]'); if(!b) return; reqId.value = b.getAttribute('data-rid'); reqName.value = b.getAttribute('data-rname'); reqPicked.innerHTML='<i class="fa fa-check text-success me-1"></i>'+esc(reqName.value); reqResults.innerHTML=''; reqSearch.value = reqName.value; });
+  modal.querySelector('#pwReqCreateToggle').addEventListener('click', function(){ modal.querySelector('#pwReqCreatePanel').classList.toggle('d-none'); var n = modal.querySelector('#pwReqCreateName'); if(reqSearch.value) n.value = reqSearch.value; });
+  modal.querySelector('#pwReqCreateBtn').addEventListener('click', function(){
+    var type = reqType.value; var ep = CREATE_EP[type];
+    if(!ep){ alert('Para «Oficina» y otros, elige de la búsqueda.'); return; }
+    var name = (modal.querySelector('#pwReqCreateName').value||'').trim(); if(!name){ alert('Nombre'); return; }
+    var body = {name:name, nick:name, force_new:true}; if(type==='empresa') body.kind='empresa'; if(type==='institucion') body.kind='institucion';
+    var csrf = (document.querySelector('meta[name="csrf-token"]')||{}).content || '';
+    fetch(ep, {method:'POST', headers:{'Content-Type':'application/json','X-CSRFToken':csrf}, body: JSON.stringify(body)})
+      .then(function(r){ return r.json(); }).then(function(d){ d = d||{}; var id = d.id || (d.promoter&&d.promoter.id) || (d.artist&&d.artist.id) || (d.media&&d.media.id) || (d.venue&&d.venue.id); var nm = d.nick || d.name || d.label || name; if(id){ reqId.value=id; reqName.value=nm; reqPicked.innerHTML='<i class="fa fa-check text-success me-1"></i>'+esc(nm)+' (creado)'; modal.querySelector('#pwReqCreatePanel').classList.add('d-none'); reqSearch.value=nm; } else { alert((d&&d.error)||'No se pudo crear.'); } })
+      .catch(function(){ alert('No se pudo crear.'); });
+  });
+
+  // Sin caché → oculta importe.
+  var noCache = modal.querySelector('#pwNoCache');
+  noCache.addEventListener('change', function(){ modal.querySelector('[data-pw-fee]').classList.toggle('d-none', noCache.checked); if(noCache.checked) modal.querySelector('#pwFee').value=''; });
+
+  function reset(dept){
+    form.reset();
+    modal.querySelector('#pwVenueId').value=''; modal.querySelector('#pwVenuePicked').textContent='';
+    modal.querySelector('#pwReqType').value='promoter'; modal.querySelector('#pwReqId').value=''; modal.querySelector('#pwReqName').value=''; reqPicked.innerHTML=''; reqResults.innerHTML=''; reqSearch.value='';
+    vSearch.value=''; vResults.innerHTML=''; vResults.classList.add('d-none');
+    modal.querySelector('#pwDepartment').value = dept || '';
+    var first = modal.querySelector('[name="activity_type"]'); if(first) first.checked = true;
+    syncVenue();
+    modal.querySelectorAll('[data-pw-date]').forEach(function(el){ el.classList.toggle('d-none', el.getAttribute('data-pw-date') !== 'EXACT'); });
+    modal.querySelector('[data-pw-fee]').classList.remove('d-none');
+    if(window.jQuery){ try { jQuery('#pwArtist').val('').trigger('change'); } catch(e){} }
+    show(1);
+  }
+  // Botones que abren el asistente. data-peticion-dept preajusta el departamento.
+  document.addEventListener('click', function(ev){
+    var btn = ev.target.closest('[data-peticion-new]'); if(!btn) return;
+    reset(btn.getAttribute('data-peticion-dept') || '');
+    var at = btn.getAttribute('data-peticion-activity');
+    if(at){ var rb = modal.querySelector('[name="activity_type"][value="'+at+'"]'); if(rb) rb.checked = true; }
+    if(window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
+  });
+})();
+</script>

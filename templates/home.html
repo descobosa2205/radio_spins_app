@@ -12,6 +12,20 @@
   </div>
 </div>
 
+{# Botón global para cualquier miembro de la oficina: crear una petición eligiendo para qué es. #}
+<div class="d-flex justify-content-end mb-3">
+  <div class="dropdown">
+    <button class="btn btn-danger dropdown-toggle" type="button" data-bs-toggle="dropdown"><i class="fa fa-plus me-1"></i>Añadir petición</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li class="dropdown-header">¿Para qué es?</li>
+      <li><button type="button" class="dropdown-item" data-peticion-new><i class="fa fa-file-signature fa-fw me-1 text-danger"></i>Contratación (concierto/actividad)</button></li>
+      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-dept="PROMO" data-peticion-activity="EVENTO_PROMOCIONAL"><i class="fa fa-microphone-lines fa-fw me-1 text-danger"></i>Promoción (entrevista)</button></li>
+      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-activity="MARCA"><i class="fa fa-tags fa-fw me-1 text-danger"></i>Acción con marca</button></li>
+      <li><button type="button" class="dropdown-item" data-peticion-new data-peticion-dept="DISENO"><i class="fa fa-palette fa-fw me-1 text-danger"></i>Diseño</button></li>
+    </ul>
+  </div>
+</div>
+
 {% if HOME_AGENDA is not none %}
 <div class="card mb-4">
   <div class="card-body">
@@ -25,6 +39,36 @@
 </div>
 {% set agenda_add_artists = AGENDA_ARTIST_OPTIONS %}
 {% include '_agenda_add_modal.html' %}
+{% endif %}
+
+{% if HOME_PENDING_PETICIONES %}
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <span class="fw-semibold"><i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes</span>
+    <span class="badge text-bg-danger">{{ HOME_PENDING_PETICIONES|length }}</span>
+    <span class="text-muted small ms-auto">Según tus funciones</span>
+  </div>
+  <div class="list-group list-group-flush">
+    {% for p in HOME_PENDING_PETICIONES %}
+    <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+      <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
+      <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
+        {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
+        <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
+      </span>
+      {% for d in (p.dept_labels or []) %}<span class="badge text-bg-light border">{{ d }}</span>{% endfor %}
+      <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
+        {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
+        {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
+        {% if p.days_since is not none %}<span title="Días desde que se solicitó"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="card-footer bg-transparent text-end">
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}"><i class="fa fa-list-check me-1"></i>Ver todas</a>
+  </div>
+</div>
 {% endif %}
 
 {% if HOME_INVITATIONS_TO_MANAGE %}
@@ -170,4 +214,7 @@
 {% else %}
   <div class="alert alert-light border">Tu usuario todavía no tiene áreas asignadas. Puedes iniciar sesión y permanecer en inicio hasta que se te concedan permisos.</div>
 {% endif %}
+
+{% include "_quick_create_modals.html" %}
+{% include "_peticion_wizard_modal.html" %}
 {% endblock %}

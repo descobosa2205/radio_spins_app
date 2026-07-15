@@ -28388,6 +28388,20 @@ def _cache_summary(cache_rows: list) -> str:
     return " + ".join(parts)
 
 
+def _cache_amount_total(cache_rows: list) -> float:
+    """Suma de los importes fijos de caché de una actividad (para 'Caché total')."""
+    total = 0.0
+    for r in (cache_rows or []):
+        amt = getattr(r, "amount", None)
+        if amt in (None, ""):
+            continue
+        try:
+            total += float(amt)
+        except Exception:
+            pass
+    return total
+
+
 def _promoter_display(concert: Concert):
     """Promotora/empresa principal visible en cuadrantes."""
     if getattr(concert, "promoter", None):
@@ -28570,6 +28584,9 @@ QUAD_ACTIVITY_ALIASES = {
     "GIRA": "CONCIERTO", "GIRA_COMPRADA": "CONCIERTO", "GIRAS_COMPRADAS": "CONCIERTO",
     "OTROS": "OTROS",
 }
+# Para el recuento de las pastillas: qué conceptos cuentan como "concierto" (vs
+# "actividad" no concierto: evento promocional / TV / marca / otros).
+QUAD_CONCERT_CONCEPTS = {"CONCIERTO", "FESTIVAL"}
 
 
 def _concert_activity_concept(concert) -> str:
@@ -28833,6 +28850,7 @@ def quadrantes_view():
                 cap = int(c.capacity or 0)
                 dstr = c.date.isoformat()
                 cache_txt = _cache_summary(caches_map.get(c.id, []))
+                cache_amt = _cache_amount_total(caches_map.get(c.id, []))
                 show_format_txt = _concert_show_format(c)
                 schedule_txt = _concert_schedule_label(c)
                 activity_concept = _concert_activity_concept(c)
@@ -28866,6 +28884,7 @@ def quadrantes_view():
                         "capacity": cap,
                         "capacity_label": "Sin aforo" if getattr(c, "no_capacity", False) else cap,
                         "cache": cache_txt,
+                        "cache_amount": cache_amt,
                         "has_cache": has_cache,
                         "show_format": show_format_txt,
                         "schedule_label": schedule_txt,
@@ -28894,12 +28913,24 @@ def quadrantes_view():
                         "title": f"{e.get('artist_name') or a.name} · {e.get('venue_name') or ''} · {e.get('municipality') or ''} · {e.get('date_es') or ''}",
                     })
 
+                n_conc = sum(1 for e in evs if e.get("activity_type") in QUAD_CONCERT_CONCEPTS)
+                cap_total = sum(
+                    int(e.get("capacity") or 0)
+                    for e in evs
+                    if e.get("capacity_label") != "Sin aforo"
+                )
+                cache_total = sum(float(e.get("cache_amount") or 0) for e in evs)
                 events_by_artist.append({
                     "artist_id": aid,
                     "artist_name": a.name,
                     "artist_photo": a.photo_url or "",
                     "artist_color": artist_color.get(aid, "#0d6efd"),
                     "events": evs,
+                    "year": year,
+                    "n_conc": n_conc,
+                    "n_other": len(evs) - n_conc,
+                    "capacity_total": cap_total,
+                    "cache_total": int(round(cache_total)),
                 })
 
             # KPIs de cabecera (estética simulaciones)

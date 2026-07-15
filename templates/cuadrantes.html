@@ -74,22 +74,11 @@
   .quad-divider{ border:0; border-top:1px dashed var(--line-2,#e3e6eb); margin:1.15rem 0 .25rem; }
   .quad-apply{ font-weight:700; }
 
-  /* KPIs (estética simulaciones) */
-  .quad-kpis{ display:flex; flex-wrap:wrap; gap:.6rem; }
-  .quad-kpis .sim-stat{ flex:1 1 120px; }
-
-  /* Cabecera por artista */
-  .quad-artist-head{ display:flex; align-items:center; justify-content:space-between; gap:.75rem;
-    background:linear-gradient(0deg, #fbfcfd, #fff); border:1px solid var(--line-2,#e3e6eb);
-    border-left-width:5px; border-radius:14px; padding:.6rem .85rem; margin-bottom:.6rem; }
-  .quad-artist-head .a-left{ display:flex; align-items:center; gap:.6rem; min-width:0; }
-  .quad-artist-head .a-name{ font-weight:800; font-size:1.02rem; color:var(--ink,#18202b); }
+  /* Acciones de la cabecera por artista (Todas / Ninguna) */
   .quad-artist-actions{ display:flex; align-items:center; gap:.4rem; }
   .quad-mini-btn{ border:1px solid var(--line-2,#e3e6eb); background:#fff; border-radius:8px;
     font-size:.72rem; font-weight:700; color:#5b6774; padding:.18rem .5rem; cursor:pointer; }
   .quad-mini-btn:hover{ border-color:var(--brand-accent,#007CA2); color:var(--brand-accent,#007CA2); }
-  .quad-count-pill{ background:#f1f3f5; border:1px solid #e9ecef; border-radius:999px;
-    font-size:.8rem; font-weight:800; color:#495057; padding:.1rem .6rem; }
 
   /* Tabla resumen (una fila por actividad) */
   .quad-table-wrap{ overflow-x:auto; border:1px solid var(--line-2,#e3e6eb); border-radius:14px; margin-bottom:1.1rem; }
@@ -127,6 +116,25 @@
   .status-confirmado{ background:#d1e7dd; color:#0f5132; }
   .status-borrador{ background:#dbeafe; color:#1d4ed8; }
 
+  /* Cabecera por artista (tarjeta con foto + año + pastillas) */
+  .quad-artist-card{ border:1px solid var(--line-2,#e3e6eb); border-left-width:5px; border-radius:14px; background:#fff;
+    box-shadow:var(--shadow-sm-2, 0 1px 2px rgba(20,25,35,.06)); padding:.7rem .9rem; margin-bottom:.65rem; }
+  .qac-top{ display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
+  .qac-id{ display:flex; align-items:center; gap:.7rem; min-width:0; }
+  .qac-photo{ width:48px; height:48px; border-radius:50%; object-fit:cover; border:1px solid #eee; background:#f1f3f5; flex:0 0 auto; }
+  .qac-name{ font-weight:800; font-size:1.05rem; color:var(--ink,#18202b); line-height:1.15; }
+  .qac-year{ font-size:.82rem; color:var(--muted-2,#6c757d); }
+  .qac-year i{ color:var(--brand-accent,#007CA2); }
+  .qac-pills{ display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.6rem; }
+  .qac-pill{ display:inline-flex; align-items:center; gap:.4rem; background:#f8f9fb; border:1px solid var(--line-2,#e3e6eb);
+    border-radius:999px; padding:.32rem .7rem; font-size:.82rem; color:#42505f; }
+  .qac-pill i{ color:var(--brand-accent,#007CA2); }
+  .qac-pill b{ color:var(--ink,#18202b); font-weight:800; }
+
+  /* Fecha con icono de calendario (estilo simulaciones) */
+  .quad-date{ display:inline-flex; align-items:center; gap:.4rem; font-weight:600; white-space:nowrap; }
+  .quad-date i{ color:var(--brand-accent,#007CA2); }
+
   /* Calendario */
   .year-grid{ display:grid; grid-template-columns:repeat(1, minmax(0,1fr)); gap:.7rem; }
   @media (min-width:768px){ .year-grid{ grid-template-columns:repeat(2, minmax(0,1fr)); } }
@@ -146,6 +154,9 @@
 
   /* Mapa */
   #quad-map{ height:520px; width:100%; }
+  /* Evita que reglas globales de <img> deformen los tiles de Leaflet (descuadre clásico) */
+  .leaflet-container img{ max-width:none !important; }
+  .leaflet-container{ border-radius:0 0 12px 12px; }
   .event-marker .marker-wrap{ width:44px; height:44px; border-radius:50%; display:grid; place-items:center;
     border:3px solid #0d6efd; box-shadow:0 2px 10px rgba(0,0,0,.25); }
   .event-marker .marker-n{ font-weight:900; font-size:17px; line-height:1; }
@@ -169,19 +180,22 @@
 
     .print-break-after{ break-after:page; }
 
-    /* Cabecera co-branded */
-    .quad-print-header{ display:flex !important; align-items:center; justify-content:space-between;
-      gap:1rem; padding-bottom:6px; margin-bottom:8px; border-bottom:2px solid #E33D48; }
-    .quad-print-header img{ height:34px; object-fit:contain; }
-    .quad-print-brand{ display:flex; gap:14px; align-items:center; }
-    .quad-print-h{ font-size:15px; font-weight:800; }
-    .quad-print-sub{ font-size:10px; color:#555; }
+    /* Cabecera de impresión: logos del grupo arriba a la derecha + título centrado */
+    .quad-print-header{ display:block !important; padding-bottom:6px; margin-bottom:10px; border-bottom:2px solid #E33D48; }
+    .qph-logos{ text-align:right; line-height:1; }
+    .qph-logos img{ height:34px; object-fit:contain; margin-left:14px; }
+    .qph-title{ text-align:center; font-size:20px; font-weight:800; letter-spacing:-.3px; margin-top:2px; color:#18202b; }
 
-    /* KPIs y tablas compactos */
-    .quad-kpis{ gap:5px !important; margin-bottom:6px !important; }
-    .quad-kpis .sim-stat{ padding:.3rem .55rem !important; }
-    .quad-kpis .sim-stat__n{ font-size:1rem !important; }
-    .quad-artist-head{ padding:.3rem .5rem !important; margin-bottom:3px !important; break-inside:avoid; }
+    /* Tarjeta de artista + pastillas (compactas) */
+    .quad-artist-card{ padding:.35rem .55rem !important; margin-bottom:4px !important; break-inside:avoid !important;
+      box-shadow:none !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .qac-photo{ width:34px !important; height:34px !important; }
+    .qac-name{ font-size:.95rem !important; }
+    .qac-year{ font-size:.72rem !important; }
+    .qac-pills{ margin-top:.3rem !important; gap:.3rem !important; }
+    .qac-pill{ padding:.14rem .5rem !important; font-size:.72rem !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+
+    /* Tablas compactas */
     .quad-table-wrap{ overflow:visible !important; border:0 !important; margin-bottom:8px !important; }
     table.quad-table{ font-size:9.5px !important; white-space:normal !important; }
     table.quad-table thead th{ font-size:8px !important; padding:.2rem .28rem !important; background:#f1f3f5 !important; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -228,8 +242,11 @@
     <div class="quad-sub">Un resumen imprimible de la actividad de tus artistas: calendario, mapa y una fila por actividad. Elige qué actividades y qué datos incluir y expórtalo en PDF horizontal.</div>
   </div>
   <div class="d-flex gap-2">
-    <button type="button" class="btn btn-danger" onclick="window.print()">
-      <i class="fa fa-file-pdf me-1"></i> Exportar / Imprimir PDF
+    <button type="button" class="btn btn-danger" data-quad-download>
+      <i class="fa fa-file-arrow-down me-1"></i> Descargar PDF
+    </button>
+    <button type="button" class="btn btn-outline-danger" data-quad-print>
+      <i class="fa fa-print me-1"></i> Imprimir
     </button>
   </div>
 </div>
@@ -388,31 +405,14 @@
 
 {% if selected_artists and selected_artists|length > 0 %}
 
-<!-- Cabecera de impresión (solo PDF) -->
+<!-- Cabecera de impresión (solo PDF): logos del grupo arriba a la derecha + título centrado -->
 <div class="quad-print-header">
-  <div class="quad-print-brand">
+  <div class="qph-logos">
     <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones">
     <img src="{{ url_for('static', filename='img/logo.png') }}" alt="Pies Records">
   </div>
-  <div style="text-align:right;">
-    <div class="quad-print-h">Cuadrante de actividades · {{ year }}</div>
-    <div class="quad-print-sub">
-      {{ selected_artists | map(attribute='name') | join(' · ') }}
-      <span id="quadPrintDate"></span>
-    </div>
-  </div>
+  <div class="qph-title">Cuadrante</div>
 </div>
-
-<!-- KPIs -->
-{% if stats %}
-<div class="quad-kpis mb-3">
-  <div class="sim-stat"><div class="sim-stat__n">{{ stats.total }}</div><div class="sim-stat__l">Actividades</div></div>
-  <div class="sim-stat"><div class="sim-stat__n text-success">{{ stats.confirmed }}</div><div class="sim-stat__l">Confirmadas</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ stats.artists }}</div><div class="sim-stat__l">Artistas</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ stats.capacity|k }}</div><div class="sim-stat__l">Aforo total</div></div>
-  <div class="sim-stat"><div class="sim-stat__n">{{ stats.provinces }}</div><div class="sim-stat__l">Provincias</div></div>
-</div>
-{% endif %}
 
 <!-- Barra de selección de actividades -->
 {% if events and events|length > 0 %}
@@ -431,15 +431,26 @@
   {% if events and events|length > 0 %}
     {% for g in (events_by_artist or []) %}
       {% if g.events and (g.events|length) > 0 %}
-        <div class="quad-artist-head" style="border-left-color: {{ g.artist_color }};">
-          <div class="a-left" style="min-width:0;">
-            {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}
-            <div class="a-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
-            <span class="quad-count-pill">{{ (g.events or [])|length }} act.</span>
+        <div class="quad-artist-card" style="border-left-color: {{ g.artist_color }};">
+          <div class="qac-top">
+            <div class="qac-id" style="min-width:0;">
+              <img class="qac-photo" data-artist-link="{{ g.artist_id }}"
+                   src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="">
+              <div style="min-width:0;">
+                <div class="qac-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
+                <div class="qac-year"><i class="fa fa-calendar"></i>{{ g.year or year }}</div>
+              </div>
+            </div>
+            <div class="quad-artist-actions no-print" data-quad-group="{{ g.artist_id }}">
+              <button type="button" class="quad-mini-btn" data-quad-all>Todas</button>
+              <button type="button" class="quad-mini-btn" data-quad-none>Ninguna</button>
+            </div>
           </div>
-          <div class="quad-artist-actions no-print" data-quad-group="{{ g.artist_id }}">
-            <button type="button" class="quad-mini-btn" data-quad-all>Todas</button>
-            <button type="button" class="quad-mini-btn" data-quad-none>Ninguna</button>
+          <div class="qac-pills">
+            <span class="qac-pill" data-col="concept"><i class="fa fa-guitar"></i><b>{{ g.n_conc }}</b> Conciertos</span>
+            <span class="qac-pill" data-col="concept"><i class="fa fa-bullhorn"></i><b>{{ g.n_other }}</b> Actividades</span>
+            <span class="qac-pill" data-col="capacity"><i class="fa fa-users"></i><b>{{ g.capacity_total|k }}</b> Aforo total</span>
+            <span class="qac-pill" data-col="cache"><i class="fa fa-euro-sign"></i><b>{{ g.cache_total|k }} €</b> Caché total</span>
           </div>
         </div>
 
@@ -479,7 +490,7 @@
                   <td class="num-cell">
                     <span class="quad-num {{ sm.cls }}" style="border-color: {{ e.artist_color }};">{{ e.n }}</span>
                   </td>
-                  <td data-col="date">{{ e.date_es }}</td>
+                  <td data-col="date"><span class="quad-date"><i class="fa fa-calendar-days"></i>{{ e.date_es }}</span></td>
                   <td data-col="concept">
                     <span class="quad-concept-badge"><i class="fa {{ e.activity_icon or 'fa-guitar' }}"></i>{{ e.activity_label or 'Concierto' }}</span>
                   </td>
@@ -517,12 +528,18 @@
           </table>
         </div>
       {% else %}
-        <div class="quad-artist-head" style="border-left-color: {{ g.artist_color }};">
-          <div class="a-left">
-            {{ artist_avatar(g.artist_photo, g.artist_name, artist_id=g.artist_id) }}
-            <div class="a-name text-truncate" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
+        <div class="quad-artist-card" style="border-left-color: {{ g.artist_color }};">
+          <div class="qac-top">
+            <div class="qac-id">
+              <img class="qac-photo" data-artist-link="{{ g.artist_id }}"
+                   src="{{ g.artist_photo or url_for('static', filename='img/logo.png') }}" alt="">
+              <div>
+                <div class="qac-name" data-artist-link="{{ g.artist_id }}">{{ g.artist_name }}</div>
+                <div class="qac-year"><i class="fa fa-calendar"></i>{{ g.year or year }}</div>
+              </div>
+            </div>
+            <span class="text-muted small">Sin actividades con estos filtros</span>
           </div>
-          <span class="text-muted small">Sin actividades con estos filtros</span>
         </div>
       {% endif %}
     {% endfor %}
@@ -619,10 +636,18 @@
   const EVENTS = JSON.parse(document.getElementById("quad-events-json")?.textContent || "[]");
   const CONCERT_TAGS_BY_ARTIST = JSON.parse(document.getElementById("quad-tags-by-artist-json")?.textContent || "{}");
 
-  /* ---- Fecha de generación en la cabecera PDF ---- */
+  /* ---- Descargar / Imprimir PDF (el diálogo del navegador incluye el mapa) ---- */
   (function(){
-    const el = document.getElementById('quadPrintDate');
-    if (el){ try { el.textContent = ' · Generado el ' + new Date().toLocaleDateString('es-ES'); } catch(e){} }
+    const fname = {{ (("Cuadrante - " ~ (selected_artists | map(attribute='name') | join(', ')) ~ " - " ~ (year|string)) if selected_artists else "Cuadrante") | tojson }};
+    let prevTitle = null;
+    function quadPrint(){
+      prevTitle = document.title;
+      try { document.title = fname; } catch(e){}
+      try { if (window.__quadMap) window.__quadMap.invalidateSize(true); } catch(e){}
+      window.print();
+    }
+    document.querySelectorAll('[data-quad-download], [data-quad-print]').forEach(b => b.addEventListener('click', quadPrint));
+    window.addEventListener('afterprint', () => { if (prevTitle !== null){ document.title = prevTitle; prevTitle = null; } });
   })();
 
   /* ---- Los botones (filtros / ver) requieren al menos un artista ---- */
@@ -715,9 +740,18 @@
     refreshConcertTagOptions();
   });
 
-  /* ---- Impresión: recalcular tamaños de Leaflet ---- */
-  window.addEventListener("beforeprint", () => { try { if (window.__quadMap) setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250); } catch(e){} });
-  window.addEventListener("afterprint", () => { try { if (window.__quadMap) setTimeout(() => { try { window.__quadMap.invalidateSize(true); } catch(e){} }, 250); } catch(e){} });
+  /* ---- Recalcular el tamaño del mapa (evita que salga descolocado) ---- */
+  function quadInvalidateMap(){ try { if (window.__quadMap) window.__quadMap.invalidateSize(true); } catch(e){} }
+  window.addEventListener("load", () => { [50, 300, 800, 1500].forEach(t => setTimeout(quadInvalidateMap, t)); });
+  window.addEventListener("resize", quadInvalidateMap);
+  window.addEventListener("beforeprint", quadInvalidateMap);
+  window.addEventListener("afterprint", () => setTimeout(quadInvalidateMap, 250));
+  (function(){
+    const el = document.getElementById("quad-map");
+    if (el && window.ResizeObserver){
+      try { new ResizeObserver(() => quadInvalidateMap()).observe(el); } catch(e){}
+    }
+  })();
 
   /* ---- Geocodificación + mapa ---- */
   function getGeoCache(){ try { return JSON.parse(localStorage.getItem("quad_geo_cache") || "{}"); } catch(e){ return {}; } }

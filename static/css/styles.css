@@ -2050,3 +2050,25 @@ img[style*="width:"] { height: auto; }
 
 /* Marcador del punto de empate sobre la barra de venta. */
 .et-bar__mark { position:absolute; top:-2px; bottom:-2px; width:2px; background:#111827; opacity:.6; z-index:2; }
+
+/* ===== Asistente por pasos reutilizable (step_wizard.js) ===== */
+.sw-step { display:none; }
+.sw-step.active { display:block; animation:sw-in .2s ease; }
+@keyframes sw-in { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:none; } }
+.sw-progress { display:flex; gap:6px; justify-content:center; margin-bottom:1.1rem; }
+.sw-pill { width:28px; height:5px; border-radius:3px; background:#e5e7eb; transition:background .2s; }
+.sw-pill.done { background:#f4a9ae; }
+.sw-pill.active { background:var(--brand-primary,#E33D48); }
+.sw-step__q { font-size:1.2rem; font-weight:800; margin-bottom:.15rem; }
+.sw-step__h { color:#6c757d; font-size:.9rem; margin-bottom:1rem; }
+/* Tarjetas de elección grandes (tipo festival/ciclo, modo de remuneración…) */
+.sw-choice { display:flex; gap:.75rem; flex-wrap:wrap; }
+.sw-choice > label, .sw-choice .btn-check + label {
+  flex:1 1 150px; margin:0; border:2px solid #e5e7eb; border-radius:16px; padding:1.1rem .9rem;
+  text-align:center; cursor:pointer; background:#fff; transition:border-color .15s, background .15s, box-shadow .15s;
+}
+.sw-choice > label:hover, .sw-choice .btn-check + label:hover { border-color:#f4a9ae; }
+.sw-choice .btn-check:checked + label { border-color:var(--brand-primary,#E33D48); background:#fdecee; box-shadow:0 2px 10px rgba(227,61,72,.12); }
+.sw-choice label > i { font-size:1.7rem; display:block; margin-bottom:.45rem; color:var(--brand-primary,#E33D48); }
+.sw-choice label .sw-choice__t { font-weight:700; display:block; }
+.sw-choice label .sw-choice__s { font-size:.8rem; color:#6c757d; }

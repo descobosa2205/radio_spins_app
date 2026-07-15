@@ -53,78 +53,98 @@
 {# ===== Modal nueva gira ===== #}
 <div class="modal fade" id="tourModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}">
+    <form class="modal-content" method="post" action="{{ url_for('purchased_tour_create') }}" data-step-wizard>
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-route me-2"></i>Nueva gira comprada</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label">Nombre de la gira</label>
-            <input class="form-control" name="name" placeholder="Ej.: Gira 2026" required>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Artista</label>
-            <div class="input-group">
-              <select class="form-select select-artists" name="artist_id" id="tourArtist" data-no-loader>
-                <option value="">Selecciona un artista…</option>
-                {% for a in artists %}<option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
-              </select>
-              {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="tourArtist"><i class="fa fa-plus"></i></button>{% endif %}
-            </div>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Empresa del grupo</label>
-            <select class="form-select" name="managing_company_id">
-              <option value="">Sin asignar</option>
-              {% for c in companies %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        <div data-sw-progress></div>
+
+        {# Paso 1 · Artista #}
+        <section class="sw-step" data-step="1" data-title="Artista">
+          <div class="sw-step__q"><i class="fa fa-user-music me-2 text-danger"></i>¿De qué artista es la gira?</div>
+          <div class="sw-step__h">Elige el artista principal de la gira.</div>
+          <div class="input-group">
+            <select class="form-select select-artists" name="artist_id" id="tourArtist" data-no-loader data-sw-advance required>
+              <option value="">Selecciona un artista…</option>
+              {% for a in artists %}<option value="{{ a.id }}" data-name="{{ a.name }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}">{{ a.name }}</option>{% endfor %}
             </select>
-            <div class="form-text">Las empresas del grupo se gestionan en Empresas.</div>
+            {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="artist" data-target="tourArtist"><i class="fa fa-plus"></i></button>{% endif %}
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Desde</label>
-            <input type="date" class="form-control" name="start_date">
+        </section>
+
+        {# Paso 2 · Nombre #}
+        <section class="sw-step" data-step="2" data-title="Nombre">
+          <div class="sw-step__q"><i class="fa fa-signature me-2 text-danger"></i>¿Cómo se llama la gira?</div>
+          <div class="sw-step__h">Un nombre para reconocerla (p. ej. «Gira 2026»).</div>
+          <input class="form-control form-control-lg" name="name" placeholder="Ej.: Gira 2026" required>
+        </section>
+
+        {# Paso 3 · Empresa gestora #}
+        <section class="sw-step" data-step="3" data-title="Empresa">
+          <div class="sw-step__q"><i class="fa fa-building me-2 text-danger"></i>¿Qué empresa del grupo la gestiona?</div>
+          <div class="sw-step__h">Opcional. Puedes dejarlo sin asignar y cambiarlo luego.</div>
+          <select class="form-select select-with-thumbs" name="managing_company_id" data-no-loader data-sw-advance>
+            <option value="">Sin asignar</option>
+            {% for c in companies %}<option value="{{ c.id }}" data-logo="{{ c.logo_url or url_for('static', filename='img/logo.png') }}">{{ c.name }}</option>{% endfor %}
+          </select>
+        </section>
+
+        {# Paso 4 · Fechas #}
+        <section class="sw-step" data-step="4" data-title="Fechas">
+          <div class="sw-step__q"><i class="fa fa-calendar-days me-2 text-danger"></i>¿Cuándo es la gira?</div>
+          <div class="sw-step__h">Fechas aproximadas; podrás afinarlas después.</div>
+          <div class="row g-3">
+            <div class="col-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date"></div>
+            <div class="col-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date"></div>
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Hasta</label>
-            <input type="date" class="form-control" name="end_date">
+        </section>
+
+        {# Paso 5 · Remuneración + socios #}
+        <section class="sw-step" data-step="5" data-title="Remuneración">
+          <div class="sw-step__q"><i class="fa fa-hand-holding-dollar me-2 text-danger"></i>Remuneración del artista</div>
+          <div class="sw-step__h">Cómo cobra el artista la gira.</div>
+          <div class="sw-choice mb-3">
+            <input type="radio" class="btn-check" name="fee_mode" id="tourFeeAdv" value="ADVANCE" checked>
+            <label for="tourFeeAdv"><i class="fa fa-sack-dollar"></i><span class="sw-choice__t">Adelanto de toda la gira</span><span class="sw-choice__s">Un importe global</span></label>
+            <input type="radio" class="btn-check" name="fee_mode" id="tourFeePer" value="FEE_PER_DATE">
+            <label for="tourFeePer"><i class="fa fa-calendar-check"></i><span class="sw-choice__t">Caché por fecha</span><span class="sw-choice__s">Se configura en cada concierto</span></label>
           </div>
-          <div class="col-12">
-            <label class="form-label">Notas</label>
-            <textarea class="form-control" name="notes" rows="2"></textarea>
+          <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+            <div><label class="form-label mb-0 small">Importe del adelanto</label><div class="input-group"><input type="number" step="0.01" class="form-control" name="fee_amount"><span class="input-group-text">€</span></div></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="fee_exempt" id="tourFeeExempt"><label class="form-check-label" for="tourFeeExempt">Exento de retención</label></div>
           </div>
-          <div class="col-12"><hr class="my-1"><label class="form-label d-block">Remuneración del artista</label>
-            <div class="btn-group btn-group-sm mb-2" role="group">
-              <input type="radio" class="btn-check" name="fee_mode" id="tourFeeAdv" value="ADVANCE" checked>
-              <label class="btn btn-outline-primary" for="tourFeeAdv">Adelanto de toda la gira</label>
-              <input type="radio" class="btn-check" name="fee_mode" id="tourFeePer" value="FEE_PER_DATE">
-              <label class="btn btn-outline-primary" for="tourFeePer">Caché por fecha</label>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Socios de la gira <span class="text-muted small">(reparto del resultado)</span></label>
+              {% for i in range(3) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="partner_name" placeholder="Socio"><input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
             </div>
-            <div class="d-flex flex-wrap gap-3 align-items-end">
-              <div><label class="form-label mb-0 small">Importe del adelanto</label><div class="input-group"><input type="number" step="0.01" class="form-control" name="fee_amount"><span class="input-group-text">€</span></div></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" name="fee_exempt" id="tourFeeExempt"><label class="form-check-label" for="tourFeeExempt">Exento de retención</label></div>
+            <div class="col-md-6"><label class="form-label">Comisionistas de la gira</label>
+              {% for i in range(2) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="commissioner_name" placeholder="Comisionista"><input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
             </div>
-            <div class="form-text">«Caché por fecha»: el caché (con variables/exentos) se configura en la ficha de cada concierto.</div>
           </div>
-          <div class="col-md-6"><label class="form-label">Socios de la gira <span class="text-muted small">(reparto del resultado)</span></label>
-            {% for i in range(3) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="partner_name" placeholder="Socio"><input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
-          </div>
-          <div class="col-md-6"><label class="form-label">Comisionistas de la gira</label>
-            {% for i in range(2) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="commissioner_name" placeholder="Comisionista"><input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
-          </div>
-          <div class="col-12"><div class="alert alert-light border small mb-0"><i class="fa fa-circle-info me-1"></i>Podrás editar todo esto (adelanto, gastos generales, socios, comisionistas) y añadir/vincular las fechas en la ficha de la gira.</div></div>
-        </div>
+        </section>
+
+        {# Paso 6 · Notas #}
+        <section class="sw-step" data-step="6" data-title="Notas">
+          <div class="sw-step__q"><i class="fa fa-note-sticky me-2 text-danger"></i>Notas (opcional)</div>
+          <div class="sw-step__h">Cualquier detalle útil de la gira.</div>
+          <textarea class="form-control" name="notes" rows="3"></textarea>
+          <div class="alert alert-light border small mt-3 mb-0"><i class="fa fa-circle-info me-1"></i>Podrás editar todo esto (adelanto, gastos generales, socios, comisionistas) y añadir/vincular las fechas en la ficha de la gira.</div>
+        </section>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Crear gira</button>
+        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear gira</button>
       </div>
     </form>
   </div>
 </div>
 
 {% include "_quick_create_modals.html" %}
+<script src="{{ url_for('static', filename='js/step_wizard.js') }}"></script>
 <script>
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-tour-new]')){ var m=document.getElementById('tourModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }

@@ -54,87 +54,117 @@
 {# ===== Modal nuevo ciclo / festival ===== #}
 <div class="modal fade" id="cfModal" tabindex="-1" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-centered">
-    <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}">
+    <form class="modal-content" method="post" action="{{ url_for('cycle_festival_create') }}" data-step-wizard>
       <div class="modal-header">
         <h5 class="modal-title"><i class="fa fa-star me-2"></i>Nuevo ciclo / festival</h5>
         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <div class="row g-3">
-          <div class="col-12">
-            <label class="form-label d-block">¿Qué es?</label>
-            <div class="btn-group" role="group">
-              <input type="radio" class="btn-check" name="kind" id="cfKindFest" value="FESTIVAL" checked>
-              <label class="btn btn-outline-primary" for="cfKindFest"><i class="fa fa-star me-1"></i>Festival</label>
-              <input type="radio" class="btn-check" name="kind" id="cfKindCycle" value="CICLO">
-              <label class="btn btn-outline-primary" for="cfKindCycle"><i class="fa fa-repeat me-1"></i>Ciclo</label>
-            </div>
-            <div class="form-text" data-cf-hint>Festival: cada pestaña será un artista. Ciclo: cada pestaña una fecha en el mismo recinto.</div>
+        <div data-sw-progress></div>
+
+        {# Paso 1 · Tipo #}
+        <section class="sw-step" data-step="1" data-title="Tipo">
+          <div class="sw-step__q"><i class="fa fa-shapes me-2 text-danger"></i>¿Qué vas a crear?</div>
+          <div class="sw-step__h">Un festival (cada pestaña será un artista) o un ciclo (varias fechas en el mismo recinto).</div>
+          <div class="sw-choice">
+            <input type="radio" class="btn-check" name="kind" id="cfKindFest" value="FESTIVAL" checked data-sw-advance>
+            <label for="cfKindFest"><i class="fa fa-star"></i><span class="sw-choice__t">Festival</span><span class="sw-choice__s">Cada pestaña, un artista</span></label>
+            <input type="radio" class="btn-check" name="kind" id="cfKindCycle" value="CICLO" data-sw-advance>
+            <label for="cfKindCycle"><i class="fa fa-repeat"></i><span class="sw-choice__t">Ciclo</span><span class="sw-choice__s">Varias fechas, mismo recinto</span></label>
           </div>
-          <div class="col-md-6">
-            <label class="form-label">Evento</label>
-            <div class="input-group">
-              <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader>
-                <option value="">Sin evento asociado</option>
-                {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>{% endfor %}
-              </select>
-              {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="event" data-target="cfEvent"><i class="fa fa-plus"></i></button>{% endif %}
-            </div>
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Nombre</label>
-            <input class="form-control" name="name" placeholder="(si no eliges evento)">
-          </div>
-          <div class="col-md-3">
-            <label class="form-label">Edición / año</label>
-            <input class="form-control" name="edition" placeholder="Ej.: 2026">
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">Empresa del grupo</label>
-            <select class="form-select" name="managing_company_id">
-              <option value="">Sin asignar</option>
-              {% for c in companies %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+        </section>
+
+        {# Paso 2 · Identidad (evento + nombre + edición) #}
+        <section class="sw-step" data-step="2" data-title="Nombre">
+          <div class="sw-step__q"><i class="fa fa-signature me-2 text-danger"></i>¿Cómo se llama?</div>
+          <div class="sw-step__h">Si lo asocias a un evento, hereda su nombre y su logo.</div>
+          <label class="form-label">Evento <span class="text-muted small">(opcional)</span></label>
+          <div class="input-group mb-3">
+            <select class="form-select select-with-thumbs" name="event_id" id="cfEvent" data-no-loader>
+              <option value="">Sin evento asociado</option>
+              {% for e in events %}<option value="{{ e.id }}" data-name="{{ e.name }}" data-logo="{{ e.logo_url or url_for('static', filename='img/logo.png') }}">{{ e.name }}</option>{% endfor %}
             </select>
+            {% if CAN_EDIT_CONCERTS %}<button class="btn btn-outline-secondary" type="button" data-quick-create="event" data-target="cfEvent"><i class="fa fa-plus"></i></button>{% endif %}
           </div>
-          <div class="col-md-6" data-cf-venue>
-            <label class="form-label">Recinto <span class="text-muted small">(el ciclo comparte recinto)</span></label>
-            <select class="form-select select-venues" name="venue_id" data-no-loader>
-              <option value="">—</option>
-              {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}">{{ v.name }}</option>{% endfor %}
-            </select>
+          <div class="row g-3">
+            <div class="col-md-8"><label class="form-label">Nombre</label><input class="form-control" name="name" placeholder="(si no eliges evento)"></div>
+            <div class="col-md-4"><label class="form-label">Edición / año</label><input class="form-control" name="edition" placeholder="Ej.: 2026"></div>
           </div>
-          <div class="col-md-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date"></div>
-          <div class="col-md-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date"></div>
-          <div class="col-12"><label class="form-label">Notas</label><textarea class="form-control" name="notes" rows="2"></textarea></div>
-          <div class="col-12"><hr class="my-1"><label class="form-label d-block">Remuneración</label>
-            <div class="btn-group btn-group-sm mb-2" role="group">
-              <input type="radio" class="btn-check" name="fee_mode" id="cfFeeAdv" value="ADVANCE" checked>
-              <label class="btn btn-outline-primary" for="cfFeeAdv">Adelanto global</label>
-              <input type="radio" class="btn-check" name="fee_mode" id="cfFeePer" value="FEE_PER_DATE">
-              <label class="btn btn-outline-primary" for="cfFeePer">Caché por fecha/artista</label>
+        </section>
+
+        {# Paso 3 · Gestión y recinto #}
+        <section class="sw-step" data-step="3" data-title="Recinto">
+          <div class="sw-step__q"><i class="fa fa-location-dot me-2 text-danger"></i>Gestión y recinto</div>
+          <div class="sw-step__h">Quién lo gestiona y dónde se celebra (el ciclo comparte recinto).</div>
+          <label class="form-label">Empresa del grupo <span class="text-muted small">(opcional)</span></label>
+          <select class="form-select select-with-thumbs mb-3" name="managing_company_id" data-no-loader>
+            <option value="">Sin asignar</option>
+            {% for c in companies %}<option value="{{ c.id }}" data-logo="{{ c.logo_url or url_for('static', filename='img/logo.png') }}">{{ c.name }}</option>{% endfor %}
+          </select>
+          <label class="form-label">Recinto</label>
+          <select class="form-select select-venues mb-3" name="venue_id" data-no-loader>
+            <option value="">—</option>
+            {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}">{{ v.name }}</option>{% endfor %}
+          </select>
+          <div class="row g-3">
+            <div class="col-6"><label class="form-label">Municipio <span class="text-muted small">(opcional)</span></label><input class="form-control" name="municipality"></div>
+            <div class="col-6"><label class="form-label">Provincia <span class="text-muted small">(opcional)</span></label><input class="form-control" name="province"></div>
+          </div>
+        </section>
+
+        {# Paso 4 · Fechas #}
+        <section class="sw-step" data-step="4" data-title="Fechas">
+          <div class="sw-step__q"><i class="fa fa-calendar-days me-2 text-danger"></i>¿Cuándo es?</div>
+          <div class="sw-step__h">Fechas aproximadas; podrás afinarlas después.</div>
+          <div class="row g-3">
+            <div class="col-6"><label class="form-label">Desde</label><input type="date" class="form-control" name="start_date"></div>
+            <div class="col-6"><label class="form-label">Hasta</label><input type="date" class="form-control" name="end_date"></div>
+          </div>
+        </section>
+
+        {# Paso 5 · Remuneración + socios #}
+        <section class="sw-step" data-step="5" data-title="Remuneración">
+          <div class="sw-step__q"><i class="fa fa-hand-holding-dollar me-2 text-danger"></i>Remuneración</div>
+          <div class="sw-step__h">Cómo se remunera.</div>
+          <div class="sw-choice mb-3">
+            <input type="radio" class="btn-check" name="fee_mode" id="cfFeeAdv" value="ADVANCE" checked>
+            <label for="cfFeeAdv"><i class="fa fa-sack-dollar"></i><span class="sw-choice__t">Adelanto global</span><span class="sw-choice__s">Un importe global</span></label>
+            <input type="radio" class="btn-check" name="fee_mode" id="cfFeePer" value="FEE_PER_DATE">
+            <label for="cfFeePer"><i class="fa fa-calendar-check"></i><span class="sw-choice__t">Caché por fecha/artista</span><span class="sw-choice__s">Se configura en cada fecha</span></label>
+          </div>
+          <div class="d-flex flex-wrap gap-3 align-items-end mb-3">
+            <div><label class="form-label mb-0 small">Importe del adelanto</label><div class="input-group"><input type="number" step="0.01" class="form-control" name="fee_amount"><span class="input-group-text">€</span></div></div>
+            <div class="form-check"><input class="form-check-input" type="checkbox" name="fee_exempt" id="cfFeeExempt"><label class="form-check-label" for="cfFeeExempt">Exento de retención</label></div>
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label">Socios <span class="text-muted small">(reparto del resultado)</span></label>
+              {% for i in range(3) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="partner_name" placeholder="Socio"><input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
             </div>
-            <div class="d-flex flex-wrap gap-3 align-items-end">
-              <div><label class="form-label mb-0 small">Importe del adelanto</label><div class="input-group"><input type="number" step="0.01" class="form-control" name="fee_amount"><span class="input-group-text">€</span></div></div>
-              <div class="form-check"><input class="form-check-input" type="checkbox" name="fee_exempt" id="cfFeeExempt"><label class="form-check-label" for="cfFeeExempt">Exento de retención</label></div>
+            <div class="col-md-6"><label class="form-label">Comisionistas</label>
+              {% for i in range(2) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="commissioner_name" placeholder="Comisionista"><input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
             </div>
           </div>
-          <div class="col-md-6"><label class="form-label">Socios <span class="text-muted small">(reparto del resultado)</span></label>
-            {% for i in range(3) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="partner_name" placeholder="Socio"><input type="number" step="0.01" class="form-control" name="partner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
-          </div>
-          <div class="col-md-6"><label class="form-label">Comisionistas</label>
-            {% for i in range(2) %}<div class="input-group input-group-sm mb-1"><input class="form-control" name="commissioner_name" placeholder="Comisionista"><input type="number" step="0.01" class="form-control" name="commissioner_pct" placeholder="%" style="max-width:90px;"><span class="input-group-text">%</span></div>{% endfor %}
-          </div>
-        </div>
+        </section>
+
+        {# Paso 6 · Notas #}
+        <section class="sw-step" data-step="6" data-title="Notas">
+          <div class="sw-step__q"><i class="fa fa-note-sticky me-2 text-danger"></i>Notas (opcional)</div>
+          <div class="sw-step__h">Cualquier detalle útil.</div>
+          <textarea class="form-control" name="notes" rows="3"></textarea>
+        </section>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
-        <button type="submit" class="btn btn-primary"><i class="fa fa-floppy-disk me-1"></i>Crear</button>
+        <button type="button" class="btn btn-outline-primary" data-sw-prev><i class="fa fa-arrow-left me-1"></i>Atrás</button>
+        <button type="button" class="btn btn-primary" data-sw-next>Siguiente<i class="fa fa-arrow-right ms-1"></i></button>
+        <button type="submit" class="btn btn-primary" data-sw-submit><i class="fa fa-floppy-disk me-1"></i>Crear</button>
       </div>
     </form>
   </div>
 </div>
 
 {% include "_quick_create_modals.html" %}
+<script src="{{ url_for('static', filename='js/step_wizard.js') }}"></script>
 <script>
   document.addEventListener('click', function(ev){
     if(ev.target.closest('[data-cf-new]')){ var m=document.getElementById('cfModal'); if(m && window.bootstrap) bootstrap.Modal.getOrCreateInstance(m).show(); }

@@ -22359,9 +22359,29 @@ def concerts_page():
                 type_counts[c.sale_type] = type_counts.get(c.sale_type, 0) + 1
 
         _wizard_tours, _wizard_cycles = _wizard_group_options(s)
+
+        # Módulo "Peticiones pendientes" en el inicio de Contratación (pestaña Conciertos):
+        # todas las peticiones que aún no se han cerrado (ni convertidas ni descartadas).
+        pending_booking_rows = []
+        if active_tab == "vista":
+            try:
+                _pending = (
+                    s.query(BookingRequest)
+                    .options(joinedload(BookingRequest.artist))
+                    .filter(func.upper(func.coalesce(BookingRequest.status, "NUEVA")).in_(["NUEVA", "EN_TRAMITE"]))
+                    .order_by(BookingRequest.received_at.desc().nullslast(), BookingRequest.created_at.desc())
+                    .limit(50)
+                    .all()
+                )
+                pending_booking_rows = [_booking_request_row(r) for r in _pending]
+            except Exception:
+                pending_booking_rows = []
+
         return render_template(
             "concerts_vista.html" if active_tab == "vista" else "concerts.html",
             active_tab=active_tab,
+            pending_booking_rows=pending_booking_rows,
+            booking_status_meta=BOOKING_STATUS_META,
             vista_mode=vista_mode,
             artist_groups=artist_groups,
             drill_artist=drill_artist,
@@ -32432,10 +32452,9 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "playlisting", "label": "Playlisting", "url": _resource_default_url("playlisting")},
         {"type": "link", "key": "registros", "label": "Registros", "url": _resource_default_url("registros")},
         {"type": "link", "key": "fotos", "label": "Fotos / Vídeos", "url": _resource_default_url("fotos")},
-        {"type": "link", "key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
         {"type": "link", "key": "actividades", "label": "Actividades", "url": _resource_default_url("actividades")},
-        {"type": "link", "key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
         {"type": "dropdown", "key": "contratacion", "label": "Contratación", "children": [
+            {"key": "contratacion.conciertos", "label": "Conciertos", "url": _resource_default_url("contratacion.conciertos")},
             {"key": "contratacion.peticiones", "label": "Peticiones", "url": _resource_default_url("contratacion.peticiones")},
             {"key": "contratacion.giras", "label": "Giras compradas", "url": _resource_default_url("contratacion.giras")},
             {"key": "contratacion.festivales", "label": "Festivales / Ciclos", "url": _resource_default_url("contratacion.festivales")},
@@ -32456,6 +32475,7 @@ def _build_nav_menu() -> list[dict]:
         {"type": "link", "key": "personal", "label": "Personal", "url": _resource_default_url("personal")},
         {"type": "link", "key": "integraciones", "label": "Integraciones", "url": _resource_default_url("integraciones")},
         {"type": "dropdown", "key": "databases", "label": "Bases de datos", "children": [
+            {"key": "third_parties", "label": "Terceros", "url": _resource_default_url("third_parties")},
             {"key": "databases.venues", "label": "Recintos", "url": _resource_default_url("databases.venues")},
             {"key": "databases.ticketers", "label": "Ticketeras", "url": _resource_default_url("databases.ticketers")},
             {"key": "databases.publishing_companies", "label": "Editoriales", "url": _resource_default_url("databases.publishing_companies")},

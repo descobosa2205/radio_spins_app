@@ -19,6 +19,40 @@
   <li class="nav-item"><a class="nav-link" href="{{ url_for('contracting_view', section='simulaciones') }}">Simulaciones</a></li>
 </ul>
 
+{# ---- Primer módulo: Peticiones pendientes (las que aún no se han cerrado) ---- #}
+<div class="card mb-3">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2 flex-wrap">
+    <span class="fw-semibold">
+      <i class="fa fa-inbox text-danger me-2"></i>Peticiones pendientes
+      {% if pending_booking_rows %}<span class="badge text-bg-danger ms-1">{{ pending_booking_rows|length }}</span>{% endif %}
+    </span>
+    <a class="btn btn-sm btn-outline-danger" href="{{ url_for('contracting_view', section='peticiones') }}"><i class="fa fa-list-check me-1"></i>Gestionar peticiones</a>
+  </div>
+  {% if pending_booking_rows %}
+    <div class="list-group list-group-flush">
+      {% for p in pending_booking_rows %}
+        <a class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap"
+           href="{{ url_for('contracting_view', section='peticiones') }}">
+          <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
+          <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
+            {{ artist_avatar(p.artist_photo, p.artist_name) }}
+            <span class="text-truncate">{{ p.artist_name or p.subject or 'Petición' }}</span>
+          </span>
+          {% if p.subject and p.artist_name %}<span class="text-muted text-truncate d-none d-md-inline">{{ p.subject }}</span>{% endif %}
+          <span class="ms-auto d-flex align-items-center gap-3 text-muted small flex-wrap">
+            {% if p.date_label %}<span><i class="fa fa-calendar-day me-1"></i>{{ p.date_label }}</span>{% endif %}
+            {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
+            {% if p.fee_text %}<span><i class="fa fa-euro-sign me-1"></i>{{ p.fee_text }}</span>{% endif %}
+            <i class="fa fa-chevron-right"></i>
+          </span>
+        </a>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="card-body py-2 text-muted small"><i class="fa fa-circle-check text-success me-1"></i>No hay peticiones pendientes.</div>
+  {% endif %}
+</div>
+
 {% if vista_mode == 'grid' %}
   {# ---- Rejilla de artistas con nº de conciertos ---- #}
   <div class="d-flex justify-content-end mb-3">

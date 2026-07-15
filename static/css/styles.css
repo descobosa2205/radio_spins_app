@@ -1005,6 +1005,10 @@ img.img-error-pending{ visibility: hidden; }
 .leaflet-container .leaflet-tile,
 .leaflet-container .leaflet-marker-icon,
 .leaflet-container .leaflet-image-layer { max-width: none !important; }
+/* Red de seguridad: si por lo que sea una imagen del mapa recibiera las clases del sistema de
+   fallback de imágenes, NUNCA debe ocultarse ni pintarse el fondo gris (dejaría el mapa en gris). */
+.leaflet-container img.img-error-pending { visibility: visible !important; }
+.leaflet-container img.image-fallback { background: none !important; }
 /* Agrupación del listado de invitados por tipo de invitación (categoría). */
 .inv-cat-group-header { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; color:#495057; margin:.6rem 0 .1rem; padding-top:.2rem; }
 .inv-cat-group-header:first-child { margin-top:0; }

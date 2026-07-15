@@ -877,8 +877,14 @@ function initImageFallbacks(){
   // placeholder de portada (disco gris), NO al avatar de persona.
   const isCover = (img) => !!(img && (img.classList.contains('cover-square') || img.classList.contains('song-hero-cover') || img.classList.contains('cover') || img.hasAttribute('data-cover')));
   const fbFor = (img) => (coverUrl && isCover(img)) ? coverUrl : defaultUrl;
+  // Imágenes de Leaflet (tiles/marcadores del mapa) NUNCA pasan por el sistema de fallback: si un
+  // tile falla momentáneamente (ráfaga/rate-limit de OSM) y le cambiáramos el src o lo ocultáramos,
+  // el mapa entero se quedaba en gris (bug de simulaciones/cuadrantes).
+  const isLeafletImg = (img) => (img.closest && img.closest('.leaflet-container')) ||
+    (typeof img.className === 'string' && img.className.indexOf('leaflet') !== -1);
   const skipImg = (img) => !img || String(img.tagName || '').toUpperCase() !== 'IMG' ||
-    img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1';
+    img.closest('.navbar-brand') || img.classList.contains('brand') || img.dataset.keepLogo === '1' ||
+    isLeafletImg(img);
   const selector = [
     'img.artist-avatar', 'img.artist-mini', 'img.song-hero-cover', 'img.cover-square', 'img.cover', 'img[data-cover]',
     'img.station-logo', 'img.user-nav-avatar', 'img[data-default-photo="1"]',

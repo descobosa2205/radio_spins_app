@@ -34,6 +34,9 @@
         var t = ev.target;
         if (!t || String(t.tagName || '').toUpperCase() !== 'IMG') return;
         if (window.__imgFallbacksReady) return;  /* scripts.js ya tiene su propio listener */
+        /* Los tiles/marcadores de Leaflet NUNCA se ocultan: si no, el mapa se queda en gris. */
+        if ((t.closest && t.closest('.leaflet-container')) ||
+            (typeof t.className === 'string' && t.className.indexOf('leaflet') !== -1)) return;
         t.classList.add('img-error-pending');
         window.__imgErrQueue.push(t);
       }, true);

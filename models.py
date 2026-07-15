@@ -3509,12 +3509,20 @@ class RepertoireTemplate(Base):
 
 
 class RepertoireTemplateItem(Base):
-    """Línea de una plantilla de repertorio (una canción/tema, en orden)."""
+    """Línea de un set list / plantilla de repertorio, en orden.
+
+    `kind`: SONG (canción), BREAK (línea de parón) o NOTE (nota/agradecimiento). Las canciones
+    pueden venir del repertorio del artista (`song_id`) o escritas a mano; `duration_seconds` es la
+    duración de la canción (para el recuento total; el PDF no la muestra). `note` es el comentario
+    que se enseña bajo la canción (también en el PDF)."""
     __tablename__ = "repertoire_template_items"
     id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
     template_id = Column(PGUUID(as_uuid=True), ForeignKey("repertoire_templates.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(Text, nullable=False, server_default=text("'SONG'"))  # SONG | BREAK | NOTE
+    song_id = Column(PGUUID(as_uuid=True))   # opcional: canción del repertorio del artista
     title = Column(Text, nullable=False, server_default=text("''"))
     note = Column(Text)
+    duration_seconds = Column(Integer)
     sort_order = Column(Integer, nullable=False, server_default=text("0"))
 
     template = relationship("RepertoireTemplate", back_populates="items")
@@ -4135,6 +4143,11 @@ def ensure_simulations_schema():
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_repertoire_template_items_tpl ON repertoire_template_items(template_id);",
+        # Set list enriquecido (reutilizamos esta tabla para el set list por concierto/acción y para
+        # las plantillas de artista/gira): tipo de línea, canción del repertorio y duración.
+        "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS kind text NOT NULL DEFAULT 'SONG';",
+        "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS song_id uuid;",
+        "ALTER TABLE repertoire_template_items ADD COLUMN IF NOT EXISTS duration_seconds integer;",
     ]
     _exec_ddl_statements(stmts, "simulations")
 

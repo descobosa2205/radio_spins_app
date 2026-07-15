@@ -20599,6 +20599,358 @@ def repertoire_template_delete(tid):
     return redirect(safe_next_or(url_for("home")))
 
 
+# ============================ SET LIST / REPERTORIO (por concierto / actividad) ============================
+# Reutilizamos RepertoireTemplate/RepertoireTemplateItem: el set list de un concierto o actividad es una
+# fila con owner_type CONCERT|ACTION; las PLANTILLAS reutilizables llevan owner_type ARTIST|TOUR. Cada
+# ítem tiene kind (SONG|BREAK|NOTE), la canción del repertorio (song_id) y la duración (para el recuento
+# total; el PDF NO la muestra). El set list queda vinculado al evento para declararlo luego en SGAE.
+
+_SETLIST_OWNER_TYPES = {"CONCERT", "ACTION"}
+_SETLIST_ITEM_KINDS = {"SONG", "BREAK", "NOTE"}
+
+
+def _int_or_none(v):
+    try:
+        n = int(float(str(v).strip()))
+        return n if n >= 0 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_duration(total_seconds):
+    """Segundos -> 'M:SS' o 'H:MM:SS'."""
+    s = _int_or_none(total_seconds) or 0
+    if s <= 0:
+        return "0:00"
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
+
+
+def _get_setlist(s, owner_type, owner_id, create=False):
+    ot = (owner_type or "").strip().upper()
+    oid = _sim_safe_uuid(owner_id)
+    if ot not in _SETLIST_OWNER_TYPES or not oid:
+        return None
+    t = (s.query(RepertoireTemplate).options(selectinload(RepertoireTemplate.items))
+         .filter(RepertoireTemplate.owner_type == ot, RepertoireTemplate.owner_id == oid).first())
+    if not t and create:
+        t = RepertoireTemplate(owner_type=ot, owner_id=oid, name="")
+        s.add(t)
+        s.flush()
+    return t
+
+
+def _setlist_item_payload(it):
+    return {
+        "kind": (it.kind or "SONG"),
+        "song_id": str(it.song_id) if it.song_id else "",
+        "title": it.title or "",
+        "duration_seconds": int(it.duration_seconds or 0),
+        "note": it.note or "",
+    }
+
+
+def _setlist_payload(t):
+    items = sorted((t.items or []), key=lambda x: (x.sort_order or 0)) if t else []
+    total = sum(int(it.duration_seconds or 0) for it in items if (it.kind or "SONG").upper() == "SONG")
+    return {"items": [_setlist_item_payload(it) for it in items],
+            "total_seconds": total, "total_label": _fmt_duration(total)}
+
+
+def _setlist_concert_artist_ids(c):
+    ids = []
+    if getattr(c, "artist_id", None):
+        ids.append(c.artist_id)
+    for a in (getattr(c, "artists_json", None) or []):
+        aid = _sim_safe_uuid(a.get("id") if isinstance(a, dict) else a)
+        if aid and aid not in ids:
+            ids.append(aid)
+    return ids
+
+
+def _repertoire_songs_for_artists(s, artist_ids):
+    """Canciones del repertorio de esos artistas (para el selector de 'añadir del repertorio')."""
+    artist_ids = [a for a in (artist_ids or []) if a]
+    if not artist_ids:
+        return []
+    rows = (s.query(Song).join(Song.artists).filter(Artist.id.in_(artist_ids))
+            .order_by(Song.title.asc()).all())
+    seen, out = set(), []
+    for sg in rows:
+        if sg.id in seen:
+            continue
+        seen.add(sg.id)
+        out.append({"id": str(sg.id), "title": sg.title or "—",
+                    "duration_seconds": int(getattr(sg, "duration_seconds", 0) or 0)})
+    return out
+
+
+def _setlist_templates_for_concert(s, c):
+    """Plantillas ofrecibles al cargar: las del artista y las de la gira del concierto."""
+    out = []
+    def _add(scope, tpls):
+        for t in tpls:
+            out.append({"id": str(t.id), "name": (t.name or "(sin nombre)"), "scope": scope,
+                        "count": len([i for i in (t.items or []) if (i.kind or "SONG").upper() == "SONG"])})
+    for aid in _setlist_concert_artist_ids(c):
+        _add("Artista", _repertoire_templates_for(s, "ARTIST", aid))
+    if getattr(c, "purchased_tour_id", None):
+        _add("Gira", _repertoire_templates_for(s, "TOUR", c.purchased_tour_id))
+    return out
+
+
+def _build_setlist_context(s, owner_type, owner_id, concert=None, action=None):
+    """Contexto para el panel de set list (partial _setlist_panel.html)."""
+    t = _get_setlist(s, owner_type, owner_id)
+    if concert is not None:
+        artist_ids = _setlist_concert_artist_ids(concert)
+        artist_id = concert.artist_id
+        templates = _setlist_templates_for_concert(s, concert)
+    else:
+        artist_ids = [_sim_safe_uuid(x) for x in (getattr(action, "artist_ids", []) or [])]
+        artist_ids = [a for a in artist_ids if a]
+        artist_id = artist_ids[0] if artist_ids else None
+        templates = []
+        for aid in artist_ids:
+            for tp in _repertoire_templates_for(s, "ARTIST", aid):
+                templates.append({"id": str(tp.id), "name": (tp.name or "(sin nombre)"), "scope": "Artista",
+                                  "count": len([i for i in (tp.items or []) if (i.kind or "SONG").upper() == "SONG"])})
+    payload = _setlist_payload(t)
+    return {
+        "owner_type": owner_type,
+        "owner_id": str(owner_id),
+        "artist_id": (str(artist_id) if artist_id else ""),
+        "songs": _repertoire_songs_for_artists(s, artist_ids),
+        "items": payload["items"],
+        "total_label": payload["total_label"],
+        "templates": templates,
+        "pdf_url": url_for("setlist_pdf", owner_type=owner_type, owner_id=str(owner_id)),
+        "can_edit": True,
+    }
+
+
+@app.post("/setlist/guardar", endpoint="setlist_save")
+@admin_required
+def setlist_save():
+    s = db()
+    try:
+        t = _get_setlist(s, request.form.get("owner_type"), request.form.get("owner_id"), create=True)
+        if not t:
+            return jsonify({"ok": False, "error": "owner"}), 400
+        try:
+            items = json.loads(request.form.get("items") or "[]")
+        except Exception:
+            items = []
+        for it in list(t.items or []):
+            s.delete(it)
+        s.flush()
+        order = 0
+        for raw in (items or []):
+            if not isinstance(raw, dict):
+                continue
+            kind = (raw.get("kind") or "SONG").strip().upper()
+            if kind not in _SETLIST_ITEM_KINDS:
+                kind = "SONG"
+            title = (raw.get("title") or "").strip()
+            if kind == "SONG" and not title:
+                continue
+            s.add(RepertoireTemplateItem(
+                template_id=t.id, kind=kind, song_id=_sim_safe_uuid(raw.get("song_id")),
+                title=title, duration_seconds=_int_or_none(raw.get("duration_seconds")),
+                note=((raw.get("note") or "").strip() or None), sort_order=order,
+            ))
+            order += 1
+        t.updated_at = datetime.utcnow()
+        s.commit()
+        return jsonify({"ok": True, **_setlist_payload(_get_setlist(s, request.form.get("owner_type"), request.form.get("owner_id")))})
+    except Exception as e:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        s.close()
+
+
+@app.post("/setlist/guardar-plantilla", endpoint="setlist_save_template")
+@admin_required
+def setlist_save_template():
+    s = db()
+    try:
+        artist_id = _sim_safe_uuid(request.form.get("artist_id"))
+        name = (request.form.get("name") or "").strip()
+        if not name or not artist_id:
+            return jsonify({"ok": False, "error": "Falta el nombre o el artista."}), 400
+        src = _get_setlist(s, request.form.get("owner_type"), request.form.get("owner_id"))
+        tpl = RepertoireTemplate(owner_type="ARTIST", owner_id=artist_id, name=name)
+        s.add(tpl)
+        s.flush()
+        for it in sorted((src.items or []) if src else [], key=lambda x: (x.sort_order or 0)):
+            s.add(RepertoireTemplateItem(template_id=tpl.id, kind=(it.kind or "SONG"), song_id=it.song_id,
+                  title=it.title or "", duration_seconds=it.duration_seconds, note=it.note, sort_order=(it.sort_order or 0)))
+        s.commit()
+        return jsonify({"ok": True, "id": str(tpl.id), "name": tpl.name})
+    except Exception as e:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(e)}), 500
+    finally:
+        s.close()
+
+
+@app.get("/setlist/plantilla/<tid>/items", endpoint="setlist_template_items")
+@admin_required
+def setlist_template_items(tid):
+    s = db()
+    try:
+        t = (s.query(RepertoireTemplate).options(selectinload(RepertoireTemplate.items))
+             .filter(RepertoireTemplate.id == _sim_safe_uuid(tid)).first())
+        if not t:
+            return jsonify({"ok": False}), 404
+        return jsonify({"ok": True, **_setlist_payload(t)})
+    finally:
+        s.close()
+
+
+def _setlist_pdf_header(s, owner_type, owner_id):
+    """(artista, subtítulo) para la cabecera del PDF: nombre del concierto o, si no, municipio y fecha."""
+    ot = (owner_type or "").strip().upper()
+    oid = _sim_safe_uuid(owner_id)
+    artist, subtitle = "", ""
+    if ot == "CONCERT" and oid:
+        c = (s.query(Concert).options(joinedload(Concert.artist), joinedload(Concert.venue))
+             .filter(Concert.id == oid).first())
+        if c:
+            artist = (c.artist.name if c.artist else "") or (c.festival_name or "")
+            if c.festival_name:
+                subtitle = c.festival_name
+            else:
+                muni = (c.venue.municipality if c.venue else None) or c.manual_municipality or ""
+                d = c.date.strftime("%d/%m/%Y") if c.date else ""
+                subtitle = " · ".join(x for x in [muni, d] if x)
+    elif ot == "ACTION" and oid:
+        a = (s.query(CompanyAction).options(joinedload(CompanyAction.venue))
+             .filter(CompanyAction.id == oid).first())
+        if a:
+            arts = _artists_from_ids(s, getattr(a, "artist_ids", []) or [])
+            artist = ", ".join([x.name for x in arts if getattr(x, "name", None)]) or (a.title or "")
+            muni = (a.venue.municipality if a.venue else None) or ""
+            d = a.start_date.strftime("%d/%m/%Y") if getattr(a, "start_date", None) else ""
+            subtitle = a.title or (" · ".join(x for x in [muni, d] if x))
+    return {"artist": artist, "subtitle": subtitle}
+
+
+@app.get("/setlist/pdf", endpoint="setlist_pdf")
+@admin_required
+def setlist_pdf():
+    """Set list en PDF: A4 fondo negro, títulos en MAYÚSCULAS/negrita numerados, letra lo más grande
+    posible que quepa; incluye líneas de parón y comentarios; SIN duraciones."""
+    if not REPORTLAB_AVAILABLE:
+        abort(503)
+    from reportlab.pdfgen import canvas as _canvas
+    from reportlab.lib.pagesizes import A4
+    s = db()
+    try:
+        owner_type = (request.args.get("owner_type") or "").strip().upper()
+        owner_id = _sim_safe_uuid(request.args.get("owner_id"))
+        t = _get_setlist(s, owner_type, owner_id)
+        header = _setlist_pdf_header(s, owner_type, owner_id)
+        items = sorted((t.items or []) if t else [], key=lambda x: (x.sort_order or 0))
+
+        lines = []  # {t, type: song|break|note|comment, num}
+        n = 0
+        for it in items:
+            kind = (it.kind or "SONG").upper()
+            if kind == "SONG":
+                n += 1
+                lines.append({"t": (it.title or "").upper(), "type": "song", "num": n})
+                if (it.note or "").strip():
+                    lines.append({"t": (it.note or "").strip(), "type": "comment"})
+            elif kind == "BREAK":
+                lines.append({"t": (it.title or "").strip().upper(), "type": "break"})
+            else:
+                lines.append({"t": (it.title or "").strip().upper(), "type": "note"})
+
+        buf = BytesIO()
+        W, H = A4
+        c = _canvas.Canvas(buf, pagesize=A4)
+        c.setFillColorRGB(0, 0, 0)
+        c.rect(0, 0, W, H, stroke=0, fill=1)  # fondo negro
+        margin = 34
+        usable_w = W - 2 * margin
+
+        # Cabecera: "SET LIST" + artista + (concierto / municipio·fecha)
+        c.setFillColorRGB(1, 1, 1)
+        c.setFont("Helvetica-Bold", 30)
+        y = H - margin - 30
+        c.drawCentredString(W / 2, y, "SET LIST")
+        if (header.get("artist") or "").strip():
+            y -= 24
+            c.setFont("Helvetica-Bold", 16)
+            c.drawCentredString(W / 2, y, header["artist"])
+        if (header.get("subtitle") or "").strip():
+            y -= 18
+            c.setFont("Helvetica", 12)
+            c.setFillColorRGB(0.8, 0.8, 0.8)
+            c.drawCentredString(W / 2, y, header["subtitle"])
+
+        content_top = y - 22
+        avail_h = content_top - margin
+        if not lines:
+            c.showPage(); c.save(); buf.seek(0)
+            return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name="setlist.pdf")
+
+        units = sum(0.55 if ln["type"] == "comment" else 1.0 for ln in lines) or 1.0
+        line_h = avail_h / units
+        font_sz = min(line_h * 0.72, 64)
+
+        def widest(sz):
+            mw = 0
+            for ln in lines:
+                if ln["type"] == "comment":
+                    continue
+                prefix = (f'{ln["num"]}. ' if ln["type"] == "song" else "")
+                mw = max(mw, c.stringWidth(prefix + ln["t"], "Helvetica-Bold", sz))
+            return mw
+        while font_sz > 9 and widest(font_sz) > usable_w:
+            font_sz -= 1
+        comment_sz = max(font_sz * 0.5, 8)
+
+        y = content_top - line_h
+        for ln in lines:
+            if ln["type"] == "comment":
+                c.setFont("Helvetica-Oblique", comment_sz)
+                c.setFillColorRGB(0.72, 0.72, 0.72)
+                c.drawString(margin + font_sz * 0.6, y + (line_h * 0.55 - comment_sz) / 2, ln["t"])
+                y -= line_h * 0.55
+                continue
+            baseline = y + (line_h - font_sz) / 2
+            if ln["type"] == "song":
+                c.setFillColorRGB(1, 1, 1)
+                c.setFont("Helvetica-Bold", font_sz)
+                c.drawString(margin, baseline, f'{ln["num"]}. {ln["t"]}')
+            elif ln["type"] == "break":
+                c.setStrokeColorRGB(0.55, 0.55, 0.55)
+                c.setLineWidth(max(1, font_sz * 0.04))
+                if ln["t"]:
+                    c.setFillColorRGB(0.7, 0.7, 0.7)
+                    c.setFont("Helvetica-Oblique", font_sz * 0.55)
+                    c.drawCentredString(W / 2, baseline, ln["t"])
+                else:
+                    mid = y + line_h / 2
+                    c.line(margin, mid, W - margin, mid)
+            else:  # note / agradecimiento
+                c.setFillColorRGB(0.92, 0.86, 0.55)
+                c.setFont("Helvetica-Bold", font_sz * 0.8)
+                c.drawString(margin, baseline, ln["t"])
+            y -= line_h
+
+        c.showPage()
+        c.save()
+        buf.seek(0)
+        return send_file(buf, mimetype="application/pdf", as_attachment=False, download_name="setlist.pdf")
+    finally:
+        s.close()
+
+
 # ============================ SIMULACIONES (Contratación) ============================
 
 def _sim_safe_uuid(v):
@@ -23036,7 +23388,7 @@ def concert_detail_view(cid):
         net_breakdown = _sales_net_breakdown(gross_total, vat_pct, sgae_pct)
 
         tab = (request.args.get("tab") or "general").strip().lower()
-        if tab not in {"general", "invitations", "ticketing", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos"}:
+        if tab not in {"general", "invitations", "ticketing", "ficha", "carteleria", "produccion", "resultado", "promocion", "marketing", "fotos", "repertorio"}:
             tab = "general"
 
         sheet = c.contract_sheet
@@ -23139,6 +23491,7 @@ def concert_detail_view(cid):
         roadmap_ctx = _roadmap_context(session, "concert", c)
         result_ctx = _concert_result_context(session, c) if tab == "resultado" else None
         fotos_ctx = _build_fotos_context(session, "CONCERT", c.id) if tab == "fotos" else None
+        setlist_ctx = _build_setlist_context(session, "CONCERT", c.id, concert=c) if tab == "repertorio" else None
 
         # Listas para la edición inline (solo en la pestaña general).
         edit_artists = edit_venues = edit_promoters = edit_companies = []
@@ -23157,6 +23510,7 @@ def concert_detail_view(cid):
             "concert_detail.html",
             concert=c,
             tab=tab,
+            setlist=setlist_ctx,
             today=today,
             capacity_sale=capacity_sale,
             sold_total=sold_total,
@@ -33866,6 +34220,8 @@ SUPPORT_ACTION_ENDPOINTS = {
     # Plantillas de gastos (se gestionan desde las fichas de artista/evento/recinto y el simulador)
     "expense_template_rename", "expense_template_delete",
     "repertoire_template_create", "repertoire_template_update", "repertoire_template_delete",
+    # Set list / repertorio por concierto o actividad (pestaña Repertorio)
+    "setlist_save", "setlist_save_template",
     # Vinculaciones entre entidades (entity_links.js; usadas también al pedir invitaciones)
     "entity_link_create", "entity_link_update", "entity_link_delete",
     # Hoja de ruta v2 (conciertos / acciones / promociones)
@@ -33899,6 +34255,7 @@ SUPPORT_READ_ENDPOINTS = {
     "api_song_editorial_share_detail", "api_plays_json",
     "fotos_list_json", "foto_detail_json", "fotos_approval_options",
     "foto_download", "api_fotos_owner_emails",
+    "setlist_template_items", "setlist_pdf",
 }
 # Lecturas que exponen importes: requieren «ver económico» en la sección indicada.
 SUPPORT_ECON_READ_ENDPOINTS = {
@@ -40035,7 +40392,7 @@ def action_detail_view(action_id):
             flash('Acción actualizada.', 'success')
             return redirect(url_for('action_detail_view', action_id=action.id))
         tab = (request.args.get('tab') or 'info').strip().lower()
-        if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion', 'resultado', 'fotos'}:
+        if tab not in {'info', 'ingresos', 'bolsa', 'roadmap', 'produccion', 'resultado', 'fotos', 'repertorio'}:
             tab = 'info'
         display = _action_display_row(session_db, action)
         artists = _artists_from_ids(session_db, getattr(action, 'artist_ids', []) or [])
@@ -40043,6 +40400,7 @@ def action_detail_view(action_id):
         roadmap = _json_loads_safe(getattr(action, 'roadmap_payload', None), {})
         roadmap_ctx = _roadmap_context(session_db, 'action', action)
         fotos_ctx = _build_fotos_context(session_db, 'ACTION', action.id) if tab == 'fotos' else None
+        setlist_ctx = _build_setlist_context(session_db, 'ACTION', action.id, action=action) if tab == 'repertorio' else None
         # Resultado de la acción (sin taquilla): fee/caché de ingreso − gastos reales de la bolsa.
         action_result = None
         if tab == 'resultado':
@@ -40056,7 +40414,7 @@ def action_detail_view(action_id):
                     exp_net = Decimal('0')
             action_result = {'fee': fee, 'expenses': exp_net, 'net': fee - exp_net, 'has_bag': bag is not None, 'fee_notes': (fee_payload.get('notes') or '')}
         session_db.commit()
-        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx, action_result=action_result)
+        return render_template('action_detail.html', action=action, display=display, artists=artists, bag=bag, roadmap=roadmap if isinstance(roadmap, dict) else {}, roadmap_ctx=roadmap_ctx, tab=tab, fotos_ctx=fotos_ctx, action_result=action_result, setlist=setlist_ctx)
     finally:
         session_db.close()
 

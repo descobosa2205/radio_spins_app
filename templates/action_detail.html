@@ -33,6 +33,7 @@
   <li class="nav-item"><a class="nav-link {% if tab == 'bolsa' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='bolsa') }}">Bolsa</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='resultado') }}">Resultado</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'roadmap' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='roadmap') }}">Hoja de ruta</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='repertorio') }}">Repertorio</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'fotos' %}active{% endif %}" href="{{ url_for('action_detail_view', action_id=action.id, tab='fotos') }}">Fotos / Vídeos</a></li>
 </ul>
 
@@ -92,6 +93,11 @@
         <div class="alert alert-light border">Sin datos de resultado.</div>
       {% endif %}
     </div></div>
+  {% elif tab == 'repertorio' %}
+    <div class="ficha-section">
+      <h5 class="mb-3"><i class="fa fa-music me-2 text-danger"></i>Set list / repertorio</h5>
+      {% if setlist %}{% include '_setlist_panel.html' %}{% endif %}
+    </div>
   {% elif tab == 'fotos' %}
     {% include '_fotos_panel.html' %}
   {% else %}

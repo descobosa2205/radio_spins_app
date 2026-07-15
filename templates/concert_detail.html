@@ -35,6 +35,7 @@
 <ul class="nav nav-tabs ficha-tabs mb-0">
   <li class="nav-item"><a class="nav-link {% if tab == 'general' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='general') }}">Ficha de contratación</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'invitations' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='invitations') }}">Invitaciones</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'repertorio' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='repertorio') }}">Repertorio</a></li>
   {% if show_ticketing_tab or tab == 'ticketing' %}<li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='ticketing') }}">Ticketing</a></li>{% endif %}
   <li class="nav-item"><a class="nav-link {% if tab == 'carteleria' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='carteleria') }}">Cartelería</a></li>
   <li class="nav-item"><a class="nav-link {% if tab == 'produccion' %}active{% endif %}" href="{{ url_for('concert_detail_view', cid=concert.id, tab='produccion') }}">Producción</a></li>
@@ -988,6 +989,11 @@
     </script>
   {% elif tab == 'fotos' %}
     {% include '_fotos_panel.html' %}
+  {% elif tab == 'repertorio' %}
+    <div class="ficha-section">
+      <h5 class="mb-3"><i class="fa fa-music me-2 text-danger"></i>Set list / repertorio</h5>
+      {% if setlist %}{% include '_setlist_panel.html' %}{% endif %}
+    </div>
   {% else %}
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
       <div>

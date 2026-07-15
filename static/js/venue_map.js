@@ -136,7 +136,8 @@
     var mode = 'design';         // design | cats
     var drawArm = false;         // «Dibujar grada» armado: el siguiente arrastre en el plano la crea
     var seatArm = false;         // «Butaca suelta» armado: cada clic en vacío añade una butaca suelta
-    var dsel = {};               // butacas SELECCIONADAS en diseño (mover/orientar en bloque) → "sec|fila|slot"
+    var dsel = {};               // butacas SELECCIONADAS en diseño (mover/orientar/agrupar en bloque) → "sec|fila|slot"
+    var dselO = {};              // ELEMENTOS/sectores seleccionados en diseño (mover/eliminar en bloque) → id
     var detectArm = false;       // «Detectar asientos» armado: el siguiente clic elige el asiento de muestra
     var detectTol = 60;          // sensibilidad de color de la detección (0-140, distancia RGB)
     var lastSample = null;       // {x,y} en el mundo del último asiento de muestra (para «Volver a detectar»)
@@ -483,8 +484,61 @@
       });
       return by;
     }
-    // Butacas seleccionadas en DISEÑO (mover/orientar en bloque).
+    // Butacas seleccionadas en DISEÑO (mover/orientar/agrupar en bloque).
     function dselKeys(){ return Object.keys(dsel).filter(function(k){ return dsel[k]; }); }
+    function dselOkeys(){ return Object.keys(dselO).filter(function(k){ return dselO[k]; }); }
+    // Selección por RECUADRO: butacas sueltas/detectadas (dsel) + elementos/sectores (dselO) dentro.
+    function marqueeSelect(a, b, add){
+      var x0=Math.min(a.x,b.x), x1=Math.max(a.x,b.x), y0=Math.min(a.y,b.y), y1=Math.max(a.y,b.y);
+      if(!add){ dsel={}; dselO={}; }
+      sections.forEach(function(s){
+        if(s.kind==='points'){
+          secRows(s).rows.forEach(function(row){ row.seats.forEach(function(p){
+            if(p.state==='seat' && p.x>=x0 && p.x<=x1 && p.y>=y0 && p.y<=y1) dsel[s.id+'|'+row.rowIdx+'|'+p.slot]=1;
+          }); });
+        } else {
+          var bb=bboxOf(s), ccx=bb.x+bb.w/2, ccy=bb.y+bb.h/2;
+          if(ccx>=x0 && ccx<=x1 && ccy>=y0 && ccy<=y1) dselO[s.id]=1;
+        }
+      });
+      elements.forEach(function(el){ if(el.type==='bgimage') return; if(el.x>=x0 && el.x<=x1 && el.y>=y0 && el.y<=y1) dselO[el.id]=1; });
+    }
+    // Prepara el arrastre EN CONJUNTO de todo lo seleccionado (objetos + butacas sueltas).
+    function startMultiMove(w){
+      var snap={seats:{}, objs:{}};
+      dselKeys().forEach(function(k){ var pp=k.split('|'), sc=sections.find(function(x){return x.id===pp[0] && x.kind==='points';}); if(sc){ var st=(sc.seats||[]).find(function(t){return (+t.row)===(+pp[1]) && (+t.slot)===(+pp[2]);}); if(st) snap.seats[k]={sec:sc, seat:st, lx:+st.lx||0, ly:+st.ly||0}; } });
+      dselOkeys().forEach(function(id){ var o=sections.find(function(x){return x.id===id;})||elements.find(function(x){return x.id===id;}); if(o) snap.objs[id]={o:o, x:(o.kind==='arc'?o.cx:o.x), y:(o.kind==='arc'?o.cy:o.y)}; });
+      drag={kind:'multimove', w0:w, snap:snap};
+    }
+    // Agrupar las butacas SUELTAS/detectadas seleccionadas en una nueva sección (fila / palco / sector).
+    function groupSelectedSeats(kindArg){
+      var dk=dselKeys(); if(!dk.length) return;
+      pushUndo('group');
+      var pts=[], bySec={};
+      dk.forEach(function(k){ var pp=k.split('|'); (bySec[pp[0]]=bySec[pp[0]]||[]).push({ri:+pp[1], sl:+pp[2]}); });
+      Object.keys(bySec).forEach(function(secId){
+        var sc=sections.find(function(x){return x.id===secId;}); if(!sc || sc.kind!=='points') return;
+        var geo=secRows(sc), want={}; bySec[secId].forEach(function(o){ want[o.ri+'|'+o.sl]=1; });
+        geo.rows.forEach(function(row){ row.seats.forEach(function(p){ if(want[row.rowIdx+'|'+p.slot]) pts.push({x:p.x, y:p.y}); }); });
+        sc.seats=(sc.seats||[]).filter(function(t){ return !want[(+t.row)+'|'+(+t.slot)]; });
+        if(sc.loose && !sc.seats.length){ sections=sections.filter(function(x){return x.id!==sc.id;}); }
+        invalidate(sc.id);
+      });
+      if(!pts.length){ renderSide(); return; }
+      var cx=0, cy=0; pts.forEach(function(p){ cx+=p.x; cy+=p.y; }); cx/=pts.length; cy/=pts.length;
+      var pit=28, seats=[], maxRow=1;
+      if(kindArg==='row'){
+        pts.sort(function(a,b){ return a.x-b.x; }).forEach(function(p,i){ seats.push({row:1, slot:i+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy), a:0}); });
+      } else {
+        var sorted=pts.slice().sort(function(a,b){ return a.y-b.y; }), thr=pit*1.1, rows=[], cur=null;
+        sorted.forEach(function(p){ if(!cur || p.y-cur.y0>thr){ cur={y0:p.y, items:[]}; rows.push(cur); } cur.items.push(p); });
+        rows.forEach(function(row, ri){ maxRow=ri+1; row.items.sort(function(a,b){ return a.x-b.x; }).forEach(function(p, si){ seats.push({row:ri+1, slot:si+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy), a:0}); }); });
+      }
+      var sec={id:nid('s'), kind:'points', name:(kindArg==='box'?'Palco':(kindArg==='row'?'Fila':'Sector')),
+               x:Math.round(cx), y:Math.round(cy), rot:0, pitch:pit, rows:maxRow, box:(kindArg==='box'),
+               num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:seats};
+      sections.push(sec); dsel={}; dselO={}; selId=sec.id; invalidate(); markSummary(); renderSide(); queueRender();
+    }
     function dselSeatObjs(sec){
       var out=[], geo=secRows(sec);
       geo.rows.forEach(function(row){ row.seats.forEach(function(p){ var k=sec.id+'|'+row.rowIdx+'|'+p.slot; if(dsel[k]) out.push({key:k, row:row.rowIdx, slot:p.slot, x:p.x, y:p.y}); }); });
@@ -575,7 +629,7 @@
       // 1) SILUETA del recinto (siempre detrás de todo).
       elements.forEach(function(el){
         if(el.type!=='outline') return;
-        var sel = (mode==='design' && canEdit && el.id===selId)? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
+        var sel = (mode==='design' && canEdit && (el.id===selId || dselO[el.id]))? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
         var rx = (el.corner!=null? el.corner:60)/100 * Math.min(el.w, el.h)/2;
         out.push('<g transform="translate('+el.x+' '+el.y+') rotate('+(el.rot||0)+')">'+
           '<rect x="'+(-el.w/2)+'" y="'+(-el.h/2)+'" width="'+el.w+'" height="'+el.h+'" rx="'+rx+'" style="fill:#e7ecf2;stroke:#ccd6e0;stroke-width:'+(2/scale)+';pointer-events:none"/>'+
@@ -587,7 +641,7 @@
       sections.forEach(function(s){
         var bb = bboxOf(s);
         if(bb.x>vx1||bb.y>vy1||bb.x+bb.w<vx0||bb.y+bb.h<vy0) return;
-        var isSel = (mode==='design' && canEdit && s.id===selId);
+        var isSel = (mode==='design' && canEdit && (s.id===selId || dselO[s.id]));
         var selCss = isSel? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
 
         // Asientos detectados de un plano: cada butaca en su sitio (dots de lejos, butaca+nº de cerca).
@@ -595,6 +649,8 @@
           var geoP=secRows(s), pit=(s.pitch||26), szP=pit*.86, halfP=szP/2, pxP=pit*scale, far=pxP<9.5;
           var showN=pxP>=15, showRL=pxP>=13;
           var gP=['<g data-sec="'+s.id+'" style="cursor:pointer">'];
+          // Marco «dorado» de PALCO para los grupos marcados como palco (agrupados «en palco»).
+          if(s.box){ var pb=geoP.bbox; gP.push('<rect x="'+(pb.x-pit*.2)+'" y="'+(pb.y-pit*.2)+'" width="'+(pb.w+pit*.4)+'" height="'+(pb.h+pit*.4)+'" rx="'+(pit*1.1)+'" style="fill:#fbf6ec;stroke:#b08d4a;stroke-width:'+Math.max(2.5, pit*.14)+';pointer-events:none"/>'); }
           if(mode==='design' && canEdit){ gP.push('<rect x="'+geoP.bbox.x+'" y="'+geoP.bbox.y+'" width="'+geoP.bbox.w+'" height="'+geoP.bbox.h+'" rx="'+pit+'" style="fill:rgba(0,0,0,0.001)'+selCss+'"/>'); }
           geoP.rows.forEach(function(row){
             if(showRL && row.seats[0]){ var f0=row.seats[0], cr4=Math.cos((s.rot||0)*R), sr4=Math.sin((s.rot||0)*R);
@@ -774,7 +830,7 @@
       // 3) ELEMENTOS de pista/servicios (encima de las secciones; la silueta ya fue).
       elements.forEach(function(el){
         if(el.type==='outline') return;
-        var sel = (mode==='design' && canEdit && el.id===selId)? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
+        var sel = (mode==='design' && canEdit && (el.id===selId || dselO[el.id]))? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
         var t='translate('+el.x+' '+el.y+') rotate('+(el.rot||0)+')';
         if(el.type==='stage'){
           var extW = parseFloat(el.extW||0)||0, extL = parseFloat(el.extL||0)||0;
@@ -923,6 +979,20 @@
             '<div class="vmap-param"><label>Sensibilidad</label><input type="range" class="form-range" min="20" max="140" step="5" value="'+detectTol+'" data-detect-tol></div>'+
             '<p class="text-muted small mb-0">Pincha en el CENTRO de un asiento de ejemplo. Si detecta de más/menos, ajusta la sensibilidad y «Volver a detectar».</p>';
         }
+        // SELECCIÓN MÚLTIPLE por recuadro: mover / eliminar / agrupar en conjunto.
+        html += '<h6 class="vmap-h">Selección</h6><div class="vmap-tools">'+
+          '<button type="button" class="btn btn-sm '+(tool==='select'?'btn-primary':'btn-outline-secondary')+'" data-tool="select" title="Arrastra un recuadro por el plano para seleccionar varias butacas sueltas o varios elementos; luego arrastra uno para mover el conjunto o pulsa Supr para eliminarlos. Mayús para ir añadiendo.">⛶ Seleccionar (recuadro)</button></div>';
+        var nSeatsSel=dselKeys().length, nObjSel=dselOkeys().length;
+        if(nSeatsSel || nObjSel){
+          html += '<p class="text-muted small mb-1 mt-1">Seleccionado: '+(nSeatsSel?nSeatsSel+' butaca'+(nSeatsSel===1?'':'s'):'')+(nSeatsSel&&nObjSel?' · ':'')+(nObjSel?nObjSel+' elemento'+(nObjSel===1?'':'s'):'')+'. Arrastra uno para mover el conjunto; Supr para eliminar.</p>';
+          if(nSeatsSel>=2){
+            html += '<div class="vmap-tools"><span class="text-muted small" style="align-self:center;margin-right:.2rem">Agrupar butacas:</span>'+
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="row">en fila</button>'+
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="box">en palco</button>'+
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-group="sector">en sector</button></div>';
+          }
+          html += '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-outline-danger" data-del-multi><i class="fa fa-trash me-1"></i>Eliminar selección</button></div>';
+        }
         html += '<h6 class="vmap-h">Retoques por butaca <i class="fa fa-circle-info text-muted" title="Activa una herramienta y pincha una butaca del plano (acércate hasta ver las butacas). Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical que parte el sector; Pasillo = hueco HORIZONTAL entre esa fila y la siguiente; № = cambiar el número de una butaca (o de varias seguidas, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
           '<div class="vmap-tools" data-tool-chips>'+
           toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
@@ -1040,6 +1110,7 @@
       if(!canEdit){ h.innerHTML = 'Arrastra para desplazarte; rueda o pellizco para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
       if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
       if(seatArm){ h.innerHTML = '<b>Butaca suelta:</b> pincha en el plano para ir poniendo butacas. Luego pincha una para moverla (arrástrala) y gírala con el círculo; con Mayús seleccionas varias para mover/orientar en bloque.'; return; }
+      if(tool==='select'){ h.innerHTML = '<b>Seleccionar:</b> arrastra un recuadro por el plano para marcar varias butacas sueltas o varios elementos. Arrastra uno de ellos para mover el conjunto, pulsa Supr para eliminarlos, o agrúpalos (fila/palco/sector) desde el panel. Mayús para ir añadiendo.'; return; }
       h.innerHTML = mode==='design'
         ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda o pellizco para zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
@@ -1268,7 +1339,7 @@
       }
       if(tch){
         if(tch.dataset.suppressClick){ delete tch.dataset.suppressClick; return; }   // acaba de arrastrarse
-        tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; renderSide(); queueRender(); return;
+        tool = (tool===tch.dataset.tool) ? null : tch.dataset.tool; if(tool==='select'){ seatArm=false; drawArm=false; } setHint(); renderSide(); queueRender(); return;
       }
       if(ctl){ catTool = ctl.dataset.catTool; if(catTool!=='select') clearSel(); renderSide(); return; }
       if(cat){
@@ -1292,6 +1363,8 @@
       }
       if(add && add.dataset.add==='draw'){ drawArm = !drawArm; if(drawArm){ seatArm=false; tool=null; } setHint(); renderSide(); return; }
       if(e.target.closest('[data-arm-seat]')){ seatArm = !seatArm; if(seatArm){ drawArm=false; tool=null; detectArm=false; } setHint(); renderSide(); return; }
+      var grp=e.target.closest('[data-group]'); if(grp){ groupSelectedSeats(grp.getAttribute('data-group')); return; }
+      if(e.target.closest('[data-del-multi]')){ deleteSelected(); return; }
       if(add){
         pushUndo('add');
         var kind = add.dataset.add;
@@ -1362,17 +1435,23 @@
 
     /* ================= Borrar la selección (botón Eliminar o tecla Supr) ================= */
     function deleteSelected(){
-      // Si hay BUTACAS SUELTAS seleccionadas, se borran solo esas (no la sección entera).
-      var dk=dselKeys();
-      if(dk.length){
-        var sc=sections.find(function(x){return x.id===selId && x.kind==='points';});
-        if(sc){
-          pushUndo('del-seats');
-          var rm={}; dk.forEach(function(k){ var pp=k.split('|'); rm[(+pp[1])+'|'+(+pp[2])]=1; delete assign[k]; });
-          sc.seats=(sc.seats||[]).filter(function(t){ return !rm[(+t.row)+'|'+(+t.slot)]; });
-          if(sc.loose && !sc.seats.length){ sections=sections.filter(function(x){return x.id!==sc.id;}); selId=null; }
-          dsel={}; invalidate(sc.id); renderSide(); markSummary(); return;
+      // Selección MÚLTIPLE (recuadro): borra las butacas sueltas Y los elementos/sectores marcados.
+      var dk=dselKeys(), dko=dselOkeys();
+      if(dk.length || dko.length){
+        pushUndo('del-multi');
+        var bySec={}; dk.forEach(function(k){ var pp=k.split('|'); (bySec[pp[0]]=bySec[pp[0]]||{})[(+pp[1])+'|'+(+pp[2])]=1; delete assign[k]; });
+        Object.keys(bySec).forEach(function(secId){
+          var sc=sections.find(function(x){return x.id===secId;});
+          if(sc && sc.seats){ sc.seats=sc.seats.filter(function(t){ return !bySec[secId][(+t.row)+'|'+(+t.slot)]; });
+            if(sc.loose && !sc.seats.length && dko.indexOf(sc.id)<0) dko.push(sc.id); invalidate(sc.id); }
+        });
+        if(dko.length){
+          dko.forEach(function(id){ Object.keys(assign).forEach(function(k){ if(k.indexOf(id+'|')===0) delete assign[k]; }); delete floorCat[id]; });
+          sections=sections.filter(function(x){return dko.indexOf(x.id)<0;});
+          elements=elements.filter(function(x){return dko.indexOf(x.id)<0;});
+          invalidate();
         }
+        dsel={}; dselO={}; selId=null; renderSide(); markSummary(); return;
       }
       if(!selId) return;
       pushUndo('del');
@@ -1516,7 +1595,7 @@
     /* ================= Modo (Diseñar / Categorías) ================= */
     host.querySelectorAll('[data-vm-mode]').forEach(function(b){
       b.addEventListener('click', function(){
-        mode = b.dataset.vmMode; tool = null; selId = null; clearSel(); dsel = {}; seatArm = false; drawArm = false;
+        mode = b.dataset.vmMode; tool = null; selId = null; clearSel(); dsel = {}; dselO = {}; seatArm = false; drawArm = false;
         host.querySelectorAll('[data-vm-mode]').forEach(function(x){ x.classList.toggle('on', x===b); });
         setHint(); renderSide(); queueRender();
       });
@@ -1888,6 +1967,28 @@
         renderSide(); queueRender();
         return;
       }
+      // SELECCIONAR (recuadro): arrastra un recuadro por el vacío para seleccionar varias butacas
+      // sueltas o varios elementos; pincha uno seleccionado para mover TODO en conjunto.
+      if(mode==='design' && canEdit && tool==='select'){
+        var addSel=(e.shiftKey||e.metaKey||e.ctrlKey);
+        if(seatEl){
+          var sk=seatEl.getAttribute('data-seat'), sc0=sections.find(function(x){return x.id===sk.split('|')[0] && x.kind==='points';});
+          if(sc0){
+            selId=sc0.id;
+            if(addSel){ if(dsel[sk]) delete dsel[sk]; else dsel[sk]=1; }
+            else if(!dsel[sk]){ dsel={}; dselO={}; dsel[sk]=1; }
+            startMultiMove(w); renderSide(); queueRender(); return;
+          }
+        }
+        if(secEl || elEl){
+          var oid=(elEl?elEl.getAttribute('data-el'):secEl.getAttribute('data-sec'));
+          selId=oid;
+          if(addSel){ if(dselO[oid]) delete dselO[oid]; else dselO[oid]=1; }
+          else if(!dselO[oid]){ dsel={}; dselO={}; dselO[oid]=1; }
+          startMultiMove(w); renderSide(); queueRender(); return;
+        }
+        drag={kind:'marquee', w0:w, add:addSel}; return;   // vacío → recuadro
+      }
       if(mode==='design' && canEdit && tool){
         // Herramienta de retoque activa: pinchar butacas aplica; pinchar un retoque puesto lo quita.
         if(tool==='stair' && stairEl){ removeStairBand(stairEl); drag={kind:'none'}; return; }
@@ -2066,6 +2167,15 @@
           if(st && o0){ st.lx=Math.round(o0.lx+dlx); st.ly=Math.round(o0.ly+dly); }
         });
         invalidate(scM.id); queueRender();
+      } else if(drag.kind==='marquee'){
+        drag.w1=client2world(e.clientX,e.clientY); drawLasso(drag.w0, drag.w1);
+      } else if(drag.kind==='multimove'){
+        var wM=client2world(e.clientX,e.clientY), ddx=wM.x-drag.w0.x, ddy=wM.y-drag.w0.y;
+        if(!drag.pushed){ pushUndo('multimove'); drag.pushed=true; }
+        var snapM=drag.snap;
+        Object.keys(snapM.objs).forEach(function(id){ var s=snapM.objs[id], o=s.o; if(o.kind==='arc'){ o.cx=s.x+ddx; o.cy=s.y+ddy; } else { o.x=s.x+ddx; o.y=s.y+ddy; } if(o.kind) invalidate(o.id); if(o.type==='stage') invalidate(); });
+        Object.keys(snapM.seats).forEach(function(k){ var s=snapM.seats[k], rr=(s.sec.rot||0)*R, cR=Math.cos(rr), sR=Math.sin(rr); s.seat.lx=Math.round(s.lx + ddx*cR + ddy*sR); s.seat.ly=Math.round(s.ly - ddx*sR + ddy*cR); invalidate(s.sec.id); });
+        queueRender();
       } else if(drag.kind==='tooldrag' || drag.kind==='paintdrag' || drag.kind==='seldrag'){
         // OJO: con setPointerCapture los pointermove llegan retargeteados al <svg> (e.target ya
         // no es la butaca): hay que buscar el elemento REAL bajo el dedo con elementFromPoint.
@@ -2140,6 +2250,11 @@
         applyRenum(seqR);
         chip.style.display='none'; clearLasso(); queueRender();
         return;
+      }
+      if(drag && drag.kind==='marquee'){
+        if(drag.w1) marqueeSelect(drag.w0, drag.w1, drag.add);
+        else { if(!drag.add){ dsel={}; dselO={}; } }   // clic sin arrastre en vacío: vacía la selección
+        drag=null; clearLasso(); renderSide(); queueRender(); return;
       }
       if(drag && drag.kind==='secmaybe' && drag.sec){
         // Clic corto sobre el sector (no llegó a arrastre), solo de lejos: seleccionar o pintar entero.

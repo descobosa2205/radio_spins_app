@@ -19142,6 +19142,21 @@ _GROUP_PROMO_META = {
 }
 
 
+def _group_concert_econ(s, c):
+    """Economía @100% de un concierto para la sub-pestaña de fecha/artista (motor sim_calc)."""
+    try:
+        calc = sim_calc.compute(_concert_build_calc_data(s, c))
+        at = calc.get("at_100") or {}
+        return {
+            "ingresos": float((at.get("ingresos") or {}).get("total", 0.0)),
+            "gastos": float((at.get("gastos") or {}).get("total", 0.0)),
+            "resultado": float(at.get("resultado", 0.0)),
+            "sellable": int(calc["ticketing"]["sellable"] or 0),
+        }
+    except Exception:
+        return {"ingresos": 0.0, "gastos": 0.0, "resultado": 0.0, "sellable": 0}
+
+
 # ----------------------------- Giras compradas -----------------------------
 def _tour_concerts(s, tour_id):
     return (
@@ -19243,6 +19258,8 @@ def purchased_tour_detail(tid):
             abort(404)
         concerts = _tour_concerts(s, t.id)
         rows = [_group_concert_row(c) for c in concerts]
+        for _row, _c in zip(rows, concerts):
+            _row["econ"] = _group_concert_econ(s, _c)
         general = _group_general(t)
         n = len(rows) or 1
         advance_share = (general["advance"] / n) if general["advance"] else 0.0
@@ -19503,6 +19520,8 @@ def cycle_festival_detail(cfid):
             abort(404)
         concerts = _cycle_concerts(s, cf.id)
         rows = [_group_concert_row(c) for c in concerts]
+        for _row, _c in zip(rows, concerts):
+            _row["econ"] = _group_concert_econ(s, _c)
         general = _group_general(cf)
         gen_total = general["advance"] + sum(x["amount"] for x in general["expenses"])
         candidates = (

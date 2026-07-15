@@ -192,22 +192,37 @@
     </div>
     {% endif %}
     {% if concerts %}
-    <div class="row g-3">
+    <ul class="nav nav-pills flex-nowrap overflow-auto pb-2 mb-3" role="tablist">
       {% for c in concerts %}
-      <div class="col-12 col-lg-6">
-        <div class="card h-100"><div class="card-body d-flex align-items-center gap-3">
-          {% if c.artist_photo %}<img src="{{ c.artist_photo }}" alt="" data-default-photo="1" style="width:46px;height:46px;border-radius:50%;object-fit:cover;">{% endif %}
-          <div class="flex-grow-1" style="min-width:0;">
-            <div class="fw-semibold text-truncate">{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %}</div>
-            <div class="small text-muted text-truncate">{% if is_festival %}{{ c.date_label }}{% else %}{{ c.artist_name }}{% endif %}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}</div>
+      <li class="nav-item flex-shrink-0"><button class="nav-link {{ 'active' if loop.first }}" data-bs-toggle="pill" data-bs-target="#item-{{ c.id }}" type="button">
+        {% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %} <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+      </button></li>
+      {% endfor %}
+    </ul>
+    <div class="tab-content">
+      {% for c in concerts %}
+      <div class="tab-pane fade {{ 'show active' if loop.first }}" id="item-{{ c.id }}">
+        <div class="card"><div class="card-body">
+          <div class="d-flex align-items-center gap-3 mb-3">
+            {% if c.artist_photo %}<img src="{{ c.artist_photo }}" alt="" data-default-photo="1" style="width:48px;height:48px;border-radius:50%;object-fit:cover;">{% endif %}
+            <div class="flex-grow-1" style="min-width:0;">
+              <div class="fw-semibold text-truncate">{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %}</div>
+              <div class="small text-muted text-truncate">{% if is_festival %}{{ c.date_label }}{% else %}{{ c.artist_name }}{% endif %}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}</div>
+            </div>
+            <span class="badge {{ c.promo_badge }}" title="Tipo de negocio">{{ c.promo_label }}</span>
+            <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
           </div>
-          <span class="badge {{ c.promo_badge }} me-1" title="Tipo de negocio">{{ c.promo_label }}</span><span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
-          <div class="dropdown">
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
-            <ul class="dropdown-menu dropdown-menu-end">
-              <li><a class="dropdown-item" href="{{ url_for('concert_detail_view', cid=c.id) }}"><i class="fa fa-arrow-up-right-from-square fa-fw me-1"></i>Abrir ficha</a></li>
-              {% if CAN_EDIT_CONCERTS %}<li><form method="post" action="{{ url_for('purchased_tour_unlink_concert', tid=group.id, cid=c.id) if is_tour else url_for('cycle_festival_unlink_concert', cfid=group.id, cid=c.id) }}"><button class="dropdown-item text-warning"><i class="fa fa-link-slash fa-fw me-1"></i>Desvincular</button></form></li>{% endif %}
-            </ul>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if c.econ.resultado >= 0 else 'text-danger' }}">{{ c.econ.resultado|eur }}</div><div class="sim-stat__l">Resultado @100%</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ c.econ.ingresos|eur }}</div><div class="sim-stat__l">Ingresos</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ c.econ.gastos|eur }}</div><div class="sim-stat__l">Gastos</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ c.econ.sellable|k }}</div><div class="sim-stat__l">A la venta</div></div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <a class="btn btn-sm btn-primary" href="{{ url_for('concert_detail_view', cid=c.id) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir ficha completa</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id, tab='resultado') }}"><i class="fa fa-chart-line me-1"></i>Resultado</a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('concert_detail_view', cid=c.id, tab='produccion') }}"><i class="fa fa-screwdriver-wrench me-1"></i>Gastos / producción</a>
+            {% if CAN_EDIT_CONCERTS %}<form method="post" action="{{ url_for('purchased_tour_unlink_concert', tid=group.id, cid=c.id) if is_tour else url_for('cycle_festival_unlink_concert', cfid=group.id, cid=c.id) }}" class="ms-auto"><button class="btn btn-sm btn-outline-warning"><i class="fa fa-link-slash me-1"></i>Desvincular</button></form>{% endif %}
           </div>
         </div></div>
       </div>

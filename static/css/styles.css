@@ -212,7 +212,7 @@ button.song-status-item:focus {
 .logo-chip { position: relative; display: inline-block; }
 .logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
 
-.municipio-strong { font-weight: 600; color: var(--bs-primary); }
+.municipio-strong { font-weight: 700; color: inherit; }
 
 .logo-chip { position: relative; display: inline-block; }
 .logo-chip .station-logo { width: 40px; height: 40px; object-fit: contain; }
@@ -2002,3 +2002,51 @@ img[style*="width:"] { height: auto; }
 .et-bar__fill.hot { background:linear-gradient(90deg,#fbbf24,#f59e0b); }   /* ≥85%: quedan pocas */
 .et-bar__fill.full { background:linear-gradient(90deg,#34d399,#047857); }  /* 100%: agotada */
 .et-bar__pct { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:#1f2937; text-shadow:0 0 3px rgba(255,255,255,.8); pointer-events:none; }
+
+/* ===== Reporte de ventas: filtros por chips (estilo gestión de invitaciones) ===== */
+.sales-chip-row { display:flex; flex-wrap:wrap; gap:.4rem; }
+.sales-chip {
+  display:inline-flex; align-items:center; gap:.4rem; max-width:100%;
+  padding:.2rem .6rem .2rem .3rem; border:1px solid #dee2e6; border-radius:999px;
+  background:#fff; color:#495057; font-size:.85rem; line-height:1.1; cursor:pointer;
+  transition:background .15s, border-color .15s, color .15s, opacity .15s;
+}
+.sales-chip img, .sales-chip__ico {
+  width:24px; height:24px; border-radius:50%; object-fit:cover; flex:0 0 auto;
+  display:inline-flex; align-items:center; justify-content:center; background:#eef0f3; color:#6c757d;
+}
+.sales-chip__t { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:14rem; }
+.sales-chip--sm { padding:.2rem .7rem; }
+.sales-chip--sm .sales-chip__ico { width:18px; height:18px; font-size:.72rem; }
+/* Artistas/eventos: activo = resaltado; inactivo = atenuado (se ve que está apagado). */
+.sales-chip.active { background:var(--brand-primary,#E33D48); border-color:var(--brand-primary,#E33D48); color:#fff; }
+.sales-chip.active .sales-chip__ico { background:rgba(255,255,255,.25); color:#fff; }
+.sales-chip:not(.active) { opacity:.55; }
+.sales-chip:hover { border-color:var(--brand-primary,#E33D48); }
+.sales-search { min-width:min(260px,100%); }
+
+/* Cabecera de grupo (agrupar por tipo / por artista) */
+.sales-group-header {
+  font-weight:700; font-size:.95rem; margin:1rem 0 .5rem; padding-bottom:.3rem;
+  border-bottom:2px solid #eef0f2; color:#1f2937;
+}
+.sales-group-header__n { color:#adb5bd; font-weight:600; font-size:.85rem; }
+
+/* Móvil: que el contenido se adapte SIN deformar fotos ni logos. */
+@media (max-width:576px) {
+  .sales-chip__t { max-width:9rem; }
+  .sales-card .artist-avatar { width:42px; height:42px; }
+  .sales-card .station-logo { width:38px; height:38px; }
+}
+.sales-card .artist-avatar, .sales-card .station-logo { object-fit:contain; }
+.sales-card .artist-avatar { object-fit:cover; }
+
+/* Socios (participaciones): logo + % apilados, SIN badge superpuesto. El nombre y el % van en el
+   title -> tooltip al pasar el ratón por el logo. */
+.socio-chip { display:inline-flex; flex-direction:column; align-items:center; gap:1px; text-decoration:none; }
+.socio-chip .station-logo { width:38px; height:38px; object-fit:contain; }
+.socio-chip__pct { font-size:.68rem; font-weight:700; color:#495057; line-height:1.1; }
+.socio-chip__pct--prom { color:var(--brand-accent,#007CA2); }
+
+/* Marcador del punto de empate sobre la barra de venta. */
+.et-bar__mark { position:absolute; top:-2px; bottom:-2px; width:2px; background:#111827; opacity:.6; z-index:2; }

@@ -473,6 +473,15 @@ CONCERT_SALE_TYPE_LABELS = {
 
 SALES_SECTION_ORDER = ["EMPRESA", "GIRAS_COMPRADAS", "PARTICIPADOS", "CADIZ", "VENDIDO"]
 SALES_SECTION_TITLE = {k: CONCERT_SALE_TYPE_LABELS[k] for k in SALES_SECTION_ORDER}
+# Etiqueta corta + icono para los "chips" de tipo del reporte de ventas (estilo filtros de invitaciones).
+SALES_TYPE_CHIP_LABEL = {
+    "EMPRESA": "A empresa", "GIRAS_COMPRADAS": "Giras compradas", "PARTICIPADOS": "Participados",
+    "CADIZ": "Cádiz", "VENDIDO": "Vendidos",
+}
+SALES_TYPE_ICON = {
+    "EMPRESA": "fa-building", "GIRAS_COMPRADAS": "fa-route", "PARTICIPADOS": "fa-handshake",
+    "CADIZ": "fa-guitar", "VENDIDO": "fa-tag",
+}
 
 # Tipos de concierto disponibles en la app.
 # NOTA: "GRATUITO" NO debe aparecer en actualización/reporte de ventas.
@@ -25948,6 +25957,43 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
         for k in sections:
             sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
+        # Lista PLANA en orden cronológico: próximos = del más cercano al más lejano; anteriores = del
+        # más reciente al más antiguo. Es el nuevo listado por defecto (el agrupado por tipo/artista lo
+        # hace el JS en cliente). El nombre del sujeto es el artista o, si no hay, el nombre del evento.
+        def _subject_name(c):
+            return (c.artist.name if c.artist else None) or (c.festival_name or "")
+        rows = sorted(
+            concerts,
+            key=lambda c: (c.date or date.max, _subject_name(c).lower()),
+            reverse=bool(past),
+        )
+
+        # ¿Actualizado hoy? (por conexión Enterticket hoy, o actualización manual con fecha de hoy).
+        updated_map = {}
+        for c in concerts:
+            et = et_map.get(c.id)
+            updated_map[c.id] = bool((et and et.get("is_today")) or (last_map.get(c.id) == day))
+
+        # Entidades del filtro superior (chips con foto): artistas y EVENTOS que tienen conciertos en
+        # esta vista. Un evento (concierto sin artista, con nombre de festival) sale "como un artista
+        # más". `entity_key_map` da la clave de cada concierto para casar tarjeta<->chip en el JS.
+        entity_key_map = {}
+        entities = {}
+        for c in concerts:
+            if c.artist_id and c.artist:
+                key = str(c.artist_id)
+                entities.setdefault(key, {"key": key, "kind": "artist", "name": c.artist.name or "—",
+                                          "photo": c.artist.photo_url or ""})
+            elif (c.festival_name or "").strip():
+                fn = c.festival_name.strip()
+                key = "event:" + _norm_text_key(fn)
+                entities.setdefault(key, {"key": key, "kind": "event", "name": fn, "photo": ""})
+            else:
+                key = "otros"
+                entities.setdefault(key, {"key": key, "kind": "event", "name": "Otros", "photo": ""})
+            entity_key_map[c.id] = key
+        filter_entities = sorted(entities.values(), key=lambda e: e["name"].lower())
+
         # KPIs de cabecera del reporte (sobre lo filtrado).
         kpis = {
             "count": len(concerts),
@@ -25994,10 +26040,14 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             et_map=et_map,
             et_stamp=et_stamp,
             kpis=kpis,
+            rows=rows,
+            updated_map=updated_map,
+            filter_entities=filter_entities,
+            entity_key_map=entity_key_map,
             artists_filter=artists_filter,
             companies_filter=companies_filter,
             promoters_filter=promoters_filter,
-            type_choices=[(k, SALES_SECTION_TITLE[k]) for k in SALES_SECTION_ORDER],
+            type_choices=[(k, SALES_TYPE_CHIP_LABEL.get(k, SALES_SECTION_TITLE[k]), SALES_TYPE_ICON.get(k, "fa-tag")) for k in SALES_SECTION_ORDER],
             f_artist_ids=[str(x) for x in (artist_ids or [])],
             f_sale_types=list(sale_types or []),
             f_company_id=(str(company_id) if company_id else ""),

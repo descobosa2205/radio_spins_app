@@ -22497,6 +22497,8 @@ def concert_detail_view(cid):
             invitation_categories_summary = []
         invitation_can_manage = False
         invitation_ficha_groups = []
+        invitation_guests_commitments = []
+        invitation_guests_grouped = []
         if tab in ('invitations', 'ticketing'):
             try:
                 invitation_can_manage = _user_can_manage_invitations(c, session_db=session)
@@ -22504,6 +22506,13 @@ def concert_detail_view(cid):
             except Exception:
                 invitation_can_manage = False
                 invitation_ficha_groups = []
+            # Lista de invitados idéntica a la de gestión de invitaciones (compromisos + peticiones
+            # agrupadas por categoría con sus colores), para mostrarla también en actividades pasadas.
+            if tab == 'invitations':
+                try:
+                    invitation_guests_commitments, invitation_guests_grouped = _invitation_ficha_guests(session, c)
+                except Exception:
+                    invitation_guests_commitments, invitation_guests_grouped = [], []
         # Ticketing: ¿el recinto tiene una plantilla de categorías guardada para precargar?
         venue_saved_ticket_count = 0
         if tab == 'ticketing' and c.venue_id:
@@ -22584,6 +22593,8 @@ def concert_detail_view(cid):
             invitation_open_for_requests=invitation_open_for_requests,
             invitation_can_manage=invitation_can_manage,
             invitation_ficha_groups=invitation_ficha_groups,
+            invitation_guests_commitments=invitation_guests_commitments,
+            invitation_guests_grouped=invitation_guests_grouped,
             category_types=INVITATION_CATEGORY_TYPES,
             guest_list_modes=INVITATION_GUEST_LIST_MODES,
             payment_terms=payment_terms,
@@ -42643,6 +42654,97 @@ def _invitation_ficha_overview(session_db, concert, categories) -> list[dict]:
     if sin["requests"] or sin["commitments"]:
         out.append(sin)
     return [g for g in out if g["requests"] or g["commitments"]]
+
+
+def _invitation_ficha_guests(session_db, concert):
+    """Compromisos + peticiones agrupadas del evento con los MISMOS payloads y estética que la
+    pestaña «Invitados» de gestión de invitaciones (``invitation_event_detail``), para mostrarlos
+    idénticos en la ficha de la actividad (también en las pasadas, donde ya no hay gestión).
+
+    Solo lectura: reutiliza los mismos helpers atómicos que la gestión para que la información y
+    los colores/categorías coincidan. Devuelve ``(commitments, grouped_requests)``.
+    """
+    categories = _invitation_get_categories(session_db, concert, ensure_defaults=False)
+    ticket_counts = _invitation_ticket_counts_by_category(session_db, concert)
+    cat_payloads = [_invitation_category_payload(c, ticket_counts.get(str(c.id))) for c in categories]
+    for _i, _cp in enumerate(cat_payloads):
+        _cp['color'] = INVITATION_ASSIGNEE_COLORS[_i % len(INVITATION_ASSIGNEE_COLORS)]
+    _cat_meta = {cp['id']: cp for cp in cat_payloads}
+    name_map = _invitation_category_name_map(categories)
+
+    _cmt_rows_all = session_db.query(InvitationCommitment).filter(InvitationCommitment.concert_id == concert.id).order_by(InvitationCommitment.created_at.asc()).all()
+    _req_rows_all = session_db.query(InvitationRequest).filter(InvitationRequest.concert_id == concert.id).order_by(InvitationRequest.created_at.desc()).all()
+    _tk_by_cmt: dict = defaultdict(lambda: defaultdict(list))
+    for _st, _cidt, _cmid in (session_db.query(InvitationTicket.status, InvitationTicket.category_id, InvitationTicket.assigned_commitment_id)
+                              .filter(InvitationTicket.concert_id == concert.id, InvitationTicket.assigned_commitment_id.isnot(None)).all()):
+        _tk_by_cmt[str(_cmid)][str(_cidt)].append(_st)
+
+    commitments = []
+    for row in _cmt_rows_all:
+        q = _json_dict(row.quantities_json)
+        _tk_by_cat = _tk_by_cmt.get(str(row.id)) or {}
+        _dl_cats = _json_dict(getattr(row, "downloaded_categories_json", None))
+        cat_status = []
+        for _cid, _qv in q.items():
+            if str(_cid) == 'TOTAL':
+                continue
+            _qn = _safe_int(_qv)
+            if _qn <= 0:
+                continue
+            _sts = _tk_by_cat.get(str(_cid), [])
+            _asg = len(_sts)
+            _lbl, _bdg = _invitation_commitment_state_from_statuses(_sts)
+            if _asg < _qn:
+                _lbl, _bdg = ("Sin asignar parcialmente", "warning text-dark") if _asg > 0 else ("Sin asignar", "secondary")
+            if not _sts and (getattr(row, "status", "") or "").upper() == "ENVIADAS":
+                _lbl, _bdg = ("Enviadas", "success")
+            _meta = _cat_meta.get(str(_cid), {})
+            cat_status.append({
+                "id": str(_cid), "name": name_map.get(str(_cid), "Categoría"), "qty": _qn,
+                "assigned": _asg, "done": _asg >= _qn, "status_label": _lbl, "status_badge": _bdg,
+                "downloaded": str(_cid) in _dl_cats, "color": _meta.get("color", "#9ca3af"),
+                "zone": _meta.get("zone", "PISTA"), "configured": _safe_int(_meta.get("configured", 0)),
+            })
+        _idn = _invitation_guest_identity(session_db, row)
+        _rcpt_name = _idn.get("name") or row.guest_name or ""
+        _rcpt_photo = _idn.get("photo") or ""
+        _rcpt_link_summary = _idn.get("link_summary") or {}
+        if not _rcpt_photo and row.guest_artist_id:
+            _ar = _concert_artist_rows(session_db, concert) if concert else []
+            if _ar:
+                _rcpt_photo = getattr(_ar[0], "photo_url", "") or ""
+        _cb_nick = (row.created_by_nick or "").strip()
+        _cb_photo = ""
+        if row.created_by_user_id:
+            _cbp = session_db.get(UserProfile, row.created_by_user_id)
+            if _cbp:
+                _cb_nick = _cb_nick or _profile_full_name(_cbp) or getattr(_cbp, 'nick', '') or ""
+                _cb_photo = getattr(_cbp, 'photo_url', '') or ""
+        commitments.append({
+            "id": str(row.id), "name": row.name, "reason": row.reason or "",
+            "quantities_label": _invitation_quantities_label(q, name_map),
+            "category_status": cat_status, "status": row.status,
+            "sent_via": (getattr(row, 'sent_via', None) or ''), "sent_to": (getattr(row, 'sent_to', None) or ''),
+            "note": row.note or "", "created_by_nick": _cb_nick, "created_by_photo": _cb_photo,
+            "recipient_name": _rcpt_name, "recipient_photo": _rcpt_photo,
+            "recipient_link_summary": _rcpt_link_summary,
+            "recipient_link_summary_text": _promoter_link_summary_text(_rcpt_link_summary),
+            "guest_type": ('THIRD_PARTY' if row.guest_promoter_id else 'ARTIST' if row.guest_artist_id else 'EMPLOYEE' if row.guest_user_id else ''),
+        })
+
+    requests = []
+    for row in _req_rows_all:
+        if (row.status or '') in {'RECHAZADAS', 'ANULADAS'}:
+            continue
+        item = _invitation_request_payload(row, categories)
+        item.update(_invitation_request_kind_flags(session_db, row, categories))
+        requests.append(item)
+    _invitation_group_requests(requests, categories)
+    committed = _invitation_committed_palco_labels(session_db, concert, categories)
+    for _cid_full in _invitation_request_excluded_category_ids(session_db, concert, categories):
+        committed.setdefault(_cid_full, '')
+    grouped_requests = _invitation_grouped(requests, categories, locked_labels=committed)
+    return commitments, grouped_requests
 
 
 def _invitation_event_cutoff_datetime(concert: Concert | None):

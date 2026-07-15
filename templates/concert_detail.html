@@ -910,49 +910,17 @@
         {% endif %}
       </div>
     </div>
-    <div class="card">
-      <div class="card-body">
-        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-          <h5 class="mb-0">Compromisos y peticiones</h5>
-          {% if invitation_can_manage and invitation_open_for_requests %}
-            <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
-          {% endif %}
-        </div>
-        {% if invitation_ficha_groups %}
-          {% for g in invitation_ficha_groups %}
-            <div class="mb-3">
-              <h6 class="border-bottom pb-1 mb-2">{{ g.category_name }}{% if g.ticket_kind == 'PDF_NUMBERED' %} <span class="small text-muted fw-normal">· numeradas</span>{% elif g.ticket_kind == 'GUEST_LIST' %} <span class="small text-muted fw-normal">· listado</span>{% endif %}</h6>
-              {% if g.commitments %}
-                <div class="small text-muted mb-1">Compromisos</div>
-                {% for it in g.commitments %}
-                  <div class="d-flex align-items-center gap-2 mb-1">
-                    <img src="{{ it.photo_url }}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
-                    <div class="flex-grow-1 min-w-0"><strong>{{ it.name }}</strong>{% if it.reason %} <span class="text-muted small">· {{ it.reason }}</span>{% endif %}</div>
-                    <span class="badge text-bg-light border">{{ it.qty }}</span>
-                  </div>
-                {% endfor %}
-              {% endif %}
-              {% if g.requests %}
-                <div class="small text-muted mb-1 mt-2">Peticiones</div>
-                {% for it in g.requests %}
-                  <div class="d-flex align-items-center gap-2 mb-1">
-                    <img src="{{ it.requester_photo_url }}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:1px solid #eee;">
-                    <div class="flex-grow-1 min-w-0">
-                      <strong>{{ it.guest_name }}</strong>{% if it.guest_company %} <span class="text-muted small">· {{ it.guest_company }}</span>{% endif %}
-                      {% if it.link_summary and it.link_summary.label %}<div class="small text-muted d-flex align-items-center gap-1"><img src="{{ it.link_summary.logo_url }}" alt="" style="width:18px;height:18px;border-radius:50%;object-fit:cover;border:1px solid #eee;">{{ it.link_summary_text }}</div>{% endif %}
-                    </div>
-                    <span class="badge text-bg-{{ it.status_badge }}">{{ it.status_label }}</span>
-                    <span class="badge text-bg-light border">{{ it.qty }}</span>
-                  </div>
-                {% endfor %}
-              {% endif %}
-            </div>
-          {% endfor %}
-        {% else %}
-          <div class="text-muted small">Todavía no hay compromisos ni peticiones para este evento.</div>
-        {% endif %}
-      </div>
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <h5 class="mb-0">Invitados</h5>
+      {% if invitation_can_manage and invitation_open_for_requests %}
+        <a class="btn btn-sm btn-outline-danger" href="{{ url_for('invitation_event_detail', concert_id=concert.id, **{'from': 'ficha'}) }}"><i class="fa fa-arrow-up-right-from-square me-1"></i>Abrir gestión completa</a>
+      {% endif %}
     </div>
+    {% if invitation_guests_commitments or invitation_guests_grouped %}
+      {% include "_invitation_guests_panel.html" %}
+    {% else %}
+      <div class="text-muted small">Todavía no hay compromisos ni peticiones para este evento.</div>
+    {% endif %}
 
     {% if invitation_can_manage %}
     <div class="modal fade" id="concertInvitationCategoryModal" tabindex="-1" aria-hidden="true">

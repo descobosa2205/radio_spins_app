@@ -177,7 +177,8 @@
   </div>
   <div data-venue-map
        data-can-edit="{{ '1' if CAN_EDIT_CATALOGS else '' }}"
-       data-save-url="{{ url_for('venue_seatmap_save', vid=venue.id) }}"></div>
+       data-save-url="{{ url_for('venue_seatmap_save', vid=venue.id) }}"
+       data-bg-upload-url="{{ url_for('venue_seatmap_bg_upload', vid=venue.id) }}"></div>
   <script type="application/json" id="venueMapData">{{ (venue_seatmap_payload or {})|tojson }}</script>
 {% else %}
   {% macro activity_list(rows) %}

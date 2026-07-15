@@ -1946,10 +1946,15 @@ img[style*="width:"] { height: auto; }
 .vmap-selpop-hint { font-size: .72rem; color: #6b7683; margin-top: .15rem; }
 .vmap-cat.drop-hint { border-color: #e0a800; box-shadow: 0 0 0 .18rem rgba(224,168,0,.25); background: #fff9e6; }
 
-/* Mapa del recinto: botón Deshacer (esquina superior izquierda del plano) */
-.vmap-canvas .vmap-undo { position: absolute; top: .55rem; left: .55rem; z-index: 6; width: 2.15rem; height: 2.15rem; border-radius: .55rem; border: 1px solid #e2e7ee; background: #fff; color: #49515d; box-shadow: 0 2px 8px rgba(16,24,40,.10); cursor: pointer; }
-.vmap-canvas .vmap-undo:hover:not(:disabled) { border-color: var(--brand-accent); color: var(--brand-accent); }
-.vmap-canvas .vmap-undo:disabled { opacity: .45; cursor: default; }
+/* Mapa del recinto: controles flotantes arriba a la IZQUIERDA (zoom +/−, girar, enderezar, ver
+   todo y deshacer) — estilo mapa (Leaflet/Google Maps). */
+.vmap-canvas .vmap-ctrls { position: absolute; top: .55rem; left: .55rem; z-index: 6; display: flex; flex-direction: column; gap: .4rem; }
+.vmap-canvas .vmap-ctrl-group { display: flex; flex-direction: column; background: #fff; border: 1px solid #e2e7ee; border-radius: .55rem; overflow: hidden; box-shadow: 0 2px 8px rgba(16,24,40,.12); }
+.vmap-canvas .vmap-ctrls button { width: 2.15rem; height: 2.15rem; border: 0; background: #fff; color: #49515d; font-size: .95rem; line-height: 1; display: flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+.vmap-canvas .vmap-ctrl-group button + button { border-top: 1px solid #eceff3; }
+.vmap-canvas .vmap-ctrls button:hover:not(:disabled) { background: #eef3f8; color: var(--brand-accent); }
+.vmap-canvas .vmap-ctrls button:disabled { opacity: .45; cursor: default; }
+.vmap-canvas .vmap-undo { border: 0; background: #fff; }
 
 /* Mapa del recinto: parámetro con slider + campo numérico editable (sin tope) */
 .vmap-param--num { grid-template-columns: 6.4rem 1fr 4.2rem; }

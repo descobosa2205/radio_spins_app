@@ -51,7 +51,7 @@ def section_zone(sec: dict) -> str:
         return "PISTA"
     if kind == "box":
         return "PALCO"
-    if kind == "grid" and "pista" in _fold(sec.get("name")):
+    if kind in ("grid", "points") and "pista" in _fold(sec.get("name")):
         return "PISTA"
     return "GRADA"
 
@@ -95,6 +95,18 @@ def _row_states(sec: dict, row_idx: int) -> list:
             )
             slot = i + 1
             states.append("stair" if in_stair else ("gap" if slot in gaps else ("off" if slot in off else "seat")))
+        return states
+
+    if kind == "points":
+        # Asientos detectados de un plano: los slots (1-based, contiguos por fila) salen de sec['seats'].
+        rm = {}
+        for st in (sec.get("seats") or []):
+            if not isinstance(st, dict):
+                continue
+            rm.setdefault(_i(st.get("row"), 1), []).append(_i(st.get("slot"), 1))
+        states = []
+        for slot in sorted(rm.get(row_idx) or []):
+            states.append("gap" if slot in gaps else ("off" if slot in off else "seat"))
         return states
 
     return []

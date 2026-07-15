@@ -44,6 +44,7 @@
     host.dataset.vmapBound = '1';
     var canEdit = host.dataset.canEdit === '1';
     var saveUrl = host.dataset.saveUrl || '';
+    var bgUploadUrl = host.dataset.bgUploadUrl || '';
 
     var payload = {};
     try { payload = JSON.parse(document.getElementById('venueMapData').textContent || '{}'); } catch(e){}
@@ -80,15 +81,28 @@
         (canEdit ? '<div class="vmap-seg" role="tablist"><button type="button" class="on" data-vm-mode="design">Diseñar</button><button type="button" data-vm-mode="cats">Categorías</button></div>' : '') +
         '<div class="vmap-stats"><span>Aforo: <b data-vm-total>–</b></span><span class="d-none d-md-inline">Sentado: <b data-vm-seated>–</b></span><span class="d-none d-md-inline">De pie: <b data-vm-standing>–</b></span></div>' +
         '<div class="vmap-zoom">' +
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-vm-zout aria-label="Alejar">−</button>' +
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-vm-zin aria-label="Acercar">+</button>' +
-          '<button type="button" class="btn btn-sm btn-outline-secondary" data-vm-fit>Ver todo</button>' +
-          (canEdit && saveUrl ? '<button type="button" class="btn btn-sm btn-danger ms-2" data-vm-save><i class="fa fa-check me-1"></i>Guardar mapa</button>' : '') +
+          (canEdit && saveUrl ? '<button type="button" class="btn btn-sm btn-danger" data-vm-save><i class="fa fa-check me-1"></i>Guardar mapa</button>' : '') +
         '</div>' +
       '</div>' +
       '<div class="vmap-body">' +
         '<div class="vmap-canvas">' +
-        (canEdit ? '<button type="button" class="vmap-undo" data-vm-undo title="Deshacer lo último (Ctrl+Z)" disabled><i class="fa fa-rotate-left"></i></button>' : '') +
+        // Controles flotantes arriba a la IZQUIERDA (como en los mapas): zoom +/−, girar el plano
+        // para verlo desde otra perspectiva, enderezar, ver todo y (en edición) deshacer.
+        '<div class="vmap-ctrls">' +
+          '<div class="vmap-ctrl-group">' +
+            '<button type="button" data-vm-zin title="Acercar" aria-label="Acercar"><i class="fa fa-plus"></i></button>' +
+            '<button type="button" data-vm-zout title="Alejar" aria-label="Alejar"><i class="fa fa-minus"></i></button>' +
+          '</div>' +
+          '<div class="vmap-ctrl-group">' +
+            '<button type="button" data-vm-rotl title="Girar el plano a la izquierda"><i class="fa fa-arrow-rotate-left"></i></button>' +
+            '<button type="button" data-vm-rotr title="Girar el plano a la derecha"><i class="fa fa-arrow-rotate-right"></i></button>' +
+            '<button type="button" data-vm-rotn title="Enderezar el plano"><i class="fa fa-location-arrow"></i></button>' +
+          '</div>' +
+          '<div class="vmap-ctrl-group">' +
+            '<button type="button" data-vm-fit title="Ver todo el recinto"><i class="fa fa-expand"></i></button>' +
+          '</div>' +
+          (canEdit ? '<div class="vmap-ctrl-group"><button type="button" class="vmap-undo" data-vm-undo title="Deshacer lo último (Ctrl+Z)" disabled><i class="fa fa-rotate-left"></i></button></div>' : '') +
+        '</div>' +
         '<svg data-vm-svg xmlns="http://www.w3.org/2000/svg">' +
           '<defs><symbol id="vmSeatIcon" viewBox="0 0 24 18">' +
             '<rect x="4" y="0" width="16" height="9" rx="2.6"/><rect x="0" y="5.5" width="4.6" height="9" rx="2.2"/>' +
@@ -118,9 +132,13 @@
     var chip = host.querySelector('[data-vm-chip]');
 
     /* ================= Estado ================= */
-    var view = {x:-1700, y:-1500, w:3400, h:3000};
+    var view = {x:-1700, y:-1500, w:3400, h:3000, rot:0, px:0, py:0};   // rot=giro (grados); px/py=pivote del giro (centro del contenido)
     var mode = 'design';         // design | cats
     var drawArm = false;         // «Dibujar grada» armado: el siguiente arrastre en el plano la crea
+    var detectArm = false;       // «Detectar asientos» armado: el siguiente clic elige el asiento de muestra
+    var detectTol = 60;          // sensibilidad de color de la detección (0-140, distancia RGB)
+    var lastSample = null;       // {x,y} en el mundo del último asiento de muestra (para «Volver a detectar»)
+    var bgPixCache = {};         // url del plano → píxeles cacheados para no releer la imagen
     var tool = null;             // diseño: gap | off | stair | rowsep | renum — null = seleccionar/mover
     var catTool = 'select';      // categorías: select | paint | count | erase
     var sel = {};                // SELECCIÓN de butacas (keys) — popup flotante con el total
@@ -164,9 +182,17 @@
 
     function px(){ return (svg.clientWidth || 1) / view.w; }
     function esc(t){ return String(t==null?'':t).replace(/[<>&"]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c];}); }
-    function client2world(cx,cy){
+    // Punto en coords del viewBox SIN girar (para el zoom, que trabaja sobre el viewBox).
+    function client2raw(cx,cy){
       var r = svg.getBoundingClientRect();
       return { x: view.x + (cx-r.left)/r.width*view.w, y: view.y + (cy-r.top)/r.height*view.h };
+    }
+    // Punto en coords del MUNDO (deshace el giro del plano): lo usan colocar/mover/lazo/snap.
+    function client2world(cx,cy){
+      var p = client2raw(cx,cy);
+      if(!view.rot) return p;
+      var a = -view.rot*R, ca=Math.cos(a), sa=Math.sin(a), dx=p.x-view.px, dy=p.y-view.py;
+      return { x: view.px + dx*ca - dy*sa, y: view.py + dx*sa + dy*ca };
     }
     function stageCenter(){
       var st = elements.find(function(el){ return el.type==='stage'; });
@@ -207,8 +233,40 @@
     // Filas de una sección con todo aplicado: escaleras integradas (cortes), huecos/apagadas por
     // butaca, pasillos entre filas, numeración (inicio/modo/sentido + política de hueco, con
     // OVERRIDES por butaca) y orientación hacia el escenario.
+    // Asientos DETECTADOS de un plano (kind 'points'): coordenadas propias por butaca (no
+    // paramétricas). Devuelve la MISMA estructura que secRows para reusar render/selección/
+    // categorías/numeración. seats = [{row, slot, lx, ly}] (locales al centro de la sección).
+    function secRowsPoints(s){
+      var nm = numOf(s), crP = Math.cos((s.rot||0)*R), srP = Math.sin((s.rot||0)*R);
+      var byRow = {}; (s.seats||[]).forEach(function(t){ var r=parseInt(t.row,10)||1; (byRow[r]=byRow[r]||[]).push(t); });
+      var rowIdxs = Object.keys(byRow).map(Number).sort(function(a,b){ return a-b; });
+      var rows=[], xs=[], ys=[], nSeats=0, valid={}, overrides=s.numOverrides||{};
+      rowIdxs.forEach(function(ri){
+        var arr = byRow[ri].slice().sort(function(a,b){ return (a.slot||0)-(b.slot||0); });
+        var mods = modsOf(s, ri);
+        var slots = arr.map(function(t){
+          var lx=+t.lx||0, ly=+t.ly||0, slot=parseInt(t.slot,10)||1;
+          var state = (mods.gaps.indexOf(slot)!==-1?'gap':(mods.off.indexOf(slot)!==-1?'off':'seat'));
+          return { slot:slot, frac:0, x:s.x+lx*crP-ly*srP, y:s.y+lx*srP+ly*crP, a:(s.rot||0), state:state };
+        });
+        var ordered = (nm.dir==='rtl') ? slots.slice().reverse() : slots, counter=nm.start;
+        ordered.forEach(function(sl){
+          if(sl.state==='gap'){ sl.n=null; if((s.gapPolicy||'skip')==='skip') counter+=nm.step; return; }
+          sl.n=counter; counter+=nm.step;
+        });
+        slots.forEach(function(sl){ var ov=overrides[ri+'|'+sl.slot]; if(ov!=null&&ov!==''&&sl.state!=='gap') sl.n=ov; });
+        slots.forEach(function(p){ xs.push(p.x); ys.push(p.y); if(p.state==='seat'){ nSeats++; valid[ri+'|'+p.slot]=1; } });
+        rows.push({ rowIdx:ri, label:rowLabelOf(s,ri), seats:slots });
+      });
+      var pit=s.pitch||26;
+      var bbox = xs.length
+        ? {x:Math.min.apply(null,xs)-pit, y:Math.min.apply(null,ys)-pit, w:Math.max.apply(null,xs)-Math.min.apply(null,xs)+2*pit, h:Math.max.apply(null,ys)-Math.min.apply(null,ys)+2*pit}
+        : {x:s.x-pit, y:s.y-pit, w:2*pit, h:2*pit};
+      return {rows:rows, bbox:bbox, count:nSeats, valid:valid};
+    }
     function secRows(s){
       if(geomCache[s.id]) return geomCache[s.id];
+      if(s.kind==='points') return (geomCache[s.id]=secRowsPoints(s));
       var st = stageCenter();
       var nm = numOf(s), rows = [], r, i;
       var isArc = s.kind==='arc';
@@ -425,6 +483,10 @@
     function render(){
       raf = null;
       svg.setAttribute('viewBox', view.x+' '+view.y+' '+view.w+' '+view.h);
+      // Giro del plano: pivote = centro del contenido (congelado mientras se arrastra/pellizca para
+      // que no derive). El giro se aplica al grupo del mundo; client2world lo deshace.
+      if(!drag && !pinch0){ var _cc=contentCenter(); if(_cc){ view.px=_cc.x; view.py=_cc.y; } }
+      world.setAttribute('transform', view.rot ? ('rotate('+(view.rot)+' '+view.px+' '+view.py+')') : '');
       var scale = px(), out = [], vx0=view.x, vy0=view.y, vx1=view.x+view.w, vy1=view.y+view.h;
       var labelsA = [];     // etiquetas del zoom lejano: se pintan al FINAL, encima de los bloques
       var lodACounts = null; // conteos por categoría (solo se calculan si hace falta)
@@ -469,6 +531,19 @@
         labelsA.push(lines.join(''));
       }
 
+      // 0) PLANO DE FONDO subido (capa-guía para calcar / autodetectar): detrás de TODO. Cuando no
+      //    está bloqueado y estamos diseñando, lleva su rect de selección para moverlo/escalarlo.
+      var bgEl = elements.find(function(el){ return el.type==='bgimage' && el.url; });
+      if(bgEl){
+        var bt = 'translate('+bgEl.x+' '+bgEl.y+') rotate('+(bgEl.rot||0)+')';
+        var op = (bgEl.opacity!=null? bgEl.opacity : 0.6);
+        out.push('<g transform="'+bt+'" style="pointer-events:none"><image href="'+esc(bgEl.url)+'" x="'+(-bgEl.w/2)+'" y="'+(-bgEl.h/2)+'" width="'+bgEl.w+'" height="'+bgEl.h+'" opacity="'+op+'" preserveAspectRatio="none"/></g>');
+        if(mode==='design' && canEdit && !bgEl.locked){
+          var bgSel = (bgEl.id===selId)? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : ';stroke:#9aa8b5;stroke-width:'+(1.5/scale)+';stroke-dasharray:'+(7/scale)+' '+(5/scale);
+          out.push('<rect data-el="'+bgEl.id+'" x="'+(-bgEl.w/2)+'" y="'+(-bgEl.h/2)+'" width="'+bgEl.w+'" height="'+bgEl.h+'" transform="'+bt+'" style="fill:rgba(0,0,0,0.001);cursor:move'+bgSel+'"/>');
+        }
+      }
+
       // 1) SILUETA del recinto (siempre detrás de todo).
       elements.forEach(function(el){
         if(el.type!=='outline') return;
@@ -486,6 +561,43 @@
         if(bb.x>vx1||bb.y>vy1||bb.x+bb.w<vx0||bb.y+bb.h<vy0) return;
         var isSel = (mode==='design' && canEdit && s.id===selId);
         var selCss = isSel? ';stroke:#E33D48;stroke-width:'+(3/scale)+';stroke-dasharray:'+(8/scale)+' '+(5/scale) : '';
+
+        // Asientos detectados de un plano: cada butaca en su sitio (dots de lejos, butaca+nº de cerca).
+        if(s.kind==='points'){
+          var geoP=secRows(s), pit=(s.pitch||26), szP=pit*.86, halfP=szP/2, pxP=pit*scale, far=pxP<9.5;
+          var showN=pxP>=15, showRL=pxP>=13;
+          var gP=['<g data-sec="'+s.id+'" style="cursor:pointer">'];
+          if(mode==='design' && canEdit){ gP.push('<rect x="'+geoP.bbox.x+'" y="'+geoP.bbox.y+'" width="'+geoP.bbox.w+'" height="'+geoP.bbox.h+'" rx="'+pit+'" style="fill:rgba(0,0,0,0.001)'+selCss+'"/>'); }
+          geoP.rows.forEach(function(row){
+            if(showRL && row.seats[0]){ var f0=row.seats[0], cr4=Math.cos((s.rot||0)*R), sr4=Math.sin((s.rot||0)*R);
+              gP.push('<text x="'+(f0.x-1.4*pit*cr4)+'" y="'+(f0.y-1.4*pit*sr4)+'" text-anchor="middle" dominant-baseline="middle" style="font:700 '+(szP*.42)+'px system-ui;fill:#9aa3af">'+esc(row.label)+'</text>'); }
+            row.seats.forEach(function(p){
+              if(p.x<vx0-szP||p.x>vx1+szP||p.y<vy0-szP||p.y>vy1+szP) return;
+              var key=s.id+'|'+row.rowIdx+'|'+p.slot;
+              if(p.state==='gap'){
+                var gapHit=(mode==='design'&&canEdit&&(tool==='gap'||tool==='off'));
+                gP.push('<circle data-seat="'+key+'" data-kind="gap" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+halfP+'" style="fill:'+(gapHit?'transparent':'none')+';stroke:#d5dbe2;stroke-width:'+(szP*.06)+';stroke-dasharray:'+(szP*.18)+' '+(szP*.14)+';'+(gapHit?'cursor:pointer':'pointer-events:none')+'"/>');
+                return;
+              }
+              var col=catColor(key), isOff=p.state==='off';
+              if(far){
+                gP.push('<circle data-seat="'+key+'" data-kind="'+p.state+'" data-frac="0" cx="'+p.x+'" cy="'+p.y+'" r="'+(halfP*.82)+'" style="fill:'+(sel[key]?'#e0a800':(col||(isOff?'#d7dbe2':'#7fae90')))+';cursor:pointer"/>');
+              } else {
+                var fill=sel[key]?'#ffdf7e':(isOff?'#d7dbe2':(col?col+'22':'#effaf2'));
+                var stroke=sel[key]?'#e0a800':(isOff?'#c3c9d2':(col||'#cfe4d6'));
+                var ink=sel[key]?'#7a5b00':(isOff?'#7b838f':(col||'#16803a'));
+                gP.push('<g data-seat="'+key+'" data-kind="'+p.state+'" data-n="'+(p.n!=null?p.n:'')+'" data-frac="0" transform="translate('+p.x+' '+p.y+') rotate('+p.a+')" style="cursor:pointer">'+
+                  '<rect x="'+(-halfP)+'" y="'+(-halfP)+'" width="'+szP+'" height="'+szP+'" rx="'+(szP*.24)+'" style="fill:'+fill+';stroke:'+stroke+';stroke-width:'+(szP*.05)+'"/>'+
+                  '<use href="#vmSeatIcon" x="'+(-szP*.30)+'" y="'+(-szP*.34)+'" width="'+(szP*.6)+'" height="'+(szP*.45)+'" style="fill:'+ink+'"/>'+
+                  (showN&&p.n!=null?'<text y="'+(szP*.33)+'" text-anchor="middle" style="font:600 '+(szP*.30)+'px system-ui;fill:'+ink+'">'+p.n+'</text>':'')+
+                '</g>');
+              }
+            });
+          });
+          gP.push('</g>'); out.push(gP.join(''));
+          if(pxP<2.6) pushRichLabel(s, bb);
+          return;
+        }
 
         if(s.kind==='floor'){
           var fc = floorCat[s.id] && catById[floorCat[s.id]] ? catById[floorCat[s.id]].color : '#7593ab';
@@ -752,6 +864,25 @@
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="door">+ Puerta de acceso</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="stair">+ Escalera suelta</button>'+
           '<button type="button" class="btn btn-sm btn-outline-secondary" data-add="rail">+ Barandilla</button></div>';
+        // Plano de fondo (imagen subida): capa-guía para calcar el recinto encima.
+        var bgE = elements.find(function(x){ return x.type==='bgimage' && x.url; });
+        html += '<h6 class="vmap-h">Plano de fondo</h6>';
+        if(!bgE){
+          html += '<div class="vmap-tools"><button type="button" class="btn btn-sm btn-outline-secondary" data-bg-upload><i class="fa fa-image me-1"></i>Subir plano</button></div>'+
+            '<p class="text-muted small mb-0">Sube una imagen del plano para calcar el recinto encima (gradas, sectores…).</p>';
+        } else {
+          html += '<div class="vmap-param"><label>Opacidad</label><input type="range" class="form-range" min="10" max="100" step="5" value="'+Math.round((bgE.opacity!=null?bgE.opacity:0.6)*100)+'" data-bg-op></div>'+
+            '<div class="vmap-tools">'+
+              '<button type="button" class="btn btn-sm '+(bgE.locked?'btn-primary':'btn-outline-secondary')+'" data-bg-lock>'+(bgE.locked?'<i class="fa fa-lock me-1"></i>Bloqueado':'<i class="fa fa-lock-open me-1"></i>Desbloqueado')+'</button>'+
+              '<button type="button" class="btn btn-sm btn-outline-secondary" data-bg-upload>Cambiar</button>'+
+              '<button type="button" class="btn btn-sm btn-outline-danger" data-bg-remove>Quitar</button></div>'+
+            '<p class="text-muted small mb-0">'+(bgE.locked?'Bloqueado: no se mueve mientras dibujas encima.':'Pincha el plano (zonas vacías) para moverlo; arrastra la esquina roja para escalarlo.')+'</p>'+
+            '<h6 class="vmap-h mt-2">Detectar asientos <i class="fa fa-circle-info text-muted" title="Pincha un asiento de EJEMPLO en el plano y se detectan todos los parecidos (color y tamaño). Ajusta la sensibilidad y vuelve a detectar. Luego se pueden seleccionar, numerar y asignar como cualquier butaca."></i></h6>'+
+            '<div class="vmap-tools"><button type="button" class="btn btn-sm '+(detectArm?'btn-primary':'btn-outline-primary')+'" data-bg-detect>'+(detectArm?'<i class="fa fa-crosshairs me-1"></i>Pincha un asiento…':'<i class="fa fa-wand-magic-sparkles me-1"></i>Detectar asientos')+'</button>'+
+              (lastSample?'<button type="button" class="btn btn-sm btn-outline-secondary" data-bg-redetect>Volver a detectar</button>':'')+'</div>'+
+            '<div class="vmap-param"><label>Sensibilidad</label><input type="range" class="form-range" min="20" max="140" step="5" value="'+detectTol+'" data-detect-tol></div>'+
+            '<p class="text-muted small mb-0">Pincha en el CENTRO de un asiento de ejemplo. Si detecta de más/menos, ajusta la sensibilidad y «Volver a detectar».</p>';
+        }
         html += '<h6 class="vmap-h">Retoques por butaca <i class="fa fa-circle-info text-muted" title="Activa una herramienta y pincha una butaca del plano (acércate hasta ver las butacas). Hueco = no existe la butaca; Apagada = existe pero no se ofrece; Escalera = corte vertical que parte el sector; Pasillo = hueco HORIZONTAL entre esa fila y la siguiente; № = cambiar el número de una butaca (o de varias seguidas, barriéndolas). Pincha un retoque ya puesto para quitarlo."></i></h6>'+
           '<div class="vmap-tools" data-tool-chips>'+
           toolChip('gap','▢','Hueco')+toolChip('off','◼','Apagada')+toolChip('stair','☰','Escalera')+toolChip('rowsep','═','Pasillo')+toolChip('renum','№','Número')+'</div>';
@@ -773,6 +904,8 @@
           } else if(s.kind==='grid' || s.kind==='box'){
             html += slider('Filas','rows',1,(s.kind==='box'?4:60),1,s.rows) + slider('Butacas/fila','cols',1,(s.kind==='box'?10:80),1,s.cols)
                   + slider('Rotación','rot',-180,180,1,s.rot,'°');
+          } else if(s.kind==='points'){
+            html += slider('Tamaño butaca','pitch',10,60,1,s.pitch||26) + slider('Rotación','rot',-180,180,1,s.rot||0,'°');
           } else {
             html += slider('Ancho','w',120,2400,10,s.w) + slider('Alto','h',120,2400,10,s.h)
                   + slider('Aforo de pie','cap',0,30000,50,s.cap) + slider('Rotación','rot',-180,180,1,s.rot,'°');
@@ -865,9 +998,115 @@
       var h = host.querySelector('[data-vm-hint]');
       if(!h) return;
       if(!canEdit){ h.innerHTML = 'Arrastra para desplazarte; rueda o pellizco para hacer zoom: de lejos verás los sectores y, al acercarte, cada butaca con su número.'; return; }
+      if(detectArm){ h.innerHTML = '<b>Detectar asientos:</b> pincha en el CENTRO de un asiento de ejemplo del plano subido. Se detectarán todos los parecidos.'; return; }
       h.innerHTML = mode==='design'
         ? '<b>Diseñar:</b> pincha un sector para editar sus parámetros y arrástralo para moverlo. Con una herramienta de retoque activa (Hueco/Apagada/Escalera), acércate y pincha butacas para aplicarla. Rueda o pellizco para zoom.'
         : '<b>Categorías:</b> selecciona butacas (clic, barrido o el sector entero de lejos) y verás el total en una tarjeta flotante: arrástrala hasta una categoría (o pincha una) para asignarlas. «Pintar» aplica directo; «Contar» solo cuenta.';
+    }
+
+    /* ========= Detección de asientos desde el plano de fondo (Lote B) =========
+       Guiada por MUESTRA: el usuario pincha un asiento de ejemplo; se toma su color y tamaño y se
+       buscan todos los blobs parecidos en la imagen (getImageData + componentes conexas). Los
+       centroides pasan a coordenadas del mundo, se agrupan en filas y se crea una sección 'points'. */
+    function loadBgPixels(url, cb){
+      if(bgPixCache[url]){ cb(bgPixCache[url]); return; }
+      var img=new Image(); img.crossOrigin='anonymous';
+      img.onload=function(){
+        var maxSide=1300, sc=Math.min(1, maxSide/Math.max(img.naturalWidth||1, img.naturalHeight||1));
+        var cw=Math.max(1,Math.round((img.naturalWidth||1)*sc)), ch=Math.max(1,Math.round((img.naturalHeight||1)*sc));
+        var cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+        var cx=cv.getContext('2d'); cx.drawImage(img,0,0,cw,ch);
+        var im; try{ im=cx.getImageData(0,0,cw,ch); }catch(err){ cb(null,'cors'); return; }
+        var rec={data:im.data, w:cw, h:ch}; bgPixCache[url]=rec; cb(rec);
+      };
+      img.onerror=function(){ cb(null,'load'); };
+      img.src=url;
+    }
+    function bgWorldToPx(bg, wx, wy, W, H){
+      var a=-(bg.rot||0)*R, ca=Math.cos(a), sa=Math.sin(a), dx=wx-bg.x, dy=wy-bg.y;
+      return { px: Math.round((dx*ca - dy*sa + bg.w/2)/bg.w*W), py: Math.round((dx*sa + dy*ca + bg.h/2)/bg.h*H) };
+    }
+    function bgPxToWorld(bg, cpx, cpy, W, H){
+      var lx=cpx/W*bg.w - bg.w/2, ly=cpy/H*bg.h - bg.h/2, cr=Math.cos((bg.rot||0)*R), sr=Math.sin((bg.rot||0)*R);
+      return { x: bg.x + lx*cr - ly*sr, y: bg.y + lx*sr + ly*cr };
+    }
+    function detectFromPixels(rec, bg, sampleWorld, tol){
+      var W=rec.w, H=rec.h, D=rec.data, N=W*H;
+      var sp=bgWorldToPx(bg, sampleWorld.x, sampleWorld.y, W, H);
+      if(sp.px<0||sp.py<0||sp.px>=W||sp.py>=H) return {err:'outside'};
+      var si=(sp.py*W+sp.px)*4, sr=D[si], sg=D[si+1], sb=D[si+2], tol2=tol*tol*3;
+      function match(i4){ var dr=D[i4]-sr, dg=D[i4+1]-sg, db=D[i4+2]-sb; return (dr*dr+dg*dg+db*db) <= tol2; }
+      var seen=new Uint8Array(N);
+      function bfs(start){
+        var stack=[start], area=0, sx=0, sy=0, minx=1e9, miny=1e9, maxx=-1, maxy=-1;
+        while(stack.length){
+          var p=stack.pop(); if(seen[p]) continue; if(!match(p*4)){ seen[p]=1; continue; }
+          seen[p]=1; area++; var x=p%W, y=(p-x)/W; sx+=x; sy+=y;
+          if(x<minx)minx=x; if(x>maxx)maxx=x; if(y<miny)miny=y; if(y>maxy)maxy=y;
+          if(area>200000) break;
+          if(x>0) stack.push(p-1); if(x<W-1) stack.push(p+1); if(y>0) stack.push(p-W); if(y<H-1) stack.push(p+W);
+        }
+        return {area:area, cx:sx/Math.max(1,area), cy:sy/Math.max(1,area), w:maxx-minx+1, h:maxy-miny+1};
+      }
+      var sample=bfs(sp.py*W+sp.px);
+      if(sample.area<3) return {err:'nomatch'};
+      if(sample.area > N*0.02) return {err:'toobig'};
+      var sArea=sample.area, sW=sample.w, sH=sample.h, loMax=Math.max(sW,sH)*2.6, guard=0;
+      // El asiento de la MUESTRA ya se marcó como visto al medir su tamaño: lo añadimos a mano para
+      // que no falte (si no, se detectan todos MENOS el que pinchaste).
+      var pts=[ bgPxToWorld(bg, sample.cx, sample.cy, W, H) ];
+      for(var p=0;p<N;p++){
+        if(seen[p]) continue;
+        if(!match(p*4)){ seen[p]=1; continue; }
+        var b=bfs(p);
+        if(b.area < sArea*0.35 || b.area > sArea*3.5) continue;
+        if(b.w > loMax || b.h > loMax || b.w < sW*0.35 || b.h < sH*0.35) continue;
+        pts.push(bgPxToWorld(bg, b.cx, b.cy, W, H));
+        if(++guard>20000) break;
+      }
+      var sizeWorld = Math.max(sW,sH) / (((W/bg.w) + (H/bg.h))/2);
+      return { pts: dedupPoints(pts, sizeWorld*0.7), sizeWorld: sizeWorld };
+    }
+    function dedupPoints(pts, minDist){
+      if(minDist<=0 || pts.length<2) return pts;
+      var grid={}, out=[], md2=minDist*minDist;
+      pts.forEach(function(p){
+        var gx=Math.round(p.x/minDist), gy=Math.round(p.y/minDist), near=false;
+        for(var dx=-1;dx<=1&&!near;dx++) for(var dy=-1;dy<=1;dy++){ var arr=grid[(gx+dx)+','+(gy+dy)]; if(arr){ for(var k=0;k<arr.length;k++){ var q=arr[k]; if((q.x-p.x)*(q.x-p.x)+(q.y-p.y)*(q.y-p.y)<md2){ near=true; break; } } } }
+        if(!near){ out.push(p); (grid[gx+','+gy]=grid[gx+','+gy]||[]).push(p); }
+      });
+      return out;
+    }
+    function buildPointsSection(res){
+      var pts=res.pts, size=res.sizeWorld, cx=0, cy=0;
+      pts.forEach(function(p){ cx+=p.x; cy+=p.y; }); cx/=pts.length; cy/=pts.length;
+      var sorted=pts.slice().sort(function(a,b){ return a.y-b.y; });
+      var rowThresh=Math.max(size*1.1, 6), rows=[], cur=null;
+      sorted.forEach(function(p){ if(!cur || p.y-cur.y0>rowThresh){ cur={y0:p.y, items:[]}; rows.push(cur); } cur.items.push(p); });
+      var seats=[], maxRow=0;
+      rows.forEach(function(row, ri){ var ridx=ri+1; maxRow=ridx;
+        row.items.sort(function(a,b){ return a.x-b.x; }).forEach(function(p, sidx){
+          seats.push({ row:ridx, slot:sidx+1, lx:Math.round(p.x-cx), ly:Math.round(p.y-cy) });
+        });
+      });
+      return { id:nid('s'), kind:'points', name:'Asientos detectados', x:Math.round(cx), y:Math.round(cy), rot:0,
+               pitch:Math.max(14, Math.min(60, Math.round(size))), rows:maxRow,
+               num:{start:1, mode:'seq', step:1, dir:'ltr'}, rowScheme:'num', rowStart:1, gapPolicy:'skip', seats:seats };
+    }
+    function runDetect(clientX, clientY, sampleOpt){
+      var bg=elements.find(function(x){return x.type==='bgimage' && x.url;});
+      if(!bg){ alert('Primero sube un plano de fondo.'); return; }
+      var sw = sampleOpt || client2world(clientX, clientY); lastSample=sw;
+      loadBgPixels(bg.url, function(rec, err){
+        if(!rec){ alert(err==='cors' ? 'El navegador no deja leer esta imagen para detectar (seguridad del navegador). Vuelve a subir el plano en esta sesión y detecta sin recargar la página.' : 'No se pudo cargar el plano.'); return; }
+        var res=detectFromPixels(rec, bg, sw, detectTol);
+        if(res.err==='outside'){ alert('Pincha DENTRO del plano subido, sobre un asiento.'); return; }
+        if(res.err==='toobig'){ alert('Parece que has pinchado el fondo, no un asiento. Pincha justo en el centro de un asiento.'); return; }
+        if(!res.pts || !res.pts.length){ alert('No se detectaron asientos parecidos. Pincha en el centro de un asiento y prueba a subir la sensibilidad.'); return; }
+        pushUndo('detect');
+        var sec=buildPointsSection(res);
+        sections.push(sec); selId=sec.id; invalidate(); markSummary(); renderSide(); fitAll();
+      });
     }
 
     /* ================= Plantillas ================= */
@@ -899,6 +1138,12 @@
 
     /* ================= Acciones del panel ================= */
     if(side) side.addEventListener('input', function(e){
+      if(e.target.hasAttribute('data-bg-op')){
+        var bg0=elements.find(function(x){return x.type==='bgimage';});
+        if(bg0){ bg0.opacity = Math.max(.1, Math.min(1, (parseInt(e.target.value,10)||60)/100)); queueRender(); }
+        return;
+      }
+      if(e.target.hasAttribute('data-detect-tol')){ detectTol = parseInt(e.target.value,10)||60; return; }
       var p = e.target.dataset.p; if(!p) return;
       var o = sections.find(function(x){return x.id===selId;}) || elements.find(function(x){return x.id===selId;});
       if(!o) return;
@@ -927,7 +1172,44 @@
       queueRender();
     });
 
+    // ---- Plano de fondo: subir imagen, bloquear, quitar ----
+    function pickAndUploadBg(){
+      if(!bgUploadUrl){ alert('No disponible.'); return; }
+      var inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.style.display='none';
+      document.body.appendChild(inp);
+      inp.addEventListener('change', function(){
+        var f=inp.files && inp.files[0]; inp.remove(); if(!f) return;
+        var fd=new FormData(); fd.append('image', f);
+        // El loader global aparece solo en fetch >300 ms (layout.html); no hay que gestionarlo aquí.
+        fetch(bgUploadUrl, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest'}, body: fd})
+          .then(function(res){ return res.json().then(function(j){ return {ok:res.ok, j:j}; }); })
+          .then(function(r){
+            if(!(r.ok && r.j.ok && r.j.url)){ alert((r.j && r.j.error) || 'No se pudo subir el plano.'); return; }
+            var img=new Image();
+            img.onload=function(){
+              var ar=(img.naturalWidth||4)/(img.naturalHeight||3);
+              var cc=contentCenter() || {x:view.x+view.w/2, y:view.y+view.h/2};
+              var W=1600, H=Math.round(W/(ar||1.333));
+              pushUndo('bg');
+              var ex=elements.find(function(x){return x.type==='bgimage';});
+              if(ex){ ex.url=r.j.url; }   // «Cambiar»: conserva posición/tamaño/opacidad
+              else { elements.push({id:'bgimg', type:'bgimage', url:r.j.url, x:cc.x, y:cc.y, w:W, h:H, rot:0, opacity:0.6, locked:false}); }
+              renderSide(); queueRender();
+            };
+            img.onerror=function(){ alert('La imagen se subió pero no se pudo cargar.'); };
+            img.src=r.j.url;
+          })
+          .catch(function(){ alert('No se pudo subir el plano.'); });
+      });
+      inp.click();
+    }
+
     if(side) side.addEventListener('click', function(e){
+      if(e.target.closest('[data-bg-upload]')){ pickAndUploadBg(); return; }
+      if(e.target.closest('[data-bg-lock]')){ var b1=elements.find(function(x){return x.type==='bgimage';}); if(b1){ pushUndo('bglock'); b1.locked=!b1.locked; if(b1.locked && selId===b1.id) selId=null; renderSide(); queueRender(); } return; }
+      if(e.target.closest('[data-bg-remove]')){ var b2=elements.find(function(x){return x.type==='bgimage';}); var i2=b2?elements.indexOf(b2):-1; if(i2>=0){ pushUndo('bgdel'); elements.splice(i2,1); if(selId===b2.id) selId=null; renderSide(); queueRender(); } return; }
+      if(e.target.closest('[data-bg-detect]')){ detectArm=!detectArm; if(detectArm) tool=null; setHint(); renderSide(); return; }
+      if(e.target.closest('[data-bg-redetect]')){ if(lastSample) runDetect(null, null, lastSample); return; }
       var tpl=e.target.closest('[data-tpl]'), add=e.target.closest('[data-add]'), act=e.target.closest('[data-act]');
       var tch=e.target.closest('[data-tool]'), ctl=e.target.closest('[data-cat-tool]'), cat=e.target.closest('[data-cat]');
       var cxw=view.x+view.w/2, cyw=view.y+view.h/2;
@@ -1386,40 +1668,103 @@
     }
 
     /* ================= Zoom / pan / pinch / punteros ================= */
-    function zoomAt(cx, cy, f){
-      var w0=client2world(cx,cy);
-      view.w*=f; view.h*=f;
-      var w1=client2world(cx,cy);
-      view.x += w0.x-w1.x; view.y += w0.y-w1.y;
-      if(f>1) clampZoomOut();
-      queueRender();
-    }
-    svg.addEventListener('wheel', function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY>0?1.13:1/1.13); }, {passive:false});
-    host.querySelector('[data-vm-zin]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.35); });
-    host.querySelector('[data-vm-zout]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1.35); });
-    host.querySelector('[data-vm-fit]').addEventListener('click', fitAll);
-    function computeFit(){
+    var MIN_VIEW_W = 140;   // acercamiento MÁXIMO (evita seguir haciendo zoom hasta perderse en blanco)
+    function contentBounds(){   // caja del contenido en coords del MUNDO
       var xs=[],ys=[];
       sections.forEach(function(s){ var b=bboxOf(s); if(b.w||b.h){ xs.push(b.x,b.x+b.w); ys.push(b.y,b.y+b.h); } });
       elements.forEach(function(el){ if(el.type==='door'){ xs.push(el.x-60, el.x+60); ys.push(el.y-40, el.y+60); return; }
         xs.push(el.x-(el.w||0)/2, el.x+(el.w||0)/2); ys.push(el.y-(el.h||0)/2, el.y+(el.h||0)/2); });
       if(!xs.length) return null;
-      var mx=Math.min.apply(null,xs), Mx=Math.max.apply(null,xs), my=Math.min.apply(null,ys), My=Math.max.apply(null,ys);
-      var pad=.07*Math.max(Mx-mx, My-my, 100);
+      return {mx:Math.min.apply(null,xs), Mx:Math.max.apply(null,xs), my:Math.min.apply(null,ys), My:Math.max.apply(null,ys)};
+    }
+    function contentCenter(){ var b=contentBounds(); return b?{x:(b.mx+b.Mx)/2, y:(b.my+b.My)/2}:null; }
+    // La misma caja pero YA girada (coords del viewBox): al girar, el contenido ocupa una caja mayor.
+    // Cajas (en coords del viewBox, ya giradas) de cada sector/elemento: sirven para encajar,
+    // limitar el pan y NO dejar el zoom en un hueco vacío (que se vería en blanco).
+    function objBoxesRaw(){
+      var out=[], a=view.rot*R, ca=Math.cos(a), sa=Math.sin(a);
+      function push(x,y,w,h){
+        if(!w && !h) return;
+        if(!view.rot){ out.push({mx:x,my:y,Mx:x+w,My:y+h}); return; }
+        var xs=[],ys=[];
+        [[x,y],[x+w,y],[x,y+h],[x+w,y+h]].forEach(function(p){
+          var dx=p[0]-view.px, dy=p[1]-view.py; xs.push(view.px+dx*ca-dy*sa); ys.push(view.py+dx*sa+dy*ca);
+        });
+        out.push({mx:Math.min.apply(null,xs),my:Math.min.apply(null,ys),Mx:Math.max.apply(null,xs),My:Math.max.apply(null,ys)});
+      }
+      sections.forEach(function(s){ var b=bboxOf(s); push(b.x,b.y,b.w,b.h); });
+      elements.forEach(function(el){ if(el.type==='door') push(el.x-60,el.y-40,120,100); else push(el.x-(el.w||0)/2, el.y-(el.h||0)/2, (el.w||0), (el.h||0)); });
+      return out;
+    }
+    function contentBoundsRaw(){
+      var boxes=objBoxesRaw(); if(!boxes.length) return null;
+      var mx=Infinity,my=Infinity,Mx=-Infinity,My=-Infinity;
+      boxes.forEach(function(b){ if(b.mx<mx)mx=b.mx; if(b.my<my)my=b.my; if(b.Mx>Mx)Mx=b.Mx; if(b.My>My)My=b.My; });
+      return {mx:mx,my:my,Mx:Mx,My:My};
+    }
+    function computeFit(){
+      var b=contentBoundsRaw(); if(!b) return null;
+      var pad=.07*Math.max(b.Mx-b.mx, b.My-b.my, 100);
       var ar=(svg.clientWidth>0 && svg.clientHeight>0)? svg.clientWidth/svg.clientHeight : 4/3;
-      var w=Mx-mx+2*pad, h=My-my+2*pad;
+      var w=(b.Mx-b.mx)+2*pad, h=(b.My-b.my)+2*pad;
       if(w/h<ar) w=h*ar; else h=w/ar;
-      return {x:(mx+Mx)/2-w/2, y:(my+My)/2-h/2, w:w, h:h};
+      return {x:(b.mx+b.Mx)/2-w/2, y:(b.my+b.My)/2-h/2, w:w, h:h};
     }
     function fitAll(){
-      view = computeFit() || {x:-1200,y:-900,w:2400,h:1800};
+      var f=computeFit() || {x:-1200,y:-900,w:2400,h:1800};
+      view.x=f.x; view.y=f.y; view.w=f.w; view.h=f.h;   // conserva rot/px/py
       queueRender();
     }
     // El zoom NO deja alejarse más allá del recinto completo: si te pasas, se encaja al plano.
     function clampZoomOut(){
       var fv = computeFit();
-      if(fv && view.w > fv.w*1.02){ view = {x:fv.x, y:fv.y, w:fv.w, h:fv.h}; }
+      if(fv && view.w > fv.w*1.02){ view.x=fv.x; view.y=fv.y; view.w=fv.w; view.h=fv.h; }
     }
+    // Mantener SIEMPRE parte del recinto a la vista (no perderse en zonas en blanco).
+    function clampView(){
+      clampZoomOut();
+      var boxes=objBoxesRaw(); if(!boxes.length) return;
+      var b={mx:Infinity,my:Infinity,Mx:-Infinity,My:-Infinity};
+      boxes.forEach(function(x){ if(x.mx<b.mx)b.mx=x.mx; if(x.my<b.my)b.my=x.my; if(x.Mx>b.Mx)b.Mx=x.Mx; if(x.My>b.My)b.My=x.My; });
+      var cw=b.Mx-b.mx, ch=b.My-b.my;
+      var mX=Math.min(view.w,cw)*0.4, mY=Math.min(view.h,ch)*0.4;
+      var maxX=b.Mx-mX, minX=b.mx+mX-view.w;
+      view.x = (minX>maxX) ? ((b.mx+b.Mx)/2 - view.w/2) : Math.max(minX, Math.min(maxX, view.x));
+      var maxY=b.My-mY, minY=b.my+mY-view.h;
+      view.y = (minY>maxY) ? ((b.my+b.My)/2 - view.h/2) : Math.max(minY, Math.min(maxY, view.y));
+      // Si aun así el viewport no toca NINGÚN sector (quedaría en un hueco en blanco), céntralo en
+      // el sector más cercano — así el zoom nunca te «pierde» en el vacío.
+      var vx0=view.x, vy0=view.y, vx1=view.x+view.w, vy1=view.y+view.h;
+      var touches=boxes.some(function(x){ return x.Mx>vx0 && x.mx<vx1 && x.My>vy0 && x.my<vy1; });
+      if(!touches){
+        var cx=(vx0+vx1)/2, cy=(vy0+vy1)/2, best=null, bd=Infinity;
+        boxes.forEach(function(x){
+          var ex=Math.max(x.mx,Math.min(cx,x.Mx)), ey=Math.max(x.my,Math.min(cy,x.My));
+          var d=(ex-cx)*(ex-cx)+(ey-cy)*(ey-cy); if(d<bd){ bd=d; best=x; }
+        });
+        if(best){ view.x += (best.mx+best.Mx)/2 - cx; view.y += (best.my+best.My)/2 - cy; }
+      }
+    }
+    function zoomAt(cx, cy, f){
+      var fit=computeFit(), maxW=fit?fit.w:1e9;
+      var tw=Math.max(MIN_VIEW_W, Math.min(maxW, view.w*f));
+      f=tw/view.w; if(Math.abs(f-1)<1e-4) return;
+      var r0=client2raw(cx,cy);
+      view.w*=f; view.h*=f;
+      var r1=client2raw(cx,cy);
+      view.x += r0.x-r1.x; view.y += r0.y-r1.y;
+      clampView();
+      queueRender();
+    }
+    // Girar el plano para verlo desde otra perspectiva (pivote = centro del contenido).
+    function rotateBy(dd){ view.rot=(((view.rot||0)+dd)%360+360)%360; clampView(); queueRender(); }
+    svg.addEventListener('wheel', function(e){ e.preventDefault(); zoomAt(e.clientX, e.clientY, e.deltaY>0?1.13:1/1.13); }, {passive:false});
+    host.querySelector('[data-vm-zin]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1/1.35); });
+    host.querySelector('[data-vm-zout]').addEventListener('click', function(){ var r=svg.getBoundingClientRect(); zoomAt(r.left+r.width/2,r.top+r.height/2,1.35); });
+    host.querySelector('[data-vm-fit]').addEventListener('click', fitAll);
+    var _rl=host.querySelector('[data-vm-rotl]'); if(_rl) _rl.addEventListener('click', function(){ rotateBy(-15); });
+    var _rr=host.querySelector('[data-vm-rotr]'); if(_rr) _rr.addEventListener('click', function(){ rotateBy(15); });
+    var _rn=host.querySelector('[data-vm-rotn]'); if(_rn) _rn.addEventListener('click', function(){ view.rot=0; clampView(); queueRender(); });
 
     var pointers={}, pinch0=null, drag=null;
     function drawLasso(a,b){
@@ -1427,6 +1772,9 @@
       if(!l){ l=document.createElementNS('http://www.w3.org/2000/svg','rect'); l.id='vmLasso'; svg.appendChild(l); }
       l.setAttribute('x',Math.min(a.x,b.x)); l.setAttribute('y',Math.min(a.y,b.y));
       l.setAttribute('width',Math.abs(b.x-a.x)); l.setAttribute('height',Math.abs(b.y-a.y));
+      // El lazo está en coords del MUNDO: si el plano está girado, aplícale el mismo giro para que
+      // encaje con las butacas.
+      l.setAttribute('transform', view.rot ? ('rotate('+view.rot+' '+view.px+' '+view.py+')') : '');
       l.setAttribute('style','fill:rgba(0,124,162,.10);stroke:#007CA2;stroke-width:'+(1.5/px())+';stroke-dasharray:'+(6/px())+' '+(4/px()));
     }
     function clearLasso(){ var l=svg.querySelector('#vmLasso'); if(l) l.remove(); }
@@ -1437,6 +1785,8 @@
       var ids=Object.keys(pointers);
       if(ids.length===2){ var a=pointers[ids[0]], b=pointers[ids[1]];
         pinch0={d:Math.hypot(a.x-b.x,a.y-b.y), view:JSON.parse(JSON.stringify(view)), cx:(a.x+b.x)/2, cy:(a.y+b.y)/2}; drag=null; return; }
+      // Detección de asientos: el clic elige el asiento de MUESTRA del plano de fondo.
+      if(detectArm && canEdit){ detectArm=false; drag={kind:'none'}; runDetect(e.clientX, e.clientY); setHint(); renderSide(); return; }
       var seatEl=e.target.closest('[data-seat]'), secEl=e.target.closest('[data-sec]'), elEl=e.target.closest('[data-el]'), stairEl=e.target.closest('[data-stairband]');
       var rzEl=e.target.closest('[data-resize]');
       var w=client2world(e.clientX,e.clientY);
@@ -1525,11 +1875,13 @@
       if(pinch0 && ids.length===2){
         var a=pointers[ids[0]], b=pointers[ids[1]], d=Math.hypot(a.x-b.x,a.y-b.y);
         var f=pinch0.d/Math.max(20,d);
+        var fitP=computeFit(), maxWp=fitP?fitP.w:1e9;                 // tope de acercamiento/alejamiento
+        var twp=Math.max(MIN_VIEW_W, Math.min(maxWp, pinch0.view.w*f)); f=twp/pinch0.view.w;
         view.w=pinch0.view.w*f; view.h=pinch0.view.h*f;
         var r=svg.getBoundingClientRect();
         view.x=pinch0.view.x+(pinch0.cx-r.left)/r.width*(pinch0.view.w-view.w);
         view.y=pinch0.view.y+(pinch0.cy-r.top)/r.height*(pinch0.view.h-view.h);
-        clampZoomOut();
+        clampView();
         queueRender(); return;
       }
       var seatEl = e.target.closest && e.target.closest('[data-seat]');
@@ -1551,6 +1903,7 @@
         var s2=px();
         view.x=drag.v0.x-(e.clientX-drag.c0.x)/s2;
         view.y=drag.v0.y-(e.clientY-drag.c0.y)/s2;
+        clampView();               // no dejar que el pan te lleve a zonas en blanco
         queueRender();
       } else if(drag.kind==='resize'){
         // Redimensionar por la esquina: SOLO crece/encoge hacia donde arrastras (el lado opuesto

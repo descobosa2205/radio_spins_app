@@ -18004,6 +18004,35 @@ def venue_seatmap_save(vid):
         s.close()
 
 
+@app.post("/recintos/<vid>/mapa/fondo", endpoint="venue_seatmap_bg_upload")
+@admin_required
+def venue_seatmap_bg_upload(vid):
+    """Sube un PLANO (imagen) para usarlo como capa de fondo/guía del editor del mapa del recinto
+    (calcar y, más adelante, autodetectar asientos). Solo sube el archivo y devuelve la URL; la
+    posición/escala/opacidad se guardan en el propio layout del mapa al pulsar «Guardar mapa»."""
+    if not can_edit_catalogs():
+        return jsonify({"ok": False, "error": "Sin permisos para editar el recinto."}), 403
+    s = db()
+    try:
+        venue = s.get(Venue, to_uuid(vid))
+        if not venue:
+            abort(404)
+        f = request.files.get("image")
+        if not f or not getattr(f, "filename", ""):
+            return jsonify({"ok": False, "error": "No se ha recibido ninguna imagen."}), 400
+        url = upload_image(f, "seatmaps")
+        if not url:
+            return jsonify({"ok": False, "error": "No se pudo subir la imagen."}), 400
+        return jsonify({"ok": True, "url": _absolute_media_url(url)})
+    except ValueError as ve:
+        return jsonify({"ok": False, "error": str(ve)}), 400
+    except Exception as exc:
+        s.rollback()
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    finally:
+        s.close()
+
+
 # ----------- TICKETERAS ---------------
 
 

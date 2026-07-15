@@ -286,9 +286,17 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
 
 ## Despliegue
 - GitHub `descobosa2205/radio_spins_app` → **Render** (Pro Plus, **Frankfurt**) auto-deploy de
-  `main`. **Supabase** Pro (**Estocolmo**). Arranque: `gunicorn -c gunicorn.conf.py app:app`.
-- Acelerar (pendiente, lo hace el usuario): `WEB_CONCURRENCY=4` en Render, usar el **pooler** de
-  Supabase en `DATABASE_URL`, y a futuro alinear regiones.
+  `main`. **Supabase** Pro (**Frankfurt**, proyecto `gyezqnqyxpwxxevdjhgf`; migrado desde Estocolmo
+  el 11-jul-2026 — regiones ya alineadas, ~1-2 ms por consulta). Arranque:
+  `gunicorn -c gunicorn.conf.py app:app`. **Health Check Path = `/healthz`** en Render (instantáneo,
+  sin BD): reinicia instancias colgadas y valida deploys.
+- La app se conecta por el **pooler de Supabase (Session mode)**, `aws-0-eu-central-1.pooler...:5432`
+  (el acceso directo `db.<ref>...` de los proyectos nuevos es solo IPv6 y Render no llega). El
+  «Pool Size» del pooler está a 60; el pool de la app es 6+6 por worker (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW`).
+- Migración de región: kit reutilizable en `tools/migracion_frankfurt/` (copiar storage —reanudable—,
+  crear esquema con las migraciones de la app, copiar datos con COPY, reescribir URLs, verificar).
+  El proyecto viejo de Estocolmo (`gluytnllvcfgrnotchop`) queda como respaldo hasta ~18-jul-2026;
+  después, **pausarlo** (Supabase → Settings → General → Pause project).
 
 ## Pendiente importante
 - **Fase de seguridad** (sin empezar): rotar credenciales expuestas en git, eliminar contraseñas en

@@ -592,6 +592,28 @@ def admin_required(view):
 # ---------- Requerir login en toda la app (sin "vista general") ----------
 # Antes existían rutas públicas para consulta. Ahora el acceso es por roles,
 # así que forzamos inicio de sesión en cualquier pantalla salvo landing/login.
+# Dominio canónico: desde jul-2026 el backoffice vive en app.33producciones.es. Cualquier visita
+# por la URL antigua de Render (*.onrender.com) se redirige 301 al dominio nuevo con la misma ruta,
+# así los marcadores viejos y los enlaces públicos ya enviados acaban siempre en el dominio bueno.
+# Solo GET/HEAD (redirigir un POST cambiaría su semántica) y NUNCA /healthz (el health checker de
+# Render golpea por el host de onrender: si le devolviéramos 301 daría la instancia por muerta).
+# Se puede cambiar/desactivar sin código con la env CANONICAL_HOST (vacía = sin redirección).
+_CANONICAL_HOST = (os.getenv("CANONICAL_HOST", "app.33producciones.es") or "").strip()
+
+
+@app.before_request
+def _redirect_to_canonical_host():
+    if not _CANONICAL_HOST or request.method not in ("GET", "HEAD"):
+        return
+    host = (request.host or "").split(":")[0].lower()
+    if not host.endswith(".onrender.com"):
+        return
+    if request.path == "/healthz":
+        return
+    url = "https://" + _CANONICAL_HOST + request.full_path.rstrip("?")
+    return redirect(url, code=301)
+
+
 @app.before_request
 def require_login():
     # Endpoints estáticos (CSS/JS/IMG)

@@ -1,221 +1,370 @@
 {% extends "layout.html" %}
 {% block content %}
 
-<!-- NAV SUPERIOR -->
-<div class="d-flex align-items-center justify-content-between mb-3">
-  <div class="d-flex align-items-center gap-2">
-    <a class="btn btn-outline-secondary" href="{{ nav_prev_url }}"><i class="fa fa-chevron-left"></i></a>
-    <div class="badge bg-light text-dark px-3 py-2">{{ day.strftime('%d/%m/%Y') }}</div>
-    <a class="btn btn-outline-secondary" href="{{ nav_next_url }}"><i class="fa fa-chevron-right"></i></a>
+{# ============= CABECERA ============= #}
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <div>
+    <h1 class="h4 mb-0"><i class="fa fa-chart-column me-2"></i>Reporte de ventas</h1>
+    <div class="text-muted small">{{ 'Conciertos anteriores' if past else 'Conciertos a la venta' }} · datos a {{ day.strftime('%d/%m/%Y') }}</div>
   </div>
-  <div class="d-flex align-items-center gap-2">
-    {% if past %}
-      <a class="btn btn-outline-primary" href="{{ url_for('sales_report_view') }}"><i class="fa fa-rotate-left"></i> Ver próximos</a>
-    {% else %}
-      <a class="btn btn-outline-primary" href="{{ url_for('sales_report_past') }}"><i class="fa fa-clock-rotate-left"></i> Conciertos anteriores</a>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <div class="d-flex align-items-center gap-1">
+      <a class="btn btn-outline-secondary btn-sm" href="{{ nav_prev_url }}" title="Día anterior"><i class="fa fa-chevron-left"></i></a>
+      <form method="get" class="d-flex align-items-center gap-1">
+        {% if f_artist_ids %}{% for a in f_artist_ids %}<input type="hidden" name="artist" value="{{ a }}">{% endfor %}{% endif %}
+        {% if f_sale_types %}{% for t in f_sale_types %}<input type="hidden" name="type" value="{{ t }}">{% endfor %}{% endif %}
+        {% if f_company_id %}<input type="hidden" name="company" value="{{ f_company_id }}">{% endif %}
+        {% if f_promoter_id %}<input type="hidden" name="promoter" value="{{ f_promoter_id }}">{% endif %}
+        {% if f_q %}<input type="hidden" name="q" value="{{ f_q }}">{% endif %}
+        {% if f_only_et %}<input type="hidden" name="et" value="1">{% endif %}
+        <input type="date" name="d" class="form-control form-control-sm" value="{{ day.isoformat() }}" onchange="this.form.submit()">
+      </form>
+      <a class="btn btn-outline-secondary btn-sm" href="{{ nav_next_url }}" title="Día siguiente"><i class="fa fa-chevron-right"></i></a>
+    </div>
+    {% if email_recipients is defined and email_recipients %}
+    <button type="button" class="btn btn-danger btn-sm" data-bs-toggle="modal" data-bs-target="#salesReportEmailModal">
+      <i class="fa fa-paper-plane me-1"></i>Enviar a la empresa
+    </button>
     {% endif %}
     {% if pdf_url %}
-      <a class="btn btn-outline-secondary" href="{{ pdf_url }}" target="_blank" title="Imprimir en A4 horizontal">
-        <i class="fa fa-print"></i> Imprimir A4
-      </a>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ pdf_url }}" target="_blank" title="Imprimir en A4 horizontal"><i class="fa fa-print me-1"></i>A4</a>
     {% endif %}
-    <form method="get" class="d-flex align-items-center gap-2">
-      <input type="date" name="d" class="form-control" value="{{ day.isoformat() }}">
-      <button class="btn btn-outline-primary"><i class="fa fa-calendar"></i></button>
-    </form>
+    {% if past %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('sales_report_view') }}"><i class="fa fa-rotate-left me-1"></i>Ver próximos</a>
+    {% else %}
+    <a class="btn btn-outline-primary btn-sm" href="{{ url_for('sales_report_past') }}"><i class="fa fa-clock-rotate-left me-1"></i>Anteriores</a>
+    {% endif %}
   </div>
 </div>
 
-{# ==== BUCLE POR CATEGORÍAS ==== #}
+{# ============= KPIs ============= #}
+{% if kpis is defined %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <div class="sim-stat"><div class="sim-stat__n">{{ kpis.count|k }}</div><div class="sim-stat__l">Conciertos</div></div>
+  <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if kpis.today else '' }}">{{ kpis.today|k }}</div><div class="sim-stat__l">Vendidas hoy</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ kpis.total|k }}</div><div class="sim-stat__l">Total vendidas</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ kpis.capacity|k }}</div><div class="sim-stat__l">Aforo a la venta</div></div>
+  {% if CAN_VIEW_ECON %}
+  <div class="sim-stat"><div class="sim-stat__n">{{ kpis.gross|eur }}</div><div class="sim-stat__l">Recaudación bruta</div></div>
+  <div class="sim-stat"><div class="sim-stat__n">{{ kpis.net|eur }}</div><div class="sim-stat__l">Recaudación neta</div></div>
+  {% endif %}
+  {% if kpis.et_count %}
+  <div class="sim-stat"><div class="sim-stat__n" style="color:#E33D48"><i class="fa fa-bolt"></i> {{ kpis.et_count|k }}</div><div class="sim-stat__l">Con Enterticket</div></div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ============= FILTROS (homogéneos con el listado de conciertos) ============= #}
+{% if filter_action_url is defined %}
+<form class="card card-body mb-3" method="get" action="{{ filter_action_url }}">
+  <input type="hidden" name="d" value="{{ day.isoformat() }}">
+  <div class="row g-2 align-items-end">
+
+    <div class="col-12 col-lg-4">
+      <label class="form-label mb-1">Artistas</label>
+      <select name="artist" class="form-select select-artists" multiple>
+        {% for a in artists_filter %}
+          <option value="{{ a.id }}"
+                  data-photo="{{ a.photo or url_for('static', filename='img/logo.png') }}"
+                  {% if a.id in f_artist_ids %}selected{% endif %}>{{ a.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-lg-5">
+      <label class="form-label mb-1">Tipos</label>
+      <div class="d-flex flex-wrap gap-2">
+        {% for value, label in type_choices %}
+          <label class="btn btn-outline-secondary btn-sm">
+            <input class="form-check-input me-1" type="checkbox" name="type" value="{{ value }}"
+                  {% if value in f_sale_types %}checked{% endif %}>
+            {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="col-12 col-lg-3">
+      <label class="form-label mb-1">Buscar</label>
+      <input type="search" name="q" value="{{ f_q }}" class="form-control" placeholder="Artista, recinto, ciudad…">
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label mb-1">Empresa del grupo</label>
+      <select name="company" class="form-select select-with-thumbs">
+        <option value="">— Todas —</option>
+        {% for g in companies_filter %}
+          <option value="{{ g.id }}" data-logo="{{ g.logo or url_for('static', filename='img/logo.png') }}"
+                  {% if g.id == f_company_id %}selected{% endif %}>{{ g.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label mb-1">Promotor</label>
+      <select name="promoter" class="form-select select-with-thumbs">
+        <option value="">— Todos —</option>
+        {% for p in promoters_filter %}
+          <option value="{{ p.id }}" data-logo="{{ p.logo or url_for('static', filename='img/logo.png') }}"
+                  {% if p.id == f_promoter_id %}selected{% endif %}>{{ p.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="col-12 col-md-4">
+      <label class="form-label mb-1">Integración</label>
+      <div class="d-flex flex-wrap gap-2">
+        <label class="btn btn-outline-secondary btn-sm">
+          <input class="form-check-input me-1" type="checkbox" name="et" value="1" {% if f_only_et %}checked{% endif %}>
+          <i class="fa fa-bolt" style="color:#E33D48"></i> Solo Enterticket
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex justify-content-end gap-2 mt-3">
+    <button class="btn btn-danger" type="submit"><i class="fa-solid fa-filter"></i> Filtrar</button>
+    <a class="btn btn-outline-secondary" href="{{ clear_url }}">Limpiar</a>
+  </div>
+</form>
+{% endif %}
+
+{# ============= LISTADO POR SECCIONES ============= #}
 {% for key in order %}
   {% set title = titles.get(key, key) %}
   {% set lista = sections.get(key, []) %}
+  {% if lista %}
+  <details class="mb-3" open>
+    <summary class="h6 mb-2">{{ title }} <span class="text-muted">({{ lista|length }})</span></summary>
 
-  <div class="mt-3">
-    <div class="d-flex align-items-center justify-content-between mb-1">
-      <h6 class="text-uppercase text-muted m-0">{{ title }}</h6>
-      <button class="btn btn-sm btn-light collapsed" type="button"
-              data-bs-toggle="collapse" data-bs-target="#sec-report-{{ key }}" aria-expanded="false">
-        <i class="fa fa-chevron-down"></i>
-      </button>
-    </div>
+    {% for c in lista %}
+      {% set total = totals.get(c.id, 0) %}
+      {% set today_sold = today_map.get(c.id, 0) %}
+      {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
+      {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
+      {% set days_left = (c.date - day).days if c.date else 0 %}
+      {% set updated_last = last_map.get(c.id) %}
+      {% set is_today = (updated_last == day) %}
+      {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
 
-    <div id="sec-report-{{ key }}" class="collapse">
+      <div class="card mb-2 clickable-row {% if soldout %}sales-card-soldout{% endif %}" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id, tab='ticketing') if et_map is defined and et_map.get(c.id) else url_for('concert_detail_view', cid=c.id) }}">
+        <div class="card-body py-3">
 
-      {% if lista %}
-        {% for c in lista %}
-          {% set total = totals.get(c.id, 0) %}
-          {% set today_sold = today_map.get(c.id, 0) %}
-          {% set pct = ((total / c.capacity) * 100) if c.capacity else 0 %}
-          {% set pending = (c.capacity - total) if c.capacity and total < c.capacity else 0 %}
-          {% set days_left = (c.date - day).days if c.date else 0 %}
-          {% set updated_last = last_map.get(c.id) %}
-          {% set is_today = (updated_last == day) %}
-          {% set soldout = c.sold_out or (c.capacity and total >= c.capacity) %}
-
-          <div class="card mb-2 clickable-row {% if soldout %}sales-card-soldout{% endif %}" role="button" tabindex="0" data-href="{{ url_for('concert_detail_view', cid=c.id) }}">
-            <div class="card-body py-3">
-
-              <!-- CABECERA -->
-              <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                <div class="d-flex align-items-center gap-3">
-                  <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}">
-                    <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
-                         class="artist-avatar" alt="">
-                  </a>
-
-                  <div class="d-flex align-items-center flex-wrap gap-2">
-                    <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
-                      {{ c.artist.name if c.artist else '—' }}
-                      <span class="text-muted ms-2">
-                        <small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small>
-                      </span>
-                    </div>
-                    {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
-
-                    {% if c.festival_name %}
-                      <span class="badge badge-festival">{{ c.festival_name }}</span>
-                    {% endif %}
-
-                    <div class="fw-semibold">{{ c.venue.municipality if c.venue else '' }}</div>
-                    {% if c.venue and c.venue.province %}
-                      <div class="text-muted"><small>{{ c.venue.province }}</small></div>
-                    {% endif %}
-
-                    {% if c.venue %}
-                      <span class="badge badge-venue">{{ c.venue.name }}</span>
-                      {{ linked_mini('venue', c.venue.id) }}
-                    {% endif %}
-
-                    <div class="text-muted">
-                      <small>Salida a la venta: {{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</small>
-                    </div>
-                  </div>
+          <!-- CABECERA -->
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-3">
+              <a href="{{ url_for('sales_report_by_artist', aid=c.artist_id) if c.artist_id else '#' }}" onclick="event.stopPropagation();">
+                <img src="{{ (c.artist.photo_url if c.artist else None) or url_for('static', filename='img/logo.png') }}"
+                     class="artist-avatar" alt="">
+              </a>
+              <div class="d-flex align-items-center flex-wrap gap-2">
+                <div class="fw-semibold"{% if c.artist %} data-artist-link="{{ c.artist.id }}"{% endif %}>
+                  {{ c.artist.name if c.artist else '—' }}
+                  <span class="text-muted ms-2"><small>{{ c.date.strftime('%d/%m/%Y') if c.date else '—' }}</small></span>
                 </div>
+                {% if c.artist %}{{ linked_mini('artist', c.artist.id) }}{% endif %}
+                {% if c.festival_name %}<span class="badge badge-festival">{{ c.festival_name }}</span>{% endif %}
+                {% if c.venue %}
+                  <span class="text-muted"><small>{{ c.venue.province }}</small></span>
+                  <span class="municipio-strong">{{ c.venue.municipality }}</span>
+                  <span class="badge badge-venue">{{ c.venue.name }}</span>
+                  {{ linked_mini('venue', c.venue.id) }}
+                {% elif c.manual_municipality or c.manual_venue_name %}
+                  <span class="text-muted"><small>{{ c.manual_province }}</small></span>
+                  <span class="municipio-strong">{{ c.manual_municipality }}</span>
+                  {% if c.manual_venue_name %}<span class="badge badge-venue">{{ c.manual_venue_name }}</span>{% endif %}
+                {% endif %}
+                <span class="badge text-bg-light border"><small>Salida a la venta: <strong>{{ c.sale_start_date.strftime('%d/%m/%Y') if c.sale_start_date else '—' }}</strong></small></span>
+              </div>
+            </div>
 
-                <!-- Logos (empresa / participaciones / promotor) -->
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                  {% if c.sale_type == 'EMPRESA' and (c.billing_company or c.group_company) %}
-                    {% set billing = c.billing_company or c.group_company %}
-                    <a href="{{ url_for('sales_report_by_company', gid=billing.id) }}"
-                       class="logo-chip" title="{{ billing.name }}">
-                      <img src="{{ billing.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-                    </a>
-                  {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
-                    {% for s in c.company_shares %}
-                      {% set comp = s.company %}
-                      {% if comp %}
-                        <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}"
-                           class="logo-chip position-relative" title="{{ comp.name }}">
-                          <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-                          {% if s.pct %}
-                          <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
-                          {% elif s.amount %}
-                          <span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
-                          {% endif %}
-                        </a>
-                      {% endif %}
-                    {% endfor %}
-                    {% for s in c.promoter_shares %}
-                      {% set prom = s.promoter %}
-                      {% if prom %}
-                        <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}"
-                           class="logo-chip position-relative" title="{{ prom.nick }}">
-                          <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
-                          {% if s.pct %}
-                          <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
-                          {% elif s.amount %}
-                          <span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>
-                          {% endif %}
-                        </a>
-                      {% endif %}
-                    {% endfor %}
-                  {% elif c.promoter %}
-                    <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}"
-                       class="logo-chip" title="{{ c.promoter.nick }}">
-                      <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+            <!-- Logos (empresa / participaciones / promotor) -->
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              {% if c.sale_type == 'EMPRESA' and (c.billing_company or c.group_company) %}
+                {% set billing = c.billing_company or c.group_company %}
+                <a href="{{ url_for('sales_report_by_company', gid=billing.id) }}" class="logo-chip" title="{{ billing.name }}" onclick="event.stopPropagation();">
+                  <img src="{{ billing.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                </a>
+              {% elif c.sale_type in ['PARTICIPADOS','CADIZ'] %}
+                {% for s in c.company_shares %}
+                  {% set comp = s.company %}
+                  {% if comp %}
+                    <a href="{{ url_for('sales_report_by_company', gid=s.company_id) }}" class="logo-chip position-relative" title="{{ comp.name }}" onclick="event.stopPropagation();">
+                      <img src="{{ comp.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                      {% if s.pct %}<span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                      {% elif s.amount %}<span class="badge bg-primary position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>{% endif %}
                     </a>
                   {% endif %}
-                </div>
-              </div>
-
-              <!-- MÉTRICAS -->
-              <div class="metrics-inline mt-2">
-                <div class="metric"><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold">{{ today_sold|k }}</div></div>
-                <div class="metric"><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
-                <div class="metric"><small class="text-muted d-block">% venta</small><div class="fw-semibold">{{ '%.1f' % pct }}</div></div>
-                <div class="metric"><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
-                <div class="metric"><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
-                {% if CAN_VIEW_ECON %}
-                  <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
-                  <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
-                  {% if (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
-                  <div class="metric"><small class="text-muted d-block">Rebate neto</small><div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0) or 0)|eur }}</div></div>
-                {% endif %}
-                {% endif %}
-
-                {% if c.break_even_ticket and c.break_even_ticket > 0 %}
-                  {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
-                  {% set reached = total >= c.break_even_ticket %}
-                  <div class="metric">
-                    <small class="text-muted d-block">Punto de empate</small>
-                    <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">
-                      {{ c.break_even_ticket|k }} ({{ '%.0f' % be_pct }}%)
-                    </span>
-                  </div>
-                {% endif %}
-              </div>
-
-              <!-- PIE: etiquetas -->
-              <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
-                <div class="d-flex align-items-center gap-2">
-                  {% if et_map is defined and et_map.get(c.id) %}
-                    <span class="badge" style="background:#E33D48" title="Integrado con Enterticket: se actualiza solo al abrir el reporte"><i class="fa fa-bolt me-1"></i>Enterticket{% if et_map[c.id].last %} · {{ et_map[c.id].last }}{% else %} · sincronizando…{% endif %}</span>
-                  {% elif is_today %}
-                    <span class="badge bg-success">Actualizado hoy</span>
-                  {% elif updated_last %}
-                    <span class="badge bg-warning text-dark">Actualizado {{ updated_last.strftime('%d/%m/%Y') }}</span>
-                  {% else %}
-                    <span class="badge bg-light text-dark">Sin actualizaciones</span>
-                  {% endif %}
-                  <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
-                  {% if soldout %}<span class="badge badge-status-soldout">SOLD OUT</span>{% endif %}
-                </div>
-
-                <div class="d-flex align-items-center gap-2">
-                  {#
-                    IMPORTANTE: si el rol no puede ver economía, tampoco debe ver el botón
-                    de "Informe" de ventas por concierto.
-                  #}
-                  {% if CAN_VIEW_ECON %}
-                    <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank"
-                       href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}">
-                      <i class="fa fa-file-lines"></i>
+                {% endfor %}
+                {% for s in c.promoter_shares %}
+                  {% set prom = s.promoter %}
+                  {% if prom %}
+                    <a href="{{ url_for('sales_report_by_promoter', pid=s.promoter_id) }}" class="logo-chip position-relative" title="{{ prom.nick }}" onclick="event.stopPropagation();">
+                      <img src="{{ prom.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                      {% if s.pct %}<span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.pct }}%</span>
+                      {% elif s.amount %}<span class="badge bg-info position-absolute top-0 start-100 translate-middle p-1 rounded-pill">{{ s.amount }}€</span>{% endif %}
                     </a>
                   {% endif %}
-                  <button type="button" class="btn btn-sm btn-outline-primary" title="Evolución"
-                          onclick="openSalesChart('{{ c.id }}')">
-                    <i class="fa fa-chart-line"></i>
-                  </button>
-                </div>
-              </div>
-
+                {% endfor %}
+              {% elif c.promoter %}
+                <a href="{{ url_for('sales_report_by_promoter', pid=c.promoter_id) }}" class="logo-chip" title="{{ c.promoter.nick }}" onclick="event.stopPropagation();">
+                  <img src="{{ c.promoter.logo_url or url_for('static', filename='img/logo.png') }}" class="station-logo">
+                </a>
+              {% endif %}
             </div>
           </div>
-        {% endfor %}
-      {% else %}
-        <div class="alert alert-light">No hay conciertos para esta sección.</div>
-      {% endif %}
 
+          <!-- BARRA DE ESTADO DE LA VENTA -->
+          {% if c.capacity and not c.no_capacity %}
+          <div class="et-bar mt-2" title="{{ '%.1f' % pct }}% vendido">
+            <div class="et-bar__fill {{ 'full' if pct >= 100 else ('hot' if pct >= 85 else '') }}" style="width:{{ [pct, 100]|min }}%"></div>
+            <span class="et-bar__pct">{{ '%.1f' % pct }}%</span>
+          </div>
+          {% endif %}
+
+          <!-- MÉTRICAS -->
+          <div class="metrics-inline mt-2">
+            <div class="metric"><small class="text-muted d-block">Vendidas hoy</small><div class="fw-semibold {{ 'text-success' if today_sold else '' }}">{{ today_sold|k }}</div></div>
+            <div class="metric"><small class="text-muted d-block">Total vendidas</small><div class="fw-semibold">{{ total|k }}</div></div>
+            <div class="metric"><small class="text-muted d-block">Aforo</small><div class="fw-semibold">{{ c.capacity|k }}</div></div>
+            <div class="metric"><small class="text-muted d-block">Pendientes</small><div class="fw-semibold">{{ pending|k }}</div></div>
+            {% if CAN_VIEW_ECON %}
+              <div class="metric"><small class="text-muted d-block">Recaudación bruta</small><div class="fw-semibold">{{ (gross_map.get(c.id, 0) or 0)|eur }}</div></div>
+              <div class="metric"><small class="text-muted d-block">Recaudación neta</small><div class="fw-semibold">{{ (net_map.get(c.id, 0) or 0)|eur }}</div></div>
+              {% if (c.ticketers|selectattr('rebate_mode')|list|length) > 0 %}
+              <div class="metric"><small class="text-muted d-block">Rebate neto</small><div class="fw-semibold">{{ (rebate_net_map.get(c.id, 0) or 0)|eur }}</div></div>
+              {% endif %}
+            {% endif %}
+            {% if c.break_even_ticket and c.break_even_ticket > 0 %}
+              {% set be_pct = ((c.break_even_ticket / c.capacity) * 100) if c.capacity else 0 %}
+              {% set reached = total >= c.break_even_ticket %}
+              <div class="metric">
+                <small class="text-muted d-block">Punto de empate</small>
+                <span class="badge {% if reached %}bg-success{% else %}bg-secondary{% endif %}">{{ c.break_even_ticket|k }} ({{ '%.0f' % be_pct }}%)</span>
+              </div>
+            {% endif %}
+          </div>
+
+          <!-- PIE: etiquetas + acciones -->
+          <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
+            <div class="d-flex align-items-center gap-2 flex-wrap">
+              {% if et_map is defined and et_map.get(c.id) %}
+                {% set et = et_map[c.id] %}
+                {% if et.synced %}
+                <span class="badge bg-success" title="Actualizado automáticamente por la conexión con Enterticket">Actualizado {% if et.is_today %}hoy{% else %}{{ et.date }}{% endif %} · {{ et.time }} <i class="fa fa-plug ms-1"></i></span>
+                {% else %}
+                <span class="badge bg-secondary" title="Integrado con Enterticket · sincronizando…"><i class="fa fa-plug me-1"></i>Sincronizando…</span>
+                {% endif %}
+              {% elif is_today %}
+                <span class="badge bg-success">Actualizado hoy</span>
+              {% elif updated_last %}
+                <span class="badge bg-warning text-dark">Actualizado {{ updated_last.strftime('%d/%m/%Y') }}</span>
+              {% else %}
+                <span class="badge bg-light text-dark">Sin actualizaciones</span>
+              {% endif %}
+              <span class="badge bg-secondary">Faltan: {{ days_left if days_left>=0 else 0 }} días</span>
+              {% if soldout %}<span class="badge badge-status-soldout">SOLD OUT</span>{% endif %}
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              {# IMPORTANTE: sin permiso económico tampoco se ve el botón de Informe por concierto. #}
+              {% if CAN_VIEW_ECON %}
+                <a class="btn btn-sm btn-outline-secondary" title="Informe" target="_blank" onclick="event.stopPropagation();"
+                   href="{{ url_for('sales_event_report_view', cid=c.id, d=day.isoformat()) }}"><i class="fa fa-file-lines"></i></a>
+              {% endif %}
+              <button type="button" class="btn btn-sm btn-outline-primary" title="Evolución"
+                      onclick="event.stopPropagation(); openSalesChart('{{ c.id }}')"><i class="fa fa-chart-line"></i></button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+{% endfor %}
+
+{% if kpis is defined and not kpis.count %}
+<div class="alert alert-light border">No hay conciertos que cumplan los filtros{% if not past %} a la venta{% endif %}. <a href="{{ clear_url if clear_url is defined else url_for('sales_report_view') }}">Limpiar filtros</a></div>
+{% endif %}
+
+{# ============= MODAL: ENVIAR A LA EMPRESA ============= #}
+{% if email_recipients is defined and email_recipients %}
+<div class="modal fade" id="salesReportEmailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h6 class="modal-title"><i class="fa fa-paper-plane me-1 text-danger"></i>Enviar el reporte de ventas a la empresa</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <form method="post" action="{{ url_for('sales_report_email_send') }}">
+        <div class="modal-body">
+          <input type="hidden" name="d" value="{{ day.isoformat() }}">
+          <input type="hidden" name="past" value="{{ '1' if past else '' }}">
+          {% for a in f_artist_ids %}<input type="hidden" name="artist" value="{{ a }}">{% endfor %}
+          {% for t in f_sale_types %}<input type="hidden" name="type" value="{{ t }}">{% endfor %}
+          {% if f_company_id %}<input type="hidden" name="company" value="{{ f_company_id }}">{% endif %}
+          {% if f_promoter_id %}<input type="hidden" name="promoter" value="{{ f_promoter_id }}">{% endif %}
+          {% if f_q %}<input type="hidden" name="q" value="{{ f_q }}">{% endif %}
+          {% if f_only_et %}<input type="hidden" name="et" value="1">{% endif %}
+
+          <div class="alert alert-light border small mb-3">
+            Se enviará el reporte de <strong>{{ day.strftime('%d/%m/%Y') }}</strong>{% if kpis is defined %} ({{ kpis.count }} conciertos{% if f_artist_ids or f_sale_types or f_company_id or f_promoter_id or f_q or f_only_et %}, con los filtros aplicados{% endif %}){% endif %}.
+            <i class="fa fa-shield-halved ms-1"></i> La <strong>recaudación solo la verá</strong> quien tiene permiso de datos económicos; el resto recibe el mismo correo <strong>sin importes</strong>.
+          </div>
+
+          <div class="mb-2">
+            <label class="form-label mb-1">Nota para el correo <span class="text-muted small">(opcional)</span></label>
+            <textarea name="note" class="form-control" rows="2" placeholder="Ej.: Resumen de ventas tras el anuncio de hoy…"></textarea>
+          </div>
+
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <label class="form-label mb-0">Destinatarios</label>
+            <div class="form-check form-switch small">
+              <input class="form-check-input" type="checkbox" id="srEmailAll" checked>
+              <label class="form-check-label" for="srEmailAll">Toda la empresa</label>
+            </div>
+          </div>
+          <div class="border rounded p-2" style="max-height:300px;overflow:auto">
+            {% for r in email_recipients %}
+            <label class="d-flex align-items-center gap-2 py-1 px-1 w-100" style="cursor:pointer">
+              <input class="form-check-input m-0 sr-recipient" type="checkbox" name="recipient_ids" value="{{ r.id }}" checked>
+              {% if r.photo %}<img src="{{ r.photo }}" alt="" style="width:26px;height:26px;border-radius:50%;object-fit:cover">{% else %}<span class="d-inline-flex align-items-center justify-content-center bg-light rounded-circle" style="width:26px;height:26px"><i class="fa fa-user text-muted small"></i></span>{% endif %}
+              <span class="flex-grow-1 small">{{ r.nick }} <span class="text-muted">· {{ r.email }}</span></span>
+              {% if r.econ %}<span class="badge text-bg-success" title="Tiene permiso económico"><i class="fa fa-euro-sign me-1"></i>con recaudación</span>
+              {% else %}<span class="badge text-bg-secondary" title="Sin permiso económico">sin importes</span>{% endif %}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button class="btn btn-danger" onclick="return confirm('¿Enviar el reporte de ventas a los destinatarios seleccionados?');"><i class="fa fa-paper-plane me-1"></i>Enviar</button>
+        </div>
+      </form>
     </div>
   </div>
-{% endfor %}
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var all = document.getElementById('srEmailAll');
+  if (!all) return;
+  all.addEventListener('change', function () {
+    document.querySelectorAll('.sr-recipient').forEach(function (cb) { cb.checked = all.checked; });
+  });
+  document.querySelectorAll('.sr-recipient').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      if (!cb.checked) all.checked = false;
+    });
+  });
+});
+</script>
+{% endif %}
 
 {% if et_stamp is defined and et_map %}
 <script>
 // Enterticket «al momento»: al abrir el reporte se han lanzado syncs en segundo plano de los
-// conciertos integrados con datos viejos. Vigilamos la marca de frescura y recargamos UNA vez
-// cuando algún sync termina (máx. 90 s de vigilancia), para que el reporte quede al día.
+// conciertos integrados con datos viejos. Vigilamos la marca de frescura (acotada a los conciertos
+// del reporte) y recargamos UNA vez cuando algún sync termina (máx. 90 s de vigilancia).
 (function () {
   var initial = {{ et_stamp|int }};
   var cids = {{ et_map.keys()|map('string')|list|tojson }};

@@ -288,6 +288,41 @@ app.config["WTF_CSRF_TIME_LIMIT"] = None
 app.config["WTF_CSRF_SSL_STRICT"] = False
 csrf = CSRFProtect(app)
 
+# ---------------------------------------------------------------------------------------------
+# Modo «solo CalDAV» (segundo despliegue FUERA de Cloudflare)
+# ---------------------------------------------------------------------------------------------
+# El proxy que Render pone delante de *.onrender.com (Cloudflare) BLOQUEA con un 405 los métodos
+# WebDAV PROPFIND/REPORT ANTES de que lleguen a la app; como iOS verifica la cuenta CalDAV haciendo
+# justamente un PROPFIND, la verificación falla (el enlace de suscripción, que es un simple GET, sí
+# funciona). Solución: desplegar ESTE MISMO código en un host sin ese proxy (p. ej. Fly.io) y
+# exponerlo en un subdominio propio. Con CALDAV_ONLY=1 ese host sirve ÚNICAMENTE el servidor CalDAV
+# (+ su guía y un health check) y responde 404 a todo lo demás, de modo que el back office NO queda
+# accesible por ese subdominio. El host principal (Render) arranca con CALDAV_ONLY desactivado y no
+# cambia en nada. Ver DEPLOY_CALDAV.md.
+CALDAV_ONLY = (os.getenv("CALDAV_ONLY") or "").strip().lower() in ("1", "true", "yes", "on")
+
+_CALDAV_ONLY_ALLOWED_ENDPOINTS = {
+    "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash",
+    "public_caldav_principal", "public_caldav_home", "public_caldav_calendar",
+    "public_caldav_resource", "public_caldav_rootdiscovery", "public_caldav_guide",
+    "caldav_health",
+}
+
+if CALDAV_ONLY:
+    @app.get("/caldav/health", endpoint="caldav_health")
+    def caldav_health():
+        return Response("ok", status=200, mimetype="text/plain")
+
+    # Se registra ANTES que require_login/enforce_* (definidos más abajo), así que corre el primero:
+    # oculta (404) cualquier ruta que no sea el servidor CalDAV. Los endpoints CalDAV son públicos
+    # (auth propia por Basic), así que este gate no interfiere con su funcionamiento.
+    @app.before_request
+    def _caldav_only_gate():
+        ep = request.endpoint or ""
+        if ep == "static" or ep in _CALDAV_ONLY_ALLOWED_ENDPOINTS:
+            return None
+        return Response("Not found", status=404)
+
 # Endpoints públicos accesibles por enlace (sin sesión de back-office) cuyas plantillas standalone no
 # cargan el layout (ni, por tanto, el token CSRF). Se eximen; el riesgo es bajo (hay que conocer el
 # enlace secreto). Los flujos públicos sensibles (login, recuperación de contraseña) NO se eximen: usan
@@ -25760,7 +25795,8 @@ def concerts_for_report(session, day: date, past: bool = False, promoter_id=None
 
     return concerts
 
-def build_sales_report_context(day: date, *, past=False, promoter_id=None, artist_id=None, company_id=None):
+def build_sales_report_context(day: date, *, past=False, promoter_id=None, artist_id=None, company_id=None,
+                               artist_ids=None, sale_types=None, q_text="", only_et=False):
     session = db()
     try:
         concerts = concerts_for_report(
@@ -25771,6 +25807,31 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             artist_id=artist_id,
             company_id=company_id,
         )
+
+        # --- Filtros de la vista (homogéneos con el listado de conciertos) ---
+        artist_uuid_set = set()
+        for raw in (artist_ids or []):
+            try:
+                u = to_uuid(raw)
+                if u:
+                    artist_uuid_set.add(u)
+            except Exception:
+                continue
+        if artist_uuid_set:
+            concerts = [c for c in concerts if c.artist_id in artist_uuid_set]
+        type_set = {t for t in (sale_types or []) if t in SALES_SECTION_ORDER}
+        if type_set:
+            concerts = [c for c in concerts if c.sale_type in type_set]
+        qn = _norm_text_key(q_text or "")
+        if qn:
+            def _search_blob(c):
+                v = c.venue
+                parts = [c.artist.name if c.artist else "", c.festival_name or "",
+                         (v.name if v else "") or (c.manual_venue_name or ""),
+                         (v.municipality if v else "") or (c.manual_municipality or ""),
+                         (v.province if v else "") or (c.manual_province or "")]
+                return _norm_text_key(" ".join(p for p in parts if p))
+            concerts = [c for c in concerts if qn in _search_blob(c)]
         concert_ids = [c.id for c in concerts]
 
         # Enterticket: los conciertos vinculados llegan al reporte SIEMPRE al día — al abrirlo se
@@ -25784,11 +25845,25 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
                 for _ev in (session.query(EnterticketEvent)
                             .filter(EnterticketEvent.concert_id.in_(concert_ids)).all()):
                     _et_maybe_sync_event(_ev, max_age_min=5)
-                    et_map[_ev.concert_id] = {"last": _et_fmt_dt(_ev.last_synced_at)}
+                    # La etiqueta del reporte imita a "Actualizado hoy" (verde) añadiendo la HORA y un
+                    # icono de conexión, para que se vea que la cifra viene de la conexión con Enterticket.
+                    _last_local = _ev.last_synced_at
+                    if _last_local is not None and _last_local.tzinfo is not None:
+                        _last_local = _last_local.astimezone(TZ_MADRID)
+                    et_map[_ev.concert_id] = {
+                        "last": _et_fmt_dt(_ev.last_synced_at),  # compat: "dd/mm/YYYY HH:MM"
+                        "time": _last_local.strftime("%H:%M") if _last_local else "",
+                        "date": _last_local.strftime("%d/%m/%Y") if _last_local else "",
+                        "is_today": bool(_last_local and _last_local.date() == today_local()),
+                        "synced": bool(_ev.last_synced_at),
+                    }
                     if _ev.last_synced_at:
                         et_stamp = max(et_stamp, int(_ev.last_synced_at.timestamp()))
             except Exception:
                 et_map, et_stamp = {}, 0
+        if only_et:
+            concerts = [c for c in concerts if c.id in et_map]
+            concert_ids = [c.id for c in concerts]
 
         # Aforo a la venta (si hay categorías por tipo, suma de aforos por tipo)
         if concert_ids:
@@ -25872,6 +25947,31 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
         for k in sections:
             sections[k].sort(key=lambda x: (x.date or date.max, x.artist.name if x.artist else ""))
 
+        # KPIs de cabecera del reporte (sobre lo filtrado).
+        kpis = {
+            "count": len(concerts),
+            "today": sum(int(today_map.get(c.id, 0) or 0) for c in concerts),
+            "total": sum(int(totals.get(c.id, 0) or 0) for c in concerts),
+            "capacity": sum(int(c.capacity or 0) for c in concerts if not c.no_capacity),
+            "gross": sum(float(gross_map.get(c.id, 0) or 0) for c in concerts),
+            "net": sum(float(net_map.get(c.id, 0) or 0) for c in concerts),
+            "et_count": sum(1 for c in concerts if c.id in et_map),
+        }
+
+        # Opciones de los filtros (dicts planos: la sesión se cierra al salir).
+        artists_filter = [{"id": str(a.id), "name": a.name or "", "photo": a.photo_url or ""}
+                          for a in session.query(Artist).order_by(Artist.name.asc()).all()]
+        companies_filter = [{"id": str(g.id), "name": g.name or "", "logo": g.logo_url or ""}
+                            for g in session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
+        seen_proms = {}
+        for c in concerts:
+            if c.promoter:
+                seen_proms[str(c.promoter.id)] = {"id": str(c.promoter.id), "name": c.promoter.nick or "", "logo": c.promoter.logo_url or ""}
+            for sh in (c.promoter_shares or []):
+                if sh.promoter:
+                    seen_proms[str(sh.promoter.id)] = {"id": str(sh.promoter.id), "name": sh.promoter.nick or "", "logo": sh.promoter.logo_url or ""}
+        promoters_filter = sorted(seen_proms.values(), key=lambda x: x["name"].lower())
+
         return dict(
             day=day,
             past=past,
@@ -25886,28 +25986,283 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             rebate_net_map=rebate_net_map,
             et_map=et_map,
             et_stamp=et_stamp,
+            kpis=kpis,
+            artists_filter=artists_filter,
+            companies_filter=companies_filter,
+            promoters_filter=promoters_filter,
+            type_choices=[(k, SALES_SECTION_TITLE[k]) for k in SALES_SECTION_ORDER],
+            f_artist_ids=[str(x) for x in (artist_ids or [])],
+            f_sale_types=list(sale_types or []),
+            f_company_id=(str(company_id) if company_id else ""),
+            f_promoter_id=(str(promoter_id) if promoter_id else ""),
+            f_q=(q_text or ""),
+            f_only_et=bool(only_et),
         )
     finally:
         session.close()
 
 
+def _sales_report_filters_from_request(source=None) -> dict:
+    """Filtros del reporte (mismo esquema que el listado de conciertos) desde GET o desde los
+    hidden del modal de envío (POST)."""
+    src = source if source is not None else request.args
+    return dict(
+        artist_ids=src.getlist("artist"),
+        sale_types=src.getlist("type"),
+        company_id=(src.get("company") or None),
+        promoter_id=(src.get("promoter") or None),
+        q_text=(src.get("q") or "").strip(),
+        only_et=((src.get("et") or "") == "1"),
+    )
+
+
+def _sales_report_filter_args(filters: dict) -> dict:
+    """Los mismos filtros como querystring (para navegación día anterior/siguiente y redirects)."""
+    out = {}
+    if filters.get("artist_ids"):
+        out["artist"] = filters["artist_ids"]
+    if filters.get("sale_types"):
+        out["type"] = filters["sale_types"]
+    if filters.get("company_id"):
+        out["company"] = filters["company_id"]
+    if filters.get("promoter_id"):
+        out["promoter"] = filters["promoter_id"]
+    if filters.get("q_text"):
+        out["q"] = filters["q_text"]
+    if filters.get("only_et"):
+        out["et"] = "1"
+    return out
+
+
 @app.get("/ventas/reporte", endpoint="sales_report_view")
 def sales_report_view():
     day = get_day("d")
-    ctx = build_sales_report_context(day)
+    filters = _sales_report_filters_from_request()
+    ctx = build_sales_report_context(day, **filters)
+    args = _sales_report_filter_args(filters)
     ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat())
-    ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat())
-    ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat())
+    ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat(), **args)
+    ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat(), **args)
+    ctx["filter_action_url"] = url_for("sales_report_view")
+    ctx["clear_url"] = url_for("sales_report_view", d=day.isoformat())
+    ctx["email_recipients"] = _sales_report_recipients() if (can_edit_sales() or is_master()) else []
     return render_template("sales_report.html", **ctx)
 
 @app.get("/ventas/anteriores", endpoint="sales_report_past")
 def sales_report_past():
     day = get_day("d")
-    ctx = build_sales_report_context(day, past=True)
+    filters = _sales_report_filters_from_request()
+    ctx = build_sales_report_context(day, past=True, **filters)
+    args = _sales_report_filter_args(filters)
     ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), past=1)
-    ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat())
-    ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat())
+    ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat(), **args)
+    ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat(), **args)
+    ctx["filter_action_url"] = url_for("sales_report_past")
+    ctx["clear_url"] = url_for("sales_report_past", d=day.isoformat())
+    ctx["email_recipients"] = _sales_report_recipients() if (can_edit_sales() or is_master()) else []
     return render_template("sales_report.html", **ctx)
+
+
+def _sales_report_recipients() -> list[dict]:
+    """Empleados activos con correo, marcando quién VERÁ LA RECAUDACIÓN en el correo del reporte:
+    el mismo criterio que la pantalla (permiso económico sobre «ventas» o rol con economía).
+    El resto recibe la variante SIN importes."""
+    s = db()
+    try:
+        rows = (s.query(User, UserProfile, UserSecurity)
+                .join(UserProfile, UserProfile.user_id == User.id)
+                .join(UserSecurity, UserSecurity.user_id == User.id)
+                .filter(UserSecurity.is_blocked.is_(False), UserSecurity.is_deleted.is_(False))
+                .all())
+        user_ids = [u.id for u, _p, _sec in rows]
+        grants_by_user: dict = {}
+        if user_ids:
+            for gr in s.query(UserAccessGrant).filter(UserAccessGrant.user_id.in_(user_ids)).all():
+                grants_by_user.setdefault(gr.user_id, {})[gr.resource_key] = {
+                    "can_view_basic": bool(gr.can_view_basic),
+                    "can_view_econ": bool(gr.can_view_econ),
+                    "can_edit": bool(gr.can_edit),
+                }
+        out = []
+        for u, p, _sec in rows:
+            email = (u.email or "").strip()
+            if not email or "@" not in email:
+                continue
+            role = int(u.role or 0)
+            econ = role in (3, 4, 6, 10) or _state_has_access(
+                {"role": role, "grants": grants_by_user.get(u.id, {})},
+                "ventas", econ=True, include_descendants=True)
+            out.append({"id": str(u.id), "nick": (p.nick or _email_to_nick(email)).strip(),
+                        "email": email, "photo": p.photo_url or "", "econ": bool(econ)})
+        out.sort(key=lambda x: x["nick"].lower())
+        return out
+    except Exception:
+        return []
+    finally:
+        s.close()
+
+
+def _sales_report_email_html(ctx: dict, *, include_econ: bool, note: str = "") -> tuple[str, str]:
+    """Correo del reporte de ventas (estilo de los correos de invitaciones: logo arriba a la
+    derecha, tarjeta de cabecera y tablas con estilos inline). Con include_econ=False se OMITE
+    cualquier importe (recaudación): esa variante es la que reciben quienes no tienen permiso
+    económico. Devuelve (html, texto_plano)."""
+    esc = html.escape
+    day = ctx["day"]
+    s = db()
+    try:
+        logo = _invitation_event_logo_url(s, None, external=True)
+    finally:
+        s.close()
+    day_label = day.strftime("%d/%m/%Y")
+    title = "Reporte de ventas"
+    subtitle = f"{'Conciertos anteriores' if ctx.get('past') else 'Conciertos a la venta'} · {day_label}"
+    note_html = ""
+    if (note or "").strip():
+        note_html = "".join(f'<p style="margin:0 0 10px;text-align:justify">{esc(p)}</p>'
+                            for p in note.strip().split("\n") if p.strip())
+    th = ('style="text-align:left;padding:7px 9px;background:#f3f4f6;border-bottom:1px solid #d9dee6;'
+          'font-size:12px;color:#444;white-space:nowrap"')
+    thr = th.replace('text-align:left', 'text-align:right')
+    td = 'style="padding:7px 9px;border-bottom:1px solid #eceef1;font-size:13px;color:#111"'
+    tdr = td.replace('font-size:13px', 'font-size:13px;text-align:right').replace('color:#111', 'color:#111;white-space:nowrap')
+
+    def eur(v):
+        try:
+            return f"{float(v or 0):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " €"
+        except Exception:
+            return "0,00 €"
+
+    def nfmt(v):
+        try:
+            return f"{int(v or 0):,}".replace(",", ".")
+        except Exception:
+            return "0"
+
+    sections_html = []
+    text_lines = [f"{title} · {subtitle}"]
+    totals = ctx.get("totals") or {}
+    today_map = ctx.get("today_map") or {}
+    gross_map = ctx.get("gross_map") or {}
+    net_map = ctx.get("net_map") or {}
+    et_map = ctx.get("et_map") or {}
+    for key in ctx.get("order") or []:
+        lista = (ctx.get("sections") or {}).get(key) or []
+        if not lista:
+            continue
+        sec_title = (ctx.get("titles") or {}).get(key, key)
+        rows_html = []
+        sec_today = sec_total = 0
+        sec_gross = sec_net = 0.0
+        for c in lista:
+            total = int(totals.get(c.id, 0) or 0)
+            hoy = int(today_map.get(c.id, 0) or 0)
+            pct = (total / c.capacity * 100) if c.capacity else 0
+            venue_bits = " · ".join(x for x in [
+                (c.venue.name if c.venue else "") or (c.manual_venue_name or ""),
+                (c.venue.municipality if c.venue else "") or (c.manual_municipality or "")] if x)
+            et_mark = ' <span style="color:#E33D48;font-weight:700" title="Enterticket">⚡</span>' if c.id in et_map else ""
+            soldout = c.sold_out or (c.capacity and total >= c.capacity)
+            so_mark = ' <span style="background:#047857;color:#fff;border-radius:6px;padding:1px 6px;font-size:11px;font-weight:700">SOLD OUT</span>' if soldout else ""
+            row = (f'<tr><td {td}><b>{esc(c.artist.name if c.artist else "—")}</b>{et_mark}{so_mark}'
+                   f'<div style="font-size:12px;color:#666">{esc(c.date.strftime("%d/%m/%Y") if c.date else "—")}'
+                   f'{(" · " + esc(venue_bits)) if venue_bits else ""}</div></td>'
+                   f'<td {tdr}>{nfmt(hoy)}</td><td {tdr}>{nfmt(total)}</td>'
+                   f'<td {tdr}>{nfmt(c.capacity)}</td><td {tdr}>{pct:.1f}%</td>')
+            if include_econ:
+                row += f'<td {tdr}>{eur(gross_map.get(c.id, 0))}</td><td {tdr}>{eur(net_map.get(c.id, 0))}</td>'
+            row += "</tr>"
+            rows_html.append(row)
+            sec_today += hoy
+            sec_total += total
+            sec_gross += float(gross_map.get(c.id, 0) or 0)
+            sec_net += float(net_map.get(c.id, 0) or 0)
+            text_lines.append(f"- {c.artist.name if c.artist else '—'} ({c.date.strftime('%d/%m/%Y') if c.date else '—'}): "
+                              f"hoy {hoy}, total {total}" + (f", bruto {eur(gross_map.get(c.id, 0))}" if include_econ else ""))
+        econ_head = f'<th {thr}>Recaudación bruta</th><th {thr}>Neta</th>' if include_econ else ""
+        econ_tot = (f'<td {tdr}><b>{eur(sec_gross)}</b></td><td {tdr}><b>{eur(sec_net)}</b></td>') if include_econ else ""
+        sections_html.append(
+            f'<h3 style="margin:18px 0 8px;font-size:14px;color:#E33D48;text-transform:uppercase;letter-spacing:.4px">{esc(sec_title)}</h3>'
+            '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;border:1px solid #d9dee6;border-radius:10px">'
+            f'<tr><th {th}>Concierto</th><th {thr}>Hoy</th><th {thr}>Vendidas</th><th {thr}>Aforo</th><th {thr}>%</th>{econ_head}</tr>'
+            + "".join(rows_html)
+            + f'<tr><td {td}><b>Total {esc(sec_title)}</b></td><td {tdr}><b>{nfmt(sec_today)}</b></td>'
+              f'<td {tdr}><b>{nfmt(sec_total)}</b></td><td {tdr}></td><td {tdr}></td>{econ_tot}</tr>'
+            '</table>')
+    if not sections_html:
+        sections_html.append('<p style="margin:12px 0;color:#666">No hay conciertos a la venta con los filtros elegidos.</p>')
+    kpis = ctx.get("kpis") or {}
+    kpi_bits = [f"<b>{kpis.get('count', 0)}</b> conciertos", f"<b>{kpis.get('today', 0)}</b> vendidas hoy",
+                f"<b>{kpis.get('total', 0)}</b> vendidas en total"]
+    if include_econ:
+        kpi_bits.append(f"<b>{eur(kpis.get('gross', 0))}</b> de recaudación bruta")
+    report_url = _external_url_for("sales_report_past" if ctx.get("past") else "sales_report_view", d=day.isoformat())
+    body = (
+        '<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:760px;margin:0 auto">'
+        f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:52px;max-width:180px" alt=""></div>'
+        '<table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;margin:8px 0 14px">'
+        '<tr><td style="padding:14px 16px">'
+        f'<div style="font-size:17px;font-weight:700;color:#111">{title}</div>'
+        f'<div style="font-size:13px;color:#444">{esc(subtitle)}</div>'
+        f'<div style="font-size:13px;color:#444;margin-top:4px">{" · ".join(kpi_bits)}</div>'
+        '</td></tr></table>'
+        f'{note_html}'
+        + "".join(sections_html) +
+        f'<p style="text-align:center;margin:20px 0"><a href="{esc(report_url)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:10px 18px;border-radius:10px;font-weight:700;display:inline-block;font-size:13px">Abrir el reporte completo</a></p>'
+        + ('' if include_econ else '<p style="font-size:11px;color:#999">Este resumen no incluye importes de recaudación.</p>')
+        + '<p style="font-size:11px;color:#999">Enviado desde el Back Office · Reporte de ventas</p>'
+        '</div>'
+    )
+    return body, "\n".join(text_lines)
+
+
+@app.post("/ventas/reporte/enviar", endpoint="sales_report_email_send")
+@admin_required
+def sales_report_email_send():
+    """Envía el reporte de ventas por correo a la empresa. DOS variantes del mismo correo:
+    con recaudación (solo para quien tiene permiso económico en ventas) y sin importes (el resto)."""
+    if not (can_edit_sales() or is_master()):
+        flash("Sin permiso para enviar el reporte.", "danger")
+        return redirect(url_for("sales_report_view"))
+    try:
+        day = datetime.strptime((request.form.get("d") or "").strip(), "%Y-%m-%d").date()
+    except ValueError:
+        day = datetime.now(TZ_MADRID).date()
+    filters = _sales_report_filters_from_request(request.form)
+    past = (request.form.get("past") or "") == "1"
+    note = (request.form.get("note") or "").strip()
+    selected = set(request.form.getlist("recipient_ids"))
+    back = url_for("sales_report_past" if past else "sales_report_view",
+                   d=day.isoformat(), **_sales_report_filter_args(filters))
+    recipients = [r for r in _sales_report_recipients() if r["id"] in selected]
+    if not recipients:
+        flash("Selecciona al menos un destinatario.", "warning")
+        return redirect(back)
+    ctx = build_sales_report_context(day, past=past, **filters)
+    subject = f"Reporte de ventas · {day.strftime('%d/%m/%Y')}"
+    reply_to = _current_user_email()
+    sent = 0
+    errors = []
+    econ_emails = [r["email"] for r in recipients if r["econ"]]
+    basic_emails = [r["email"] for r in recipients if not r["econ"]]
+    if econ_emails:
+        h, t = _sales_report_email_html(ctx, include_econ=True, note=note)
+        ok, err = _send_optional_email(econ_emails, subject, h, text_body=t, reply_to=reply_to)
+        sent += len(econ_emails) if ok else 0
+        if not ok:
+            errors.append(err or "fallo en el envío con recaudación")
+    if basic_emails:
+        h, t = _sales_report_email_html(ctx, include_econ=False, note=note)
+        ok, err = _send_optional_email(basic_emails, subject, h, text_body=t, reply_to=reply_to)
+        sent += len(basic_emails) if ok else 0
+        if not ok:
+            errors.append(err or "fallo en el envío sin importes")
+    if errors:
+        flash("No se pudo enviar el reporte: " + " · ".join(errors), "danger")
+    else:
+        flash(f"Reporte enviado a {sent} persona(s): {len(econ_emails)} con recaudación y {len(basic_emails)} sin importes.", "success")
+    return redirect(back)
+
 
 @app.get("/ventas/promotor/<pid>", endpoint="sales_report_by_promoter")
 def sales_report_by_promoter(pid):
@@ -30138,7 +30493,10 @@ def _bootstrap_schema_bg():
     # Índices de rendimiento (claves foráneas sin índice): idempotente, solo crea los que falten.
     _safe_ensure(ensure_performance_indexes, "ensure_performance_indexes")
 
-threading.Thread(target=_bootstrap_schema_bg, daemon=True).start()
+# En el host «solo CalDAV» NO tocamos el esquema de producción (ya lo mantiene el host principal):
+# nos limitamos a leer/escribir notas de agenda. Por eso se salta este arranque de DDL.
+if not CALDAV_ONLY:
+    threading.Thread(target=_bootstrap_schema_bg, daemon=True).start()
 
 # =========================================================
 # Hoja de ruta avanzada + redes sociales + one-sheet
@@ -51272,8 +51630,12 @@ def public_artist_calendar_view(token):
 @app.get("/caldav/guia", endpoint="public_caldav_guide")
 def public_caldav_guide():
     """Guía visual para que los usuarios de la app añadan su cuenta de calendario (CalDAV)."""
+    # El servidor CalDAV vive en un host SIN Cloudflare (ver DEPLOY_CALDAV.md): se indica con
+    # CALDAV_PUBLIC_HOST (p. ej. "caldav.33producciones.com"). Sin esa variable se cae al dominio
+    # actual, que en Render NO acepta PROPFIND (la guía seguiría mostrando el host equivocado).
     server = (os.getenv("EXTERNAL_BASE_URL") or request.url_root).rstrip("/").split("//")[-1]
-    return render_template("caldav_guide.html", caldav_server=server)
+    caldav_host = (os.getenv("CALDAV_PUBLIC_HOST") or "").strip().rstrip("/").split("//")[-1] or server
+    return render_template("caldav_guide.html", caldav_server=caldav_host)
 
 
 @app.post("/artistas/<artist_id>/calendario/enlaces", endpoint="artist_calendar_link_create")
@@ -54764,7 +55126,8 @@ def _bootstrap_personnel_bg():
         app.logger.exception("[accesos] la siembra en segundo plano falló; la web sigue con el estado ya existente en BD (se aplicará en el próximo arranque)")
 
 
-threading.Thread(target=_bootstrap_personnel_bg, daemon=True).start()
+if not CALDAV_ONLY:  # el host «solo CalDAV» no siembra permisos/personal (no sirve el back office)
+    threading.Thread(target=_bootstrap_personnel_bg, daemon=True).start()
 
 
 # =====================================================================================

@@ -1,0 +1,38 @@
+# Imagen para el despliegue «SOLO CalDAV» en un host SIN Cloudflare (p. ej. Fly.io).
+#
+# Es EXACTAMENTE el mismo código que corre en Render. La única diferencia es CALDAV_ONLY=1, que hace
+# que este contenedor sirva únicamente el servidor CalDAV (+ su guía y un health check) y responda
+# 404 a todo lo demás. Motivo: Cloudflare (delante de *.onrender.com) bloquea los métodos WebDAV
+# PROPFIND/REPORT que iOS necesita para verificar la cuenta. Ver DEPLOY_CALDAV.md.
+#
+# El fichero se llama Dockerfile.caldav (no "Dockerfile") a propósito, para no alterar el despliegue
+# de Render, que usa su runtime de Python nativo. Fly lo usa vía `[build] dockerfile` en fly.toml.
+
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /app
+
+# Dependencias primero (capa cacheable). Las versiones pinneadas en requirements.txt traen wheels
+# para CPython 3.11, así que no hace falta toolchain de compilación en la imagen slim.
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
+
+# Resto del código de la app (el .env / users.txt / .venv quedan fuera por .dockerignore).
+COPY . .
+
+# Configuración del contenedor. Los SECRETOS (DATABASE_URL, FLASK_SECRET_KEY) NO van aquí: se
+# inyectan con `fly secrets set` (ver DEPLOY_CALDAV.md). gunicorn.conf.py hace bind a 0.0.0.0:$PORT.
+ENV PORT=8080 \
+    CALDAV_ONLY=1 \
+    WEB_CONCURRENCY=1 \
+    GUNICORN_THREADS=4 \
+    SESSION_COOKIE_SECURE=1
+
+EXPOSE 8080
+
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "app:app"]

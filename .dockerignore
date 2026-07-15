@@ -1,0 +1,19 @@
+# Contexto de build para el despliegue «solo CalDAV» en Fly.io (Dockerfile.caldav).
+# Excluimos lo pesado y lo sensible: el contenedor toma su configuración de las variables de
+# entorno / secrets de Fly, NO del .env versionado (que lleva credenciales reales de Supabase).
+.venv/
+.git/
+__pycache__/
+*.pyc
+*.pyo
+
+# Secretos y datos locales: NUNCA dentro de la imagen (se inyectan por `fly secrets`).
+.env
+.env.*
+users.txt
+
+# Ruido de desarrollo.
+.DS_Store
+*.log
+node_modules/
+scratchpad/

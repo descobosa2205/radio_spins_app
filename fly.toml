@@ -1,0 +1,41 @@
+# Despliegue «SOLO CalDAV» en Fly.io — host SIN Cloudflare, así que SÍ deja pasar los métodos
+# WebDAV (PROPFIND/REPORT) que iOS necesita para verificar la cuenta CalDAV. El resto de la app
+# sigue en Render sin cambios. Pasos completos en DEPLOY_CALDAV.md.
+#
+# El nombre real de la app lo confirma/ajusta `fly launch`. Los secretos (DATABASE_URL,
+# FLASK_SECRET_KEY) se ponen con `fly secrets set`, NO aquí (este fichero se versiona).
+
+app = "radio-spins-caldav"
+primary_region = "ams"   # Amsterdam, cerca de Supabase (Estocolmo). Alternativa: "fra" (Frankfurt).
+
+[build]
+  dockerfile = "Dockerfile.caldav"
+
+[env]
+  CALDAV_ONLY = "1"
+  PORT = "8080"
+  WEB_CONCURRENCY = "1"
+  GUNICORN_THREADS = "4"
+  SESSION_COOKIE_SECURE = "1"
+  # Desactiva la redirección a dominio canónico en este host (solo aplica a *.onrender.com, pero
+  # así queda blindado: el host de CalDAV nunca debe redirigir a ningún sitio).
+  CANONICAL_HOST = ""
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # Siempre encendida: un cold-start al verificar la cuenta hace que iOS agote el tiempo y falle.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "get"
+    path = "/caldav/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"   # app.py importa pandas/Pillow al cargar; 256mb se queda corto.

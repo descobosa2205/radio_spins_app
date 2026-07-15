@@ -25796,7 +25796,8 @@ def concerts_for_report(session, day: date, past: bool = False, promoter_id=None
     return concerts
 
 def build_sales_report_context(day: date, *, past=False, promoter_id=None, artist_id=None, company_id=None,
-                               artist_ids=None, sale_types=None, q_text="", only_et=False):
+                               artist_ids=None, sale_types=None, q_text="", only_et=False,
+                               include_filters=True):
     session = db()
     try:
         concerts = concerts_for_report(
@@ -25958,19 +25959,25 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             "et_count": sum(1 for c in concerts if c.id in et_map),
         }
 
-        # Opciones de los filtros (dicts planos: la sesión se cierra al salir).
-        artists_filter = [{"id": str(a.id), "name": a.name or "", "photo": a.photo_url or ""}
-                          for a in session.query(Artist).order_by(Artist.name.asc()).all()]
-        companies_filter = [{"id": str(g.id), "name": g.name or "", "logo": g.logo_url or ""}
-                            for g in session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
-        seen_proms = {}
-        for c in concerts:
-            if c.promoter:
-                seen_proms[str(c.promoter.id)] = {"id": str(c.promoter.id), "name": c.promoter.nick or "", "logo": c.promoter.logo_url or ""}
-            for sh in (c.promoter_shares or []):
-                if sh.promoter:
-                    seen_proms[str(sh.promoter.id)] = {"id": str(sh.promoter.id), "name": sh.promoter.nick or "", "logo": sh.promoter.logo_url or ""}
-        promoters_filter = sorted(seen_proms.values(), key=lambda x: x["name"].lower())
+        # Opciones de los filtros (dicts planos: la sesión se cierra al salir). Solo para las
+        # vistas que pintan la tarjeta de filtros (el PDF, el envío y los reportes por entidad
+        # se las saltan: include_filters=False).
+        artists_filter = []
+        companies_filter = []
+        promoters_filter = []
+        if include_filters:
+            artists_filter = [{"id": str(a.id), "name": a.name or "", "photo": a.photo_url or ""}
+                              for a in session.query(Artist).order_by(Artist.name.asc()).all()]
+            companies_filter = [{"id": str(g.id), "name": g.name or "", "logo": g.logo_url or ""}
+                                for g in session.query(GroupCompany).order_by(GroupCompany.name.asc()).all()]
+            seen_proms = {}
+            for c in concerts:
+                if c.promoter:
+                    seen_proms[str(c.promoter.id)] = {"id": str(c.promoter.id), "name": c.promoter.nick or "", "logo": c.promoter.logo_url or ""}
+                for sh in (c.promoter_shares or []):
+                    if sh.promoter:
+                        seen_proms[str(sh.promoter.id)] = {"id": str(sh.promoter.id), "name": sh.promoter.nick or "", "logo": sh.promoter.logo_url or ""}
+            promoters_filter = sorted(seen_proms.values(), key=lambda x: x["name"].lower())
 
         return dict(
             day=day,
@@ -26040,7 +26047,7 @@ def sales_report_view():
     filters = _sales_report_filters_from_request()
     ctx = build_sales_report_context(day, **filters)
     args = _sales_report_filter_args(filters)
-    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat())
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), **args)
     ctx["nav_prev_url"] = url_for("sales_report_view", d=(day - timedelta(days=1)).isoformat(), **args)
     ctx["nav_next_url"] = url_for("sales_report_view", d=(day + timedelta(days=1)).isoformat(), **args)
     ctx["filter_action_url"] = url_for("sales_report_view")
@@ -26054,7 +26061,7 @@ def sales_report_past():
     filters = _sales_report_filters_from_request()
     ctx = build_sales_report_context(day, past=True, **filters)
     args = _sales_report_filter_args(filters)
-    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), past=1)
+    ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), past=1, **args)
     ctx["nav_prev_url"] = url_for("sales_report_past", d=(day - timedelta(days=1)).isoformat(), **args)
     ctx["nav_next_url"] = url_for("sales_report_past", d=(day + timedelta(days=1)).isoformat(), **args)
     ctx["filter_action_url"] = url_for("sales_report_past")
@@ -26089,14 +26096,21 @@ def _sales_report_recipients() -> list[dict]:
             if not email or "@" not in email:
                 continue
             role = int(u.role or 0)
+            # MISMA clave que la pantalla del reporte (can_view_economics resuelve el endpoint a
+            # la hoja «ventas.reportes»): si en pantalla no ve la recaudación, por correo tampoco.
             econ = role in (3, 4, 6, 10) or _state_has_access(
                 {"role": role, "grants": grants_by_user.get(u.id, {})},
-                "ventas", econ=True, include_descendants=True)
+                "ventas.reportes", econ=True, include_descendants=True)
             out.append({"id": str(u.id), "nick": (p.nick or _email_to_nick(email)).strip(),
                         "email": email, "photo": p.photo_url or "", "econ": bool(econ)})
         out.sort(key=lambda x: x["nick"].lower())
         return out
     except Exception:
+        try:
+            s.rollback()
+        except Exception:
+            pass
+        app.logger.exception("[ventas] no se pudieron cargar los destinatarios del reporte")
         return []
     finally:
         s.close()
@@ -26238,7 +26252,7 @@ def sales_report_email_send():
     if not recipients:
         flash("Selecciona al menos un destinatario.", "warning")
         return redirect(back)
-    ctx = build_sales_report_context(day, past=past, **filters)
+    ctx = build_sales_report_context(day, past=past, include_filters=False, **filters)
     subject = f"Reporte de ventas · {day.strftime('%d/%m/%Y')}"
     reply_to = _current_user_email()
     sent = 0
@@ -26257,7 +26271,9 @@ def sales_report_email_send():
         sent += len(basic_emails) if ok else 0
         if not ok:
             errors.append(err or "fallo en el envío sin importes")
-    if errors:
+    if errors and sent:
+        flash(f"Reporte enviado a {sent} persona(s), pero parte del envío falló: " + " · ".join(errors), "warning")
+    elif errors:
         flash("No se pudo enviar el reporte: " + " · ".join(errors), "danger")
     else:
         flash(f"Reporte enviado a {sent} persona(s): {len(econ_emails)} con recaudación y {len(basic_emails)} sin importes.", "success")
@@ -26267,7 +26283,7 @@ def sales_report_email_send():
 @app.get("/ventas/promotor/<pid>", endpoint="sales_report_by_promoter")
 def sales_report_by_promoter(pid):
     day = get_day("d")
-    ctx = build_sales_report_context(day, promoter_id=pid)
+    ctx = build_sales_report_context(day, promoter_id=pid, include_filters=False)
     ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), promoter_id=pid)
     ctx["nav_prev_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_promoter", pid=pid, d=(day + timedelta(days=1)).isoformat())
@@ -26276,7 +26292,7 @@ def sales_report_by_promoter(pid):
 @app.get("/ventas/artista/<aid>", endpoint="sales_report_by_artist")
 def sales_report_by_artist(aid):
     day = get_day("d")
-    ctx = build_sales_report_context(day, artist_id=aid)
+    ctx = build_sales_report_context(day, artist_id=aid, include_filters=False)
     ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), artist_id=aid)
     ctx["nav_prev_url"] = url_for("sales_report_by_artist", aid=aid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_artist", aid=aid, d=(day + timedelta(days=1)).isoformat())
@@ -26285,7 +26301,7 @@ def sales_report_by_artist(aid):
 @app.get("/ventas/empresa/<gid>", endpoint="sales_report_by_company")
 def sales_report_by_company(gid):
     day = get_day("d")
-    ctx = build_sales_report_context(day, company_id=gid)
+    ctx = build_sales_report_context(day, company_id=gid, include_filters=False)
     ctx["pdf_url"] = url_for("sales_report_pdf", d=day.isoformat(), company_id=gid)
     ctx["nav_prev_url"] = url_for("sales_report_by_company", gid=gid, d=(day - timedelta(days=1)).isoformat())
     ctx["nav_next_url"] = url_for("sales_report_by_company", gid=gid, d=(day + timedelta(days=1)).isoformat())
@@ -26393,12 +26409,20 @@ def sales_report_pdf():
     artist_id = request.args.get("artist_id")
     company_id = request.args.get("company_id")
 
+    # Filtros de la pantalla del reporte (el A4 imprime LO MISMO que se está viendo); los
+    # parámetros *_id legacy de los reportes por entidad tienen prioridad si llegan.
+    filters = _sales_report_filters_from_request()
+    if promoter_id:
+        filters["promoter_id"] = promoter_id
+    if company_id:
+        filters["company_id"] = company_id
+
     ctx = build_sales_report_context(
         day,
         past=past,
-        promoter_id=promoter_id,
         artist_id=artist_id,
-        company_id=company_id,
+        include_filters=False,
+        **filters,
     )
 
     show_econ = can_view_economics()

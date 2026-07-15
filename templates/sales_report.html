@@ -370,7 +370,17 @@ document.addEventListener('DOMContentLoaded', function () {
   var cids = {{ et_map.keys()|map('string')|list|tojson }};
   var url = {{ url_for('sales_et_status')|tojson }} + '?cids=' + encodeURIComponent(cids.join(','));
   var tries = 0;
+  var pending = false;  // hay datos nuevos, pero se aplaza la recarga si el usuario tiene un modal abierto
+  function safeReload() {
+    if (document.querySelector('.modal.show')) return false;  // no perder la nota/selección del envío
+    location.reload();
+    return true;
+  }
   var timer = setInterval(async function () {
+    if (pending) {
+      if (safeReload()) clearInterval(timer);
+      return;
+    }
     tries += 1;
     if (tries > 18) { clearInterval(timer); return; }
     try {
@@ -379,8 +389,8 @@ document.addEventListener('DOMContentLoaded', function () {
       if (!r.ok) return;
       var js = await r.json();
       if ((js.stamp || 0) > initial) {
-        clearInterval(timer);
-        location.reload();
+        pending = true;
+        if (safeReload()) clearInterval(timer);
       }
     } catch (e) { /* siguiente tick */ }
   }, 5000);

@@ -310,9 +310,10 @@ function initClickableRows(){
   document.querySelectorAll('.clickable-row[data-href]').forEach((row) => {
     row.addEventListener('click', (e) => {
       // Si el click viene de un control interactivo dentro de la fila, no navegamos.
-      // (por ejemplo botones, inputs, selects, enlaces…)
+      // (por ejemplo botones, inputs, selects, enlaces… y los nombres con data-artist-link,
+      // que ya navegan a la ficha del artista vía artist_links.js)
       try {
-        if (e && e.target && e.target.closest && e.target.closest('a,button,input,select,textarea,label')) return;
+        if (e && e.target && e.target.closest && e.target.closest('a,button,input,select,textarea,label,[data-artist-link]')) return;
       } catch (_) {}
       const href = row.getAttribute('data-href');
       if (href) window.location.href = href;

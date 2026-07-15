@@ -214,12 +214,14 @@
                     {% set tid = ct.ticketer_id %}
                     {% set key = (c.id|string) + ':' + (tid|string) %}
                     {% set has_today = (key in ticketer_has_today) %}
+                    {% set is_et = ((ct.ticketer.name or '')|lower == 'enterticket') and ((c.id|string) in (et_linked_concert_ids or [])) %}
 
                     <div class="card mb-3">
                       <div class="card-header d-flex justify-content-between align-items-center">
                         <div>
                           <img src="{{ ct.ticketer.logo_url or DEFAULT_PHOTO_URL }}" class="station-logo me-2" style="width:22px;height:22px;object-fit:contain;" alt="">
                           <strong>{{ ct.ticketer.name }}</strong>
+                          {% if is_et %}<span class="badge ms-1" style="background:#E33D48" title="Integrada con la API de Enterticket: ventas, cupos y precios se actualizan solos"><i class="fa fa-bolt me-1"></i>Automática</span>{% endif %}
                           <span class="text-muted ms-2">Aforo a la venta: {{ ticketer_capacity_cfg_map.get(c.id, {}).get(tid, 0) }}</span>
                           {% if ct.ticketer %}{{ linked_mini('ticketer', ct.ticketer.id) }}{% endif %}
                         </div>
@@ -273,7 +275,7 @@
                                         step="1"
                                         name="qty_{{ tt.id }}"
                                         value="{{ today_val }}"
-                                        
+                                        {% if is_et %}disabled title="Se actualiza sola desde Enterticket"{% endif %}
                                       >
                                     </td>
                                     <td class="text-end">{{ sold_acum }}</td>
@@ -286,9 +288,14 @@
                             </table>
                           </div>
 
-                          <div class="d-flex gap-2 justify-content-end">                            <button id="save-{{ c.id }}-{{ tid }}" class="btn btn-sm btn-primary" type="submit">
+                          <div class="d-flex gap-2 justify-content-end align-items-center">
+                            {% if is_et %}
+                              <span class="small text-muted"><i class="fa fa-bolt me-1"></i>Esta ticketera se actualiza sola desde la API de Enterticket; no hace falta apuntar ventas a mano.</span>
+                            {% else %}
+                            <button id="save-{{ c.id }}-{{ tid }}" class="btn btn-sm btn-primary" type="submit">
                               <i class="fa-solid fa-floppy-disk me-1"></i> Guardar
                             </button>
+                            {% endif %}
 </div>
                         </form>
 

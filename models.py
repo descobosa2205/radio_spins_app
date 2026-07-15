@@ -1452,6 +1452,10 @@ class ConcertTicketType(Base):
     qty_for_sale = Column(Integer, nullable=False, server_default=text("0"))
     price = Column(Numeric, nullable=False, server_default=text("0"))
 
+    # True = creado por el espejo de Enterticket (solo esos los sobrescribe/borra la integración;
+    # los tipos configurados a mano nunca se pisan aunque coincidan en nombre).
+    et_managed = Column(Boolean, nullable=False, server_default=text("false"))
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -7029,4 +7033,6 @@ def ensure_enterticket_schema():
         "CREATE INDEX IF NOT EXISTS idx_buyer_events_event ON buyer_events(event_id);",
         # Enlace de venta por ticketera×concierto (lo rellena la integración al vincular).
         "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS sale_url text;",
+        # Tipos de entrada CREADOS por el espejo de Enterticket (solo esos se sobrescriben/borran).
+        "ALTER TABLE IF EXISTS concert_ticket_types ADD COLUMN IF NOT EXISTS et_managed boolean NOT NULL DEFAULT false;",
     ], "enterticket")

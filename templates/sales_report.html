@@ -169,7 +169,9 @@
               <!-- PIE: etiquetas -->
               <div class="d-flex justify-content-between align-items-center mt-2 flex-wrap gap-2">
                 <div class="d-flex align-items-center gap-2">
-                  {% if is_today %}
+                  {% if et_map is defined and et_map.get(c.id) %}
+                    <span class="badge" style="background:#E33D48" title="Integrado con Enterticket: se actualiza solo al abrir el reporte"><i class="fa fa-bolt me-1"></i>Enterticket{% if et_map[c.id].last %} · {{ et_map[c.id].last }}{% else %} · sincronizando…{% endif %}</span>
+                  {% elif is_today %}
                     <span class="badge bg-success">Actualizado hoy</span>
                   {% elif updated_last %}
                     <span class="badge bg-warning text-dark">Actualizado {{ updated_last.strftime('%d/%m/%Y') }}</span>
@@ -208,5 +210,33 @@
     </div>
   </div>
 {% endfor %}
+
+{% if et_stamp is defined and et_map %}
+<script>
+// Enterticket «al momento»: al abrir el reporte se han lanzado syncs en segundo plano de los
+// conciertos integrados con datos viejos. Vigilamos la marca de frescura y recargamos UNA vez
+// cuando algún sync termina (máx. 90 s de vigilancia), para que el reporte quede al día.
+(function () {
+  var initial = {{ et_stamp|int }};
+  var cids = {{ et_map.keys()|map('string')|list|tojson }};
+  var url = {{ url_for('sales_et_status')|tojson }} + '?cids=' + encodeURIComponent(cids.join(','));
+  var tries = 0;
+  var timer = setInterval(async function () {
+    tries += 1;
+    if (tries > 18) { clearInterval(timer); return; }
+    try {
+      // noLoader: sin él, el wrapper global de fetch encendería el overlay de carga cada 5 s.
+      var r = await fetch(url, {cache: 'no-store', noLoader: true, headers: {'Accept': 'application/json'}});
+      if (!r.ok) return;
+      var js = await r.json();
+      if ((js.stamp || 0) > initial) {
+        clearInterval(timer);
+        location.reload();
+      }
+    } catch (e) { /* siguiente tick */ }
+  }, 5000);
+})();
+</script>
+{% endif %}
 
 {% endblock %}

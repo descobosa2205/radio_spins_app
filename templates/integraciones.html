@@ -331,6 +331,7 @@
                       {% elif ev.status == 'REQUESTED' %}
                         <button name="action" value="et_unignore" class="btn btn-sm btn-outline-secondary" title="Volver a pendiente"><i class="fa fa-rotate-left"></i></button>
                       {% else %}
+                        {% if et_concert_options %}<button type="button" class="btn btn-sm btn-success" data-et-link-open data-pk="{{ ev.pk }}" data-name="{{ ev.name }}" title="Vincular con un concierto existente"><i class="fa fa-link"></i></button>{% endif %}
                         <button name="action" value="et_request" class="btn btn-sm btn-outline-primary" title="Crear petición a Contratación con los datos de Enterticket"><i class="fa fa-paper-plane"></i></button>
                         <button name="action" value="et_ignore" class="btn btn-sm btn-outline-secondary" title="Ignorar"><i class="fa fa-eye-slash"></i></button>
                       {% endif %}
@@ -350,6 +351,54 @@
         {% endif %}
       </div>
     </div>
+
+    {# Modal: vincular un evento ET pendiente con CUALQUIER concierto existente (buscable),
+       o —si no existe— pedir a Contratación que lo dé de alta con los datos de ET. #}
+    {% if et_concert_options %}
+    <div class="modal fade" id="etLinkModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h6 class="modal-title"><i class="fa fa-link me-1 text-danger"></i>Vincular «<span id="etLinkName"></span>»</h6>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <form method="post">
+            <div class="modal-body">
+              <input type="hidden" name="et_event_pk" id="etLinkPk">
+              <label class="form-label small text-muted">Concierto o actividad existente</label>
+              <select name="concert_id" id="etLinkConcert" class="form-select" style="width:100%">
+                <option value="">— Busca por artista, fecha o recinto… —</option>
+                {% for o in et_concert_options %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}
+              </select>
+              <div class="small text-muted mt-2">Al vincular se cargan en la ficha la ticketera Enterticket, el enlace de venta y el aforo, y se sincronizan las ventas (también en el reporte de ventas).</div>
+            </div>
+            <div class="modal-footer justify-content-between">
+              <button name="action" value="et_request" class="btn btn-outline-primary" onclick="return confirm('Se enviará una petición a CONTRATACIÓN para dar de alta este evento con los datos de Enterticket (artista, fecha, recinto, enlace). ¿Continuar?');"><i class="fa fa-paper-plane me-1"></i>No existe: pedir alta a Contratación</button>
+              <button name="action" value="et_link" class="btn btn-success"><i class="fa fa-link me-1"></i>Vincular</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <script>
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-et-link-open]');
+      if (!btn) return;
+      document.getElementById('etLinkPk').value = btn.getAttribute('data-pk');
+      document.getElementById('etLinkName').textContent = btn.getAttribute('data-name');
+      var sel = document.getElementById('etLinkConcert');
+      sel.value = '';
+      if (window.jQuery && jQuery.fn.select2) {
+        var $sel = jQuery(sel);
+        if (!$sel.hasClass('select2-hidden-accessible')) {
+          $sel.select2({ dropdownParent: jQuery('#etLinkModal'), width: '100%', placeholder: 'Busca por artista, fecha o recinto…' });
+        }
+        $sel.val('').trigger('change');
+      }
+      new bootstrap.Modal(document.getElementById('etLinkModal')).show();
+    });
+    </script>
+    {% endif %}
   </div>
 
 </div>

@@ -24966,6 +24966,18 @@ def sales_update_view():
         # ticketeras globales (para selector)
         all_ticketers = session_db.query(Ticketer).order_by(Ticketer.name.asc()).all()
 
+        # Conciertos realmente VINCULADOS a Enterticket (para bloquear la anotación manual de esa
+        # ticketera SOLO donde de verdad se actualiza sola; por nombre a secas bloquearía de más).
+        et_linked_concert_ids = set()
+        try:
+            if concerts:
+                et_linked_concert_ids = {
+                    str(r.concert_id) for r in session_db.query(EnterticketEvent.concert_id)
+                    .filter(EnterticketEvent.concert_id.in_([c.id for c in concerts])).all()
+                }
+        except Exception:
+            et_linked_concert_ids = set()
+
         # Agrupar por secciones (igual que reporte)
         sections = {k: [] for k in SALES_SECTION_ORDER}
         for c in concerts:
@@ -25007,6 +25019,7 @@ def sales_update_view():
             ticketer_type_totals_map=ticketer_type_totals_map,
             rebate_net_map=rebate_net_map,
             rebate_net_by_ticketer_map=rebate_net_by_ticketer_map,
+            et_linked_concert_ids=et_linked_concert_ids,
             vat_amount_map=vat_amount_map,
             sgae_amount_map=sgae_amount_map,
             base_no_vat_map=base_no_vat_map,
@@ -25579,6 +25592,15 @@ def sales_ticketer_day_save(cid, tid):
             flash("Concierto no encontrado.", "warning")
             return redirect(request.referrer or url_for("sales_update_view"))
 
+        # Guarda de servidor: la ticketera Enterticket de un concierto VINCULADO se actualiza sola
+        # desde la API (el bloqueo de la plantilla no basta: una pestaña vieja o un POST directo
+        # pisaría la rejilla espejada con ceros).
+        tk_row = session_db.get(Ticketer, ticketer_id)
+        if (tk_row and (tk_row.name or "").strip().lower() == "enterticket"
+                and session_db.query(EnterticketEvent.id)
+                .filter(EnterticketEvent.concert_id == concert_id).first()):
+            flash("Esta ticketera se actualiza sola desde la API de Enterticket; no se guardan apuntes manuales.", "warning")
+            return redirect(request.referrer or url_for("sales_update_view"))
 
         # Precio bruto por tipo para esta ticketera (configuración)
         cfg_rows = (
@@ -25729,6 +25751,23 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
         )
         concert_ids = [c.id for c in concerts]
 
+        # Enterticket: los conciertos vinculados llegan al reporte SIEMPRE al día — al abrirlo se
+        # dispara (en segundo plano, con guarda de 5 min) la sincronización de los que estén viejos,
+        # y el reporte marca cada concierto integrado con su hora de última actualización. El JS del
+        # reporte vigila /ventas/et/estado y recarga una vez cuando terminan los syncs lanzados.
+        et_map = {}
+        et_stamp = 0
+        if concert_ids and et_api.enterticket_configured():
+            try:
+                for _ev in (session.query(EnterticketEvent)
+                            .filter(EnterticketEvent.concert_id.in_(concert_ids)).all()):
+                    _et_maybe_sync_event(_ev, max_age_min=5)
+                    et_map[_ev.concert_id] = {"last": _et_fmt_dt(_ev.last_synced_at)}
+                    if _ev.last_synced_at:
+                        et_stamp = max(et_stamp, int(_ev.last_synced_at.timestamp()))
+            except Exception:
+                et_map, et_stamp = {}, 0
+
         # Aforo a la venta (si hay categorías por tipo, suma de aforos por tipo)
         if concert_ids:
             cap_rows = (
@@ -25823,6 +25862,8 @@ def build_sales_report_context(day: date, *, past=False, promoter_id=None, artis
             gross_map=gross_map,
             net_map=net_map,
             rebate_net_map=rebate_net_map,
+            et_map=et_map,
+            et_stamp=et_stamp,
         )
     finally:
         session.close()
@@ -52522,6 +52563,8 @@ def integrations_view():
                         s.commit()
                         threading.Thread(target=_et_sync_event_bg, args=(str(ev.id),), daemon=True).start()
                         flash(f"«{ev.name}» vinculado al concierto. Sincronizando ventas en segundo plano…", "success")
+                        if _et_concert_has_legacy_sales(s, c.id):
+                            flash("Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con Enterticket, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse.", "warning")
                 elif action == "et_unlink":
                     _et_unlink_event(s, ev)
                     s.commit()
@@ -52586,6 +52629,7 @@ def integrations_view():
     et_configured = et_api.enterticket_configured()
     et_meta = None
     et_events = []
+    et_concert_options = []
     et_counts = {"total": 0, "linked": 0, "pending": 0, "requested": 0, "ignored": 0}
     if et_configured:
         s = db()
@@ -52626,6 +52670,22 @@ def integrations_view():
                     "last_error": ev.last_error or "", "candidates": candidates,
                     "capacity": ev.capacity_on_sale,
                 })
+            # Selector del modal «Vincular con otro concierto»: cualquier actividad de los últimos
+            # 18 meses en adelante (buscable con Select2 por artista/fecha/recinto).
+            if any(e["status"] == "PENDING" for e in et_events):
+                linked_ids = [r.concert_id for r in rows if r.concert_id]
+                copts_q = (s.query(Concert)
+                           .options(joinedload(Concert.artist), joinedload(Concert.venue))
+                           .filter(Concert.date >= today - timedelta(days=540)))
+                if linked_ids:
+                    copts_q = copts_q.filter(~Concert.id.in_(linked_ids))  # ya tienen su evento ET
+                copts = copts_q.order_by(Concert.date.desc()).limit(2000).all()
+                for c in copts:
+                    vn = (c.venue.name if c.venue else "") or (c.manual_venue_name or "") or (c.manual_municipality or "")
+                    et_concert_options.append({
+                        "id": str(c.id),
+                        "label": f"{c.artist.name if c.artist else '¿?'} · {c.date.strftime('%d/%m/%Y') if c.date else '—'}" + (f" · {vn}" if vn else ""),
+                    })
         except Exception:
             pass
         finally:
@@ -52639,6 +52699,7 @@ def integrations_view():
         et_meta=et_meta,
         et_last_catalog_sync=(_et_fmt_dt(et_meta.last_catalog_sync_at) if et_meta else ""),
         et_events=et_events,
+        et_concert_options=et_concert_options,
         et_counts=et_counts,
         cm_linked=cm_linked,
         cm_points=cm_points,
@@ -53599,11 +53660,11 @@ def _et_recompute_buyers_for_event(s, ev: EnterticketEvent) -> None:
     s.expire_all()
 
 
-def _et_ensure_concert_ticketer(s, ev: EnterticketEvent) -> None:
-    """Al vincular: crea/actualiza la ticketera «Enterticket» del concierto con el enlace de venta
-    y el aforo a la venta (así la ficha del evento muestra ticketera + enlace)."""
+def _et_ensure_concert_ticketer(s, ev: EnterticketEvent):
+    """Al vincular/sincronizar: crea/actualiza la ticketera «Enterticket» del concierto con el
+    enlace de venta y el aforo a la venta (ET manda sobre su propia ticketera). Devuelve la fila."""
     if not ev.concert_id:
-        return
+        return None
     tk = s.query(Ticketer).filter(func.lower(Ticketer.name) == "enterticket").first()
     if not tk:
         tk = Ticketer(name="Enterticket", link_url="https://www.enterticket.es")
@@ -53615,13 +53676,140 @@ def _et_ensure_concert_ticketer(s, ev: EnterticketEvent) -> None:
     if not ct:
         ct = ConcertTicketer(concert_id=ev.concert_id, ticketer_id=tk.id)
         s.add(ct)
+        s.flush()
     if ev.url_enterticket:
         ct.sale_url = ev.url_enterticket
-    if ev.capacity_on_sale and not (ct.capacity_for_sale or 0):
+    if ev.capacity_on_sale and int(ct.capacity_for_sale or 0) != int(ev.capacity_on_sale):
         ct.capacity_for_sale = int(ev.capacity_on_sale)
+    return ct
+
+
+def _et_mirror_to_sales(s, ev: EnterticketEvent) -> None:
+    """Vuelca la venta de ET al módulo de VENTAS para que el reporte, los gráficos y el Resultado
+    incluyan estos conciertos SIEMPRE al día, sumándose a las demás ticketeras (manuales):
+    - tipos de entrada → ConcertTicketType (por nombre) con su cupo (vendidas+disponibles) y precio;
+    - cupos/precios por ticketera×tipo → ConcertTicketerTicketType (ticketera Enterticket);
+    - ventas diarias → TicketSaleDetail (rejilla completa recalculada en cada sync: las
+      anulaciones/devoluciones restan; SOLO se tocan las filas de la ticketera Enterticket).
+    Excluye invitaciones (no son venta)."""
+    if not ev.concert_id:
+        return
+    ct = _et_ensure_concert_ticketer(s, ev)
+    if not ct:
+        return
+    concert_id = ev.concert_id
+    tk_id = ct.ticketer_id
+    # 1) Tipos de entrada (upsert por nombre). SOLO se sobrescriben cupo/precio de los tipos
+    #    CREADOS por el espejo (et_managed): en los configurados a mano el cupo del tipo es el
+    #    TOTAL entre ticketeras y pisarlo con el valor de ET rompería la conciliación del módulo
+    #    manual; para esos, ET solo actualiza SU asignación (paso 2).
+    existing_types = {(t.name or "").strip().lower(): t
+                      for t in s.query(ConcertTicketType).filter(ConcertTicketType.concert_id == concert_id).all()}
+    type_by_et_id = {}
+    for t in sorted(ev.ticket_types or [], key=lambda x: (x.sort_order or 0)):
+        name = (t.name or "").strip() or f"Entrada {t.et_entrada_id}"
+        row = existing_types.get(name.lower())
+        on_sale = int(t.qty_sold or 0) + int(t.qty_available or 0)
+        if not row:
+            row = ConcertTicketType(concert_id=concert_id, name=name, qty_for_sale=on_sale,
+                                    price=t.price, et_managed=True)
+            s.add(row)
+            s.flush()
+            existing_types[name.lower()] = row
+        elif getattr(row, "et_managed", False):
+            if int(row.qty_for_sale or 0) != on_sale:
+                row.qty_for_sale = on_sale
+            if (row.price or 0) != (t.price or 0):
+                row.price = t.price
+        type_by_et_id[t.et_entrada_id] = row
+    # 2) Asignación ticketera×tipo (cupo + precio bruto de cada tipo en Enterticket).
+    existing_alloc = {a.ticket_type_id: a for a in s.query(ConcertTicketerTicketType)
+                      .filter(ConcertTicketerTicketType.concert_id == concert_id,
+                              ConcertTicketerTicketType.ticketer_id == tk_id).all()}
+    for t in (ev.ticket_types or []):
+        row = type_by_et_id.get(t.et_entrada_id)
+        if not row:
+            continue
+        on_sale = int(t.qty_sold or 0) + int(t.qty_available or 0)
+        a = existing_alloc.get(row.id)
+        if not a:
+            a = ConcertTicketerTicketType(concert_id=concert_id, ticketer_id=tk_id,
+                                          ticket_type_id=row.id, qty_for_sale=on_sale, price_gross=t.price)
+            s.add(a)
+        else:
+            if int(a.qty_for_sale or 0) != on_sale:
+                a.qty_for_sale = on_sale
+            if (a.price_gross or 0) != (t.price or 0):
+                a.price_gross = t.price
+    s.flush()
+    # 3) Rejilla diaria de ventas (día × tipo) desde las ventas crudas válidas, sin invitaciones.
+    day_rows = (_et_valid_sales_filter(s.query(
+            func.date(EnterticketSale.purchase_at).label("day"),
+            EnterticketSale.et_entrada_id.label("etid"),
+            func.count().label("n"),
+            func.sum(EnterticketSale.price).label("amt")), ev)
+        .filter(EnterticketSale.is_invitation.is_(False))
+        .filter(EnterticketSale.purchase_at.isnot(None))
+        .group_by(func.date(EnterticketSale.purchase_at), EnterticketSale.et_entrada_id).all())
+    catchall = None
+
+    def _type_for(etid):
+        nonlocal catchall
+        row = type_by_et_id.get(etid)
+        if row is not None:
+            return row
+        # Ventas de tipos retirados en ET o sin id: cajón «Enterticket · otros» (cupo 0).
+        if catchall is None:
+            catchall = existing_types.get("enterticket · otros")
+            if catchall is None:
+                catchall = ConcertTicketType(concert_id=concert_id, name="Enterticket · otros",
+                                             qty_for_sale=0, price=0, et_managed=True)
+                s.add(catchall)
+                s.flush()
+                existing_types["enterticket · otros"] = catchall
+        return catchall
+
+    wanted = {}
+    for r in day_rows:
+        tt = _type_for(r.etid)
+        key = (r.day, tt.id)
+        qty = int(r.n or 0)
+        amt = _et_money(r.amt)
+        if key in wanted:  # dos ids de ET caídos al mismo cajón el mismo día
+            qty += wanted[key][0]
+            amt += wanted[key][1]
+        wanted[key] = (qty, amt)
+    existing_details = {(d.day, d.ticket_type_id): d
+                        for d in s.query(TicketSaleDetail)
+                        .filter(TicketSaleDetail.concert_id == concert_id,
+                                TicketSaleDetail.ticketer_id == tk_id).all()}
+    for key, (qty, amt) in wanted.items():
+        day_v, type_id = key
+        unit = (amt / qty).quantize(Decimal("0.000001")) if qty else Decimal("0")
+        d = existing_details.get(key)
+        if not d:
+            s.add(TicketSaleDetail(concert_id=concert_id, ticketer_id=tk_id, ticket_type_id=type_id,
+                                   day=day_v, qty=qty, unit_price_gross=unit))
+        else:
+            if int(d.qty or 0) != qty:
+                d.qty = qty
+            if (d.unit_price_gross or 0) != unit:
+                d.unit_price_gross = unit
+    for key, d in existing_details.items():
+        if key not in wanted:
+            s.delete(d)  # ese día se quedó sin ventas válidas (anulaciones)
+    s.flush()
+    # 4) Aforo a la venta del concierto = suma de cupos por tipo (igual que el módulo manual).
+    _sync_concert_capacity_from_ticket_types(s, concert_id)
 
 
 def _et_link_event(s, ev: EnterticketEvent, concert: Concert) -> None:
+    # Un concierto solo puede tener UN evento de ET: el espejo de ventas (ticketera Enterticket)
+    # es por concierto y dos eventos se pisarían mutuamente la rejilla diaria.
+    other = (s.query(EnterticketEvent)
+             .filter(EnterticketEvent.concert_id == concert.id, EnterticketEvent.id != ev.id).first())
+    if other:
+        raise ValueError(f"Ese concierto ya está vinculado al evento «{other.name}» de Enterticket. Desvincúlalo primero.")
     ev.concert_id = concert.id
     ev.link_status = "LINKED"
     ev.last_error = None
@@ -53631,10 +53819,60 @@ def _et_link_event(s, ev: EnterticketEvent, concert: Concert) -> None:
 
 
 def _et_unlink_event(s, ev: EnterticketEvent) -> None:
+    """Desvincula y LIMPIA lo volcado al módulo de ventas: si el vínculo era erróneo, el reporte no
+    debe conservar ventas/cupos de otro evento. Se borran la rejilla diaria y las asignaciones de la
+    ticketera Enterticket y los tipos CREADOS por el espejo (et_managed) que queden sin uso; la fila
+    ConcertTicketer se CONSERVA (puede llevar rebate/aforo configurados a mano) limpiando solo el
+    enlace de venta. Al final se recalcula el aforo del concierto."""
+    concert_id = ev.concert_id
     ev.concert_id = None
     ev.link_status = "PENDING"
     for be in s.query(BuyerEvent).filter(BuyerEvent.event_id == ev.id).all():
         be.concert_id = None
+    if not concert_id:
+        return
+    tk = s.query(Ticketer).filter(func.lower(Ticketer.name) == "enterticket").first()
+    if tk:
+        (s.query(TicketSaleDetail)
+         .filter(TicketSaleDetail.concert_id == concert_id, TicketSaleDetail.ticketer_id == tk.id)
+         .delete(synchronize_session=False))
+        (s.query(ConcertTicketerTicketType)
+         .filter(ConcertTicketerTicketType.concert_id == concert_id,
+                 ConcertTicketerTicketType.ticketer_id == tk.id)
+         .delete(synchronize_session=False))
+        ct = (s.query(ConcertTicketer)
+              .filter(ConcertTicketer.concert_id == concert_id, ConcertTicketer.ticketer_id == tk.id)
+              .first())
+        if ct:
+            if ct.rebate_mode or (ct.capacity_for_sale and not ev.capacity_on_sale):
+                ct.sale_url = None  # conservar la fila: lleva configuración manual (rebate/aforo)
+            else:
+                s.delete(ct)
+        s.flush()
+    # Tipos creados por el espejo que ya no usa nadie (sin ventas ni asignaciones de ninguna ticketera).
+    for tt in (s.query(ConcertTicketType)
+               .filter(ConcertTicketType.concert_id == concert_id,
+                       ConcertTicketType.et_managed.is_(True)).all()):
+        in_use = (s.query(TicketSaleDetail.concert_id)
+                  .filter(TicketSaleDetail.ticket_type_id == tt.id).first()
+                  or s.query(ConcertTicketerTicketType.concert_id)
+                  .filter(ConcertTicketerTicketType.ticket_type_id == tt.id).first())
+        if not in_use:
+            s.delete(tt)
+    s.flush()
+    _sync_concert_capacity_from_ticket_types(s, concert_id)
+
+
+def _et_concert_has_legacy_sales(s, concert_id) -> bool:
+    """¿El concierto lleva su venta en modo BÁSICO (tabla legacy ticket_sales)? Al volcar ET en
+    V2, sales_maps_unified deja de sumar el legacy: hay que avisar al vincular."""
+    try:
+        has_legacy = bool(s.query(TicketSale.id).filter(TicketSale.concert_id == concert_id).first())
+        has_v2 = bool(s.query(TicketSaleDetail.concert_id)
+                      .filter(TicketSaleDetail.concert_id == concert_id).first())
+        return has_legacy and not has_v2
+    except Exception:
+        return False
 
 
 def _et_automatch_candidates(s, ev: EnterticketEvent, day_margin: int = 1) -> list:
@@ -53644,9 +53882,12 @@ def _et_automatch_candidates(s, ev: EnterticketEvent, day_margin: int = 1) -> li
         return []
     d0 = ev.event_date - timedelta(days=day_margin)
     d1 = ev.event_date + timedelta(days=day_margin)
+    linked_sq = (s.query(EnterticketEvent.concert_id)
+                 .filter(EnterticketEvent.concert_id.isnot(None), EnterticketEvent.id != ev.id))
     rows = (s.query(Concert)
             .options(joinedload(Concert.artist), joinedload(Concert.venue))
-            .filter(Concert.date >= d0, Concert.date <= d1).all())
+            .filter(Concert.date >= d0, Concert.date <= d1)
+            .filter(~Concert.id.in_(linked_sq)).all())
     ev_name = _norm_text_key(ev.name)
     ev_art = _norm_text_key(ev.artist_names or "")
     ev_venue = _norm_text_key(ev.venue_name or "")
@@ -53846,6 +54087,9 @@ def _et_sync_event_locked(s, ev: EnterticketEvent, full: bool = False) -> None:
     s.commit()
     _et_recompute_buyers_for_event(s, ev)
     s.commit()
+    if ev.concert_id:
+        _et_mirror_to_sales(s, ev)
+        s.commit()
 
 
 def _et_sync_event_bg(event_pk: str, full: bool = False) -> None:
@@ -54227,6 +54471,8 @@ def concert_et_link(cid):
             s.commit()
             threading.Thread(target=_et_sync_event_bg, args=(str(ev.id),), daemon=True).start()
             flash(f"Vinculado con «{ev.name}». Sincronizando ventas en segundo plano…", "success")
+            if _et_concert_has_legacy_sales(s, c.id):
+                flash("Aviso: este concierto llevaba la venta en modo básico (histórico manual antiguo). Al integrarse con Enterticket, el reporte pasa a usar el desglose por ticketeras y ese histórico básico deja de sumarse.", "warning")
     except Exception as e:
         try:
             s.rollback()
@@ -54275,6 +54521,31 @@ def concert_et_sync(cid):
     finally:
         s.close()
     return redirect(url_for("concert_detail_view", cid=cid, tab="ticketing"))
+
+
+@app.get("/ventas/et/estado", endpoint="sales_et_status")
+@admin_required
+def sales_et_status():
+    """Marca de frescura de Enterticket (máx. last_synced_at), ACOTADA a los conciertos que se
+    pasan en ?cids= (los del reporte abierto): el reporte la vigila y se recarga una vez cuando
+    terminan los syncs lanzados al abrirlo. Sin acotar, cualquier sync ajeno provocaría recargas."""
+    cids = []
+    for raw in (request.args.get("cids") or "").split(",")[:300]:
+        try:
+            u = to_uuid(raw.strip())
+            if u:
+                cids.append(u)
+        except Exception:
+            continue
+    s = db()
+    try:
+        q = s.query(func.max(EnterticketEvent.last_synced_at)).filter(EnterticketEvent.concert_id.isnot(None))
+        if cids:
+            q = q.filter(EnterticketEvent.concert_id.in_(cids))
+        mx = q.scalar()
+        return jsonify({"stamp": int(mx.timestamp()) if mx else 0})
+    finally:
+        s.close()
 
 
 @app.get("/cron/enterticket/refresh", endpoint="cron_enterticket_refresh")

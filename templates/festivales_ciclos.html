@@ -97,7 +97,7 @@
             </select>
           </div>
           <div class="col-md-6" data-cf-venue>
-            <label class="form-label">Recinto (ciclo)</label>
+            <label class="form-label">Recinto <span class="text-muted small">(el ciclo comparte recinto)</span></label>
             <select class="form-select select-venues" name="venue_id" data-no-loader>
               <option value="">—</option>
               {% for v in venues %}<option value="{{ v.id }}" data-name="{{ v.name }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}">{{ v.name }}</option>{% endfor %}

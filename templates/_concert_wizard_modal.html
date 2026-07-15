@@ -104,7 +104,7 @@
                 <input type="date" class="form-control" name="date" id="wizard_date" required>
                 <div class="form-text">Fecha obligatoria en ambos flujos.</div>
               </div>
-              <div class="col-lg-8">
+              <div class="col-lg-8" id="wizardFestivalNameWrap">
                 <label class="form-label">Nombre del festival / evento</label>
                 <input type="text" class="form-control" name="festival_name" placeholder="Festival / nombre interno">
               </div>
@@ -138,25 +138,25 @@
                   </div>
 
                   <div class="row g-3 mt-0" id="wizardVenueManualWrap" style="display:none;">
-                    <div class="col-lg-6">
+                    <div class="col-lg-3">
                       <label class="form-label">Municipio</label>
                       <input class="form-control" name="manual_municipality" id="wizard_manual_municipality" placeholder="Municipio">
                     </div>
-                    <div class="col-lg-6">
+                    <div class="col-lg-3">
                       <label class="form-label">Provincia</label>
                       <input class="form-control" name="manual_province" id="wizard_manual_province" placeholder="Provincia">
+                    </div>
+                    <div class="col-lg-4">
+                      <label class="form-label">Dirección</label>
+                      <input class="form-control" name="manual_venue_address" placeholder="Dirección del recinto">
+                    </div>
+                    <div class="col-lg-2">
+                      <label class="form-label">Código postal</label>
+                      <input class="form-control" name="manual_postal_code" placeholder="CP">
                     </div>
                   </div>
 
                   <div class="row g-3 mt-0">
-                    <div class="col-lg-6">
-                      <label class="form-label">Dirección</label>
-                      <input class="form-control" name="manual_venue_address" placeholder="Dirección del recinto">
-                    </div>
-                    <div class="col-lg-3">
-                      <label class="form-label">Código postal</label>
-                      <input class="form-control" name="manual_postal_code" placeholder="CP">
-                    </div>
                     <div class="col-lg-3 direct-only" data-mode="direct">
                       <label class="form-label">Hora del show</label>
                       <div class="input-group">
@@ -393,7 +393,7 @@
                   </label>
                 </div>
                 {% for t in (wizard_tours or []) %}
-                <div class="col-6 col-md-3">
+                <div class="col-6 col-md-3 wizard-tour-card" data-artist="{{ t.artist_id }}">
                   <label class="activity-choice-card border rounded p-2 text-center h-100 w-100 d-block bg-white">
                     <input class="form-check-input visually-hidden" type="radio" name="wizard_group_ref" value="tour:{{ t.id }}">
                     <img src="{{ t.logo or DEFAULT_PHOTO_URL }}" alt="" data-default-photo="1" style="width:44px;height:44px;object-fit:cover;border-radius:10px;" class="mb-1">
@@ -806,6 +806,7 @@
       const saleRadio = document.querySelector('.wizard-sale-type-radio:checked');
       const saleType = (saleRadio && saleRadio.value || '').toUpperCase();
       const isEmpresa = saleType === 'EMPRESA';
+      const isGratuito = saleType === 'GRATUITO';
       const promoterWrap = document.getElementById('wizardPromoterWrap');
       const promoterCompanyWrap = document.getElementById('wizardPromoterCompanyWrap');
       if(promoterWrap) promoterWrap.classList.toggle('d-none', isEmpresa);
@@ -814,6 +815,28 @@
         if(mainPromoterSelect){ mainPromoterSelect.value = ''; if(window.jQuery && jQuery.fn.select2){ jQuery(mainPromoterSelect).val('').trigger('change'); } }
         if(mainPromoterCompany){ mainPromoterCompany.innerHTML = '<option value="">—</option>'; }
       }
+      // «¿Quién saca a la venta?»: solo en vendido/participado (en «a empresa» lo saca la empresa del grupo; en gratuito no hay venta).
+      const ownerWrap = document.getElementById('wizardSaleOwnerWrap');
+      if(ownerWrap) ownerWrap.classList.toggle('d-none', isEmpresa || isGratuito);
+      // Gratuito ⇒ sin venta de entradas (se desmarca y bloquea el switch).
+      if(hasTicketSales){
+        if(isGratuito){ hasTicketSales.checked = false; hasTicketSales.disabled = true; }
+        else { hasTicketSales.disabled = false; }
+        toggleTicketSales();
+      }
+    }
+    function syncFestivalName(){
+      const t = document.querySelector('input[name="activity_type"]:checked');
+      const wrap = document.getElementById('wizardFestivalNameWrap');
+      if(wrap) wrap.classList.toggle('d-none', (t && t.value || '') === 'CONCIERTO');
+    }
+    function filterTourCards(){
+      const sel = document.getElementById('wizard_artist_id');
+      const vals = sel ? Array.prototype.map.call(sel.selectedOptions || [], function(o){ return o.value; }) : [];
+      document.querySelectorAll('.wizard-tour-card').forEach(function(card){
+        const a = card.getAttribute('data-artist') || '';
+        card.classList.toggle('d-none', !!(a && vals.length && vals.indexOf(a) < 0));
+      });
     }
 
     async function checkArtistConflict(){
@@ -867,8 +890,10 @@
     knowsVenue?.addEventListener('change', toggleVenueKnown);
     hasTicketSales?.addEventListener('change', toggleTicketSales);
     document.querySelectorAll('.wizard-sale-type-select, .wizard-sale-type-radio').forEach(sel => sel.addEventListener('change', syncPromoterVisibility));
+    document.querySelectorAll('input[name="activity_type"]').forEach(el => el.addEventListener('change', syncFestivalName));
     mainPromoterSelect?.addEventListener('change', ()=> fillPromoterCompanySelect(mainPromoterSelect.value, mainPromoterCompany));
     document.getElementById('wizard_artist_id')?.addEventListener('change', checkArtistConflict);
+    document.getElementById('wizard_artist_id')?.addEventListener('change', filterTourCards);
     document.getElementById('wizard_date')?.addEventListener('change', checkArtistConflict);
     modalEl?.addEventListener('shown.bs.modal', ()=> {
       syncMode();
@@ -876,6 +901,8 @@
       toggleTicketSales();
       fillPromoterCompanySelect(mainPromoterSelect?.value, mainPromoterCompany);
       syncPromoterVisibility();
+      syncFestivalName();
+      filterTourCards();
       initVenueTypeahead('wizard_venue_search', 'wizard_venue_id');
       if(!document.getElementById('wizardPartnerRows').children.length) wizardAddPartnerRow();
       if(!document.getElementById('wizardZoneRows').children.length) wizardAddZoneRow();
@@ -907,6 +934,7 @@
     toggleVenueKnown();
     toggleTicketSales();
     syncPromoterVisibility();
+    syncFestivalName();
   })();
 </script>
 <script>
@@ -916,6 +944,8 @@
     var params = new URLSearchParams(window.location.search);
     if (params.get('open_wizard') !== '1') return;
     var artistId = params.get('wizard_artist') || '';
+    var actType = params.get('wizard_activity_type') || '';
+    var groupRef = params.get('wizard_group') || '';
     function go() {
       var modalEl = document.getElementById('concertWizardModal');
       if (!modalEl || typeof bootstrap === 'undefined') { return setTimeout(go, 80); }
@@ -926,9 +956,18 @@
           else { Array.prototype.forEach.call(sel.options, function (o) { if (o.value === artistId) o.selected = true; }); }
         }
       }
+      // Alta de fecha desde una gira/ciclo: tipo CONCIERTO y vínculo al grupo de origen.
+      if (actType) {
+        var atRadio = document.querySelector('input[name="activity_type"][value="' + actType + '"]');
+        if (atRadio) { atRadio.checked = true; atRadio.dispatchEvent(new Event('change', { bubbles: true })); }
+      }
+      if (groupRef) {
+        var gRadio = document.querySelector('input[name="wizard_group_ref"][value="' + groupRef + '"]');
+        if (gRadio) gRadio.checked = true;
+      }
       bootstrap.Modal.getOrCreateInstance(modalEl).show();
       // Limpia los parámetros para que un refresco no reabra el asistente.
-      params.delete('open_wizard'); params.delete('wizard_artist');
+      params.delete('open_wizard'); params.delete('wizard_artist'); params.delete('wizard_activity_type'); params.delete('wizard_group');
       var qs = params.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
     }

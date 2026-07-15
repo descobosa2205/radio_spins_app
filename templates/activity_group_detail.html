@@ -164,10 +164,11 @@
           </div>
           <button class="btn btn-outline-primary" type="submit"><i class="fa fa-link me-1"></i>Vincular</button>
         </form>
+        {% set _gref = ('tour:' ~ group.id) if is_tour else ('cycle:' ~ group.id) %}
         {% if is_tour and group.artist %}
-        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1, wizard_artist=group.artist_id) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
+        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1, wizard_activity_type='CONCIERTO', wizard_group=_gref, wizard_artist=group.artist_id) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
         {% else %}
-        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
+        <a class="btn btn-primary" href="{{ url_for('concerts_view', tab='vista', open_wizard=1, wizard_activity_type='CONCIERTO', wizard_group=_gref) }}"><i class="fa fa-plus me-1"></i>Crear concierto</a>
         {% endif %}
       </div>
     </div>
@@ -268,7 +269,7 @@
             <select class="form-select select-artists" name="artist_id" data-no-loader><option value="">—</option>{% for a in artists %}<option value="{{ a.id }}" data-photo="{{ a.photo_url or url_for('static', filename='img/logo.png') }}" {{ 'selected' if group.artist_id and (group.artist_id|string)==(a.id|string) }}>{{ a.name }}</option>{% endfor %}</select>
           </div>
           {% else %}
-          <div class="col-md-6"><label class="form-label">Recinto (ciclo)</label>
+          <div class="col-md-6"><label class="form-label">Recinto{% if not is_festival %} <span class="text-muted small">(mismo para el ciclo)</span>{% endif %}</label>
             <select class="form-select select-venues" name="venue_id" data-no-loader><option value="">—</option>{% for v in venues %}<option value="{{ v.id }}" data-photo="{{ v.photo_url or url_for('static', filename='img/logo.png') }}" {{ 'selected' if group.venue_id and (group.venue_id|string)==(v.id|string) }}>{{ v.name }}</option>{% endfor %}</select>
           </div>
           {% endif %}

@@ -669,6 +669,31 @@ def _render_error_page(code: int, title: str, default_message: str):
         ), code
 
 
+def _render_maintenance_page(code: int = 503):
+    """Página animada de «estamos trabajando» (colores corporativos + iconos de música/fiesta/verano/
+    conciertos) para cuando la web está caída o da un error de servidor. Es AUTÓNOMA
+    (`static/maintenance.html`: banner e iconos embebidos, sin CDN ni /static) para que se vea aunque
+    falle todo. Para peticiones AJAX/JSON devuelve JSON, para no romper el front."""
+    if _wants_json_response():
+        return jsonify({"ok": False, "error": code,
+                        "message": "Estamos trabajando en la web. Inténtalo de nuevo en un rato."}), code
+    try:
+        resp = app.send_static_file("maintenance.html")
+        resp.status_code = code
+        resp.headers["Cache-Control"] = "no-store"      # no cachear una respuesta de error
+        return resp
+    except Exception:
+        return _render_error_page(code, "Estamos trabajando",
+                                  "Estamos trabajando en cosas muy chulas. Inténtalo de nuevo en un rato.")
+
+
+@app.get("/mantenimiento", endpoint="maintenance_preview")
+def maintenance_preview():
+    """Vista pública de la página de «estamos trabajando» (para previsualizarla y para poder
+    apuntar ahí la página de mantenimiento del proveedor si se quiere)."""
+    return app.send_static_file("maintenance.html")
+
+
 @app.errorhandler(403)
 def _handle_403(e):
     return _render_error_page(403, "Acceso no permitido", "No tienes permiso para acceder a esta página.")
@@ -681,7 +706,9 @@ def _handle_404(e):
 
 @app.errorhandler(500)
 def _handle_500(e):
-    return _render_error_page(500, "Error del servidor", "Se ha producido un error inesperado. Vuelve a intentarlo en unos minutos.")
+    # Ante un error del servidor mostramos la página animada de «estamos trabajando» (la web se
+    # percibe como "caída"), con reintento automático.
+    return _render_maintenance_page(500)
 
 
 # ---------- Roles / permisos ----------
@@ -21481,6 +21508,37 @@ def simulation_print(sid):
         s.close()
 
 
+def _simulation_share_meta(sim):
+    """Metadatos para compartir una simulación por WhatsApp/correo (previsualización social del
+    enlace público y cabecera del correo). Se comparten para que el enlace y el correo se vean igual.
+    - imagen: el CARTEL PRINCIPAL (`poster_url`) si lo hay; si no, la foto del artista o el logo del
+      evento (así SIEMPRE hay imagen de previsualización).
+    - descripción secundaria: si hay VARIAS fechas, el número de eventos; si es UNA sola, la fecha y
+      el recinto."""
+    subject = _sim_subject(sim)
+    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get((sim.kind or "").upper(), "Concierto")
+    image = _absolute_media_url((sim.poster_url or "").strip() or (subject.get("photo") or ""))
+    activities = [a for a in (sim.activities or []) if not a.is_shared]
+    if len(activities) > 1:
+        desc = f"{kind_label} · {len(activities)} fechas"
+    elif activities:
+        a0 = activities[0]
+        parts = []
+        if a0.event_date and not a0.date_unknown:
+            parts.append(a0.event_date.strftime("%d/%m/%Y"))
+        v0 = a0.venue
+        if v0 and not a0.venue_unknown and (v0.name or "").strip():
+            loc = (v0.name or "").strip()
+            if (v0.municipality or "").strip():
+                loc += f" ({v0.municipality.strip()})"
+            parts.append(loc)
+        desc = " · ".join(parts) or kind_label
+    else:
+        desc = kind_label
+    return {"title": (sim.title or subject["name"] or "Simulación"), "description": desc,
+            "image": image, "kind_label": kind_label, "subject": subject}
+
+
 def _simulation_print_context(s, sim):
     """Contexto de solo lectura (PDF / enlace público): bloques por fecha, totales y prorrateo.
     Compartido por el PDF interno y la vista pública. Incluye los MISMOS módulos que las pestañas
@@ -21583,6 +21641,7 @@ def _simulation_print_context(s, sim):
         lineup=lineup_sorted, festival_breakdown=festival_breakdown, has_row_labels=has_row_labels,
         summary_income=summary_income, summary_expense=summary_expense, summary_expense_cat=summary_expense_cat,
         bag_labels=dict(BAG_EXPENSE_CATEGORIES), company=sim.managing_company,
+        og=_simulation_share_meta(sim),
     )
 
 
@@ -21681,23 +21740,23 @@ def _promoter_email_addresses(s, promoter_id):
 def _simulation_email_body(s, sim, link):
     """Correo de compartir simulación: resumen breve + botón «Ver datos completos» al enlace público.
     Los gráficos y el detalle viven en la página pública (el correo no ejecuta JS)."""
-    subj = _sim_subject(sim)
-    kind_label = {"CONCERT": "Concierto", "TOUR": "Gira", "CYCLE": "Ciclo", "FESTIVAL": "Festival"}.get((sim.kind or "").upper(), "Concierto")
+    meta = _simulation_share_meta(sim)
+    subj = meta["subject"]
+    kind_label = meta["kind_label"]
     logo = _invitation_event_logo_url(s, None, external=True)
     esc = html.escape
-    photo = ""
-    if sim.artist and getattr(sim.artist, "photo_url", None):
-        photo = _absolute_media_url(sim.artist.photo_url)
-    elif sim.event and getattr(sim.event, "logo_url", None):
-        photo = _absolute_media_url(sim.event.logo_url)
+    # Imagen de cabecera: cartel principal si lo hay, si no la foto del artista / logo del evento.
+    photo = meta["image"]
     subject = f"Simulación · {subj['name']} ({kind_label})"
     photo_html = (f'<img src="{esc(photo)}" width="56" height="56" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:1px solid #eceef1;vertical-align:middle;margin-right:10px">' if photo else '')
+    # Línea secundaria: nº de fechas (varias) o fecha + recinto (una sola).
+    sub_line = meta["description"] or f"Simulación · {kind_label}"
     body = (
         f'<div style="font-family:Arial,sans-serif;color:#111;line-height:1.45;max-width:640px;margin:0 auto">'
         f'<div style="text-align:right;margin-bottom:6px"><img src="{esc(logo)}" style="max-height:52px;max-width:180px" alt=""></div>'
         f'<div style="background:#f6f7f9;border:1px solid #eceef1;border-radius:14px;padding:14px 16px;margin:8px 0 16px">'
-        f'{photo_html}<span style="font-size:17px;font-weight:700">{esc(subj["name"])}</span>'
-        f'<div style="font-size:13px;color:#555;margin-top:2px">Simulación · {esc(kind_label)}</div></div>'
+        f'{photo_html}<span style="font-size:17px;font-weight:700">{esc(meta["title"])}</span>'
+        f'<div style="font-size:13px;color:#555;margin-top:2px">{esc(sub_line)}</div></div>'
         f'<p>Te comparto el resumen de esta simulación. Pulsa el botón para ver todos los datos y gráficos.</p>'
         f'<p style="text-align:center;margin:18px 0"><a href="{esc(link)}" style="background:#E33D48;color:#fff;text-decoration:none;padding:11px 20px;border-radius:10px;font-weight:700;display:inline-block">Ver datos completos</a></p>'
         f'<p style="font-size:12px;color:#888">Si el botón no funciona, copia este enlace: {esc(link)}</p>'
@@ -31544,7 +31603,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view"}
 
 
 def _resource_label_from_key(key: str) -> str:

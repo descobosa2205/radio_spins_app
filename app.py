@@ -32339,19 +32339,16 @@ def _welcome_email_html(user: User, profile: UserProfile | None, token: str) -> 
 
 
 def _password_reset_email_html(user: User, profile: UserProfile | None, token: str) -> str:
-    logo_33 = _treinta_y_tres_logo_url()
-    logo_33_html = f'<img src="{html.escape(logo_33)}" alt="Treinta y Tres Producciones" style="height:44px;object-fit:contain;">' if logo_33 else ''
-    logo_pies = _external_url_for("static", filename="img/logo.png")
+    # La cabecera lleva SOLO el banner del Back Office, que ya incorpora los logos de 33 Producciones
+    # y PIES; por eso no repetimos los logos sueltos del grupo.
     backoffice_logo = _external_url_for("static", filename="img/Banner.png")
     reset_url = _external_url_for("password_set", token=token)
     nick = html.escape((getattr(profile, "nick", None) or _email_to_nick(user.email or "")).strip())
     return f"""
     <div style=\"background:#f4f6f8;padding:32px 16px;font-family:Arial,sans-serif;color:#111827;\">
       <div style=\"max-width:640px;margin:0 auto;background:#ffffff;border-radius:20px;padding:28px;border:1px solid #e5e7eb;\">
-        <div style=\"display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;\">
-          {logo_33_html}
-          <img src=\"{logo_pies}\" alt=\"PIES\" style=\"height:44px;object-fit:contain;\">
-          <img src=\"{backoffice_logo}\" alt=\"Back Office\" style=\"height:36px;object-fit:contain;\">
+        <div style=\"margin-bottom:16px;\">
+          <img src=\"{backoffice_logo}\" alt=\"Back Office · 33 Producciones · PIES\" style=\"height:48px;max-width:100%;object-fit:contain;\">
         </div>
         <h1 style=\"margin:0 0 12px 0;font-size:28px;\">Restablecer contraseña</h1>
         <p style=\"margin:0 0 14px 0;font-size:15px;line-height:1.6;\">Hola <strong>{nick}</strong>, hemos recibido una solicitud para cambiar tu contraseña de acceso al Back Office.</p>

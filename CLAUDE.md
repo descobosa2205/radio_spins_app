@@ -241,6 +241,27 @@ DATABASE_URL="postgresql://u:p@127.0.0.1:1/db" PGCONNECT_TIMEOUT=2 SUPABASE_URL=
   "¿Para quién son?" y "Entrega". **No** aplicar en pasos **multicampo** (asistente de conciertos
   `_concert_wizard_modal.html`, alta de medios `media_outlets.html`), que conservan "Siguiente".
 
+- **Integración Enterticket (ticketing en tiempo casi real)**: cliente HTTP en `enterticket_utils.py`
+  (credenciales `ENTERTICKET_USER/PASSWORD` en `.env`; sin ellas TODO desactivado). ⚠️ La API solo
+  admite **UN token activo por cuenta** → se comparte en BD (`EnterticketMeta` id=1) y `_et_call`
+  relee BD antes de re-autenticar (varios workers). Espejo local en `models.py`
+  (`EnterticketEvent` —catálogo + vínculo a concierto, estados PENDING/LINKED/IGNORED/REQUESTED—,
+  `EnterticketTicketType`, `EnterticketSale` —cada entrada con comprador/importe/sector/asiento—,
+  `Buyer`/`BuyerEvent` —compradores deduplicados por email—, `ensure_enterticket_schema`).
+  Sync incremental (`_et_sync_event`: detalle + ventas nuevas por `desde_id` + cambios por `updated`
+  + bloqueos + recomputo de compradores) disparado al abrir la pestaña Ticketing (>10 min), por el
+  polling JS (60 s → `concert_et_status?sync=1`), botones «Actualizar» y cron externo
+  `/cron/enterticket/refresh?key=ENTERTICKET_CRON_KEY` (acepta la de Chartmetric). **Matching**
+  artista+recinto+fecha (`_et_automatch_candidates`; auto-vincula solo con score ≥4 sin empate); al
+  vincular se crea/actualiza la ticketera «Enterticket» del concierto (`ConcertTicketer.sale_url`
+  nuevo + aforo). Evento ET sin correspondencia → botón en Integraciones crea **petición a
+  Contratación** (`_et_create_booking_request`, BookingRequest con payload ET). UI: panel
+  `templates/_et_ticketing_panel.html` en la pestaña Ticketing (KPIs, barra por tipo `.et-bar`,
+  gráfico de evolución vía `#chartModal`, compradores, plano en tiempo real reutilizando
+  `venue_map.js` + `seatmap_calc` con categorías sintéticas Vendida/Invitación), página
+  `/compradores` (`databases.buyers`, agrupada por eventos + CSV) y pestaña Enterticket en
+  Integraciones (estado/acciones, solo dirección).
+
 ## Marca / estética
 - Colores: **#E33D48** (rojo, `--brand-primary`) y **#007CA2** (azul, `--brand-accent`).
 - Logos: `static/img/logo_33_producciones.png` y `static/img/logo.png` (PIES). Co-branding.

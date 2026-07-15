@@ -1,0 +1,249 @@
+{# Panel «Venta de entradas · Enterticket» (pestaña Ticketing de la ficha de concierto).
+   Contexto (concert_detail_view): et_event (EnterticketEvent vinculado), et_ctx (informe:
+   _et_ticketing_context), et_buyers (compradores del evento) y, si NO hay vínculo,
+   et_candidates (eventos de ET que encajan por artista/recinto/fecha para vincular aquí).
+   Se refresca solo: polling a concert_et_status cada 60 s (dispara sync si los datos están viejos). #}
+{% if et_event and et_ctx %}
+<div class="card mb-3"><div class="card-body">
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+    <div class="d-flex align-items-center gap-2">
+      {% if et_event.artist_image or et_event.image_url %}<img src="{{ et_event.artist_image or et_event.image_url }}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover">{% endif %}
+      <div>
+        <h5 class="mb-0"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· Enterticket</span></h5>
+        <div class="small text-muted">
+          {{ et_event.name }}
+          {% if et_event.url_enterticket %} · <a href="{{ et_event.url_enterticket }}" target="_blank" rel="noopener" class="text-decoration-none"><i class="fa fa-arrow-up-right-from-square me-1"></i>Enlace de venta</a>{% endif %}
+          · <span id="et-last-sync" title="Última sincronización">{% if et_ctx.last_synced_label %}Actualizado {{ et_ctx.last_synced_label }}{% else %}Sin sincronizar aún{% endif %}</span>
+          <span id="et-sync-spinner" class="d-none"><i class="fa fa-rotate fa-spin ms-1"></i></span>
+        </div>
+      </div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-outline-primary btn-sm" onclick="etOpenChart('')"><i class="fa fa-chart-line me-1"></i>Evolución</button>
+      {% if CAN_EDIT_CONCERTS %}
+      <form method="post" action="{{ url_for('concert_et_sync', cid=concert.id) }}"><button class="btn btn-outline-secondary btn-sm"><i class="fa fa-rotate me-1"></i>Actualizar ahora</button></form>
+      <form method="post" action="{{ url_for('concert_et_unlink', cid=concert.id) }}" onsubmit="return confirm('¿Desvincular este concierto del evento de Enterticket?');"><button class="btn btn-outline-danger btn-sm" title="Desvincular"><i class="fa fa-link-slash"></i></button></form>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mb-3">
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-onsale">{{ et_ctx.total_on_sale|k }}</div><div class="sim-stat__l">Entradas a la venta</div></div>
+    <div class="sim-stat"><div class="sim-stat__n text-success" id="et-kpi-sold">{{ et_ctx.total_sold|k }}</div><div class="sim-stat__l">Vendidas (<span id="et-kpi-pct">{{ et_ctx.pct_total }}</span>%)</div></div>
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-available">{{ et_ctx.total_available|k }}</div><div class="sim-stat__l">Disponibles</div></div>
+    <div class="sim-stat"><div class="sim-stat__n {{ 'text-success' if et_ctx.sold_today else '' }}" id="et-kpi-today">{{ et_ctx.sold_today|k }}</div><div class="sim-stat__l">Vendidas hoy</div></div>
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-revenue">{{ et_ctx.total_revenue|eur }}</div><div class="sim-stat__l">Recaudación</div></div>
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-inv">{{ et_ctx.invitations_total|k }}</div><div class="sim-stat__l">Invitaciones</div></div>
+    <div class="sim-stat"><div class="sim-stat__n" id="et-kpi-blocked">{{ et_ctx.blocked_count|k }}</div><div class="sim-stat__l">Bloqueadas</div></div>
+    {% if concert.capacity and not concert.no_capacity %}<div class="sim-stat"><div class="sim-stat__n">{{ concert.capacity|k }}</div><div class="sim-stat__l">Aforo total</div></div>{% endif %}
+  </div>
+  <div class="et-bar mb-3" title="Estado global de la venta"><div class="et-bar__fill {{ 'full' if et_ctx.pct_total >= 100 else ('hot' if et_ctx.pct_total >= 85 else '') }}" id="et-bar-total" style="width:{{ [et_ctx.pct_total, 100]|min }}%"></div></div>
+
+  <ul class="nav nav-pills mb-3" role="tablist">
+    <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#et-pane-ventas" type="button"><i class="fa fa-chart-column me-1"></i>Ventas por tipo</button></li>
+    {% if et_buyers is not none %}
+    <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#et-pane-buyers" type="button"><i class="fa fa-users me-1"></i>Compradores <span class="badge text-bg-secondary">{{ et_buyers_total|k }}</span></button></li>
+    {% endif %}
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade show active" id="et-pane-ventas">
+      <div class="table-responsive">
+        <table class="table table-sm align-middle">
+          <thead class="table-light"><tr>
+            <th>Tipo de entrada</th><th class="text-end">Precio</th><th class="text-end">Vendidas</th>
+            <th class="text-end">Disponibles</th><th style="width:24%">Estado de la venta</th>
+            <th class="text-end">Recaudación</th><th></th>
+          </tr></thead>
+          <tbody id="et-types-body">
+          {% for t in et_ctx.types %}
+            <tr data-tt="{{ t.et_entrada_id }}">
+              <td class="small fw-semibold">{{ t.name }}{% if t.is_numbered %} <i class="fa fa-chair text-muted" title="Entrada numerada"></i>{% endif %}{% if t.available == 0 and t.on_sale %} <span class="badge text-bg-success">Agotada</span>{% endif %}</td>
+              <td class="text-end small">{{ t.price|eur }}</td>
+              <td class="text-end" data-et-sold>{{ t.sold|k }} <span class="text-muted small">/ {{ t.on_sale|k }}</span></td>
+              <td class="text-end" data-et-available>{{ t.available|k }}</td>
+              <td>
+                <div class="et-bar" title="{{ t.pct }}% vendido">
+                  <div class="et-bar__fill {{ 'full' if t.pct >= 100 else ('hot' if t.pct >= 85 else '') }}" data-et-bar style="width:{{ [t.pct, 100]|min }}%"></div>
+                  <span class="et-bar__pct" data-et-pct>{{ t.pct }}%</span>
+                </div>
+              </td>
+              <td class="text-end small" data-et-revenue>{{ t.revenue|eur }}</td>
+              <td class="text-end"><button type="button" class="btn btn-sm btn-outline-secondary" title="Evolución de este tipo" onclick='etOpenChart("{{ t.et_entrada_id }}", {{ t.name|tojson }})'><i class="fa fa-chart-line"></i></button></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="text-muted small">Aún no hay tipos de entrada sincronizados.{% if CAN_EDIT_CONCERTS %} Pulsa «Actualizar ahora».{% endif %}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if et_ctx.invitations %}
+      <h6 class="text-uppercase small text-muted mt-3"><i class="fa fa-gift me-1"></i>Invitaciones emitidas en Enterticket</h6>
+      <div class="d-flex flex-wrap gap-2" id="et-inv-chips">
+        {% for inv in et_ctx.invitations %}
+        <span class="badge rounded-pill text-bg-light border">{{ inv.concept }} <strong class="ms-1">{{ inv.count|k }}</strong></span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if et_venue_map %}
+      {# Plano del recinto EN TIEMPO REAL: butacas vendidas (rojo) e invitaciones (naranja),
+         casadas por sector/fila/asiento con el mapa de butacas del recinto. #}
+      <details class="mt-3 border rounded p-2" data-vmap-et>
+        <summary class="fw-semibold" style="cursor:pointer"><i class="fa fa-map me-1 text-danger"></i>Plano del recinto en tiempo real
+          <span class="badge text-bg-light border ms-1">{{ et_venue_map.matched }} butaca(s) casada(s)</span>
+          {% if et_venue_map.unmatched %}<span class="badge text-bg-warning ms-1" title="Entradas numeradas cuyo sector/fila/asiento no casa con el mapa del recinto. Añade alias al sector en la ficha del recinto (Ticketing → Mapa de butacas).">{{ et_venue_map.unmatched }} sin casar</span>{% endif %}
+        </summary>
+        <div class="mt-2" data-venue-map data-can-edit="" data-save-url=""></div>
+        <script type="application/json" id="venueMapData">{{ et_venue_map.payload|tojson }}</script>
+        <script src="{{ url_for('static', filename='js/venue_map.js') }}"></script>
+        <script>
+        (function(){
+          // El visor nace dentro de un <details> cerrado (sin tamaño): reencuadrar al abrirlo.
+          var d = document.querySelector('[data-vmap-et]');
+          if(!d) return;
+          d.addEventListener('toggle', function(){
+            if(!d.open) return;
+            var fit = d.querySelector('[data-vm-fit]');
+            setTimeout(function(){ if(fit) fit.click(); }, 60);
+          });
+        })();
+        </script>
+      </details>
+      {% endif %}
+    </div>
+
+    {% if et_buyers is not none %}
+    <div class="tab-pane fade" id="et-pane-buyers">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2">
+        <input type="search" class="form-control form-control-sm" style="max-width:320px" placeholder="Buscar por nombre, email o teléfono…" id="et-buyers-search">
+        <div class="d-flex gap-2">
+          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('buyers_export_csv', event=et_event.id) }}"><i class="fa fa-file-csv me-1"></i>Exportar CSV</a>
+          <a class="btn btn-sm btn-outline-primary" href="{{ url_for('buyers_view', event=et_event.id, vista='evento') }}"><i class="fa fa-database me-1"></i>Base de datos completa</a>
+        </div>
+      </div>
+      <div class="table-responsive" style="max-height:420px;overflow:auto">
+        <table class="table table-sm align-middle">
+          <thead class="table-light"><tr><th>Nombre</th><th>Email</th><th>Teléfono</th><th class="text-end">Entradas</th><th class="text-end">Importe</th><th>Última compra</th><th class="text-center" title="Acepta publicidad"><i class="fa fa-envelope-open-text"></i></th></tr></thead>
+          <tbody id="et-buyers-body">
+          {% for b in et_buyers %}
+            <tr data-et-buyer-search="{{ (b.name ~ ' ' ~ b.email ~ ' ' ~ b.phone)|lower }}">
+              <td class="small">{{ b.name or '—' }}{% if b.events > 1 %} <span class="badge text-bg-info" title="Ha comprado para {{ b.events }} eventos">{{ b.events }} eventos</span>{% endif %}</td>
+              <td class="small">{{ b.email }}</td>
+              <td class="small">{{ b.phone or '—' }}</td>
+              <td class="text-end">{{ b.tickets|k }}</td>
+              <td class="text-end small">{{ b.amount|eur }}</td>
+              <td class="small">{{ b.last.strftime('%d/%m/%Y %H:%M') if b.last else '—' }}</td>
+              <td class="text-center">{% if b.marketing %}<i class="fa fa-check text-success"></i>{% else %}<i class="fa fa-xmark text-muted"></i>{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="7" class="text-muted small">Aún no hay compradores sincronizados.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if et_buyers_total > et_buyers|length %}
+      <div class="small text-muted mt-1">Se muestran los {{ et_buyers|length|k }} compradores con más entradas (de {{ et_buyers_total|k }}). Usa «Base de datos completa» para buscar entre todos.</div>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div></div>
+
+<script>
+(function () {
+  var cid = {{ concert.id|string|tojson }};
+  // --- Gráfico de evolución (reutiliza el modal global #chartModal) ---
+  window.etOpenChart = async function (tt, title) {
+    try {
+      var modalEl = document.getElementById('chartModal');
+      var canvas = document.getElementById('evoChart');
+      if (!modalEl || !canvas) return;
+      var existing = (window.Chart && Chart.getChart) ? Chart.getChart(canvas) : null;
+      if (existing && existing.destroy) existing.destroy();
+      document.getElementById('chart-modal-title').textContent = title ? ('Evolución · ' + title) : 'Evolución de la venta';
+      document.getElementById('chart-modal-subtitle').textContent = {{ et_event.name|tojson }};
+      var r = await fetch('/conciertos/' + cid + '/ticketing/et/series' + (tt ? ('?tt=' + encodeURIComponent(tt)) : ''), {headers: {'Accept': 'application/json'}});
+      var js = r.ok ? await r.json() : {labels: [], values: []};
+      new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels: js.labels || [], datasets: [{ label: 'Entradas/día', data: js.values || [], tension: 0.25, fill: true }] },
+        options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }, plugins: { legend: { display: false } } }
+      });
+      new bootstrap.Modal(modalEl).show();
+    } catch (e) { console.error(e); }
+  };
+  // --- Buscador de compradores (cliente) ---
+  var search = document.getElementById('et-buyers-search');
+  if (search) search.addEventListener('input', function () {
+    var q = (this.value || '').toLowerCase();
+    document.querySelectorAll('#et-buyers-body tr[data-et-buyer-search]').forEach(function (tr) {
+      tr.style.display = tr.getAttribute('data-et-buyer-search').indexOf(q) >= 0 ? '' : 'none';
+    });
+  });
+  // --- Tiempo casi real: polling cada 60 s (el servidor sincroniza si los datos están viejos) ---
+  var fmtInt = function (n) { return (n || 0).toLocaleString('es-ES'); };
+  var fmtEur = function (n) { return (n || 0).toLocaleString('es-ES', {style: 'currency', currency: 'EUR'}); };
+  function applyBar(el, pct) {
+    if (!el) return;
+    el.style.width = Math.min(pct || 0, 100) + '%';
+    el.classList.toggle('full', pct >= 100);
+    el.classList.toggle('hot', pct >= 85 && pct < 100);
+  }
+  async function etPoll() {
+    try {
+      var r = await fetch('/conciertos/' + cid + '/ticketing/et/estado?sync=1', {headers: {'Accept': 'application/json'}, cache: 'no-store'});
+      if (!r.ok) return;
+      var js = await r.json();
+      if (!js.ok || !js.linked) return;
+      var set = function (id, v) { var el = document.getElementById(id); if (el) el.textContent = v; };
+      set('et-kpi-onsale', fmtInt(js.total_on_sale));
+      set('et-kpi-sold', fmtInt(js.total_sold));
+      set('et-kpi-pct', js.pct_total);
+      set('et-kpi-available', fmtInt(js.total_available));
+      set('et-kpi-today', fmtInt(js.sold_today));
+      set('et-kpi-revenue', fmtEur(js.total_revenue));
+      set('et-kpi-inv', fmtInt(js.invitations_total));
+      set('et-kpi-blocked', fmtInt(js.blocked_count));
+      if (js.last_synced) set('et-last-sync', 'Actualizado ' + js.last_synced);
+      applyBar(document.getElementById('et-bar-total'), js.pct_total);
+      var sp = document.getElementById('et-sync-spinner');
+      if (sp) sp.classList.toggle('d-none', !js.syncing);
+      (js.types || []).forEach(function (t) {
+        var tr = document.querySelector('#et-types-body tr[data-tt="' + t.et_entrada_id + '"]');
+        if (!tr) return;
+        var sold = tr.querySelector('[data-et-sold]');
+        if (sold) sold.innerHTML = fmtInt(t.sold) + ' <span class="text-muted small">/ ' + fmtInt(t.on_sale) + '</span>';
+        var av = tr.querySelector('[data-et-available]');
+        if (av) av.textContent = fmtInt(t.available);
+        var rev = tr.querySelector('[data-et-revenue]');
+        if (rev) rev.textContent = fmtEur(t.revenue);
+        var pctEl = tr.querySelector('[data-et-pct]');
+        if (pctEl) pctEl.textContent = t.pct + '%';
+        applyBar(tr.querySelector('[data-et-bar]'), t.pct);
+      });
+    } catch (e) { /* silencioso: el siguiente tick reintenta */ }
+  }
+  setInterval(etPoll, 60000);
+  setTimeout(etPoll, 20000);  // primer refresco a los 20 s (por si el sync en 2º plano ya terminó)
+})();
+</script>
+
+{% elif et_candidates %}
+<div class="card mb-3"><div class="card-body">
+  <h5 class="mb-1"><i class="fa fa-ticket text-danger me-1"></i>Venta de entradas <span class="text-muted small fw-normal">· Enterticket</span></h5>
+  <p class="text-muted small mb-3">Este concierto es de una empresa del grupo y hay eventos en Enterticket que encajan por fecha.{% if CAN_EDIT_CONCERTS %} Vincúlalo para ver la venta en tiempo real.{% endif %}</p>
+  {% for cand in et_candidates %}
+  <form method="post" action="{{ url_for('concert_et_link', cid=concert.id) }}" class="d-flex align-items-center gap-2 border rounded p-2 mb-2">
+    <input type="hidden" name="et_event_pk" value="{{ cand.pk }}">
+    {% if cand.image %}<img src="{{ cand.image }}" alt="" style="width:38px;height:38px;border-radius:8px;object-fit:cover">{% endif %}
+    <div class="flex-grow-1">
+      <div class="fw-semibold small">{{ cand.name }}</div>
+      <div class="small text-muted">{{ cand.date }} · {{ cand.venue }}{% if cand.town %} ({{ cand.town }}){% endif %}{% if cand.artists %} · {{ cand.artists }}{% endif %}</div>
+    </div>
+    {% if cand.score >= 4 %}<span class="badge text-bg-success">Coincidencia fuerte</span>{% endif %}
+    {% if CAN_EDIT_CONCERTS %}<button class="btn btn-sm btn-success"><i class="fa fa-link me-1"></i>Vincular</button>{% endif %}
+  </form>
+  {% endfor %}
+  {% if ROLE == 10 %}<div class="small text-muted">¿No está en la lista? Gestiona todos los eventos en <a href="{{ url_for('integrations_view') }}#tab-enterticket">Integraciones → Enterticket</a>.</div>{% endif %}
+</div></div>
+{% endif %}

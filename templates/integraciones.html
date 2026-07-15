@@ -9,6 +9,7 @@
 {% set integrations = [
   {'key': 'pleo', 'name': 'Pleo', 'subtitle': 'Gastos', 'icon': 'fa-receipt', 'configured': pleo_configured},
   {'key': 'chartmetric', 'name': 'Chartmetric', 'subtitle': 'Métricas', 'icon': 'fa-chart-line', 'configured': chartmetric_configured},
+  {'key': 'enterticket', 'name': 'Enterticket', 'subtitle': 'Ticketing', 'icon': 'fa-ticket', 'configured': enterticket_configured},
 ] %}
 
 <ul class="nav nav-tabs mb-3" id="integrationsTabs" role="tablist">
@@ -239,7 +240,129 @@
     {% endif %}
   </div>
 
+  {# ========================= ENTERTICKET ========================= #}
+  <div class="tab-pane fade" id="tab-enterticket" role="tabpanel" aria-labelledby="tab-enterticket-tab">
+    <div class="card mb-3">
+      <div class="card-body">
+        <div class="d-flex align-items-center justify-content-between mb-2">
+          <h2 class="h5 mb-0">Enterticket <span class="text-muted small fw-normal">· Ticketing</span></h2>
+          {% if enterticket_configured %}<span class="badge text-bg-success">Configurada</span>{% else %}<span class="badge text-bg-secondary">Desactivada</span>{% endif %}
+        </div>
+        <p class="text-muted small mb-3">Venta de entradas en tiempo casi real de los eventos del grupo: informe de ventas por tipo, histórico diario, compradores e invitaciones en la pestaña <strong>Ticketing</strong> de cada concierto vinculado. Los eventos se detectan por artista, recinto y fecha.</p>
+        {% if enterticket_configured %}
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <form method="post" class="d-inline">
+              <button name="action" value="ping_enterticket" class="btn btn-sm btn-outline-primary"><i class="fa fa-bolt me-1"></i>Probar conexión</button>
+            </form>
+            <form method="post" class="d-inline">
+              <button name="action" value="et_sync_catalog" class="btn btn-sm btn-outline-secondary"><i class="fa fa-rotate me-1"></i>Sincronizar catálogo</button>
+            </form>
+            <form method="post" class="d-inline">
+              <button name="action" value="et_sync_all" class="btn btn-sm btn-outline-secondary"><i class="fa fa-cloud-arrow-down me-1"></i>Sincronizar todo (catálogo + ventas)</button>
+            </form>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.total|k }}</div><div class="sim-stat__l">Eventos en Enterticket</div></div>
+            <div class="sim-stat"><div class="sim-stat__n text-success">{{ et_counts.linked|k }}</div><div class="sim-stat__l">Vinculados</div></div>
+            <div class="sim-stat"><div class="sim-stat__n {{ 'text-danger' if et_counts.pending else '' }}">{{ et_counts.pending|k }}</div><div class="sim-stat__l">Pendientes</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.requested|k }}</div><div class="sim-stat__l">Petición enviada</div></div>
+            <div class="sim-stat"><div class="sim-stat__n">{{ et_counts.ignored|k }}</div><div class="sim-stat__l">Ignorados</div></div>
+          </div>
+          <div class="small text-muted mb-3">
+            {% if et_last_catalog_sync %}Último catálogo: {{ et_last_catalog_sync }} ·{% endif %}
+            {% if et_meta and et_meta.token_expires_at %} Token válido hasta {{ et_meta.token_expires_at }} ·{% endif %}
+            El refresco automático lo hace la tarea programada de Render (<code>/cron/enterticket/refresh?key=…</code>) y cada pestaña Ticketing al abrirse.
+            {% if et_meta and et_meta.last_error %}<div class="text-danger mt-1"><i class="fa fa-triangle-exclamation me-1"></i>{{ et_meta.last_error }}</div>{% endif %}
+          </div>
+
+          {% if not et_events %}
+            <div class="alert alert-light border">Aún no hay eventos sincronizados. Pulsa «Sincronizar catálogo».</div>
+          {% else %}
+          <div class="table-responsive">
+            <table class="table table-sm align-middle">
+              <thead class="table-light"><tr>
+                <th>Evento</th><th>Fecha</th><th>Recinto</th><th>Artista(s)</th><th>Estado</th><th>Concierto vinculado</th><th class="text-end">Acciones</th>
+              </tr></thead>
+              <tbody>
+              {% for ev in et_events %}
+                <tr class="{{ 'opacity-50' if ev.status == 'IGNORED' else '' }}">
+                  <td>
+                    <div class="d-flex align-items-center gap-2">
+                      {% if ev.image %}<img src="{{ ev.image }}" alt="" style="width:34px;height:34px;border-radius:8px;object-fit:cover">{% endif %}
+                      <div>
+                        <div class="fw-semibold small">{{ ev.name }}</div>
+                        {% if ev.url %}<a href="{{ ev.url }}" target="_blank" rel="noopener" class="small text-decoration-none"><i class="fa fa-arrow-up-right-from-square me-1"></i>Venta</a>{% endif %}
+                      </div>
+                    </div>
+                  </td>
+                  <td class="small {{ 'text-muted' if ev.is_past else '' }}">{{ ev.date }}</td>
+                  <td class="small">{{ ev.venue }}{% if ev.town %} <span class="text-muted">({{ ev.town }})</span>{% endif %}</td>
+                  <td class="small">{{ ev.artists or '—' }}</td>
+                  <td>
+                    {% if ev.status == 'LINKED' %}<span class="badge text-bg-success">Vinculado</span>
+                    {% elif ev.status == 'REQUESTED' %}<span class="badge text-bg-info">Petición enviada</span>
+                    {% elif ev.status == 'IGNORED' %}<span class="badge text-bg-secondary">Ignorado</span>
+                    {% else %}<span class="badge text-bg-warning text-dark">Pendiente</span>{% endif %}
+                    {% if ev.last_error %}<i class="fa fa-triangle-exclamation text-danger ms-1" title="{{ ev.last_error }}"></i>{% endif %}
+                  </td>
+                  <td class="small">
+                    {% if ev.status == 'LINKED' %}
+                      {{ ev.concert_label }}
+                      {% if ev.last_synced %}<div class="text-muted">Sync {{ ev.last_synced }}</div>{% endif %}
+                    {% elif ev.status == 'PENDING' and ev.candidates %}
+                      <form method="post" class="d-flex gap-1 align-items-center">
+                        <input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
+                        <select name="concert_id" class="form-select form-select-sm" style="max-width:280px">
+                          {% for cand in ev.candidates %}<option value="{{ cand.id }}">{{ cand.label }}</option>{% endfor %}
+                        </select>
+                        <button name="action" value="et_link" class="btn btn-sm btn-success" title="Vincular"><i class="fa fa-link"></i></button>
+                      </form>
+                    {% elif ev.status == 'PENDING' %}
+                      <span class="text-muted">Sin candidatos con esa fecha</span>
+                    {% endif %}
+                  </td>
+                  <td class="text-end text-nowrap">
+                    <form method="post" class="d-inline"><input type="hidden" name="et_event_pk" value="{{ ev.pk }}">
+                      {% if ev.status == 'LINKED' %}
+                        <button name="action" value="et_sync_event" class="btn btn-sm btn-outline-primary" title="Sincronizar ventas ahora"><i class="fa fa-rotate"></i></button>
+                        <button name="action" value="et_unlink" class="btn btn-sm btn-outline-danger" title="Desvincular" onclick="return confirm('¿Desvincular este evento del concierto?');"><i class="fa fa-link-slash"></i></button>
+                      {% elif ev.status == 'IGNORED' %}
+                        <button name="action" value="et_unignore" class="btn btn-sm btn-outline-secondary" title="Recuperar"><i class="fa fa-rotate-left"></i></button>
+                      {% elif ev.status == 'REQUESTED' %}
+                        <button name="action" value="et_unignore" class="btn btn-sm btn-outline-secondary" title="Volver a pendiente"><i class="fa fa-rotate-left"></i></button>
+                      {% else %}
+                        <button name="action" value="et_request" class="btn btn-sm btn-outline-primary" title="Crear petición a Contratación con los datos de Enterticket"><i class="fa fa-paper-plane"></i></button>
+                        <button name="action" value="et_ignore" class="btn btn-sm btn-outline-secondary" title="Ignorar"><i class="fa fa-eye-slash"></i></button>
+                      {% endif %}
+                    </form>
+                  </td>
+                </tr>
+              {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% endif %}
+        {% else %}
+          <div class="small text-muted">
+            Para activarla: añade en Render las variables <code>ENTERTICKET_USER</code> y
+            <code>ENTERTICKET_PASSWORD</code> (las credenciales de API que facilita Enterticket).
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
 </div>
+
+<script>
+// Abre la pestaña indicada en la URL (#tab-xxx) al volver de una acción (p. ej. #tab-enterticket).
+document.addEventListener('DOMContentLoaded', function () {
+  var h = location.hash;
+  if (!h) return;
+  var btn = document.querySelector('button[data-bs-target="' + h + '"]');
+  if (btn && window.bootstrap) { new bootstrap.Tab(btn).show(); }
+});
+</script>
 
 <div class="alert alert-light border mt-4 small mb-0">
   <i class="fa fa-shield-halved me-1"></i>

@@ -8,6 +8,7 @@ from sqlalchemy import (
     Date,
     Text,
     Integer,
+    BigInteger,
     ForeignKey,
     DateTime,
     Boolean,
@@ -1479,6 +1480,9 @@ class ConcertTicketer(Base):
     rebate_fixed_gross = Column(Numeric)  # bruto con IVA incluido (21%)
     rebate_pct = Column(Numeric)  # porcentaje (0..100)
     rebate_updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Enlace de venta de ESTE evento en esa ticketera (p. ej. lo rellena la integración Enterticket).
+    sale_url = Column(Text)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -6722,3 +6726,307 @@ def ensure_venue_seatmap_schema():
         "CREATE INDEX IF NOT EXISTS idx_venue_seat_maps_venue ON venue_seat_maps(venue_id, is_default);",
     ], "venue_seatmap")
 
+
+
+# =========================================================
+# Integración ENTERTICKET (ticketera del grupo): venta de entradas en tiempo casi real.
+# El espejo local de la API vive en estas tablas; la sincronización la hace app.py
+# (enterticket_utils.py es el cliente HTTP). Todo desactivable: sin credenciales no se sincroniza.
+# =========================================================
+class EnterticketMeta(Base):
+    """Fila única (id=1): token compartido entre workers (la API solo admite UN token activo)
+    y estado global de la sincronización."""
+
+    __tablename__ = "enterticket_meta"
+    id = Column(Integer, primary_key=True)
+    token = Column(Text)
+    token_expires_at = Column(Text)  # texto tal cual lo devuelve la API ("YYYY-MM-DD HH:MM:SS")
+    last_catalog_sync_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class EnterticketEvent(Base):
+    """Evento del cliente en Enterticket (espejo de /eventos). Puede estar VINCULADO a un
+    concierto nuestro (matching por artista + recinto + fecha) o pendiente/ignorado/solicitado
+    (petición a Contratación para crearlo)."""
+
+    __tablename__ = "enterticket_events"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    et_event_id = Column(Integer, nullable=False, unique=True)
+    et_client_id = Column(Integer)
+    name = Column(Text, nullable=False)
+    event_date = Column(Date)
+    event_end_date = Column(Date)
+    start_time = Column(Text)
+    venue_name = Column(Text)
+    venue_town = Column(Text)
+    venue_province = Column(Text)
+    url_enterticket = Column(Text)      # enlace público de venta
+    image_url = Column(Text)            # cabecera/cartel del evento en ET
+    artist_names = Column(Text)         # "A, B" (de /eventos/:id/artistas), para el matching
+    artist_image = Column(Text)
+    active = Column(Boolean, nullable=False, server_default=text("true"))
+    has_seat_mapping = Column(Boolean, nullable=False, server_default=text("false"))
+    capacity_on_sale = Column(Integer)  # info.numero_entradas (aforo a la venta)
+    blocked_count = Column(Integer, nullable=False, server_default=text("0"))
+    blocked_json = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))
+    # PENDING (sin vincular) | LINKED | IGNORED | REQUESTED (petición a Contratación creada)
+    link_status = Column(Text, nullable=False, server_default=text("'PENDING'"))
+    booking_request_id = Column(PGUUID(as_uuid=True), ForeignKey("booking_requests.id", ondelete="SET NULL"))
+
+    # Sincronización incremental de ventas: último id visto (desde_id) y última marca updated_at.
+    sales_last_id = Column(BigInteger, nullable=False, server_default=text("0"))
+    sales_last_sync_unix = Column(BigInteger, nullable=False, server_default=text("0"))
+    last_synced_at = Column(DateTime(timezone=True))
+    last_error = Column(Text)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    concert = relationship("Concert")
+    ticket_types = relationship(
+        "EnterticketTicketType", cascade="all, delete-orphan",
+        order_by="EnterticketTicketType.sort_order", back_populates="event",
+    )
+
+
+class EnterticketTicketType(Base):
+    """Tipo de entrada del evento en ET (espejo de /eventos/:id → entradas[]), con el estado de
+    venta actual: vendidas / disponibles / precio. Se refresca entero en cada sincronización."""
+
+    __tablename__ = "enterticket_ticket_types"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="CASCADE"), nullable=False)
+    et_entrada_id = Column(Integer, nullable=False)
+    name = Column(Text, nullable=False)
+    price = Column(Numeric, nullable=False, server_default=text("0"))
+    qty_sold = Column(Integer, nullable=False, server_default=text("0"))
+    qty_available = Column(Integer, nullable=False, server_default=text("0"))  # restantes
+    is_numbered = Column(Boolean, nullable=False, server_default=text("false"))
+    color = Column(Text)
+    accesses = Column(Integer, nullable=False, server_default=text("0"))
+    sort_order = Column(Integer, nullable=False, server_default=text("0"))
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    event = relationship("EnterticketEvent", back_populates="ticket_types")
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "et_entrada_id", name="uq_et_ticket_type"),
+    )
+
+
+class EnterticketSale(Base):
+    """Una entrada vendida en ET (espejo de /ventas/:id). De aquí salen el histórico diario,
+    las «vendidas hoy», la recaudación, las invitaciones por concepto, el plano en tiempo real
+    (sector/asiento) y la base de datos de compradores."""
+
+    __tablename__ = "enterticket_sales"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="CASCADE"), nullable=False)
+    et_sale_id = Column(BigInteger, nullable=False)
+    et_entrada_id = Column(Integer)
+    entrada_name = Column(Text)
+    purchase_at = Column(DateTime)  # hora local ES tal cual la da la API
+    price = Column(Numeric, nullable=False, server_default=text("0"))
+    fees = Column(Numeric, nullable=False, server_default=text("0"))          # gastos_distribucion
+    total = Column(Numeric, nullable=False, server_default=text("0"))         # precio_total
+    mode = Column(Text)                    # Online / Taquilla / RRPP...
+    is_invitation = Column(Boolean, nullable=False, server_default=text("false"))
+    invitation_concept = Column(Text)
+    cancelled = Column(Boolean, nullable=False, server_default=text("false"))  # anulada
+    refunded = Column(Boolean, nullable=False, server_default=text("false"))   # devuelta
+    sector = Column(Text)
+    seat = Column(Text)
+    buyer_name = Column(Text)
+    buyer_email = Column(Text)             # se guarda en minúsculas
+    buyer_phone = Column(Text)
+    buyer_postal_code = Column(Text)
+    accepts_marketing = Column(Boolean, nullable=False, server_default=text("false"))
+    updated_at_unix = Column(BigInteger, nullable=False, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("event_id", "et_sale_id", name="uq_et_sale"),
+        Index("idx_et_sales_event_day", "event_id", "purchase_at"),
+        Index("idx_et_sales_event_type", "event_id", "et_entrada_id"),
+        Index("idx_et_sales_email", "buyer_email"),
+    )
+
+
+class Buyer(Base):
+    """Base de datos de COMPRADORES (deduplicada por email): si una persona compra para varios
+    eventos no se duplica, se amplía su historial (BuyerEvent). Los agregados se recalculan en
+    cada sincronización a partir de enterticket_sales (ventas válidas: ni anuladas ni devueltas)."""
+
+    __tablename__ = "buyers"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    email = Column(Text, nullable=False, unique=True)  # minúsculas
+    name = Column(Text)
+    phone = Column(Text)
+    accepts_marketing = Column(Boolean, nullable=False, server_default=text("false"))
+    events_count = Column(Integer, nullable=False, server_default=text("0"))
+    tickets_count = Column(Integer, nullable=False, server_default=text("0"))
+    amount_total = Column(Numeric, nullable=False, server_default=text("0"))
+    first_purchase_at = Column(DateTime)
+    last_purchase_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    events = relationship("BuyerEvent", cascade="all, delete-orphan", back_populates="buyer")
+
+
+class BuyerEvent(Base):
+    """Historial de un comprador en UN evento (entradas e importe)."""
+
+    __tablename__ = "buyer_events"
+    id = Column(PGUUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    buyer_id = Column(PGUUID(as_uuid=True), ForeignKey("buyers.id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(PGUUID(as_uuid=True), ForeignKey("enterticket_events.id", ondelete="CASCADE"), nullable=False)
+    concert_id = Column(PGUUID(as_uuid=True), ForeignKey("concerts.id", ondelete="SET NULL"))  # denormalizado
+    tickets_count = Column(Integer, nullable=False, server_default=text("0"))
+    amount_total = Column(Numeric, nullable=False, server_default=text("0"))
+    first_purchase_at = Column(DateTime)
+    last_purchase_at = Column(DateTime)
+
+    buyer = relationship("Buyer", back_populates="events")
+    event = relationship("EnterticketEvent")
+
+    __table_args__ = (
+        UniqueConstraint("buyer_id", "event_id", name="uq_buyer_event"),
+        Index("idx_buyer_events_event", "event_id"),
+    )
+
+
+def ensure_enterticket_schema():
+    """Esquema de la integración Enterticket + base de datos de compradores. Idempotente."""
+    _create_all_once()
+    _exec_ddl_statements([
+        'CREATE EXTENSION IF NOT EXISTS "uuid-ossp";',
+        """
+        CREATE TABLE IF NOT EXISTS enterticket_meta (
+            id integer PRIMARY KEY,
+            token text,
+            token_expires_at text,
+            last_catalog_sync_at timestamptz,
+            last_error text,
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS enterticket_events (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            et_event_id integer NOT NULL UNIQUE,
+            et_client_id integer,
+            name text NOT NULL,
+            event_date date,
+            event_end_date date,
+            start_time text,
+            venue_name text,
+            venue_town text,
+            venue_province text,
+            url_enterticket text,
+            image_url text,
+            artist_names text,
+            artist_image text,
+            active boolean NOT NULL DEFAULT true,
+            has_seat_mapping boolean NOT NULL DEFAULT false,
+            capacity_on_sale integer,
+            blocked_count integer NOT NULL DEFAULT 0,
+            blocked_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+            concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
+            link_status text NOT NULL DEFAULT 'PENDING',
+            booking_request_id uuid REFERENCES booking_requests(id) ON DELETE SET NULL,
+            sales_last_id bigint NOT NULL DEFAULT 0,
+            sales_last_sync_unix bigint NOT NULL DEFAULT 0,
+            last_synced_at timestamptz,
+            last_error text,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_et_events_concert ON enterticket_events(concert_id);",
+        "CREATE INDEX IF NOT EXISTS idx_et_events_status ON enterticket_events(link_status, event_date);",
+        """
+        CREATE TABLE IF NOT EXISTS enterticket_ticket_types (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            event_id uuid NOT NULL REFERENCES enterticket_events(id) ON DELETE CASCADE,
+            et_entrada_id integer NOT NULL,
+            name text NOT NULL,
+            price numeric NOT NULL DEFAULT 0,
+            qty_sold integer NOT NULL DEFAULT 0,
+            qty_available integer NOT NULL DEFAULT 0,
+            is_numbered boolean NOT NULL DEFAULT false,
+            color text,
+            accesses integer NOT NULL DEFAULT 0,
+            sort_order integer NOT NULL DEFAULT 0,
+            updated_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_et_ticket_type UNIQUE(event_id, et_entrada_id)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS enterticket_sales (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            event_id uuid NOT NULL REFERENCES enterticket_events(id) ON DELETE CASCADE,
+            et_sale_id bigint NOT NULL,
+            et_entrada_id integer,
+            entrada_name text,
+            purchase_at timestamp,
+            price numeric NOT NULL DEFAULT 0,
+            fees numeric NOT NULL DEFAULT 0,
+            total numeric NOT NULL DEFAULT 0,
+            mode text,
+            is_invitation boolean NOT NULL DEFAULT false,
+            invitation_concept text,
+            cancelled boolean NOT NULL DEFAULT false,
+            refunded boolean NOT NULL DEFAULT false,
+            sector text,
+            seat text,
+            buyer_name text,
+            buyer_email text,
+            buyer_phone text,
+            buyer_postal_code text,
+            accepts_marketing boolean NOT NULL DEFAULT false,
+            updated_at_unix bigint NOT NULL DEFAULT 0,
+            created_at timestamptz DEFAULT now(),
+            CONSTRAINT uq_et_sale UNIQUE(event_id, et_sale_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_et_sales_event_day ON enterticket_sales(event_id, purchase_at);",
+        "CREATE INDEX IF NOT EXISTS idx_et_sales_event_type ON enterticket_sales(event_id, et_entrada_id);",
+        "CREATE INDEX IF NOT EXISTS idx_et_sales_email ON enterticket_sales(buyer_email);",
+        """
+        CREATE TABLE IF NOT EXISTS buyers (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            email text NOT NULL UNIQUE,
+            name text,
+            phone text,
+            accepts_marketing boolean NOT NULL DEFAULT false,
+            events_count integer NOT NULL DEFAULT 0,
+            tickets_count integer NOT NULL DEFAULT 0,
+            amount_total numeric NOT NULL DEFAULT 0,
+            first_purchase_at timestamp,
+            last_purchase_at timestamp,
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS buyer_events (
+            id uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+            buyer_id uuid NOT NULL REFERENCES buyers(id) ON DELETE CASCADE,
+            event_id uuid NOT NULL REFERENCES enterticket_events(id) ON DELETE CASCADE,
+            concert_id uuid REFERENCES concerts(id) ON DELETE SET NULL,
+            tickets_count integer NOT NULL DEFAULT 0,
+            amount_total numeric NOT NULL DEFAULT 0,
+            first_purchase_at timestamp,
+            last_purchase_at timestamp,
+            CONSTRAINT uq_buyer_event UNIQUE(buyer_id, event_id)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_buyer_events_event ON buyer_events(event_id);",
+        # Enlace de venta por ticketera×concierto (lo rellena la integración al vincular).
+        "ALTER TABLE IF EXISTS concert_ticketers ADD COLUMN IF NOT EXISTS sale_url text;",
+    ], "enterticket")

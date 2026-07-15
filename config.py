@@ -51,5 +51,11 @@ class Settings:
     CHARTMETRIC_API_BASE = os.getenv("CHARTMETRIC_API_BASE", "https://api.chartmetric.com")
     # Clave secreta para el refresco diario automático (lo llama una tarea programada de Render).
     CHARTMETRIC_CRON_KEY = os.getenv("CHARTMETRIC_CRON_KEY")
+    # Enterticket (ticketera del grupo): usuario/clave de API (los facilita Enterticket).
+    ENTERTICKET_USER = os.getenv("ENTERTICKET_USER")
+    ENTERTICKET_PASSWORD = os.getenv("ENTERTICKET_PASSWORD")
+    ENTERTICKET_API_BASE = os.getenv("ENTERTICKET_API_BASE", "https://api.enterticket.es")
+    # Clave del endpoint /cron/enterticket/refresh (si falta, se acepta la de Chartmetric).
+    ENTERTICKET_CRON_KEY = os.getenv("ENTERTICKET_CRON_KEY") or os.getenv("CHARTMETRIC_CRON_KEY")
 
 settings = Settings()

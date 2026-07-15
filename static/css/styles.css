@@ -999,6 +999,12 @@ img.img-error-pending{ visibility: hidden; }
   .inv-section-head .btn, .inv-section-head form { flex: 1 1 auto; }
   .inv-section-head form .btn { width: 100%; }
 }
+/* Leaflet (GLOBAL): evita que reglas de <img> de la app deformen los tiles y hagan que el mapa
+   salga "desperdigado" en cuadrados fuera de su sitio (simulaciones, cuadrantes, mapa de recinto…). */
+.leaflet-container img { max-width: none !important; max-height: none !important; }
+.leaflet-container .leaflet-tile,
+.leaflet-container .leaflet-marker-icon,
+.leaflet-container .leaflet-image-layer { max-width: none !important; }
 /* Agrupación del listado de invitados por tipo de invitación (categoría). */
 .inv-cat-group-header { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; font-weight:600; font-size:.9rem; color:#495057; margin:.6rem 0 .1rem; padding-top:.2rem; }
 .inv-cat-group-header:first-child { margin-top:0; }

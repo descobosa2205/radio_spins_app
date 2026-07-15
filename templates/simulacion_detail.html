@@ -2052,6 +2052,12 @@
   if(!points.length){ if(empty) empty.classList.remove('d-none'); el.style.display='none'; return; }
   var map = L.map('tourMap', {scrollWheelZoom:false}).setView([40.4168,-3.7038], 5);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:18, attribution:'© OpenStreetMap'}).addTo(map);
+  // Recalcular tamaño cuando el layout se estabiliza (evita tiles descolocados).
+  function _invalMap(){ try{ map.invalidateSize(); }catch(e){} }
+  [60,300,800,1500].forEach(function(t){ setTimeout(_invalMap, t); });
+  window.addEventListener('load', function(){ setTimeout(_invalMap, 100); });
+  window.addEventListener('resize', _invalMap);
+  if(window.ResizeObserver){ try{ new ResizeObserver(_invalMap).observe(el); }catch(e){} }
   var coords = [], i = 0;
   function geocode(p){ return fetch("{{ url_for('api_geocode') }}?city="+encodeURIComponent(p.city)+"&province="+encodeURIComponent(p.province||'')).then(function(r){ return r.json(); }); }
   function step(){
@@ -2091,8 +2097,9 @@
       });
       map.addControl(new ToggleCtl());
     }
-    if(coords.length === 1){ map.setView(coords[0].ll, 9); return; }   // fecha individual: un solo pin
+    if(coords.length === 1){ map.setView(coords[0].ll, 9); setTimeout(_invalMap, 60); return; }   // fecha individual: un solo pin
     try { map.fitBounds(L.latLngBounds(coords.map(function(c){return c.ll;})).pad(0.2)); } catch(e){}
+    setTimeout(_invalMap, 60);
   }
   step();
 })();

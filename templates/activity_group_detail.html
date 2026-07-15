@@ -69,7 +69,7 @@
           <div class="fw-semibold text-truncate">{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}{% endif %}</div>
           <div class="small text-muted text-truncate">{% if is_festival %}{{ c.date_label }}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}{% else %}{{ c.artist_name }}{% endif %} · {{ c.sale_type_label }}</div>
         </div>
-        <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+        <span class="badge {{ c.promo_badge }} me-1" title="Tipo de negocio">{{ c.promo_label }}</span><span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
       </a>
       {% endfor %}
     </div>
@@ -168,7 +168,7 @@
             <div class="fw-semibold text-truncate">{% if is_festival %}{{ c.artist_name or c.title }}{% else %}{{ c.date_label }}{% endif %}</div>
             <div class="small text-muted text-truncate">{% if is_festival %}{{ c.date_label }}{% else %}{{ c.artist_name }}{% endif %}{% if c.venue_name %} · {{ c.venue_name }}{% endif %}</div>
           </div>
-          <span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
+          <span class="badge {{ c.promo_badge }} me-1" title="Tipo de negocio">{{ c.promo_label }}</span><span class="badge {{ c.status_badge }}">{{ c.status_label }}</span>
           <div class="dropdown">
             <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="dropdown"><i class="fa fa-ellipsis"></i></button>
             <ul class="dropdown-menu dropdown-menu-end">

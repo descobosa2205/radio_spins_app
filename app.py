@@ -19041,7 +19041,18 @@ def _group_concert_row(c):
         "status_label": label,
         "status_badge": badge,
         "sale_type_label": CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or ""),
+        "promo_label": _GROUP_PROMO_META.get((c.sale_type or "").upper(), (CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or "—"), "text-bg-light border"))[0],
+        "promo_badge": _GROUP_PROMO_META.get((c.sale_type or "").upper(), (CONCERT_SALE_TYPE_LABELS.get((c.sale_type or "").upper(), c.sale_type or "—"), "text-bg-light border"))[1],
     }
+
+
+# Distingue en las fechas de gira/ciclo: promovido por empresa del grupo vs vendido.
+_GROUP_PROMO_META = {
+    "EMPRESA": ("Promovido", "text-bg-success"),
+    "VENDIDO": ("Vendido", "text-bg-info text-dark"),
+    "PARTICIPADOS": ("Participado", "text-bg-warning text-dark"),
+    "GRATUITO": ("Gratuito", "text-bg-secondary"),
+}
 
 
 # ----------------------------- Giras compradas -----------------------------

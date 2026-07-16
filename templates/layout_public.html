@@ -1,0 +1,32 @@
+{# Base MÍNIMA para páginas públicas (sin login) que reutilizan plantillas internas completas,
+   p. ej. la ficha de simulación compartida (`public_simulation_view`). Sin menú de la app ni
+   scripts de sesión: solo Bootstrap + Font Awesome + estilos de la casa. Los bloques `content`
+   y `scripts` son los mismos que en layout.html para que la plantilla hija sirva en ambos. #}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block public_title %}33 Producciones{% endblock %}</title>
+  {% block head_meta %}{% endblock %}
+  <link rel="icon" href="{{ url_for('static', filename='img/logo_33_producciones.png') }}">
+  <link href="{{ url_for('static', filename='vendor/bootstrap/css/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/fontawesome/css/all.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/styles.css') }}" rel="stylesheet" />
+</head>
+<body class="bg-light">
+  <nav class="navbar bg-white border-bottom mb-3">
+    <div class="container-fluid px-3 px-lg-4">
+      <span class="navbar-brand d-flex align-items-center gap-2 me-0">
+        <img src="{{ url_for('static', filename='img/logo_33_producciones.png') }}" alt="33 Producciones" style="height:34px;">
+      </span>
+      <span class="badge text-bg-secondary"><i class="fa fa-eye me-1"></i>Solo visualización</span>
+    </div>
+  </nav>
+  <div class="container-fluid px-3 px-lg-4 pb-4">
+    {% block content %}{% endblock %}
+  </div>
+  <script src="{{ url_for('static', filename='vendor/bootstrap/js/bootstrap.bundle.min.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

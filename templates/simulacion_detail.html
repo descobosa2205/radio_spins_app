@@ -1,4 +1,39 @@
-{% extends "layout.html" %}
+{# ENLACE PÚBLICO (PUBLIC_VIEW): esta MISMA plantilla sirve la ficha compartida en solo
+   visualización — base mínima sin menú (layout_public), navegación por token (sim_url), nada
+   editable (CAN_EDIT=False) y sin ingresos a 0 / omitidos / no aplican. #}
+{% extends "layout_public.html" if PUBLIC_VIEW else "layout.html" %}
+
+{% block public_title %}Simulación · {{ sim.title or subject.name }}{% endblock %}
+{% block head_meta %}{% if PUBLIC_VIEW and og %}
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="33 Producciones">
+<meta property="og:locale" content="es_ES">
+{% if og.url %}<meta property="og:url" content="{{ og.url }}">{% endif %}
+<meta property="og:title" content="{{ og.title }}">
+<meta name="twitter:title" content="{{ og.title }}">
+{% if og.description %}<meta property="og:description" content="{{ og.description }}"><meta name="description" content="{{ og.description }}"><meta name="twitter:description" content="{{ og.description }}">{% endif %}
+{% if og.image %}<meta property="og:image" content="{{ og.image }}"><meta property="og:image:secure_url" content="{{ og.image }}">{% if og.image_processed %}<meta property="og:image:type" content="image/jpeg"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">{% endif %}<meta property="og:image:alt" content="{{ og.title }}"><meta name="twitter:image" content="{{ og.image }}"><meta name="twitter:card" content="summary_large_image">{% else %}<meta name="twitter:card" content="summary">{% endif %}
+{% endif %}{% endblock %}
+
+{# ============ Macro: URL de navegación de la ficha (interna o pública por token) ============ #}
+{% macro sim_url(tab=None, act=None) %}{% if PUBLIC_VIEW %}{{ url_for('public_simulation_view', token=PUBLIC_TOKEN, tab=tab, act=act) }}{% else %}{{ url_for('simulation_detail_view', sid=sim.id, tab=tab, act=act) }}{% endif %}{% endmacro %}
+
+{# ============ Macro: descriptor de un caché/comisión/gasto (solo lectura) ============ #}
+{% macro ro_cost(c) -%}
+  {%- if (c.mode or 'FIXED')|upper == 'VARIABLE' -%}
+    {%- set vt = (c.var_type or '')|upper -%}
+    Variable ·
+    {%- if vt == 'PER_TICKET' %} {{ c.var_value|eur }} por entrada
+    {%- elif vt == 'PERCENT_PROFIT' %} {{ c.var_value }}% sobre el beneficio
+    {%- else %} {{ c.var_value }}% sobre ingresos (taquilla)
+    {%- endif -%}
+    {%- if (c.var_threshold_type or '')|upper == 'TICKETS' %} · a partir de {{ c.var_threshold_value|k }} entradas
+    {%- elif (c.var_threshold_type or '')|upper == 'AMOUNT' %} · a partir de {{ c.var_threshold_value|eur }}
+    {%- endif -%}
+  {%- else -%}
+    {{ c.amount|eur }} fijo{% if c.includes_iva %} · IVA incluido{% endif %}{% if c.includes_retention %} · retención incluida{% endif %}
+  {%- endif -%}
+{%- endmacro %}
 
 {# ============ Macro: importe con aclaración fiscal al pasar el ratón ============ #}
 {% macro amt(v, note) %}<span class="sim-amt" title="{{ note }}">{{ v|eur }}</span>{% endmacro %}
@@ -181,6 +216,10 @@
 </style>
 
 <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+  {% if PUBLIC_VIEW %}
+  <span class="text-muted small"><i class="fa fa-eye me-1"></i>Enlace de visualización: puedes consultar toda la simulación, sin editar nada.</span>
+  <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('public_simulation_print', token=PUBLIC_TOKEN) }}" target="_blank" rel="noopener"><i class="fa fa-file-pdf me-1"></i>Imprimir / Guardar PDF</a>
+  {% else %}
   <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('contracting_view', section='simulaciones') }}"><i class="fa fa-arrow-left me-1"></i>Volver a Simulaciones</a>
   <div class="d-flex gap-2">
     <div class="dropdown">
@@ -220,6 +259,7 @@
       </ul>
     </div>
   </div>
+  {% endif %}{# /PUBLIC_VIEW #}
 </div>
 
 {% if CAN_EDIT and public_link %}
@@ -271,8 +311,8 @@
       {% if summary and summary.aforo_total %}<span><i class="fa fa-users"></i>Aforo {{ summary.aforo_total|k }} · {{ summary.sellable|k }} a la venta{% if summary.invitations %} · {{ summary.invitations|k }} inv.{% endif %}</span>{% endif %}
       {% if calc and calc.ticketing.sellable %}<span><i class="fa fa-flag-checkered"></i>Beneficio potencial @100% {{ amt(calc.at_100.resultado, 'Neto: sin IVA y sin SGAE') }}</span>{% endif %}
       {% if sim.artist and sim.artist.is_international %}<span><i class="fa fa-globe"></i>Artista internacional</span>{% endif %}
-      {% if sim.artist %}{{ linked_mini('artist', sim.artist.id) }}{% endif %}
-      {% if sim.event %}<a class="text-reset small" href="{{ url_for('event_detail_view', eid=sim.event.id) }}" style="text-decoration:underline;"><i class="fa fa-masks-theater me-1"></i>Ficha del evento</a>{% endif %}
+      {% if sim.artist and not PUBLIC_VIEW %}{{ linked_mini('artist', sim.artist.id) }}{% endif %}
+      {% if sim.event and not PUBLIC_VIEW %}<a class="text-reset small" href="{{ url_for('event_detail_view', eid=sim.event.id) }}" style="text-decoration:underline;"><i class="fa fa-masks-theater me-1"></i>Ficha del evento</a>{% endif %}
     </div>
   </div>
   <div class="ficha-hero__actions">
@@ -282,9 +322,9 @@
 
 {% if is_multi %}
 <ul class="nav nav-pills mb-2 gap-1 flex-wrap">
-  <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id) }}"><i class="fa fa-layer-group me-1"></i>{{ 'General ciclo' if is_cycle else 'General gira' }}</a></li>
+  <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ sim_url() }}"><i class="fa fa-layer-group me-1"></i>{{ 'General ciclo' if is_cycle else 'General gira' }}</a></li>
   {% for a in activities %}
-    <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == a.id %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=a.id, tab='resumen') }}">
+    <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.id == a.id %}active{% endif %}" href="{{ sim_url(act=a.id, tab='resumen') }}">
       {%- if is_cycle and a.artist -%}
         {{ loop.index }} · {{ a.artist.name }}
       {%- else -%}
@@ -302,10 +342,10 @@
 {% set in_general = show_general or (active_activity and active_activity.is_shared) %}
 {% if is_multi and shared_activity and in_general %}
 <ul class="nav nav-tabs ficha-tabs mb-3">
-  <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id) }}"><i class="fa fa-chart-pie me-1"></i>Resumen general</a></li>
-  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'ingresos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=shared_activity.id, tab='ingresos') }}"><i class="fa fa-arrow-trend-up me-1"></i>Ingresos general</a></li>
-  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'gastos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=shared_activity.id, tab='gastos') }}"><i class="fa fa-receipt me-1"></i>Gastos general</a></li>
-  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'socios' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, act=shared_activity.id, tab='socios') }}"><i class="fa fa-handshake me-1"></i>Socios general</a></li>
+  <li class="nav-item"><a class="nav-link {% if show_general %}active{% endif %}" href="{{ sim_url() }}"><i class="fa fa-chart-pie me-1"></i>Resumen general</a></li>
+  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'ingresos' %}active{% endif %}" href="{{ sim_url(act=shared_activity.id, tab='ingresos') }}"><i class="fa fa-arrow-trend-up me-1"></i>Ingresos general</a></li>
+  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'gastos' %}active{% endif %}" href="{{ sim_url(act=shared_activity.id, tab='gastos') }}"><i class="fa fa-receipt me-1"></i>Gastos general</a></li>
+  <li class="nav-item"><a class="nav-link {% if active_activity and active_activity.is_shared and tab == 'socios' %}active{% endif %}" href="{{ sim_url(act=shared_activity.id, tab='socios') }}"><i class="fa fa-handshake me-1"></i>Socios general</a></li>
 </ul>
 {% endif %}
 
@@ -321,6 +361,8 @@
 {# Orden del resumen general (pedido por Dani): 1) mapa con las fichas de fechas a la derecha,
    2) Resultado (agregado), 3) módulo «Resultados» (socios + comisionistas + gastos con la barra). #}
 <div class="row g-3">
+  {# El mapa necesita sesión (api_geocode): en el enlace público no se pinta. #}
+  {% if not PUBLIC_VIEW %}
   <div class="col-12 col-lg-7">
     <div class="ficha-section h-100">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-map-location-dot"></i>{{ 'Recorrido del ciclo' if is_cycle else 'Recorrido de la gira' }}</h6></div>
@@ -331,16 +373,17 @@
       </div>
     </div>
   </div>
-  <div class="col-12 col-lg-5">
+  {% endif %}
+  <div class="col-12{% if not PUBLIC_VIEW %} col-lg-5{% endif %}">
     <div class="ficha-section h-100">
       <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-calendar-days"></i>{{ 'Calendario del ciclo' if is_cycle else 'Fechas de la gira' }}</h6></div>
       <div class="ficha-section__body">
         <div class="list-group">
           {% for r in tour_rows %}
-          <a href="{{ url_for('simulation_detail_view', sid=sim.id, act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
+          <a href="{{ sim_url(act=r.activity.id, tab='resumen') }}" class="list-group-item list-group-item-action d-flex align-items-center gap-3 flex-wrap">
             <span class="sim-cal">{% if r.activity.event_date and not r.activity.date_unknown %}<span class="sim-cal__d">{{ r.activity.event_date.strftime('%d') }}</span><span class="sim-cal__m">{{ r.activity.event_date.strftime('%b') }}</span>{% else %}<span class="sim-cal__d">·</span><span class="sim-cal__m">¿?</span>{% endif %}</span>
             <span style="min-width:150px;">
-              {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{{ linked_mini('artist', r.activity.artist.id) }}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
+              {% if is_cycle and r.activity.artist %}{{ artist_chip(r.activity.artist.name, r.activity.artist.photo_url, artist_id=r.activity.artist.id) }}{% if not PUBLIC_VIEW %}{{ linked_mini('artist', r.activity.artist.id) }}{% endif %}{% else %}<span class="fw-semibold">{{ loop.index }} · {{ r.activity.label or (r.activity.venue.municipality if (r.activity.venue and r.activity.venue.municipality) else (('Concierto ' if is_cycle else 'Fecha ') ~ loop.index)) }}</span>{% endif %}
               <div class="text-muted small">{% if r.activity.venue %}{{ r.activity.venue.name }}{% else %}Recinto por definir{% endif %} · {{ r.calc.ticketing.sellable|k }} a la venta</div>
             </span>
             <span class="d-flex flex-wrap gap-1 flex-grow-1">
@@ -398,7 +441,7 @@
           {% for r in tour_rows %}{% if r.activity.artist %}
             <span class="d-inline-flex align-items-center gap-2 border rounded-pill ps-1 pe-3 py-1">
               <img src="{{ r.activity.artist.photo_url or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-              <span class="small"><span class="fw-semibold">{{ r.activity.artist.name }}</span>{% if r.activity.event_date and not r.activity.date_unknown %}<br><span class="text-muted">{{ r.activity.event_date.strftime('%d/%m/%Y') }}</span>{% endif %}{{ linked_mini('artist', r.activity.artist.id) }}</span>
+              <span class="small"><span class="fw-semibold">{{ r.activity.artist.name }}</span>{% if r.activity.event_date and not r.activity.date_unknown %}<br><span class="text-muted">{{ r.activity.event_date.strftime('%d/%m/%Y') }}</span>{% endif %}{% if not PUBLIC_VIEW %}{{ linked_mini('artist', r.activity.artist.id) }}{% endif %}</span>
             </span>
           {% endif %}{% endfor %}
         </div>
@@ -481,14 +524,14 @@
    repetimos las subpestañas de fecha. #}
 {% if not (active_activity and active_activity.is_shared) %}
 <ul class="nav nav-tabs ficha-tabs mb-0">
-  <li class="nav-item"><a class="nav-link {% if tab == 'resumen' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resumen', act=(active_activity.id if is_multi else none)) }}">Resumen</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos', act=(active_activity.id if is_multi else none)) }}">Ingresos</a></li>
-  <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos', act=(active_activity.id if is_multi else none)) }}">Gastos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resumen' %}active{% endif %}" href="{{ sim_url(tab='resumen', act=(active_activity.id if is_multi else none)) }}">Resumen</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'ticketing' %}active{% endif %}" href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'ingresos' %}active{% endif %}" href="{{ sim_url(tab='ingresos', act=(active_activity.id if is_multi else none)) }}">Ingresos</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'gastos' %}active{% endif %}" href="{{ sim_url(tab='gastos', act=(active_activity.id if is_multi else none)) }}">Gastos</a></li>
   {% if is_multi and active_activity and not active_activity.is_shared %}
-  <li class="nav-item"><a class="nav-link {% if tab == 'socios' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}">Socios</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'socios' %}active{% endif %}" href="{{ sim_url(tab='socios', act=active_activity.id) }}">Socios</a></li>
   {% endif %}
-  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='resultado', act=(active_activity.id if is_multi else none)) }}">Resultado</a></li>
+  <li class="nav-item"><a class="nav-link {% if tab == 'resultado' %}active{% endif %}" href="{{ sim_url(tab='resultado', act=(active_activity.id if is_multi else none)) }}">Resultado</a></li>
 </ul>
 {% endif %}
 
@@ -515,7 +558,7 @@
       </div>
   {% endset %}
   <div class="row g-3">
-    {% if tour_points %}
+    {% if tour_points and not PUBLIC_VIEW %}
     <div class="col-12 col-lg-7">
       <div class="ficha-section h-100">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-map-location-dot"></i>Ubicación</h6></div>
@@ -555,7 +598,7 @@
     <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-chart-column"></i>Resultados</h6>
       {% if CAN_EDIT %}
         {% if is_multi and active_activity and not active_activity.is_shared %}
-          <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='socios', act=active_activity.id) }}" title="Editar socios de esta fecha"><i class="fa fa-pen"></i></a>
+          <a class="btn btn-sm btn-outline-secondary" href="{{ sim_url(tab='socios', act=active_activity.id) }}" title="Editar socios de esta fecha"><i class="fa fa-pen"></i></a>
         {% else %}
           <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#partnersCommonModal" title="Editar socios"><i class="fa fa-pen"></i></button>
         {% endif %}
@@ -578,7 +621,7 @@
           {% for la in lineup %}
             <div class="d-flex align-items-center gap-2">
               <img src="{{ (la.artist.photo_url if la.artist else None) or DEFAULT_PHOTO_URL }}" data-default-photo="1" style="width:30px;height:30px;border-radius:50%;object-fit:cover;">
-              <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}{% if la.artist %}{{ linked_mini('artist', la.artist.id) }}{% endif %}</span>
+              <span class="flex-grow-1">{{ la.artist.name if la.artist else '—' }}{% if la.artist and la.artist.is_international %} <span class="badge text-bg-light border ms-1">Intl</span>{% endif %}{% if la.artist and not PUBLIC_VIEW %}{{ linked_mini('artist', la.artist.id) }}{% endif %}</span>
               {% if CAN_EDIT %}<form method="post" action="{{ url_for('simulation_lineup_delete', sid=sim.id, lid=la.id) }}" onsubmit="return confirm('¿Quitar artista del festival?');"><button class="btn btn-sm btn-outline-danger" title="Quitar"><i class="fa fa-xmark"></i></button></form>{% endif %}
             </div>
           {% endfor %}
@@ -592,7 +635,7 @@
       {% if summary and summary.aforo_total %}
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-ticket"></i>Ticketing (al 100% de aforo a la venta)</h6>
-          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
         </div>
         <div class="ficha-section__body">
           <div class="d-flex flex-wrap gap-3 mb-3">
@@ -615,7 +658,7 @@
       <div class="ficha-section">
         <div class="ficha-section__body text-muted">
           <i class="fa fa-ticket me-1"></i>Aún no hay ticketing configurado.
-          {% if CAN_EDIT %}<a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Configúralo en la pestaña Ticketing.</a>{% endif %}
+          {% if CAN_EDIT %}<a href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Configúralo en la pestaña Ticketing.</a>{% endif %}
         </div>
       </div>
       {% endif %}
@@ -625,7 +668,7 @@
       {% set ing = calc.at_100.ingresos %}
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-arrow-trend-up"></i>Resumen de ingresos <span class="text-muted small fw-normal">@100%</span></h6>
-          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ingresos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ sim_url(tab='ingresos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
         </div>
         <div class="ficha-section__body">
           <table class="table table-sm align-middle mb-0">
@@ -633,17 +676,17 @@
               {# Regla: los ingresos "No aplica" (NA) NO aparecen nunca; los "Omitidos" (OMIT) solo se ven
                  en la vista interna (CAN_EDIT), no al compartir ni en el PDF. El badge, solo interno. #}
               {% set _ovt = income_overrides.get('ticketing') %}
-              {% if _ovt != 'NA' and (CAN_EDIT or _ovt != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovt }}"><td>Ticketing{% if _ovt and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovt == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.ticketing, 'Neto: sin IVA y sin SGAE') }}</td></tr>{% endif %}
+              {% if _ovt != 'NA' and (CAN_EDIT or _ovt != 'OMIT') and (not PUBLIC_VIEW or (ing.ticketing and not _ovt)) %}<tr class="{{ 'sim-row-off' if _ovt }}"><td>Ticketing{% if _ovt and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovt == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.ticketing, 'Neto: sin IVA y sin SGAE') }}</td></tr>{% endif %}
               {% set _ovc = income_overrides.get('complementos') %}
-              {% if (ing.complementos or _ovc) and _ovc != 'NA' and (CAN_EDIT or _ovc != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovc }}"><td>Complementos{% if _ovc and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovc == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.complementos, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if (ing.complementos or _ovc) and _ovc != 'NA' and (CAN_EDIT or _ovc != 'OMIT') and (not PUBLIC_VIEW or (ing.complementos and not _ovc)) %}<tr class="{{ 'sim-row-off' if _ovc }}"><td>Complementos{% if _ovc and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovc == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.complementos, 'Sin IVA') }}</td></tr>{% endif %}
               {% set _ovr = income_overrides.get('rebate') %}
-              {% if _ovr != 'NA' and (CAN_EDIT or _ovr != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovr }}"><td>Rebate{% if _ovr and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovr == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.rebate, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if _ovr != 'NA' and (CAN_EDIT or _ovr != 'OMIT') and (not PUBLIC_VIEW or (ing.rebate and not _ovr)) %}<tr class="{{ 'sim-row-off' if _ovr }}"><td>Rebate{% if _ovr and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovr == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.rebate, 'Sin IVA') }}</td></tr>{% endif %}
               {% set _ovb = income_overrides.get('barras') %}
-              {% if _ovb != 'NA' and (CAN_EDIT or _ovb != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovb }}"><td>Barras{% if _ovb and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovb == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.barras, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if _ovb != 'NA' and (CAN_EDIT or _ovb != 'OMIT') and (not PUBLIC_VIEW or (ing.barras and not _ovb)) %}<tr class="{{ 'sim-row-off' if _ovb }}"><td>Barras{% if _ovb and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovb == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.barras, 'Sin IVA') }}</td></tr>{% endif %}
               {% set _ovi = income_overrides.get('incentivos') %}
-              {% if _ovi != 'NA' and (CAN_EDIT or _ovi != 'OMIT') %}<tr class="{{ 'sim-row-off' if _ovi }}"><td>Incentivos fiscales{% if _ovi and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovi == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.incentivos, 'Sin IVA') }}</td></tr>{% endif %}
-              {% if ing.subvenciones %}<tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td></tr>{% endif %}
-              {% if ing.patrocinios %}<tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if _ovi != 'NA' and (CAN_EDIT or _ovi != 'OMIT') and (not PUBLIC_VIEW or (ing.incentivos and not _ovi)) %}<tr class="{{ 'sim-row-off' if _ovi }}"><td>Incentivos fiscales{% if _ovi and CAN_EDIT %} <span class="badge text-bg-secondary">{{ 'Omitido' if _ovi == 'OMIT' else 'No aplica' }}</span>{% endif %}</td><td class="text-end">{{ amt(ing.incentivos, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if ing.subvenciones and (not PUBLIC_VIEW or not income_overrides.get('subvenciones')) %}<tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td></tr>{% endif %}
+              {% if ing.patrocinios and (not PUBLIC_VIEW or not income_overrides.get('patrocinios')) %}<tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td></tr>{% endif %}
             </tbody>
             <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ amt(ing.total, 'Sin IVA') }}</th></tr></tfoot>
           </table>
@@ -654,7 +697,7 @@
       {% set g = calc.at_100.gastos %}
       <div class="ficha-section">
         <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-arrow-trend-down"></i>Resumen de gastos <span class="text-muted small fw-normal">@100% · por categorías</span></h6>
-          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('simulation_detail_view', sid=sim.id, tab='gastos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
+          {% if CAN_EDIT %}<a class="btn btn-sm btn-outline-secondary" href="{{ sim_url(tab='gastos', act=(active_activity.id if is_multi else none)) }}"><i class="fa fa-pen"></i></a>{% endif %}
         </div>
         <div class="ficha-section__body">
           <table class="table table-sm align-middle mb-0">
@@ -798,7 +841,7 @@
 {# ===================== INGRESOS ===================== #}
 {% elif tab == 'ingresos' %}
   {% if not calc or not active_activity %}
-    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
+    <div class="text-muted">Configura primero el <a href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
   {% else %}
     {% set ing = calc.at_100.ingresos %}
     {% set ov = income_overrides %}
@@ -821,7 +864,7 @@
                   ('barras', 'Barras', 'Sin IVA', None),
                   ('incentivos', 'Incentivos fiscales', 'Sin IVA', '14% caché + producción'),
                 ] %}
-                {% if key != 'complementos' or ing.complementos or ov.get('complementos') %}
+                {% if (key != 'complementos' or ing.complementos or ov.get('complementos')) and (not PUBLIC_VIEW or (ing[key] and not ov.get(key))) %}
                 <tr class="{{ 'sim-row-off' if ov.get(key) }}">
                   <td>
                     {{ klabel }}
@@ -848,12 +891,12 @@
                 </tr>
                 {% endif %}
                 {% endfor %}
-                <tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td><td></td></tr>
-                <tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td><td></td></tr>
+                {% if not PUBLIC_VIEW or (ing.subvenciones and not ov.get('subvenciones')) %}<tr><td>Subvenciones</td><td class="text-end">{{ amt(ing.subvenciones, 'Sin IVA') }}</td><td></td></tr>{% endif %}
+                {% if not PUBLIC_VIEW or (ing.patrocinios and not ov.get('patrocinios')) %}<tr><td>Patrocinios</td><td class="text-end">{{ amt(ing.patrocinios, 'Sin IVA') }}</td><td></td></tr>{% endif %}
               </tbody>
               <tfoot><tr class="border-top"><th>Total ingresos</th><th class="text-end">{{ amt(ing.total, 'Sin IVA') }}</th><th></th></tr></tfoot>
             </table>
-            <div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Con el menú <i class="fa fa-ellipsis-vertical"></i> puedes <strong>omitir</strong> un ingreso o marcarlo como <strong>no aplica</strong>: deja de contar en el total.</div>
+            {% if CAN_EDIT %}<div class="text-muted small mt-2"><i class="fa fa-circle-info me-1"></i>Con el menú <i class="fa fa-ellipsis-vertical"></i> puedes <strong>omitir</strong> un ingreso o marcarlo como <strong>no aplica</strong>: deja de contar en el total.</div>{% endif %}
           </div>
         </div>
       </div>
@@ -894,7 +937,23 @@
           <div class="d-flex justify-content-end"><span class="text-muted small" data-income-status><i class="fa fa-cloud me-1"></i>Se guarda automáticamente</span></div>
         </form>
         {% else %}
-          <div class="text-muted">Sin permiso de edición.</div>
+          {# Solo lectura: detalle de subvenciones/patrocinios ACTIVOS y con importe. #}
+          {% for gkey, glabel, gicon, gkind in [('subv','Subvenciones','fa-hand-holding-dollar','SUBVENCION'),('patro','Patrocinios','fa-rectangle-ad','PATROCINIO')] %}
+            {% set _items = [] %}
+            {% for it in active_activity.income_items if (it.kind or '')|upper == gkind and (it.status or 'ACTIVE')|upper == 'ACTIVE' and it.amount_net %}{% set _ = _items.append(it) %}{% endfor %}
+            {% if _items %}
+            <div class="ficha-section">
+              <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa {{ gicon }}"></i>{{ glabel }} <span class="text-muted small fw-normal">(sin IVA)</span></h6></div>
+              <div class="ficha-section__body">
+                <div class="list-group list-group-flush">
+                  {% for it in _items %}
+                  <div class="list-group-item d-flex align-items-center gap-2 px-0"><span class="flex-grow-1">{{ it.name or '—' }}</span><span class="fw-semibold">{{ amt(it.amount_net, 'Sin IVA') }}</span></div>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            {% endif %}
+          {% endfor %}
         {% endif %}
       </div>
     </div>
@@ -903,7 +962,7 @@
 {# ===================== GASTOS ===================== #}
 {% elif tab == 'gastos' %}
   {% if not active_activity %}
-    <div class="text-muted">Configura primero el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
+    <div class="text-muted">Configura primero el <a href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a>.</div>
   {% else %}
     {% if calc and not active_activity.is_shared and (calc.break_even_tickets is not none or calc.at_100.resultado is not none) %}
     <div class="alert alert-light border small mb-3" data-sim-live>
@@ -1094,7 +1153,62 @@
     </div>
     {% endif %}
     {% else %}
-      <div class="text-muted">Sin permiso de edición.</div>
+      {# Solo lectura (visores internos y enlace público): lo CONFIGURADO, sin líneas a 0. #}
+      {% set _ro = expenses_payload or {} %}
+      {% set _caches = [] %}
+      {% for c in (_ro.caches or []) if (c.mode or 'FIXED')|upper == 'VARIABLE' or c.amount %}{% set _ = _caches.append(c) %}{% endfor %}
+      {% set _comms = [] %}
+      {% for c in (_ro.commissions or []) if (c.mode or 'FIXED')|upper == 'VARIABLE' or c.amount %}{% set _ = _comms.append(c) %}{% endfor %}
+      {% if _caches or _comms %}
+      <div class="ficha-section">
+        <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa fa-microphone-lines"></i>Cachés y comisiones</h6></div>
+        <div class="ficha-section__body">
+          <table class="table table-sm align-middle mb-0"><tbody>
+            {% for c in _caches %}
+            <tr><td style="width:40%;">Caché{% if c.label %} · {{ c.label }}{% endif %}</td><td>{{ ro_cost(c) }}</td></tr>
+            {% endfor %}
+            {% for c in _comms %}
+            <tr><td style="width:40%;">Comisión · {% if c.logo %}<img src="{{ c.logo }}" style="height:18px;max-width:64px;object-fit:contain;" class="me-1">{% endif %}{{ c.name or 'Comisionista' }}</td><td>{{ ro_cost(c) }}{% if c.exempt_amount %} · exento hasta {{ c.exempt_amount|eur }}{% endif %}</td></tr>
+            {% endfor %}
+          </tbody></table>
+        </div>
+      </div>
+      {% endif %}
+      {% set _gcat = (calc.at_100.gastos.produccion_por_categoria if calc else {}) or {} %}
+      {% for ckey, clabel, cicon in SIM_EXPENSE_CATEGORIES %}
+        {% set _rows = [] %}
+        {% for it in (_ro.production or []) if it.category == ckey and (it.is_variable or it.amount_net) %}{% set _ = _rows.append(it) %}{% endfor %}
+        {% if _rows %}
+        <div class="ficha-section">
+          <div class="ficha-section__head"><h6 class="ficha-section__title"><i class="fa {{ cicon }}"></i>{{ clabel }}</h6>
+            {% if _gcat.get(ckey) %}<span class="fw-semibold">{{ amt(_gcat.get(ckey), 'Sin IVA') }}</span>{% endif %}
+          </div>
+          <div class="ficha-section__body">
+            <table class="table table-sm align-middle mb-0"><tbody>
+              {% for it in _rows %}
+              <tr>
+                <td>{{ it.concept or '—' }}</td>
+                <td class="text-end">
+                  {% if it.is_variable %}{{ ro_cost({'mode':'VARIABLE','var_type':it.var_type,'var_value':it.var_value,'var_threshold_type':it.var_threshold_type,'var_threshold_value':it.var_threshold_value}) }}
+                  {% else %}{{ it.amount_net|eur }}{% if it.quantity and it.quantity != 1 %} × {{ (it.quantity|int) if it.quantity == (it.quantity|int) else it.quantity }}{% endif %}{% if it.iva_exempt %} · exento de IVA{% elif it.includes_iva %} · IVA incluido{% elif it.iva_pct %} · +{{ it.iva_pct|int if it.iva_pct == (it.iva_pct|int) else it.iva_pct }}% IVA{% endif %}{% endif %}
+                  {% if it.cond_under_tickets %} <span class="text-muted small">(solo si se venden menos de {{ it.cond_under_tickets|int }} entradas)</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody></table>
+          </div>
+        </div>
+        {% endif %}
+      {% endfor %}
+      {% if _gcat.get('PRORRATEO') %}
+      <div class="d-flex justify-content-between align-items-center border-top pt-2 small">
+        <span class="text-muted"><i class="fa fa-layer-group me-1"></i>{{ SIM_EXPENSE_CATEGORY_LABELS.get('PRORRATEO', 'Prorrateo de gastos generales') }}</span>
+        <span class="fw-semibold">{{ amt(_gcat.get('PRORRATEO'), 'Sin IVA') }}</span>
+      </div>
+      {% endif %}
+      {% if not _caches and not _comms and not (_ro.production or []) %}
+      <div class="text-muted">No hay gastos configurados.</div>
+      {% endif %}
     {% endif %}
   {% endif %}
 
@@ -1135,7 +1249,7 @@
 {# ===================== RESULTADO ===================== #}
 {% elif tab == 'resultado' %}
   {% if not calc or not calc.ticketing.sellable %}
-    <div class="text-muted">Configura el <a href="{{ url_for('simulation_detail_view', sid=sim.id, tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a> para ver el resultado.</div>
+    <div class="text-muted">Configura el <a href="{{ sim_url(tab='ticketing', act=(active_activity.id if is_multi else none)) }}">Ticketing</a> para ver el resultado.</div>
   {% else %}
     <div class="d-flex flex-wrap gap-3 mb-3">
       <div class="sim-stat"><div class="sim-stat__n">{% if calc.break_even_tickets is none %}—{% else %}{{ calc.break_even_tickets|k }}{% endif %}</div><div class="sim-stat__l">Punto de empate (entradas){% if calc.break_even_pct is not none %} · {{ calc.break_even_pct }}%{% endif %}</div></div>
@@ -2157,7 +2271,7 @@
 {% endif %}
 
 
-{% if tour_points and (show_general or tab == 'resumen') %}
+{% if tour_points and (show_general or tab == 'resumen') and not PUBLIC_VIEW %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>

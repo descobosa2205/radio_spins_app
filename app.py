@@ -21707,224 +21707,235 @@ def simulation_detail_view(sid):
         if not sim:
             flash("Simulación no encontrada.", "warning")
             return redirect(url_for("contracting_view", section="simulaciones"))
-        tab = (request.args.get("tab") or "resumen").strip().lower()
-        if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado", "socios"):
-            tab = "resumen"
-        all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
-        kind = (sim.kind or "").upper()
-        is_tour = kind == "TOUR"
-        is_cycle = kind == "CYCLE"
-        is_festival = kind == "FESTIVAL"
-        is_multi = is_tour or is_cycle           # navegación por actividades (fechas/conciertos)
-        shared_activity = next((a for a in all_activities if a.is_shared), None)
-        # Gira/ciclo sin contenedor de gastos generales (creadas antes de esta función): se crea aquí.
-        if is_multi and shared_activity is None:
-            try:
-                shared_activity = SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales")
-                s.add(shared_activity)
-                s.commit()
-                all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
-            except Exception:
-                s.rollback()
-                shared_activity = next((a for a in all_activities if a.is_shared), None)
-        activities = [a for a in all_activities if not a.is_shared]   # fechas/conciertos (o el evento)
-        lineup = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
-        all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
-        artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
-        festival_artists = [{"id": str(la.artist_id), "name": (la.artist.name if la.artist else "")} for la in lineup] if is_festival else []
-        act_param = (request.args.get("act") or "").strip()
-        if is_multi:
-            active_activity = next((a for a in activities if str(a.id) == act_param), None)
-            if active_activity is None and shared_activity is not None and act_param == str(shared_activity.id):
-                active_activity = shared_activity   # abrir el contenedor de "Generales"
-        else:
-            active_activity = activities[0] if activities else None
-        show_general = is_multi and active_activity is None
-
-        # Gastos generales del ciclo/gira (fijos, repartidos entre las fechas mediante la categoría
-        # PRORRATEO en cada fecha). El total de la gira es la SUMA de las fechas (el prorrateo ya
-        # está dentro del cálculo de cada una), así no se duplica.
-        general_net = 0.0
-        if is_multi and shared_activity is not None:
-            general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
-        general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
-
-        tour_rows = []
-        tour_totals = None
-        tour_points = []
-        partner_module_payload = None
-        tour_series = []
-        if show_general:
-            ti = tg = tr = 0.0
-            tsell = 0
-            gen_acts = []
-            series_acc = {}  # pct -> {ingresos, gastos, resultado} agregado de todas las fechas
-            for idx, a in enumerate(activities, start=1):
-                c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))
-                ing = c["at_100"]["ingresos"]["total"]
-                gas = c["at_100"]["gastos"]["total"]   # ya incluye el prorrateo
-                row_label = a.label or (("Concierto " if is_cycle else "Fecha ") + str(idx))
-                tour_rows.append({
-                    "activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas,
-                    "n": idx,
-                })
-                ti += ing; tg += gas; tr += (ing - gas)
-                tsell += c["ticketing"]["sellable"]
-                gen_acts.append(_sim_partner_module_payload(sim, a, c, label=row_label))
-                # Serie agregada (mismo % de venta en todas las fechas) para la tabla general.
-                for pt in (c.get("series") or []):
-                    acc = series_acc.setdefault(pt["pct"], {"tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
-                    acc["tickets"] += pt["tickets"]
-                    acc["ingresos"] += pt["ingresos"]
-                    acc["gastos"] += pt["gastos"]
-                    acc["resultado"] += pt["resultado"]
-            tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
-            partner_module_payload = {"mode": "general", "activities": gen_acts, "labels": SIM_EXPENSE_CATEGORY_LABELS}
-            tour_series = [
-                {"pct": pct, "tickets": v["tickets"], "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
-                for pct, v in sorted(series_acc.items())
-            ]
-            # Chinchetas del mapa numeradas por ORDEN DE FECHA (fechas sin definir al final).
-            dated = sorted(
-                tour_rows,
-                key=lambda r: (r["activity"].date_unknown or not r["activity"].event_date,
-                               r["activity"].event_date or date.max,
-                               r["activity"].sort_order or 0),
-            )
-            n = 0
-            for r in dated:
-                v = r["activity"].venue
-                if v and (v.municipality or "").strip():
-                    n += 1
-                    tour_points.append({
-                        "n": n, "name": (v.name or ""),
-                        "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
-                        "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
-                    })
-        # Mapa también en el RESUMEN de una fecha individual: un único pin con su recinto.
-        if not show_general and active_activity is not None and not active_activity.is_shared:
-            _v = active_activity.venue
-            if _v and (_v.municipality or "").strip():
-                tour_points.append({
-                    "n": 1, "name": _v.name or "",
-                    "city": (_v.municipality or "").strip(), "province": (_v.province or "").strip(),
-                    "date": (active_activity.event_date.strftime("%d/%m/%Y") if (active_activity.event_date and not active_activity.date_unknown) else ""),
-                })
-        summary = _sim_ticketing_summary(active_activity) if active_activity else None
-        ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
-        # En una fecha concreta (no el contenedor de generales) se aplica el prorrateo.
-        _act_prorateo = general_share if (active_activity is not None and not active_activity.is_shared) else 0.0
-        calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map, prorateo=_act_prorateo)) if active_activity else None
-        artist_breakdown = _sim_festival_breakdown(active_activity, calc, artist_intl_map, lineup) if is_festival else None
-        if active_activity is not None and calc and not active_activity.is_shared:
-            partner_module_payload = {
-                "mode": "activity",
-                "activities": [_sim_partner_module_payload(sim, active_activity, calc)],
-                "labels": SIM_EXPENSE_CATEGORY_LABELS,
-            }
-        venue_tpl = []
-        if active_activity and active_activity.venue_id:
-            # Si el recinto tiene MAPA DE BUTACAS con reparto por categorías, la plantilla que se
-            # ofrece sale del mapa (seatmap_calc: conteos reales por categoría y zona). Si no,
-            # se ofrece el ticketing clásico del recinto (VenueTicketCategory), como siempre.
-            try:
-                _sm = _venue_seatmap_default(s, active_activity.venue_id)
-                if _sm and (_sm.layout_json or {}).get("sections"):
-                    venue_tpl = seatmap_calc.ticketing_template(_sm.layout_json or {}, _sm.assignments_json or {})
-            except Exception:
-                venue_tpl = []
-            if not venue_tpl:
-                _vtc = (
-                    s.query(VenueTicketCategory)
-                    .options(selectinload(VenueTicketCategory.extras))
-                    .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
-                    .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
-                    .all()
-                )
-                venue_tpl = _venue_ticketing_payload(_vtc)
-        expenses_payload = _sim_expenses_payload(active_activity)
-
-        # Retención del 24%: solo tiene sentido con artista extranjero (por actividad).
-        if is_festival:
-            retention_relevant = any(artist_intl_map.get(str(la.artist_id), False) for la in lineup)
-        elif active_activity is not None and active_activity.artist_id:
-            retention_relevant = artist_intl_map.get(str(active_activity.artist_id), bool(sim.artist and sim.artist.is_international))
-        else:
-            retention_relevant = bool(sim.artist and sim.artist.is_international)
-
-        # Ingresos: estado actual de omitidos/no aplica (líneas calculadas).
-        income_overrides = {}
-        if active_activity is not None:
-            try:
-                income_overrides = dict((active_activity.settings or {}).get("income_overrides") or {})
-            except Exception:
-                income_overrides = {}
-
-        # Plantillas de gastos aplicables (recinto / artista / evento) + aviso de primera vez.
-        expense_templates_payload = _sim_expense_templates_payload(s, sim, active_activity) if active_activity else []
-        show_expense_tpl_prompt = bool(
-            tab == "gastos" and active_activity is not None and expense_templates_payload
-            and not (active_activity.production_items or [])
-        )
-        show_venue_tpl_prompt = bool(
-            tab == "ticketing" and active_activity is not None and venue_tpl
-            and not (active_activity.ticket_categories or [])
-        )
-
-        subject = _sim_subject(sim)
-        global_partners = _sim_global_partners(sim)
-        activity_partners_own = []
-        if active_activity is not None:
-            activity_partners_own = [
-                p for p in sorted(sim.partners or [], key=lambda x: x.sort_order or 0)
-                if p.activity_id and str(p.activity_id) == str(active_activity.id)
-            ]
-        effective_partners = _sim_partners_for_activity(sim, active_activity) if active_activity else global_partners
-
-        return render_template(
-            "simulacion_detail.html",
-            sim=sim,
-            subject=subject,
-            activities=activities,
-            active_activity=active_activity,
-            is_tour=is_tour,
-            is_cycle=is_cycle,
-            is_festival=is_festival,
-            is_multi=is_multi,
-            shared_activity=shared_activity,
-            lineup=lineup,
-            all_artists=all_artists,
-            festival_artists=festival_artists,
-            artist_breakdown=artist_breakdown,
-            show_general=show_general,
-            tour_rows=tour_rows,
-            tour_totals=tour_totals,
-            tour_points=tour_points,
-            tour_series=tour_series,
-            tab=tab,
-            summary=summary,
-            ticketing_payload=ticketing_payload,
-            calc=calc,
-            tax_cfg=(_sim_tax_cfg(active_activity) if active_activity else _sim_tax_cfg(None)),
-            venue_tpl=venue_tpl,
-            show_venue_tpl_prompt=show_venue_tpl_prompt,
-            expenses_payload=expenses_payload,
-            expense_templates_payload=expense_templates_payload,
-            show_expense_tpl_prompt=show_expense_tpl_prompt,
-            retention_relevant=retention_relevant,
-            income_overrides=income_overrides,
-            general_share=general_share,
-            partner_module_payload=partner_module_payload,
-            global_partners=global_partners,
-            activity_partners_own=activity_partners_own,
-            effective_partners=effective_partners,
-            group_companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
-            edit_artists=s.query(Artist).order_by(Artist.name.asc()).all(),
-            public_link=(_external_url_for("public_simulation_view", token=_simulation_ensure_public_token(s, sim)) if can_edit_simulations() else ""),
-            CAN_EDIT=can_edit_simulations(),
-        )
+        return _simulation_detail_response(s, sim)
     finally:
         s.close()
+
+
+def _simulation_detail_response(s, sim, public=False, public_token=""):
+    """Renderiza la ficha COMPLETA de una simulación (pestañas, fechas, módulos).
+    Con public=True es el ENLACE COMPARTIDO (solo visualización): sin edición, con base
+    layout_public, URLs de navegación por token (PUBLIC_VIEW/PUBLIC_TOKEN en la plantilla)
+    y sin ingresos a 0 / omitidos / no aplican. No cierra la sesión: eso es del caller."""
+    tab = (request.args.get("tab") or "resumen").strip().lower()
+    if tab not in ("resumen", "ticketing", "ingresos", "gastos", "resultado", "socios"):
+        tab = "resumen"
+    all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+    kind = (sim.kind or "").upper()
+    is_tour = kind == "TOUR"
+    is_cycle = kind == "CYCLE"
+    is_festival = kind == "FESTIVAL"
+    is_multi = is_tour or is_cycle           # navegación por actividades (fechas/conciertos)
+    shared_activity = next((a for a in all_activities if a.is_shared), None)
+    # Gira/ciclo sin contenedor de gastos generales (creadas antes de esta función): se crea aquí.
+    if is_multi and shared_activity is None and not public:
+        try:
+            shared_activity = SimulationActivity(simulation_id=sim.id, sort_order=9999, is_shared=True, label="Gastos generales")
+            s.add(shared_activity)
+            s.commit()
+            all_activities = sorted(sim.activities or [], key=lambda a: a.sort_order or 0)
+        except Exception:
+            s.rollback()
+            shared_activity = next((a for a in all_activities if a.is_shared), None)
+    activities = [a for a in all_activities if not a.is_shared]   # fechas/conciertos (o el evento)
+    lineup = sorted(sim.lineup or [], key=lambda x: x.sort_order or 0)
+    all_artists = s.query(Artist).order_by(Artist.name.asc()).all() if (is_multi or is_festival) else []
+    artist_intl_map = {str(a.id): bool(a.is_international) for a in all_artists}
+    festival_artists = [{"id": str(la.artist_id), "name": (la.artist.name if la.artist else "")} for la in lineup] if is_festival else []
+    act_param = (request.args.get("act") or "").strip()
+    if is_multi:
+        active_activity = next((a for a in activities if str(a.id) == act_param), None)
+        if active_activity is None and shared_activity is not None and act_param == str(shared_activity.id):
+            active_activity = shared_activity   # abrir el contenedor de "Generales"
+    else:
+        active_activity = activities[0] if activities else None
+    show_general = is_multi and active_activity is None
+
+    # Gastos generales del ciclo/gira (fijos, repartidos entre las fechas mediante la categoría
+    # PRORRATEO en cada fecha). El total de la gira es la SUMA de las fechas (el prorrateo ya
+    # está dentro del cálculo de cada una), así no se duplica.
+    general_net = 0.0
+    if is_multi and shared_activity is not None:
+        general_net = sim_calc.compute(_sim_build_calc_data(sim, shared_activity, artist_intl_map))["at_100"]["gastos"]["total"]
+    general_share = (general_net / (len(activities) or 1)) if (is_multi and activities) else 0.0
+
+    tour_rows = []
+    tour_totals = None
+    tour_points = []
+    partner_module_payload = None
+    tour_series = []
+    if show_general:
+        ti = tg = tr = 0.0
+        tsell = 0
+        gen_acts = []
+        series_acc = {}  # pct -> {ingresos, gastos, resultado} agregado de todas las fechas
+        for idx, a in enumerate(activities, start=1):
+            c = sim_calc.compute(_sim_build_calc_data(sim, a, artist_intl_map, prorateo=general_share))
+            ing = c["at_100"]["ingresos"]["total"]
+            gas = c["at_100"]["gastos"]["total"]   # ya incluye el prorrateo
+            row_label = a.label or (("Concierto " if is_cycle else "Fecha ") + str(idx))
+            tour_rows.append({
+                "activity": a, "calc": c, "ingresos": ing, "gastos": gas, "resultado": ing - gas,
+                "n": idx,
+            })
+            ti += ing; tg += gas; tr += (ing - gas)
+            tsell += c["ticketing"]["sellable"]
+            gen_acts.append(_sim_partner_module_payload(sim, a, c, label=row_label))
+            # Serie agregada (mismo % de venta en todas las fechas) para la tabla general.
+            for pt in (c.get("series") or []):
+                acc = series_acc.setdefault(pt["pct"], {"tickets": 0, "ingresos": 0.0, "gastos": 0.0, "resultado": 0.0})
+                acc["tickets"] += pt["tickets"]
+                acc["ingresos"] += pt["ingresos"]
+                acc["gastos"] += pt["gastos"]
+                acc["resultado"] += pt["resultado"]
+        tour_totals = {"ingresos": ti, "gastos": tg, "resultado": tr, "sellable": tsell, "general": general_net}
+        partner_module_payload = {"mode": "general", "activities": gen_acts, "labels": SIM_EXPENSE_CATEGORY_LABELS}
+        tour_series = [
+            {"pct": pct, "tickets": v["tickets"], "ingresos": round(v["ingresos"], 2), "gastos": round(v["gastos"], 2), "resultado": round(v["resultado"], 2)}
+            for pct, v in sorted(series_acc.items())
+        ]
+        # Chinchetas del mapa numeradas por ORDEN DE FECHA (fechas sin definir al final).
+        dated = sorted(
+            tour_rows,
+            key=lambda r: (r["activity"].date_unknown or not r["activity"].event_date,
+                           r["activity"].event_date or date.max,
+                           r["activity"].sort_order or 0),
+        )
+        n = 0
+        for r in dated:
+            v = r["activity"].venue
+            if v and (v.municipality or "").strip():
+                n += 1
+                tour_points.append({
+                    "n": n, "name": (v.name or ""),
+                    "city": (v.municipality or "").strip(), "province": (v.province or "").strip(),
+                    "date": (r["activity"].event_date.strftime("%d/%m/%Y") if (r["activity"].event_date and not r["activity"].date_unknown) else ""),
+                })
+    # Mapa también en el RESUMEN de una fecha individual: un único pin con su recinto.
+    if not show_general and active_activity is not None and not active_activity.is_shared:
+        _v = active_activity.venue
+        if _v and (_v.municipality or "").strip():
+            tour_points.append({
+                "n": 1, "name": _v.name or "",
+                "city": (_v.municipality or "").strip(), "province": (_v.province or "").strip(),
+                "date": (active_activity.event_date.strftime("%d/%m/%Y") if (active_activity.event_date and not active_activity.date_unknown) else ""),
+            })
+    summary = _sim_ticketing_summary(active_activity) if active_activity else None
+    ticketing_payload = _sim_ticketing_payload(active_activity) if active_activity else []
+    # En una fecha concreta (no el contenedor de generales) se aplica el prorrateo.
+    _act_prorateo = general_share if (active_activity is not None and not active_activity.is_shared) else 0.0
+    calc = sim_calc.compute(_sim_build_calc_data(sim, active_activity, artist_intl_map, prorateo=_act_prorateo)) if active_activity else None
+    artist_breakdown = _sim_festival_breakdown(active_activity, calc, artist_intl_map, lineup) if is_festival else None
+    if active_activity is not None and calc and not active_activity.is_shared:
+        partner_module_payload = {
+            "mode": "activity",
+            "activities": [_sim_partner_module_payload(sim, active_activity, calc)],
+            "labels": SIM_EXPENSE_CATEGORY_LABELS,
+        }
+    venue_tpl = []
+    if active_activity and active_activity.venue_id:
+        # Si el recinto tiene MAPA DE BUTACAS con reparto por categorías, la plantilla que se
+        # ofrece sale del mapa (seatmap_calc: conteos reales por categoría y zona). Si no,
+        # se ofrece el ticketing clásico del recinto (VenueTicketCategory), como siempre.
+        try:
+            _sm = _venue_seatmap_default(s, active_activity.venue_id)
+            if _sm and (_sm.layout_json or {}).get("sections"):
+                venue_tpl = seatmap_calc.ticketing_template(_sm.layout_json or {}, _sm.assignments_json or {})
+        except Exception:
+            venue_tpl = []
+        if not venue_tpl:
+            _vtc = (
+                s.query(VenueTicketCategory)
+                .options(selectinload(VenueTicketCategory.extras))
+                .filter(VenueTicketCategory.venue_id == active_activity.venue_id)
+                .order_by(VenueTicketCategory.zone.asc(), VenueTicketCategory.sort_order.asc())
+                .all()
+            )
+            venue_tpl = _venue_ticketing_payload(_vtc)
+    expenses_payload = _sim_expenses_payload(active_activity)
+
+    # Retención del 24%: solo tiene sentido con artista extranjero (por actividad).
+    if is_festival:
+        retention_relevant = any(artist_intl_map.get(str(la.artist_id), False) for la in lineup)
+    elif active_activity is not None and active_activity.artist_id:
+        retention_relevant = artist_intl_map.get(str(active_activity.artist_id), bool(sim.artist and sim.artist.is_international))
+    else:
+        retention_relevant = bool(sim.artist and sim.artist.is_international)
+
+    # Ingresos: estado actual de omitidos/no aplica (líneas calculadas).
+    income_overrides = {}
+    if active_activity is not None:
+        try:
+            income_overrides = dict((active_activity.settings or {}).get("income_overrides") or {})
+        except Exception:
+            income_overrides = {}
+
+    # Plantillas de gastos aplicables (recinto / artista / evento) + aviso de primera vez.
+    expense_templates_payload = _sim_expense_templates_payload(s, sim, active_activity) if active_activity else []
+    show_expense_tpl_prompt = bool(
+        tab == "gastos" and active_activity is not None and expense_templates_payload
+        and not (active_activity.production_items or [])
+    )
+    show_venue_tpl_prompt = bool(
+        tab == "ticketing" and active_activity is not None and venue_tpl
+        and not (active_activity.ticket_categories or [])
+    )
+
+    subject = _sim_subject(sim)
+    global_partners = _sim_global_partners(sim)
+    activity_partners_own = []
+    if active_activity is not None:
+        activity_partners_own = [
+            p for p in sorted(sim.partners or [], key=lambda x: x.sort_order or 0)
+            if p.activity_id and str(p.activity_id) == str(active_activity.id)
+        ]
+    effective_partners = _sim_partners_for_activity(sim, active_activity) if active_activity else global_partners
+
+    return render_template(
+        "simulacion_detail.html",
+        sim=sim,
+        subject=subject,
+        activities=activities,
+        active_activity=active_activity,
+        is_tour=is_tour,
+        is_cycle=is_cycle,
+        is_festival=is_festival,
+        is_multi=is_multi,
+        shared_activity=shared_activity,
+        lineup=lineup,
+        all_artists=all_artists,
+        festival_artists=festival_artists,
+        artist_breakdown=artist_breakdown,
+        show_general=show_general,
+        tour_rows=tour_rows,
+        tour_totals=tour_totals,
+        tour_points=tour_points,
+        tour_series=tour_series,
+        tab=tab,
+        summary=summary,
+        ticketing_payload=ticketing_payload,
+        calc=calc,
+        tax_cfg=(_sim_tax_cfg(active_activity) if active_activity else _sim_tax_cfg(None)),
+        venue_tpl=venue_tpl,
+        show_venue_tpl_prompt=show_venue_tpl_prompt,
+        expenses_payload=expenses_payload,
+        expense_templates_payload=expense_templates_payload,
+        show_expense_tpl_prompt=show_expense_tpl_prompt,
+        retention_relevant=retention_relevant,
+        income_overrides=income_overrides,
+        general_share=general_share,
+        partner_module_payload=partner_module_payload,
+        global_partners=global_partners,
+        activity_partners_own=activity_partners_own,
+        effective_partners=effective_partners,
+        group_companies=s.query(GroupCompany).order_by(GroupCompany.name.asc()).all(),
+        edit_artists=s.query(Artist).order_by(Artist.name.asc()).all(),
+        public_link=("" if public else (_external_url_for("public_simulation_view", token=_simulation_ensure_public_token(s, sim)) if can_edit_simulations() else "")),
+        CAN_EDIT=(False if public else can_edit_simulations()),
+        PUBLIC_VIEW=public,
+        PUBLIC_TOKEN=public_token,
+        og=(_simulation_share_meta(sim) if public else None),
+    )
 
 
 @app.get("/contratacion/simulaciones/<sid>/imprimir", endpoint="simulation_print")
@@ -22171,7 +22182,8 @@ def _simulation_public_load(s, token):
             selectinload(Simulation.activities).joinedload(SimulationActivity.artist),
             selectinload(Simulation.activities).selectinload(SimulationActivity.ticket_categories).selectinload(SimulationTicketCategory.extras),
             selectinload(Simulation.activities).selectinload(SimulationActivity.caches),
-            selectinload(Simulation.activities).selectinload(SimulationActivity.commissions),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.commissions).joinedload(SimulationCommission.promoter),
+            selectinload(Simulation.activities).selectinload(SimulationActivity.commissions).joinedload(SimulationCommission.media_outlet),
             selectinload(Simulation.activities).selectinload(SimulationActivity.production_items),
             selectinload(Simulation.activities).selectinload(SimulationActivity.income_items),
             selectinload(Simulation.partners).joinedload(SimulationPartner.company),
@@ -22239,7 +22251,21 @@ def _simulation_ensure_public_token(s, sim):
 
 @app.get("/simulaciones/ver/<token>", endpoint="public_simulation_view")
 def public_simulation_view(token):
-    """Enlace PÚBLICO de solo lectura de una simulación (sin login): solo datos rellenos."""
+    """Enlace PÚBLICO de una simulación (sin login): la ficha COMPLETA (pestañas y fechas) en modo
+    solo visualización — sin poder editar nada y sin ingresos a 0 / omitidos / no aplican."""
+    s = db()
+    try:
+        sim = _simulation_public_load(s, token)
+        if not sim:
+            abort(404)
+        return _simulation_detail_response(s, sim, public=True, public_token=token)
+    finally:
+        s.close()
+
+
+@app.get("/simulaciones/ver/<token>/pdf", endpoint="public_simulation_print")
+def public_simulation_print(token):
+    """Versión imprimible (A4) del enlace público: la misma hoja que el PDF interno, en público."""
     s = db()
     try:
         sim = _simulation_public_load(s, token)
@@ -32685,7 +32711,7 @@ AUTO_SEGMENT_PARENT = {
     "contabilidad": "contabilidad",
 }
 
-PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
+PUBLIC_ENDPOINTS_EXTRA = {"healthz", "maintenance_preview", "password_forgot", "password_set", "public_invitation_plan_pdf", "public_invitation_plan", "public_registros_repertoire", "invitation_request_download", "invitation_commitment_download", "invitation_request_download_zip", "invitation_commitment_download_zip", "public_invitation_guest_list", "public_invitation_guest_list_pdf", "public_invitation_guest_list_status", "public_invitation_request_link", "public_invitation_request_submit", "public_invitation_request_cancel", "public_invitation_request_update", "public_invitation_request_resend", "public_invitation_request_recategorize", "public_invitation_delivery", "public_invitation_reforward", "public_simulation_view", "public_simulation_print", "public_simulation_og_image", "api_invitation_request_duplicates", "public_song_master_delivery", "public_photo_approval", "public_photo_share", "public_photo_share_zip", "public_photo_share_item", "cron_chartmetric_refresh", "cron_enterticket_refresh", "public_caldav_wellknown", "public_caldav_root", "public_caldav_root_noslash", "public_caldav_principal", "public_caldav_home", "public_caldav_calendar", "public_caldav_resource", "public_caldav_rootdiscovery", "public_artist_calendar_view", "public_caldav_guide", "public_roadmap_view", "push_sw", "push_manifest"}
 
 
 def _resource_label_from_key(key: str) -> str:

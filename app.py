@@ -1450,6 +1450,11 @@ def artist_detail_view(artist_id):
             q = q.filter(Concert.date >= today)
 
         concerts = q.order_by(Concert.date.asc()).all()
+        # Fuera de Contratación/dirección, las actividades en borrador/habladas NO aparecen en las
+        # listas ricas de la ficha (sí en su pestaña Agenda, como «Reserva — consultar con
+        # Contratación»); vuelven a verse al pasar a RESERVADO/CONFIRMADO.
+        if not _user_sees_unconfirmed_activities():
+            concerts = [c for c in concerts if (c.status or "").upper() not in _CONCERT_PRIVATE_STATUSES]
 
         concerts_sections = {k: [] for k in CONCERTS_SECTION_ORDER}
         for c in concerts:
@@ -1486,7 +1491,8 @@ def artist_detail_view(artist_id):
         caldav_server = ""
         if tab == "agenda":
             _ag_today = today_local()
-            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today)
+            agenda_data = _agenda_build(session_db, [str(artist.id)], _ag_today - timedelta(weeks=26), _ag_today + timedelta(weeks=26), _ag_today,
+                                        full_details=_user_sees_unconfirmed_activities())
             # Con el artist_id el JS puede pedir más ventanas (home_agenda_data) y navegar SIN límite.
             agenda_data["artist_id"] = str(artist.id)
             calendar_links = [
@@ -19546,7 +19552,18 @@ def _home_pending_peticiones(limit=12):
                     days = None
             row["days_since"] = days
             pay = r.payload if isinstance(r.payload, dict) else {}
-            row["dept_labels"] = [dept_labels.get(str(d).strip().upper(), str(d)) for d in (pay.get("departments") or ["CONTRATACION"])]
+            _pet_depts = [str(d).strip().upper() for d in (pay.get("departments") or ["CONTRATACION"])]
+            row["dept_labels"] = [dept_labels.get(d, d) for d in _pet_depts]
+            # Enlace para GESTIONARLA: la bandeja del departamento (priorizando los del usuario),
+            # con ancla a la propia petición (#pet-<id> en la página de destino).
+            _inbox_urls = {
+                "CONTRATACION": url_for("contracting_view", section="peticiones"),
+                "PROMO": url_for("promo_view"),
+                "DISENO": url_for("diseno_view"),
+            }
+            _dest = next((d for d in _pet_depts if d in depts and d in _inbox_urls),
+                         next((d for d in _pet_depts if d in _inbox_urls), None))
+            row["manage_url"] = (_inbox_urls[_dest] + f"#pet-{r.id}") if _dest else ""
             out.append(row)
             if len(out) >= limit:
                 break
@@ -39992,6 +40009,23 @@ def _ensure_production_request_for_concert(session_db, concert):
 def _production_concert_row(session_db, concert):
     artists = _artists_from_ids(session_db, _concert_primary_artist_ids(concert))
     venue = getattr(concert, "venue", None)
+    # Actividad AÚN sin reservar/confirmar (borrador/hablada): fuera de Contratación/dirección se
+    # muestra solo como «Reserva — consultar con Contratación», sin detalles ni enlace a la ficha.
+    if (getattr(concert, "status", "") or "").upper() in _CONCERT_PRIVATE_STATUSES and not _user_sees_unconfirmed_activities():
+        return {
+            "kind": "CONCERT",
+            "id": str(concert.id),
+            "title": "Reserva",
+            "type_label": "Consultar con Contratación",
+            "artist_label": _artist_label_from_rows(artists),
+            "artist_photo_url": (getattr(artists[0], "photo_url", None) if artists else None) or url_for("static", filename="img/placeholder_photo.png"),
+            "date": getattr(concert, "date", None),
+            "date_label": concert.date.strftime("%d/%m/%Y") if getattr(concert, "date", None) else "Sin fecha",
+            "city": "",
+            "province": "",
+            "status": "",
+            "detail_url": "#",
+        }
     return {
         "kind": "CONCERT",
         "id": str(concert.id),
@@ -52028,8 +52062,10 @@ def public_invitation_request_resend(token, request_id):
 # Recolecta TODAS las actividades con fecha de un conjunto de artistas dentro de una ventana
 # (por defecto las próximas 2 semanas) y las normaliza a un mismo formato para pintarlas en un
 # calendario visual. Tipos: conciertos/festivales/eventos (Concert), acciones (CompanyAction),
-# promoción en medios (MediaPromotionRecord) y lanzamientos (Album/Song). Los conciertos en BORRADOR
-# NO se muestran. En Inicio el color va por ARTISTA; en la ficha del artista, por TIPO de actividad.
+# promoción en medios (MediaPromotionRecord) y lanzamientos (Album/Song). Los conciertos en
+# BORRADOR/HABLADO solo se ven al completo con full_details (Contratación/dirección); para el
+# resto aparecen como «Reserva — consultar con Contratación». En Inicio el color va por ARTISTA;
+# en la ficha del artista, por TIPO de actividad.
 
 AGENDA_PALETTE = [
     "#E33D48", "#007CA2", "#198754", "#6f42c1", "#fd7e14", "#d63384",
@@ -52059,16 +52095,40 @@ def _agenda_status_meta(code: str | None) -> tuple[str, str]:
         "RESERVADO": ("Reserva", "reservado"),
         "RESERVA": ("Reserva", "reservado"),
         "HABLADO": ("Hablado", "hablado"),
+        "BORRADOR": ("Borrador", "hablado"),
         "CERRADA": ("Cerrada", "confirmado"),
     }
     return table.get(code, ("", ""))
 
 
-def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> dict:
+# Estados de actividad PREVIOS a la reserva: sus detalles solo los ven Contratación y dirección;
+# el resto de la oficina (y los calendarios externos) ven «Reserva — consultar con Contratación»
+# hasta que la actividad pase a RESERVADO o CONFIRMADO.
+_CONCERT_PRIVATE_STATUSES = {"BORRADOR", "HABLADO"}
+
+
+def _user_sees_unconfirmed_activities() -> bool:
+    """¿El usuario actual ve al completo las actividades en BORRADOR/HABLADO? Solo CONTRATACIÓN
+    (acceso a la sección) y DIRECCIÓN (role 10)."""
+    try:
+        state = _current_user_state()
+        if int(state.get("role") or 0) == 10:
+            return True
+        return bool(has_access_key("contratacion", include_descendants=True))
+    except Exception:
+        return False
+
+
+def _agenda_build(session_db, target_ids, start_date, end_date, today_value, full_details=False) -> dict:
     """Construye los datos del calendario de agenda.
 
     target_ids: iterable de UUIDs de artista a incluir, o None/vacío = TODOS los artistas.
     Devuelve dict serializable con `activities`, `artists` (con color), `kinds` presentes y fechas.
+
+    full_details: True solo para CONTRATACIÓN y dirección (ver `_user_sees_unconfirmed_activities`):
+    las actividades en BORRADOR/HABLADO se muestran al completo. Con False (resto de la oficina,
+    calendarios públicos/iCal/CalDAV) esas fechas aparecen como «Reserva — consultar con
+    Contratación», sin detalles ni enlace, hasta pasar a RESERVADO/CONFIRMADO.
     """
     target = {str(x) for x in target_ids} if target_ids else None
 
@@ -52085,7 +52145,6 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
         session_db.query(Concert)
         .options(joinedload(Concert.artist), joinedload(Concert.venue))
         .filter(Concert.date >= start_date, Concert.date <= end_date)
-        .filter(func.upper(func.coalesce(Concert.status, "")) != "BORRADOR")
         .all()
     )
     for c in concerts:
@@ -52099,6 +52158,20 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
             continue
         at = (c.activity_type or "CONCIERTO").upper()
         kind = "concierto" if at in ("CONCIERTO", "") else ("festival" if at == "FESTIVAL" else "evento")
+        primary = ids[0] if ids else ""
+        seen_artist_ids.update(ids)
+        # Actividades AÚN sin reservar/confirmar: solo Contratación/dirección las ven al completo;
+        # para el resto la fecha queda bloqueada como «Reserva — consultar con Contratación».
+        if (c.status or "").upper() in _CONCERT_PRIVATE_STATUSES and not full_details:
+            raw.append((ids, {
+                "kind": kind, "date": c.date.isoformat() if c.date else "",
+                "title": "Reserva", "subtitle": "Consultar con Contratación",
+                "artist_id": primary,
+                "status_label": "", "status_class": "",
+                "cover_url": "",
+                "url": "",
+            }))
+            continue
         slabel, sclass = _agenda_status_meta(c.status)
         venue = c.venue
         municipality = (venue.municipality if venue else "") or ""
@@ -52107,10 +52180,8 @@ def _agenda_build(session_db, target_ids, start_date, end_date, today_value) -> 
             sub = (venue.name or "")
             if municipality:
                 sub = f"{sub} · {municipality}" if sub else municipality
-        primary = ids[0] if ids else ""
         # Sin nombre propio (festival_name): mostrar el municipio; si tampoco hay, el nombre del artista.
         title = c.festival_name or municipality or (c.artist.name if c.artist else "Concierto")
-        seen_artist_ids.update(ids)
         raw.append((ids, {
             "kind": kind, "date": c.date.isoformat() if c.date else "",
             "title": title, "subtitle": sub,
@@ -52356,7 +52427,8 @@ def _home_agenda() -> dict | None:
     session_db = db()
     try:
         today, start, end = _agenda_window()
-        return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today)
+        return _agenda_build(session_db, _home_agenda_target_ids(), start, end, today,
+                             full_details=_user_sees_unconfirmed_activities())
     except Exception:
         return None
     finally:
@@ -52386,7 +52458,8 @@ def home_agenda_data():
             if not artist:
                 return jsonify({"error": "Artista no encontrado."}), 404
             target_ids = [str(artist.id)]
-        return jsonify(_agenda_build(session_db, target_ids, start, end, today_local()))
+        return jsonify(_agenda_build(session_db, target_ids, start, end, today_local(),
+                                     full_details=_user_sees_unconfirmed_activities()))
     finally:
         session_db.close()
 

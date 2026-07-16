@@ -50,7 +50,8 @@
   </div>
   <div class="list-group list-group-flush">
     {% for p in HOME_PENDING_PETICIONES %}
-    <div class="list-group-item d-flex align-items-center gap-3 flex-wrap">
+    {# Pinchar la petición lleva a GESTIONARLA: su bandeja de departamento, con ancla a la fila. #}
+    <{{ 'a' if p.manage_url else 'div' }} {% if p.manage_url %}href="{{ p.manage_url }}" title="Gestionar esta petición"{% endif %} class="list-group-item {{ 'list-group-item-action text-reset text-decoration-none' if p.manage_url }} d-flex align-items-center gap-3 flex-wrap">
       <span class="badge {{ p.status_badge }}">{{ p.status_label }}</span>
       <span class="d-flex align-items-center gap-2 fw-semibold" style="min-width:0;">
         {% if p.artist_photo %}<img src="{{ p.artist_photo }}" alt="" style="width:30px;height:30px;border-radius:50%;object-fit:cover;border:1px solid #eee;flex:0 0 auto;">{% endif %}
@@ -62,7 +63,7 @@
         {% if p.municipality %}<span><i class="fa fa-location-dot me-1"></i>{{ p.municipality }}{% if p.province %} ({{ p.province }}){% endif %}</span>{% endif %}
         {% if p.days_since is not none %}<span title="Días desde que se solicitó"><i class="fa fa-clock me-1"></i>{{ p.days_since }} día{{ '' if p.days_since == 1 else 's' }}</span>{% endif %}
       </span>
-    </div>
+    </{{ 'a' if p.manage_url else 'div' }}>
     {% endfor %}
   </div>
   <div class="card-footer bg-transparent text-end">

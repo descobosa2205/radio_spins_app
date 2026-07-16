@@ -1681,6 +1681,9 @@ h1,h2,h3,h4,h5,.h1,.h2,.h3,.h4,.h5{ letter-spacing:-.2px; }
 .agenda-cal__arrows{ display:flex; gap:.35rem; margin-left:auto; }
 .agenda-nav-btn{ width:32px; height:32px; border:1px solid #d7dbe1; border-radius:.5rem; background:#fff; color:#444; cursor:pointer; display:flex; align-items:center; justify-content:center; }
 .agenda-nav-btn--today{ width:auto; padding:0 .6rem; font-size:.8rem; font-weight:600; }
+/* Petición enlazada desde Inicio (#pet-<id>): resaltar la fila/tarjeta de destino. */
+[id^="pet-"]:target { scroll-margin-top: 90px; }
+[id^="pet-"]:target > .card, .list-group-item[id^="pet-"]:target { box-shadow: 0 0 0 .2rem rgba(227,61,72,.35); border-radius: .5rem; }
 .agenda-nav-btn:hover:not(:disabled){ background:#f3f4f6; }
 .agenda-nav-btn:disabled{ opacity:.4; cursor:default; }
 
